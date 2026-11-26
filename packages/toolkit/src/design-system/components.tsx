@@ -1,4 +1,4 @@
-import { forwardRef, type ComponentType, type Ref } from "react";
+import { forwardRef, useMemo, type ComponentType, type Ref } from "react";
 
 import { useDesignSystemComponent } from "./context.js";
 import { defaultDesignSystemComponents } from "./default-adapter.js";
@@ -71,10 +71,14 @@ function createRefForwardingComponent<
     const CustomComponent = useDesignSystemComponent(name) as
       | ComponentType<Props>
       | undefined;
-    const mergedProps = {
-      ...props,
-      elementRef: mergeElementRefs([ref, props.elementRef]),
-    } as Props;
+    // A new ref callback on every render makes React detach and reattach the
+    // element each commit; a Radix anchor that stores the element in state then
+    // updates during commit until React aborts with a maximum update depth error.
+    const elementRef = useMemo(
+      () => mergeElementRefs([ref, props.elementRef]),
+      [ref, props.elementRef],
+    );
+    const mergedProps = { ...props, elementRef } as Props;
     const fallback = <DefaultComponent {...mergedProps} />;
     if (
       !CustomComponent ||

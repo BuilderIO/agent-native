@@ -1,9 +1,16 @@
 export {
   defineAppConfig,
+  defineAppConfigSection,
   enterpriseAuthAdaptersBuilt,
   getAppConfig,
   resetAppConfigForTests,
+  type AppConfigSection,
 } from "./store.js";
+export {
+  getAppConfigSchema,
+  type AppConfigSections,
+  type AppConfigSectionSchema,
+} from "./sections.js";
 export { resolveAppHomePath } from "./app-identity.js";
 export { AppConfigurationError } from "./configuration-error.js";
 export {

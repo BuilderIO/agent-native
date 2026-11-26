@@ -1,3 +1,4 @@
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import {
   useActionMutation,
   useActionQuery,
@@ -111,7 +112,7 @@ interface UsageMetricsData {
   };
   currentDay: {
     costCents: number;
-    credits: number;
+    credits?: number;
     estimatedBuilderCredits?: number;
     otherCostCents?: number;
     otherCalls?: number;
@@ -694,11 +695,13 @@ function AlertEditor({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="usd">Dollars</SelectItem>
-              <SelectItem value="builder-credits">
-                {t("agentChat.usage.builderCredits", {
-                  defaultValue: "Builder credits",
-                })}
-              </SelectItem>
+              {commercialSurfacesHidden() ? null : (
+                <SelectItem value="builder-credits">
+                  {t("agentChat.usage.builderCredits", {
+                    defaultValue: "Builder credits",
+                  })}
+                </SelectItem>
+              )}
               <SelectItem value="tokens">Tokens</SelectItem>
             </SelectContent>
           </Select>
@@ -1019,7 +1022,7 @@ export function UsageSection({
   });
   const data = query.data;
   const canViewBuilderCreditUsage = Boolean(
-    !appId && data?.access.canViewWorkspace,
+    !commercialSurfacesHidden() && !appId && data?.access.canViewWorkspace,
   );
   const builderCreditUsageQuery = useActionQuery<BuilderCreditUsageData | null>(
     "get-builder-credit-usage",

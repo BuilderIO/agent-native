@@ -33,15 +33,44 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   ensureRunTables,
   getThreadPrivateHistoryState,
+  insertRunEvent,
   recordThreadPrivateRun,
   cleanupOldRuns,
 } = await import("./run-store.js");
 beforeAll(async () => {
-  db = await createTestPglite();
+  db = await createTestPglite({ reuseEmptyBootstrap: true });
   await ensureRunTables();
 });
 afterAll(async () => {
   await db?.close();
+});
+
+it("keeps terminal duration when private message text is removed from the journal", async () => {
+  await db.query(
+    "INSERT INTO agent_runs (id, thread_id, status, started_at) VALUES (?, ?, 'running', ?)",
+    ["private-timed-run", "private-timed-thread", 1],
+  );
+  await insertRunEvent(
+    "private-timed-run",
+    0,
+    JSON.stringify({
+      type: "done",
+      omitFromPersistedHistory: true,
+      message: "Private answer",
+      durationMs: 5_027,
+    }),
+  );
+  const result = await db.query<{ event_data: string }>(
+    "SELECT event_data FROM agent_run_events WHERE run_id = ?",
+    ["private-timed-run"],
+  );
+  expect(result.rows.map((row) => JSON.parse(row.event_data))).toEqual([
+    {
+      type: "done",
+      omitFromPersistedHistory: true,
+      durationMs: 5_027,
+    },
+  ]);
 });
 
 it("finds an older private event beyond fifty later runs and fails on malformed event data", async () => {

@@ -5,6 +5,10 @@ import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  liveRecordingComments,
+  reviewComments,
+} from "../server/lib/recording-comments.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
@@ -36,6 +40,7 @@ export default defineAction({
     topN: z.coerce.number().int().min(1).max(50).default(10),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
 
@@ -123,14 +128,15 @@ export default defineAction({
     const commentRows = recordingIds.length
       ? await db
           .select({
-            recordingId: schema.recordingComments.recordingId,
-            createdAt: schema.recordingComments.createdAt,
+            recordingId: reviewComments.resourceId,
+            createdAt: reviewComments.createdAt,
           })
-          .from(schema.recordingComments)
+          .from(reviewComments)
           .where(
             and(
-              inArray(schema.recordingComments.recordingId, recordingIds),
-              gte(schema.recordingComments.createdAt, startIso),
+              liveRecordingComments(),
+              inArray(reviewComments.resourceId, recordingIds),
+              gte(reviewComments.createdAt, startIso),
             ),
           )
           .limit(MAX_ENGAGEMENT_ROWS)

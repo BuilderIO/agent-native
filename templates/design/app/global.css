@@ -169,14 +169,42 @@
   --design-row-height: 32px;
   --design-section-height: 40px;
   --design-action-slot-width: calc(var(--design-baseline-unit) * 4);
-  --design-chrome-rail-width: calc(var(--design-baseline-unit) * 7);
+  --design-column-head-height: calc(var(--design-baseline-unit) * 6);
+  /* Editor chrome brand. Scoped to Design's own chrome: shadcn `--primary`
+     stays neutral so every other surface keeps its color. */
+  --design-brand: #1a70eb;
+  --design-brand-foreground: #ffffff;
+  --design-brand-ink: #1263d3;
+  --design-destructive: #c9362c;
+  --design-focus-ring-color: var(--design-brand);
+  --design-focus-ring-width: 2px;
+  --design-focus-ring-gap: 2px;
+  --design-font-medium: 450;
+  /* New chrome icons read these: Radix Icons at their native 15px grid, and
+     Tabler at this stroke only where Radix has no glyph. */
+  --design-ui-icon-size: 15px;
+  --design-ui-icon-stroke: 1.25;
+  /* Agent chat in the left panel: the toolkit already gives a raised 14px
+     composer with a 16px corner, one focus border around the prompt box and
+     an 8px user bubble. Design's spec differs only in a 28px Send and a
+     tighter 8px 12px user bubble; the bubble reads AgentKit's own hooks. */
+  --agent-kit-composer-control-size: 1.75rem;
+  --agentkit-user-bubble-padding-block: var(--design-baseline-unit);
+  --agentkit-user-bubble-padding-inline: calc(var(--design-baseline-half) * 3);
   --design-grid-columns: 28;
   --design-inspector-grid-columns: var(--design-grid-columns);
   --design-inspector-grid-unit: var(--design-baseline-unit);
   --design-inspector-grid-row: var(--design-control-height);
   --design-inspector-grid-gap: var(--design-baseline-unit);
-  --design-inspector-section-padding-inline: var(--design-baseline-unit);
-  --design-inspector-section-padding-block: var(--design-baseline-unit);
+  --design-inspector-section-padding-inline: calc(
+    var(--design-baseline-unit) * 2
+  );
+  --design-inspector-section-padding-block: calc(
+    var(--design-baseline-unit) * 2
+  );
+  --design-inspector-action-overhang: calc(
+    var(--design-action-slot-width) - var(--design-control-height)
+  );
   --design-inspector-row-handle-width: var(
     --design-inspector-section-padding-inline
   );
@@ -187,6 +215,7 @@
   --design-sidebar-font-control: 11px;
   --design-sidebar-line-control: 16px;
   --design-sidebar-font-label: 10px;
+  --design-sidebar-font-section-title: 12px;
   --design-sidebar-line-label: 12px;
   --design-sidebar-font-context: 13px;
   --design-sidebar-line-context: 16px;
@@ -292,6 +321,44 @@
   );
   --design-editor-canvas-bg: hsl(0 0% 10%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 11%);
+  --design-brand: #1a70eb;
+  --design-brand-foreground: #ffffff;
+  --design-brand-ink: #67a0f2;
+  --design-destructive: #c9362c;
+  --design-focus-ring-color: #67a0f2;
+}
+
+/* One brand ring with a gap around the whole control. */
+.design-focus-ring:focus-visible,
+.design-focus-ring-within:has(:focus-visible) {
+  outline: var(--design-focus-ring-width) solid var(--design-focus-ring-color);
+  outline-offset: var(--design-focus-ring-gap);
+}
+
+.design-focus-ring-within :focus-visible {
+  outline: none;
+}
+
+.design-ui-icon {
+  width: var(--design-ui-icon-size);
+  height: var(--design-ui-icon-size);
+  flex-shrink: 0;
+  stroke-width: var(--design-ui-icon-stroke);
+}
+
+.design-font-medium {
+  font-weight: var(--design-font-medium);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @layer base {
@@ -357,14 +424,15 @@
   box-shadow: none;
 }
 
-.design-sidebar-section-title,
 .design-sidebar-control-text {
   font-size: var(--design-sidebar-font-control) !important;
   line-height: var(--design-sidebar-line-control) !important;
 }
 
 .design-sidebar-section-title {
+  font-size: var(--design-sidebar-font-section-title) !important;
   font-weight: 600;
+  line-height: var(--design-sidebar-line-control) !important;
 }
 
 .design-sidebar-field-label {
@@ -444,14 +512,6 @@
 
 .design-sidebar-comments [data-slot="tabs-trigger"] {
   min-height: var(--design-control-height);
-}
-
-/* Keep workspace-rail typography explicit. Tailwind cannot infer whether an
-   untyped `text-[var(...)]` token is a font size or a color, which previously
-   left these labels at the inherited 16px size and forced them to truncate. */
-.design-workspace-rail-item {
-  font-size: var(--design-sidebar-font-label);
-  line-height: var(--design-sidebar-line-label);
 }
 
 .design-inspector-grid {
@@ -551,7 +611,7 @@
 
 .design-inspector-grid[data-inspector-layout="pair"] {
   grid-template-columns:
-    minmax(0, 1fr) calc(var(--design-baseline-unit) * 2)
+    minmax(0, 1fr) var(--design-baseline-unit)
     minmax(0, 1fr);
 }
 
@@ -572,7 +632,7 @@
 
 .design-inspector-grid[data-inspector-layout="pair-flow"] {
   grid-template-columns:
-    minmax(0, 1fr) calc(var(--design-baseline-unit) * 2)
+    minmax(0, 1fr) var(--design-baseline-unit)
     minmax(0, 1fr);
 }
 
@@ -631,6 +691,11 @@
 
 .design-inspector-grid[data-inspector-layout="label-action-pair"]
   > [data-inspector-grid-cell]:nth-child(1) {
+  grid-column: 1 / -1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="action-pair"]
+  > [data-inspector-grid-cell]:nth-child(n + 6) {
   grid-column: 1 / -1 !important;
 }
 
@@ -699,6 +764,20 @@
 
 .design-inspector-grid[data-inspector-layout="header-actions"] {
   grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.design-inspector-grid:is(
+  [data-inspector-layout="header-actions"],
+  [data-inspector-layout="action-pair"],
+  [data-inspector-layout="label-action-pair"],
+  [data-inspector-layout="label-action-rows"],
+  [data-inspector-layout="field-action"],
+  [data-inspector-layout="label-field-action"],
+  [data-inspector-layout="stroke-details"],
+  [data-inspector-layout="paint-row"],
+  [data-inspector-layout="drag-paint-row"]
+) {
+  margin-inline-end: calc(-1 * var(--design-inspector-action-overhang));
 }
 
 .design-inspector-grid[data-inspector-layout="header-actions"]
@@ -896,29 +975,6 @@
 .design-editor-app-menu-content[data-state="open"],
 .design-editor-app-menu-content[data-state="closed"] {
   animation: none !important;
-}
-
-.design-motion-dock-space {
-  --design-motion-dock-duration: 200ms;
-  --design-motion-dock-easing: ease-out;
-  transition: height var(--design-motion-dock-duration)
-    var(--design-motion-dock-easing);
-}
-
-.design-motion-dock {
-  transition:
-    border-color var(--design-motion-dock-duration)
-      var(--design-motion-dock-easing),
-    transform var(--design-motion-dock-duration)
-      var(--design-motion-dock-easing);
-}
-
-.design-motion-dock-space.design-motion-dock-resizing .design-motion-dock {
-  transition-duration: 0ms;
-}
-
-.design-motion-dock-space.design-motion-dock-resizing {
-  transition-duration: 0ms;
 }
 
 .dark .design-editor-app-menu-content {

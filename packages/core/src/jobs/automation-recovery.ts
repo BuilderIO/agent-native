@@ -21,6 +21,7 @@ import { withDeliveryNote } from "./automation-outcome.js";
 import { automationRunTerminalError } from "./automation-terminal-error.js";
 import { inspectAutomationWork } from "./automation-work-evidence.js";
 import {
+  jobBelongsToApp,
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
@@ -97,6 +98,7 @@ export async function readAutomationRunDeliveryNote(runId: string) {
 
 export type AutomationRecovery =
   | { state: "active" }
+  | { state: "other-app" }
   | { state: "resume"; resume: AutomationResume }
   | {
       state: "unrecoverable";
@@ -184,12 +186,20 @@ export async function inspectAutomationRecovery(
   let history: AutomationRun | null;
   if (meta.lastHistoryId) {
     history = await getAutomationRun(meta.lastHistoryId);
-    if (
-      !history ||
-      history.owner !== owner ||
-      history.path !== resource.path ||
-      (history.appId && history.appId !== appId)
-    ) {
+    if (!history || history.owner !== owner || history.path !== resource.path) {
+      return unrecoverableHistory(
+        automationRecoveryMessagesForLocale().historyUnavailable,
+      );
+    }
+    if (history.appId && history.appId !== appId) {
+      if (
+        jobBelongsToApp(meta, history.appId) &&
+        now.getTime() <
+          lastRun +
+            resolveBackgroundRunHardTimeoutMs() +
+            automationRunClaimLeaseMs()
+      )
+        return { state: "other-app" };
       return unrecoverableHistory(
         automationRecoveryMessagesForLocale().historyUnavailable,
       );

@@ -53,6 +53,11 @@ const NETLIFY_PREVIEW_SITE_NAMES = new Set(
     return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
   }),
 );
+const NETLIFY_LABS_WORKSPACE_SITE_NAME = "agent-native-labs-workspace";
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_SITE_NAMES = new Set([
+  ...NETLIFY_PREVIEW_SITE_NAMES,
+  NETLIFY_LABS_WORKSPACE_SITE_NAME,
+]);
 const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
   [...NETLIFY_PREVIEW_SITE_NAMES].filter(
     (siteName) => siteName !== "agent-native-dispatch",
@@ -191,7 +196,8 @@ export function isNetlifyDeployPermalinkGoogleOAuthClientRequest(
   return isNetlifyDeployPermalinkRequestForSites(
     host,
     forwardedProtocol,
-    NETLIFY_PREVIEW_SITE_NAMES,
+    NETLIFY_PREVIEW_GOOGLE_OAUTH_SITE_NAMES,
+    true,
   );
 }
 
@@ -199,6 +205,7 @@ function isNetlifyDeployPermalinkRequestForSites(
   host: string | undefined,
   forwardedProtocol: string | undefined,
   allowedSiteNames: Set<string>,
+  allowBranchAlias = false,
 ): boolean {
   const requestProtocol = forwardedProtocol?.trim().toLowerCase() || "https";
   const configuredSiteName = (
@@ -215,6 +222,7 @@ function isNetlifyDeployPermalinkRequestForSites(
     host,
     configuredSiteName,
     allowedSiteNames,
+    allowBranchAlias,
   );
 }
 
@@ -222,12 +230,19 @@ function isNetlifyDeployPermalinkHost(
   host: string,
   siteName?: string,
   allowedSiteNames: Set<string> = NETLIFY_PREVIEW_SITE_NAMES,
+  allowBranchAlias = false,
 ): boolean {
   const normalizedHost = host.toLowerCase();
   const siteNames = siteName ? [siteName] : [...allowedSiteNames];
-  return siteNames.some((name) =>
-    new RegExp(`^[a-f0-9]{24}--${name}\\.netlify\\.app$`).test(normalizedHost),
-  );
+  return siteNames.some((name) => {
+    const prefix =
+      allowBranchAlias && name === NETLIFY_LABS_WORKSPACE_SITE_NAME
+        ? "(?:[a-f0-9]{24}|c-[a-f0-9]{12})"
+        : "[a-f0-9]{24}";
+    return new RegExp(`^${prefix}--${name}\\.netlify\\.app$`).test(
+      normalizedHost,
+    );
+  });
 }
 
 export function isNetlifyDeployPermalinkIdentitySsoClientOrigin(
@@ -244,13 +259,15 @@ export function isNetlifyDeployPermalinkGoogleOAuthClientOrigin(
 ): boolean {
   return isNetlifyDeployPermalinkOriginForSites(
     origin,
-    NETLIFY_PREVIEW_SITE_NAMES,
+    NETLIFY_PREVIEW_GOOGLE_OAUTH_SITE_NAMES,
+    true,
   );
 }
 
 function isNetlifyDeployPermalinkOriginForSites(
   origin: string | undefined,
   allowedSiteNames: Set<string>,
+  allowBranchAlias = false,
 ): boolean {
   if (!origin) return false;
   try {
@@ -260,10 +277,16 @@ function isNetlifyDeployPermalinkOriginForSites(
       url.protocol === "https:" &&
       !url.username &&
       !url.password &&
+      !url.port &&
       url.pathname === "/" &&
       !url.search &&
       !url.hash &&
-      isNetlifyDeployPermalinkHost(url.hostname, undefined, allowedSiteNames)
+      isNetlifyDeployPermalinkHost(
+        url.hostname,
+        undefined,
+        allowedSiteNames,
+        allowBranchAlias,
+      )
     );
   } catch {
     // coercion-ok: malformed origins are rejected as invalid input.

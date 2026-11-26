@@ -5,8 +5,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { CreateInlineDatabaseResponse } from "../shared/api.js";
+import { tableCollectionSeedSchema } from "../shared/table-collection-seed.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
+import { seedCollectionFromTable } from "./_table-collection-seed.js";
 import {
   createContentDatabaseRecord,
   databaseTitleForPage,
@@ -26,6 +28,11 @@ export default defineAction({
     description: z.string().optional().describe("Stable collection guidance"),
     newDocumentId: z.string().min(1).optional(),
     ownerBlockId: z.string().min(1).optional(),
+    table: tableCollectionSeedSchema
+      .optional()
+      .describe(
+        "A page table to fill the collection with, when one is turned into it: each row's first cell titles its row, and each later column becomes a text property",
+      ),
   }),
   run: async ({
     hostDocumentId,
@@ -33,6 +40,7 @@ export default defineAction({
     description,
     newDocumentId,
     ownerBlockId: requestedOwnerBlockId,
+    table,
   }): Promise<CreateInlineDatabaseResponse> => {
     const db = getDb();
     const ownerBlockId = requestedOwnerBlockId ?? createInlineDatabaseBlockId();
@@ -70,6 +78,7 @@ export default defineAction({
         throw new Error("Inline database was not created.");
       }
       databaseDocumentId = updated.documentId;
+      if (table) await seedCollectionFromTable(tx, databaseId, table);
     });
 
     if (!databaseId || !databaseDocumentId) {

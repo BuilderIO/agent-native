@@ -1,7 +1,7 @@
 ---
 title: "Netlify"
 description: "Deploy a standalone Agent-Native app to Netlify with the Netlify CLI, and configure keep-warm for scale-to-zero databases."
-search: "Netlify deployment standalone app Nitro netlify preset CLI functions production migrate build deploy keep-warm"
+search: "Netlify deployment standalone app Nitro netlify preset CLI functions production migrate build deploy keep-warm A2A_SECRET automations idle database sleep Windows"
 ---
 
 # Netlify
@@ -11,7 +11,7 @@ The build turns the app into static files Netlify serves directly and functions
 Netlify runs on demand, and Netlify gives the app a public address with HTTPS.
 
 This guide walks through deploying one standalone app from scratch. You will
-create the app, give it a production database and an auth secret, create a
+create the app, give it a production database and two secrets, create a
 Netlify site for it, prepare the database, and then build and deploy it.
 
 <Callout tone="info">
@@ -21,7 +21,9 @@ Node.js `22.22+` is required.
 </Callout>
 
 You also need a Netlify account. Run the commands in this guide on your own
-computer. The Netlify CLI uploads the finished build to Netlify for you.
+computer. The Netlify CLI uploads the finished build to Netlify for you. The
+commands are written for a bash shell, such as Terminal on macOS or Linux. On
+Windows, run them in Git Bash or WSL rather than PowerShell.
 
 ## Step 1: Create the app
 
@@ -59,6 +61,7 @@ The app reads its production settings from environment variables:
 | -------------------- | -------- | ---------------------------------------------------- |
 | `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
 | `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `A2A_SECRET`         | Yes      | Signs the scheduled calls that run automations       |
 | `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
 
 The exports below make the following commands work in this shell. Before
@@ -100,6 +103,17 @@ export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 Save the generated value somewhere safe, such as a password manager. Use the
 same value every time you deploy.
 
+### Automation secret
+
+Netlify runs a scheduled function every minute that starts the app's due
+automations and background work. It signs each call with `A2A_SECRET`, and the
+app rejects any call it can't verify, so without this secret no automation
+runs. Generate it once, keep it with the auth secret, and keep it stable too:
+
+```bash
+export A2A_SECRET="$(openssl rand -hex 32)"
+```
+
 ### Public URL
 
 Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
@@ -132,18 +146,27 @@ as `my-app.netlify.app`. Site names are shared across all of Netlify, so choose
 a different name if `my-app` is already taken. You do not need a GitHub
 repository, because you deploy the app from your computer in Step 5.
 
-Save the two required variables in the site's environment:
+Save the three required variables in the site's environment:
 
 ```bash
 npx netlify env:set DATABASE_URL "$DATABASE_URL"
 
 npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+
+npx netlify env:set A2A_SECRET "$A2A_SECRET"
 ```
 
 Each command reads the value you exported in Step 2 and saves it in Netlify, so
 you do not have to paste secrets by hand. If you set `BETTER_AUTH_URL`, save it
 the same way. You can also see and change these values later in the site's
 settings on the Netlify dashboard.
+
+Then check that the site is public. Some Netlify teams create new sites as
+private, so only signed-in team members can open them. The scheduled function
+reaches the app through its public address too, so on a private site every
+automation call is turned away. On the Netlify dashboard, open the site and go
+to **Project configuration** > **General** > **Visitor access**. If the site is
+private, make it public.
 
 ## Step 4: Migrate
 
@@ -173,12 +196,13 @@ the `.netlify/functions-internal` folder.
 Upload the build and publish it:
 
 ```bash
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 `--dir` and `--functions` tell the CLI where to find the static files and the
-functions you just built. `--prod` publishes them to your production address
-instead of a draft preview.
+functions you just built. `--no-build` uploads that build as it is instead of
+building again. `--prod` publishes them to your production address instead of
+a draft preview.
 
 When the command finishes, it prints the app's production address. Open it and
 create the first account.
@@ -193,11 +217,33 @@ pnpm migrate:production
 
 NITRO_PRESET=netlify pnpm build
 
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 The site link and the saved variables stay in place, so you do not need to
 repeat Step 3.
+
+## Automations and an idle database {#netlify-idle-sweep}
+
+The build adds a scheduled function, `agent-native-recurring-jobs`, that runs
+every minute. While people are using the app, each run checks the database for
+due automations and other background work. Once nobody has opened the app for
+ten minutes and nothing is running, the function stops checking until the next
+automation is due, or for an hour at most. It keeps that schedule in Netlify
+Blobs rather than in the database, so a quiet app makes no database queries and
+a scale-to-zero database, such as Neon's free tier, can pause. The first request
+after a quiet period puts the checks back on every minute.
+
+Some background work has no due time the function can see, such as checking
+connected accounts for changes, so while the app is idle that work runs only
+once an hour. Set `AGENT_NATIVE_IDLE_SWEEP_MAX_MINUTES` to change the longest
+wait, from `0` to `1440` minutes. `0` checks every minute, which keeps the
+database awake. The running app reads this variable, so save it in the site's
+environment with `npx netlify env:set`, then deploy again. Keep-warm, below,
+keeps the database awake whatever this setting says.
+
+If you turn on `AGENT_INTEGRATION_DURABLE_DISPATCH`, its recovery function
+checks the database every minute, so the database stays awake.
 
 ## Keep-warm and scale-to-zero databases {#netlify-keep-warm}
 
@@ -223,6 +269,21 @@ apply after you turn on `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Turns keep-warm off even when `AGENT_NATIVE_ENABLE_KEEP_WARM` is set. Kept for compatibility with older setups.                                                                                               |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Changes how often the warm-up runs, as a 5-field cron expression such as `*/5 * * * *`. The default is `* * * * *`, every minute. A value that is not valid cron **fails the build**.                         |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Skips warming the background function and keeps warming the server function. Warming the server is one request. Warming the background function starts a new container that checks the database schema again. |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | Multi-app workspaces only: how many server instances each app keeps warm, from 1 to 50. The default is `1`. A value outside that range **fails the build**.                                                   |
+
+### Multi-app workspaces {#netlify-workspace-keep-warm}
+
+A workspace deploy reads the same variables. When keep-warm is on, it emits one
+scheduled function, `agent-native-workspace-keep-warm`, that calls every app's
+`/<app>/_agent-native/health` endpoint on the schedule.
+
+A Netlify function instance serves one request at a time, and opening an app
+sends a burst of parallel framework requests. Each request that finds no idle
+instance starts a cold one, so a single warm instance does little for a page
+load. Set `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` to send that many overlapping
+health requests per app, which keeps that many instances warm. Each run sends
+`apps x concurrency` requests, so pair a higher concurrency with a slower
+schedule such as `*/3 * * * *`.
 
 If your database is on a free or otherwise limited plan, leave
 `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you turn it on, choose a slower

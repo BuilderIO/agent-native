@@ -100,6 +100,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: exec }),
   isConnectionError: () => false,
   isProductionServerlessFunctionRuntime: () => false,
@@ -277,6 +278,80 @@ describe("identity SSO feature switch and request classifiers", () => {
         `https://${deployHost}`,
       ),
     ).toBe(true);
+  });
+
+  it("allows Google OAuth relay on Labs aliases without widening identity SSO", () => {
+    const alias = "c-f53058ae5fc7--agent-native-labs-workspace.netlify.app";
+    const permalink = `${"a".repeat(24)}--agent-native-labs-workspace.netlify.app`;
+    const googleRequest =
+      store.isNetlifyDeployPermalinkGoogleOAuthClientRequest;
+    const googleOrigin = store.isNetlifyDeployPermalinkGoogleOAuthClientOrigin;
+
+    for (const host of [alias, permalink]) {
+      expect(googleRequest(host, "https")).toBe(true);
+      expect(googleOrigin(`https://${host}`)).toBe(true);
+      expect(
+        store.isNetlifyDeployPermalinkIdentitySsoClientRequest(host, "https"),
+      ).toBe(false);
+      expect(
+        store.isNetlifyDeployPermalinkIdentitySsoClientOrigin(
+          `https://${host}`,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      store.isNetlifyDeployPermalinkIdentitySsoClientRequest(
+        "c-f53058ae5fc7--agent-native-mail.netlify.app",
+        "https",
+      ),
+    ).toBe(false);
+
+    delete process.env.SITE_NAME;
+    delete process.env.NETLIFY_SITE_NAME;
+    const mailAlias = "c-f53058ae5fc7--agent-native-mail.netlify.app";
+    expect(googleRequest(mailAlias, "https")).toBe(false);
+    expect(googleOrigin(`https://${mailAlias}`)).toBe(false);
+
+    process.env.SITE_NAME = "agent-native-labs-workspace";
+    expect(googleRequest(alias, "https")).toBe(true);
+    expect(
+      googleRequest("c-f53058ae5fc7--agent-native-mail.netlify.app", "https"),
+    ).toBe(false);
+    delete process.env.SITE_NAME;
+  });
+
+  it("rejects hostile Google OAuth relay origins", () => {
+    const site = "agent-native-labs-workspace";
+    const badOrigins = [
+      `https://c-f53058ae5fc7--agent-native-other.netlify.app`,
+      `https://c-f53058ae5fc7--${site}.netlify.app.evil.com`,
+      `https://evil.com/c-abc123def456--${site}.netlify.app`,
+      `http://c-f53058ae5fc7--${site}.netlify.app`,
+      `https://user:pw@c-f53058ae5fc7--${site}.netlify.app`,
+      `https://c-f53058ae5fc7--${site}.netlify.app:8443`,
+      `https://c-f53058ae5fc7--${site}.netlify.app/path`,
+      `https://c-f53058ae5f--${site}.netlify.app`,
+      `https://c-f53058ae5fc7a--${site}.netlify.app`,
+      `https://c-F53058AE5FC7--${site}.netlify.app/`,
+      `https://c-g53058ae5fc7--${site}.netlify.app`,
+    ];
+    for (const origin of badOrigins) {
+      expect(
+        store.isNetlifyDeployPermalinkGoogleOAuthClientOrigin(origin),
+      ).toBe(false);
+    }
+    expect(
+      store.isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+        `c-f53058ae5fc7--${site}.netlify.app.evil.com`,
+        "https",
+      ),
+    ).toBe(false);
+    expect(
+      store.isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+        `c-f53058ae5fc7--${site}.netlify.app`,
+        "http",
+      ),
+    ).toBe(false);
   });
 
   it("keeps silent federation available for explicitly configured self-hosted apps", () => {

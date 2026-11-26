@@ -166,6 +166,30 @@ describe("agent-native config loading", () => {
 });
 
 describe("resolveFirstRunOnboardingBuildReplacement", () => {
+  it("keeps app-owned mode in the client and server build binding", () => {
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "app" } },
+        {},
+      ),
+    ).toBe("app");
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "app" } },
+        { VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "true" },
+      ),
+    ).toBe("app");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    writeAgentNativeBuildConfigMarker(root, {
+      firstRunOnboarding: "app",
+      harness: "null",
+    });
+    expect(readAgentNativeBuildConfigMarker(root)).toEqual({
+      firstRunOnboarding: "app",
+      harness: "null",
+    });
+  });
   it("embeds the configured mode", () => {
     expect(
       resolveFirstRunOnboardingBuildReplacement(

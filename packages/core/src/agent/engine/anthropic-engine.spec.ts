@@ -122,74 +122,77 @@ describe("createAnthropicEngine", () => {
     }
   });
 
-  it("stream emits text-delta events from SDK chunks", async () => {
-    const finalMsg = {
-      content: [{ type: "text", text: "Hello, world!" }],
-      stop_reason: "end_turn",
-      usage: { input_tokens: 20, output_tokens: 10 },
-    };
+  it.each(["end_turn", "refusal"] as const)(
+    "streams SDK chunks and preserves stop reason %s",
+    async (reason) => {
+      const finalMsg = {
+        content: [{ type: "text", text: "Hello, world!" }],
+        stop_reason: reason,
+        usage: { input_tokens: 20, output_tokens: 10 },
+      };
 
-    const chunks = [
-      {
-        type: "content_block_start",
-        index: 0,
-        content_block: { type: "text", text: "" },
-      },
-      {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: "Hello, " },
-      },
-      {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: "world!" },
-      },
-      {
-        type: "message_delta",
-        delta: { stop_reason: "end_turn" },
-        usage: { output_tokens: 10 },
-      },
-      { type: "message_stop" },
-    ];
+      const chunks = [
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Hello, " },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "world!" },
+        },
+        {
+          type: "message_delta",
+          delta: { stop_reason: reason },
+          usage: { output_tokens: 10 },
+        },
+        { type: "message_stop" },
+      ];
 
-    const mockStream = {
-      [Symbol.asyncIterator]: async function* () {
-        for (const chunk of chunks) yield chunk;
-      },
-      finalMessage: vi.fn().mockResolvedValue(finalMsg),
-    };
+      const mockStream = {
+        [Symbol.asyncIterator]: async function* () {
+          for (const chunk of chunks) yield chunk;
+        },
+        finalMessage: vi.fn().mockResolvedValue(finalMsg),
+      };
 
-    vi.doMock("@anthropic-ai/sdk", () => ({
-      default: class MockAnthropic {
-        messages = { stream: vi.fn().mockReturnValue(mockStream) };
-      },
-    }));
+      vi.doMock("@anthropic-ai/sdk", () => ({
+        default: class MockAnthropic {
+          messages = { stream: vi.fn().mockReturnValue(mockStream) };
+        },
+      }));
 
-    vi.resetModules();
-    const { createAnthropicEngine: freshCreate } =
-      await import("./anthropic-engine.js");
-    const engine = freshCreate({ apiKey: "test" });
+      vi.resetModules();
+      const { createAnthropicEngine: freshCreate } =
+        await import("./anthropic-engine.js");
+      const engine = freshCreate({ apiKey: "test" });
 
-    const opts: EngineStreamOptions = {
-      model: "claude-haiku-4-5-20251001",
-      systemPrompt: "You are helpful.",
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      tools: [],
-      abortSignal: new AbortController().signal,
-    };
+      const opts: EngineStreamOptions = {
+        model: "claude-haiku-4-5-20251001",
+        systemPrompt: "You are helpful.",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      };
 
-    const events = await collectEvents(engine.stream(opts));
-    const textDeltas = events.filter((e) => e.type === "text-delta");
-    const texts = textDeltas.map((e: any) => e.text).join("");
-    expect(texts).toBe("Hello, world!");
+      const events = await collectEvents(engine.stream(opts));
+      const textDeltas = events.filter((e) => e.type === "text-delta");
+      const texts = textDeltas.map((event) => event.text).join("");
+      expect(texts).toBe("Hello, world!");
 
-    const stopEvent = events.find((e) => e.type === "stop");
-    expect(stopEvent).toBeDefined();
-    expect(stopEvent?.reason).toBe("end_turn");
+      const stopEvent = events.find((e) => e.type === "stop");
+      expect(stopEvent).toBeDefined();
+      expect(stopEvent?.reason).toBe(reason);
 
-    vi.doUnmock("@anthropic-ai/sdk");
-  });
+      vi.doUnmock("@anthropic-ai/sdk");
+    },
+  );
 
   it("reports the whole prompt in inputTokens, cache included", async () => {
     const finalMsg = {
@@ -644,11 +647,56 @@ describe("createAnthropicEngine", () => {
       abortSignal: new AbortController().signal,
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });
     expect(requestParams).not.toHaveProperty("output_config");
+  });
+
+  it("lets the API drop a thinking block bound to a changed tool list", async () => {
+    const run = async (model: string) => {
+      const finalMsg = {
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      };
+      const streamSpy = vi.fn().mockReturnValue({
+        [Symbol.asyncIterator]: async function* () {},
+        finalMessage: vi.fn().mockResolvedValue(finalMsg),
+      });
+      vi.doMock("@anthropic-ai/sdk", () => ({
+        default: class MockAnthropic {
+          messages = { stream: streamSpy };
+        },
+      }));
+      vi.resetModules();
+      const { createAnthropicEngine: freshCreate } =
+        await import("./anthropic-engine.js");
+      await collectEvents(
+        freshCreate({ apiKey: "test" }).stream({
+          model,
+          systemPrompt: "You are helpful.",
+          messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+          tools: [],
+          abortSignal: new AbortController().signal,
+        }),
+      );
+      vi.doUnmock("@anthropic-ai/sdk");
+      return streamSpy.mock.calls[0];
+    };
+
+    const [params, requestOptions] = await run("claude-sonnet-5-5");
+    expect(params.thinking.block_binding).toEqual({
+      prefix_mismatch_behavior: "drop_block",
+    });
+    expect(requestOptions.headers["anthropic-beta"]).toBe(
+      "thinking-binding-controls-2026-08-01",
+    );
+
+    const [oldParams, oldOptions] = await run("claude-sonnet-4-6");
+    expect(oldParams.thinking).toEqual({ type: "adaptive" });
+    expect(oldOptions.headers).toBeUndefined();
   });
 
   it("asks for summarized thinking only where the default omits it", async () => {
@@ -670,7 +718,7 @@ describe("createAnthropicEngine", () => {
       "claude-opus-4-7",
       "claude-fable-5-1",
     ]) {
-      expect(await thinkingFor(model)).toEqual({
+      expect(await thinkingFor(model)).toMatchObject({
         type: "adaptive",
         display: "summarized",
       });
@@ -722,7 +770,7 @@ describe("createAnthropicEngine", () => {
       reasoningEffort: "medium",
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });
@@ -752,7 +800,7 @@ describe("createAnthropicEngine", () => {
       reasoningEffort: "high",
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });
@@ -1127,7 +1175,7 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
       temperature: 0,
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });

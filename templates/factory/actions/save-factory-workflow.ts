@@ -121,6 +121,7 @@ async function openCanvas(path: string): Promise<boolean> {
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Create a workflow or save a new version of one. Pass the complete graph as JSON text in graph. It is checked against the node kinds and the operation catalog before anything is written: every problem comes back together as graph_invalid and nothing is saved. A new workflow (no workflowId, with a name) is saved disabled; an existing one needs the expectedVersion you read, and a stale one fails with version_conflict and the current version. Saving writes the job schedule through to the scheduler. Saving into an enabled workflow switches it off (disabledBySave: true): the new version needs its own clean dry run before set-factory-workflow-enabled. The result lists connections: each provider the graph needs with its status (connected, not connected, unknown), how to connect it, and the node ids that need it: call request-workflow-connection for each provider that is not connected. Creating a workflow from chat opens its canvas for the user (navigated: true); when navigated is false, open canvasPath with navigate.",
   schema: z.object({ ...requestFields, graph: graphSchema }),
@@ -334,7 +335,11 @@ export default defineAction({
               path: job.path,
               changed: job.changed,
             },
-            connections: await readGraphConnections(graph, scoped),
+            connections: await readGraphConnections(
+              graph,
+              scoped,
+              current.ownerEmail,
+            ),
           };
         }),
     ),

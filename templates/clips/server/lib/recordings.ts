@@ -92,28 +92,43 @@ export function resolveRecordingVisibility(
     : DEFAULT_RECORDING_VISIBILITY;
 }
 
-/** The organization's saved default, or null when it never set one. */
-export async function readOrganizationDefaultVisibility(
+export interface OrganizationVisibilityPolicy {
+  defaultVisibility: RecordingVisibility | null;
+  enforced: boolean;
+}
+
+export async function readOrganizationVisibilityPolicy(
   organizationId: string,
-): Promise<RecordingVisibility | null> {
-  const [row] = await getDb()
+): Promise<OrganizationVisibilityPolicy> {
+  const rows = await getDb()
     .select({
       defaultVisibility: schema.organizationSettings.defaultVisibility,
+      enforced: schema.organizationSettings.enforceDefaultVisibility,
     })
     .from(schema.organizationSettings)
     .where(eq(schema.organizationSettings.organizationId, organizationId))
     .limit(1);
-  return isRecordingVisibility(row?.defaultVisibility)
-    ? row.defaultVisibility
-    : null;
+  const [row] = rows as Array<(typeof rows)[number] | undefined>;
+  return {
+    defaultVisibility: isRecordingVisibility(row?.defaultVisibility)
+      ? row.defaultVisibility
+      : null,
+    enforced: row?.enforced === true,
+  };
 }
 
-/** The active organization's saved default; null with no org or none set. */
-export async function readActiveOrganizationDefaultVisibility(): Promise<RecordingVisibility | null> {
+export async function readOrganizationDefaultVisibility(
+  organizationId: string,
+): Promise<RecordingVisibility | null> {
+  return (await readOrganizationVisibilityPolicy(organizationId))
+    .defaultVisibility;
+}
+
+export async function readActiveOrganizationVisibilityPolicy(): Promise<OrganizationVisibilityPolicy> {
   const organizationId = await getActiveOrganizationId();
   return organizationId
-    ? readOrganizationDefaultVisibility(organizationId)
-    : null;
+    ? readOrganizationVisibilityPolicy(organizationId)
+    : { defaultVisibility: null, enforced: false };
 }
 
 export async function getOrganizationDefaultVisibility(
@@ -134,16 +149,18 @@ export async function getDefaultRecordingVisibility(
 ): Promise<RecordingVisibility> {
   if (explicit) return explicit;
 
-  const email = userEmail;
-  if (email) {
-    const prefs = (await getUserSetting(
-      normalizeOwnerEmail(email),
-      CLIPS_USER_PREFS_KEY,
-    )) as ClipsUserPrefs | null;
-    const preferred = prefs?.defaultRecordingVisibility;
-    if (isRecordingVisibility(preferred)) return preferred;
-  }
-  return getOrganizationDefaultVisibility(organizationId);
+  const prefs = userEmail
+    ? ((await getUserSetting(
+        normalizeOwnerEmail(userEmail),
+        CLIPS_USER_PREFS_KEY,
+      )) as ClipsUserPrefs | null)
+    : null;
+  const policy = organizationId
+    ? await readOrganizationVisibilityPolicy(organizationId)
+    : null;
+  const preferred = prefs?.defaultRecordingVisibility;
+  if (isRecordingVisibility(preferred) && !policy?.enforced) return preferred;
+  return policy?.defaultVisibility ?? DEFAULT_RECORDING_VISIBILITY;
 }
 
 const ORG_ROLE_RANK: Record<OrganizationAccessRole, number> = {

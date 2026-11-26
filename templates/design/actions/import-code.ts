@@ -8,7 +8,7 @@ export default defineAction({
     "Analyzes CSS, Tailwind configs, JSON theme files, package.json, and " +
     "TypeScript/JavaScript theme files to extract colors, fonts, spacing, " +
     "border-radius, and CSS custom properties. Returns a structured summary " +
-    "the agent can use to create or update a design system.",
+    "the agent can use to import or update design tokens.",
   schema: z.object({
     files: z
       .array(

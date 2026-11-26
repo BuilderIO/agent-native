@@ -8,7 +8,6 @@ import {
   getMethod,
   getHeader,
   getRequestURL,
-  getRequestIP,
   readRawBody,
   getCookie,
   setCookie,
@@ -50,6 +49,7 @@ import {
 } from "../agent/loop-settings.js";
 import {
   createBuilderSignupExperiment,
+  builderSignupClientFailureExperimentId,
   setBuilderSignupVerifiedStarter,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
@@ -84,6 +84,7 @@ import {
 } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { scrubUrl } from "../client/url-scrub.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
   getDbExec,
@@ -233,6 +234,7 @@ import {
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   BuilderAccountProvisioningError,
+  classifyBuilderProvisioningFailure,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -283,6 +285,7 @@ import {
   createChatGPTSubscriptionOAuthCallbackHandler,
   createChatGPTSubscriptionOAuthStartHandler,
 } from "./chatgpt-subscription-oauth.js";
+import { getClientIp } from "./client-ip.js";
 import {
   resolveCoreRoutesMcpOptions,
   type CoreRoutesMcpOptions,
@@ -323,6 +326,8 @@ import {
 import { getMissingDeploySettings } from "./deploy-settings.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
+  BUILDER_SIGNUP_EXPERIMENT_PATH,
+  awaitFrameworkReadyWithinDeadline,
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
   type H3AppShim,
@@ -386,7 +391,10 @@ import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
-import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
+import {
+  createWorkspaceProviderOAuthHandler,
+  WORKSPACE_PROVIDER_OAUTH_PROVIDERS,
+} from "./workspace-provider-oauth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -1277,6 +1285,9 @@ export async function runDbHealthProbe(
   if (db && options.schema) {
     schema = await runDatabaseSchemaHealthCheck({
       exec: dbExec as ReturnType<typeof getDbExec>,
+      // D210: `?schema=1` is the publish step's read-back, so it carries the
+      // migration ledgers too. Opt-in only — the plain health poll stays cheap.
+      migrations: true,
     });
   }
   // Same bounded-read pattern as the `SELECT 1` above, and reuses this exact
@@ -1477,30 +1488,11 @@ function normalizeWaitlistRateLimitPart(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function getBuilderWaitlistClientIp(event: H3Event): string | undefined {
-  const trusted =
-    getHeader(event, "x-nf-client-connection-ip") ??
-    getHeader(event, "cf-connecting-ip") ??
-    getHeader(event, "true-client-ip") ??
-    getHeader(event, "x-real-ip");
-  if (trusted && trusted.trim()) return trusted.trim();
-
-  const forwardedFor = getHeader(event, "x-forwarded-for");
-  const forwardedClientIp = forwardedFor?.split(",")[0]?.trim();
-  if (forwardedClientIp) return forwardedClientIp;
-
-  try {
-    return getRequestIP(event) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function getBuilderWaitlistRateLimitKeys(
   event: H3Event,
   email: string,
 ): string[] {
-  const clientIp = getBuilderWaitlistClientIp(event);
+  const clientIp = getClientIp(event);
   return [
     `email:${normalizeWaitlistRateLimitPart(email)}`,
     `ip:${normalizeWaitlistRateLimitPart(clientIp ?? "unknown")}`,
@@ -1601,10 +1593,14 @@ export function buildBuilderWaitlistFormPayload(
   sessionEmail: string,
   body: BuilderWaitlistBody,
 ) {
+  // The page URL comes from the browser, or from the Referer when it sent none;
+  // its query and hash can hold a token the form has no use for.
   const appUrl =
-    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
-    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
-    getOrigin(event);
+    scrubUrl(
+      cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+        cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+        getOrigin(event),
+    ) ?? "";
   const source =
     cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
   const template = normalizeBuilderWaitlistTemplate(body.template);
@@ -1678,6 +1674,11 @@ function parseBuilderCallbackBoolean(
 // attributes that execute when the browser renders them as an <img> src or
 // inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
+// The client crops the photo to a 64x64 JPEG before uploading, which lands far
+// under this. The cap is here because the write is a straight data URI from the
+// browser: without it one request could put any size of base64 in the settings
+// row that every page reads.
+export const AVATAR_MAX_DATA_URL_LENGTH = 256 * 1024;
 
 export function resolveAvatarEmailParam(
   pathname: string,
@@ -2699,11 +2700,12 @@ export async function activateBuilderAccount(
         "account_exists",
       );
     }
+    const failure = classifyBuilderProvisioningFailure(provisioningError);
     return fail(
       BUILDER_UPSTREAM_FAILURE_STATUS,
-      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
-      "provision_failed",
-      undefined,
+      failure.message,
+      failure.code,
+      failure.code,
       {
         upstream_response_received: provisioningError?.upstreamStatus != null,
         upstream_status: provisioningError?.upstreamStatus ?? null,
@@ -3113,6 +3115,22 @@ export function createOpenAiAppsChallengeHandler(
   });
 }
 
+/**
+ * Sends a connect popup on to Builder with the waiting page's opener policy.
+ * The framework's own policy would sever a popup that came from that page, and
+ * its opener would read it as closed while the person is still signing in.
+ */
+export function redirectToBuilderAuthorization(
+  event: H3Event,
+  authorizationUrl: string,
+): string {
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Cache-Control", "no-store");
+  setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+  setResponseHeader(event, "Location", authorizationUrl);
+  return "";
+}
+
 export function createOAuthPopupWaitingHandler() {
   return defineEventHandler((event: H3Event) => {
     if (getMethod(event) !== "GET") {
@@ -3146,11 +3164,24 @@ export function createOAuthPopupWaitingHandler() {
     if (completingWorkspaceConnection) {
       setResponseHeader(event, "Content-Language", locale);
     }
-    // Keep the opener alive until the client replaces this inert page with the
-    // provider URL. This only works while every opener document sends no COOP
-    // or `same-origin-allow-popups` (security-headers.ts); an opener sending
-    // `same-origin` severs the popup here and leaves it blank.
-    setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+    // The inert waiting page opts out of COOP (`unsafe-none`) so the opener can
+    // replace it with the provider URL; that only works while the opener sends
+    // no COOP or `same-origin-allow-popups` (security-headers.ts), because an
+    // opener sending `same-origin` severs the popup here and leaves it blank.
+    //
+    // The completion page must not opt out: its script posts the
+    // `agent-native:workspace-connection-complete` message to `window.opener`,
+    // and a COOP value that differs from the opener's severs that handle first
+    // (the popup reaches "Connection done" with `window.opener === null`, so
+    // the add-account dialog never closes). Match
+    // the framework pages instead.
+    setResponseHeader(
+      event,
+      "Cross-Origin-Opener-Policy",
+      completingWorkspaceConnection
+        ? "same-origin-allow-popups"
+        : "unsafe-none",
+    );
     return completingWorkspaceConnection
       ? oauthPopupCompletionHtml(
           locale,
@@ -3386,6 +3417,21 @@ export function createCoreRoutesPlugin(
       resolveInit = resolve;
       rejectInit = reject;
     });
+    let resolveBuilderSignupReady: () => void = () => {};
+    let rejectBuilderSignupReady: (error: unknown) => void = () => {};
+    let builderSignupReadySettled = false;
+    const builderSignupReadyPromise = new Promise<void>((resolve, reject) => {
+      resolveBuilderSignupReady = () => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        resolve();
+      };
+      rejectBuilderSignupReady = (error: unknown) => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        reject(error);
+      };
+    });
     trackPluginInit(nitroApp, initPromise, {
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
       // Liveness and BYOA auth routes are mounted before the DB-dependent
@@ -3401,6 +3447,48 @@ export function createCoreRoutesPlugin(
         "/.well-known/openai-apps-challenge",
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
+    });
+    trackPluginInit(nitroApp, builderSignupReadyPromise, {
+      paths: [BUILDER_SIGNUP_EXPERIMENT_PATH],
+    });
+    const builderSignupExperiment = createBuilderSignupExperiment({
+      getSession,
+      sameOrigin: isSameOriginConnect,
+      activate: async (event, session, owner) => {
+        const authorization = await authorizeBuilderConnectScope(
+          event,
+          session.email,
+          null,
+        );
+        if ("deny" in authorization)
+          return { ok: false, code: authorization.deny.reason };
+        const result = await activateBuilderAccount(event, {
+          ownerEmail: session.email,
+          session,
+          provisioningToken: signBuilderProvisioningToken(
+            session.email,
+            session.token ?? "",
+          ),
+          requestedScope: null,
+          member: authorization.member,
+          connectAttemptId: null,
+          tracking: getBuilderSignupTrackingIdentity(),
+          newAccountOnly: true,
+          signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+        });
+        if (result.ok) return result;
+        return {
+          ok: false,
+          code: result.code ?? result.reason,
+          message: result.message,
+        };
+      },
+
+      reconcile: reconcileBuilderSignupActivation,
+    });
+    setBuilderSignupVerifiedStarter(async (event, session) => {
+      await awaitFrameworkReadyWithinDeadline(builderSignupReadyPromise);
+      return builderSignupExperiment.startVerifiedSignup(event, session);
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
@@ -3857,9 +3945,11 @@ export function createCoreRoutesPlugin(
               for (const [k, v] of Object.entries(persistedEnvVars)) {
                 if (!builderKeys.has(k)) cleaned[k] = v;
               }
-              await putSetting("persisted-env-vars", cleaned);
+              await putSetting("persisted-env-vars", cleaned, {
+                global: true,
+              });
               console.warn(
-                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
+                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars.`,
               );
             } catch {
               // Couldn't rewrite the row — the skip-on-rehydrate above
@@ -3949,23 +4039,7 @@ export function createCoreRoutesPlugin(
         // Audit module not available — skip
       }
 
-      for (const provider of [
-        "figma",
-        "gmail",
-        "google_calendar",
-        "google_docs",
-        "google_drive",
-        "bigquery",
-        "google_sheets",
-        "google_slides",
-        "github",
-        "hubspot",
-        "salesforce",
-        "jira",
-        "sentry",
-        "notion",
-        "sigma",
-      ] as const) {
+      for (const provider of WORKSPACE_PROVIDER_OAUTH_PROVIDERS) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,
           createWorkspaceProviderOAuthHandler(provider, "start"),
@@ -4231,11 +4305,8 @@ export function createCoreRoutesPlugin(
             return { error: "executionId required" };
           }
 
-          const {
-            hasConfiguredA2ASecret,
-            isLoopbackAddress,
-            isTrustedLocalRuntime,
-          } = await import("../a2a/auth-policy.js");
+          const { hasConfiguredA2ASecret, isTrustedLocalRequest } =
+            await import("../a2a/auth-policy.js");
           if (hasConfiguredA2ASecret()) {
             const { verifyInternalToken, extractBearerToken } =
               await import("../integrations/internal-token.js");
@@ -4244,17 +4315,12 @@ export function createCoreRoutesPlugin(
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else {
-            const loopback = isLoopbackAddress(
-              getRequestIP(event, { xForwardedFor: false }),
-            );
-            if (!isTrustedLocalRuntime({ loopback })) {
-              setResponseStatus(event, 503);
-              return {
-                error:
-                  "Sandbox execution processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
-              };
-            }
+          } else if (!isTrustedLocalRequest(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Sandbox execution processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+            };
           }
 
           try {
@@ -4334,6 +4400,7 @@ export function createCoreRoutesPlugin(
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
         const signupConnectError = await getBuilderSignupConnectError(
+          event,
           ownerContext.session?.userId,
         );
         const provisioningToken =
@@ -5091,49 +5158,15 @@ export function createCoreRoutesPlugin(
                 !connectTokenOwner || connectTokenOwner === ownerEmail,
             },
           );
-          setResponseStatus(event, 302);
-          setResponseHeader(event, "Cache-Control", "no-store");
-          setResponseHeader(event, "Location", authorizationUrl);
-          return "";
+          return redirectToBuilderAuthorization(event, authorizationUrl);
         }),
       );
 
-      const builderSignupExperiment = createBuilderSignupExperiment({
-        getSession,
-        sameOrigin: isSameOriginConnect,
-        activate: async (event, session, owner) => {
-          const authorization = await authorizeBuilderConnectScope(
-            event,
-            session.email,
-            null,
-          );
-          if ("deny" in authorization)
-            return { ok: false, code: authorization.deny.reason };
-          return activateBuilderAccount(event, {
-            ownerEmail: session.email,
-            session,
-            provisioningToken: signBuilderProvisioningToken(
-              session.email,
-              session.token ?? "",
-            ),
-            requestedScope: null,
-            member: authorization.member,
-            connectAttemptId: null,
-            tracking: getBuilderSignupTrackingIdentity(),
-            newAccountOnly: true,
-            signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
-          });
-        },
-
-        reconcile: reconcileBuilderSignupActivation,
-      });
-      setBuilderSignupVerifiedStarter(
-        builderSignupExperiment.startVerifiedSignup,
-      );
       getH3App(nitroApp).use(
-        `${P}/auth/builder-signup-experiment`,
+        BUILDER_SIGNUP_EXPERIMENT_PATH,
         builderSignupExperiment.handler,
       );
+      resolveBuilderSignupReady();
 
       getH3App(nitroApp).use(
         `${P}/builder/provision`,
@@ -6398,6 +6431,13 @@ export function createCoreRoutesPlugin(
               ...(browserSessionId ? { sessionId: browserSessionId } : {}),
               telemetryOrigin: "client" as const,
             };
+            const builderSignupExperimentId =
+              builderSignupClientFailureExperimentId(
+                event,
+                validation.name as string,
+              );
+            if (builderSignupExperimentId)
+              Object.assign(trackingSource, { builderSignupExperimentId });
             const trackClientEvent = () =>
               track(validation.name as string, properties, trackingSource);
             if (isFirstRunOnboardingEvent) {
@@ -6820,7 +6860,10 @@ export function createCoreRoutesPlugin(
       // GET    /_agent-native/runs[?active&limit]
       // GET    /_agent-native/runs/:id
       // DELETE /_agent-native/runs/:id
-      getH3App(nitroApp).use(`${P}/runs`, createProgressHandler());
+      getH3App(nitroApp).use(
+        `${P}/runs`,
+        createProgressHandler({ localApp: true }),
+      );
 
       // ─── Automations API ──────────────────────────────────────────────
       // GET  /_agent-native/automations — list all automations (parsed triggers)
@@ -6911,6 +6954,18 @@ export function createCoreRoutesPlugin(
             const data = await getSetting(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
+            // Removing a photo is a decision about this account, not about the
+            // sign-in provider: the provider's picture must not come back and
+            // make the remove control look like it did nothing.
+            const removedOverride = await getSetting(
+              `avatarRemoved:${decodeURIComponent(emailParam)}`,
+            );
+            if (
+              (removedOverride as { removed?: boolean } | null)?.removed ===
+              true
+            ) {
+              return { image: null };
+            }
             const storedImage = (data as any)?.image;
             // A silhouette saved before it was recognized is not a photo either.
             if (
@@ -6954,7 +7009,46 @@ export function createCoreRoutesPlugin(
                   "image must be a data URI with a raster MIME type (png, jpeg, gif, or webp)",
               };
             }
-            await putSetting(`avatar:${session.email}`, { image });
+            if (image.length > AVATAR_MAX_DATA_URL_LENGTH) {
+              setResponseStatus(event, 413);
+              return {
+                error: `image must be at most ${AVATAR_MAX_DATA_URL_LENGTH} bytes`,
+              };
+            }
+            const avatarOwner = session.email.trim().toLowerCase();
+            // The photo is the one setting that is a small raster image by
+            // design, so this write carries the inline-bytes exemption; the
+            // MIME allowlist and the size cap above are what bound it.
+            await putSetting(
+              `avatar:${session.email}`,
+              { image },
+              { owner: avatarOwner, allowInlineImageBytes: true },
+            );
+            await deleteSetting(`avatarRemoved:${session.email}`, {
+              owner: avatarOwner,
+              requestSource: "avatar",
+            });
+            return { ok: true };
+          }
+
+          // DELETE /_agent-native/avatar — drop the current user's photo, so the
+          // initials fallback shows again (auth required).
+          if (method === "DELETE") {
+            const session = await getSession(event);
+            if (!session?.email) {
+              setResponseStatus(event, 401);
+              return { error: "unauthorized" };
+            }
+            const avatarOwner = session.email.trim().toLowerCase();
+            await deleteSetting(`avatar:${session.email}`, {
+              owner: avatarOwner,
+              requestSource: "avatar",
+            });
+            await putSetting(
+              `avatarRemoved:${session.email}`,
+              { removed: true, at: Date.now() },
+              { owner: avatarOwner, requestSource: "avatar" },
+            );
             return { ok: true };
           }
 
@@ -7070,6 +7164,7 @@ export function createCoreRoutesPlugin(
       // every in-flight request on it returns a bare 502. `rejectInit` already
       // routes this failure to the readiness gate, which answers the affected
       // paths with a retryable 503 instead.
+      rejectBuilderSignupReady(error);
       rejectInit(error);
     }
   };

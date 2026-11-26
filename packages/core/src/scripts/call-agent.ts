@@ -34,7 +34,7 @@ import {
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
 import type { ActionRunContext } from "../agent/production-agent.js";
-import type { ActionTool } from "../agent/types.js";
+import type { A2APeerApproval, ActionTool } from "../agent/types.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
@@ -142,12 +142,15 @@ function terminalTaskError(value: unknown): {
   responseText?: string;
   errorCode?: string;
   connectionProvider?: string;
+  approval?: A2APeerApproval;
 } | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
   if (candidate.name !== "A2ATaskTerminalError") return null;
   const connectionProvider = connectionRequestProvider(candidate.task);
+  const approval = peerApprovalRequest(candidate.task);
   return {
+    ...(approval ? { approval } : {}),
     state: stringifyValue(candidate.state ?? "failed"),
     ...(typeof candidate.taskId === "string"
       ? { taskId: candidate.taskId }
@@ -176,12 +179,16 @@ function recordChildTaskFailure(
   agentName: string,
   terminal: { state: string; errorCode?: string },
   detail: string,
+  agentUrl?: string,
 ): { permanentText?: string; terminalCode: string } {
   const cause =
     terminal.errorCode === "permanent_precondition"
       ? `The ${agentName} agent could not complete this delegated request because one of its actions hit a permanent precondition.`
       : isLlmCredentialError(undefined, terminal.errorCode)
-        ? formatLlmCredentialErrorMessage({ agentName })
+        ? formatLlmCredentialErrorMessage({
+            agentName,
+            connectUrl: peerOrigin(agentUrl),
+          })
         : undefined;
   const permanentText = cause
     ? `${cause} Do not call ${agentName} again this turn; continue with other sources.` +
@@ -224,6 +231,48 @@ function connectionRequestProvider(task: unknown): string | undefined {
   const provider =
     typeof request.provider === "string" ? request.provider.trim() : "";
   return provider && provider.length <= 120 ? provider : undefined;
+}
+
+// The receiver's agent-chat plugin sets this when one of its actions waits for
+// a person to approve it in that app.
+function peerApprovalRequest(task: unknown): A2APeerApproval | undefined {
+  const request = (task as Partial<Task> | undefined)?.status?.message?.metadata
+    ?.agentNativeApproval as Partial<A2APeerApproval> | undefined;
+  if (!request || typeof request !== "object") return undefined;
+  const id = typeof request.id === "string" ? request.id.trim() : "";
+  const tool = typeof request.tool === "string" ? request.tool.trim() : "";
+  const url = typeof request.url === "string" ? request.url.trim() : "";
+  if (!id || id.length > 200 || !tool || tool.length > 200) return undefined;
+  if (!url || url.length > 2_048) return undefined;
+  return { id, tool, url };
+}
+
+// The chat links the person straight to this page, so it must be the peer's
+// own approval page for this approval, on the peer's origin.
+function approvalOnPeerOrigin(
+  approval: A2APeerApproval | undefined,
+  agentUrl: string,
+): A2APeerApproval | undefined {
+  if (!approval) return undefined;
+  let peer: URL;
+  let page: URL;
+  try {
+    peer = new URL(agentUrl);
+    page = new URL(approval.url, peer);
+  } catch {
+    // coercion-ok: an unparseable approval URL gets no card; the text still names it.
+    return undefined;
+  }
+  if (
+    (page.protocol !== "https:" && page.protocol !== "http:") ||
+    page.origin !== peer.origin ||
+    page.username ||
+    page.password ||
+    !page.pathname.endsWith(`/a2a/approvals/${encodeURIComponent(approval.id)}`)
+  ) {
+    return undefined;
+  }
+  return { ...approval, url: page.href };
 }
 
 // A connection is made by the user in the peer app; the model can neither
@@ -508,12 +557,29 @@ function integrationSourceContextHint(
   );
 }
 
+function peerOrigin(agentUrl: string | undefined): string | undefined {
+  if (!agentUrl) return undefined;
+  try {
+    const url = new URL(agentUrl);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.origin
+      : undefined;
+  } catch {
+    // coercion-ok: no link is better than a wrong one; the message still names the app.
+    return undefined;
+  }
+}
+
 function formatDownstreamLlmCredentialFailure(
   agentName: string,
   value: unknown,
+  agentUrl?: string,
 ): string | null {
   return isLlmCredentialError(value)
-    ? formatLlmCredentialErrorMessage({ agentName })
+    ? formatLlmCredentialErrorMessage({
+        agentName,
+        connectUrl: peerOrigin(agentUrl),
+      })
     : null;
 }
 
@@ -525,12 +591,18 @@ function remoteAgentAuthFailure(
 ): { message: string; errorCode: string } | null {
   if (value instanceof RemoteAgentCredentialRejectedError) {
     if (!hostedAuthConfigured) {
-      if (callerWorkspace?.orgId && !callerWorkspace.orgDomain?.trim()) {
+      // With A2A_SECRET set, a domainless workspace still sends the user's
+      // personal identity, so a rejection there is an ordinary auth failure.
+      if (
+        callerWorkspace?.orgId &&
+        !callerWorkspace.orgDomain?.trim() &&
+        !getGlobalA2ASecret()
+      ) {
         return {
           message:
             `Error: The ${agentName} agent rejected the A2A request (HTTP ${value.statusCode}). ` +
-            "This workspace has no domain configured, so the caller could not send a workspace-scoped identity. " +
-            "Set the workspace domain or configure explicit credentials for this agent, then retry.",
+            "This workspace has no domain configured and this app has no A2A_SECRET, so the caller could not send a verified identity. " +
+            "Set the same A2A_SECRET on both apps, set the workspace domain, or configure explicit credentials for this agent, then retry.",
           errorCode: "a2a_caller_org_domain_missing",
         };
       }
@@ -1139,37 +1211,19 @@ export async function run(
     if (context?.send) {
       const callerEmail = getRequestUserEmail();
 
-      const a2aMetadata: Record<string, unknown> = {};
-      if (callerEmail) a2aMetadata.userEmail = callerEmail;
-
       let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
       callerOrgId = orgId;
       if (orgId && !agent.auth) {
         callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
-        if (callerOrgDomain) a2aMetadata.orgDomain = callerOrgDomain;
         callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
-      }
-
-      if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
-        try {
-          const { listOAuthAccountsByOwner } =
-            await import("../oauth-tokens/store.js");
-          const accounts = await listOAuthAccountsByOwner(
-            "google",
-            callerEmail,
-          );
-          const tokens = accounts[0]?.tokens;
-          if (tokens?.access_token) {
-            a2aMetadata.googleToken = tokens.access_token;
-          }
-        } catch {}
       }
 
       let responseText = "";
       let lastSentLength = 0;
       const agentCallId = randomUUID();
       let terminalStatus: "done" | "pending" | "error" = "done";
+      let pendingApproval: A2APeerApproval | undefined;
       const existingContinuationText = taskId
         ? null
         : await formatExistingIntegrationContinuationIfRetry(agent, message);
@@ -1179,11 +1233,14 @@ export async function run(
         return existingContinuationText;
       }
 
+      // A resume names its task from the start, so the chat can tell which
+      // paused task is running again before the call ends.
       context.send({
         type: "agent_call",
         agent: agent.name,
         status: "start",
         agentCallId,
+        ...(taskId ? { taskId } : {}),
       });
 
       const emitNewText = (newText: string) => {
@@ -1280,8 +1337,11 @@ export async function run(
             : {}),
         });
         responseText =
-          formatDownstreamLlmCredentialFailure(agent.name, responseText) ??
-          responseText;
+          formatDownstreamLlmCredentialFailure(
+            agent.name,
+            responseText,
+            agent.url,
+          ) ?? responseText;
         responseText = expandRelativeUrls(responseText, agent.url);
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
@@ -1330,6 +1390,10 @@ export async function run(
           );
           invocationTerminalCode = inputRequired.terminalCode;
           responseText = inputRequired.text;
+          // Without a taskId there is nothing to continue after approving.
+          pendingApproval = terminal.taskId
+            ? approvalOnPeerOrigin(terminal.approval, agent.url)
+            : undefined;
         } else if (terminalTaskError(pollErr)) {
           terminalStatus = "error";
           const terminal = terminalTaskError(pollErr)!;
@@ -1344,6 +1408,7 @@ export async function run(
             agent.name,
             terminal,
             detail,
+            agent.url,
           );
           invocationTerminalCode = childFailure.terminalCode;
           responseText =
@@ -1365,7 +1430,11 @@ export async function run(
           const reason = pollErr?.message ?? "unknown error";
           responseText =
             authFailure?.message ??
-            formatDownstreamLlmCredentialFailure(agent.name, pollErr) ??
+            formatDownstreamLlmCredentialFailure(
+              agent.name,
+              pollErr,
+              agent.url,
+            ) ??
             `Error: The ${agent.name} agent call failed. (${reason})`;
         }
       }
@@ -1397,6 +1466,9 @@ export async function run(
         durationMs: Date.now() - callStartedAt,
         ...(invocationTerminalCode
           ? { terminalCode: invocationTerminalCode }
+          : {}),
+        ...(terminalStatus === "pending" && pendingApproval
+          ? { approval: pendingApproval }
           : {}),
       });
 
@@ -1453,7 +1525,8 @@ export async function run(
       ...(files.length > 0 ? { files } : {}),
     });
     const sanitized =
-      formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;
+      formatDownstreamLlmCredentialFailure(agent.name, response, agent.url) ??
+      response;
     const expanded = expandRelativeUrls(sanitized, agent.url);
     if (!expanded) {
       invocationStatus = "error";
@@ -1505,6 +1578,7 @@ export async function run(
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
       err,
+      agent.url,
     );
     if (credentialMessage) {
       // A typed credential failure returns here before the terminal branch
@@ -1518,6 +1592,7 @@ export async function run(
           agent.name,
           terminal,
           terminal.responseText ?? "",
+          agent.url,
         ).terminalCode;
       }
       return credentialMessage;
@@ -1531,6 +1606,7 @@ export async function run(
         agent.name,
         terminal,
         terminal.responseText ?? "",
+        agent.url,
       );
       invocationTerminalCode = childFailure.terminalCode;
       const detail = terminal.responseText
@@ -1616,8 +1692,8 @@ async function invokeReadOnlyAppAction(
     !getGlobalA2ASecret()
   ) {
     return (
-      `Error calling ${agent.name} action ${action}: this workspace has no domain configured, ` +
-      "so the request cannot include workspace-scoped A2A identity. Set the workspace domain or configure explicit credentials for this agent."
+      `Error calling ${agent.name} action ${action}: this workspace has no domain configured and this app has no A2A_SECRET, ` +
+      "so the request cannot include a verified A2A identity. Set the same A2A_SECRET on both apps, set the workspace domain, or configure explicit credentials for this agent."
     );
   }
 

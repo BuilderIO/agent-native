@@ -26,6 +26,7 @@ export interface Resource {
   id: string;
   path: string;
   owner: string;
+  inheritedFromAppDefault?: true;
   content: string;
   mimeType: string;
   size: number;
@@ -37,12 +38,19 @@ export interface Resource {
   runId: string | null;
   expiresAt: number | null;
   metadata: string | null;
+  /**
+   * The content's revision, from a read or save of this resource. Send it back
+   * as `expectedRevision` so the save can't write over newer content. Binary
+   * resources have none.
+   */
+  revision?: string;
 }
 
 export interface ResourceMeta {
   id: string;
   path: string;
   owner: string;
+  inheritedFromAppDefault?: true;
   mimeType: string;
   size: number;
   createdAt: number;
@@ -256,12 +264,25 @@ export function resourceDownloadUrl(id: string): string {
 // Agent resource tools (save-memory, resources write) reach the client only as
 // `action` change events; folding that counter into the key is what makes an
 // agent's write show up without a reload.
-export function useResources(scope: ResourceScope = "personal") {
+export function useResources(
+  scope: ResourceScope = "personal",
+  opts?: { prefix?: string; enabled?: boolean; cacheScope?: string },
+) {
   const query = new URLSearchParams({ scope });
+  if (opts?.prefix) query.set("prefix", opts.prefix);
   const agentWrites = useChangeVersion("action");
   return useQuery<ResourceMeta[]>({
-    queryKey: ["resources", "list", scope, agentWrites],
-    placeholderData: keepPreviousData,
+    queryKey: [
+      "resources",
+      "list",
+      scope,
+      agentWrites,
+      opts?.prefix,
+      opts?.cacheScope,
+    ],
+    enabled: opts?.enabled,
+    placeholderData:
+      opts?.cacheScope === undefined ? keepPreviousData : undefined,
     queryFn: async () => {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
         agentNativePath(`/_agent-native/resources?${query.toString()}`),
@@ -273,7 +294,7 @@ export function useResources(scope: ResourceScope = "personal") {
 
 export function useResourceTree(
   scope: ResourceScope = "personal",
-  opts?: { includeAgentScratch?: boolean },
+  opts?: { includeAgentScratch?: boolean; seedDefaults?: boolean },
 ) {
   const agentWrites = useChangeVersion("action");
   return useQuery<TreeNode[]>({
@@ -283,11 +304,13 @@ export function useResourceTree(
       scope,
       opts?.includeAgentScratch ?? false,
       agentWrites,
+      opts?.seedDefaults ?? true,
     ],
     placeholderData: keepPreviousData,
     queryFn: async () => {
       const query = new URLSearchParams({ scope });
       if (opts?.includeAgentScratch) query.set("includeAgentScratch", "true");
+      if (opts?.seedDefaults === false) query.set("seedDefaults", "false");
       const data = await fetchJson<{ tree: TreeNode[] }>(
         agentNativePath(`/_agent-native/resources/tree?${query.toString()}`),
       );
@@ -326,18 +349,58 @@ export function useCreateResource() {
       mimeType?: string;
       shared?: boolean;
       uniqueSkillPath?: boolean;
+      uniquePath?: boolean;
+      ifNotExists?: boolean;
     }) => {
       const res = await fetch(agentNativePath("/_agent-native/resources"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`Create failed: ${res.statusText}`);
+      if (!res.ok) {
+        throw await resourceWriteError(res, `Create failed: ${res.statusText}`);
+      }
       return res.json() as Promise<Resource>;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["resources"] });
     },
+  });
+}
+
+/**
+ * The error for a resource write that came back not ok. It keeps the status
+ * and, when the server explains a refusal (a rename onto a taken name, say),
+ * its message, `errorCode` and `details`, so the write-failure toast shows the
+ * message and `isNameTaken` finds the free name.
+ */
+export async function resourceWriteError(
+  res: Response,
+  fallback: string,
+): Promise<Error> {
+  // coercion-ok: a body that isn't JSON has no message to keep; the error still says what failed through `fallback` and the status.
+  const body = (await res.json().catch(() => null)) as {
+    error?: unknown;
+    message?: unknown;
+    unhandled?: unknown;
+    errorCode?: unknown;
+    details?: unknown;
+  } | null;
+  const message =
+    typeof body?.error === "string"
+      ? body.error
+      : body?.unhandled !== true && typeof body?.message === "string"
+        ? body.message
+        : undefined;
+  return Object.assign(new Error(message ?? fallback), {
+    status: res.status,
+    ...(message !== undefined && res.status < 500
+      ? { actionMessage: message }
+      : {}),
+    ...(typeof body?.errorCode === "string"
+      ? { errorCode: body.errorCode }
+      : {}),
+    ...(body?.details !== undefined ? { details: body.details } : {}),
   });
 }
 
@@ -351,7 +414,14 @@ export function useUpdateResource() {
       id: string;
       content?: string;
       path?: string;
+      restoreSkill?: boolean;
       mimeType?: string;
+      /**
+       * The `revision` the new content was edited from. If someone saved other
+       * content since, the update throws a save conflict (`isSaveConflict`)
+       * with what's there now, and nothing is written.
+       */
+      expectedRevision?: string | undefined;
     }) => {
       const res = await fetch(
         agentNativePath(`/_agent-native/resources/${id}`),
@@ -361,7 +431,9 @@ export function useUpdateResource() {
           body: JSON.stringify(body),
         },
       );
-      if (!res.ok) throw new Error(`Update failed: ${res.statusText}`);
+      if (!res.ok) {
+        throw await resourceWriteError(res, `Update failed: ${res.statusText}`);
+      }
       return res.json() as Promise<Resource>;
     },
     onSuccess: (_data, variables) => {
@@ -373,18 +445,22 @@ export function useUpdateResource() {
   });
 }
 
-export function useDeleteResource() {
+export function useDeleteResource(opts?: { trashSkill?: boolean }) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(
-        agentNativePath(`/_agent-native/resources/${id}`),
+        agentNativePath(
+          `/_agent-native/resources/${id}${opts?.trashSkill ? "?trashSkill=true" : ""}`,
+        ),
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
         },
       );
-      if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
+      if (!res.ok) {
+        throw await resourceWriteError(res, `Delete failed: ${res.statusText}`);
+      }
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["resources"] });

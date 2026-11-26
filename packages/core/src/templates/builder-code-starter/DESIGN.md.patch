@@ -1,7 +1,7 @@
 ===================================================================
 --- a/DESIGN.md
 +++ b/DESIGN.md
-@@ -1,38 +1,67 @@
+@@ -1,38 +1,72 @@
  # Visual Design Contract
  
 -Chat is a quiet, full-canvas conversation workbench. AgentKit owns the
@@ -98,3 +98,8 @@
 +- Density comes from data, not prose. Subtract explanatory chrome; never
 +  subtract the visual craft that makes the app impressive.
 +- Compare against real products in the chosen mode, not against the starter.
++- Style with Tailwind utilities on the elements themselves. The preview reloads
++  on every file write, so markup that depends on classes you haven't written
++  yet renders unstyled mid-build. If a surface genuinely needs custom CSS in
++  `app/global.css`, write it before, or in the same step as, the markup that
++  uses it.

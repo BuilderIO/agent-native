@@ -8,7 +8,9 @@ import { SelfDispatchHttpError } from "../server/self-dispatch.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_CHAT_TURN_GRANT_FIELD,
 } from "./durable-background.js";
+import { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "./durable-turn-grant.js";
 import {
   chainServerDrivenContinuation,
   DurableAttachmentReferenceRequiredError,
@@ -1169,6 +1171,72 @@ describe("chainServerDrivenContinuation — per-turn token total is carried to t
     expect(JSON.parse(insertOpts.dispatchPayload)).toMatchObject({
       [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: 1_234_567,
     });
+  });
+});
+
+describe("chainServerDrivenContinuation — interactive turn grant", () => {
+  const initiator = {
+    email: "alice@example.com",
+    authUserId: "user-1",
+    orgId: null,
+    orgScope: null,
+    anonymous: false,
+  };
+  const staleGrant = { runId: "run-chunk0", signature: "stale" };
+  let prevSecret: string | undefined;
+  beforeEach(() => {
+    prevSecret = process.env.A2A_SECRET;
+    process.env.A2A_SECRET = "test-secret-do-not-use-in-prod";
+  });
+  afterEach(() => {
+    if (prevSecret === undefined) delete process.env.A2A_SECRET;
+    else process.env.A2A_SECRET = prevSecret;
+  });
+
+  async function successorBody(event: unknown) {
+    const h = makeHarness();
+    await chainServerDrivenContinuation({
+      event,
+      run: timeoutBoundaryRun(),
+      effectiveThreadId: "thread-1",
+      effectiveTurnId: "turn-1",
+      requestBody: {
+        message: "go",
+        threadId: "thread-1",
+        [AGENT_CHAT_TURN_GRANT_FIELD]: staleGrant,
+      },
+      backgroundContinuationCount: 0,
+      chainViaDurableBackground: false,
+      turnInitiator: initiator,
+      deps: h.deps,
+    });
+    const insertOpts = (h.deps.insertRun as any).mock.calls[0][3];
+    return JSON.parse(insertOpts.dispatchPayload) as Record<string, unknown>;
+  }
+
+  it("re-signs a verified grant for the successor run, keeping its turn and expiry", async () => {
+    const expiresAt = Date.now() + 60_000;
+    const body = await successorBody({
+      context: {
+        [VERIFIED_TURN_GRANT_CONTEXT_KEY]: {
+          runId: "run-chunk0",
+          turnId: "turn-1",
+          owner: "alice@example.com",
+          expiresAt,
+        },
+      },
+    });
+    expect(body[AGENT_CHAT_TURN_GRANT_FIELD]).toMatchObject({
+      runId: "run-next",
+      turnId: "turn-1",
+      expiresAt,
+      signature: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  it("drops the copied grant when this run verified none", async () => {
+    const body = await successorBody({ context: {} });
+    expect(body).not.toHaveProperty(AGENT_CHAT_TURN_GRANT_FIELD);
   });
 });
 

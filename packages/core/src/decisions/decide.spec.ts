@@ -1111,6 +1111,7 @@ describe("decide", () => {
       status: "not_configured",
       reason: "missing_credentials",
       providers: ["jev", "openai"],
+      credentialKeys: ["JEV_API_KEY", "OPENAI_API_KEY"],
     });
   });
 });

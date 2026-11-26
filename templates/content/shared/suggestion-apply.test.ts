@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { canonicalizeNfm } from "./nfm.js";
 import {
   applyMarkdownSuggestionWithSiblings,
+  operationOnText,
+  rangeOnText,
   rebaseOntoAcceptedSiblings,
   type AcceptedSiblingRange,
 } from "./suggestion-apply.js";
@@ -372,5 +374,67 @@ describe("rebaseOntoAcceptedSiblings", () => {
       ),
     );
     expect(rebased && rebased.text.slice(rebased.from, rebased.to)).toBe("can");
+  });
+});
+
+describe("moving a suggestion onto a later text of the Page", () => {
+  const original =
+    "The coastal town wakes early as gulls circle overhead and boats leave at dawn.";
+  const later = original.replace("coastal", "harbour-side");
+  const at = (text: string, word: string) => ({
+    from: text.indexOf(word),
+    to: text.indexOf(word) + word.length,
+  });
+
+  it("moves a range the texts differ only away from", () => {
+    expect(rangeOnText(original, later, at(original, "early"))).toEqual(
+      at(later, "early"),
+    );
+    expect(
+      rangeOnText(original, later, { ...at(original, "The"), text: "A" }),
+    ).toEqual({ ...at(later, "The"), text: "A" });
+  });
+
+  it("leaves out a range the later text already changed", () => {
+    expect(rangeOnText(original, later, at(original, "coastal"))).toBeNull();
+    expect(
+      rangeOnText(original, later, at(original, "coastal town")),
+    ).toBeNull();
+  });
+
+  it("saves the suggestion as if from the later text", () => {
+    const { from, to } = at(original, "early");
+    const slowly = {
+      ...suggestion(original, from, to, "slowly"),
+      anchor: {
+        ...suggestion(original, from, to, "slowly").anchor,
+        siblingRanges: [at(original, "coastal"), at(original, "dawn")],
+      },
+    };
+    const moved = operationOnText(slowly, later);
+    expect(moved).toEqual({
+      kind: "replace_text",
+      before: { markdown: later, changedText: "early" },
+      after: {
+        markdown: later.replace("early", "slowly"),
+        changedText: "slowly",
+      },
+      anchor: {
+        ...at(later, "early"),
+        prefix: " ",
+        suffix: " ",
+        siblingRanges: [at(later, "dawn")],
+      },
+    });
+    expect(moved && applyMarkdownSuggestionWithSiblings(later, moved, [])).toBe(
+      later.replace("early", "slowly"),
+    );
+  });
+
+  it("can't move the suggestion the later text already holds", () => {
+    const { from, to } = at(original, "coastal");
+    const seaside = suggestion(original, from, to, "harbour-side");
+    expect(operationOnText(seaside, later)).toBeNull();
+    expect(operationOnText(seaside, original)).toBe(seaside);
   });
 });

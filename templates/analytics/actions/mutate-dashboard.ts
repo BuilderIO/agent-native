@@ -6,13 +6,17 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
-import { z } from "zod";
-
+import {
+  PANEL_CHART_TYPES,
+  validatePanelContract,
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
 import {
   MAX_PANEL_HEIGHT,
   MIN_PANEL_HEIGHT,
   PANEL_HEIGHT_UNIT_PX,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { z } from "zod";
+
 import {
   dashboardNoopReceipt,
   dashboardWriteReceipt,
@@ -28,16 +32,19 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
+  requireDashboardAccess,
   upsertDashboardWithRetryOutcome,
   type DashboardRecord,
 } from "../server/lib/dashboards-store";
 import {
-  PANEL_CHART_TYPES,
-  validatePanelContract,
-} from "../shared/panel-render-contract";
+  expectedUpdatedAtArg,
+  guardWrite,
+  idempotencyKeyArg,
+} from "../server/lib/guarded-writes";
 import {
   applyDashboardMutationOperations,
   DASHBOARD_MUTATION_API_TYPES,
@@ -115,6 +122,7 @@ const insertPanelSchema = z
         "demo",
         "prometheus",
         "program",
+        "postgres",
       ])
       .optional(),
     sql: z.string().optional(),
@@ -258,6 +266,18 @@ const agentInputSchema = z.object({
     .boolean()
     .optional()
     .describe("With no dashboardId, return the `code` API and examples."),
+  // Every chat pays for these, so the protocol lives in the MCP instructions.
+  expectedUpdatedAt: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("updatedAt from your last read; a 409 means it changed."),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("New unique key per write; resend it only to retry."),
 });
 
 function resolveScope() {
@@ -465,6 +485,8 @@ function helpResult() {
   };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget("mutate-dashboard");
+
 export default defineAction({
   searchHints: ["add a chart", "add a panel", "edit a chart", "remove a chart"],
   description:
@@ -493,8 +515,27 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("With no dashboardId, return the `code` API and examples."),
+    expectedUpdatedAt: expectedUpdatedAtArg("dashboard"),
+    idempotencyKey: idempotencyKeyArg,
   }),
   agentInputSchema,
+  mcpTool: true,
+  // Its operations can remove or replace panels.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  // The MCP input gate matches the `code` field by name. It is the
+  // constrained dashboard script, parsed and never evaluated; panel SQL in it
+  // is validated and verified like every other agent write. Nothing else is
+  // exposed: no public catalog, no direct A2A.
+  publicAgent: {
+    expose: false,
+    readOnly: false,
+    requiresAuth: true,
+    allowRawQueryInput: true,
+  },
   http: { method: "POST" },
   mcpApp: {
     compactCatalog: true,
@@ -511,7 +552,7 @@ export default defineAction({
   // A replayed insert or duplicate fails on the existing id, a replayed remove
   // fails on the missing id, and every move, patch, and filter default is an end state.
   retrySafe: true,
-  run: async (args, actionContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const code = nonEmptyCode(args.code);
     const requestedOperations = nonEmptyOperations(args.operations);
     const wantsHelpOnly =
@@ -535,6 +576,27 @@ export default defineAction({
     const ctx = { email: scope.email, orgId: scope.orgId };
     const agentCaller = isAgentCaller(actionContext?.caller);
     const verificationMemo = new Map<string, PanelVerification>();
+    const guard = guardWrite({
+      action: "mutate-dashboard",
+      target: { kind: "dashboard", id: dashboardId },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: {
+        code: code ?? null,
+        operations: requestedOperations ?? null,
+        allowEmptyResult: args.allowEmptyResult === true,
+      },
+    });
+    if (args.dryRun !== true) {
+      guard.requireKey();
+      guard.requireFence();
+      const replayed = await guard.preflight(() =>
+        requireDashboardAccess(dashboardId, ctx, "editor"),
+      );
+      if (replayed) return { id: dashboardId, dashboardId, ...replayed };
+    }
 
     function verifyMutation(
       base: Record<string, unknown>,
@@ -548,6 +610,7 @@ export default defineAction({
         allowEmptyResult: args.allowEmptyResult,
         memo: verificationMemo,
         dashboardId,
+        budget: verificationBudget,
       });
     }
 
@@ -653,7 +716,12 @@ export default defineAction({
           }
           return { kind: "sql" as const, body: computed.nextRoot };
         },
-      );
+        undefined,
+        guard.store,
+      ).catch(guard.recover);
+      if ("replayed" in persisted) {
+        return { id: dashboardId, dashboardId, ...persisted };
+      }
       root = persisted.dashboard.config as Record<string, unknown>;
       savedUpdatedAt = persisted.dashboard.updatedAt;
       didWrite = persisted.didWrite;
@@ -748,6 +816,9 @@ export default defineAction({
               timeoutMs: DASHBOARD_COLLAB_SYNC_TIMEOUT_MS,
             },
           }),
+      ...(savedUpdatedAt === undefined
+        ? {}
+        : guard.resultFields({ updatedAt: savedUpdatedAt })),
       ...(args.returnConfig === true ? { config: root } : {}),
       ...(args.returnTypes === true
         ? {
@@ -768,7 +839,7 @@ export default defineAction({
           ? ""
           : "Full config omitted; call get-sql-dashboard with panelIds for a panel's SQL and config (includeConfig=true only to review the whole dashboard)."),
     };
-  },
+  }),
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"

@@ -35,6 +35,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async (_args, ctx?: ActionRunContext) => {
     const navigation = (await readAppStateForCurrentTab("navigation")) as {
       view?: CrmView;

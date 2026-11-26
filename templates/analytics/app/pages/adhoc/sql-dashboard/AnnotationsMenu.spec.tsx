@@ -30,12 +30,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { i18nCatalog } from "../../../i18n";
 import { AnnotationsMenu } from "./AnnotationsMenu";
-import type { DashboardAnnotations, SqlPanel } from "./types";
 
 const set = (id: string, name: string) => ({
   id,

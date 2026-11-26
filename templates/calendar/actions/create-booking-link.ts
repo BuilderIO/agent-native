@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -13,9 +14,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
 import {
+  bookingReminderMinutesSchema,
   rowToBookingLink,
   serializeBookingHosts,
 } from "../server/lib/booking-link-utils.js";
+import { DEFAULT_BOOKING_REMINDER_MINUTES } from "../shared/api.js";
 
 const hostsSchema = z
   .union([
@@ -33,6 +36,13 @@ const hostsSchema = z
   .optional();
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   searchHints: [
     "booking page",
     "scheduling link",
@@ -70,6 +80,11 @@ export default defineAction({
     ),
     customFields: z.array(z.any()).optional().describe("Custom form fields"),
     conferencing: z.any().optional().describe("Conferencing configuration"),
+    reminderMinutes: bookingReminderMinutesSchema
+      .optional()
+      .describe(
+        "When to email the guest a reminder before the meeting: 0 for none, 60 for 1 hour before, 1440 for 1 day before (the default)",
+      ),
     color: z.string().optional().describe("Display color"),
     isActive: z.boolean().optional().describe("Whether the link is active"),
   }),
@@ -131,6 +146,8 @@ export default defineAction({
         conferencing: body.conferencing
           ? JSON.stringify(body.conferencing)
           : null,
+        reminderMinutes:
+          body.reminderMinutes ?? DEFAULT_BOOKING_REMINDER_MINUTES,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
         ownerEmail,

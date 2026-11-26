@@ -35,6 +35,7 @@ import {
   parseInlineGeneratePrompt,
   runGeneratePromptIfAllowed,
   slashCommandAllowedInMode,
+  slashCommandStartIndex,
   slashCommandsForDirectoryWidget,
   slashCommandsForMode,
   SlashCommandMenu,
@@ -56,10 +57,6 @@ describe("failed slash creation cleanup", () => {
     expect(trash).toHaveBeenCalledOnce();
   });
 });
-
-function TestIcon() {
-  return createElement("svg");
-}
 
 function readSlashCommandMenuSource() {
   return readFileSync(
@@ -166,7 +163,7 @@ describe("generate command affordances", () => {
     expect(source).toMatch(
       /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
     );
-    expect(source).toContain("icon: IconHierarchy2");
+    expect(source).toContain('title: t("editor.slash.generate")');
     expect(source).not.toContain("shouldOpenGenerateOnSpace");
     expect(source).not.toContain('e.code === "Space"');
   });
@@ -197,6 +194,14 @@ describe("slash command menu trigger", () => {
         (item) => item.suggestionSafe === true,
       ),
     ).toBe(true);
+  });
+
+  it("finds a heading by its short name", () => {
+    expect(
+      buildHeadingCommands("set")
+        .slice(0, 3)
+        .map((item) => item.searchText),
+    ).toEqual(["h1", "h2", "h3"]);
   });
 
   it("limits a writable directory widget to local document-formatting commands", () => {
@@ -260,6 +265,18 @@ describe("slash command menu trigger", () => {
     expect(excludeCommandsWithDuplicateTitles(native, registry)).toEqual([
       { title: "API endpoint" },
     ]);
+  });
+
+  it("starts on a command named by the query before one matched only by its description", () => {
+    const commands = [
+      { title: "To-do list", description: "Checklist items" },
+      { title: "Add check", description: "Mark the parts that don't pass" },
+    ];
+
+    expect(slashCommandStartIndex(commands, "check")).toBe(1);
+    expect(slashCommandStartIndex(commands, "Check")).toBe(1);
+    expect(slashCommandStartIndex(commands, "")).toBe(0);
+    expect(slashCommandStartIndex(commands, "items")).toBe(0);
   });
 
   it("persists structural slash-command results immediately", () => {
@@ -569,6 +586,68 @@ describe("slash command menu trigger", () => {
       container.remove();
     }
   });
+
+  it("adds a check from /check on Enter", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p></p>",
+    });
+    const onAddCheck = vi.fn();
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, { editor, onAddCheck }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        editor.commands.focus("end");
+        editor.commands.insertContent("/check");
+      });
+      await act(async () => Promise.resolve());
+
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(onAddCheck).toHaveBeenCalledOnce();
+      expect(editor.getJSON().content[0]).toMatchObject({ type: "paragraph" });
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
 });
 
 describe("slash command pointer activation", () => {
@@ -587,7 +666,6 @@ describe("slash command pointer activation", () => {
           cmd: {
             title: "Code Block",
             description: "Insert a code block",
-            icon: TestIcon,
             action: vi.fn(),
           },
           isSelected: true,

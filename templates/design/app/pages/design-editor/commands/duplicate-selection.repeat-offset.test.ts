@@ -84,7 +84,6 @@ describe("runDuplicateSelection repeat offset", () => {
         handleDuplicateScreen: () => {},
         lastDuplicateTransformRef,
         overviewSelectedScreenIds: [fileId],
-        remapMotionTracksForClone: () => {},
         selectedCanvasSelector: node.selector,
         selectedElement: null,
         selectedLayerIdsState: [node.id],

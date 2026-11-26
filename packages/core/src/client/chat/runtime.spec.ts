@@ -25,6 +25,7 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   AGENT_CALL_FAILURE_REASON_KEYS,
   createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createHttpAgentChatRuntime,
@@ -278,6 +279,166 @@ describe("createHttpAgentChatRuntime", () => {
 
     await turn.cancel?.({ reason: "user" });
     expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/cancel");
+  });
+
+  it("tells the server on Stop the last event it handed on, and hands on no more", async () => {
+    const encoder = new TextEncoder();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const send = (event: unknown) =>
+      stream.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller;
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": "run-runtime",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    const events = turn.events[Symbol.asyncIterator]();
+
+    send({
+      type: "message-start",
+      message: { id: "m1", role: "assistant", content: [] },
+      seq: 0,
+    });
+    send({
+      type: "message-delta",
+      messageId: "m1",
+      delta: { type: "text", text: "One," },
+      seq: 1,
+    });
+    expect((await events.next()).value).toMatchObject({
+      type: "message-start",
+    });
+    expect((await events.next()).value).toMatchObject({
+      type: "message-delta",
+    });
+    send({
+      type: "message-delta",
+      messageId: "m1",
+      delta: { type: "text", text: " two," },
+      seq: 2,
+    });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/abort");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      reason: "user",
+      shownThroughSeq: 1,
+    });
+    expect((await events.next()).done).toBe(true);
+  });
+
+  it("tells the server it showed nothing when it stops before the first event", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse([]))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+  });
+
+  it("sends no cutoff after an event without a sequence number", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "message-start",
+            message: { id: "m1", role: "assistant", content: [] },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    await turn.events[Symbol.asyncIterator]().next();
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1][1]?.body)),
+    ).not.toHaveProperty("shownThroughSeq");
+  });
+
+  it("doesn't count a server event as shown until all it maps to is handed on", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "text", text: "One,", seq: 0 }]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+      mapEvent: (event) => [
+        {
+          type: "message-start",
+          message: { id: "m1", role: "assistant", content: [] },
+        },
+        {
+          type: "message-delta",
+          messageId: "m1",
+          delta: {
+            type: "text",
+            text: String((event as { text?: unknown }).text),
+          },
+        },
+      ],
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    const events = turn.events[Symbol.asyncIterator]();
+    expect((await events.next()).value).toMatchObject({
+      type: "message-start",
+    });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+    expect((await events.next()).done).toBe(true);
   });
 
   it("closes an unconsumed response stream without cancelling its run", async () => {
@@ -1466,11 +1627,19 @@ describe("createAgentNativeChatRuntime", () => {
       String(fetchMock.mock.calls[1]?.[1]?.body),
     );
     const initialBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    // The payload's `id` is no longer forwarded verbatim: it is derived from the body's
+    // message id, because the server rejects a start whose payload id differs from the
+    // body's agentKitMessageId ("submissionPayload does not match this message",
+    // production-agent.ts). This fixture used to store an unrelated id
+    // ("submission-image-approval"), which is precisely the disagreement the derivation
+    // removes; threadId and text are unchanged, and the derivation itself is pinned in
+    // submission-payload-derivation.spec.ts.
     expect(initialBody.submissionPayload).toEqual({
-      id: "submission-image-approval",
+      id: initialBody.agentKitMessageId,
       threadId: "thread-approval-image-history",
       text: "Review this image before publishing.",
     });
+    expect(initialBody.agentKitMessageId).toBeTypeOf("string");
     expect(continuationBody.message).toBe(
       "The approved action has run. Do not repeat it; use its result in your reply.",
     );
@@ -1618,6 +1787,30 @@ describe("createAgentNativeChatRuntime", () => {
     }
   });
 
+  it("sends the browser's time zone with a chat turn", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/agent-engine/status")
+        ? jsonResponse({ configured: true, chatEligible: true })
+        : sseResponse([{ type: "done" }]),
+    );
+    const apiUrl = "/_agent-native/agent-chat";
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl,
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    await drain(
+      (await session.startTurn({ prompt: "When is my next meeting?" })).events,
+    );
+
+    const chatRequest = fetchMock.mock.calls.find(
+      ([input]) => String(input) === apiUrl,
+    )?.[1];
+    expect(new Headers(chatRequest?.headers).get("x-user-timezone")).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+
   it("checks AI readiness before posting a new turn", async () => {
     resetAgentEngineReadinessForTests();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -1636,6 +1829,8 @@ describe("createAgentNativeChatRuntime", () => {
     await expect(
       session.startTurn({ prompt: "Blocked" }),
     ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+    // A definitive answer is one probe: only an unanswered probe is retried
+    //.
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "/_agent-native/agent-engine/status",
@@ -1737,10 +1932,13 @@ describe("createAgentNativeChatRuntime", () => {
       name: "AgentChatAiSetupRequiredError",
       state: "unavailable",
     });
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      "/_agent-native/agent-engine/status",
-    );
+    // Still blocked: the probe retries a bounded number of times and a
+    // sustained 503 is still an outage, and every probe
+    // went to the readiness route.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    for (const call of fetchMock.mock.calls) {
+      expect(String(call[0])).toContain("/_agent-native/agent-engine/status");
+    }
   });
 
   it("bounds asynchronous auth-header resolution and permits a later retry", async () => {
@@ -3356,6 +3554,85 @@ describe("createAgentNativeChatRuntime", () => {
     expect(results).toHaveLength(64);
   });
 
+  it("carries configured history limits into the follow-up message", async () => {
+    const toolContent = Array.from({ length: 120 }, (_, index) => {
+      const id = `call-${index + 1}`;
+      return [
+        {
+          type: "tool-call" as const,
+          toolCallId: id,
+          toolName: "search",
+          input: { query: id },
+        },
+        {
+          type: "tool-result" as const,
+          toolCallId: id,
+          result: index === 0 ? "x".repeat(80 * 1024) : { result: id },
+        },
+      ];
+    }).flat();
+    const send = async (historyLimits?: {
+      maxToolCalls?: number;
+      maxBytes?: number;
+      maxValueBytes?: number;
+    }) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-configured-history-limits",
+        fetch: fetchMock as typeof fetch,
+        ...(historyLimits ? { historyLimits } : {}),
+      });
+      const turn = await (
+        await runtime.createSession()
+      ).startTurn({
+        prompt: "Continue",
+        messages: [
+          { id: "assistant-tools", role: "assistant", content: toolContent },
+          {
+            id: "user-current",
+            role: "user",
+            content: [{ type: "text", text: "Continue" }],
+          },
+        ],
+      });
+      await drain(turn.events);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      const parts = (
+        body.structuredHistory as Array<{
+          content: Array<{ type: string; id?: string; text?: string }>;
+        }>
+      ).flatMap((message) => message.content);
+      return parts;
+    };
+
+    const defaults = await send();
+    expect(defaults.filter((part) => part.type === "tool-call")).toHaveLength(
+      64,
+    );
+
+    const raised = await send({
+      maxToolCalls: 120,
+      maxBytes: 1024 * 1024,
+      maxValueBytes: 128 * 1024,
+    });
+    const raisedCalls = raised.filter((part) => part.type === "tool-call");
+    expect(raisedCalls).toHaveLength(120);
+    expect(raisedCalls[0]?.id).toBe("call-1");
+    expect(JSON.stringify(raised)).not.toContain("exceeds 64 KiB");
+    expect(JSON.stringify(raised)).not.toContain("history was omitted");
+
+    const lowered = await send({ maxToolCalls: 10 });
+    expect(lowered.filter((part) => part.type === "tool-call")).toHaveLength(
+      10,
+    );
+    expect(JSON.stringify(lowered)).toContain(
+      "within 256 KiB and 10 tool entries",
+    );
+  });
+
   it("omits unmatched boundary results when their calls fall outside the source window", async () => {
     let boundaryResultRead = false;
     const boundaryCall = {
@@ -4400,7 +4677,7 @@ describe("createAgentNativeChatRuntime", () => {
             },
           ],
         },
-        { type: "done" },
+        { type: "done", durationMs: 5_027 },
       ]),
     );
     const runtime = createAgentNativeChatRuntime({
@@ -4455,6 +4732,7 @@ describe("createAgentNativeChatRuntime", () => {
     expect(events.at(-2)).toMatchObject({
       type: "message-done",
       message: {
+        metadata: { custom: { agentNativeRunDurationMs: 5_027 } },
         content: [
           {
             type: "reasoning",
@@ -5029,6 +5307,231 @@ describe("createAgentNativeChatRuntime", () => {
     ]);
   });
 
+  it("writes a delegated agent's streamed reply as one message when the call ends", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-1",
+          seq: 1,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "The largest",
+          seq: 2,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: " lake is Ladoga.",
+          seq: 3,
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-2",
+          seq: 4,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-2",
+          text: "Second call.",
+          seq: 5,
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "done",
+          agentCallId: "call-1",
+          seq: 6,
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "done",
+          agentCallId: "call-2",
+          seq: 7,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-stream",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-stream" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    const messages = events.flatMap((event) =>
+      event.type === "interaction" && event.interaction.kind === "messaged"
+        ? [[event.interaction.id, event.interaction.detail]]
+        : [],
+    );
+    expect(messages).toEqual([
+      ["call-1:message:0", "The largest lake is Ladoga."],
+      ["call-2:message:0", "Second call."],
+    ]);
+  });
+
+  it("writes a delegated agent's held reply before the turn's error", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-1",
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "Partial answer",
+        },
+        { type: "error", error: "The run stopped." },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-cut",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-cut" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    const messageIndex = events.findIndex(
+      (event) =>
+        event.type === "interaction" && event.interaction.kind === "messaged",
+    );
+    expect(events[messageIndex]).toMatchObject({
+      interaction: {
+        id: "call-1:message:0",
+        participantId: "call-1",
+        detail: "Partial answer",
+        source: { id: "Researcher" },
+      },
+    });
+    expect(messageIndex).toBeGreaterThanOrEqual(0);
+    expect(messageIndex).toBeLessThan(
+      events.findIndex((event) => event.type === "error"),
+    );
+  });
+
+  it("writes a new message for what a delegated agent says after a pause", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-1",
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "Before.",
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "pending",
+          agentCallId: "call-1",
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "After.",
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "done",
+          agentCallId: "call-1",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-pause",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-pause" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    expect(
+      events.flatMap((event) =>
+        event.type === "interaction" && event.interaction.kind === "messaged"
+          ? [[event.interaction.id, event.interaction.detail]]
+          : [],
+      ),
+    ).toEqual([
+      ["call-1:message:0", "Before."],
+      ["call-1:message:1", "After."],
+    ]);
+  });
+
+  it("caps a delegated agent's message at a marked preview", async () => {
+    const piece = "x".repeat(400);
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        ...[1, 2, 3, 4].map((seq) => ({
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: piece,
+          seq,
+        })),
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-long",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-long" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    const details = events.flatMap((event) =>
+      event.type === "interaction" && event.interaction.kind === "messaged"
+        ? [event.interaction.detail ?? ""]
+        : [],
+    );
+    expect(details.map((detail) => detail.length)).toEqual([601]);
+    expect(details[0]?.endsWith("…")).toBe(true);
+  });
+
   it("normalizes delegated-agent activity and task lifecycles without flattening them", async () => {
     const snapshot = {
       kind: "agent-native/agent-activity",
@@ -5127,10 +5630,10 @@ describe("createAgentNativeChatRuntime", () => {
       "task",
       "participant",
       "activity",
-      "interaction",
       "activity",
       // No "completed" interaction: the activity row already reports the end.
       "participant",
+      "interaction",
       "task",
       "task",
       "task",
@@ -5149,6 +5652,12 @@ describe("createAgentNativeChatRuntime", () => {
         activeTaskId: "remote-task-1",
       },
     });
+    // Progress replaces the participant, so it keeps the task the call named.
+    expect(events[3]).toMatchObject({
+      type: "participant",
+      operation: "update",
+      participant: { status: "working", activeTaskId: "remote-task-1" },
+    });
     expect(events[4]).toMatchObject({
       type: "activity",
       activity: {
@@ -5158,15 +5667,15 @@ describe("createAgentNativeChatRuntime", () => {
         data: { state: "working", elapsedSeconds: 12 },
       },
     });
-    expect(events[5]).toMatchObject({
+    expect(events[7]).toMatchObject({
       type: "interaction",
       interaction: {
-        id: "agent-call-1:message:3",
+        id: "agent-call-1:message:0",
         kind: "messaged",
         detail: "Found the runtime boundary.",
       },
     });
-    expect(events[6]).toMatchObject({
+    expect(events[5]).toMatchObject({
       type: "activity",
       activity: {
         id: "agent-call-1:activity",
@@ -5186,8 +5695,8 @@ describe("createAgentNativeChatRuntime", () => {
     expect(rowLabels).toHaveLength(4);
     expect(rowLabels).not.toContain("Planck");
     expect(rowLabels).not.toContain("working");
-    expect(events[5]).not.toHaveProperty("interaction.label");
-    expect(events[7]).toMatchObject({
+    expect(events[7]).not.toHaveProperty("interaction.label");
+    expect(events[6]).toMatchObject({
       type: "participant",
       operation: "update",
       participant: {
@@ -5196,6 +5705,110 @@ describe("createAgentNativeChatRuntime", () => {
       },
     });
     expect(events.at(-1)).toMatchObject({ type: "done" });
+  });
+
+  it("titles a background task by its name and keeps its description as detail", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_task",
+          taskId: "named",
+          threadId: "child-1",
+          description: "Research pricing pages",
+          name: "Pricing research",
+          status: "running",
+        },
+        {
+          type: "agent_task",
+          taskId: "unnamed",
+          threadId: "child-2",
+          description: "Write the hero copy",
+          status: "completed",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-tasks",
+      fetch: fetchMock as typeof fetch,
+    });
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-tasks" })).startTurn({
+          prompt: "Plan it",
+        })
+      ).events,
+    );
+    const tasks = events.flatMap((event) =>
+      event.type === "task" ? [event] : [],
+    );
+    expect(tasks[0]?.task).toMatchObject({
+      title: "Pricing research",
+      detail: "Research pricing pages",
+    });
+    expect(tasks[1]).toMatchObject({
+      operation: "complete",
+      task: { title: "Write the hero copy", status: "completed" },
+    });
+    expect(tasks[1]?.task).not.toHaveProperty("detail");
+  });
+
+  it("keeps a background task's name and thread through its progress", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_task",
+          taskId: "task-1",
+          threadId: "child-1",
+          description: "Research pricing pages",
+          name: "Pricing research",
+          status: "running",
+        },
+        {
+          type: "agent_task_update",
+          taskId: "task-1",
+          currentStep: "Reading the pricing page",
+          preview: "Found three tiers",
+        },
+        {
+          type: "agent_task_complete",
+          taskId: "task-1",
+          summary: "Three tiers, from $10.",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-progress",
+      fetch: fetchMock as typeof fetch,
+    });
+    const events = await drain(
+      (
+        await (
+          await runtime.createSession({ id: "thread-progress" })
+        ).startTurn({ prompt: "Plan it" })
+      ).events,
+    );
+    const tasks = events.flatMap((event) =>
+      event.type === "task" ? [event] : [],
+    );
+    expect(tasks.map((event) => event.operation)).toEqual([
+      "create",
+      "update",
+      "complete",
+    ]);
+    expect(tasks[1]?.task).toMatchObject({
+      title: "Pricing research",
+      threadId: "child-1",
+      detail: "Reading the pricing page",
+      summary: "Found three tiers",
+    });
+    expect(tasks[2]?.task).toMatchObject({
+      title: "Pricing research",
+      threadId: "child-1",
+      status: "completed",
+      summary: "Three tiers, from $10.",
+    });
   });
 
   it("maps a failed agent_call to a reason key instead of the app name or raw code", async () => {
@@ -5424,6 +6037,80 @@ describe("createAgentNativeChatRuntime", () => {
         metadata: { terminalCode: "permanent_precondition" },
       },
     });
+  });
+
+  it("shows an approval card for a peer call paused on approval in its app", async () => {
+    const approval = {
+      id: "approval-1",
+      tool: "delete-deck",
+      url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-1",
+          taskId: "task-child",
+          approval,
+          seq: 1,
+        },
+        // Without a task to continue, or with a link that is not a web page,
+        // the call shows only its paused row.
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-no-task",
+          approval,
+          seq: 2,
+        },
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-script",
+          taskId: "task-script",
+          approval: { ...approval, url: "javascript:alert(1)" },
+          seq: 3,
+        },
+        // A later call on the same task that finds the approval still pending.
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-2",
+          taskId: "task-child",
+          approval,
+          seq: 4,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Ask" }))
+        .events,
+    );
+    const widgets = events.filter((event) => event.type === "widget");
+
+    const card = (callId: string) => ({
+      operation: "create",
+      widget: {
+        id: "Slides:approval:approval-1",
+        kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+        state: "ready",
+        data: { agent: "Slides", ...approval, taskId: "task-child", callId },
+      },
+    });
+    // Both calls write the same card, each naming itself as the waiting call.
+    expect(widgets).toHaveLength(2);
+    expect(widgets[0]).toMatchObject(card("call-1"));
+    expect(widgets[1]).toMatchObject(card("call-2"));
   });
 
   it("surfaces native and MCP action renderers as composable widgets", async () => {

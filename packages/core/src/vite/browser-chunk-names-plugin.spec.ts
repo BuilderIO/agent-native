@@ -47,6 +47,13 @@ describe("production browser script URLs", () => {
         path.join(root, "app/entry.server.tsx"),
         'export default function render() { return new Response("Connection ready"); }',
       );
+      // Every Agent-Native app owns its client entry. React Router 8.1's
+      // built-in default entry cannot be found in its manifest under Vite 8.3,
+      // independent of this plugin.
+      fs.writeFileSync(
+        path.join(root, "app/entry.client.tsx"),
+        'import { createElement } from "react"; import { hydrateRoot } from "react-dom/client"; import { HydratedRouter } from "react-router/dom"; hydrateRoot(document, createElement(HydratedRouter));',
+      );
       fs.writeFileSync(path.join(root, "vite.config.ts"), "export default {};");
       const builder = await createBuilder({
         configFile: path.join(root, "vite.config.ts"),
@@ -139,38 +146,59 @@ describe("production browser script URLs", () => {
   );
 
   it("preserves explicit browser output naming, including multiple outputs", async () => {
-    for (const output of [
-      { entryFileNames: "app.js", chunkFileNames: "part-[name].js" },
-      [{ entryFileNames: "app.js", chunkFileNames: "part-[name].js" }],
-    ]) {
-      const config = await resolveConfig(
-        {
-          configFile: false,
-          plugins: agentNative(),
-          build: { rolldownOptions: { output } },
-        },
-        "build",
-      );
-      expect(config.environments.client.build.rolldownOptions.output).toEqual(
-        output,
-      );
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "core-script-urls-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+    try {
+      for (const output of [
+        { entryFileNames: "app.js", chunkFileNames: "part-[name].js" },
+        [{ entryFileNames: "app.js", chunkFileNames: "part-[name].js" }],
+      ]) {
+        const config = await resolveConfig(
+          {
+            configFile: false,
+            root,
+            plugins: agentNative(),
+            build: { rolldownOptions: { output } },
+          },
+          "build",
+        );
+        expect(config.environments.client.build.rolldownOptions.output).toEqual(
+          output,
+        );
+      }
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
   it("leaves server and library entry naming to Vite", async () => {
-    for (const buildOptions of [
-      { ssr: "/app/server.ts" },
-      { lib: { entry: "/app/library.ts", formats: ["es" as const] } },
-    ]) {
-      const config = await resolveConfig(
-        { configFile: false, plugins: agentNative(), build: buildOptions },
-        "build",
-      );
-      for (const environment of Object.values(config.environments).filter(
-        (environment) => environment.consumer === "server" || buildOptions.lib,
-      )) {
-        expect(environment.build.rolldownOptions.output).toBeUndefined();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "core-script-urls-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+    try {
+      for (const buildOptions of [
+        { ssr: "/app/server.ts" },
+        { lib: { entry: "/app/library.ts", formats: ["es" as const] } },
+      ]) {
+        const config = await resolveConfig(
+          {
+            configFile: false,
+            root,
+            plugins: agentNative(),
+            build: buildOptions,
+          },
+          "build",
+        );
+        for (const environment of Object.values(config.environments).filter(
+          (environment) =>
+            environment.consumer === "server" || buildOptions.lib,
+        )) {
+          expect(environment.build.rolldownOptions.output).toBeUndefined();
+        }
       }
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

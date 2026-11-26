@@ -29,6 +29,7 @@ export default function LibraryIndexRoute() {
       // still never turns up mixed into a list of videos.
       kind="video"
       folderId={null}
+      filterable
       title={t("navigation.library")}
       extraActions={<LibraryPrimaryActions />}
     />

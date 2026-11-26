@@ -31,6 +31,7 @@ export default defineAction({
   description:
     "Make an owned recording private for a Rewind extension, refusing to continue while anyone still has direct access.",
   schema: z.object({ recordingId: z.string() }),
+  mcpTool: "search",
   run: async ({ recordingId }) => {
     await assertAccess("recording", recordingId, "owner");
 

@@ -9,6 +9,7 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 export default defineAction({
+  mcpTool: "search",
   description:
     "Check whether automatic calendar invitation rules can run on this deployment.",
   schema: z.object({}),

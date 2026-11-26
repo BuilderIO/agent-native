@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   actionExecutionStorage,
+  currentActionOriginCaller,
   noteObservedWrite,
   observingWrites,
   withoutWriteObservation,
   type ActionExecutionFrame,
 } from "./action-frame.js";
+import { defineAction } from "./action.js";
 
 function frame(parent?: ActionExecutionFrame): ActionExecutionFrame {
   return {
@@ -187,5 +190,46 @@ describe("observingWrites", () => {
       noteObservedWrite("db");
       expect(observingWrites()).toBe(false);
     });
+  });
+});
+
+describe("currentActionOriginCaller", () => {
+  it("is undefined outside an action call", () => {
+    expect(currentActionOriginCaller()).toBeUndefined();
+  });
+
+  it("names the outermost call's caller, not a nested call's own", () => {
+    const root = { ...frame(), context: { caller: "mcp" as const } };
+    const child = { ...frame(root), context: { caller: "tool" as const } };
+    expect(inFrame(child, () => currentActionOriginCaller())).toBe("mcp");
+  });
+
+  it("skips an outer frame whose arguments were not validated yet", () => {
+    const root = frame();
+    const child = { ...frame(root), context: { caller: "mcp" as const } };
+    expect(inFrame(child, () => currentActionOriginCaller())).toBe("mcp");
+  });
+
+  it("reads the caller a dispatcher passed to the action, through a nested action", async () => {
+    const seen: unknown[] = [];
+    const inner = defineAction({
+      description: "Inner",
+      schema: z.object({}),
+      run: async () => {
+        seen.push(currentActionOriginCaller());
+        return "inner";
+      },
+    });
+    const outer = defineAction({
+      description: "Outer",
+      schema: z.object({}),
+      run: async () => {
+        seen.push(currentActionOriginCaller());
+        return inner.run({}, { caller: "tool" });
+      },
+    });
+    await outer.run({}, { caller: "mcp" });
+    await outer.run({}, { caller: "frontend" });
+    expect(seen).toEqual(["mcp", "mcp", "frontend", "frontend"]);
   });
 });

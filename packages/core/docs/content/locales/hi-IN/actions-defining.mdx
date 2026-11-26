@@ -123,6 +123,20 @@ description: "defineAction() की संरचना: schema, run, और HTTP
             "किसी mutating action को उसी टर्न के अन्य tool calls के साथ समवर्ती रूप से चलने देता है।",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "जब true हो (या predicate true लौटाए), तो इस action की अपनी write के बाद का failure एक ज्ञात failure होता है जिसे model सुधारकर दोबारा आज़मा सकता है, वर्तमान टर्न के बाकी समय tool को block करने के बजाय। इसे उन actions के लिए आरक्षित रखें जो किसी भी error के बाद सुरक्षित रूप से फिर चल सकें। किसी भी write से पहले के इनकार के लिए इस विकल्प की ज़रूरत नहीं। नीचे पुनःप्रयास-सुरक्षित लेखन देखें।",
+        },
+        {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'ऐसी write को चिह्नित करता है जो app बिना किसी user gesture के अपने आप करता है: load पर, mount पर, timer पर, या experiment और usage की bookkeeping के लिए। इसके action_started, action_completed और action_failed events में "write" की जगह action_kind "automatic" होता है, इसलिए product-use की गिनती इसे छोड़ देती है। predicate केवल उन calls को चिह्नित करता है जिनके लिए वह true लौटाता है। यह केवल analytics को प्रभावित करता है: किसी write को चुप कराने के लिए कभी readOnly सेट न करें।',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -437,6 +451,41 @@ const reply = useActionMutation("reply-to-email", {
 तो status सजावट नहीं है। `404` के रूप में भेजा गया इनकार एक round trip लेता है। वही इनकार `500` के रूप में भेजा जाए, या सादा throw किया जाए, तो चार round trips और चार दोहरी error रिपोर्ट लगती हैं।
 
 एजेंट callers को status नहीं दिखता। एजेंट `run()` को in-process चलाता है, इसलिए type चाहे जो हो, उसे message सीधे `Error running <action>: <message>` के रूप में मिलता है। डिफ़ॉल्ट `action_failed` के अलावा कोई `errorCode` हो तो वह `(errorCode: not_found)` के रूप में जोड़ दिया जाता है, ताकि model गद्य पढ़े बिना उस पर branch कर सके। `details` अपनी अलग line में compact JSON के रूप में आते हैं, जैसे `Error details: {"importId":"imp_1"}`, ताकि model को अपनी अगली call के लिए जिस id की ज़रूरत हो, उसे message में लिखना न पड़े। MCP के ज़रिए बाहरी एजेंट भी यही text पाते हैं, और `structuredContent.error` में यही details भी। जो tool output schema घोषित करता है (`mcpOutputSchema: true`), वह सिर्फ़ text लौटाता है, क्योंकि client error result को भी उसी schema से जाँच सकता है। Details 2,000 characters तक सीमित हैं: इससे आगे छोटी top-level entries रखी जाती हैं और बाकी को omitted के रूप में सूचीबद्ध किया जाता है। message और details में मौजूद secrets पहले हटा दिए जाते हैं, और दोहराई गई errors के लिए एजेंट के अपने breakers तय करते हैं कि वह कितनी बार दोबारा कोशिश करे।
+
+## पुनःप्रयास-सुरक्षित लेखन {#retry-safe}
+
+Framework किसी failed write action को उन writes के आधार पर वर्गीकृत करता है जो उसने call को करते देखीं: हर SQL statement जिसका text दिखाता है कि वह write कर सकता है, और हर `fetch` जो GET, HEAD या OPTIONS नहीं है। इनमें से किसी से पहले उठाया गया इनकार, जैसे कोई edit जिससे कुछ मेल न खाए, कोई अनुपस्थित लक्ष्य, या 422 validation इनकार, एक ज्ञात failure है, चाहे वह कैसे भी throw हो: `fail()`, एक साधारण `Error`, या किसी library का error। Model को error मिलता है, वह अपने arguments सुधारता है, और दोबारा कोशिश करता है।
+
+जब कोई call अपनी की हुई write के बाद fail होता है, तो agent loop एक अज्ञात परिणाम (unknown outcome) दर्ज करता है और **वर्तमान टर्न** के बाकी समय के लिए उस tool को block कर देता है। Model error देखता है, लेकिन इस टर्न में अपने arguments ठीक करने के लिए उसी action को दोबारा कॉल नहीं कर सकता। उपयोगकर्ता का अगला संदेश उस tool को सामान्य रूप से चलाता है।
+
+- ऐसी write से पहले जिसे framework देख नहीं सकता, जैसे disk write, child process, `node:http` request, किसी vendor SDK की call, या आपके app का अपना कोई database function जिसे कोई `SELECT` कॉल करता है, `@agent-native/core/action` से `noteExternalWrite(channel)` कॉल करें, जैसे `noteExternalWrite("local-disk")`। इसके बिना, उस write के बाद fail होने वाला call ऐसा लगता है जैसे उसने कुछ save नहीं किया।
+- `NoWriteError`, या `defineActionErrors` से `noWrite()`, एक override है, अनिवार्यता नहीं। इसे तब इस्तेमाल करें जब इनकार से पहले की एकमात्र write ऐसी हो जिसे retry बिना नुकसान दोहराता है, जैसे कोई request जिसे server ने कुछ करने से पहले 4xx के साथ अस्वीकार कर दिया हो, या कोई upload जिसे अभी कुछ भी refer नहीं करता। Framework इसे तभी स्वीकार करता है जब कोई nested write action call के handler में प्रवेश न कर चुका हो। लेखक नियम `.agents/skills/actions/SKILL.md` का `NoWriteError` बुलेट है। `noWrite()` के लिए [Error codes घोषित करना](#error-codes) देखें।
+
+जब किसी भी error के बाद दोबारा चलाने से data duplicate या corrupt नहीं हो सकता, तब `retrySafe: true` (या input पर एक predicate) सेट करें: action की हर write कोई end state सेट करती है, जैसे id से replace करना, ताकि पहले से हो चुकी write को दोहराने से कुछ न बदले। तब अपनी write के बाद fail होने वाला call एक ज्ञात failure ही रहता है। Model को error मिलता है, वह अपने arguments सुधारता है, और दोबारा कोशिश करता है।
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+अगर action validation के बाद append, send या charge करता है, तो इसे सेट **न** करें, सिवाय उन inputs के जिनमें एक idempotency key हो जिसका उत्तर action अपने पहले परिणाम से देता है। अगर कोई बाद का step rejection से पहले ही असर कर चुका हो सकता है, तो सिर्फ़ पहले validate करना काफ़ी नहीं है। कुछ और सीमाएँ:
+
+- यह **इस action के अपने write** को कवर करता है। जब इसके द्वारा कॉल किया गया कोई nested action write कर चुका हो, तो failure अब भी अज्ञात परिणाम दर्ज करता है।
+- MCP approval उस कॉल के लिए «पहले ही चल चुका» चेतावनी छोड़ देता है जिसे `retrySafe` कवर करता है।
+- जब क्रैश से उबरा रन किसी बाधित retry-safe कॉल को उसी input के साथ फिर से जारी करता है, तो वह कॉल अज्ञात रहने के बजाय दोबारा चलती है।
+- Action invoke होने के बाद कोई deadline या abort वर्तमान टर्न के बाकी समय tool को block करता है। सिर्फ़ action की अपनी लौटाई गई error को ही ज्ञात, retry करने योग्य failure माना जाता है।
 
 ## Action सतह को छोटा रखें {#small-surface}
 

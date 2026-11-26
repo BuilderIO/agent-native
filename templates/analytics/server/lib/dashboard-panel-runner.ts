@@ -1,8 +1,8 @@
 import type { CredentialContext } from "@agent-native/core/credentials";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
-import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
 import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import {
   withBigQueryUsageAttribution,

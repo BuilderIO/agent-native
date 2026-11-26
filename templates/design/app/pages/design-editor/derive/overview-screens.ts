@@ -27,6 +27,7 @@ export interface OverviewScreen {
   heightMode?: "auto" | "fixed" | "hug";
   url?: string;
   previewUrl?: string;
+  tunnelUrl?: string;
   bridgeUrl?: string;
   previewToken?: string;
   breakpointWidths?: number[];
@@ -148,6 +149,7 @@ export function deriveOverviewScreens({
       heightMode,
       url: stringValue("url"),
       previewUrl: stringValue("previewUrl"),
+      tunnelUrl: stringValue("tunnelUrl"),
       bridgeUrl: stringValue("bridgeUrl"),
       previewToken: stringValue("previewToken"),
       breakpointWidths: screenBreakpointWidths,

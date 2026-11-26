@@ -16,6 +16,7 @@ import {
   deleteStoredMediaUrl,
   recordingMediaUrls,
 } from "../server/lib/recording-media-cleanup.js";
+import { deleteStoredRecordingTracks } from "../server/lib/recording-tracks.js";
 import { ownerEmailMatches } from "../server/lib/recordings.js";
 import { abortRecordingResumableSession } from "../server/lib/resumable-upload-cleanup.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
@@ -224,6 +225,14 @@ async function main(): Promise<void> {
           failures.push(error instanceof Error ? error.message : String(error));
         }
 
+        // A rich recording's separate tracks, its unfinished track uploads and
+        // its manifest hold the same media.
+        try {
+          failures.push(...(await deleteStoredRecordingTracks(takedownRow)));
+        } catch (error) {
+          failures.push(error instanceof Error ? error.message : String(error));
+        }
+
         if (failures.length > 0) {
           await writeAudit({
             actorEmail,
@@ -249,6 +258,8 @@ async function main(): Promise<void> {
             animatedThumbnailUrl: null,
             filmstripUrl: null,
             videoSizeBytes: 0,
+            mediaFormat: "flat",
+            richBytes: 0,
             updatedAt: new Date().toISOString(),
           })
           .where(

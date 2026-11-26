@@ -338,7 +338,12 @@ export async function writeWorkspaceAppMetadataOverride(input: {
   if (updatedBy) next.updatedBy = updatedBy;
 
   current.apps[appId] = next;
-  await putSetting(key, current as unknown as Record<string, unknown>);
+  const orgId = getRequestOrgId();
+  const userEmail = getRequestUserEmail();
+  await putSetting(key, current as unknown as Record<string, unknown>, {
+    ...(orgId ? { orgId } : {}),
+    ...(!orgId && userEmail ? { owner: userEmail.trim().toLowerCase() } : {}),
+  });
   return current;
 }
 

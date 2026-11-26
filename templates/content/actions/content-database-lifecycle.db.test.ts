@@ -38,6 +38,7 @@ let deleteDocumentAction: typeof import("./delete-document.js").default;
 let deleteTrashedDocumentSubtree: typeof import("./delete-document.js").deleteTrashedDocumentSubtree;
 let restoreDocumentAction: typeof import("./restore-document.js").default;
 let listTrashedDocumentsAction: typeof import("./list-trashed-documents.js").default;
+let disconnectSourceAction: typeof import("./disconnect-content-database-source.js").default;
 
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -87,6 +88,9 @@ beforeAll(async () => {
   restoreDocumentAction = (await import("./restore-document.js")).default;
   listTrashedDocumentsAction = (await import("./list-trashed-documents.js"))
     .default;
+  disconnectSourceAction = (
+    await import("./disconnect-content-database-source.js")
+  ).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000);
@@ -1113,6 +1117,116 @@ describe("database-scoped document properties", () => {
       hydration: expect.objectContaining({ status: "pending" }),
     });
   });
+
+  it("stops showing rows as syncing once their Builder source is disconnected mid-sync", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const builder = await createDatabase({});
+    const disconnectedSourceId = nextId("disconnected_builder_source");
+    const keptSourceId = nextId("kept_builder_source");
+    await db.insert(schema.contentDatabaseSources).values(
+      [disconnectedSourceId, keptSourceId].map((id, index) => ({
+        id,
+        ownerEmail: OWNER,
+        databaseId: builder.databaseId,
+        sourceType: "builder-cms",
+        sourceName: `Builder ${index}`,
+        sourceTable: `model-${index}`,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    const rows = [
+      { name: "midSync", status: "hydrating", sources: [disconnectedSourceId] },
+      { name: "queued", status: "pending", sources: [disconnectedSourceId] },
+      {
+        name: "alsoKept",
+        status: "pending",
+        sources: [disconnectedSourceId, keptSourceId],
+      },
+      { name: "keptOnly", status: "hydrating", sources: [keptSourceId] },
+    ];
+    const documentIds: Record<string, string> = {};
+    for (const row of rows) {
+      const documentId = await createDocument({ title: row.name });
+      const itemId = nextId(`${row.name}_item`);
+      documentIds[row.name] = documentId;
+      await db.insert(schema.contentDatabaseItems).values({
+        id: itemId,
+        ownerEmail: OWNER,
+        databaseId: builder.databaseId,
+        documentId,
+        position: 0,
+        bodyHydrationStatus: row.status,
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationAttemptCount: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (const sourceId of row.sources) {
+        await db.insert(schema.contentDatabaseSourceRows).values({
+          id: nextId(`${row.name}_source_row`),
+          ownerEmail: OWNER,
+          sourceId,
+          databaseItemId: itemId,
+          documentId,
+          sourceRowId: `${row.name}-entry`,
+          sourceQualifiedId: `${sourceId}:${row.name}-entry`,
+          sourceDisplayKey: row.name,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      // The queue holds one job per row, owned by the last source here.
+      await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+        id: nextId(`${row.name}_queue`),
+        ownerEmail: OWNER,
+        sourceId: row.sources[row.sources.length - 1],
+        databaseItemId: itemId,
+        documentId,
+        sourceRowId: `${row.name}-entry`,
+        sourceTable: "example-model",
+        sourceEntryJson: "{}",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      disconnectSourceAction.run({
+        databaseId: builder.databaseId,
+        sourceId: disconnectedSourceId,
+      }),
+    );
+
+    const page = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({ databaseId: builder.databaseId }),
+    );
+    const hydrationByName = Object.fromEntries(
+      rows.map((row) => [
+        row.name,
+        page.items.find((item) => item.document.id === documentIds[row.name])
+          ?.bodyHydration,
+      ]),
+    );
+    expect(hydrationByName.midSync).toMatchObject({
+      status: "hydrated",
+      attemptedAt: null,
+      attemptCount: undefined,
+    });
+    expect(hydrationByName.queued).toMatchObject({ status: "hydrated" });
+    expect(hydrationByName.alsoKept).toMatchObject({ status: "pending" });
+    expect(hydrationByName.keptOnly).toMatchObject({ status: "hydrating" });
+
+    const midSyncPage = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({
+        id: documentIds.midSync,
+        databaseId: builder.databaseId,
+        databaseDocumentId: builder.databaseDocumentId,
+      }),
+    );
+    expect(midSyncPage.bodyHydration).toBeUndefined();
+  });
 });
 
 describe("document trash lifecycle", () => {
@@ -1451,6 +1565,198 @@ describe("inline database lifecycle reconcile", () => {
     expect((await databaseRow(databaseId))?.deletedAt).toEqual(
       expect.any(String),
     );
+  });
+
+  it("restores an inline database a save removed when its owner block comes back", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const block = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    const save = (content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: hostDocumentId, content }),
+      );
+    await save(block);
+    await save("The database block became a table.");
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+
+    const restored = await save(block);
+
+    expect(restored.softDeletedDatabaseIds).toEqual([]);
+    expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
+    const collection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: databaseDocumentId }),
+    );
+    expect(collection.database?.id).toBe(databaseId);
+  });
+
+  it("keeps an inline database deleted when its page was deleted, even with its block back", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const block = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: hostDocumentId, content: block }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteContentDatabaseAction.run({ databaseId }),
+    );
+    const deletedAt = (await databaseRow(databaseId))?.deletedAt;
+    expect(deletedAt).toEqual(expect.any(String));
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: `${block}\n\nA later edit.`,
+      }),
+    );
+
+    expect((await databaseRow(databaseId))?.deletedAt).toBe(deletedAt);
+    expect((await documentRow(databaseDocumentId))?.trashedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("does not restore a removed inline database for a block that names another collection", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const save = (content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: hostDocumentId, content }),
+      );
+    await save(
+      inlineDatabaseBlock({
+        blockId: ownerBlockId,
+        databaseId,
+        databaseDocumentId,
+      }),
+    );
+    await save("The database block was removed.");
+
+    await save(
+      inlineDatabaseBlock({
+        blockId: ownerBlockId,
+        databaseId: nextId("db"),
+        databaseDocumentId,
+      }),
+    );
+
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("keeps an inline database deleted when it is deleted on purpose after a save removed its block", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const rowDocumentId = await createDocument({
+      parentId: databaseDocumentId,
+      title: "Row",
+    });
+    const block = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    const save = (content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: hostDocumentId, content }),
+      );
+    await save(block);
+    await save("The database block was removed.");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteContentDatabaseAction.run({ databaseId }),
+    );
+
+    await save(block);
+
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+    expect(await documentRow(databaseDocumentId)).toMatchObject({
+      trashedAt: expect.any(String),
+      trashRootId: databaseDocumentId,
+    });
+    expect(await documentRow(rowDocumentId)).toMatchObject({
+      trashedAt: expect.any(String),
+      trashRootId: databaseDocumentId,
+    });
+  });
+
+  it("restores a removed inline database only for one block that names its block, collection and page together", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const save = (content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: hostDocumentId, content }),
+      );
+    const block = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    await save(block);
+    await save("The database block was removed.");
+
+    await save(
+      [
+        inlineDatabaseBlock({
+          blockId: ownerBlockId,
+          databaseId: nextId("db"),
+          databaseDocumentId: nextId("dbdoc"),
+        }),
+        inlineDatabaseBlock({
+          blockId: nextId("inline_database"),
+          databaseId,
+          databaseDocumentId,
+        }),
+      ].join("\n\n"),
+    );
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+
+    await save(
+      inlineDatabaseBlock({
+        blockId: ownerBlockId,
+        databaseId,
+        databaseDocumentId: nextId("dbdoc"),
+      }),
+    );
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+
+    await save(block);
+    expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
   });
 
   it("rolls back the browser receipt when inline database reconciliation fails", async () => {

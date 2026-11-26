@@ -8,6 +8,7 @@ import {
 } from "../server/lib/dispatch-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description: "Enable or disable dispatch approval flow for durable changes.",
   authorize: authorizeDispatchAdmin,
   schema: z.object({

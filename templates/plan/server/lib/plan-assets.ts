@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import { uploadFile } from "@agent-native/core/file-upload";
+import {
+  PrivateMediaStorageUnavailableError,
+  deletePrivateMedia,
+  putPrivateMedia,
+} from "@agent-native/core/private-media";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { and, eq, sum } from "drizzle-orm";
 
 import {
@@ -19,6 +27,40 @@ export {
 export const PLAN_ASSET_ROUTE_PREFIX = "/_agent-native/plan-asset";
 const PLAN_ASSET_STORAGE_REQUIRED_REASON =
   "Image storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to add images to visual plans.";
+
+/**
+ * A plan asset row's `data` starts with this when its bytes are in private
+ * storage; the rest is the core private media id. Other rows hold `cdn:` and
+ * a public URL (images added before private storage), or the base64 bytes.
+ */
+const PRIVATE_ASSET_PREFIX = "private:";
+
+/** No storage can keep a plan's image: connect some in Settings → File uploads. */
+export class PlanAssetStorageUnavailableError extends Error {
+  constructor() {
+    super(PLAN_ASSET_STORAGE_REQUIRED_REASON);
+    this.name = "PlanAssetStorageUnavailableError";
+  }
+}
+
+/** An image over the size caps of a plan kept in its own database table. */
+export class PlanAssetTooLargeError extends Error {
+  readonly statusCode = 413;
+  constructor(message: string) {
+    super(message);
+    this.name = "PlanAssetTooLargeError";
+  }
+}
+
+export function privatePlanAssetMediaId(data: string): string | null {
+  return data.startsWith(PRIVATE_ASSET_PREFIX)
+    ? data.slice(PRIVATE_ASSET_PREFIX.length)
+    : null;
+}
+
+function newPlanAssetId(): string {
+  return `passet_${randomUUID().replace(/-/g, "")}`;
+}
 
 export function planAssetUrl(assetId: string, filename: string): string {
   return `${PLAN_ASSET_ROUTE_PREFIX}/${encodeURIComponent(assetId)}/${encodeURIComponent(filename)}`;
@@ -59,68 +101,107 @@ function isPGlitePlanAssetDatabase(): boolean {
 export async function upsertPlanAsset(
   input: UpsertPlanAssetInput,
 ): Promise<UpsertPlanAssetResult> {
-  const mimeType =
-    input.mimeType ?? mimeTypeFromFilename(input.filename) ?? "image/png";
+  return storePlanAsset({
+    planId: input.planId,
+    filename: input.filename,
+    mimeType:
+      input.mimeType ?? mimeTypeFromFilename(input.filename) ?? "image/png",
+    data: Buffer.from(input.base64, "base64"),
+  });
+}
 
-  const bytes = Buffer.from(input.base64, "base64");
-  if (bytes.byteLength > PLAN_ASSET_MAX_SINGLE_BYTES) {
-    throw new Error(
-      `Asset "${input.filename}" is too large (${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB). Maximum single asset size is 2 MB.`,
-    );
+/**
+ * Stores an image in a plan. The caller has already checked that the request's
+ * user may edit the plan.
+ *
+ * The bytes go to private storage, so the image loads only through the plan
+ * asset route, which checks that the reader can open the plan. A local
+ * database with no storage connected keeps them in the plan's own table
+ * instead, within the per-image and per-plan caps; a hosted one refuses.
+ */
+export async function storePlanAsset(input: {
+  planId: string;
+  filename: string;
+  mimeType: string;
+  data: Uint8Array;
+  /** The plan's organization; the request's when left out. */
+  orgId?: string | null;
+}): Promise<UpsertPlanAssetResult> {
+  const db = getDb();
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) {
+    let media: Awaited<ReturnType<typeof putPrivateMedia>> | null = null;
+    try {
+      media = await putPrivateMedia({
+        ownerEmail,
+        orgId:
+          input.orgId === undefined ? (getRequestOrgId() ?? null) : input.orgId,
+        data: input.data,
+        mimeType: input.mimeType,
+        filename: input.filename,
+      });
+    } catch (error) {
+      if (!(error instanceof PrivateMediaStorageUnavailableError)) throw error;
+    }
+    if (media) {
+      const assetId = newPlanAssetId();
+      try {
+        await db.insert(schema.planAssets).values({
+          id: assetId,
+          planId: input.planId,
+          filename: input.filename,
+          mimeType: media.mimeType,
+          data: `${PRIVATE_ASSET_PREFIX}${media.id}`,
+          byteSize: input.data.byteLength,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        await deletePrivateMedia(media.id).catch((cleanupError) =>
+          console.warn(
+            "[plan-assets] could not remove an image that failed to attach",
+            cleanupError,
+          ),
+        );
+        throw error;
+      }
+      return {
+        assetId,
+        cdnUrl: null,
+        src: planAssetUrl(assetId, input.filename),
+        filename: input.filename,
+      };
+    }
   }
 
-  const db = getDb();
+  if (requiresConfiguredPlanAssetStorage()) {
+    throw new PlanAssetStorageUnavailableError();
+  }
+
+  if (input.data.byteLength > PLAN_ASSET_MAX_SINGLE_BYTES) {
+    throw new PlanAssetTooLargeError(
+      `Asset "${input.filename}" is too large (${(input.data.byteLength / 1024 / 1024).toFixed(1)} MB). Maximum single asset size is 2 MB.`,
+    );
+  }
   const [totalRow] = await db
     .select({ total: sum(schema.planAssets.byteSize) })
     .from(schema.planAssets)
     .where(eq(schema.planAssets.planId, input.planId));
   const currentTotal = Number(totalRow?.total ?? 0);
-  if (currentTotal + bytes.byteLength > PLAN_ASSET_MAX_TOTAL_BYTES) {
-    throw new Error(
+  if (currentTotal + input.data.byteLength > PLAN_ASSET_MAX_TOTAL_BYTES) {
+    throw new PlanAssetTooLargeError(
       `Adding this asset would exceed the 10 MB per-plan asset limit. Current usage: ${(currentTotal / 1024 / 1024).toFixed(1)} MB.`,
     );
   }
 
-  const uploaded = await uploadFile({
-    data: bytes,
-    filename: input.filename,
-    mimeType,
-  }).catch(() => null);
-
-  if (uploaded?.url) {
-    const assetId = `passet_${randomUUID().replace(/-/g, "")}`;
-    const now = new Date().toISOString();
-    await db.insert(schema.planAssets).values({
-      id: assetId,
-      planId: input.planId,
-      filename: input.filename,
-      mimeType,
-      data: `cdn:${uploaded.url}`,
-      byteSize: bytes.byteLength,
-      createdAt: now,
-    });
-    return {
-      assetId,
-      cdnUrl: uploaded.url,
-      src: uploaded.url,
-      filename: input.filename,
-    };
-  }
-
-  if (requiresConfiguredPlanAssetStorage()) {
-    throw new Error(PLAN_ASSET_STORAGE_REQUIRED_REASON);
-  }
-
-  const assetId = `passet_${randomUUID().replace(/-/g, "")}`;
-  const now = new Date().toISOString();
+  const assetId = newPlanAssetId();
   await db.insert(schema.planAssets).values({
     id: assetId,
     planId: input.planId,
     filename: input.filename,
-    mimeType,
-    data: input.base64,
-    byteSize: bytes.byteLength,
-    createdAt: now,
+    mimeType: input.mimeType,
+    data: Buffer.from(input.data).toString("base64"),
+    byteSize: input.data.byteLength,
+    createdAt: new Date().toISOString(),
   });
 
   return {
@@ -129,6 +210,19 @@ export async function upsertPlanAsset(
     src: planAssetUrl(assetId, input.filename),
     filename: input.filename,
   };
+}
+
+/** Removes the private bytes behind a plan's assets once their rows are gone. */
+export async function deletePrivatePlanAssetBytes(
+  rows: Array<{ data: string }>,
+): Promise<void> {
+  for (const row of rows) {
+    const mediaId = privatePlanAssetMediaId(row.data);
+    if (!mediaId) continue;
+    await deletePrivateMedia(mediaId).catch((error) =>
+      console.warn("[plan-assets] could not delete a plan image", error),
+    );
+  }
 }
 
 export async function resolveAssetSrc(assetId: string): Promise<string | null> {
@@ -169,23 +263,34 @@ export async function loadPlanAssetsForExport(
 
   const result: Record<string, string> = {};
   for (const asset of assets) {
-    if (!asset.data.startsWith("cdn:")) {
-      result[asset.filename] = asset.data;
-    }
+    // Images kept at a URL (public or private) stay links in the export.
+    if (asset.data.startsWith("cdn:")) continue;
+    if (privatePlanAssetMediaId(asset.data)) continue;
+    result[asset.filename] = asset.data;
   }
   return result;
+}
+
+export interface SkippedPlanAsset {
+  filename: string;
+  reason: string;
 }
 
 export async function importPlanAssets(
   planId: string,
   assets: Record<string, string>,
+  options: { onSkip?: (skipped: SkippedPlanAsset) => void } = {},
 ): Promise<Record<string, string>> {
   const srcByFilename: Record<string, string> = {};
+  const skip = (filename: string, reason: string) => {
+    console.warn(`[plan-assets] skipping ${filename}: ${reason}`);
+    options.onSkip?.({ filename, reason });
+  };
 
   for (const [filename, base64] of Object.entries(assets)) {
     const mimeType = mimeTypeFromFilename(filename);
     if (!mimeType) {
-      console.warn(`[plan-assets] skipping unsupported file type: ${filename}`);
+      skip(filename, "unsupported file type");
       continue;
     }
 
@@ -198,13 +303,29 @@ export async function importPlanAssets(
       });
       srcByFilename[filename] = result.src;
     } catch (err) {
-      console.warn(
-        `[plan-assets] skipping ${filename}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      skip(filename, err instanceof Error ? err.message : String(err));
     }
   }
 
   return srcByFilename;
+}
+
+/** One warning for an import's images that weren't kept, or null for none. */
+export function skippedPlanAssetsWarning(
+  skipped: SkippedPlanAsset[],
+): string | null {
+  if (skipped.length === 0) return null;
+  const byReason = new Map<string, string[]>();
+  for (const { filename, reason } of skipped) {
+    byReason.set(reason, [...(byReason.get(reason) ?? []), filename]);
+  }
+  const reasons = [...byReason]
+    .map(
+      ([reason, filenames]) =>
+        `${filenames.map((name) => `assets/${name}`).join(", ")}: ${reason}`,
+    )
+    .join("; ");
+  return `${skipped.length === 1 ? "1 image wasn't" : `${skipped.length} images weren't`} added to the plan, so its links still point at assets/ paths. ${reasons}`;
 }
 
 export function applyImportedAssets(

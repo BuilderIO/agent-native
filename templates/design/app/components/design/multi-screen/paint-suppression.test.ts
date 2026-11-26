@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import type { OverscannedViewportBounds } from "./culling";
@@ -12,6 +10,8 @@ import {
   type ScreenPaintCandidate,
   type ScreenPaintTarget,
 } from "./paint-suppression";
+
+// oracle-change: removed a MultiScreenCanvas.tsx source grep; the paint suppression cases on the pure helpers remain
 
 const frame = (x: number): ScreenPaintCandidate["geometry"] => ({
   x,
@@ -127,20 +127,5 @@ describe("overview paint suppression", () => {
     applyScreenPaintSuppression(targets, new Set());
     expect(element.style.visibility).toBe("");
     expect(element.style.getPropertyValue("content-visibility")).toBe("");
-  });
-
-  it("leaves paint suppression to one owner outside React's render path", () => {
-    const source = readFileSync(
-      "app/components/design/MultiScreenCanvas.tsx",
-      "utf8",
-    );
-    expect(source).not.toContain("contentVisibility:");
-    expect(source).not.toContain("visibility: isCulled");
-    const applyViewToDom = source.slice(
-      source.indexOf("const applyViewToDom = useCallback("),
-    );
-    expect(applyViewToDom.slice(0, applyViewToDom.indexOf("}, ["))).toContain(
-      "syncScreenPaintSuppression();",
-    );
   });
 });

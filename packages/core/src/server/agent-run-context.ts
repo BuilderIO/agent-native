@@ -1,9 +1,15 @@
-import { createError, getHeader, type H3Event } from "h3";
+import { createError, getHeader, getMethod, type H3Event } from "h3";
 
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "../agent/durable-background.js";
+import { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  runWithProviderInteractiveScope,
+  type ProviderTurnGrant,
+} from "../provider-api/interactive-scope.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
@@ -13,6 +19,10 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
@@ -27,7 +37,10 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  hasSameOriginBrowserEvidence,
+} from "./request-origin.js";
 import {
   SessionResolutionUnavailableError,
   sessionResolutionFailure,
@@ -131,7 +144,10 @@ function readHeaderValue(event: any, name: string): unknown {
 
 export function readAgentRunTimezone(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-user-timezone");
-  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeAgentRunTimezone(Array.isArray(raw) ? raw[0] : raw);
+}
+
+function normalizeAgentRunTimezone(value: unknown): string | undefined {
   return typeof value === "string" &&
     value.trim().length > 0 &&
     value.trim().length < 64
@@ -172,12 +188,22 @@ function readDurableBrowserSessionId(event: H3Event): string | undefined {
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
+export const VIEWPORT_MODE_HEADER = "x-agent-native-viewport-mode";
+
 export function readBrowserTabIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-browser-tab");
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+export function readViewportModeHeader(
+  event: H3Event,
+): ViewportMode | undefined {
+  const raw = readHeaderValue(event, VIEWPORT_MODE_HEADER);
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return normalizeViewportMode(value);
 }
 
 export function readAnalyticsClientPlatformHeader(
@@ -215,6 +241,7 @@ export function seedAgentRunOwnerContext(
 export async function seedBackgroundAgentRunOwnerContext(
   event: H3Event,
   runId: string,
+  initiatorSignature?: unknown,
 ): Promise<AgentRunOwnerContext> {
   const { getTurnInitiatorByRun } = await import("../agent/run-store.js");
   const initiator = await getTurnInitiatorByRun(runId);
@@ -223,6 +250,39 @@ export async function seedBackgroundAgentRunOwnerContext(
       statusCode: 409,
       statusMessage: "Agent turn initiator is unavailable",
     });
+  }
+  const { hasConfiguredA2ASecret } = await import("../a2a/auth-policy.js");
+  if (hasConfiguredA2ASecret()) {
+    const { verifyDispatchedTurnInitiator } =
+      await import("../integrations/internal-token.js");
+    if (!verifyDispatchedTurnInitiator(runId, initiator, initiatorSignature)) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: "Agent turn initiator does not match its dispatch",
+      });
+    }
+  }
+  if (!initiator.anonymous && initiator.orgId) {
+    const { isOrgMember } = await import("../org/membership.js");
+    let member: boolean;
+    try {
+      member = await isOrgMember(initiator.orgId, initiator.email, {
+        requestEvent: event,
+      });
+    } catch (error) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: "Agent turn initiator membership is unavailable",
+        cause: error,
+      });
+    }
+    if (!member) {
+      throw createError({
+        statusCode: 403,
+        statusMessage:
+          "Agent turn initiator is no longer an organization member",
+      });
+    }
   }
   return seedAgentRunOwnerContext(event, {
     owner: initiator.email,
@@ -308,6 +368,34 @@ export async function resolveAgentRunOrgScope(options: {
 }): Promise<AgentRunOrgScope> {
   const { ownerContext } = options;
   await assertOrgScopeAvailable(options.event);
+  // Only this explicit host credential can supply a personal scope here.
+  // Ordinary callers retain the resolver's existing precedence and failure handling.
+  const bearer = /^Bearer\s+(\S+)$/i.exec(
+    String(readHeaderValue(options.event, "authorization") ?? ""),
+  )?.[1];
+  if (bearer) {
+    const { verifyEmbedSessionToken } = await import("./embed-session.js");
+    const { isWorkspaceAppChatScope } =
+      await import("../shared/workspace-app-chat-capability.js");
+    const verified = verifyEmbedSessionToken(bearer);
+    if (verified.ok && isWorkspaceAppChatScope(verified.claims.scope)) {
+      const { getSession } = await import("./auth.js");
+      const session = await getSession(options.event);
+      if (
+        !session ||
+        session.token !== bearer ||
+        session.email.trim().toLowerCase() !==
+          verified.claims.ownerEmail.trim().toLowerCase()
+      )
+        throw createError({
+          statusCode: 401,
+          statusMessage: "Invalid chat session",
+        });
+      return session.orgId
+        ? { orgId: session.orgId }
+        : { orgScope: "personal" };
+    }
+  }
   const hasOwnerOrgId = Object.prototype.hasOwnProperty.call(
     ownerContext,
     "orgId",
@@ -426,6 +514,16 @@ export async function resolveAgentRunRequestContext(options: {
       "string"
       ? (durableRequestContext as Record<string, string>).requestOrigin
       : undefined;
+  // A durable worker's request is server-to-server, so the browser's zone only
+  // arrives through the payload captured when the turn was admitted.
+  const durableTimezone =
+    durableRequestContext &&
+    typeof durableRequestContext === "object" &&
+    !Array.isArray(durableRequestContext)
+      ? normalizeAgentRunTimezone(
+          (durableRequestContext as Record<string, unknown>).timezone,
+        )
+      : undefined;
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
     ...(waitUntil ? { waitUntil } : {}),
@@ -449,7 +547,7 @@ export async function resolveAgentRunRequestContext(options: {
     ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
-    timezone,
+    timezone: timezone ?? durableTimezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
     ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
@@ -477,5 +575,49 @@ export async function runWithAgentRunContext<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const requestContext = await resolveAgentRunRequestContext(options);
-  return await runWithRequestContext(requestContext, fn);
+  if (!getAppConfig().agent.interactiveChatTurns)
+    return await runWithRequestContext(requestContext, fn);
+  const turnGrant = options.isBackgroundWorker
+    ? (options.event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] as
+        | ProviderTurnGrant
+        | undefined)
+    : undefined;
+  const interactive =
+    !options.isBackgroundWorker &&
+    (await isOwnerBrowserTurn(options.event, options.ownerContext));
+  return await runWithRequestContext(requestContext, () =>
+    runWithProviderInteractiveScope(interactive, fn, {
+      action: false,
+      ...(turnGrant ? { turnGrant } : {}),
+    }),
+  );
+}
+
+export { VERIFIED_TURN_GRANT_CONTEXT_KEY } from "../agent/durable-turn-grant.js";
+
+/**
+ * A chat turn counts as interactive only when the signed-in owner sent it from
+ * this app's own page: a cookie session (no bearer token), same-origin browser
+ * evidence, and not a speculative prefetch.
+ */
+async function isOwnerBrowserTurn(
+  event: H3Event,
+  ownerContext: AgentRunOwnerContext,
+): Promise<boolean> {
+  if (
+    ownerContext.anonymous ||
+    getHeader(event, "authorization") ||
+    getMethod(event) !== "POST" ||
+    !hasSameOriginBrowserEvidence(event) ||
+    /prefetch/i.test(
+      `${getHeader(event, "purpose") ?? ""} ${getHeader(event, "sec-purpose") ?? ""}`,
+    )
+  )
+    return false;
+  const { getBrowserCookieSession } = await import("./auth.js");
+  const session = await getBrowserCookieSession(event);
+  return (
+    session?.email.trim().toLowerCase() ===
+    ownerContext.owner.trim().toLowerCase()
+  );
 }

@@ -9,6 +9,7 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { runtimeMultiplicityForElementProvenance } from "@/pages/design-editor/editor-helpers";
+import { lastArrayValue } from "@/pages/design-editor/editor-state";
 import type {
   PendingLiveNonStyleEdit,
   PendingLiveNonStyleUndoEntry,
@@ -292,6 +293,14 @@ export function commitPendingLiveStructureEdits(
     ...(edits.length > 1 ? { groupedEdits: [...edits] } : {}),
   });
   if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+    if (replaysUndoneStructure && structureRedoReplay?.historyOrderEntry) {
+      const currentUndoEntry: PendingLiveNonStyleUndoEntry | undefined =
+        lastArrayValue(pendingLiveNonStyleUndoStackRef.current);
+      if (currentUndoEntry) {
+        currentUndoEntry.historyOrderEntry =
+          structureRedoReplay.historyOrderEntry;
+      }
+    }
     recordPendingHistoryEntry?.("pending-live", replaysUndoneStructure);
   }
   const nextPending = mergePendingLiveNonStyleEdits([

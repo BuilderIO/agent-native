@@ -11,11 +11,13 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNotNull,
   isNull,
   lte,
   not,
   notInArray,
+  sql,
 } from "drizzle-orm";
 import { z } from "zod";
 
@@ -25,11 +27,16 @@ import { assertCommentAccess } from "../server/lib/comment-access.js";
 import {
   activeUploadFromContent,
   contentPageUrls,
-  uploadedFromContent,
   uploadFromTrashedPage,
 } from "../server/lib/content-uploads.js";
+import {
+  filterLibraryRecordings,
+  librarySourceCondition,
+  librarySources,
+} from "../server/lib/library-filter.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { listRecordingComments } from "../server/lib/recording-comments.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import {
   isRecordingExpiredForViewer,
@@ -50,7 +57,9 @@ import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
 } from "../shared/embed-provider.js";
+import { readLibraryFilter } from "../shared/library-filters.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
+import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 interface NavigationState {
   view?: string;
@@ -59,6 +68,7 @@ interface NavigationState {
   folderId?: string;
   shareId?: string;
   search?: string;
+  filters?: string;
   path?: string;
   meetingId?: string;
   dictationId?: string;
@@ -151,12 +161,7 @@ async function fetchTranscript(recordingId: string) {
 
 async function fetchComments(recordingId: string) {
   await assertCommentAccess(recordingId, "read");
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(schema.recordingComments)
-    .where(eq(schema.recordingComments.recordingId, recordingId))
-    .orderBy(asc(schema.recordingComments.videoTimestampMs));
+  const rows = await listRecordingComments(recordingId);
   return hydrateCommentAuthorNames(
     rows.map((c) => ({
       id: c.id,
@@ -166,7 +171,7 @@ async function fetchComments(recordingId: string) {
       authorName: c.authorName,
       content: c.content,
       videoTimestampMs: c.videoTimestampMs,
-      resolved: Boolean(c.resolved),
+      resolved: c.resolved,
       createdAt: c.createdAt,
     })),
   );
@@ -209,19 +214,25 @@ async function fetchBugReportSummary(recordingId: string) {
 
 async function fetchLibrary({
   folderId,
+  search,
   shared = false,
   fromContent = false,
   organizationId,
+  filters,
 }: {
   folderId?: string;
+  search?: string;
   shared?: boolean;
   /** The caller's uploads from Content pages, which Library leaves out. */
   fromContent?: boolean;
   organizationId?: string | null;
+  filters?: string;
 }) {
   const db = getDb();
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
+  const libraryFilter =
+    shared || fromContent || folderId ? null : readLibraryFilter(filters ?? "");
   const conditions = [
     recordingExpiryQuery(ownerEmail).available,
     agentRecordingAccessFilter(
@@ -246,7 +257,10 @@ async function fetchLibrary({
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
     if (fromContent) conditions.push(activeUploadFromContent());
-    else if (!folderId) conditions.push(not(uploadedFromContent()));
+    else if (libraryFilter && libraryFilter.items.length === 0) {
+      const source = librarySourceCondition(libraryFilter);
+      if (source) conditions.push(source);
+    }
   }
   const resolvedDb = await Promise.resolve(db);
   const meetingRecordingIds = resolvedDb
@@ -257,12 +271,36 @@ async function fetchLibrary({
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
   }
+  const searchTerm = search?.trim();
+  if (searchTerm) {
+    const pattern = buildCaseInsensitiveSearchPattern(searchTerm);
+    const transcriptMatch = sql`EXISTS (SELECT 1 FROM ${schema.recordingTranscripts} rt WHERE rt.recording_id = ${schema.recordings.id} AND lower(rt.full_text) LIKE ${pattern} ESCAPE '\\')`;
+    const transcriptCondition = shared
+      ? sql`((${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '') AND ${transcriptMatch})`
+      : transcriptMatch;
+    conditions.push(
+      sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\' OR ${transcriptCondition})`,
+    );
+  }
+  if (libraryFilter && libraryFilter.items.length > 0) {
+    const { ids } = await filterLibraryRecordings({
+      where: conditions,
+      state: libraryFilter,
+      orderBy: [desc(schema.recordings.updatedAt)],
+    });
+    if (ids.length === 0) return [];
+    conditions.push(inArray(schema.recordings.id, ids.slice(0, 50)));
+  }
   const rows = await db
     .select()
     .from(schema.recordings)
     .where(and(...conditions))
     .orderBy(desc(schema.recordings.updatedAt))
     .limit(50);
+  const pages =
+    libraryFilter && librarySources(libraryFilter).includes("content")
+      ? await contentPageUrls(rows.map((r) => r.id))
+      : new Map<string, string>();
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -271,6 +309,7 @@ async function fetchLibrary({
     thumbnailUrl: listingThumbnailUrl(r),
     folderId: r.folderId,
     updatedAt: r.updatedAt,
+    ...(pages.has(r.id) ? { contentPageUrl: pages.get(r.id) } : {}),
   }));
 }
 
@@ -579,7 +618,9 @@ export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, visible clips on library/shared-with-me, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
   schema: z.object({}),
+  readOnly: true,
   http: false,
+  mcpTool: "search",
   run: async () => {
     const navigation = (await readAppStateForCurrentTab(
       "navigation",
@@ -611,13 +652,16 @@ export default defineAction({
         const [recordings, folders] = await Promise.all([
           fetchLibrary({
             folderId: nav.folderId,
+            search: nav.search,
             organizationId,
+            filters: nav.filters,
           }),
           fetchFoldersForSpace(null),
         ]);
         screen.library = {
           folderId: nav.folderId ?? null,
           search: nav.search ?? null,
+          filters: nav.filters ?? null,
           count: recordings.length,
           recordings,
           folders,
@@ -627,9 +671,11 @@ export default defineAction({
       case "shared": {
         const recordings = await fetchLibrary({
           shared: true,
+          search: nav.search,
           organizationId,
         });
         screen.shared = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings,
         };
@@ -638,10 +684,12 @@ export default defineAction({
       case "from-content": {
         const recordings = await fetchLibrary({
           fromContent: true,
+          search: nav.search,
           organizationId,
         });
         const pages = await contentPageUrls(recordings.map((r) => r.id));
         screen.fromContent = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings: recordings.map((recording) => ({
             ...recording,
@@ -661,7 +709,7 @@ export default defineAction({
             fetchSpaces(organizationId),
           ]);
           const space = spaces.find((s) => s.id === nav.spaceId) ?? null;
-          screen.space = { space, folders };
+          screen.space = { space, folders, search: nav.search ?? null };
         }
         break;
       }

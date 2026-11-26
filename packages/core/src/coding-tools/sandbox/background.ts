@@ -32,7 +32,7 @@
 
 import crypto from "node:crypto";
 
-import type { ActionRunContext } from "../../action.js";
+import type { ActionCaller, ActionRunContext } from "../../action.js";
 import { isServerlessRuntime } from "../../db/client.js";
 import { registerBackgroundJobStop } from "../../server/background-jobs.js";
 import { runWithRequestContext } from "../../server/request-context.js";
@@ -46,6 +46,7 @@ import {
   getSandboxExecutionInternal,
   listDueSandboxExecutions,
   renewSandboxExecutionLease,
+  type SandboxExecutionNetworkProtocol,
   type SandboxExecutionRow,
 } from "./executions-store.js";
 
@@ -62,6 +63,8 @@ export interface SandboxExecutionRunInput {
   code: string;
   timeoutMs: number;
   context?: ActionRunContext;
+  /** Characters of each stream the execution keeps once it finishes. */
+  maxOutputChars?: number;
 }
 
 export interface SandboxExecutionRunOutput {
@@ -70,6 +73,7 @@ export interface SandboxExecutionRunOutput {
   exitCode: number | null;
   timedOut: boolean;
   bridgeToolsUsed: string[];
+  stdoutTruncated?: boolean;
 }
 
 export interface SandboxExecutionRunner {
@@ -123,6 +127,8 @@ export interface EnqueueSandboxExecutionInput {
   orgId?: string | null;
   threadId?: string | null;
   allowedActionNames?: readonly string[];
+  caller?: ActionCaller | null;
+  networkProtocol?: SandboxExecutionNetworkProtocol | null;
 }
 
 export interface EnqueueSandboxExecutionResult {
@@ -141,6 +147,8 @@ export async function enqueueSandboxExecution(
     timeoutMs: input.timeoutMs,
     maxOutputChars: input.maxOutputChars,
     allowedActionNames: input.allowedActionNames,
+    caller: input.caller ?? null,
+    networkProtocol: input.networkProtocol ?? null,
   });
   let driveNote: string | undefined;
   try {
@@ -268,7 +276,10 @@ export async function processQueuedSandboxExecution(
 
   try {
     const context: ActionRunContext = {
-      caller: "tool",
+      caller: claimed.caller ?? "tool",
+      ...(claimed.networkProtocol === null
+        ? {}
+        : { networkProtocol: claimed.networkProtocol }),
       userEmail: claimed.owner,
       orgId: claimed.orgId,
       threadId: claimed.threadId ?? undefined,
@@ -288,6 +299,7 @@ export async function processQueuedSandboxExecution(
           code: claimed.code,
           timeoutMs: claimed.timeoutMs,
           context,
+          maxOutputChars: claimed.maxOutputChars,
         }),
     );
     const finalStatus = output.timedOut
@@ -299,6 +311,7 @@ export async function processQueuedSandboxExecution(
       status: finalStatus,
       stdout: output.stdout,
       stderr: output.stderr,
+      ...(output.stdoutTruncated ? { stdoutTruncated: true } : {}),
       exitCode: output.exitCode,
       timedOut: output.timedOut,
       bridgeToolsUsed: output.bridgeToolsUsed,

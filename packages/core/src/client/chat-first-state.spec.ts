@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHAT_FIRST_OPEN_APP_START_EVENT,
   CHAT_FIRST_SURFACE_TABS_STORAGE_KEY,
   CHAT_FIRST_DEFAULT_APP_IDS,
+  emitChatFirstOpenAppStart,
   orderChatFirstAppIds,
   readChatFirstAppLayout,
   writeChatFirstAppLayout,
@@ -19,8 +21,10 @@ import {
   resolveChatFirstSessionId,
   chatFirstSurfaceTabId,
   readChatFirstSurfaceWidth,
+  subscribeChatFirstOpenAppStart,
   writeChatFirstSurfaceWidth,
   writeChatFirstMode,
+  type ChatFirstOpenAppDetail,
 } from "./chat-first-state.js";
 
 function createStorage(): Storage {
@@ -489,5 +493,114 @@ describe("chat-first session watch contract", () => {
     expect(readChatFirstSurfaceWidth("missing", storage)).toBe(
       clampChatFirstSurfaceWidth(380),
     );
+  });
+});
+
+describe("resolveChatFirstAppTarget base-path precedence", () => {
+  it("opens the app with the most specific base path on a shared origin", () => {
+    const registrations = [
+      { id: "site", url: "https://apps.example.com/" },
+      { id: "fleet", url: "https://apps.example.com/fleet" },
+    ];
+    expect(
+      resolveChatFirstAppTarget(
+        { url: "https://apps.example.com/fleet/home" },
+        registrations,
+      ),
+    ).toEqual({ status: "ready", target: { appId: "fleet", path: "/home" } });
+    expect(
+      resolveChatFirstAppTarget(
+        { url: "https://apps.example.com/pricing" },
+        registrations,
+      ),
+    ).toEqual({ status: "ready", target: { appId: "site", path: "/pricing" } });
+  });
+});
+
+describe("chat-first optimistic openAppStart events", () => {
+  it("validates details, handles missing window, and subscribes/unsubscribes cleanly", () => {
+    expect(emitChatFirstOpenAppStart({})).toEqual({
+      delivered: false,
+      reason: "empty-detail",
+    });
+    expect(emitChatFirstOpenAppStart({ app: "decks" })).toEqual({
+      delivered: false,
+      reason: "no-listener",
+    });
+    const ssrCleanup = subscribeChatFirstOpenAppStart(() => {});
+    expect(ssrCleanup()).toBeUndefined();
+
+    const listeners = new Map<string, Set<EventListener>>();
+    const mockWindow = {
+      addEventListener: (type: string, fn: EventListener) => {
+        const set = listeners.get(type) ?? new Set<EventListener>();
+        set.add(fn);
+        listeners.set(type, set);
+      },
+      removeEventListener: (type: string, fn: EventListener) => {
+        listeners.get(type)?.delete(fn);
+      },
+      dispatchEvent: (event: Event) => {
+        for (const fn of listeners.get(event.type) ?? []) {
+          fn(event);
+        }
+        return true;
+      },
+    };
+    vi.stubGlobal("window", mockWindow);
+    try {
+      expect(emitChatFirstOpenAppStart({ path: "/docs/1" })).toEqual({
+        delivered: false,
+        reason: "no-listener",
+      });
+
+      const received: ChatFirstOpenAppDetail[] = [];
+      const unsubscribe = subscribeChatFirstOpenAppStart((detail) => {
+        received.push(detail);
+      });
+
+      expect(
+        emitChatFirstOpenAppStart({
+          app: "decks",
+          path: "/docs/1",
+          optimistic: true,
+          focus: true,
+          turnId: "turn-1",
+        }),
+      ).toEqual({ delivered: true });
+      expect(emitChatFirstOpenAppStart({ url: "https://a.test/x" })).toEqual({
+        delivered: true,
+      });
+      expect(emitChatFirstOpenAppStart({ view: "inbox" })).toEqual({
+        delivered: true,
+      });
+      mockWindow.dispatchEvent(
+        new CustomEvent(CHAT_FIRST_OPEN_APP_START_EVENT, { detail: "ignored" }),
+      );
+      mockWindow.dispatchEvent(
+        new CustomEvent(CHAT_FIRST_OPEN_APP_START_EVENT, { detail: null }),
+      );
+
+      expect(received).toEqual([
+        {
+          app: "decks",
+          path: "/docs/1",
+          optimistic: true,
+          focus: true,
+          turnId: "turn-1",
+        },
+        { url: "https://a.test/x" },
+        { view: "inbox" },
+      ]);
+
+      unsubscribe();
+      expect(emitChatFirstOpenAppStart({ app: "decks" })).toEqual({
+        delivered: false,
+        reason: "no-listener",
+      });
+      expect(received).toHaveLength(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

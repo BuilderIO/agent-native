@@ -48,7 +48,11 @@ vi.mock("../server/lib/factory-sentry-fallback.js", async () => {
 });
 
 import * as kit from "../server/workflow-host/testing/workflow-actions-kit.js";
-import { STORY_GRAPHS } from "../server/workflow/story-graphs.fixture.js";
+import {
+  STORY_GRAPHS,
+  buildGraph,
+  fixed,
+} from "../server/workflow/story-graphs.fixture.js";
 import save from "./save-factory-workflow.js";
 import setEnabled from "./set-factory-workflow-enabled.js";
 
@@ -120,6 +124,62 @@ describe("set-factory-workflow-enabled: connections", () => {
     expect(failure.message).toContain("request-workflow-connection");
     expect((await stored(created.workflowId))?.enabled).toBe(false);
     expect(kit.readJob(created.job.path)).toBe(jobBefore);
+    expect(readProviderConnectionsMock).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ ownerEmail: kit.USER_EMAIL }),
+    );
+  });
+
+  it("tells a teammate that only the owner can connect the owner's Content, instead of sending them to request-workflow-connection", async () => {
+    const ownerDetail =
+      "This workflow writes to Content as its owner, owner@example.test, who has not connected it. They connect it for themselves: connect Content.";
+    readProviderConnectionsMock.mockImplementation(
+      async (providers: string[]) =>
+        providers.map((provider) => ({
+          provider,
+          status: "not connected",
+          connectWith: "settings",
+          detail: ownerDetail,
+        })),
+    );
+    const store = kit.currentStore();
+    const workflow = await store.createWorkflow(scope, {
+      name: "Rows",
+      graph: buildGraph({
+        nodes: [
+          ["start", "trigger", { schedule: { every: "15m" } }],
+          [
+            "row",
+            "action",
+            {
+              operation: "content.upsertRow",
+              args: { collection: fixed("doc-db"), key: fixed("TASK-1") },
+            },
+          ],
+          ["finish", "end", { outcome: "done" }],
+        ],
+        edges: [
+          ["start", "out", "row"],
+          ["row", "out", "finish"],
+        ],
+      }),
+      ownerEmail: "owner@example.test",
+    });
+    await store.recordCleanDryRun(scope, {
+      workflowId: workflow.id,
+      version: 1,
+    });
+
+    const failure = await kit.failureOf(() => toggle(workflow.id, true));
+
+    expect(failure).toMatchObject({
+      errorCode: "connection_required",
+      details: { providers: ["content"] },
+    });
+    expect(failure.message).toContain("content is used by row");
+    expect(failure.message).toContain(ownerDetail);
+    expect(failure.message).not.toContain("request-workflow-connection");
+    expect((await stored(workflow.id))?.enabled).toBe(false);
   });
 
   it("an agent's refused turn-on", async () => {

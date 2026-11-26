@@ -3,7 +3,7 @@ import { appApiPath } from "@agent-native/core/client/api-path";
 import { parseUploadResponse, type ImportResult } from "@/lib/design-import";
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
 
-import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
+import { BROWSER_FIG_LIMITS } from "../../shared/fig-file-limits.js";
 
 /** Server fallback and token-free image-hydration ceiling. Browser-local `.fig`
  * imports do not use this raw-file cap. */

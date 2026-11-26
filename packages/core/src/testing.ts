@@ -26,6 +26,8 @@ export {
 
 export { startLocalPlanBridge } from "./cli/plan-local.js";
 
+export { readDevActionDiscoveryFile } from "./server/dev-action-discovery.js";
+
 export {
   prepareDesignConnectManifest,
   startDesignConnectBridge,
@@ -33,3 +35,26 @@ export {
 } from "./cli/design-connect.js";
 
 export { assertNoInlineImageBytes } from "./shared/inline-bytes.js";
+
+export {
+  createMemorySearchVectorStore,
+  type MemorySearchVectorStore,
+} from "./search/memory-vector-store.js";
+
+export {
+  ACTION_CONFORMANCE_SURFACES,
+  ACTION_CONFORMANCE_TIMEOUT_MS,
+  ACTION_CONFORMANCE_RUN_TIMEOUT_MS,
+  actionContractFindings,
+  assertActionConformance,
+  checkActionConformance,
+  type ActionConformanceFinding,
+  type ActionConformanceFixture,
+  type ActionConformanceReport,
+  type ActionConformanceSurface,
+  type ConformanceAction,
+  type ConformanceAdapter,
+  type ConformanceFocus,
+  type ConformanceResponse,
+  type ConformanceTool,
+} from "./action-conformance.js";

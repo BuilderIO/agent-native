@@ -155,12 +155,13 @@ export async function addWorkflow(
     name?: string;
     graph?: WorkflowGraph;
     automationId?: string;
+    ownerEmail?: string;
   } = {},
 ) {
   return world.store.createWorkflow(options.scope ?? SCOPE, {
     name: options.name ?? "Bug report to Builder",
     graph: options.graph ?? readGraph(),
-    ownerEmail: OWNER,
+    ownerEmail: options.ownerEmail ?? OWNER,
     ...(options.automationId === undefined
       ? {}
       : { automationId: options.automationId }),

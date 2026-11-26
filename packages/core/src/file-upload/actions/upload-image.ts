@@ -601,6 +601,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: true,
   },
+  mcpTool: "search",
   run: async (args) => {
     const idempotencyKey = args.idempotencyKey?.trim();
     if (args.cleanup && idempotencyKey) {

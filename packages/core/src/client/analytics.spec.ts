@@ -466,7 +466,8 @@ describe("browser analytics pageviews", () => {
         url: "https://mail.agent-native.com/inbox",
         path: "/inbox",
         hostname: "mail.agent-native.com",
-        referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
+        referrer:
+          "https://builder.io/start?token=%3Credacted%3E&utm=%3Credacted%3E",
         title: "Inbox",
         navigation_type: "load",
         agent_signals: 1,
@@ -491,6 +492,115 @@ describe("browser analytics pageviews", () => {
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
+  });
+
+  it("reports the route template and scrubbed query, never a path id or credential", async () => {
+    const { cookieJson } = installBrowser(
+      "https://clips.agent-native.com/share/tok_abc?utm_source=news&p-key=canary-secret#access_token=canary-hash",
+    );
+    (window as any).__reactRouterManifest = {
+      routes: {
+        root: { id: "root", path: "" },
+        "routes/share.$shareId": {
+          id: "routes/share.$shareId",
+          parentId: "root",
+          path: "share/:shareId",
+        },
+      },
+    };
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-clips",
+      }),
+    });
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const bodies = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(
+      bodies.find((body) => body.event === "pageview")?.properties,
+    ).toMatchObject({
+      url: "https://clips.agent-native.com/share/:shareId?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/share/:shareId",
+      search: "?utm_source=news&p-key=%3Credacted%3E",
+    });
+    expect(
+      bodies.find((body) => body.event === "app_entered")?.properties,
+    ).toMatchObject({ entry_path: "/share/:shareId" });
+    expect(cookieJson("an_ft")).toMatchObject({
+      landing_path: "/share/:shareId",
+      utm_source: "news",
+    });
+    const sent = JSON.stringify(bodies);
+    expect(sent).not.toContain("tok_abc");
+    expect(sent).not.toContain("canary-secret");
+    expect(sent).not.toContain("canary-hash");
+  });
+
+  it("keeps the real path for an app that turns route templates off, and still scrubs query and hash", async () => {
+    const { cookieJson } = installBrowser(
+      "https://docs.example.test/docs/getting-started?utm_source=news&p-key=canary-secret#access_token=canary-hash",
+    );
+    (window as any).__reactRouterManifest = {
+      routes: {
+        root: { id: "root", path: "" },
+        "routes/docs.$slug": {
+          id: "routes/docs.$slug",
+          parentId: "root",
+          path: "docs/:slug",
+        },
+      },
+    };
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      routeTemplates: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-docs",
+      }),
+    });
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const bodies = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(
+      bodies.find((body) => body.event === "pageview")?.properties,
+    ).toMatchObject({
+      url: "https://docs.example.test/docs/getting-started?utm_source=news&p-key=%3Credacted%3E#access_token=%3Credacted%3E",
+      path: "/docs/getting-started",
+      search: "?utm_source=news&p-key=%3Credacted%3E",
+    });
+    expect(
+      bodies.find((body) => body.event === "app_entered")?.properties,
+    ).toMatchObject({ entry_path: "/docs/getting-started" });
+    expect(cookieJson("an_ft")).toMatchObject({
+      landing_path: "/docs/getting-started",
+      utm_source: "news",
+    });
+    const sent = JSON.stringify(bodies);
+    expect(sent).not.toContain("/docs/:slug");
+    expect(sent).not.toContain("canary-secret");
+    expect(sent).not.toContain("canary-hash");
   });
 
   it("captures the source forwarded by the marketing site", async () => {
@@ -906,6 +1016,34 @@ describe("browser analytics pageviews", () => {
       ),
     ).toBe(false);
     setAgentNativeApiDisabled(null);
+  });
+
+  it("keeps first touch in the browser alone inside an MCP host's panel", async () => {
+    const { localStorage } = installBrowser(
+      "https://tasks.agent-native.com/?utm_source=youtube",
+    );
+    const { fetchMock } = installFetch();
+    (
+      window as unknown as Record<string, unknown>
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      origin: "https://tasks.agent-native.com",
+    };
+    vi.resetModules();
+    const { captureAttribution } = await import("./analytics.js");
+
+    captureAttribution();
+    await tick();
+
+    expect(JSON.parse(localStorage.getItem("an_attribution")!)).toMatchObject({
+      utm_source: "youtube",
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/auth/attribution"),
+      ),
+    ).toBe(false);
+    delete (window as unknown as Record<string, unknown>)
+      .__AGENT_NATIVE_EXTERNAL_EMBED;
   });
 
   it("restores first touch from the server's cookie when the browser's copies are gone", async () => {
@@ -1603,6 +1741,30 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("sends the session status trigger only when the caller names one", async () => {
+    installBrowser();
+    const { trackSessionStatus } = await freshAnalytics();
+
+    trackSessionStatus(true, "focus");
+    trackSessionStatus(false);
+
+    expect(tracingMock.recordTrackingEvent).toHaveBeenCalledWith(
+      "session status",
+      expect.objectContaining({ signed_in: true, trigger: "focus" }),
+      "client",
+    );
+    expect(tracingMock.recordTrackingEvent).toHaveBeenCalledWith(
+      "session status",
+      expect.objectContaining({ signed_in: false }),
+      "client",
+    );
+    expect(tracingMock.recordTrackingEvent).not.toHaveBeenCalledWith(
+      "session status",
+      expect.objectContaining({ signed_in: false, trigger: expect.anything() }),
+      "client",
+    );
+  });
+
   it("prefers the isolated GA channel over a host-provided gtag", async () => {
     const { gtag } = installBrowser();
     const isolatedGtag = vi.fn();
@@ -1856,11 +2018,12 @@ describe("browser analytics pageviews", () => {
     expect(pageLeft?.properties).not.toHaveProperty("url");
     expect(pageLeft?.properties).not.toHaveProperty("path");
     expect(JSON.stringify(pageLeft?.properties)).not.toContain("jane");
-    // Every other event keeps the page it happened on.
+    // Every other event names the route of the page it happened on, never the
+    // path itself.
     expect(
       bodies.find((body) => body.event === "deck_opened")?.properties,
     ).toMatchObject({
-      url: "https://slides.agent-native.com/decks/jane@example.com",
+      url: "https://slides.agent-native.com/decks/:id",
     });
   });
 
@@ -3013,18 +3176,18 @@ describe("browser analytics pageviews", () => {
     expect(readPageviews().map((event) => event.properties)).toMatchObject([
       {
         path: "/design/output-first",
-        search: "?generation_attempt_id=attempt_1234567890abcdef",
+        search: "?generation_attempt_id=%3Credacted%3E",
         observedRoute: "/design/output-first",
-        observedSearch: "?generation_attempt_id=attempt_1234567890abcdef",
+        observedSearch: "?generation_attempt_id=%3Credacted%3E",
         navigation_type: "load",
         sessionReplayId: "replay-test",
         sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
       },
       {
         path: "/design/output-second",
-        search: "?generation_attempt_id=attempt_2234567890abcdef",
+        search: "?generation_attempt_id=%3Credacted%3E",
         observedRoute: "/design/output-second",
-        observedSearch: "?generation_attempt_id=attempt_2234567890abcdef",
+        observedSearch: "?generation_attempt_id=%3Credacted%3E",
         navigation_type: "pushState",
         sessionReplayId: "replay-test",
         sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
@@ -3223,6 +3386,47 @@ describe("browser analytics pageviews", () => {
       { category: "ui.click", timestamp: 0 },
     ]);
     expect(hint.attachments).toBeUndefined();
+  });
+
+  it("redacts secrets in a browser Sentry event's exception, extras, breadcrumbs and query string", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+
+    const result = options.beforeSend({
+      message: "failed with ?key=CANARYMESSAGE",
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: 'boom {"apiKey":"CANARYEXCEPTION"} code=CANARYCODE&state=s',
+          },
+        ],
+      },
+      extra: { apiKey: "CANARYEXTRA", attempt: 2 },
+      contexts: { upstream: { client_secret: "CANARYCONTEXT" } },
+      breadcrumbs: [
+        { category: "console", message: "token=CANARYCRUMB", data: {} },
+        {
+          category: "fetch",
+          data: { url: "https://x.example.com/?p-key=CANARYFETCH" },
+        },
+      ],
+      request: {
+        url: "https://app.example.com/cb",
+        query_string: "code=CANARYQUERY&utm_source=docs",
+      },
+    });
+
+    expect(JSON.stringify(result)).not.toMatch(/CANARY/);
+    expect(result.extra).toEqual({ apiKey: "<redacted>", attempt: 2 });
+    expect(result.request.query_string).toContain("utm_source=docs");
   });
 
   it("drops blocked Amplitude fetch noise from browser Sentry", async () => {

@@ -4,6 +4,7 @@ const jobs = new Map<string, Record<string, unknown>>();
 const hits = new Map<string, Record<string, unknown>[]>();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {
@@ -325,6 +326,28 @@ describe("provider corpus jobs", () => {
 
     expect(executeRequest).toHaveBeenCalled();
     expect(result.coverage.totalHits).toBe(1);
+  });
+
+  it("accepts the WebDAV methods the provider transport supports", async () => {
+    for (const method of ["PROPFIND", "REPORT"] as const) {
+      const executeRequest = vi.fn(async () =>
+        providerEnvelope({ results: [{ id: "r1", name: "calendar" }] }),
+      );
+      const action = createProviderCorpusJobAction({
+        appId: "analytics",
+        getRuntime: () => ({ executeRequest }),
+      });
+      await expect(
+        action.run({
+          operation: "start",
+          name: `dav-${method}`,
+          mode: "paginated-search",
+          request: { provider: "github", method, path: "/search" },
+          pagination: { itemsPath: "results", maxPages: 1 },
+          search: { query: "calendar", textPaths: ["name"] },
+        }),
+      ).resolves.toBeDefined();
+    }
   });
 
   it("checkpoints paginated corpus searches across continue calls", async () => {

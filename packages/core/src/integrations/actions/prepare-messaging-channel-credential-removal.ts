@@ -4,6 +4,7 @@ import { defineAction } from "../../action.js";
 import { prepareMessagingChannelCredentialRemoval } from "../channel-settings.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Read the current removable credentials for one channel from the signed-in Settings UI. This returns a non-authorizing snapshot used to detect changes before a human confirms removal.",
   schema: z.object({

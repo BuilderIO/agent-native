@@ -1,12 +1,9 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import { resolveServerFiles } from "./editor-state";
-import { readDesignEditorSource } from "./read-design-editor-source";
 import type { DesignFile } from "./types";
+
+// oracle-change: removed a DesignEditor call-site source grep; the resolveServerFiles identity cases remain
 
 function makeFile(id: string): DesignFile {
   return {
@@ -37,16 +34,5 @@ describe("resolveServerFiles", () => {
     const second = resolveServerFiles(null);
     expect(first.length).toBe(0);
     expect(first === second).toBe(true);
-  });
-});
-
-describe("DesignEditor serverFiles call site", () => {
-  const editorSrc = readDesignEditorSource();
-
-  it("reads server files through the stable resolver, not a fresh array literal", () => {
-    expect(editorSrc).toContain(
-      "const serverFiles = resolveServerFiles(design);",
-    );
-    expect(editorSrc).not.toContain("design?.files ?? []");
   });
 });

@@ -1,7 +1,7 @@
 import type { Attachment } from "@assistant-ui/react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconClipboardText, IconX } from "@tabler/icons-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "../utils.js";
 import { countLines, unwrapAttachmentEnvelope } from "./pasted-text.js";
@@ -62,14 +62,6 @@ export function PastedTextChip({
   const t = adapters.translate!;
   const formatNumber = adapters.formatNumber!;
 
-  const handleRemove = useCallback(
-    (event: React.MouseEvent) => {
-      event.stopPropagation();
-      onRemove?.(attachment.id);
-    },
-    [attachment.id, onRemove],
-  );
-
   const lineSummary = t("agentChat.pastedText.lines", {
     count: lines,
     formattedCount: formatNumber(lines),
@@ -84,68 +76,70 @@ export function PastedTextChip({
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "group relative inline-flex items-center gap-2 rounded-md border border-border/70 bg-muted/50 text-start text-foreground hover:bg-muted/70 cursor-pointer",
-            compact
-              ? "max-w-[220px] px-2 py-1.5 text-xs"
-              : "max-w-[260px] px-2.5 py-2 text-xs",
-            onRemove && !compact && "pe-7",
-          )}
-          aria-label={t("agentChat.pastedText.preview", {
-            defaultValue: "Preview pasted text",
-          })}
-        >
-          <span
+      {/* Remove stays outside the trigger: a control in a button is unreachable. */}
+      <span className="relative inline-flex">
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
             className={cn(
-              "flex shrink-0 items-center justify-center rounded bg-background text-muted-foreground",
-              compact ? "h-6 w-6" : "h-8 w-8",
+              "group relative inline-flex items-center gap-2 rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-muted/50 text-start text-foreground hover:bg-muted/70 cursor-pointer",
+              compact
+                ? "max-w-[220px] px-2 py-1.5 text-xs"
+                : "max-w-[260px] px-2.5 py-2 text-xs",
+              onRemove && "pe-7",
             )}
+            aria-label={t("agentChat.pastedText.preview", {
+              defaultValue: "Preview pasted text",
+            })}
           >
-            <IconClipboardText
-              className={compact ? "h-3.5 w-3.5" : "h-4 w-4"}
-            />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-medium">
-              {t("agentChat.pastedText.title", {
-                defaultValue: "Pasted text",
-              })}
-            </span>
-            <span className="block agent-kit-caption-copy text-muted-foreground">
-              {summary}
-            </span>
-          </span>
-          {onRemove && (
             <span
-              role="button"
-              tabIndex={-1}
-              data-agent-composer-slot="attachment-remove"
-              onClick={handleRemove}
-              aria-label={t("agentChat.pastedText.remove", {
-                defaultValue: "Remove pasted text",
-              })}
               className={cn(
-                // The 20px glyph box keeps the chip's geometry; the pseudo
-                // element extends the hit target to 24px.
-                "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']",
-                compact ? "relative" : "absolute end-1.5 top-1.5",
+                "flex shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] bg-background text-muted-foreground",
+                compact ? "h-6 w-6" : "h-8 w-8",
               )}
             >
-              <IconX className="h-3 w-3" />
+              <IconClipboardText
+                className={compact ? "h-3.5 w-3.5" : "h-4 w-4"}
+              />
             </span>
-          )}
-        </button>
-      </PopoverPrimitive.Trigger>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">
+                {t("agentChat.pastedText.title", {
+                  defaultValue: "Pasted text",
+                })}
+              </span>
+              <span className="block agent-kit-caption-copy text-muted-foreground">
+                {summary}
+              </span>
+            </span>
+          </button>
+        </PopoverPrimitive.Trigger>
+        {onRemove && (
+          <button
+            type="button"
+            data-agent-composer-slot="attachment-remove"
+            onClick={() => onRemove(attachment.id)}
+            aria-label={t("agentChat.pastedText.remove", {
+              defaultValue: "Remove pasted text",
+            })}
+            className={cn(
+              // The 20px glyph box keeps the chip's geometry; the pseudo
+              // element extends the hit target to 24px.
+              "absolute end-1.5 flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']",
+              compact ? "top-1/2 -translate-y-1/2" : "top-1.5",
+            )}
+          >
+            <IconX className="h-3 w-3" />
+          </button>
+        )}
+      </span>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           side="top"
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className="z-50 w-[min(560px,calc(100vw-32px))] rounded-lg border border-border bg-popover text-popover-foreground shadow-lg origin-[var(--radix-popover-content-transform-origin)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95"
+          className="z-50 w-[min(560px,calc(100vw-32px))] rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-popover text-popover-foreground shadow-lg origin-[var(--radix-popover-content-transform-origin)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95"
         >
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -165,7 +159,7 @@ export function PastedTextChip({
               aria-label={t("agentChat.composer.closePreview", {
                 defaultValue: "Close preview",
               })}
-              className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground"
             >
               <IconX className="h-3.5 w-3.5" />
             </button>

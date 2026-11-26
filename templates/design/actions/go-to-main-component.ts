@@ -39,6 +39,7 @@ async function liveContent(
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Find the main instance of a component. Canonical linked components " +
     "resolve by their persisted component id; legacy name-only annotations " +

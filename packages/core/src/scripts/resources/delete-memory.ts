@@ -1,4 +1,10 @@
 import {
+  MemoryDeleteFailedError,
+  MemoryMirrorStaleError,
+  MemoryTombstoneError,
+  staleMirrorCollector,
+} from "../../resources/shared-memory.js";
+import {
   resourcePut,
   resourceGetByPath,
   resourceDeleteByPath,
@@ -27,13 +33,23 @@ export default async function deleteMemoryScript(
   const indexPath = "memory/MEMORY.md";
 
   let deleted = false;
+  let leftover: MemoryMirrorStaleError | undefined;
   try {
-    await resourceDeleteByPath(owner, memoryPath);
-    deleted = true;
-  } catch {
-    // May not exist
+    deleted = await resourceDeleteByPath(owner, memoryPath);
+  } catch (error) {
+    if (error instanceof MemoryMirrorStaleError) {
+      deleted = true;
+      leftover = error;
+    } else if (
+      error instanceof MemoryTombstoneError ||
+      error instanceof MemoryDeleteFailedError
+    ) {
+      fail(`Memory "${name}" was not deleted: ${error.message}`);
+    } else throw error;
   }
 
+  const stale = staleMirrorCollector();
+  let indexError: string | undefined;
   try {
     const existing = await resourceGetByPath(owner, indexPath);
     if (existing?.content) {
@@ -46,15 +62,43 @@ export default async function deleteMemoryScript(
           indexPath,
           filtered.join("\n").trimEnd() + "\n",
           "text/markdown",
-        );
+        ).catch(stale.absorb);
         deleted = true;
       }
     }
-  } catch {
-    // Index may not exist
+  } catch (error) {
+    indexError = error instanceof Error ? error.message : String(error);
   }
 
-  if (deleted) {
+  let indexStale: string | undefined;
+  if (indexError === undefined) {
+    try {
+      stale.finish();
+    } catch (error) {
+      if (!(error instanceof MemoryMirrorStaleError)) throw error;
+      indexStale = error.message;
+    }
+  }
+
+  const subject = deleted
+    ? `Deleted memory "${name}"`
+    : `Memory "${name}" not found`;
+  const problems: string[] = [];
+  if (leftover) {
+    problems.push(`a leftover shared file remains: ${leftover.message}`);
+  }
+  if (indexError !== undefined) {
+    problems.push(`the MEMORY.md index could not be updated: ${indexError}`);
+  }
+  if (indexStale !== undefined) {
+    problems.push(
+      `the MEMORY.md index was updated but its shared copy is stale: ${indexStale}`,
+    );
+  }
+  if (problems.length > 0) {
+    console.log(`${subject}, but ${problems.join(", and ")}`);
+    fail(`Memory "${name}" cleanup was incomplete; see the output above.`);
+  } else if (deleted) {
     console.log(`Deleted memory "${name}".`);
   } else {
     console.log(`Memory "${name}" not found.`);

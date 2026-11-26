@@ -19,7 +19,7 @@ vi.mock("./reaped-run-thread.js", () => ({
   foldReapedRunIntoThread: foldReapedRunIntoThreadMock,
 }));
 
-const pglite = await createTestPglite();
+const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
 let afterStaleCandidateScan: (() => Promise<void>) | undefined;
 
 afterAll(async () => {
@@ -88,6 +88,7 @@ function makeRawClient(withTransaction: boolean) {
 let currentClient = makeRawClient(true);
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => currentClient,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,

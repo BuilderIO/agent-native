@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import * as hubspotEmail from "@shared/hubspot-email";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,13 +48,13 @@ function argsFor({
 }: Partial<Args> & { files?: DesignFile[] } = {}): Args {
   const args: Args = {
     activeBreakpointWidthState: undefined,
-    activeCodeFile: null,
     activeFile: {
       id: "screen-1",
       filename: "index.html",
       content: "<!doctype html><html><body>Welcome</body></html>",
     } as Args["activeFile"],
     activeLeftPanel: null,
+    commentsPanelShown: false,
     activeTool: "move" as Args["activeTool"],
     design: null,
     designDataJson: {},
@@ -67,18 +68,6 @@ function argsFor({
     selectionPublishFailedLabel:
       "The agent may not see your latest selection. Select it again.",
     mode: "edit" as Args["mode"],
-    motionAutoKeyframeEnabled: false,
-    motionDockOpen: false,
-    motionDockLiveState: {
-      previewing: false,
-      selectedTrackId: null,
-      selectedKeyframeIds: [],
-      selectedEasingSegment: null,
-    },
-    motionDurationMs: 2000,
-    motionPlayhead: 0,
-    motionPlaybackMode: "once",
-    motionTimelineId: null,
     pendingPersistedSelectionWriteRef: { current: null },
     persistedSelectionContextRef: { current: null },
     persistedSelectionStateRef: { current: null },
@@ -137,6 +126,13 @@ describe("runPublishAgentSelectionContext Interact state", () => {
     expect(publishedSelection().interact).toBeNull();
   });
 
+  it("publishes the comments panel only while it is shown", () => {
+    runPublishAgentSelectionContext(argsFor({ commentsPanelShown: true }));
+    expect(publishedSelection().rightPanel).toBe("comments");
+    runPublishAgentSelectionContext(argsFor({ commentsPanelShown: false }));
+    expect(publishedSelection().rightPanel).toBe("inspector");
+  });
+
   it("publishes a Custom device with the screen's own size", () => {
     runPublishAgentSelectionContext(
       argsFor({
@@ -184,51 +180,13 @@ describe("runPublishAgentSelectionContext layout grid", () => {
     expect(publishedSelection().activeFileId).toBeNull();
   });
 
-  it("publishes the live Motion timeline and keyframe selection", () => {
-    runPublishAgentSelectionContext(
-      argsFor({
-        motionAutoKeyframeEnabled: true,
-        motionDockOpen: true,
-        motionDockLiveState: {
-          previewing: true,
-          selectedTrackId: "node-1\u001ftranslate",
-          selectedEasingSegment: null,
-          selectedKeyframeIds: [
-            '["node-1\\u001ftranslate",0.5]',
-            '["node-1\\u001ftranslate",1]',
-          ],
-        },
-        motionDurationMs: 3600,
-        motionPlayhead: 0.5,
-        motionPlaybackMode: "ping-pong",
-        motionTimelineId: "timeline-1",
-      }),
-    );
-
-    expect(publishedSelection().motion).toEqual({
-      previewing: true,
-      playheadMs: 1800,
-      durationMs: 3600,
-      timelineId: "timeline-1",
-      playbackMode: "ping-pong",
-      autoKeyframe: true,
-      selectedTrackId: "node-1\u001ftranslate",
-      selectedKeyframeId: null,
-      selectedEasingSegment: null,
-      selectedKeyframeIds: [
-        '["node-1\\u001ftranslate",0.5]',
-        '["node-1\\u001ftranslate",1]',
-      ],
-    });
-  });
-
   it("tells the agent which tool is active and which mode it is in", () => {
     runPublishAgentSelectionContext(
-      argsFor({ activeTool: "comment", mode: "annotate" }),
+      argsFor({ activeTool: "comment", mode: "comment" }),
     );
     expect(publishedSelection()).toMatchObject({
       activeTool: "comment",
-      mode: "annotate",
+      mode: "comment",
     });
   });
 });
@@ -415,6 +373,35 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(JSON.stringify(selected).length).toBeLessThan(4_000);
     expect(JSON.stringify(value)).not.toContain("data:image");
     expect(JSON.stringify(value).length).toBeLessThan(16_000);
+  });
+
+  it("tells the agent which effect layers sit behind the selected wrapper", () => {
+    const canvas = {
+      sourceId: "hero-canvas",
+      selector: '[data-agent-native-node-id="hero-canvas"]',
+      tagName: "canvas",
+      kind: "webgl" as const,
+      relation: "behind" as const,
+      coverage: 1,
+      animated: true,
+      webgl: true,
+    };
+    runPublishAgentSelectionContext(
+      argsFor({
+        selectedElement: {
+          ...deepScreenElement(),
+          tagName: "div",
+          sourceId: "hero",
+          effectCandidates: [canvas],
+        },
+      }),
+    );
+
+    const selected = writtenSelection().selectedElement as Record<
+      string,
+      unknown
+    >;
+    expect(selected.effectCandidates).toEqual([canvas]);
   });
 
   it("marks both persisted selection keys as this browser tab while retaining immediate context", () => {

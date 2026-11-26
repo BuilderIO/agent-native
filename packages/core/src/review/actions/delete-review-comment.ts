@@ -1,13 +1,25 @@
 import { z } from "zod";
 
-import { defineAction, fail } from "../../action.js";
+import { currentInvocationEvidence } from "../../action-frame.js";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+  type ActionRunContext,
+} from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import {
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
+  reviewCommentPolicy,
+  reviewWriteRefusal,
 } from "../registry.js";
-import { deleteReviewComment, getReviewCommentById } from "../store.js";
+import {
+  deleteReviewComment,
+  getLiveReviewAuthorsByThread,
+  getReviewCommentById,
+} from "../store.js";
 import { canDeleteReviewThread } from "../thread-delete.js";
 import type { ReviewResourceContext } from "../types.js";
 
@@ -15,7 +27,37 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   commentId: z.string().min(1),
+  onlyOwnComments: z
+    .boolean()
+    .optional()
+    .describe(
+      "Refuse a delete that would take anyone else's comment, checked as the thread is locked, even for an editor. An agent deleting without its person's approval sets it.",
+    ),
 });
+
+const PERSON_CALLERS = new Set(["frontend", "mcp-widget", "mcp-widget-write"]);
+
+function agentNeedsDeleteApproval(
+  resourceType: string,
+  ctx: ReviewResourceContext | undefined,
+): boolean {
+  const caller = ctx?.caller;
+  if (!caller || PERSON_CALLERS.has(caller)) return false;
+  return (
+    reviewCommentPolicy(resourceType).agentDeleteApproval ||
+    isOutsideAgentCall(ctx as ActionRunContext | undefined)
+  );
+}
+
+function deleteWasApproved(ctx: ActionRunContext | undefined): boolean {
+  const evidence = currentInvocationEvidence();
+  return Boolean(
+    ctx?.approvedToolCallKey ||
+    evidence?.approvedToolCallKey ||
+    evidence?.mcpClientAccepted ||
+    evidence?.auditOverride?.approval,
+  );
+}
 
 export default defineAction({
   description:
@@ -26,8 +68,46 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  needsApproval: async (args, ctx) => {
+    const actionCtx = ctx as ReviewResourceContext | undefined;
+    if (!agentNeedsDeleteApproval(args.resourceType, actionCtx)) return false;
+    const access = await resolveReviewableResourceAccess(
+      args.resourceType,
+      args.resourceId,
+      actionCtx,
+    );
+    if (!access || !roleSatisfies(access.role, "editor")) return false;
+    const comment = await getReviewCommentById(
+      args.commentId,
+      {},
+      { bypassScope: true },
+    );
+    if (
+      !comment ||
+      comment.status === "deleted" ||
+      comment.resourceType !== args.resourceType ||
+      comment.resourceId !== args.resourceId
+    ) {
+      return false;
+    }
+    const authors = comment.parentCommentId
+      ? [comment.authorEmail]
+      : ((
+          await getLiveReviewAuthorsByThread([comment.threadId], {
+            resourceType: args.resourceType,
+            resourceId: args.resourceId,
+          })
+        ).get(comment.threadId) ?? [comment.authorEmail]);
+    const viewer = normalizeEmail(actionCtx?.userEmail);
+    return authors.some((email) => normalizeEmail(email) !== viewer);
+  },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
+    const onlyOwnComments =
+      Boolean(args.onlyOwnComments) ||
+      (agentNeedsDeleteApproval(args.resourceType, actionCtx) &&
+        !deleteWasApproved(ctx as ActionRunContext | undefined));
     const scope = {
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
@@ -55,12 +135,24 @@ export default defineAction({
       normalizeEmail(comment.authorEmail) ===
         normalizeEmail(actionCtx?.userEmail);
     if (!access || !canCommentOnReviewableResource(args.resourceType, access)) {
-      throw new ForbiddenError("Not allowed to delete this review comment");
+      throw new ForbiddenError(
+        reviewWriteRefusal(
+          args.resourceType,
+          access,
+          "Not allowed to delete this review comment",
+        ),
+      );
     }
     const isEditor = roleSatisfies(access.role, "editor");
     if (!isAuthor && !isEditor) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
+    const refuseOthers = () =>
+      fail("This would delete another person's comment.", {
+        statusCode: 409,
+        errorCode: "approval_required",
+      });
+    if (!isAuthor && onlyOwnComments) refuseOthers();
     // raw-sql-ok: the helper's statements are constant text; the ids are bound.
     const updatedCount = await deleteReviewComment(
       comment.id,
@@ -69,12 +161,13 @@ export default defineAction({
         assertThreadDeletable: (replyAuthorEmails) => {
           if (
             !canDeleteReviewThread({
-              isEditor,
+              isEditor: isEditor && !onlyOwnComments,
               actorEmail: actionCtx?.userEmail,
               rootAuthorEmail: comment.authorEmail,
               replyAuthorEmails,
             })
           ) {
+            if (isEditor) refuseOthers();
             throw new ForbiddenError(
               "Not allowed to delete a thread that has replies from other people",
             );

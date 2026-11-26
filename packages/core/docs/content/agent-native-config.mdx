@@ -111,6 +111,7 @@ configuration portion of `agent-native.json`:
 | `instructions.development`           | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                                                                                           |
 | `translations.locales`               | `string[]`                                                        | Lists the locales the app intentionally ships. `en-US` remains the source locale.                                                                                                                                                                                 |
 | `changelog.enabled`                  | `boolean`                                                         | Enables the app changelog workflow and lets agents create user-facing entries.                                                                                                                                                                                    |
+| `billing.commercialSurfaces`         | `"show"` or `"hide"`                                              | `"hide"` removes credit units and amounts, plan upgrades, free-credit offers, and referral rewards from the UI and usage APIs; dollar and token usage still show. Defaults to `"show"`.                                                                           |
 | `harness`                            | `boolean` or `{ runtimes: string[] }`                             | Enables the hosted tools-only harness, optionally narrowed to `claude-code`, `codex`, `pi`, or `opencode`. See [Harness Agents](/docs/harness-agents).                                                                                                            |
 
 ## Deterministic environment aliases
@@ -139,6 +140,7 @@ upper snake case and join segments with underscores:
 | `instructions.development`           | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`            |
 | `translations.locales`               | `AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES`                |
 | `changelog.enabled`                  | `AGENT_NATIVE_CONFIG_CHANGELOG_ENABLED`                   |
+| `billing.commercialSurfaces`         | `AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES`         |
 | `harness`                            | `AGENT_NATIVE_CONFIG_HARNESS`                             |
 | `harness.runtimes`                   | `AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES`                    |
 
@@ -207,6 +209,46 @@ export default defineAgentNativeConfig({
 Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `PUBLIC_API_ORIGIN` in the
 hosting provider or scoped secret store. The config file declares the policy;
 the deployment supplies the values.
+
+### App-owned server config sections
+
+A server-only value that only your app reads belongs in a section your app
+registers, next to the framework's own `defineAppConfig()` fields. Register it
+with `defineAppConfigSection()` and declare its type once:
+
+```ts filename="server/app-config.ts"
+import { defineAppConfigSection } from "@agent-native/core/server";
+import { z } from "zod";
+
+export const locationsConfig = defineAppConfigSection(
+  "locations",
+  z.object({
+    suggestionsEnabled: z.boolean().default(true).meta({
+      env: "LOCATIONS_SUGGESTIONS_ENABLED",
+      doc: "Offer location suggestions while editing an event.",
+    }),
+  }),
+);
+
+declare module "@agent-native/core/server" {
+  interface AppConfigSections {
+    locations: typeof locationsConfig.schema;
+  }
+}
+```
+
+Import that module from `server/plugins/config.ts` so the section is registered
+before anything reads it. Then read it with `locationsConfig.read()` or
+`getAppConfig().locations`, and set it in code with
+`defineAppConfig({ locations: { suggestionsEnabled: false } })`.
+
+Section fields resolve the same way as the framework's fields: the declared
+default, then the `env` alias, then `defineAppConfig()`. A value that does not
+match the schema fails loudly. Registration also fails when the key is already
+a framework section, when the same key is registered with a different shape,
+or when an `env` name is already read by another field. Like the rest of
+`defineAppConfig()`, sections stay on the server. Keep secrets in the scoped
+secret store, not in a section's environment alias.
 
 ### Separate runtime and development instructions
 

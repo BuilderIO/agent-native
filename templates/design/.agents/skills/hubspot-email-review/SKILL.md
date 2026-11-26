@@ -16,8 +16,7 @@ workflow. Do not spawn another reviewer.
 
 Read the assigned target, original content and brand references using
 `get-design-snapshot`. Read fresh `get-design-surface-index` results for each
-explicit `designId` and `fileId`, with `includeNodes: false` and
-`includeReview: false`. Verify `index.source.sourceRef` and compare
+explicit `designId` and `fileId`, with `includeNodes: false`. Verify `index.source.sourceRef` and compare
 `index.source.contentHash` against the expected fingerprints. This value is an
 opaque source fingerprint, not a SHA-256 digest or `versionHash`. Missing targets,
 missing campaign facts that prevent a judgment, or changed hashes require an

@@ -57,6 +57,7 @@ import {
   releaseFinalChunk,
   type UploadStanding,
 } from "./final-chunk-claim.js";
+import { personStartedContext } from "./recording-made-by.js";
 import {
   reissueRecordingUpload,
   startRecordingUpload,
@@ -481,13 +482,13 @@ export async function handleContentClipUploadStart(
           sizeBytes: start.sizeBytes,
           recordingSource: "file_upload",
         },
-        {
+        personStartedContext({
           caller: "a2a",
           networkProtocol: "a2a",
           userEmail: uploader.email,
           orgId: account.orgId,
           requestHeaders: uploader.requestHeaders,
-        },
+        }),
       );
     } catch (error) {
       const response = await refusedStart(error, () =>

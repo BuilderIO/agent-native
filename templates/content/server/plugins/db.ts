@@ -1,8 +1,104 @@
 import { runMigrations } from "@agent-native/core/db";
-import { searchIndexMigration } from "@agent-native/core/search";
+import {
+  searchIndexMigration,
+  semanticSearchMigration,
+  semanticVectorStoreMigration,
+} from "@agent-native/core/search";
 
 import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
+
+/**
+ * The current time in the shape Content writes it, `new Date().toISOString()`
+ * (2026-11-11T21:52:00.123Z). Every text time column defaults to this. Postgres
+ * renders CURRENT_TIMESTAMP as text like 2026-11-11 21:52:00.123456+00, which
+ * sorts before every ISO time from the same day, so a row the database stamped
+ * itself would fall out of "recently edited" order.
+ */
+export const CONTENT_ISO_NOW_SQL = `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
+/** Columns whose default was CURRENT_TIMESTAMP before v138. */
+const DATABASE_STAMPED_TIMES: Record<string, readonly string[]> = {
+  documents: ["created_at", "updated_at"],
+  document_sync_links: ["created_at", "updated_at"],
+  document_versions: ["created_at"],
+  document_comments: ["created_at", "updated_at"],
+  document_shares: ["created_at"],
+  document_property_definitions: ["created_at", "updated_at"],
+  document_property_values: ["created_at", "updated_at"],
+  content_databases: ["created_at", "updated_at"],
+  content_database_items: ["created_at", "updated_at"],
+  content_database_sources: ["created_at", "updated_at"],
+  content_database_source_fields: ["created_at", "updated_at"],
+  content_database_source_rows: ["created_at", "updated_at"],
+  content_database_source_change_sets: ["created_at", "updated_at"],
+  content_database_source_change_reviews: ["created_at"],
+  content_database_source_executions: ["created_at", "updated_at"],
+  document_block_field_contents: ["created_at", "updated_at"],
+  builder_doc_sidecars: ["created_at", "updated_at"],
+  content_database_body_hydration_queue: ["created_at", "updated_at"],
+  document_preview_drafts: ["created_at", "updated_at"],
+  content_database_source_execution_claims: ["created_at"],
+  content_spaces: ["created_at", "updated_at"],
+  content_space_catalog_items: ["created_at", "updated_at"],
+  content_database_item_key_claims: ["created_at", "updated_at"],
+  content_database_migration_receipts: ["created_at", "updated_at"],
+  document_block_fields: ["created_at", "updated_at"],
+  document_blocks: ["created_at", "updated_at"],
+  content_database_row_mutation_receipts: ["created_at", "updated_at"],
+  document_edit_receipts: ["created_at"],
+  content_database_setup_receipts: ["created_at"],
+  comment_ai_requests: ["created_at", "updated_at"],
+  content_trash_purge_plans: ["created_at", "updated_at"],
+  content_trash_purge_plan_items: ["created_at"],
+  content_trash_purge_operations: ["created_at", "updated_at"],
+  document_preview_draft_settlements: ["updated_at"],
+  document_browser_save_attempts: ["created_at"],
+  document_body_intents: ["created_at"],
+  comment_ai_attempts: ["created_at", "updated_at"],
+  document_comment_reactions: ["created_at"],
+  content_private_icon_references: ["created_at"],
+  document_imports: ["created_at"],
+  content_database_builder_blob_cleanup: ["created_at"],
+  document_body_steps: ["created_at"],
+  content_webhooks: ["created_at", "updated_at"],
+  content_webhook_deliveries: ["created_at", "updated_at"],
+  content_private_media_references: ["created_at"],
+};
+
+/** A time Postgres wrote as text: date, space, time, optional fraction, offset. */
+const POSTGRES_TIME_TEXT = `'^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?[+-][0-9]{2}(:?[0-9]{2})?$'`;
+
+/**
+ * Switches each column's default to CONTENT_ISO_NOW_SQL and rewrites values
+ * the old default wrote in the same shape, one scan per table. A value that
+ * already matches the app's shape, or any other text, is left alone.
+ */
+export function isoTimeDefaultsSql(
+  columnsByTable: Record<string, readonly string[]>,
+): string {
+  const toIso = (column: string) =>
+    `to_char(${column}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+  // raw-sql-ok: migration DDL; table and column names come from the constant list above, never from input.
+  return Object.entries(columnsByTable)
+    .flatMap(([table, columns]) => [
+      `ALTER TABLE ${table} ${columns
+        .map(
+          (column) =>
+            `ALTER COLUMN ${column} SET DEFAULT ${CONTENT_ISO_NOW_SQL}`,
+        )
+        .join(", ")}`,
+      `UPDATE ${table} SET ${columns
+        .map(
+          (column) =>
+            `${column} = CASE WHEN ${column} ~ ${POSTGRES_TIME_TEXT} THEN ${toIso(column)} ELSE ${column} END`,
+        )
+        .join(", ")} WHERE ${columns
+        .map((column) => `${column} ~ ${POSTGRES_TIME_TEXT}`)
+        .join(" OR ")}`,
+    ])
+    .join(";\n");
+}
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -1680,6 +1776,169 @@ export const runContentMigrations = runMigrations(
       version: 137,
       name: "content-comment-author-client",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_client TEXT`,
+    },
+    {
+      version: 138,
+      name: "content-iso-time-defaults",
+      // Times the database stamps itself take the app's ISO shape, and the
+      // ones the old CURRENT_TIMESTAMP default already wrote are rewritten.
+      // New time columns default to CONTENT_ISO_NOW_SQL
+      // (iso-time-defaults.db.test.ts checks every column).
+      sql: isoTimeDefaultsSql(DATABASE_STAMPED_TIMES),
+    },
+    // Queues every page to be embedded for question search. The capture
+    // installed by version 117 records later changes for it too.
+    semanticSearchMigration(documentSearchIndex, {
+      version: 139,
+      name: "search-embeddings-documents",
+    }),
+    semanticVectorStoreMigration({
+      version: 140,
+      name: "search-vectors-1024",
+    }),
+    {
+      version: 141,
+      name: "content-comment-attachments",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
+    },
+    {
+      version: 142,
+      name: "content-database-builder-autosaves",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_builder_autosaves (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        database_item_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        state TEXT NOT NULL DEFAULT 'idle',
+        reason TEXT,
+        last_error TEXT,
+        attempt_id TEXT,
+        saved_edit_at TEXT,
+        last_saved_at TEXT,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_builder_autosaves_source_item_unique
+        ON content_database_builder_autosaves (source_id, database_item_id)`,
+    },
+    {
+      version: 143,
+      name: "content-database-builder-autosave-claimed-edit",
+      sql: `ALTER TABLE content_database_builder_autosaves ADD COLUMN IF NOT EXISTS claimed_edit_at TEXT`,
+    },
+    {
+      version: 144,
+      name: "content-analytics-chart-citations",
+      sql: `CREATE TABLE IF NOT EXISTS content_analytics_chart_citations (
+        document_id TEXT NOT NULL,
+        dashboard_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_analytics_chart_citation_unique
+        ON content_analytics_chart_citations (document_id, dashboard_id);
+      CREATE INDEX IF NOT EXISTS content_analytics_chart_citation_dashboard_idx
+        ON content_analytics_chart_citations (dashboard_id)`,
+    },
+    {
+      version: 145,
+      name: "content-column-fills",
+      sql: `CREATE TABLE IF NOT EXISTS content_column_fills (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        database_id TEXT NOT NULL,
+        database_document_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        rewrite BOOLEAN NOT NULL DEFAULT FALSE,
+        status TEXT NOT NULL DEFAULT 'running',
+        total INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE INDEX IF NOT EXISTS content_column_fills_database_idx
+        ON content_column_fills (database_id, created_at);
+      CREATE INDEX IF NOT EXISTS content_column_fills_status_idx
+        ON content_column_fills (status);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fills_active_idx
+        ON content_column_fills (database_id, property_id)
+        WHERE status IN ('running', 'stopping');
+      CREATE TABLE IF NOT EXISTS content_column_fill_cells (
+        fill_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'waiting',
+        base_generation BIGINT,
+        task_id TEXT,
+        agent_thread_id TEXT,
+        run_id TEXT,
+        attempt INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fill_cells_cell_idx
+        ON content_column_fill_cells (fill_id, document_id);
+      CREATE INDEX IF NOT EXISTS content_column_fill_cells_status_idx
+        ON content_column_fill_cells (fill_id, status, position)`,
+    },
+    {
+      version: 146,
+      name: "content-page-checks",
+      sql: `CREATE TABLE IF NOT EXISTS content_page_checks (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        sentence TEXT NOT NULL,
+        parts TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        wording_hash TEXT NOT NULL,
+        paused BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE INDEX IF NOT EXISTS content_page_checks_document_idx
+        ON content_page_checks (document_id, created_at);
+      CREATE TABLE IF NOT EXISTS content_page_check_results (
+        check_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        place_key TEXT NOT NULL,
+        wording_hash TEXT NOT NULL,
+        text_hash TEXT NOT NULL,
+        finding TEXT NOT NULL,
+        parts TEXT NOT NULL,
+        checked_by TEXT NOT NULL,
+        checked_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_results_place_idx
+        ON content_page_check_results (check_id, place_key);
+      CREATE INDEX IF NOT EXISTS content_page_check_results_document_idx
+        ON content_page_check_results (document_id);
+      CREATE TABLE IF NOT EXISTS content_page_check_skips (
+        check_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        place_key TEXT NOT NULL,
+        text_hash TEXT NOT NULL,
+        skipped_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_skips_place_idx
+        ON content_page_check_skips (check_id, place_key);
+      CREATE INDEX IF NOT EXISTS content_page_check_skips_document_idx
+        ON content_page_check_skips (document_id)`,
+    },
+    {
+      version: 147,
+      name: "content-page-check-questions",
+      sql: `ALTER TABLE content_page_checks
+        ADD COLUMN IF NOT EXISTS sure TEXT NOT NULL DEFAULT 'balanced';
+      CREATE TABLE IF NOT EXISTS content_page_check_usage (
+        document_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        questions INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_usage_day_idx
+        ON content_page_check_usage (document_id, day)`,
     },
   ],
   { table: "content_migrations" },

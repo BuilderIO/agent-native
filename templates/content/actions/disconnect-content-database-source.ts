@@ -1,6 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -9,6 +9,7 @@ import type {
   ContentDatabaseResponsePayload,
   DisconnectContentDatabaseSourceRequest,
 } from "../shared/api.js";
+import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
@@ -29,6 +30,51 @@ import {
   contentDatabaseResponseForCaller,
   getContentDatabaseResponse,
 } from "./_database-utils.js";
+
+type Db = Pick<ReturnType<typeof getDb>, "select" | "update">;
+
+// A row whose source is gone has no body left to sync, so a sync that was
+// still under way would otherwise label it "still syncing" forever. Rows
+// another source still binds keep their own sync state.
+async function resetBodyHydrationWithoutSource(
+  db: Db,
+  databaseItemIds: readonly string[],
+  now: string,
+) {
+  for (const chunk of chunks(
+    [...new Set(databaseItemIds)],
+    bulkChunkSizeForColumnCount(1),
+  )) {
+    const stillSourced = await db
+      .select({
+        databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(inArray(schema.contentDatabaseSourceRows.databaseItemId, chunk));
+    const kept = new Set(stillSourced.map((row) => row.databaseItemId));
+    const reset = chunk.filter((databaseItemId) => !kept.has(databaseItemId));
+    if (reset.length === 0) continue;
+    await db
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "hydrated",
+        bodyHydrationAttemptedAt: null,
+        bodyHydrationError: null,
+        bodyHydrationVersion: null,
+        bodyHydrationReason: null,
+        bodyHydrationProviderStatus: null,
+        bodyHydrationAttemptCount: 0,
+        bodyHydrationRetryable: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          inArray(schema.contentDatabaseItems.id, reset),
+          ne(schema.contentDatabaseItems.bodyHydrationStatus, "hydrated"),
+        ),
+      );
+  }
+}
 
 async function deleteSourceRecords(databaseId: string, sourceId: string) {
   const db = getDb();
@@ -145,13 +191,21 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
     const deletedRows = await tx
       .delete(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId))
-      .returning({ documentId: schema.contentDatabaseSourceRows.documentId });
+      .returning({
+        databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+        documentId: schema.contentDatabaseSourceRows.documentId,
+      });
     await clearBuilderStatusValues(tx, {
       databaseId,
       documentIds: deletedRows
         .map((row) => row.documentId)
         .filter((documentId): documentId is string => !!documentId),
     });
+    await resetBodyHydrationWithoutSource(
+      tx,
+      deletedRows.map((row) => row.databaseItemId),
+      now,
+    );
     await tx
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, sourceId));

@@ -7,7 +7,7 @@ remain intact.
 
 Anonymous visitors receive a signed, HttpOnly, seven-day assignment cookie before
 signup controls are enabled. If assignment cannot be loaded, signup remains available
-without automatic provisioning and records an unavailable event. The allocation is 50% control and 50% automatic.
+without automatic provisioning and records an unavailable event. New Design visitors are assigned 20% control and 80% automatic.
 Both groups retain their assignment through redirects and reloads in that browser.
 The automatic group sees Builder account creation and linked Builder terms and
 privacy disclosure before signup. Clicking treatment signup records acceptance for an explicit auth attempt. Password
@@ -135,7 +135,7 @@ the assignment from the external cohort.
 
 ## Clips and Slides rollout
 
-Clips and Slides use the same pre-signup 50/50 assignment, Builder terms/privacy disclosure, verified consent, first-request background activation, and existing-account fallback. They use `clips_builder_signup_v1` and `slides_builder_signup_v1`, respectively. Design remains `design_builder_signup_v1`. Assignments, consent records and activation reservations are isolated by experiment ID, including the cookie signature. Exposure events carry the ID returned by the server rather than assuming Design.
+Clips and Slides use pre-signup assignment, Builder terms/privacy disclosure, verified consent, first-request background activation, and existing-account fallback. Clips assigns 100% of new visitors to automatic signup. Slides assigns 50%. Existing signed assignments are honored until they expire. Compare Clips experiment cohorts using assignment time before the production rollout. They use `clips_builder_signup_v1` and `slides_builder_signup_v1`, respectively. Design remains `design_builder_signup_v1`. Assignments, consent records and activation reservations are isolated by experiment ID, including the cookie signature. Exposure events carry the ID returned by the server rather than assuming Design.
 
 Their AppProviders startup gate defers first-run onboarding during eligibility lookup while keeping ordinary app content interactive. An inconclusive lookup shows a nonblocking Retry notice. Confirmed activation covers the app until its outcome, then refreshes connection queries. Controls and ineligible or fallback users retain the existing connection flow. Public and embedded routes do not provision accounts.
 

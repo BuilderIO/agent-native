@@ -60,6 +60,19 @@ your token store. The package's `setSchedulingContext()` doesn't touch
 tokens; consumers typically use core's `oauth_tokens` and pass a
 `getAccessToken(credentialId)` callback.
 
+### Provider call gates
+
+The built-in Google Calendar provider sends every Calendar API request
+through core's provider call gates (`fetchWithProviderCallGate` from
+`@agent-native/core/provider-api/call-gates`) with provider id
+`google_calendar` and app id `scheduling`. A gate a deployment registers with
+`registerProviderCallGate()` can pause, budget, or rate-limit free/busy and
+event requests the same way it governs provider-api requests; with no gate
+registered the request is sent unchanged. Pass `getAccountIdentity` to tell
+the gate which Google account a credential belongs to: return `null` when the
+credential records none, and throw when it can't be read, so the gate sees
+`accountIdError` instead of a missing account.
+
 ## VideoProvider
 
 ```ts

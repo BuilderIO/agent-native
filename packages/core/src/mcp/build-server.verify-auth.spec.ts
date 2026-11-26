@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +38,14 @@ vi.mock("./credential-membership.js", () => ({
     checkCredentialOrgMembershipMock(...a),
   checkCredentialEmailRetirement: (...a: any[]) =>
     checkCredentialEmailRetirementMock(...a),
+}));
+
+const isLoopbackRequestMock = vi.fn(
+  (event: H3Event) => (event as { loopback?: boolean }).loopback === true,
+);
+vi.mock("../server/loopback.js", async (importActual) => ({
+  ...(await importActual<typeof import("../server/loopback.js")>()),
+  isLoopbackRequest: (event: H3Event) => isLoopbackRequestMock(event),
 }));
 
 const evaluateServicePrincipalMock = vi.fn();
@@ -1934,6 +1943,113 @@ describe("verifyAuth — a credential for an address an email change retired", (
       identity: { userEmail: "renamed@example.com" },
     });
     expect(checkCredentialEmailRetirementMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifyAuth — credentials of the local development identity", () => {
+  const resource = "https://mail.agent-native.com/mcp";
+  const hostedEvent = { loopback: false } as unknown as H3Event;
+  const loopbackEvent = { loopback: true } as unknown as H3Event;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    checkCredentialOrgMembershipMock.mockResolvedValue("member");
+    checkCredentialEmailRetirementMock.mockResolvedValue("current");
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      kind: "personal",
+      ownerEmail: "dev@local.test",
+      orgId: null,
+    });
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
+    process.env.A2A_SECRET = SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+  });
+
+  function oauthToken(clientId = "client-123") {
+    return signMcpOAuthAccessToken({
+      ownerEmail: "dev@local.test",
+      orgId: null,
+      orgDomain: null,
+      clientId,
+      scope: "mcp:read mcp:write",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-dev",
+    });
+  }
+
+  it("refuses an MCP OAuth token off loopback", async () => {
+    const res = await verifyAuth(`Bearer ${await oauthToken()}`, undefined, {
+      resourceUrl: resource,
+      event: hostedEvent,
+    });
+    expect(res).toEqual({ authed: false, refusal: "local-dev-identity" });
+  });
+
+  it("refuses a connect token off loopback and records no use", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await oauthToken("agent-native-connect")}`,
+      undefined,
+      { resourceUrl: resource, event: hostedEvent },
+    );
+    expect(res).toEqual({ authed: false, refusal: "local-dev-identity" });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a legacy connect token off loopback", async () => {
+    const token = await sign({
+      sub: "dev@local.test",
+      scope: "mcp-connect",
+      jti: "jti-dev",
+      org_id: null,
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      event: hostedEvent,
+    });
+    expect(res).toEqual({ authed: false, refusal: "local-dev-identity" });
+  });
+
+  it("refuses the credential when no request is available to check", async () => {
+    const res = await verifyAuth(`Bearer ${await oauthToken()}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res).toEqual({ authed: false, refusal: "local-dev-identity" });
+  });
+
+  it("accepts the credential on loopback", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await oauthToken("agent-native-connect")}`,
+      undefined,
+      { resourceUrl: resource, event: loopbackEvent },
+    );
+    expect(res.authed).toBe(true);
+    expect(res.identity?.userEmail).toBe("dev@local.test");
+  });
+
+  it("leaves other owners' credentials alone off loopback", async () => {
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "person@example.com",
+      orgId: null,
+      orgDomain: null,
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource,
+      issuer: "https://mail.agent-native.com",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+      event: hostedEvent,
+    });
+    expect(res.authed).toBe(true);
+    expect(isLoopbackRequestMock).not.toHaveBeenCalled();
   });
 });
 

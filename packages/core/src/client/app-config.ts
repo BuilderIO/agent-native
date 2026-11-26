@@ -10,6 +10,17 @@ export function injectedAgentNativeConfig(): AgentNativeConfig {
     : __AGENT_NATIVE_APP_CONFIG__;
 }
 
+/**
+ * Whether this deployment hides credits, plans, free-credit offers, and
+ * referral rewards (`billing.commercialSurfaces: "hide"`). Server code reads
+ * the same bundled config, so client and server agree on one setting.
+ */
+export function commercialSurfacesHidden(
+  config: AgentNativeConfig = injectedAgentNativeConfig(),
+): boolean {
+  return config.billing?.commercialSurfaces === "hide";
+}
+
 export function injectedAgentNativeAppId(): string | null {
   const browserConfig =
     typeof window !== "undefined"

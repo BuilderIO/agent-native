@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
-import type { DragHandleMenuRequest } from "@agent-native/toolkit/editor";
+import { parseSubmitChatMessage } from "@agent-native/core/client/agent-chat";
+import {
+  type DragHandleMenuRequest,
+  isListItem,
+} from "@agent-native/toolkit/editor";
 import { Editor, type JSONContent } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -11,6 +16,20 @@ import { BlockActionsMenu, openBlockActionsMenu } from "./BlockActionsMenu";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { getTableHeaders } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
+
+const sendToAgentChat = vi.hoisted(() => vi.fn());
+const startMove = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  sendToAgentChat,
+}));
+
+vi.mock("./MoveBlockDialog", () => ({
+  useMoveBlock: () => ({ start: startMove, dialog: null }),
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, vars?: Record<string, string>) =>
@@ -61,6 +80,9 @@ describe("BlockActionsMenu", () => {
 
   afterEach(() => {
     act(() => root?.unmount());
+    vi.restoreAllMocks();
+    sendToAgentChat.mockClear();
+    startMove.mockClear();
     host?.remove();
     editor?.destroy();
     page?.remove();
@@ -71,10 +93,12 @@ describe("BlockActionsMenu", () => {
     content = [paragraph("Before"), TABLE],
     suggesting = false,
     onComment,
+    documentId,
   }: {
     content?: JSONContent[];
     suggesting?: boolean;
     onComment?: () => void;
+    documentId?: string;
   } = {}) {
     page = document.createElement("div");
     document.body.append(page);
@@ -91,6 +115,7 @@ describe("BlockActionsMenu", () => {
     act(() =>
       nextRoot.render(
         <BlockActionsMenu
+          documentId={documentId}
           editor={current}
           onComment={onComment}
           suggesting={suggesting}
@@ -115,6 +140,7 @@ describe("BlockActionsMenu", () => {
       dispatch: (tr) => target.view.dispatch(tr),
       duplicate: vi.fn(),
       remove: vi.fn(),
+      insertAbove: vi.fn(),
       insertBelow: vi.fn(),
       onClose: vi.fn(),
     };
@@ -135,7 +161,9 @@ describe("BlockActionsMenu", () => {
   }
 
   function searchBox() {
-    const input = menuAt().querySelector<HTMLInputElement>("input");
+    const input = document.querySelector<HTMLInputElement>(
+      '[role="menu"] input, [role="dialog"] input',
+    );
     if (!input) throw new Error("The menu has no search box");
     return input;
   }
@@ -227,9 +255,12 @@ describe("BlockActionsMenu", () => {
       "database.headerRow=true",
       "database.headerColumn=false",
       "database.fitToWidth=false",
-      "editor.blockMenu.duplicate",
-      "editor.blockMenu.delete",
+      "editor.blockMenu.insertAbove",
       "editor.blockMenu.insertBelow",
+      "editor.blockMenu.duplicate",
+      "editor.blockMenu.moveTo",
+      "editor.blockMenu.delete",
+      "editor.blockMenu.askAgent",
     ]);
   });
 
@@ -262,10 +293,13 @@ describe("BlockActionsMenu", () => {
     expect(items()).toEqual([
       "editor.slash.turnInto",
       "editor.color.label",
-      "editor.blockMenu.duplicate",
-      "editor.blockMenu.delete",
+      "editor.blockMenu.insertAbove",
       "editor.blockMenu.insertBelow",
+      "editor.blockMenu.duplicate",
+      "editor.blockMenu.moveTo",
+      "editor.blockMenu.delete",
       "editor.comment",
+      "editor.blockMenu.askAgent",
     ]);
   });
 
@@ -277,6 +311,77 @@ describe("BlockActionsMenu", () => {
     expect(request.duplicate).toHaveBeenCalledOnce();
     expect(request.onClose).toHaveBeenCalledOnce();
     expect(menus()).toEqual([]);
+  });
+
+  it("hands Move to the block and closes", () => {
+    const target = mount();
+    const { request } = open(target, 1);
+
+    choose("editor.blockMenu.moveTo");
+
+    expect(startMove).toHaveBeenCalledOnce();
+    expect(startMove.mock.calls[0]?.[0]).toEqual({
+      node: target.state.doc.child(1),
+      pos: target.state.doc.child(0).nodeSize,
+    });
+    expect(request.remove).not.toHaveBeenCalled();
+    expect(request.onClose).toHaveBeenCalledOnce();
+    expect(menus()).toEqual([]);
+  });
+
+  it("inserts an empty block above through the grip", () => {
+    const { request } = open(mount(), 0);
+
+    choose("editor.blockMenu.insertAbove");
+
+    expect(request.insertAbove).toHaveBeenCalledOnce();
+    expect(request.insertBelow).not.toHaveBeenCalled();
+    expect(request.onClose).toHaveBeenCalledOnce();
+  });
+
+  it("attaches the block to the agent's chat without sending it", () => {
+    open(mount({ documentId: "doc-1" }), 0);
+
+    choose("editor.blockMenu.askAgent");
+
+    expect(sendToAgentChat).toHaveBeenCalledOnce();
+    const message = sendToAgentChat.mock.calls[0]?.[0];
+    expect(message).toMatchObject({
+      message: " ",
+      submit: false,
+      openSidebar: true,
+      contextLabel: "editor.slash.text",
+    });
+    expect(message.context).toContain("Document ID: doc-1");
+    expect(message.context).toContain("Block type: paragraph");
+    expect(message.context).toContain("Block position: 1 of 2");
+    expect(message.context).toContain("~~~\nBefore\n~~~");
+    expect(menus()).toEqual([]);
+    // The chat takes it as a draft with the block staged, not a send.
+    expect(
+      parseSubmitChatMessage({
+        data: { type: "agentNative.submitChat", data: message },
+      } as MessageEvent),
+    ).toMatchObject({ submit: false, contextLabel: "editor.slash.text" });
+  });
+
+  it("fences a block that holds tildes so the attachment can't end early", () => {
+    open(
+      mount({
+        content: [
+          {
+            type: "codeBlock",
+            content: [{ type: "text", text: "~~~~ not the end" }],
+          },
+        ],
+      }),
+      0,
+    );
+
+    choose("editor.blockMenu.askAgent");
+
+    const { context } = sendToAgentChat.mock.calls[0]?.[0] ?? {};
+    expect(context).toMatch(/\n~{5}\n[\s\S]*~~~~ not the end[\s\S]*\n~{5}$/);
   });
 
   it("opens Turn into with the block's kind checked", () => {
@@ -292,6 +397,10 @@ describe("BlockActionsMenu", () => {
       "editor.slash.bulletedList=false",
       "editor.slash.numberedList=false",
       "editor.slash.todoList=false",
+      "editor.slash.toggle=false",
+      "editor.slash.toggleHeading1=false",
+      "editor.slash.toggleHeading2=false",
+      "editor.slash.toggleHeading3=false",
       "editor.slash.quote=false",
       "editor.slash.codeBlock=false",
     ]);
@@ -395,6 +504,9 @@ describe("BlockActionsMenu", () => {
       "editor.heading1=false",
       "editor.heading2=false",
       "editor.heading3=false",
+      "editor.slash.toggleHeading1=false",
+      "editor.slash.toggleHeading2=false",
+      "editor.slash.toggleHeading3=false",
     ]);
 
     search("zzz");
@@ -432,7 +544,7 @@ describe("BlockActionsMenu", () => {
     expect(document.activeElement).toBe(searchBox());
 
     press(searchBox(), "ArrowUp");
-    expect(document.activeElement).toBe(item("editor.blockMenu.insertBelow"));
+    expect(document.activeElement).toBe(item("editor.blockMenu.askAgent"));
   });
 
   it("filters with what's typed while an item has focus", () => {
@@ -509,13 +621,16 @@ describe("BlockActionsMenu", () => {
     const { request } = open(target, 1);
 
     const duplicate = item("editor.blockMenu.duplicate");
+    const move = item("editor.blockMenu.moveTo");
     const remove = item("editor.blockMenu.delete");
     expect(duplicate.hasAttribute("data-disabled")).toBe(true);
+    expect(move.hasAttribute("data-disabled")).toBe(true);
     expect(remove.hasAttribute("data-disabled")).toBe(true);
     const reason = document.getElementById(
       duplicate.getAttribute("aria-describedby") ?? "",
     );
     expect(reason?.textContent).toBe("editor.blockMenu.lockedSource");
+    expect(move.getAttribute("aria-describedby")).toBe(reason?.id);
     expect(remove.getAttribute("aria-describedby")).toBe(reason?.id);
 
     const shortcut = press(searchBox(), "d", MOD);
@@ -526,14 +641,16 @@ describe("BlockActionsMenu", () => {
     expect(menus()).toHaveLength(1);
   });
 
-  it("leaves out a block's kind, colour and table settings while suggesting", () => {
+  it("leaves out a block's kind, colour, table settings and Move to while suggesting", () => {
     const target = mount({ suggesting: true });
     open(target, 0);
 
     expect(items()).toEqual([
+      "editor.blockMenu.insertAbove",
+      "editor.blockMenu.insertBelow",
       "editor.blockMenu.duplicate",
       "editor.blockMenu.delete",
-      "editor.blockMenu.insertBelow",
+      "editor.blockMenu.askAgent",
     ]);
 
     act(() =>
@@ -611,6 +728,22 @@ describe("BlockActionsMenu", () => {
     expect(request.onClose).not.toHaveBeenCalled();
   });
 
+  it("tints its block in the editor's wrapper while open", () => {
+    const target = mount();
+    const wrapper = page as HTMLElement;
+    wrapper.classList.add("visual-editor-wrapper");
+    const { close } = open(target, 0);
+    if (!close) throw new Error("The editor's menu didn't open");
+
+    expect(
+      wrapper.querySelectorAll(":scope > .content-block-menu-tint"),
+    ).toHaveLength(1);
+
+    act(() => close());
+
+    expect(wrapper.querySelector(".content-block-menu-tint")).toBeNull();
+  });
+
   it("tells the grip it closed when it goes while open", () => {
     const target = mount();
     const { request } = open(target, 1);
@@ -627,5 +760,391 @@ describe("BlockActionsMenu", () => {
     root = null;
 
     expect(open(target, 1).close).toBeNull();
+  });
+
+  describe("on a phone", () => {
+    function onPhone() {
+      vi.spyOn(window, "matchMedia").mockImplementation(
+        (query) =>
+          ({
+            matches: query.includes("coarse"),
+            media: query,
+          }) as MediaQueryList,
+      );
+    }
+
+    function sheet() {
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+      if (!dialog) throw new Error("No sheet is open");
+      return dialog;
+    }
+
+    const rows = () =>
+      Array.from(
+        sheet().querySelectorAll<HTMLElement>("[data-block-sheet-item]"),
+      );
+
+    const rowLabels = () =>
+      rows().map(
+        (row) =>
+          `${row.textContent}${row.hasAttribute("aria-checked") ? `=${row.getAttribute("aria-checked")}` : ""}`,
+      );
+
+    function row(text: string) {
+      const found = rows().find((element) => element.textContent === text);
+      if (!found) throw new Error(`No sheet row "${text}"`);
+      return found;
+    }
+
+    // A tap focuses the button it lands on, as Chrome's does.
+    function tap(text: string) {
+      const tapped = row(text);
+      act(() => {
+        tapped.focus();
+        tapped.click();
+      });
+    }
+
+    function back() {
+      const button = sheet().querySelector<HTMLElement>(
+        '[aria-label="database.back"]',
+      );
+      if (!button) throw new Error("The sheet has no Back button");
+      act(() => button.click());
+    }
+
+    it("opens a sheet of 44 px rows, named like the menu", () => {
+      onPhone();
+      open(mount({ onComment: vi.fn() }), 0);
+
+      expect(menus()).toEqual([]);
+      const labelledBy = sheet().getAttribute("aria-labelledby") ?? "";
+      expect(document.getElementById(labelledBy)?.textContent).toBe(
+        "editor.blockMenu.label",
+      );
+      expect(sheet().textContent).toContain("editor.slash.text");
+      expect(rowLabels()).toEqual([
+        "editor.slash.turnInto",
+        "editor.color.label",
+        "editor.blockMenu.insertAbove",
+        "editor.blockMenu.insertBelow",
+        "editor.blockMenu.duplicate",
+        "editor.blockMenu.moveTo",
+        "editor.blockMenu.delete",
+        "editor.comment",
+        "editor.blockMenu.askAgent",
+      ]);
+      for (const row of rows()) expect(row.className).toContain("min-h-11");
+      // The phone's keyboard stays down until the search is tapped, but focus
+      // is in the sheet, so a keyboard user can work it straight away.
+      expect(document.activeElement).not.toBe(sheet().querySelector("input"));
+      expect(sheet().contains(document.activeElement)).toBe(true);
+    });
+
+    it("turns a block into a heading from Turn into's own view, with a way back", () => {
+      onPhone();
+      const target = mount();
+      const { request } = open(target, 0);
+
+      tap("editor.slash.turnInto");
+      expect(rowLabels()).toEqual([
+        "editor.slash.text=true",
+        "editor.heading1=false",
+        "editor.heading2=false",
+        "editor.heading3=false",
+        "editor.slash.bulletedList=false",
+        "editor.slash.numberedList=false",
+        "editor.slash.todoList=false",
+        "editor.slash.toggle=false",
+        "editor.slash.toggleHeading1=false",
+        "editor.slash.toggleHeading2=false",
+        "editor.slash.toggleHeading3=false",
+        "editor.slash.quote=false",
+        "editor.slash.codeBlock=false",
+      ]);
+
+      back();
+      expect(rowLabels()).toContain("editor.blockMenu.insertAbove");
+
+      tap("editor.slash.turnInto");
+      tap("editor.heading2");
+      expect(target.state.doc.child(0).type.name).toBe("heading");
+      expect(target.state.doc.child(0).attrs.level).toBe(2);
+      expect(request.onClose).toHaveBeenCalled();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("keeps focus in the sheet as its view changes", () => {
+      onPhone();
+      open(mount(), 0);
+
+      tap("editor.slash.turnInto");
+      expect(document.activeElement).toBe(row("editor.slash.text"));
+
+      back();
+      expect(document.activeElement).toBe(row("editor.slash.turnInto"));
+
+      tap("editor.color.label");
+      expect(document.activeElement).toBe(row("Aeditor.color.defaultText"));
+    });
+
+    it("moves through a group's choices with the arrow keys, one Tab stop each", () => {
+      onPhone();
+      open(mount(), 0);
+      const tabStops = () =>
+        rows()
+          .filter((element) => element.tabIndex === 0)
+          .map((element) => element.textContent);
+
+      tap("editor.slash.turnInto");
+      expect(tabStops()).toEqual(["editor.slash.text"]);
+      const down = press(row("editor.slash.text"), "ArrowDown");
+      expect(down.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(row("editor.heading1"));
+      press(row("editor.heading1"), "ArrowUp");
+      press(row("editor.slash.text"), "ArrowUp");
+      expect(document.activeElement).toBe(row("editor.slash.codeBlock"));
+      // Moving doesn't choose: the block stays as it was, and so does the sheet.
+      expect(rowLabels()).toContain("editor.slash.text=true");
+
+      back();
+      tap("editor.color.label");
+      expect(tabStops()).toEqual([
+        "Aeditor.color.defaultText",
+        "editor.color.defaultBackground",
+      ]);
+    });
+
+    it("leaves a restyled block ready to type in once the sheet goes", async () => {
+      onPhone();
+      const target = mount();
+      open(target, 0);
+
+      tap("editor.slash.turnInto");
+      tap("editor.heading2");
+      // The sheet hands focus on a tick after it goes.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(target.view.hasFocus()).toBe(true);
+      expect(target.state.selection.$from.parent.type.name).toBe("heading");
+    });
+
+    it("puts the caret in its block on Escape", async () => {
+      onPhone();
+      const target = mount();
+      open(target, 0);
+      act(() => searchBox().focus());
+
+      pressEscape();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(target.view.hasFocus()).toBe(true);
+      expect(target.state.selection.empty).toBe(true);
+      expect(target.state.selection.$from.parent.textContent).toBe("Before");
+    });
+
+    it("filters with what's typed on a row and runs its shortcuts", () => {
+      onPhone();
+      const { request } = open(mount(), 0);
+      const duplicate = row("editor.blockMenu.duplicate");
+      expect(duplicate.getAttribute("aria-keyshortcuts")).toBe(
+        APPLE ? "Meta+D" : "Control+D",
+      );
+      act(() => duplicate.focus());
+
+      const typed = press(duplicate, "u");
+      expect(typed.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(searchBox());
+      expect(searchBox().value).toBe("u");
+
+      const shortcut = press(searchBox(), "d", MOD);
+      expect(shortcut.defaultPrevented).toBe(true);
+      expect(request.duplicate).toHaveBeenCalledOnce();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("passes focus to the editor that a shortcut's action gave it", async () => {
+      onPhone();
+      const target = mount();
+      const { request } = open(target, 0);
+      vi.mocked(request.remove).mockImplementation(() => target.view.focus());
+      act(() => searchBox().focus());
+
+      press(searchBox(), "Delete");
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(request.remove).toHaveBeenCalledOnce();
+      expect(target.view.hasFocus()).toBe(true);
+    });
+
+    it("colours a block from Color's own view", () => {
+      onPhone();
+      const target = mount();
+      open(target, 0);
+
+      tap("editor.color.label");
+      expect(
+        Array.from(sheet().querySelectorAll('[role="radiogroup"]')).map(
+          (group) => group.getAttribute("aria-label"),
+        ),
+      ).toEqual(["editor.textColor", "editor.backgroundColor"]);
+      expect(rowLabels()).toContain("Aeditor.color.defaultText=true");
+
+      tap("Aeditor.color.textChoice(editor.color.blue)");
+      expect(target.state.doc.child(0).attrs.color).toBe("blue");
+    });
+
+    it("shows every colour in Color's view when a search led there", () => {
+      onPhone();
+      open(mount(), 0);
+
+      search("label");
+      tap("editor.color.label");
+
+      expect(rowLabels()).toContain("Aeditor.color.defaultText=true");
+      expect(rowLabels()).toContain(
+        "Aeditor.color.textChoice(editor.color.blue)=false",
+      );
+    });
+
+    it("filters its rows as the menu does", () => {
+      onPhone();
+      const { request } = open(mount(), 0);
+
+      search("dup");
+      expect(rowLabels()).toEqual(["editor.blockMenu.duplicate"]);
+
+      press(searchBox(), "Enter");
+      expect(request.duplicate).toHaveBeenCalledOnce();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("hands Move to the block from the sheet too", () => {
+      onPhone();
+      const target = mount();
+      const { request } = open(target, 0);
+
+      tap("editor.blockMenu.moveTo");
+
+      expect(startMove).toHaveBeenCalledOnce();
+      expect(startMove.mock.calls[0]?.[0]).toEqual({
+        node: target.state.doc.child(0),
+        pos: 0,
+      });
+      expect(request.onClose).toHaveBeenCalledOnce();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("flips a table's switches in place", () => {
+      onPhone();
+      const target = mount();
+      open(target, 1);
+
+      const header = sheet().querySelector<HTMLElement>(
+        '[role="switch"][aria-checked="false"]',
+      );
+      if (!header) throw new Error("No switch is off");
+      act(() => header.click());
+
+      expect(getTableHeaders(target.state.doc.child(1)).column).toBe(true);
+      expect(sheet()).toBeTruthy();
+    });
+  });
+
+  describe("on a list item", () => {
+    const listItem = (text: string) => ({
+      type: "listItem",
+      content: [paragraph(text)],
+    });
+    const numbered = {
+      type: "orderedList",
+      content: ["One", "Two", "Three"].map(listItem),
+    };
+
+    function itemBlock(target: Editor, text: string) {
+      const items: { node: ProseMirrorNode; pos: number }[] = [];
+      target.state.doc.descendants((node, pos) => {
+        if (isListItem(node)) items.push({ node, pos });
+      });
+      return (
+        items.find(({ node }) => node.firstChild?.textContent === text) ?? null
+      );
+    }
+
+    function openItem(target: Editor, text: string) {
+      act(() => {
+        openBlockActionsMenu({
+          view: target.view,
+          anchorRect: new DOMRect(0, 0, 24, 24),
+          getBlock: () => itemBlock(target, text),
+          dispatch: (tr) => target.view.dispatch(tr),
+          duplicate: vi.fn(),
+          remove: vi.fn(),
+          insertAbove: vi.fn(),
+          insertBelow: vi.fn(),
+          onClose: vi.fn(),
+        });
+      });
+    }
+
+    const lists = (target: Editor) =>
+      target.state.doc.content.content.map(
+        (node) => `${node.type.name}: ${node.textContent}`,
+      );
+
+    it("titles an item by its list and checks the list's kind in Turn into", () => {
+      openItem(mount({ content: [numbered], onComment: vi.fn() }), "Two");
+
+      expect(menuAt().textContent).toContain("editor.slash.numberedList");
+      expect(items()).toContain("editor.color.label");
+      expect(items()).toContain("editor.comment");
+      expect(items(openSubmenu("editor.slash.turnInto"))).toContain(
+        "editor.slash.numberedList=true",
+      );
+    });
+
+    it("turns only the item, ready to type in at the end of its line", () => {
+      const target = mount({ content: [numbered, paragraph("End")] });
+      openItem(target, "Two");
+
+      choose("editor.slash.bulletedList", openSubmenu("editor.slash.turnInto"));
+
+      expect(lists(target)).toEqual([
+        "orderedList: One",
+        "bulletList: Two",
+        "orderedList: Three",
+        "paragraph: End",
+      ]);
+      expect(menus()).toEqual([]);
+      expect(target.state.selection.$from.parent.textContent).toBe("Two");
+      expect(target.state.selection.$from.parentOffset).toBe(3);
+    });
+
+    it("colours the item's own line", () => {
+      const target = mount({ content: [numbered] });
+      openItem(target, "Two");
+
+      choose(
+        "editor.color.backgroundChoice(editor.color.blue)",
+        openSubmenu("editor.color.label"),
+      );
+
+      const two = itemBlock(target, "Two");
+      expect(two?.node.firstChild?.attrs.color).toBe("blue_bg");
+      expect(target.state.selection.$from.parent.textContent).toBe("Two");
+    });
+
+    it("attaches the item to the agent's chat in a list of its kind", () => {
+      openItem(mount({ content: [numbered] }), "Three");
+
+      choose("editor.blockMenu.askAgent");
+
+      const message = sendToAgentChat.mock.calls[0]?.[0];
+      expect(message.contextLabel).toBe("editor.slash.numberedList");
+      expect(message.context).toContain("Block type: listItem");
+      expect(message.context).toContain("List item: 3 of 3");
+      expect(message.context).toContain("~~~\n1. Three\n~~~");
+    });
   });
 });

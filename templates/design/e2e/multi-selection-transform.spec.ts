@@ -123,6 +123,8 @@ test("the scale tool scales a whole multi-selection and keeps it selected", asyn
   page,
 }) => {
   const designId = await seedScreen(app);
+  await app.zoomTo100();
+  await app.settled();
   await selectTextAndRectOnCanvas(app);
   await expect.poll(() => app.selectedLayers()).toEqual(["Frame", "hello bud"]);
   const before = await app.savedNodes(designId);

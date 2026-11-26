@@ -12,11 +12,22 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { ContentNavigationContext } from "../shared/api.js";
+import {
+  localSourceDirectoryId,
+  localSourceDirectoryTitle,
+  localSourceFileDirectory,
+} from "../shared/local-source-directory.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
-import { filesNavigationParentsWithChildren } from "./_database-navigation.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import {
+  filesNavigationParentsWithChildren,
+  localFolderDirectoryOfDocument,
+} from "./_database-navigation.js";
+import {
+  linkedNestedLocalFile,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   getContentSourceMode,
   getLocalFileDocument,
@@ -281,6 +292,7 @@ export default defineAction({
         sourcePath: schema.documents.sourcePath,
         sourceRootPath: schema.documents.sourceRootPath,
         sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+        linkedNestedLocalFile: linkedNestedLocalFile(db),
         createdAt: schema.documents.createdAt,
         updatedAt: schema.documents.updatedAt,
       })
@@ -311,7 +323,8 @@ export default defineAction({
         schema.documents,
         eq(schema.documents.id, sql`navigation_chain.id`),
       )
-      .orderBy(sql`navigation_chain.depth`);
+      .orderBy(sql`navigation_chain.depth`)
+      .limit(MAX_ANCESTORS + 1);
     if (!chain.length)
       throw Object.assign(new Error(`Document "${id}" not found`), {
         statusCode: 404,
@@ -438,6 +451,7 @@ export default defineAction({
         icon: row.icon,
         databaseId: navigationMembership?.databaseId ?? null,
         databaseDocumentId: navigationMembership?.databaseDocumentId ?? null,
+        ...(row.linkedNestedLocalFile ? { canMove: false } : {}),
         isFavorite: favorites.has(row.id),
         ...(childrenOnPath.has(row.id)
           ? { hasChildren: childrenOnPath.get(row.id) }
@@ -456,6 +470,58 @@ export default defineAction({
         activeRow = row;
         activeMembership = navigationMembership;
       }
+    }
+    const top = chain.length > 0 ? chain[chain.length - 1] : undefined;
+    const topEntry = path.length > 0 ? path[0] : undefined;
+    const directory =
+      top &&
+      topEntry?.databaseId &&
+      top.parentId === null &&
+      top.sourceMode === "local-files" &&
+      top.sourceKind === "file" &&
+      localSourceFileDirectory(top.sourcePath)
+        ? await localFolderDirectoryOfDocument({
+            databaseId: topEntry.databaseId,
+            documentId: top.id,
+            accessContext,
+          })
+        : null;
+    if (directory && topEntry) {
+      const segments = directory.path.split("/");
+      const folders = segments.map((_, index) => {
+        const folderPath = segments.slice(0, index + 1).join("/");
+        return {
+          id: localSourceDirectoryId({
+            rootPath: directory.rootPath,
+            path: folderPath,
+          }),
+          parentId:
+            index === 0
+              ? null
+              : localSourceDirectoryId({
+                  rootPath: directory.rootPath,
+                  path: segments.slice(0, index).join("/"),
+                }),
+          title: localSourceDirectoryTitle(folderPath),
+          icon: null,
+          databaseId: topEntry.databaseId,
+          databaseDocumentId: topEntry.databaseDocumentId,
+          isFavorite: false,
+          hasChildren: true,
+          ...(topEntry.visibility ? { visibility: topEntry.visibility } : {}),
+          ...permissions("viewer"),
+          source: {
+            mode: "local-files" as const,
+            kind: "folder",
+            path: folderPath,
+            rootPath: directory.rootPath,
+          },
+          createdAt: topEntry.createdAt,
+          updatedAt: topEntry.updatedAt,
+        };
+      });
+      topEntry.parentId = folders[folders.length - 1]?.id ?? null;
+      path.unshift(...folders);
     }
     return {
       mode,

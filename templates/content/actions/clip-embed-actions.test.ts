@@ -3,9 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   userEmail: undefined as string | undefined,
   userName: undefined as string | undefined,
-  documentRows: [] as Array<{ visibility: string; trashedAt: string | null }>,
+  documentRows: [] as Array<{
+    visibility: string;
+    trashedAt: string | null;
+    orgId?: string;
+    agentTextLocked?: number;
+  }>,
   resolveDocumentAccess: vi.fn(),
-  isFeatureFlagEnabled: vi.fn(),
+  evaluateFeatureFlagStrict: vi.fn(),
+  captureError: vi.fn(),
   requestClips: vi.fn(),
   writeClipComment: vi.fn(),
 }));
@@ -17,7 +23,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: mocks.isFeatureFlagEnabled,
+  evaluateFeatureFlagStrict: mocks.evaluateFeatureFlagStrict,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  captureError: mocks.captureError,
 }));
 
 vi.mock("./_document-access.js", () => ({
@@ -99,7 +109,7 @@ beforeEach(() => {
     { visibility: "private", trashedAt: null, orgId: "org_page" },
   ];
   mocks.resolveDocumentAccess.mockResolvedValue({ role: "viewer" });
-  mocks.isFeatureFlagEnabled.mockResolvedValue(true);
+  mocks.evaluateFeatureFlagStrict.mockResolvedValue(true);
   mocks.requestClips.mockResolvedValue({ ok: true, body: playback });
 });
 
@@ -109,8 +119,8 @@ describe("get-clip-playback", () => {
     expect(mocks.resolveDocumentAccess).toHaveBeenCalledWith("doc_1", {
       skipResourceBody: true,
     });
-    expect(mocks.isFeatureFlagEnabled).toHaveBeenCalledWith(
-      expect.objectContaining({ key: "content.clip-embed" }),
+    expect(mocks.evaluateFeatureFlagStrict).toHaveBeenCalledWith(
+      "content.clip-embed",
       { userEmail: "reader@example.test", orgId: "org_1" },
     );
     expect(mocks.requestClips).toHaveBeenCalledWith({
@@ -131,7 +141,7 @@ describe("get-clip-playback", () => {
       errorCode: "document_not_found",
       statusCode: 404,
     });
-    expect(mocks.isFeatureFlagEnabled).not.toHaveBeenCalled();
+    expect(mocks.evaluateFeatureFlagStrict).not.toHaveBeenCalled();
     expect(mocks.requestClips).not.toHaveBeenCalled();
   });
 
@@ -158,8 +168,8 @@ describe("get-clip-playback", () => {
       ];
       await getClipPlayback.run(args);
       expect(mocks.resolveDocumentAccess).not.toHaveBeenCalled();
-      expect(mocks.isFeatureFlagEnabled).toHaveBeenCalledWith(
-        expect.objectContaining({ key: "content.clip-embed" }),
+      expect(mocks.evaluateFeatureFlagStrict).toHaveBeenCalledWith(
+        "content.clip-embed",
         { userEmail: undefined, orgId: "org_page" },
       );
       expect(mocks.requestClips).toHaveBeenCalledWith(
@@ -293,10 +303,23 @@ describe("get-clip-playback", () => {
   });
 
   it("asks Clips nothing while the flag is off for the reader", async () => {
-    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
+    mocks.evaluateFeatureFlagStrict.mockResolvedValue(false);
     await expect(failureOf(getClipPlayback.run(args))).resolves.toEqual({
       errorCode: "clip_embed_disabled",
       statusCode: 404,
+    });
+    expect(mocks.requestClips).not.toHaveBeenCalled();
+  });
+
+  it("says the flag couldn't be read, rather than off, and asks Clips nothing", async () => {
+    const outage = new Error("settings store unavailable");
+    mocks.evaluateFeatureFlagStrict.mockRejectedValue(outage);
+    await expect(failureOf(getClipPlayback.run(args))).resolves.toEqual({
+      errorCode: "clip_embed_unavailable",
+      statusCode: 503,
+    });
+    expect(mocks.captureError).toHaveBeenCalledWith(outage, {
+      tags: { source: "content-clips", op: "clip-embed-flag" },
     });
     expect(mocks.requestClips).not.toHaveBeenCalled();
   });
@@ -642,7 +665,7 @@ describe("add-clip-comment", () => {
   });
 
   it("asks Clips nothing while the flag is off", async () => {
-    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
+    mocks.evaluateFeatureFlagStrict.mockResolvedValue(false);
     await expect(
       failureOf(
         addClipComment.run({ ...args, content: "Hi", videoTimestampMs: 0 }),
@@ -733,5 +756,82 @@ describe("Clip reads in the browser", () => {
   it("keep grants and comments out of the browser's saved query cache", () => {
     expect(getClipPlayback.persistInBrowser).toBe(false);
     expect(listClipComments.persistInBrowser).toBe(false);
+  });
+});
+
+describe("Clip comments on a page set to Can view", () => {
+  const agent = { caller: "mcp" as const };
+  const person = { caller: "frontend" as const };
+  const pageAt = (agentTextLocked: number) => {
+    mocks.documentRows = [
+      {
+        visibility: "private",
+        trashedAt: null,
+        orgId: "org_page",
+        agentTextLocked,
+      },
+    ];
+  };
+
+  beforeEach(() => {
+    mocks.resolveDocumentAccess.mockResolvedValue({ role: "editor" });
+    mocks.writeClipComment.mockImplementation(async ({ write }) => ({
+      ok: true,
+      body:
+        write.operation === "resolve"
+          ? { id: write.commentId, resolved: write.resolved }
+          : { id: "c9", threadId: "c9" },
+    }));
+  });
+
+  it("refuses an agent's comment, reply and resolve before asking Clips", async () => {
+    pageAt(2);
+    for (const call of [
+      () =>
+        addClipComment.run(
+          { ...args, content: "Hi", videoTimestampMs: 0 },
+          agent as never,
+        ),
+      () =>
+        addClipComment.run(
+          { ...args, content: "Hi", threadId: "c1" },
+          agent as never,
+        ),
+      () =>
+        resolveClipComment.run(
+          { ...args, threadId: "c1", resolved: true },
+          agent as never,
+        ),
+    ]) {
+      await expect(failureOf(call())).resolves.toEqual({
+        errorCode: "AGENT_VIEW_ONLY",
+        statusCode: 403,
+      });
+    }
+    expect(mocks.writeClipComment).not.toHaveBeenCalled();
+  });
+
+  it("lets a person comment there, and agents at Can comment or Can edit", async () => {
+    pageAt(2);
+    await addClipComment.run(
+      { ...args, content: "Hi", videoTimestampMs: 0 },
+      person as never,
+    );
+    await resolveClipComment.run(
+      { ...args, threadId: "c1", resolved: true },
+      person as never,
+    );
+    for (const level of [1, 0]) {
+      pageAt(level);
+      await addClipComment.run(
+        { ...args, content: "Hi", videoTimestampMs: 0 },
+        agent as never,
+      );
+      await resolveClipComment.run(
+        { ...args, threadId: "c1", resolved: true },
+        agent as never,
+      );
+    }
+    expect(mocks.writeClipComment).toHaveBeenCalledTimes(6);
   });
 });

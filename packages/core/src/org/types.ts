@@ -90,6 +90,13 @@ export interface OrgMember {
   image?: string | null;
 }
 
+/** A member removed with `deactivate`; they hold no membership. */
+export interface OrgDeactivatedMember {
+  email: string;
+  role: "admin" | "member";
+  deactivatedAt: number;
+}
+
 export interface OrgPendingInvitation {
   id: string;
   email: string;

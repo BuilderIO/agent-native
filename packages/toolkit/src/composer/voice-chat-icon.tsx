@@ -1,11 +1,11 @@
-import { createReactComponent } from "@tabler/icons-react";
+import { createReactComponent, type TablerIcon } from "@tabler/icons-react";
 
 /**
  * Voice chat's glyph: a five-bar waveform. Tabler has no bar waveform, and
  * `IconWaveSine` reads as a heartbeat. Built with Tabler's factory so it takes
  * the same `size`, `stroke`, and `className` props as every other icon.
  */
-export const IconVoiceChat = createReactComponent(
+export const IconVoiceChat: TablerIcon = createReactComponent(
   "outline",
   "voice-chat",
   "VoiceChat",

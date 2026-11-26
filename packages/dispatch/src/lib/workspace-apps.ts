@@ -19,6 +19,7 @@ export { workspaceAppRoute } from "../shared/workspace-app-route";
 
 export interface WorkspaceAppSummary {
   id: string;
+  icon?: string;
   name: string;
   description?: string;
   whenToUse?: string[];
@@ -418,6 +419,30 @@ export function workspaceAppEmbedTarget(
   return path.startsWith("/") ? { path } : path ? { url: path } : {};
 }
 
+function collapseRepeatedLeadingMountSegment(
+  pathname: string,
+  mountSegment?: string | null,
+): string {
+  const segments = pathname.split("/").filter(Boolean);
+  const firstSegment = segments[0];
+  const secondSegment = segments[1];
+  if (!firstSegment || !secondSegment) return pathname;
+  const first = firstSegment.toLowerCase();
+  const second = secondSegment.toLowerCase();
+  if (first !== second) return pathname;
+  if (mountSegment && first !== mountSegment.toLowerCase()) return pathname;
+  let start = 0;
+  while (start + 1 < segments.length) {
+    const current = segments[start];
+    const next = segments[start + 1];
+    if (!current || !next || current.toLowerCase() !== next.toLowerCase()) {
+      break;
+    }
+    start += 1;
+  }
+  return `/${segments.slice(start).join("/")}`;
+}
+
 export function workspaceAppDirectHref(
   app: WorkspaceAppHrefSource,
   targetPath: string,
@@ -451,25 +476,43 @@ export function workspaceAppDirectHref(
   }
 
   const mountedPath = app.path?.trim();
-  const basePath = absoluteBase
-    ? absoluteBase.pathname
-    : mountedPath
-      ? `/${mountedPath.replace(/^[/\\]+/, "").split(/[?#]/, 1)[0]}`
-      : null;
+  const normalizedMountedPath = mountedPath
+    ? `/${mountedPath.replace(/^[/\\]+/, "").split(/[?#]/, 1)[0]}`.replace(
+        /\/+$/,
+        "",
+      ) || "/"
+    : null;
+  const basePath = absoluteBase ? absoluteBase.pathname : normalizedMountedPath;
   if (!basePath) return null;
 
-  const normalizedBasePath = basePath.replace(/\/+$/, "") || "/";
+  const mountSegment =
+    normalizedMountedPath && normalizedMountedPath !== "/"
+      ? normalizedMountedPath.split("/").filter(Boolean)[0]
+      : basePath.split("/").filter(Boolean)[0];
+  const normalizedBasePath =
+    collapseRepeatedLeadingMountSegment(
+      basePath.replace(/\/+$/, "") || "/",
+      mountSegment,
+    ) || "/";
+  const cleanedTargetPathname = collapseRepeatedLeadingMountSegment(
+    targetPathname,
+    mountSegment,
+  );
+  const lowerBasePath = normalizedBasePath.toLowerCase();
+  const lowerTargetPath = cleanedTargetPathname.toLowerCase();
   const targetIsMountedPath =
     normalizedBasePath !== "/" &&
-    (targetPathname === normalizedBasePath ||
-      targetPathname.startsWith(`${normalizedBasePath}/`));
+    (lowerTargetPath === lowerBasePath ||
+      lowerTargetPath.startsWith(`${lowerBasePath}/`));
   const resolvedPath = targetIsMountedPath
-    ? targetPathname
+    ? cleanedTargetPathname === "/"
+      ? normalizedBasePath
+      : `${normalizedBasePath}${cleanedTargetPathname.slice(normalizedBasePath.length)}`
     : normalizedBasePath === "/"
-      ? targetPathname
-      : targetPathname === "/"
+      ? cleanedTargetPathname
+      : cleanedTargetPathname === "/"
         ? normalizedBasePath
-        : `${normalizedBasePath}/${targetPathname.replace(/^\/+/, "")}`;
+        : `${normalizedBasePath}/${cleanedTargetPathname.replace(/^\/+/, "")}`;
 
   if (absoluteBase) {
     absoluteBase.pathname = resolvedPath;

@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -57,6 +58,11 @@ import {
   mobileWebViewTargetPath,
   resolveStickyWebViewUrl,
 } from "@/lib/webview-auth-url";
+import {
+  WEBVIEW_GOOGLE_AUTH_SCRIPT,
+  validatedWebViewOAuthToken,
+  webViewGoogleAuthCompletionScript,
+} from "@/lib/webview-google-auth";
 import {
   isTrustedWebViewUrl,
   parseTrustedOrigin,
@@ -235,6 +241,9 @@ async function resolveGoogleAuthUrl(startUrl: string): Promise<string | null> {
   try {
     const parsed = new URL(startUrl);
     parsed.searchParams.delete("redirect");
+    parsed.searchParams.delete("desktop");
+    parsed.searchParams.delete("flow_id");
+    parsed.searchParams.delete("verifier");
     // The callback can be handled by a browser with a desktop-style user
     // agent. Carry native intent in the signed server state so the callback
     // always returns to this app instead of redirecting the WebView to sign-in.
@@ -329,6 +338,13 @@ function AppWebView(
   const [nativeSignInOpen, setNativeSignInOpen] = useState(false);
   const lastTokenRef = useRef<string | null>(null);
   const oauthInFlightRef = useRef(false);
+  // The page-initiated Google flow in flight, if any. Cleared whenever the
+  // WebView starts a new document so a late callback cannot complete into it.
+  const webViewOAuthRef = useRef<object | null>(null);
+  const isGoogleSessionInFlight = useCallback(
+    () => oauthInFlightRef.current || webViewOAuthRef.current !== null,
+    [],
+  );
   const sessionUrlLoadedRef = useRef(false);
   const isFocusedRef = useRef(false);
   const invalidatePendingSessionReads = useCallback(() => {
@@ -344,6 +360,12 @@ function AppWebView(
     null,
   );
   const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
+  useLayoutEffect(() => {
+    webViewOAuthRef.current = null;
+    return () => {
+      webViewOAuthRef.current = null;
+    };
+  }, [trustedOrigin]);
   const { enabled: nativeAuthEnabled, ready: nativeAuthReady } =
     useNativeAppAuthState();
   const effectiveCaptureSessionToken = captureSessionToken && nativeAuthEnabled;
@@ -741,7 +763,7 @@ function AppWebView(
   // browser tab.
   const openGoogleSession = useCallback(
     async (googleUrl: string) => {
-      if (oauthInFlightRef.current) return;
+      if (isGoogleSessionInFlight()) return;
       oauthInFlightRef.current = true;
       try {
         await rememberOAuthState(googleUrl);
@@ -803,19 +825,69 @@ function AppWebView(
             setSessionToken(storedToken);
           }
         }
-      } catch (e) {
-        console.log("[oauth] auth session error:", String(e));
+      } catch {
+        console.warn("[oauth] auth session could not complete");
       } finally {
         oauthInFlightRef.current = false;
       }
     },
     [
       invalidatePendingSessionReads,
+      isGoogleSessionInFlight,
       oauthContext,
       persistOAuthReturnContext,
       resolvedParentSessionTokenKey,
       sessionTokenKey,
     ],
+  );
+
+  // The sign-in page asked for Google through the injected bridge. Run the
+  // flow in the system browser, then hand the token back to the page so it
+  // can set its own session cookie; the token is never stored natively here.
+  const openWebViewGoogleSession = useCallback(
+    async (startUrl: string, requestId: string) => {
+      const requestOrigin = new URL(startUrl).origin;
+      const request = {};
+      const previous = webViewOAuthRef.current;
+      webViewOAuthRef.current = request;
+      const complete = (token: string | null) => {
+        if (webViewOAuthRef.current !== request) return;
+        webviewRef.current?.injectJavaScript(
+          webViewGoogleAuthCompletionScript(requestId, token, requestOrigin),
+        );
+      };
+      try {
+        if (oauthInFlightRef.current) {
+          complete(null);
+          return;
+        }
+        if (previous) await WebBrowser.dismissAuthSession();
+        const googleUrl = await resolveGoogleAuthUrl(startUrl);
+        if (webViewOAuthRef.current !== request) return;
+        if (
+          !googleUrl ||
+          new URL(googleUrl).origin !== "https://accounts.google.com" ||
+          !new URL(googleUrl).searchParams.get("state")
+        ) {
+          complete(null);
+          return;
+        }
+        const result = await WebBrowser.openAuthSessionAsync(
+          googleUrl,
+          "agentnative://oauth-complete",
+        );
+        complete(
+          result.type === "success"
+            ? validatedWebViewOAuthToken(googleUrl, result.url)
+            : null,
+        );
+      } catch {
+        complete(null);
+      } finally {
+        if (webViewOAuthRef.current === request) webViewOAuthRef.current = null;
+      }
+    },
+    [],
   );
 
   // Some core versions navigate the WebView straight to the auth-url endpoint,
@@ -886,6 +958,22 @@ function AppWebView(
       try {
         const msg = JSON.parse(event.nativeEvent.data);
         if (mobileDeckSaveBridgeRef.current?.receiveAck(msg)) return;
+        if (
+          msg.type === "agent-native-google-auth" &&
+          typeof msg.requestId === "string" &&
+          msg.requestId.length > 0 &&
+          msg.requestId.length < 128 &&
+          typeof msg.url === "string"
+        ) {
+          if (
+            Platform.OS === "ios" &&
+            isTrustedWebViewUrl(msg.url, trustedOrigin) &&
+            isGoogleAuthUrl(msg.url)
+          ) {
+            void openWebViewGoogleSession(msg.url, msg.requestId);
+          }
+          return;
+        }
         if (workspaceAppId && msg.type === "agentNative.embedSessionExpired") {
           refreshWorkspaceEmbed(true);
           return;
@@ -934,7 +1022,7 @@ function AppWebView(
             // The sign-in page has a separate cookie jar from the native
             // browser auth session. Ignore its stale heartbeat while OAuth is
             // open or while the newly returned token is loading into the URL.
-            if (oauthInFlightRef.current) return;
+            if (isGoogleSessionInFlight()) return;
             if (!sessionUrlLoadedRef.current) {
               const storedTokenResult = await settleMobileSessionStorageRead(
                 () => getSessionToken(sessionTokenKey),
@@ -984,11 +1072,13 @@ function AppWebView(
     [
       effectiveCaptureSessionToken,
       canCaptureSessionToken,
+      isGoogleSessionInFlight,
       resolvedParentSessionTokenKey,
       sessionOwnerKey,
       sessionTokenKey,
       trustedOrigin,
       openGoogleSession,
+      openWebViewGoogleSession,
       refreshWorkspaceEmbed,
       workspaceAppId,
       mobileDeckSaveBridgeRef,
@@ -1232,7 +1322,10 @@ function AppWebView(
         ref={webviewRef}
         source={{ uri: webviewUrl }}
         className="flex-1 bg-background-pure"
-        onLoadStart={() => setLoading(true)}
+        onLoadStart={() => {
+          webViewOAuthRef.current = null;
+          setLoading(true);
+        }}
         onLoadEnd={handleLoadEnd}
         onError={() => {
           setLoading(false);
@@ -1246,7 +1339,11 @@ function AppWebView(
         onMessage={handleMessage}
         injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}
 ${buildMobileGuestThemeScript(theme)}${
-          shouldHideEmbeddedAuth ? `\n${FORCE_REDIRECT_AUTH_SCRIPT}` : ""
+          shouldHideEmbeddedAuth
+            ? `\n${FORCE_REDIRECT_AUTH_SCRIPT}`
+            : Platform.OS === "ios"
+              ? `\n${WEBVIEW_GOOGLE_AUTH_SCRIPT}`
+              : ""
         }`}
         javaScriptEnabled
         domStorageEnabled

@@ -186,21 +186,22 @@ const page = [
   "A closing paragraph sits here.",
 ].join("\n");
 
-async function insertPage(markdown: string) {
+async function insertPage(
+  markdown: string,
+  content = canonicalizeNfm(markdown),
+) {
   sequence += 1;
   const id = `live-accept-${sequence}`;
   const now = new Date().toISOString();
-  await getDb()
-    .insert(schema.documents)
-    .values({
-      id,
-      title: "Live page",
-      content: canonicalizeNfm(markdown),
-      ownerEmail,
-      bodyRevision: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
+  await getDb().insert(schema.documents).values({
+    id,
+    title: "Live page",
+    content,
+    ownerEmail,
+    bodyRevision: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
   return id;
 }
 
@@ -658,6 +659,224 @@ describe("accepting a suggestion on a Page written through its live copy", () =>
     expect(after.version).toBe(before.version + 1);
     expect(after.text).toBe(canonicalizeNfm(page.replace(find, replace)));
     expect((await stored(documentId)).content).toBe(after.text);
+  });
+
+  describe("a member that joined its proposal after some of it was accepted", () => {
+    const pages = {
+      "one paragraph each":
+        "# Town\n\nThe coastal town wakes early.\n\nGulls circle overhead.\n\nBoats leave at dawn.",
+      "one paragraph":
+        "# Town\n\nThe coastal town wakes early as gulls circle overhead and boats leave at dawn.",
+    };
+    const edits = [
+      ["coastal", "seaside"],
+      ["early", "slowly"],
+      ["dawn", "sunrise"],
+    ] as const;
+
+    function operationsFor(markdown: string, find: string, replace: string) {
+      const operations = markdownSuggestionOperationsForFindReplace({
+        before: markdown,
+        find,
+        replace,
+        start: markdown.indexOf(find),
+      });
+      expect(operations).toHaveLength(1);
+      return operations;
+    }
+
+    function memberFor(suggestions: ResourceSuggestion[], find: string) {
+      const member = suggestions.find(({ summary }) =>
+        summary.startsWith(`${find} to `),
+      );
+      if (!member) throw new Error(`No member changes ${find}`);
+      return member;
+    }
+
+    async function proposeLateMember(documentId: string) {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      sequence += 1;
+      const created = await createProposal.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind,
+          baseRevision: document.revision,
+          summary: "Town edits",
+          idempotencyKey: `live-accept-late-${sequence}`,
+          suggestions: edits.map(([find, replace]) => ({
+            summary: `${find} to ${replace}`,
+            operations: operationsFor(document.content, find, replace),
+          })),
+        },
+        ctx,
+      );
+      await decide(memberFor(created.suggestions, "coastal"), "accepted");
+      const later = await getDocumentAction.run({ id: documentId }, ctx);
+      sequence += 1;
+      const added = await createProposal.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind,
+          baseRevision: later.revision,
+          summary: "Town edits",
+          idempotencyKey: `live-accept-late-${sequence}`,
+          proposalId: created.proposal.id,
+          suggestions: [
+            {
+              summary: "circle to wheel",
+              operations: operationsFor(later.content, "circle", "wheel"),
+            },
+          ],
+        },
+        ctx,
+      );
+      const wheel = memberFor(added.suggestions, "circle");
+      expect(wheel.proposalId).toBe(created.proposal.id);
+      return {
+        proposalId: created.proposal.id,
+        slowly: memberFor(created.suggestions, "early"),
+        sunrise: memberFor(created.suggestions, "dawn"),
+        wheel,
+      };
+    }
+
+    const accepted = (markdown: string) =>
+      canonicalizeNfm(
+        [...edits, ["circle", "wheel"] as const].reduce(
+          (text, [find, replace]) => text.replace(find, replace),
+          markdown,
+        ),
+      );
+
+    for (const [shape, markdown] of Object.entries(pages)) {
+      for (const order of ["late member last", "late member first"] as const)
+        ownerIt(`accepts the rest with it, ${order}, on ${shape}`, async () => {
+          const documentId = await seedPage(markdown);
+          const { proposalId, slowly, sunrise, wheel } =
+            await proposeLateMember(documentId);
+          const members =
+            order === "late member last"
+              ? [slowly, sunrise, wheel]
+              : [wheel, slowly, sunrise];
+
+          const result = await decideProposal.run(
+            {
+              proposalId,
+              decision: "accepted",
+              idempotencyKey: `decide-late-${documentId}`,
+              members: members.map((member) => ({
+                id: member.id,
+                observedRevision: member.revision,
+                observedBase: member.baseRevision,
+              })),
+            },
+            ctx,
+          );
+
+          expect(result.suggestions.map(({ status }) => status)).toEqual([
+            "accepted",
+            "accepted",
+            "accepted",
+          ]);
+          expect((await liveCopy(documentId)).text).toBe(accepted(markdown));
+          expect((await stored(documentId)).content).toBe(accepted(markdown));
+        });
+
+      ownerIt(`accepts it alone once the rest is, on ${shape}`, async () => {
+        const documentId = await seedPage(markdown);
+        const { slowly, sunrise, wheel } = await proposeLateMember(documentId);
+        await decide(slowly, "accepted");
+        await decide(sunrise, "accepted");
+
+        await expect(decide(wheel, "accepted")).resolves.toMatchObject({
+          suggestion: { status: "accepted" },
+        });
+        expect((await liveCopy(documentId)).text).toBe(accepted(markdown));
+      });
+    }
+
+    async function suggestLateMemberAsAgent(documentId: string) {
+      const { getSuggestion } = await import("@agent-native/core/review");
+      const suggestDocumentEdit = (
+        await import("../../actions/suggest-document-edit.js")
+      ).default;
+      const save = async (
+        find: string,
+        replace: string,
+        proposalId?: string,
+      ) => {
+        sequence += 1;
+        const saved = (await suggestDocumentEdit.run(
+          {
+            id: documentId,
+            find,
+            replace,
+            summary: "Town edits",
+            idempotencyKey: `live-accept-agent-${sequence}`,
+            ...(proposalId ? { proposalId } : {}),
+          },
+          ctx,
+        )) as { suggestionId: string; proposalId: string };
+        const suggestion = await getSuggestion(saved.suggestionId);
+        if (!suggestion) throw new Error(`No suggestion ${saved.suggestionId}`);
+        return suggestion;
+      };
+      const seaside = await save("coastal", "seaside");
+      const { proposalId } = seaside;
+      if (!proposalId) throw new Error("The first edit has no proposal");
+      const slowly = await save("wakes early", "wakes slowly", proposalId);
+      const sunrise = await save("at dawn", "at sunrise", proposalId);
+      await decide(seaside, "accepted");
+      const wheel = await save("circle", "wheel", proposalId);
+      expect(wheel.baseRevision).not.toBe(slowly.baseRevision);
+      return { proposalId, slowly, sunrise, wheel };
+    }
+
+    for (const [writer, body] of [
+      ["live copy", "canonical"],
+      ["legacy writer", "canonical"],
+      ["legacy writer", "as written"],
+    ] as const)
+      ownerIt(
+        `accepts the rest with it as an agent saved them, through the ${writer}, on a body stored ${body}`,
+        async () => {
+          const markdown = pages["one paragraph each"];
+          const documentId =
+            writer === "live copy"
+              ? await seedPage(markdown)
+              : await insertPage(
+                  markdown,
+                  body === "as written" ? markdown : undefined,
+                );
+          const { proposalId, slowly, sunrise, wheel } =
+            await suggestLateMemberAsAgent(documentId);
+
+          const result = await decideProposal.run(
+            {
+              proposalId,
+              decision: "accepted",
+              idempotencyKey: `decide-late-agent-${documentId}`,
+              members: [slowly, sunrise, wheel].map((member) => ({
+                id: member.id,
+                observedRevision: member.revision,
+                observedBase: member.baseRevision,
+              })),
+            },
+            ctx,
+          );
+
+          expect(result.suggestions.map(({ status }) => status)).toEqual([
+            "accepted",
+            "accepted",
+            "accepted",
+          ]);
+          expect(canonicalizeNfm((await stored(documentId)).content)).toBe(
+            accepted(markdown),
+          );
+        },
+      );
   });
 
   /**

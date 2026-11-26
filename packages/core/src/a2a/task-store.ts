@@ -549,6 +549,23 @@ export async function createOrReuseTask(
   throw new Error("A2A terminal task idempotency key could not be released");
 }
 
+export async function getIdempotentTask(
+  ownerEmail: string,
+  ownerScope: string,
+  idempotencyKey: string,
+): Promise<Task | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM a2a_tasks WHERE owner_email IS NOT DISTINCT FROM ? AND owner_scope = ? AND idempotency_key = ?`,
+    args: [
+      ownerEmail.trim().toLowerCase(),
+      ownerScope.trim().toLowerCase(),
+      idempotencyKey,
+    ],
+  });
+  return rows.length > 0 ? taskFromRow(rows[0]) : null;
+}
+
 export interface A2ATaskOwnership {
   ownerEmail: string | null;
   ownerScope: string | null;

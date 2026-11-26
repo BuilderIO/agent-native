@@ -1,4 +1,4 @@
-import { csvCell } from "./csv";
+import { csvCell } from "@agent-native/toolkit/dashboard/csv";
 
 export interface DictionaryExportEntry {
   id?: unknown;

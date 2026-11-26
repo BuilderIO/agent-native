@@ -22,6 +22,7 @@ const MCP_APP_IMPORT =
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
+const EMBED_REQUEST_FAILURES_WINDOW_KEY = "__agentNativeEmbedRequestFailures";
 const MCP_APP_INLINE_LAUNCHER_HEIGHT = 56;
 export const DEFAULT_MCP_APP_SHELL_HEIGHT = 560;
 export const DEFAULT_MCP_APP_VIEWPORT_HEIGHT =
@@ -70,6 +71,9 @@ export function embedApp(
   return {
     title,
     requiresEmbedSession: true,
+    // Claude reads this from the resources/read content item and moves the
+    // view to its side panel; hosts that do not know the field ignore it.
+    _meta: { ui: { preferredDisplayMode: "fullscreen" } },
     ...(options.description ? { description: options.description } : {}),
     html: (ctx) => {
       const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
@@ -960,6 +964,86 @@ export function embedApp(
         }
         return headers;
       }
+      // The host shows no console for this document, so read_view reports
+      // the app's failed requests and whether each carried the panel session.
+      function observedRequest(promise, method, url, headers) {
+        function note(detail) {
+          var list = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] ||
+            (window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}] = []);
+          var path;
+          var queryToken = null;
+          try {
+            var parsedUrl = new URL(url);
+            path = parsedUrl.pathname;
+            queryToken = parsedUrl.searchParams.get(activeConfig().embedTokenParam || "__an_embed_token");
+          } catch (_err) {
+            path = String(url);
+          }
+          var sent = headers.get("Authorization");
+          var panelToken = activeConfig().token;
+          var suffix = !sent
+            ? " (sent without the panel session)"
+            : panelToken && sent !== "Bearer " + panelToken
+              ? " (sent with a session other than the panel's)"
+              : queryToken && queryToken !== panelToken
+                ? " (its URL carried a session other than the panel's)"
+                : "";
+          var text = String(method || "GET").toUpperCase() + " " + path + " " + detail;
+          if (list.length >= 5 || list.indexOf(text + suffix) >= 0) return function() {};
+          // The entry keeps its place in request order while its reason loads.
+          var index = list.push(text + suffix) - 1;
+          return function(reason) {
+            if (list[index] === text + suffix) list[index] = text + " " + reason + suffix;
+          };
+        }
+        return promise.then(function(response) {
+          if (!response.ok) {
+            var addReason = note("HTTP " + response.status);
+            // The refusal's own words name the failing check; a status alone
+            // cannot tell an approval gate from an expired session.
+            response.clone().text().then(function(body) {
+              var parsed;
+              try {
+                parsed = JSON.parse(body);
+              } catch (_err) {
+                // coercion-ok: a body that is not JSON names no reason; the status stays.
+                return;
+              }
+              var reason = parsed && [parsed.errorCode, parsed.error || parsed.statusMessage || parsed.message]
+                .filter(function(part) { return typeof part === "string" && part; })
+                .join(": ");
+              if (reason) addReason(reason.slice(0, 160));
+            }, function() {});
+          }
+          return response;
+        }, function(error) {
+          if (!error || error.name !== "AbortError") {
+            note("failed: " + String((error && error.message) || error).slice(0, 120));
+          }
+          throw error;
+        });
+      }
+      // Vite's preload helper adds lazy-route stylesheets as empty-valued CORS-mode
+      // links under the app's assets; only those are rewritten, never a stylesheet
+      // that asks for a CORS mode or an integrity check itself.
+      // The sandbox loads the document's own stylesheets without CORS, so load these
+      // the same way instead of failing the route with "Unable to preload CSS".
+      if (typeof document !== "undefined" && document.head) {
+        const originalAppendChild = document.head.appendChild.bind(document.head);
+        document.head.appendChild = function(node) {
+          if (
+            node &&
+            node.nodeName === "LINK" &&
+            String(node.rel).toLowerCase() === "stylesheet" &&
+            node.getAttribute("crossorigin") === "" &&
+            !node.hasAttribute("integrity") &&
+            String(node.href).indexOf("/assets/") >= 0
+          ) {
+            node.removeAttribute("crossorigin");
+          }
+          return originalAppendChild(node);
+        };
+      }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
         var pageFetch = fetch;
@@ -971,36 +1055,40 @@ export function embedApp(
             headers: authHeaders(input, init),
             credentials: "omit"
           });
-          if (input instanceof Request) {
-            const requestInit = {
-              method: input.method,
-              mode: input.mode,
-              cache: input.cache,
-              redirect: input.redirect,
-              referrer: input.referrer,
-              referrerPolicy: input.referrerPolicy,
-              integrity: input.integrity,
-              keepalive: input.keepalive,
-              signal: input.signal
-            };
-            // A body in init replaces the Request's, which may already be spent.
-            if (nextInit.body !== undefined) {
-              return originalFetch(url, Object.assign(requestInit, nextInit));
+          const method = (init && init.method) || (input instanceof Request ? input.method : "GET");
+          return observedRequest(sendRewritten(), method, url, nextInit.headers);
+          function sendRewritten() {
+            if (input instanceof Request) {
+              const requestInit = {
+                method: input.method,
+                mode: input.mode,
+                cache: input.cache,
+                redirect: input.redirect,
+                referrer: input.referrer,
+                referrerPolicy: input.referrerPolicy,
+                integrity: input.integrity,
+                keepalive: input.keepalive,
+                signal: input.signal
+              };
+              // A body in init replaces the Request's, which may already be spent.
+              if (nextInit.body !== undefined) {
+                return originalFetch(url, Object.assign(requestInit, nextInit));
+              }
+              // Read the body first: a Request used as init sends it as a stream,
+              // which needs HTTP/2 and which not every browser can send.
+              return input.arrayBuffer().then(function(body) {
+                return originalFetch(
+                  url,
+                  Object.assign(
+                    requestInit,
+                    body.byteLength > 0 ? { body: body } : null,
+                    nextInit
+                  )
+                );
+              });
             }
-            // Read the body first: a Request used as init sends it as a stream,
-            // which needs HTTP/2 and which not every browser can send.
-            return input.arrayBuffer().then(function(body) {
-              return originalFetch(
-                url,
-                Object.assign(
-                  requestInit,
-                  body.byteLength > 0 ? { body: body } : null,
-                  nextInit
-                )
-              );
-            });
+            return originalFetch(url, nextInit);
           }
-          return originalFetch(url, nextInit);
         };
         // The requests it signs go out on a transport of their own, one per
         // token. It signs only on the target's mount and with a token; its
@@ -1105,6 +1193,51 @@ export function embedApp(
         base,
         ...nodes.map((node) => document.importNode(node, true))
       );
+      installBaseUrlFallback(baseHref);
+    }
+
+    // Claude's sandbox CSP sets base-uri 'self', so the base element above is
+    // ignored there and URLs React creates after hydration (modulepreload
+    // links, route chunks) would resolve against the sandbox origin and 404.
+    function installBaseUrlFallback(baseHref) {
+      if (document.baseURI === baseHref) return;
+      const absolute = (value) => {
+        if (
+          typeof value !== "string" ||
+          !value ||
+          /^(?:[a-z][a-z0-9+.-]*:|\\/\\/|#)/i.test(value)
+        ) {
+          return value;
+        }
+        try {
+          return new URL(value, baseHref).href;
+        } catch (_err) {
+          return value;
+        }
+      };
+      const nativeSetAttribute = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function(name, value) {
+        const key = String(name).toLowerCase();
+        const resource =
+          (key === "href" && (this instanceof HTMLLinkElement)) ||
+          (key === "src" && (this instanceof HTMLScriptElement || this instanceof HTMLImageElement));
+        return nativeSetAttribute.call(this, name, resource ? absolute(value) : value);
+      };
+      const targets = [
+        [HTMLLinkElement, "href"],
+        [HTMLScriptElement, "src"],
+        [HTMLImageElement, "src"]
+      ];
+      for (const [ctor, prop] of targets) {
+        const descriptor = Object.getOwnPropertyDescriptor(ctor.prototype, prop);
+        if (!descriptor || !descriptor.set) continue;
+        Object.defineProperty(ctor.prototype, prop, {
+          ...descriptor,
+          set(value) {
+            descriptor.set.call(this, absolute(value));
+          }
+        });
+      }
     }
 
     function isModuleScript(script) {
@@ -1402,6 +1535,7 @@ export function embedApp(
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
       await mountTransplantedHtml(html, appUrl);
+      watchPageTools();
       embedSessionRefreshAttempts = 0;
       notifyHostHeightRepeatedly();
     }
@@ -1795,6 +1929,7 @@ export function embedApp(
       ${ctx.catalogMode === "directory" ? "" : 'frame.allow = "clipboard-read; clipboard-write";'}
       appFrame = frame;
       appFrameReady = false;
+      notifyViewToolsChanged();
       lastFrameSrc = src;
       appFrameDocumentState.loadGeneration += 1;
       frame.addEventListener("load", () => {
@@ -2018,6 +2153,10 @@ export function embedApp(
       }
     }
 
+    function nativeAppUsable() {
+      return !!app && !openAiBridge;
+    }
+
     async function ensureHostAppConnected() {
       if (!app || typeof app.connect !== "function") return;
       if (!appConnectPromise) {
@@ -2042,7 +2181,7 @@ export function embedApp(
       if (data && data.structuredContent && typeof data.structuredContent === "object") {
         params.structuredContent = data.structuredContent;
       }
-      if (app && typeof app.updateModelContext === "function") {
+      if (nativeAppUsable() && typeof app.updateModelContext === "function") {
         await ensureHostAppConnected();
         return await app.updateModelContext(params);
       }
@@ -2101,16 +2240,14 @@ export function embedApp(
         : fillsPane
         ? paneFillHeight(hostState().context || {})
         : applyIntrinsicHeight(visibleIntrinsicHeight());
-      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
-        if (app && typeof app.sendSizeChanged === "function") {
-          try {
-            app.sendSizeChanged({ height });
-          } catch (err) {
-            console.warn("[agent-native] MCP host rejected size update", err);
-          }
+      if (app && typeof app.sendSizeChanged === "function") {
+        try {
+          app.sendSizeChanged({ height });
+        } catch (err) {
+          console.warn("[agent-native] MCP host rejected size update", err);
         }
-        return;
       }
+      if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") return;
       try {
         openAiBridge.notifyIntrinsicHeight({ height });
       } catch (err) {
@@ -2235,7 +2372,7 @@ export function embedApp(
       }
       try {
         let result = null;
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
         }
         if (hostChatRequest && hostChatRequest.cancelled) {
@@ -2243,7 +2380,7 @@ export function embedApp(
           return;
         }
         if (hostChatRequest) hostChatRequest.state = "sending";
-        if (app && typeof app.sendMessage === "function") {
+        if (nativeAppUsable() && typeof app.sendMessage === "function") {
           result = await app.sendMessage({
             role: "user",
             content,
@@ -2555,10 +2692,30 @@ export function embedApp(
       titleEl.textContent = String(label);
     }
 
+    let openAiBridgeWindow = window;
+
     function readOpenAiBridge() {
-      return window.openai && typeof window.openai === "object"
-        ? window.openai
-        : null;
+      // ChatGPT can inject the bridge into a sandbox around the widget HTML.
+      let frame = window;
+      while (frame) {
+        let bridge;
+        try {
+          bridge = frame === window ? window.openai : frame.openai;
+        } catch (err) {
+          if (!err || err.name !== "SecurityError") throw err;
+        }
+        if (bridge && typeof bridge === "object") {
+          if (frame !== openAiBridgeWindow) {
+            openAiBridgeWindow.removeEventListener("openai:set_globals", onOpenAiGlobals);
+            openAiBridgeWindow = frame;
+            frame.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
+          }
+          return bridge;
+        }
+        if (frame === frame.parent) break;
+        frame = frame.parent;
+      }
+      return null;
     }
 
     function isChatGptHostHint() {
@@ -2568,6 +2725,14 @@ export function embedApp(
       try {
         if (/^(?:[^.]+\\.)?web-sandbox\\.oaiusercontent\\.com$/i.test(window.location.hostname || "")) return true;
       } catch (_err) {}
+      try {
+        const origins = window.location.ancestorOrigins;
+        for (let i = 0; origins && i < origins.length; i += 1) {
+          if (/(?:^|[./])(?:chatgpt\\.com|oaiusercontent\\.com)$/i.test(String(origins[i]))) return true;
+        }
+      } catch (err) {
+        console.warn("[agent-native] could not inspect ancestor origins for the ChatGPT bridge", err);
+      }
       try {
         return /chatgpt/i.test(String(navigator.userAgent || ""));
       } catch (_err) {
@@ -2676,14 +2841,256 @@ export function embedApp(
       });
     }
 
-    window.addEventListener("openai:set_globals", () => {
+    function onOpenAiGlobals() {
       const bridge = readOpenAiBridge();
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
-    }, { passive: true });
+    }
+    window.addEventListener("openai:set_globals", onOpenAiGlobals, { passive: true });
+
+    // App tools: the host calls these on this open view, so a "filter it" or
+    // "open that one" turn changes the panel in place instead of opening a new view.
+    const readViewToolName = "read_view";
+    const navigateViewToolName = "navigate_view";
+    const maxViewTextChars = 6000;
+    const maxPageTools = 60;
+    const pageToolWaitMs = 40000;
+    const pageToolOrigins = new Map();
+    let pageToolWatchStarted = false;
+
+    function appPageToolHelper() {
+      if (appFrame) return null;
+      const helper = window.__agentNativeWebMcp;
+      return helper && typeof helper.tools === "function" && typeof helper.call === "function"
+        ? helper
+        : null;
+    }
+
+    function currentViewUrl() {
+      if (appFrame) {
+        try {
+          return new URL(appFrame.src, window.location.href);
+          // coercion-ok: null means "no readable view URL"; read_view and navigate_view report it as an error
+        } catch {
+          return null;
+        }
+      }
+      return lastFrameSrc ? new URL(window.location.href) : null;
+    }
+
+    // The transplanted app runs in this document, where the host shows no
+    // console; read_view is the only place its load failures surface.
+    const viewErrors = [];
+    function rememberViewError(value) {
+      const text = String(
+        (value && (value.message || (value.reason && value.reason.message) || value.reason)) || value || "",
+      ).slice(0, 300);
+      if (text && viewErrors.length < 5 && !viewErrors.includes(text)) viewErrors.push(text);
+    }
+    window.addEventListener("error", (event) => rememberViewError(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => rememberViewError(event.reason));
+
+    function readViewState() {
+      // A nested app frame is cross-origin and moves on its own, so its src is
+      // only the launch URL; reporting it would describe the wrong page.
+      if (appFrame) throw new Error("This host shows the app in a nested frame, so its current page can't be read.");
+      const url = currentViewUrl();
+      if (!url) throw new Error("No app page has loaded in this view yet.");
+      const state = {
+        path: localPathFromUrl(url, false),
+        title: document.title
+      };
+      {
+        const selection = typeof window.getSelection === "function"
+          ? String(window.getSelection() || "").trim()
+          : "";
+        if (selection) state.selectedText = selection.slice(0, maxViewTextChars);
+        const root = document.querySelector("main") || document.body;
+        state.visibleText = root
+          ? String(root.innerText || "").replace(/\\s+/g, " ").trim().slice(0, maxViewTextChars)
+          : "";
+      }
+      const loadError = document.body
+        ? document.body.getAttribute("data-agent-native-hydration-error")
+        : null;
+      if (loadError) rememberViewError(loadError);
+      const requestFailures = window[${JSON.stringify(EMBED_REQUEST_FAILURES_WINDOW_KEY)}];
+      if (Array.isArray(requestFailures)) requestFailures.forEach(rememberViewError);
+      if (viewErrors.length) state.errors = viewErrors.slice();
+      return state;
+    }
+
+    function navigateView(rawPath) {
+      const path = typeof rawPath === "string" ? rawPath.trim() : "";
+      if (!path.startsWith("/") || path.startsWith("//")) {
+        throw new Error("path must start with / and stay inside the open app, e.g. the path read_view returns.");
+      }
+      // The nested frame was launched on a session scoped to its start URL;
+      // pointing it at a bare app route would drop that session.
+      if (appFrame) {
+        throw new Error("This host shows the app in a nested frame, so it can't be moved from here.");
+      }
+      const base = currentViewUrl();
+      if (!base) throw new Error("No app page has loaded in this view yet.");
+      const target = new URL(path, base);
+      if (target.origin !== base.origin) throw new Error("path must stay inside the open app.");
+      const nextPath = localPathFromUrl(target, false);
+      // React Router reads the location on popstate, so a pushed entry plus a
+      // popstate event moves the transplanted app without reloading it.
+      const current = window.history.state;
+      const idx = current && typeof current.idx === "number" ? current.idx + 1 : 0;
+      window.history.pushState(
+        { usr: null, key: Math.random().toString(36).slice(2, 10), idx },
+        "",
+        nextPath
+      );
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      return { path: nextPath };
+    }
+
+    async function listViewTools() {
+      // A nested cross-origin frame can be neither read nor moved from here.
+      if (appFrame) return [];
+      const tools = [
+        {
+          name: readViewToolName,
+          title: "Read open app view",
+          description: "Read the app page open beside the chat: its path, title, selected text and visible text. Call it before acting on what the user is looking at.",
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: true }
+        },
+        {
+          name: navigateViewToolName,
+          title: "Navigate open app view",
+          description: "Show another page of the open app in place, such as a filtered list or one record. Pass a path in the form read_view returns.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "App path starting with /, in the form read_view returns, e.g. a list with a search query."
+              }
+            },
+            required: ["path"]
+          }
+        }
+      ];
+      const helper = appPageToolHelper();
+      if (!helper) return tools;
+      pageToolOrigins.clear();
+      try {
+        const summaries = await helper.tools();
+        for (const summary of (Array.isArray(summaries) ? summaries : []).slice(0, maxPageTools)) {
+          if (!summary || typeof summary.name !== "string") continue;
+          if (tools.some((tool) => tool.name === summary.name)) continue;
+          const full = typeof helper.describe === "function"
+            ? await helper.describe(summary.name, summary.origin)
+            : null;
+          const schema = full && full.inputSchema && full.inputSchema.type === "object"
+            ? full.inputSchema
+            : { type: "object", properties: {} };
+          tools.push({
+            name: summary.name,
+            ...(summary.title ? { title: summary.title } : {}),
+            description: String((full && full.description) || summary.description || summary.name),
+            inputSchema: schema,
+            ...(summary.readOnly ? { annotations: { readOnlyHint: true } } : {})
+          });
+          pageToolOrigins.set(summary.name, summary.origin);
+        }
+      } catch (err) {
+        console.warn("[agent-native] page tools unavailable to the MCP host", err);
+      }
+      return tools;
+    }
+
+    async function callViewTool(params) {
+      const record = objectValue(params);
+      const name = typeof record.name === "string" ? record.name : "";
+      const args = objectValue(record.arguments);
+      try {
+        let result;
+        if (name === readViewToolName) {
+          result = readViewState();
+        } else if (name === navigateViewToolName) {
+          result = navigateView(args.path);
+        } else {
+          const helper = appPageToolHelper();
+          if (!helper) throw new Error("Unknown view tool: " + name);
+          const origin = pageToolOrigins.get(name);
+          const outcome = await helper.call(name, args, {
+            waitMs: pageToolWaitMs,
+            ...(origin ? { origin } : {})
+          });
+          if (!outcome || outcome.state !== "done") {
+            throw new Error("Page tool " + name + " did not finish.");
+          }
+          if (!outcome.ok) throw new Error(outcome.error || "Page tool " + name + " failed.");
+          result = outcome.result;
+        }
+        const structured = result && typeof result === "object" && !Array.isArray(result)
+          ? result
+          : undefined;
+        return {
+          content: [{
+            type: "text",
+            text: typeof result === "string" ? result : JSON.stringify(result === undefined ? null : result)
+          }],
+          ...(structured ? { structuredContent: structured } : {})
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: err && err.message ? err.message : String(err) }]
+        };
+      }
+    }
+
+    function notifyViewToolsChanged() {
+      if (app && typeof app.sendToolListChanged === "function") {
+        try {
+          app.sendToolListChanged();
+        } catch (error) {
+          console.warn("[agent-native] tools/list_changed notification failed", error);
+        }
+      }
+    }
+
+    // The app registers its WebMCP tools from module scripts that keep running
+    // after the transplant mounts, so the first list_changed can arrive before
+    // they exist. Re-announce when the helper appears and on every toolchange.
+    function watchPageTools() {
+      notifyViewToolsChanged();
+      if (pageToolWatchStarted) return;
+      pageToolWatchStarted = true;
+      let timer = null;
+      const schedule = () => {
+        clearTimeout(timer);
+        timer = setTimeout(notifyViewToolsChanged, 250);
+      };
+      let watchedContext = null;
+      let helperSeen = false;
+      let ticks = 0;
+      const check = () => {
+        const context = document.modelContext;
+        if (context && context !== watchedContext && typeof context.addEventListener === "function") {
+          context.addEventListener("toolchange", schedule);
+          watchedContext = context;
+        }
+        if (!helperSeen && appPageToolHelper()) {
+          helperSeen = true;
+          schedule();
+        }
+        if ((helperSeen && watchedContext) || ++ticks >= 20) clearInterval(poll);
+      };
+      const poll = setInterval(check, 500);
+      check();
+    }
 
     function createNativeMcpAppsBridge() {
       let rpcId = 0;
       let connectPromise = null;
+      let initialized = false;
+      let toolListChangedPending = false;
       let hostContext = {};
       let hostContextFields = {};
       const pendingRequests = new Map();
@@ -2784,19 +3191,28 @@ export function embedApp(
               "ui/initialize",
               {
                 appInfo: { name: "Agent-Native Embed", version: "1.0.0" },
-                appCapabilities: {},
+                appCapabilities: {
+                  availableDisplayModes: ["inline", "fullscreen"],
+                  tools: { listChanged: true }
+                },
                 protocolVersion: "2026-01-26"
               },
               nativeBridgeInitializeTimeoutMs
             );
             setHostContext(result, true);
             rpcNotify("ui/notifications/initialized", {});
+            initialized = true;
+            if (toolListChangedPending) {
+              toolListChangedPending = false;
+              rpcNotify("notifications/tools/list_changed", {});
+            }
             if (typeof nativeApp.onhostcontextchanged === "function") {
               nativeApp.onhostcontextchanged(hostContextFields);
             }
             return hostContext;
           })().catch((err) => {
             connectPromise = null;
+            window.removeEventListener("message", onMessage);
             throw err;
           });
           return await connectPromise;
@@ -2828,7 +3244,11 @@ export function embedApp(
           return await rpcRequest("ui/request-display-mode", objectValue(params));
         },
         sendSizeChanged(params) {
-          rpcNotify("ui/notifications/size-changed", objectValue(params));
+          if (initialized) rpcNotify("ui/notifications/size-changed", objectValue(params));
+        },
+        sendToolListChanged() {
+          if (initialized) rpcNotify("notifications/tools/list_changed", {});
+          else toolListChangedPending = true;
         },
         async sendMessage(params) {
           await nativeApp.connect();
@@ -2836,11 +3256,34 @@ export function embedApp(
         }
       };
 
+      async function answerHostRequest(message) {
+        let reply;
+        try {
+          if (message.method === "tools/list") {
+            reply = { result: { tools: await listViewTools() } };
+          } else if (message.method === "tools/call") {
+            reply = { result: await callViewTool(message.params) };
+          } else if (message.method === "ping" || message.method === "ui/resource-teardown") {
+            reply = { result: {} };
+          } else {
+            reply = { error: { code: -32601, message: "Method not found: " + message.method } };
+          }
+        } catch (err) {
+          reply = { error: { code: -32603, message: err && err.message ? err.message : String(err) } };
+        }
+        window.parent.postMessage({ jsonrpc: "2.0", id: message.id, ...reply }, "*");
+      }
+
       function onMessage(event) {
         if (event.source !== window.parent) return;
         const message = event.data;
         if (!message || message.jsonrpc !== "2.0") return;
-        if (typeof message.id === "number" || typeof message.id === "string") {
+        const hasId = typeof message.id === "number" || typeof message.id === "string";
+        if (hasId && typeof message.method === "string") {
+          void answerHostRequest(message);
+          return;
+        }
+        if (hasId) {
           settleRpcResponse(message);
           return;
         }
@@ -2921,9 +3364,11 @@ export function embedApp(
       const { App } = await import("${MCP_APP_IMPORT}");
       app = new App(
         { name: "Agent-Native Embed", version: "1.0.0" },
-        {},
+        { availableDisplayModes: ["inline", "fullscreen"], tools: { listChanged: true } },
         { autoResize: false }
       );
+      app.onlisttools = async () => ({ tools: await listViewTools() });
+      app.oncalltool = async (params) => await callViewTool(params);
       appConnectPromise = null;
       app.ontoolinput = (params) => {
         toolInput = params.arguments || {};
@@ -2953,15 +3398,27 @@ export function embedApp(
     }
 
     try {
-      const initialOpenAiBridge = await waitForOpenAiBridge();
-      if (!syncOpenAiBridge(initialOpenAiBridge)) {
-        try {
-          await startNativeMcpAppsBridge();
-        } catch (nativeErr) {
+      const nativeStartup = startNativeMcpAppsBridge();
+      // ChatGPT may leave ui/initialize unanswered; the pane must not wait out
+      // that 5 s timeout before telling the host it is ready.
+      const openAiStartup = waitForOpenAiBridge().then((bridge) => {
+        const synced = syncOpenAiBridge(bridge);
+        if (synced) notifyOuterMcpAppReady();
+        return synced;
+      });
+      await Promise.all([
+        openAiStartup,
+        nativeStartup.catch(async (nativeErr) => {
+          await openAiStartup;
+          if (openAiBridge) {
+            console.warn("[agent-native] native MCP Apps bridge failed; using the ChatGPT bridge", nativeErr);
+            app = null;
+            return;
+          }
           console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
           ${remoteBridgeFallbackEnabled ? "await startMcpAppsBridge();" : "throw nativeErr;"}
-        }
-      }
+        })
+      ]);
     } catch (err) {
       console.error("[agent-native] MCP app shell failed", err);
       reportEmbedError(

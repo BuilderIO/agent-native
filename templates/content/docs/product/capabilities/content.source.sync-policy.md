@@ -30,13 +30,17 @@ evidence:
     "templates/content/actions/github-source.db.test.ts",
     "templates/content/shared/github-source.spec.ts",
     "templates/content/actions/create-github-collection.ts",
+    "templates/content/actions/_github-pull-requests-source.ts",
+    "templates/content/actions/create-github-pull-request-collection.ts",
+    "templates/content/actions/add-github-pull-requests.ts",
+    "templates/content/actions/github-pull-requests-source.db.test.ts",
     "templates/content/app/components/editor/database/github-availability.ts",
     "templates/content/app/components/editor/database/GitHubSourcePanel.tsx",
     "templates/content/app/components/editor/database/GitHubSourceStatusLine.tsx",
     "templates/content/app/components/editor/database/GitHubSourceStatusLine.ui.test.tsx",
   ]
 superseded_by: null
-last_reviewed: "2026-10-20"
+last_reviewed: "2026-11-14"
 ---
 
 # Source sync policy
@@ -158,6 +162,21 @@ can take a folder and why not (`github-availability.ts`), and
 `create-github-collection.ts` makes a new Collection for the folder instead. `actions/github-source.db.test.ts`,
 `shared/github-source.spec.ts`, and the status line's UI tests exercise these
 paths through shared Actions and the interface.
+
+GitHub pull requests are the second **View only** Source, and the first whose
+ownership is split by field rather than by Page.
+`templates/content/actions/_github-pull-requests-source.ts` fills a Collection
+with the pull requests a GitHub search finds, plus any added by link through
+`add-github-pull-requests.ts`; those stay after they merge or close, so a
+relation to one keeps its row. GitHub owns each row's title and its columns
+(Repository, State, Review, Checks, dates, and Days open), which Content shows
+read-only, while the Page body, comments, and Content-only columns stay
+Content's. Rows the search stops finding move to Trash only when the whole
+search was read, and only if GitHub still shows their pull requests. The same
+freshness paths check GitHub before a read more than a minute stale, and the
+background sweep checks each link every five minutes, since a check reads
+every pull request again. `create-github-pull-request-collection.ts` makes one,
+and `actions/github-pull-requests-source.db.test.ts` exercises it.
 
 Existing change sets, guarded writes, source metadata, local synchronization,
 and audit records remain useful donor machinery. No Source yet offers **Keep

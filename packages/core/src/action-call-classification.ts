@@ -52,6 +52,20 @@ export function classifyActionCall(
 }
 
 /**
+ * Whether every call of the action is read-only whatever its arguments: it
+ * declares `readOnly: true` and has no `planMode` effect that could say a
+ * call writes. An inferred or per-call read-only is not enough.
+ */
+export function actionAlwaysReadOnly(entry: {
+  readonly readOnly?: boolean | undefined;
+  readonly planMode?: { readonly effect?: unknown } | undefined;
+}): boolean {
+  if (entry.readOnly !== true) return false;
+  const effect = entry.planMode?.effect;
+  return effect === undefined || effect === "read";
+}
+
+/**
  * Whether one call is read-only, or `undefined` when neither `planMode` nor
  * `readOnly` says.
  */
@@ -137,6 +151,29 @@ export function actionCallIsRetrySafe(
   } catch {
     // coercion-ok: a throwing predicate declares nothing, so the call stays
     // conservative (blocked) rather than being treated as safe to replay.
+    return false;
+  }
+}
+
+/**
+ * Whether one call is a write the app made on its own, as the action's
+ * `automatic` declaration says for these arguments. The predicate sees the
+ * validated arguments and the call's context. One that throws declares
+ * nothing, so the call counts as one someone asked for.
+ */
+export function actionCallIsAutomatic<TInput, TContext>(
+  entry: {
+    automatic?: boolean | ((input: TInput, ctx: TContext) => boolean);
+  },
+  params: TInput,
+  ctx: TContext,
+): boolean {
+  const { automatic } = entry;
+  if (typeof automatic !== "function") return automatic === true;
+  try {
+    return automatic(params, ctx) === true;
+  } catch {
+    // coercion-ok: an analytics label must not fail the call; unlabeled still counts.
     return false;
   }
 }

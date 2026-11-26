@@ -223,11 +223,11 @@ async function openEditPanel(page: Page, designId: string) {
 
 async function leaveResponsivePreview(page: Page) {
   const previewControls = page.locator(
-    "[data-design-top-bar] [data-design-interact-route]",
+    "[data-design-interact-floating-bar] [data-design-interact-route]",
   );
   if ((await previewControls.count()) > 0) {
     await page
-      .locator('[data-design-top-bar] [data-design-mode="edit"]')
+      .locator('[data-design-bottom-toolbar] button[aria-label="Edit"]')
       .click();
     await expect(previewControls).toHaveCount(0);
   }

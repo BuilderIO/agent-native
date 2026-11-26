@@ -102,3 +102,7 @@ describe("manage-automation reasoningEffort", () => {
     expect(updateAutomationMock).not.toHaveBeenCalled();
   });
 });
+
+it("refuses full-app panels", () => {
+  expect(action.requiresSignedInBrowser).toBe(true);
+});

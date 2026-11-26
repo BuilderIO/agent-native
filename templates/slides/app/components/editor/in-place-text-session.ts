@@ -108,7 +108,7 @@ export interface InPlaceTextSession {
   readonly historyStats: () => InPlaceTextHistoryStats;
   readonly commands: InPlaceTextSessionCommands;
   /** Runs a change to the edited element itself (a dock style) as one undo step. */
-  apply: (mutate: () => void) => boolean;
+  apply: (mutate: () => void | boolean) => boolean;
   undo: () => boolean;
   redo: () => boolean;
   /**
@@ -2490,6 +2490,7 @@ export function startInPlaceTextSession(
     if (!active) return false;
     captureReservationParentHeight();
     const before = snapshot();
+    if (!mutate()) return false;
     edited = true;
     lastEdit = {
       kind: "command",
@@ -2497,7 +2498,6 @@ export function startInPlaceTextSession(
       boundary: false,
       after: null,
     };
-    if (!mutate()) return false;
     compactSnapshot(undoStack.at(-1), before.html);
     redoStack.length = 0;
     undoStack.push(before);
@@ -6948,11 +6948,7 @@ export function startInPlaceTextSession(
     },
     historyStats,
     commands,
-    apply: (mutate) =>
-      command(() => {
-        mutate();
-        return true;
-      }),
+    apply: (mutate) => command(() => mutate() !== false),
     undo,
     redo,
     cloneWithoutPlaceholders,

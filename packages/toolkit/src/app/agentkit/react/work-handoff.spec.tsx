@@ -68,6 +68,7 @@ const finishEvents: AgentEvent[] = [
       role: "assistant",
       status: "complete",
       parts: [{ type: "text", text: "Here is the answer." }],
+      metadata: { custom: { agentNativeRunDurationMs: 5_027 } },
     },
   }),
   event(6, { type: "run.completed" }),
@@ -181,7 +182,9 @@ describe("Worked for row moving into the reply footer", () => {
     expect(
       reply().contains(work().closest(".agentkit-message-work-host")),
     ).toBe(true);
-    expect(work().textContent).toContain("Worked for");
+    expect(
+      work().querySelector(".agentkit-activities-label")?.textContent,
+    ).toBe("Worked for 5s");
     // Nothing is left holding a place above the reply.
     expect(reply().previousElementSibling).toBeNull();
   });
@@ -221,6 +224,9 @@ describe("Worked for row moving into the reply footer", () => {
     await flush();
     expect(container.querySelectorAll(".agentkit-activities")).toHaveLength(1);
     expect(work().closest(".agentkit-message-actions")).not.toBeNull();
+    expect(
+      work().querySelector(".agentkit-activities-label")?.textContent,
+    ).toBe("Worked for 5s");
   });
 });
 

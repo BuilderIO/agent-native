@@ -45,6 +45,7 @@ export default defineAction({
       .max(50_000)
       .describe("Final workflow document in markdown"),
   }),
+  mcpTool: "search",
   run: async ({ recordingId, requestedAt, requestId, content }) => {
     assertRecordingNotExpired(
       await assertAccess("recording", recordingId, "viewer"),

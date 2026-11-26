@@ -11,8 +11,31 @@ const CONNECTION_ERROR_CODES = new Set([
   "CONNECTION_CLOSED",
 ]);
 
+const SQLSTATE = /^(?:[0-5][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/;
+
+function isTransientSqlState(code: string): boolean {
+  return (
+    code === "53300" ||
+    code === "57014" ||
+    /^08/.test(code) ||
+    /^57P0[123]$/.test(code)
+  );
+}
+
+function driverError(err: unknown): unknown {
+  const wrapper = err as
+    | { query?: unknown; params?: unknown; cause?: unknown }
+    | null
+    | undefined;
+  return typeof wrapper?.query === "string" &&
+    Array.isArray(wrapper.params) &&
+    wrapper.cause != null
+    ? wrapper.cause
+    : err;
+}
+
 export function isConnectionError(value: unknown): boolean {
-  const err = value as
+  const err = driverError(value) as
     | {
         code?: string;
         name?: string;
@@ -30,6 +53,7 @@ export function isConnectionError(value: unknown): boolean {
   if (!err) return false;
   const code = err.code || err.cause?.code;
   if (code && CONNECTION_ERROR_CODES.has(code)) return true;
+  if (code && SQLSTATE.test(code) && !isTransientSqlState(code)) return false;
   const name = err.name || err.cause?.name || "";
   if (name === "ErrorEvent") return true;
   const stack = String(err.stack || err.cause?.stack || "");
@@ -81,12 +105,32 @@ const DATABASE_NETWORK_ERROR_CODES = new Set([
   "ECONNABORTED",
 ]);
 
+const CONNECT_REFUSAL_CODES = new Set([
+  "57P03",
+  "08001",
+  "08004",
+  "ECONNREFUSED",
+  "EAI_AGAIN",
+]);
+
+/** For retry loops that wrap only database operations, so provenance is given. */
+export function isRetryableConnectionError(err: unknown): boolean {
+  if (isConnectionError(err)) return true;
+  const error = driverError(err) as
+    | { code?: unknown; cause?: { code?: unknown } }
+    | null
+    | undefined;
+  return CONNECT_REFUSAL_CODES.has(
+    String(error?.code ?? error?.cause?.code ?? ""),
+  );
+}
+
 // Query boundaries can establish database origin when a transport error has no driver frames.
 export function isTransientDatabaseError(
   err: unknown,
   context?: { source: "database" },
 ): boolean {
-  const error = err as
+  const error = driverError(err) as
     | {
         code?: unknown;
         name?: unknown;
@@ -106,13 +150,11 @@ export function isTransientDatabaseError(
     code === "ECHECKOUTTIMEOUT" ||
     code === "DB_CONNECT_COOLDOWN" ||
     code === "EMAXCONN" ||
-    code === "53300" ||
-    code === "57014" ||
-    /^08/.test(code) ||
-    /^57P0[123]$/.test(code)
+    isTransientSqlState(code)
   ) {
     return true;
   }
+  if (SQLSTATE.test(code)) return false;
 
   const message = [error?.message, error?.cause?.message]
     .filter((value): value is string => typeof value === "string")
@@ -134,6 +176,8 @@ export function isTransientDatabaseError(
   return (
     (isConnectionError(error) || DATABASE_NETWORK_ERROR_CODES.has(code)) &&
     (context?.source === "database" ||
+      error !== err ||
+      hasDatabaseOrigin(err) ||
       hasDatabaseOrigin(error) ||
       hasDatabaseOrigin(error?.cause) ||
       /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(

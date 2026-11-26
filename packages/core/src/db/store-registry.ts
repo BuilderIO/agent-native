@@ -15,7 +15,12 @@
 
 import { withoutWriteObservation } from "../action-frame.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
-import { getDbExec, type DbExec } from "./client.js";
+import {
+  getDbExec,
+  getEnclosingTransactionDbExec,
+  withDbExec,
+  type DbExec,
+} from "./client.js";
 import {
   appMigratesAtRelease,
   schemaEnsureSkipRequested,
@@ -583,6 +588,43 @@ async function loadSchemaSnapshot(): Promise<SchemaSnapshot | null> {
   return (await import("./schema-snapshot.generated.js")).SCHEMA_SNAPSHOT;
 }
 
+const SNAPSHOT_QUOTE_PREFIX = "$agent_native_snapshot_";
+const SNAPSHOT_STATEMENT_QUOTE = `${SNAPSHOT_QUOTE_PREFIX}statement$`;
+const SNAPSHOT_BLOCK_QUOTE = `${SNAPSHOT_QUOTE_PREFIX}block$`;
+
+const SNAPSHOT_STATEMENTS_PER_BLOCK = 100;
+
+/**
+ * The snapshot statements as DO blocks, so a remote database pays a round trip
+ * per block instead of one per statement. Joining the statements with
+ * semicolons would break on drivers that use the extended protocol, which
+ * rejects more than one command per query.
+ */
+export function snapshotInstallBlocks(statements: readonly string[]): string[] {
+  const blocks: string[] = [];
+  for (let i = 0; i < statements.length; i += SNAPSHOT_STATEMENTS_PER_BLOCK) {
+    blocks.push(
+      snapshotInstallBlock(
+        statements.slice(i, i + SNAPSHOT_STATEMENTS_PER_BLOCK),
+      ),
+    );
+  }
+  return blocks;
+}
+
+function snapshotInstallBlock(statements: readonly string[]): string {
+  const body = statements.map((statement) => {
+    if (statement.includes(SNAPSHOT_QUOTE_PREFIX)) {
+      throw new Error(
+        `Schema snapshot statement contains a reserved quote (${SNAPSHOT_QUOTE_PREFIX}...$)`,
+      );
+    }
+    const sql = statement.trim().replace(/;\s*$/, "");
+    return `EXECUTE ${SNAPSHOT_STATEMENT_QUOTE}${sql}${SNAPSHOT_STATEMENT_QUOTE};`;
+  });
+  return `DO ${SNAPSHOT_BLOCK_QUOTE}\nBEGIN\n${body.join("\n")}\nEND\n${SNAPSHOT_BLOCK_QUOTE};`;
+}
+
 /**
  * Creates the ledger. On a database with no ledger and none of the framework
  * tables (a first release, or a first `pnpm dev`), installs the schema
@@ -593,8 +635,9 @@ async function prepareLedger(exec: DbExec): Promise<void> {
   const snapshot = await loadSchemaSnapshot();
   if (snapshot && exec.transaction && (await isFreshDatabase(exec, snapshot))) {
     await exec.transaction(async (tx) => {
-      for (const statement of snapshot.statements) {
-        await tx.execute(statement);
+      for (const block of snapshotInstallBlocks(snapshot.statements)) {
+        // raw-sql-ok: generated schema snapshot DDL, no user input
+        await tx.execute(block);
       }
       await tx.execute(LEDGER_DDL);
       const now = Date.now();
@@ -872,15 +915,21 @@ export function defineStore(definition: StoreDefinition): Store {
       const mode = readiness();
       if (mode === "apply") {
         return tolerateRefusedDatabase(id, () => {
-          const exec = getDbExec();
+          const transaction = getEnclosingTransactionDbExec({
+            allowUnscoped: true,
+          });
+          const exec = transaction ?? getDbExec();
           const memo = isReleaseStep() ? appliedAtRelease : applied;
           const existing = memo.get(exec);
           if (existing) return existing;
+          const apply = () => applyWithLedger(store, exec);
           const tracked = retainRequestDbPoolScope(
-            applyWithLedger(store, exec).catch((err) => {
-              if (memo.get(exec) === tracked) memo.delete(exec);
-              throw err;
-            }),
+            (transaction ? withDbExec(transaction, apply) : apply()).catch(
+              (err) => {
+                if (memo.get(exec) === tracked) memo.delete(exec);
+                throw err;
+              },
+            ),
           );
           memo.set(exec, tracked);
           return tracked;

@@ -1,3 +1,4 @@
+// oracle-change: Exact duplicate fixture and assertions remain in this suite; every distinct regression case stays.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -428,11 +429,6 @@ describe("listInteractionStates", () => {
 });
 
 describe("readStateStyles", () => {
-  it("returns declared properties for a node's state", () => {
-    const html = upsertStateStyle(BASE_HTML, "btn_1", "hover", "color", "red");
-    expect(readStateStyles(html, "btn_1", "hover")).toEqual({ color: "red" });
-  });
-
   it("returns an empty object when nothing is declared", () => {
     expect(readStateStyles(BASE_HTML, "btn_1", "hover")).toEqual({});
     const html = upsertStateStyle(BASE_HTML, "btn_1", "hover", "color", "red");

@@ -138,6 +138,20 @@ export {
   type ResizedImage,
 } from "./media.js";
 export {
+  BREAKPOINT_PRESETS,
+  createPlaywrightCapturer,
+  resolveBreakpoint,
+  runMatchedCheck,
+  summarizeResults,
+  type BreakpointRecord,
+  type BreakpointResult,
+  type ClockStrategy,
+  type MatchedCheckInput,
+  type MatchedCheckReport,
+  type SideCapture,
+  type SideCapturer,
+} from "./matched-capture.js";
+export {
   extractStaticWebsiteContext,
   type WebsiteAsset,
   type WebsiteDesignTokens,

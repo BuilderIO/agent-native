@@ -150,10 +150,12 @@ https://<your-app>.agent-native.com/mcp
 
 ### Claude وChatGPT OAuth {#oauth}
 
-Claude / Claude سطح المكتب: أضف موصلًا مخصصًا، والصق MCP URL، وانقر على
-**الاتصال**، تسجيل الدخول باستخدام حساب Agent-Native، الموافقة على نطاقات MCP،
-وتمكين الموصل في الدردشة. يستخدم رمز Claude نفس URL: قم بإضافته كـ
-خادم HTTP MCP البعيد، قم بتشغيل `/mcp`، ثم اختر **مصادقة**.
+Claude / Claude Desktop: يفتح **إضافة إلى Claude** صفحة **Customize →
+Connectors** مع نافذة **Add custom connector** وقد عُبّئ فيها اسم التطبيق وعنوان
+MCP مسبقًا. اختر **Add**، وسجّل الدخول بحساب Agent-Native، ووافق على نطاقات MCP،
+وفعّل الموصل في محادثة. يستخدم Claude Code العنوان نفسه: شغّل
+`claude mcp add --transport http --scope user <server-name> <mcp-url>` ليصبح
+الخادم متاحًا في كل المشاريع، ثم شغّل `/mcp` واختر **Authenticate**.
 
 ChatGPT: تتطلب تطبيقات MCP المخصصة مساحة عمل مدعومة على ChatGPT web. إذا كان
 لديك وصول، افتح **Settings → Apps → Advanced settings**، وفعّل وضع المطور عند
@@ -175,13 +177,15 @@ ChatGPT: تتطلب تطبيقات MCP المخصصة مساحة عمل مدعو
 
 ### Cursor وVS Code وCodex {#install-links}
 
-تحتوي علامتا التبويب **Cursor** و**VS Code** في **Settings → MCP server** وفي
-`/mcp/connect` على أزرار تثبيت. يفتح **إضافة إلى Cursor** نافذة
+تحتوي أدلة **Claude** و**Cursor** و**VS Code** في **Settings → MCP server** وفي
+`/mcp/connect` على أزرار تثبيت. يفتح **إضافة إلى Claude** نافذة إضافة موصل في
+Claude وقد عُبّئ فيها الاسم والعنوان مسبقًا. يفتح **إضافة إلى Cursor** نافذة
 **Install MCP server?** في Cursor. ويفتح **إضافة إلى VS Code** و**إضافة إلى VS
-Code Insiders** صفحة خادم فيها زر **Install**. لا يحمل الرابط إلا اسم الخادم
-ونوع النقل وعنوان MCP، ولا يحمل أبدًا رمزًا مميزًا أو ترويسة أو بيانات حساب.
+Code Insiders** صفحة خادم فيها زر **Install**. لا يحمل الرابط إلا اسمًا وعنوان MCP، ونوع النقل أيضًا في VS Code، ولا يحمل أبدًا رمزًا مميزًا أو ترويسة أو بيانات حساب.
 ويُجري العميل تسجيل دخول OAuth الخاص به عند أول اتصال. وفي VS Code تظهر الأدوات
-بعد ذلك في عرض Chat في وضع Agent.
+بعد ذلك في عرض Chat في وضع Agent. ومن دون الزر، شغّل **Chat: Open
+Customizations**، وافتح **MCP Servers**، واختر **+**، واختر **HTTP**، والصق
+عنوان MCP.
 
 في Codex، شغّل `codex mcp add <server-name> --url <mcp-url>` ثم
 `codex mcp login <server-name>` لتسجيل الدخول عبر OAuth. تملأ علامة التبويب
@@ -679,7 +683,7 @@ export default defineAction({
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -711,7 +715,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. حل جلسة **المتصفح** عبر `getSession` (يتجاوز حارس المصادقة المسار الدقيق `/_agent-native/open`).
 2. إذا لم تتم مصادقته، فإنه يخدم تسجيل الدخول الذي تم تكوينه HTML **في نفس URL**; يقوم معالج نجاح النموذج بإعادة تحميل `window.location`، وإعادة إدخال المسار المصادق عليه - بدون سباكة `?next=`.
 3. يكتب أمر حالة التطبيق `navigate` الموجود مرة واحدة (الحمولة = كل معلمة استعلام غير محجوزة + `view`) الذي يتم تحديد نطاقه على البريد الإلكتروني لجلسة المتصفح باستخدام `requestSource: "deep-link"`، ويفك تشفير مسودة `compose` base64url إلى مفتاح `compose-<id>`.
-4. 302-يعيد التوجيه إلى مسار نسبي آمن من نفس الأصل (`to=`، أو `/<view>`، أو `resolveOpenPath` لكل قالب)، وإعادة توجيه معلمات مرشح `f_*` بحيث يتم فتح القوائم/لوحات المعلومات بعد تصفيتها مسبقًا قبل استنزاف أمر `navigate`.
+4. 302-يعيد التوجيه إلى مسار نسبي آمن من نفس الأصل (`to=`، أو `resolveOpenPath` لكل قالب، أو `/<view>`)، وإعادة توجيه معلمات مرشح `f_*` بحيث يتم فتح القوائم/لوحات المعلومات بعد تصفيتها مسبقًا قبل استنزاف أمر `navigate`.
 
 يتم رفض عمليات إعادة توجيه `//host` ذات الأصل المشترك والنسبية للمخطط وحرف التحكم (حارس إعادة التوجيه المفتوح). يمكن تعطيل المسار لكل تطبيق عبر `disableOpenRoute`.
 

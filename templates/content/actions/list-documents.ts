@@ -8,7 +8,7 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -56,7 +56,7 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 
 export default defineAction({
   description:
-    "List one bounded page of access-scoped document metadata ordered by position. Returns explicit pagination; follow nextOffset until hasMore is false. Does not return full document bodies; use get-document for one document's content.",
+    'List one bounded page of access-scoped document metadata, in sidebar order by default. Pass sort "newest" for the most recently edited first. Returns explicit pagination; request nextOffset only when the task needs more results. Does not return full document bodies; use get-document to read one document.',
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -89,6 +89,12 @@ export default defineAction({
       .enum(["page", "database"])
       .optional()
       .describe("Only ordinary pages or collection pages"),
+    sort: z
+      .enum(["position", "newest"])
+      .default("position")
+      .describe(
+        "position: sidebar order (default). newest: most recently edited first",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -149,7 +155,14 @@ export default defineAction({
       })
       .from(schema.documents)
       .where(where)
-      .orderBy(asc(schema.documents.position), asc(schema.documents.id))
+      .orderBy(
+        ...(args.sort === "newest"
+          ? // Not every stored time is an ISO string, so sort by the
+            // timestamp, not the text.
+            [desc(sql`${schema.documents.updatedAt}::timestamptz`)]
+          : [asc(schema.documents.position)]),
+        asc(schema.documents.id),
+      )
       .limit(args.limit)
       .offset(args.offset);
 

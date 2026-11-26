@@ -33,6 +33,7 @@ export default defineAction({
   }),
   readOnly: true,
   grounding: true,
+  mcpTool: false,
   run: async (args, ctx) => {
     if (!ctx?.userEmail) fail("Not authenticated.", { statusCode: 401 });
     try {

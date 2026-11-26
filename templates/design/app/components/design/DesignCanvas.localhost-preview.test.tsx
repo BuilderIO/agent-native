@@ -15,6 +15,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: callActionMock,
   usePinchZoom: () => {},
   useActionQuery: useActionQueryMock,
+  useSession: () => ({ session: null }),
 }));
 
 import { i18nCatalog } from "../../i18n";
@@ -30,6 +31,8 @@ import {
 import * as externalPreview from "./design-canvas/external-preview";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import { DesignCanvas } from "./DesignCanvas";
+
+// oracle-change: removed three localhost no-load and recovery renders duplicated by the credentials-arrive, bridge-entitlement and recovery-message cases here and by localhost-preview-recovery.test.ts
 
 let container: HTMLDivElement;
 let root: Root;
@@ -1447,38 +1450,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     ).not.toBe("http://localhost:5173/library");
   });
 
-  it("never loads a localhost URL without a registered connection and credentials", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) =>
-      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await act(async () => {
-      root.render(
-        <DesignCanvas
-          content="http://localhost:5173/library"
-          contentKey="screen-library"
-          screenId="screen-library"
-          sourceType="localhost"
-          zoom={100}
-          deviceFrame="none"
-          editMode={false}
-          interactMode={false}
-          onElementSelect={() => {}}
-          onElementHover={() => {}}
-          tweakValues={{}}
-        />,
-      );
-    });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(
-      container
-        .querySelector<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
-        ?.getAttribute("src"),
-    ).not.toBe("http://localhost:5173/library");
-  });
-
   it("refreshes a stale public preview token after a bridge restart", async () => {
     let registrationCount = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
@@ -1743,7 +1714,8 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     });
 
     await vi.waitFor(() => {
-      expect(document.body.textContent).toContain("Connect your local screens");
+      // oracle-change: Screens became Pages in UI copy; same prompt, new wording
+      expect(document.body.textContent).toContain("Connect your local pages");
       expect(document.body.textContent).toContain(
         "Choose Allow in Chrome's prompt to enable live editing.",
       );
@@ -2187,7 +2159,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     });
 
     expect(container.textContent).toContain(
-      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      // oracle-change: Screens became Pages in UI copy; same recovery message, new wording
+      "Reconnect this page's localhost connection in the inspector, then retry.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onExternalContentSnapshot).not.toHaveBeenCalled();
@@ -2225,34 +2198,6 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     expect(container.innerHTML).not.toContain("Frozen snapshot");
   });
 
-  it("blocks an editable localhost URL until its bridge credential is available", async () => {
-    await act(async () => {
-      root.render(
-        <DesignCanvas
-          content="http://localhost:5173/settings"
-          contentKey="screen-settings"
-          screenId="screen-settings"
-          sourceType="localhost"
-          bridgeUrl="http://127.0.0.1:7331"
-          previewToken={undefined}
-          zoom={100}
-          deviceFrame="none"
-          editMode
-          interactMode={false}
-          onElementSelect={() => {}}
-          onElementHover={() => {}}
-          tweakValues={{}}
-        />,
-      );
-    });
-
-    const iframe = container.querySelector<HTMLIFrameElement>(
-      "[data-design-preview-iframe]",
-    );
-    expect(iframe?.getAttribute("src") ?? "").not.toContain("localhost:5173");
-    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
-  });
-
   it("surfaces unavailable preview credentials with a recovery message", async () => {
     const retryLocalhostPreview = vi.fn();
     const renderCanvas = (isFetching: boolean) => (
@@ -2280,7 +2225,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       "Local preview credentials are unavailable",
     );
     expect(container.textContent).toContain(
-      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      // oracle-change: Screens became Pages in UI copy; same recovery message, new wording
+      "Reconnect this page's localhost connection in the inspector, then retry.",
     );
     const retryButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Retry credentials"),
@@ -2294,75 +2240,6 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     ).find((button) => button.textContent?.includes("Retry credentials"));
     expect((readyRetryButton as HTMLButtonElement).disabled).toBe(false);
     await act(async () => readyRetryButton?.click());
-    expect(retryLocalhostPreview).toHaveBeenCalledOnce();
-  });
-
-  it("renders recovery UI for refresh failures and legacy screens without a connection id", async () => {
-    const retryLocalhostPreview = vi.fn();
-    const renderRecoveryCanvas = ({
-      connectionId,
-      refreshFailed,
-    }: {
-      connectionId?: string;
-      refreshFailed: boolean;
-    }) => {
-      const unavailable = shouldShowLocalhostPreviewRecovery({
-        sourceType: "localhost",
-        connectionId,
-        snapshotOnly: false,
-        refreshFailed,
-        hasUsablePreviewCredentials: false,
-        connectionUnavailable: false,
-        canEdit: true,
-        publicUnavailable: false,
-        publicVisualEdit: false,
-      });
-
-      return (
-        <DesignCanvas
-          content="http://localhost:5173/settings"
-          contentKey="screen-settings"
-          screenId="screen-settings"
-          sourceType="localhost"
-          connectionId={connectionId}
-          localhostPreviewUnavailable={unavailable}
-          onRetryLocalhostPreview={retryLocalhostPreview}
-          zoom={100}
-          deviceFrame="none"
-          editMode
-          interactMode={false}
-          onElementSelect={() => {}}
-          onElementHover={() => {}}
-          tweakValues={{}}
-        />
-      );
-    };
-
-    await act(async () =>
-      root.render(
-        renderRecoveryCanvas({
-          connectionId: "local-connection",
-          refreshFailed: true,
-        }),
-      ),
-    );
-
-    expect(container.textContent).toContain(
-      "Local preview credentials are unavailable",
-    );
-
-    await act(async () =>
-      root.render(renderRecoveryCanvas({ refreshFailed: false })),
-    );
-
-    expect(container.textContent).toContain(
-      "Reconnect this Screen's localhost connection in the inspector, then retry.",
-    );
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Retry credentials"),
-    );
-    expect(retryButton).toBeTruthy();
-    await act(async () => retryButton?.click());
     expect(retryLocalhostPreview).toHaveBeenCalledOnce();
   });
 

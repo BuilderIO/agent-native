@@ -6,6 +6,7 @@ import {
   gatewayVisitorFacingError,
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_MESSAGE,
+  LLM_NO_OWNER_CONTEXT_MESSAGE,
   userFacingLlmCredentialError,
 } from "./credential-errors.js";
 
@@ -91,7 +92,47 @@ describe("LLM credential error helpers", () => {
   it("formats agent-specific copy without provider env vars", () => {
     const message = formatLlmCredentialErrorMessage({ agentName: "Slides" });
     expect(message).toContain("Slides agent");
-    expect(message).toContain("Settings > Agent > AI providers");
+    expect(message).toContain("connect prompt");
     expect(message).not.toContain("ANTHROPIC_API_KEY");
+  });
+});
+
+describe("provider copy and the run's own reason", () => {
+  it("never offers a plan or tier in the provider message", () => {
+    expect(LLM_MISSING_CREDENTIALS_MESSAGE).not.toMatch(
+      /free tier|free plan|upgrade/i,
+    );
+    expect(LLM_MISSING_CREDENTIALS_MESSAGE).toContain(
+      "Settings > Agent > AI providers",
+    );
+  });
+
+  it("names the run's own reason when no member is signed in", () => {
+    expect(LLM_NO_OWNER_CONTEXT_MESSAGE).toContain(
+      "no signed-in workspace member",
+    );
+    expect(LLM_NO_OWNER_CONTEXT_MESSAGE).not.toMatch(/free tier|upgrade/i);
+    expect(LLM_NO_OWNER_CONTEXT_MESSAGE).not.toBe(
+      LLM_MISSING_CREDENTIALS_MESSAGE,
+    );
+  });
+
+  describe("peer not-connected guidance", () => {
+    it("never names a settings menu path for a peer app", () => {
+      const message = formatLlmCredentialErrorMessage({ agentName: "Slides" });
+      expect(message).not.toMatch(/Settings\s*[>\u2192]/i);
+      expect(message).not.toContain("AI providers");
+      expect(message).toContain("Slides");
+      expect(message).toContain("connect prompt");
+    });
+
+    it("points at the peer's real origin when it is known", () => {
+      const message = formatLlmCredentialErrorMessage({
+        agentName: "Slides",
+        connectUrl: "https://slides.example.test",
+      });
+      expect(message).toContain("https://slides.example.test");
+      expect(message).not.toMatch(/Settings\s*[>\u2192]/i);
+    });
   });
 });

@@ -14,16 +14,24 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import {
+  BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
+  BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL,
+  BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL,
+} from "../lib/bigquery-agent-budget.js";
 import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
 import {
   CONTENT_METRICS_MIGRATION_SQL,
   CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+  CONTENT_SEARCH_QUERIES_MIGRATION_SQL,
 } from "../lib/content-metrics/migration.js";
 import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
+import { WRITE_RECEIPTS_MIGRATION_SQL } from "../lib/write-receipts-migration.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -176,6 +184,48 @@ const BIGQUERY_JOB_USAGE_MIGRATION = {
   version: 183,
   name: "analytics-bigquery-job-usage",
   sql: BIGQUERY_USAGE_MIGRATION_SQL,
+};
+
+// raw-sql-ok: static app-owned receipt DDL with no runtime values or interpolation.
+const WRITE_RECEIPTS_MIGRATION = {
+  version: 186,
+  name: "analytics-write-receipts",
+  sql: WRITE_RECEIPTS_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned budget ledger DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_BUDGET_MIGRATION = {
+  version: 187,
+  name: "analytics-bigquery-agent-budget",
+  sql: BIGQUERY_AGENT_BUDGET_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION = {
+  version: 188,
+  name: "analytics-bigquery-agent-credential-fingerprint",
+  sql: BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION = {
+  version: 190,
+  name: "analytics-bigquery-agent-execution-job-identity",
+  sql: BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION = {
+  version: 191,
+  name: "analytics-bigquery-agent-execution-cancel-requested",
+  sql: BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned search query table DDL with no runtime values or interpolation.
+const CONTENT_SEARCH_QUERIES_MIGRATION = {
+  version: 189,
+  name: "analytics-content-search-queries",
+  sql: CONTENT_SEARCH_QUERIES_MIGRATION_SQL.join(";\n"),
 };
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1908,6 +1958,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       sql: `CREATE INDEX IF NOT EXISTS analytics_bigquery_usage_started_idx
         ON analytics_bigquery_usage (started_at, project_id, job_id)`,
     },
+    {
+      version: 185,
+      name: "analytics-session-reports",
+      sql: `CREATE TABLE IF NOT EXISTS session_reports (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      key_moments TEXT NOT NULL DEFAULT '[]',
+      repro_steps TEXT NOT NULL DEFAULT '[]',
+      error_issue_id TEXT,
+      build TEXT,
+      from_ms INTEGER,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE INDEX IF NOT EXISTS session_reports_recording_idx
+      ON session_reports (recording_id);
+    CREATE TABLE IF NOT EXISTS session_report_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      notified_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS session_report_shares_resource_idx
+      ON session_report_shares (resource_id)`,
+    },
+    WRITE_RECEIPTS_MIGRATION,
+    BIGQUERY_AGENT_BUDGET_MIGRATION,
+    BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION,
+    CONTENT_SEARCH_QUERIES_MIGRATION,
+    BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION,
+    BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );

@@ -24,6 +24,7 @@ import { and, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import {
   hasCredentialLookupError,
   inspectSourceCredentialAvailability,
@@ -42,6 +43,9 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "granola",
   "github",
   "zoom",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ]);
 
 type CatalogProvider = Omit<
@@ -493,6 +497,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async () => {
     const [sourceRows, workspace, canManageZoom] = await Promise.all([
       getDb()
@@ -500,7 +505,10 @@ export default defineAction({
         .from(schema.brainSources)
         .where(
           and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
             ne(schema.brainSources.status, "archived"),
           ),
         ),

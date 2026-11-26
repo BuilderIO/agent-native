@@ -1,0 +1,311 @@
+/*
+ * Part: toast
+ *
+ *   <div class="toast-portal" [data-anchored]>        Base UI Toast.Portal, in the anchor
+ *   <div class="toast-viewport" role="region" aria-label aria-keyshortcuts="F6"
+ *        [data-expanded] [data-yielding]>            Base UI Toast.Viewport
+ *     <div class="toast" data-variant="surface|soft|solid"
+ *          data-color="accent|gray|danger|warning|success|info"
+ *          [data-high-contrast] [data-type] [data-expanded] [data-limited]
+ *          [data-swiping] [data-swipe-direction]
+ *          [data-starting-style] [data-ending-style]>        Toast.Root
+ *       <div class="toast-content" [data-behind] [data-expanded]>   Toast.Content
+ *         <span class="toast-icon">          the status icon, or a Spinner while loading
+ *         <div class="toast-text">
+ *           <h2 class="toast-title">         Toast.Title
+ *           <p class="toast-description">    Toast.Description
+ *         <button class="button toast-action">         a second action, then Toast.Action
+ *         <button class="icon-button toast-close">     Toast.Close
+ *
+ * Toasts stack at the bottom right: the newest in front, the older ones
+ * peeking above it, shrunk and clamped to its height with their content
+ * hidden. Hovering or focusing the viewport fans them out. A swipe down or
+ * toward the inline end dismisses one, and it leaves the way it was swiped. Base UI writes
+ * the index, offsets and swipe movement as `--toast-*` variables. A new
+ * toast slides up a step and fades in; under reduced motion it only fades.
+ *
+ * The portal renders inside the anchor, the app's canvas, and is fixed over
+ * its visible box (the Toaster measures it), so the stack sits at the
+ * canvas's bottom right however it scrolls, clear of the side panels.
+ * Without an anchor it covers the window: a fallback. The stack is inset by
+ * `--toast-offset` (16px) and the safe-area insets, and grows upward.
+ *
+ * Clearance: an app with a bottom-centered toolbar sets
+ * `--toast-inset-bottom` on the anchor. Where the canvas is too narrow for
+ * a toast beside a toolbar up to 448px wide (2 × (360 + 16) + 448 = 1200px),
+ * the stack lifts by it; wider, it stays on the toolbar's baseline.
+ *
+ * While focus is on an
+ * element outside it that a toast would cover, the Toaster sets
+ * `data-yielding` and the stack fades out of the way until focus moves on
+ * or the pointer or focus enters the stack.
+ *
+ * Surface and soft lay the color's tint over the raised surface, so a toast
+ * stays opaque over the page; the title is step 12 and the description the
+ * accessible text step. Solid fills with the color. Gray, the default, is
+ * neutral.
+ */
+
+@layer components {
+  .toast-portal {
+    position: fixed;
+    inset: 0;
+    z-index: var(--layer-toast);
+    pointer-events: none;
+    container: toast-anchor / inline-size;
+  }
+
+  /* The Toaster writes the anchor's visible box as left, top, width, height. */
+  .toast-portal[data-anchored] {
+    inset: auto;
+  }
+
+  .toast-viewport {
+    --_toast-offset: var(--toast-offset, var(--space-4));
+    --_toast-lift: 0px;
+
+    position: absolute;
+    inset-block-end: calc(
+      var(--_toast-offset) + var(--_toast-lift) +
+        env(safe-area-inset-bottom, 0px)
+    );
+    inset-inline-end: var(--_toast-offset);
+    margin-left: env(safe-area-inset-left, 0px);
+    margin-right: env(safe-area-inset-right, 0px);
+    width: 360px;
+    max-width: calc(
+      100% - 2 * var(--_toast-offset) - env(safe-area-inset-left, 0px) -
+        env(safe-area-inset-right, 0px)
+    );
+    outline: none;
+    pointer-events: auto;
+  }
+
+  @container toast-anchor (width < 1200px) {
+    .toast-viewport {
+      --_toast-lift: var(--toast-inset-bottom, 0px);
+    }
+  }
+
+  .toast-viewport[data-yielding]:not([data-expanded]) .toast {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .toast {
+    --toast-gap: var(--space-3);
+    --toast-peek: var(--space-3);
+    --toast-scale: max(0, 1 - var(--toast-index) * 0.05);
+    --toast-shrink: calc(1 - var(--toast-scale));
+    --toast-clamped-height: var(--toast-frontmost-height, var(--toast-height));
+    --toast-expanded-y: calc(
+      var(--toast-offset-y) * -1 - var(--toast-index) * var(--toast-gap) +
+        var(--toast-swipe-movement-y)
+    );
+
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-end: 0;
+    z-index: calc(1000 - var(--toast-index));
+    box-sizing: border-box;
+    width: 100%;
+    height: var(--toast-clamped-height);
+    border-radius: calc(var(--shape-popup) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--accent-text);
+    box-shadow: var(--shadow-4);
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+    transform-origin: bottom center;
+    transform: translateX(var(--toast-swipe-movement-x))
+      translateY(
+        calc(
+          var(--toast-swipe-movement-y) - var(--toast-index) *
+            var(--toast-peek) - var(--toast-shrink) *
+            var(--toast-clamped-height)
+        )
+      )
+      scale(var(--toast-scale));
+    transition-property: transform, opacity, height;
+    transition-duration:
+      var(--duration-3), var(--duration-3), var(--duration-2);
+    transition-timing-function: var(--ease-enter);
+  }
+
+  /* Keeps the stack expanded while the pointer crosses the gap below a toast. */
+  .toast::after {
+    content: "";
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline: 0;
+    height: calc(var(--toast-gap) + 1px);
+  }
+
+  .toast[data-expanded] {
+    height: var(--toast-height);
+    transform: translateX(var(--toast-swipe-movement-x))
+      translateY(var(--toast-expanded-y));
+  }
+
+  .toast[data-starting-style],
+  .toast[data-ending-style] {
+    opacity: 0;
+  }
+
+  .toast[data-ending-style] {
+    transition-timing-function: var(--ease-exit);
+  }
+
+  .toast[data-limited] {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .toast[data-starting-style],
+    .toast[data-ending-style] {
+      transform: translateY(var(--space-4));
+    }
+
+    .toast[data-ending-style][data-swipe-direction="up"] {
+      transform: translateY(calc(var(--toast-swipe-movement-y) - 150%));
+    }
+
+    .toast[data-ending-style][data-swipe-direction="down"] {
+      transform: translateY(calc(var(--toast-swipe-movement-y) + 150%));
+    }
+
+    .toast[data-ending-style][data-swipe-direction="left"] {
+      transform: translateX(calc(var(--toast-swipe-movement-x) - 150%))
+        translateY(var(--toast-expanded-y));
+    }
+
+    .toast[data-ending-style][data-swipe-direction="right"] {
+      transform: translateX(calc(var(--toast-swipe-movement-x) + 150%))
+        translateY(var(--toast-expanded-y));
+    }
+  }
+
+  .toast[data-swiping] {
+    transition-duration: 0s, var(--duration-3), var(--duration-2);
+  }
+
+  .toast:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast {
+      transition-property: opacity;
+    }
+  }
+
+  /* Everything aligns to the first line, centered on the 24px buttons. */
+  .toast-content {
+    --toast-line-inset: calc(
+      (var(--control-height-3) - var(--line-height-2)) / 2
+    );
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    height: 100%;
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+    overflow: hidden;
+    transition: opacity var(--duration-3) var(--ease-standard);
+  }
+
+  .toast-content[data-behind] {
+    opacity: 0;
+  }
+
+  .toast-content[data-expanded] {
+    opacity: 1;
+  }
+
+  .toast-icon {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    height: var(--control-height-3);
+  }
+
+  .toast-icon svg {
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+  }
+
+  .toast-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    padding-block: var(--toast-line-inset);
+    overflow-wrap: anywhere;
+  }
+
+  .toast-title {
+    margin: 0;
+    color: var(--accent-12);
+    font-size: inherit;
+    line-height: inherit;
+    font-weight: var(--font-weight-medium);
+  }
+
+  .toast-description {
+    margin: 0;
+  }
+
+  /* A description alone is the message. */
+  .toast-description:only-child {
+    color: var(--accent-12);
+  }
+
+  .toast-action,
+  .toast-close {
+    flex-shrink: 0;
+  }
+
+  .toast-close {
+    margin-inline-start: var(--space-1);
+  }
+
+  /* ---- variants ---- */
+
+  .toast[data-variant="surface"] {
+    background-image: linear-gradient(
+      var(--accent-surface),
+      var(--accent-surface)
+    );
+    box-shadow:
+      inset 0 0 0 1px var(--accent-a7),
+      var(--shadow-4);
+  }
+
+  .toast[data-variant="soft"] {
+    background-image: linear-gradient(var(--accent-a3), var(--accent-a3));
+  }
+
+  .toast[data-variant="solid"] {
+    background-color: var(--accent-solid);
+    color: var(--accent-contrast);
+  }
+
+  .toast[data-variant="solid"] :is(.toast-title, .toast-description) {
+    color: inherit;
+  }
+
+  .toast[data-high-contrast] {
+    color: var(--accent-12);
+  }
+
+  .toast[data-variant="solid"][data-high-contrast] {
+    background-color: var(--accent-12);
+    color: var(--accent-1);
+  }
+}

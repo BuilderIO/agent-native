@@ -13,7 +13,7 @@ publique en HTTPS.
 
 Ce guide présente le déploiement d'une application autonome depuis le début.
 Vous allez créer l'application, lui fournir une base de données de production et
-un secret d'authentification, créer un site Netlify pour elle, préparer la base
+deux secrets, créer un site Netlify pour elle, préparer la base
 de données, puis la construire et la déployer.
 
 <Callout tone="info">
@@ -25,6 +25,10 @@ Node.js `22.22+` est requis.
 Vous avez aussi besoin d'un compte Netlify. Exécutez les commandes de ce guide
 sur votre propre ordinateur. La Netlify CLI envoie le build final vers Netlify à
 votre place.
+
+Les commandes sont écrites pour un shell bash, comme le Terminal sous macOS ou
+Linux. Sous Windows, exécutez-les dans Git Bash ou WSL plutôt que dans
+PowerShell.
 
 ## Étape 1 : Créer l'application {#step-1-create-the-app}
 
@@ -63,6 +67,7 @@ d'environnement :
 | -------------------- | ------- | -------------------------------------------------------------------- |
 | `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
 | `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `A2A_SECRET`         | Oui     | Signe les appels planifiés qui lancent les automatisations           |
 | `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
 
 Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
@@ -107,6 +112,19 @@ export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 Conservez la valeur générée en lieu sûr, par exemple dans un gestionnaire de
 mots de passe. Utilisez la même valeur à chaque déploiement.
 
+### Secret des automatisations {#automation-secret}
+
+Netlify exécute chaque minute une fonction planifiée qui lance les
+automatisations arrivées à échéance et le travail en arrière-plan de
+l'application. Elle signe chaque appel avec `A2A_SECRET`, et l'application
+rejette tout appel qu'elle ne peut pas vérifier : sans ce secret, aucune
+automatisation ne s'exécute. Générez-le une fois, conservez-le avec le secret
+d'authentification et gardez-le lui aussi stable :
+
+```bash
+export A2A_SECRET="$(openssl rand -hex 32)"
+```
+
 ### URL publique {#public-url}
 
 Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
@@ -142,12 +160,14 @@ l'ensemble de Netlify. Choisissez donc un autre nom si `my-app` est déjà pris.
 Vous n'avez pas besoin d'un dépôt GitHub, car vous déployez l'application depuis
 votre ordinateur à l'étape 5.
 
-Enregistrez les deux variables requises dans l'environnement du site :
+Enregistrez les trois variables requises dans l'environnement du site :
 
 ```bash
 npx netlify env:set DATABASE_URL "$DATABASE_URL"
 
 npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+
+npx netlify env:set A2A_SECRET "$A2A_SECRET"
 ```
 
 Chaque commande lit la valeur que vous avez exportée à l'étape 2 et l'enregistre
@@ -155,6 +175,14 @@ dans Netlify. Vous n'avez donc pas à coller les secrets à la main. Si vous ave
 défini `BETTER_AUTH_URL`, enregistrez-la de la même façon. Vous pouvez aussi
 consulter et modifier ces valeurs plus tard dans les paramètres du site sur le
 tableau de bord Netlify.
+
+Vérifiez ensuite que le site est public. Certaines équipes Netlify créent les
+nouveaux sites en privé, si bien que seuls les membres de l'équipe connectés
+peuvent les ouvrir. La fonction planifiée joint aussi l'application par son
+adresse publique : sur un site privé, chaque appel d'automatisation est refusé.
+Dans le tableau de bord Netlify, ouvrez le site et allez dans **Project
+configuration** > **General** > **Visitor access**. Si le site est privé,
+rendez-le public.
 
 ## Étape 4 : Migrer {#step-4-migrate}
 
@@ -186,12 +214,14 @@ ses fonctions serveur dans le dossier `.netlify/functions-internal`.
 Envoyez le build et publiez-le :
 
 ```bash
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 `--dir` et `--functions` indiquent à la CLI où trouver les fichiers statiques et
 les fonctions que vous venez de construire. `--prod` les publie à votre adresse
 de production au lieu d'un brouillon de prévisualisation.
+
+`--no-build` envoie ce build tel quel au lieu de le reconstruire.
 
 Lorsque la commande se termine, elle affiche l'adresse de production de
 l'application. Ouvrez-la et créez le premier compte.
@@ -206,11 +236,39 @@ pnpm migrate:production
 
 NITRO_PRESET=netlify pnpm build
 
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 Le lien du site et les variables enregistrées restent en place. Vous n'avez
 donc pas besoin de répéter l'étape 3.
+
+## Automatisations et base de données inactive {#netlify-idle-sweep}
+
+Le build ajoute une fonction planifiée, `agent-native-recurring-jobs`, qui
+s'exécute chaque minute. Tant que des personnes utilisent l'application, chaque
+exécution vérifie dans la base de données les automatisations arrivées à
+échéance et le reste du travail en arrière-plan. Dès que personne n'a ouvert
+l'application depuis dix minutes et que rien n'est en cours, la fonction arrête
+de vérifier jusqu'à la prochaine automatisation due, ou pendant une heure au
+plus. Elle garde ce calendrier dans Netlify Blobs plutôt que dans la base de
+données : une application calme ne fait donc aucune requête à la base, et une
+base de données scale-to-zero, comme l'offre gratuite de Neon, peut se mettre en
+pause. La première requête après une période calme remet les vérifications à
+chaque minute.
+
+Une partie du travail en arrière-plan n'a pas d'échéance que la fonction peut
+voir, comme la recherche de changements dans les comptes connectés : tant que
+l'application est inactive, ce travail ne s'exécute qu'une fois par heure.
+Définissez `AGENT_NATIVE_IDLE_SWEEP_MAX_MINUTES` pour changer l'attente la plus
+longue, de `0` à `1440` minutes. `0` vérifie chaque minute, ce qui garde la base
+de données éveillée. L'application en cours d'exécution lit cette variable :
+enregistrez-la donc dans l'environnement du site avec `npx netlify env:set`,
+puis redéployez. Le maintien à chaud, ci-dessous, garde la base de données
+éveillée quel que soit ce réglage.
+
+Si vous activez `AGENT_INTEGRATION_DURABLE_DISPATCH`, sa fonction de reprise
+interroge la base de données chaque minute, et la base de données reste donc
+éveillée.
 
 ## Maintien à chaud et bases de données scale-to-zero {#netlify-keep-warm}
 
@@ -239,6 +297,13 @@ d'arrière-plan ne s'appliquent qu'après l'activation de
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Désactive le maintien à chaud même lorsque `AGENT_NATIVE_ENABLE_KEEP_WARM` est défini. Conservé pour la compatibilité avec les anciennes configurations.                                                                                                                            |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Modifie la fréquence du réchauffement, sous la forme d'une expression cron à 5 champs comme `*/5 * * * *`. La valeur par défaut est `* * * * *`, soit chaque minute. Une valeur qui n'est pas une expression cron valide **fait échouer le build**.                                 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Ignore le réchauffement de la fonction d'arrière-plan et continue de réchauffer la fonction serveur. Réchauffer le serveur représente une seule requête. Réchauffer la fonction d'arrière-plan démarre un nouveau conteneur qui vérifie de nouveau le schéma de la base de données. |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | Workspaces multi-apps uniquement : nombre d'instances serveur que chaque app garde chaudes, de 1 à 50. La valeur par défaut est `1`. Une valeur hors de cette plage **fait échouer le build**.                                                                                      |
+
+### Workspaces multi-apps {#netlify-workspace-keep-warm}
+
+Un déploiement de workspace lit les mêmes variables. Quand keep-warm est activé, il émet une fonction planifiée, `agent-native-workspace-keep-warm`, qui appelle l'endpoint `/<app>/_agent-native/health` de chaque app selon le planning.
+
+Une instance de fonction Netlify traite une requête à la fois, et l'ouverture d'une app envoie une rafale de requêtes parallèles du framework. Chaque requête qui ne trouve pas d'instance libre en démarre une à froid, donc une seule instance chaude aide peu au chargement de la page. Définissez `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` pour envoyer autant de requêtes de santé simultanées par app, ce qui garde autant d'instances chaudes. Chaque exécution envoie `apps x concurrence` requêtes : associez une valeur élevée à un planning plus lent comme `*/3 * * * *`.
 
 Si votre base de données utilise une offre gratuite ou limitée d'une autre
 manière, laissez `AGENT_NATIVE_ENABLE_KEEP_WARM` non défini. Si vous l'activez,

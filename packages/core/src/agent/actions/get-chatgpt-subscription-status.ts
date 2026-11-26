@@ -8,6 +8,7 @@ export default defineAction({
     "Return the current user's ChatGPT subscription support, selected registration, and saved account registrations.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (_args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

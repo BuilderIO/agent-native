@@ -4,6 +4,7 @@ import {
   applyHistoryToDocumentBody,
   isHistoryRestoreReady,
   isSavedContentLocalEcho,
+  newerMergedLocalSave,
   resolveAcknowledgedDocumentSnapshot,
 } from "./DocumentEditor";
 
@@ -14,6 +15,25 @@ describe("document editor history", () => {
       isSavedContentLocalEcho("Alpha typed", "Alpha typed\n\nAgent edit"),
     ).toBe(false);
     expect(isSavedContentLocalEcho(undefined, "Alpha")).toBe(false);
+  });
+
+  it("keeps the merged save from the later request when its answer arrives first", () => {
+    const earlier = {
+      sent: "Alpha typed",
+      value: "Alpha typed\n\nAgent edit",
+      revision: "2:earlier",
+      sequence: 4,
+    };
+    const later = {
+      sent: "Alpha typed more",
+      value: "Alpha typed more\n\nAgent edit",
+      revision: "3:later",
+      sequence: 5,
+    };
+
+    expect(newerMergedLocalSave(null, earlier)).toBe(earlier);
+    expect(newerMergedLocalSave(earlier, later)).toBe(later);
+    expect(newerMergedLocalSave(later, earlier)).toBe(later);
   });
 
   it("requires the active page's rich-text controller before preparing an ordinary Page restore", () => {

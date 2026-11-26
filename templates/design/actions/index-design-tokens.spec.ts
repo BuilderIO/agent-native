@@ -1,18 +1,3 @@
-/**
- * Tests for index-design-tokens token-leakage fix.
- *
- * Issue: the action checked access on the design but then read a linked
- * design system's tokens without checking design-system access — bypassing the
- * design-system share boundary.
- *
- * Fix: when a design has a designSystemId, resolve access to that design
- * system before returning its tokens. If the caller has no access to the
- * design system, its tokens must be omitted.
- *
- * These tests verify the shape of the action (readOnly GET) and the
- * observable behaviour via mocking the access layer.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
@@ -21,10 +6,7 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
 }));
 
-const mockSelect = vi.fn();
 const mockFrom = vi.fn();
-const mockWhere = vi.fn();
-const mockLimit = vi.fn();
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
@@ -36,7 +18,6 @@ vi.mock("../server/db/index.js", () => ({
       filename: "filename",
       content: "content",
     },
-    designSystems: { id: "id", data: "data" },
   },
 }));
 
@@ -53,83 +34,16 @@ describe("index-design-tokens action metadata", () => {
   });
 });
 
-describe("index-design-tokens design-system access boundary", () => {
+describe("index-design-tokens", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-  it("skips design-system tokens when the caller has no design-system access", async () => {
-    const fakeDesign = {
-      id: "design_1",
-      data: JSON.stringify({}),
-      designSystemId: "ds_1",
-    };
-
-    mockResolveAccess.mockImplementation(
-      (resourceType: string, _id: string) => {
-        if (resourceType === "design")
-          return Promise.resolve({ role: "viewer", resource: fakeDesign });
-        if (resourceType === "design-system") return Promise.resolve(null);
-        return Promise.resolve(null);
-      },
-    );
-
-    mockFrom.mockReturnValue({
-      where: () => Promise.resolve([]),
-    });
-
-    const result = await action.run({ designId: "design_1" });
-
-    expect(result.tokens).toEqual([]);
-    expect(result.groups).toEqual([]);
-    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
-    expect(mockResolveAccess).toHaveBeenCalledWith("design-system", "ds_1");
-  });
-
-  it("includes design-system tokens when the caller HAS design-system access", async () => {
-    const dsData = JSON.stringify({
-      colors: { primary: "#ff0000" },
-    });
-    const fakeDesign = {
-      id: "design_1",
-      data: JSON.stringify({}),
-      designSystemId: "ds_1",
-    };
-    const fakeDs = { data: dsData };
-
-    mockResolveAccess.mockImplementation(
-      (resourceType: string, _id: string) => {
-        if (resourceType === "design")
-          return Promise.resolve({ role: "viewer", resource: fakeDesign });
-        if (resourceType === "design-system")
-          return Promise.resolve({ role: "viewer", resource: {} });
-        return Promise.resolve(null);
-      },
-    );
-
-    let callCount = 0;
-    mockFrom.mockImplementation(() => ({
-      where: (_: unknown) => {
-        callCount++;
-        if (callCount === 1) return Promise.resolve([]);
-        return { limit: () => Promise.resolve([fakeDs]) };
-      },
-    }));
-
-    const result = await action.run({ designId: "design_1" });
-
-    const colorToken = result.tokens.find(
-      (t: { cssVar: string }) => t.cssVar === "--color-primary",
-    );
-    expect(colorToken).toBeDefined();
-    expect(colorToken?.value).toBe("#ff0000");
-  });
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("classifies text-size dimensions as font sizes rather than colors", async () => {
     const fakeDesign = {
       id: "design_1",
       data: JSON.stringify({}),
-      designSystemId: null,
     };
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
@@ -155,50 +69,6 @@ describe("index-design-tokens design-system access boundary", () => {
     ]);
   });
 
-  it("skips malformed design-system token values without failing valid tokens", async () => {
-    const dsData = JSON.stringify({
-      colors: {
-        primary: { hue: 220 },
-        secondary: "#00ff00",
-      },
-      borders: { radius: ["8px"] },
-      spacing: { elementGap: { value: "1rem" } },
-    });
-    const fakeDesign = {
-      id: "design_1",
-      data: JSON.stringify({}),
-      designSystemId: "ds_1",
-    };
-
-    mockResolveAccess.mockImplementation(
-      (resourceType: string, _id: string) => {
-        if (resourceType === "design")
-          return Promise.resolve({ role: "viewer", resource: fakeDesign });
-        if (resourceType === "design-system")
-          return Promise.resolve({ role: "viewer", resource: {} });
-        return Promise.resolve(null);
-      },
-    );
-
-    let callCount = 0;
-    mockFrom.mockImplementation(() => ({
-      where: (_unknown: unknown) => {
-        callCount++;
-        if (callCount === 1) return Promise.resolve([]);
-        return { limit: () => Promise.resolve([{ data: dsData }]) };
-      },
-    }));
-
-    const result = await action.run({ designId: "design_1" });
-
-    expect(result.tokens).toEqual([
-      expect.objectContaining({
-        cssVar: "--color-secondary",
-        value: "#00ff00",
-      }),
-    ]);
-  });
-
   it("includes raw CSS vars persisted in tweakSelections", async () => {
     const glow = "0 0 24px rgba(14, 165, 233, 0.4)";
     const fakeDesign = {
@@ -208,7 +78,6 @@ describe("index-design-tokens design-system access boundary", () => {
           "--shadow-glow": glow,
         },
       }),
-      designSystemId: null,
     };
 
     mockResolveAccess.mockResolvedValue({
@@ -241,7 +110,6 @@ describe("index-design-tokens design-system access boundary", () => {
       data: JSON.stringify({
         tweakSelections: { "--color-legacy-invalid": "#GGGGGG" },
       }),
-      designSystemId: null,
     };
 
     mockResolveAccess.mockResolvedValue({
@@ -284,7 +152,6 @@ describe("index-design-tokens design-system access boundary", () => {
           "--legacy-unknown": "not-a-type",
         },
       }),
-      designSystemId: null,
     };
 
     mockResolveAccess.mockResolvedValue({
@@ -321,7 +188,6 @@ describe("index-design-tokens design-system access boundary", () => {
           "--color-accent": "design.md",
         },
       }),
-      designSystemId: null,
     };
 
     mockResolveAccess.mockResolvedValue({
@@ -349,7 +215,6 @@ describe("index-design-tokens design-system access boundary", () => {
     const fakeDesign = {
       id: "design_1",
       data: JSON.stringify({}),
-      designSystemId: null,
     };
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
@@ -384,7 +249,6 @@ describe("index-design-tokens design-system access boundary", () => {
     const fakeDesign = {
       id: "design_1",
       data: JSON.stringify({}),
-      designSystemId: null,
     };
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
@@ -413,5 +277,46 @@ describe("index-design-tokens design-system access boundary", () => {
       sourceValues: { "index.html": "8px", "task-details.html": "12px" },
       value: "8px",
     });
+  });
+});
+
+describe("index-design-tokens compact", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function runWith(compact?: boolean) {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { id: "design_1", data: JSON.stringify({}) },
+    });
+    mockFrom.mockReturnValue({
+      where: () =>
+        Promise.resolve([
+          { filename: "a.html", content: ":root { --brand: #111111; }" },
+          { filename: "b.html", content: ":root { --brand: #222222; }" },
+        ]),
+    });
+    return action.run({ designId: "design_1", compact });
+  }
+
+  it("lists every contributing file by default", async () => {
+    const result = await runWith();
+
+    expect(result.tokens[0]).toMatchObject({
+      cssVar: "--brand",
+      sources: ["a.html", "b.html"],
+      sourceValues: { "a.html": "#111111", "b.html": "#222222" },
+    });
+  });
+
+  it("leaves out the per-file lists but keeps the token and its groups", async () => {
+    const result = await runWith(true);
+
+    expect(result.tokens[0]).not.toHaveProperty("sources");
+    expect(result.tokens[0]).not.toHaveProperty("sourceValues");
+    expect(result.tokens[0]).toMatchObject({ cssVar: "--brand" });
+    expect(result.tokenCount).toBe(1);
+    expect(result.groups.flatMap((group) => group.tokens)).toHaveLength(1);
   });
 });

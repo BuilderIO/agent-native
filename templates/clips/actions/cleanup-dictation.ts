@@ -19,6 +19,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Dictation id"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     await assertAccess("dictation", args.id, "editor");
     const db = getDb();

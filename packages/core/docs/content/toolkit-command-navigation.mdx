@@ -48,6 +48,10 @@ const settingsUrl = buildSettingsRoute("integrations", "builder");
 const documentUrl = buildResourceRoute("documents", documentId);
 ```
 
+`useCommandMenuShortcut()` opens the menu on Cmd/Ctrl+K. A field that uses
+the shortcut itself, such as the comment box's link, sits inside an element
+with `data-command-menu-shortcut="own"`, and the menu leaves the key to it.
+
 Action code uses the server-safe kit:
 
 ```ts

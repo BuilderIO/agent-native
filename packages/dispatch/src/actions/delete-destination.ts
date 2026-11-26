@@ -5,6 +5,7 @@ import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { deleteDestination } from "../server/lib/dispatch-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description: "Delete a saved dispatch destination.",
   authorize: authorizeDispatchAdmin,
   schema: z.object({

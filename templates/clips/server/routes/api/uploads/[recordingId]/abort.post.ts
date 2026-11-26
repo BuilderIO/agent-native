@@ -19,10 +19,12 @@ import { readUploadPhase } from "../../../../lib/final-chunk-claim.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
+  normalizeRecorderStage,
   normalizeRecordingFailureCode,
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
 import { deleteStoredMediaUrl } from "../../../../lib/recording-media-cleanup.js";
+import { discardTrackUploads } from "../../../../lib/recording-tracks.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -118,6 +120,7 @@ export async function handleAbortRecordingUpload(
     httpStatus?: unknown;
     attemptId?: unknown;
     uploadGenerationId?: unknown;
+    recorderStage?: unknown;
   } | null;
   const reasonText =
     typeof body?.reason === "string" ? body.reason.trim().slice(0, 1000) : "";
@@ -564,6 +567,11 @@ export async function handleAbortRecordingUpload(
         failureCode: transitionFailureCode,
         failureStage,
         httpStatus,
+        // The stage describes this request, so it only goes with its code.
+        recorderStage:
+          transitionFailureCode === failureCode
+            ? normalizeRecorderStage(body?.recorderStage)
+            : null,
       });
     }
     const abortedGenerationId =
@@ -637,6 +645,24 @@ export async function handleAbortRecordingUpload(
         await deleteResumableSession(recordingId, abortedGenerationId).catch(
           () => {},
         );
+      }
+      // The recording's separate track uploads go with it. One storage
+      // didn't confirm keeps its session, and the reservation stays with it.
+      let tracksLeft: string[];
+      try {
+        tracksLeft = await discardTrackUploads({
+          id: recordingId,
+          ownerEmail,
+          storageMode: existing.storageMode,
+        });
+      } catch (err) {
+        tracksLeft = [
+          `track uploads of ${recordingId} (${err instanceof Error ? err.message : String(err)})`,
+        ];
+      }
+      if (tracksLeft.length) {
+        console.warn(`[abort] not cancelled: ${tracksLeft.join(", ")}`);
+        sessionCleanupConfirmed = false;
       }
     }
     if (existing.storageMode === "hosted" && !preserveRecoveryState) {

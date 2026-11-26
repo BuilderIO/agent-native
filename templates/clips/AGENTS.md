@@ -22,7 +22,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 ## Application state
 
-- `navigation` tracks library, shared-with-me, recording, share, meeting, dictation, settings, and transcript context. A recording includes focused `panel` and requested `atMs`; `navigate` opens that viewer context.
+- `navigation` tracks library, shared, recording (`panel`, `atMs`), share, meeting, dictation, settings, and `?q=` search. Use `navigate` (`view: "library"`, `search`) for find/filter asks.
 - `selection` holds selected recording ids in selection mode. `recording-setup.import` holds the Loom-import UI state, never the pasted URL. `record-intent` is a UI-consumed capture request and is then cleared.
 
 ## Key actions

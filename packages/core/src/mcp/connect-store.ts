@@ -648,3 +648,21 @@ function numOrNull(v: unknown): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+
+/** True when `jti` names a token the device flow issued to `ownerEmail`. */
+export async function isDeviceConnectToken(
+  jti: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT owner_email FROM mcp_device_codes WHERE token_jti = ? AND status = 'consumed' LIMIT 1`,
+    args: [jti],
+  });
+  if (rows.length === 0) return false;
+  if (typeof rows[0].owner_email !== "string")
+    throw new TypeError("Unreadable device-token owner");
+  return (
+    rows[0].owner_email.trim().toLowerCase() === ownerEmail.trim().toLowerCase()
+  );
+}

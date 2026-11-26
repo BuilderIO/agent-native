@@ -34,8 +34,8 @@ The list was a grid of tiles until 2026-08-14. That contradicted §2 of the ref 
 - **`meetings`** — title, scheduled/actual start+end, platform, joinUrl, recordingId, transcriptStatus, summaryMd, bulletsJson, actionItemsJson, source, ownableColumns.
 - **`meeting_participants`** — meetingId + email + name + isOrganizer + attendedAt.
 - **`meeting_action_items`** — meetingId, assigneeEmail, text, dueDate, completedAt.
-- **`calendar_accounts`** — provider, externalAccountId, secret refs, lastSyncedAt. (See onboarding-calendar plugin.)
-- **`calendar_events`** — compatibility snapshot for events that have been recorded or edited; the visible list reads Google Calendar live.
+- **`calendar_accounts`** — provider, externalAccountId, secret refs, lastSyncedAt, and `enabledCalendarIdsJson`: the calendars Clips reads in that Google account (NULL means only `primary`, the main calendar). (See onboarding-calendar plugin.)
+- **`calendar_events`** — compatibility snapshot for events that have been recorded or edited, with the `calendarId` they came from (NULL for the main calendar); the visible list reads Google Calendar live.
 - **`recordings`** — when a meeting is recorded, the resulting recording row carries `meeting_id` (non-null) so we keep a bidirectional link. See the `recording` skill for the inverse direction.
 
 ## Audio capture: mic + system, tagged
@@ -94,6 +94,8 @@ Desktop notes also check for web End meeting requests every five seconds while a
 | `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)            |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                 |
 | `list-calendar-accounts`  | What's connected                                                      |
+| `list-calendars`          | The calendars in each connected Google account and which are on (`enabled`). Callers who can't change an account see only the ones that are on |
+| `set-calendar-enabled`    | Turn one calendar on or off. Only the main calendar (`primary`) is on until changed; `list-meetings`, reminders and `sync-calendars` read every calendar that is on, keeping a meeting on several of them once. Turning one off drops its cached events that no meeting holds |
 | `sync-calendars`          | Compatibility refresh for `calendar_events`; not needed for the visible list |
 | `disconnect-calendar`     | Revoke + clear secret refs                                            |
 

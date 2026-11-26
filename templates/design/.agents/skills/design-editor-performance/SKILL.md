@@ -81,6 +81,8 @@ warm count are constants at the top of `MultiScreenCanvas.tsx`.
    editors) each carry their reason in the JSON; editor churn and frame times
    are reported only, because shared runners are too noisy for a fixed limit.
    When a change improves a gated number, lower its `max` in the same PR.
-3. **When the budget fails or a report comes in**, read
+3. **Frame times for pan, zoom, idle, load or drag**: `pnpm perf:canvas-bench`.
+   Use the `design-canvas-bench` skill to record and compare them.
+4. **When the budget fails or a report comes in**, read
    `references/measuring.md` for the local setup, the traps that faked results,
    and how to find what holds memory.

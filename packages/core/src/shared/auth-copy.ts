@@ -6,6 +6,25 @@ import {
 
 export const AUTH_SIGNUP_INVITE_ONLY_CODE = "INVITE_ONLY";
 
+/**
+ * The deployment admits only a fixed set of email domains and the signer used
+ * another one. Distinct from invite-only so the refusal can name the domains
+ * the workspace does admit instead of a generic "couldn't create your account".
+ */
+export const AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE = "SIGNUP_DOMAIN_NOT_ALLOWED";
+
+export function signupDomainNotAllowedMessage(
+  allowedEmailDomains: readonly string[],
+): string {
+  const domains = allowedEmailDomains
+    .map((domain) => domain.trim().toLowerCase())
+    .filter(Boolean)
+    .map((domain) => `@${domain}`);
+  if (domains.length === 0)
+    return "We couldn't create your account right now. Please try again.";
+  return `This workspace only admits ${domains.join(", ")} accounts. Sign in with one of those addresses.`;
+}
+
 export interface NativeAuthCopy {
   googleButton: string;
   ssoButton: string;
@@ -21,6 +40,7 @@ export interface NativeAuthCopy {
   email: string;
   emailPlaceholder: string;
   builderSignupDisclosure: string;
+  builderSignupNewAccountDisclosure: string;
   legalPrefix: string;
   legalTerms: string;
   legalConnector: string;
@@ -87,6 +107,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "You also create a Builder.io account and agree to Builder’s",
+    builderSignupNewAccountDisclosure:
+      "If you’re new, you also create a Builder.io account and agree to Builder’s",
     legalPrefix: "By signing up, you accept our",
     legalTerms: "Terms",
     legalConnector: "and",
@@ -134,6 +156,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure: "你还将创建 Builder.io 帐户，并同意 Builder 的",
+    builderSignupNewAccountDisclosure:
+      "如果你是新用户，你还将创建 Builder.io 帐户，并同意 Builder 的",
     legalPrefix: "注册即表示你接受我们的",
     legalTerms: "条款",
     legalConnector: "和",
@@ -179,6 +203,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure: "你也將建立 Builder.io 帳戶，並同意 Builder 的",
+    builderSignupNewAccountDisclosure:
+      "如果你是新使用者，你也將建立 Builder.io 帳戶，並同意 Builder 的",
     legalPrefix: "註冊即表示你接受我們的",
     legalTerms: "條款",
     legalConnector: "和",
@@ -225,6 +251,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "También creas una cuenta de Builder.io y aceptas sus",
+    builderSignupNewAccountDisclosure:
+      "Si eres nuevo, también creas una cuenta de Builder.io y aceptas sus",
     legalPrefix: "Al registrarte, aceptas nuestros",
     legalTerms: "Términos",
     legalConnector: "y",
@@ -272,6 +300,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "Vous créez aussi un compte Builder.io et acceptez ses",
+    builderSignupNewAccountDisclosure:
+      "Si vous êtes nouveau, vous créez aussi un compte Builder.io et acceptez ses",
     legalPrefix: "En vous inscrivant, vous acceptez nos",
     legalTerms: "Conditions",
     legalConnector: "et",
@@ -320,6 +350,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "Du erstellst auch ein Builder.io-Konto und akzeptierst Builders",
+    builderSignupNewAccountDisclosure:
+      "Wenn du neu bist, erstellst du auch ein Builder.io-Konto und akzeptierst Builders",
     legalPrefix: "Mit der Registrierung akzeptierst du unsere",
     legalTerms: "Bedingungen",
     legalConnector: "und",
@@ -368,6 +400,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "Builder.io アカウントも作成し、Builder の以下に同意します:",
+    builderSignupNewAccountDisclosure:
+      "初めての場合は、Builder.io アカウントも作成し、Builder の以下に同意します:",
     legalPrefix: "登録すると、以下に同意したものとみなされます:",
     legalTerms: "利用規約",
     legalConnector: "および",
@@ -416,6 +450,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "Builder.io 계정도 생성하고 Builder의 다음 사항에 동의합니다:",
+    builderSignupNewAccountDisclosure:
+      "처음 이용하는 경우 Builder.io 계정도 생성하고 Builder의 다음 사항에 동의합니다:",
     legalPrefix: "가입하면 다음에 동의하게 됩니다:",
     legalTerms: "약관",
     legalConnector: "및",
@@ -463,6 +499,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "Você também cria uma conta Builder.io e aceita seus",
+    builderSignupNewAccountDisclosure:
+      "Se você for novo, também cria uma conta Builder.io e aceita seus",
     legalPrefix: "Ao se cadastrar, você aceita nossos",
     legalTerms: "Termos",
     legalConnector: "e",
@@ -510,6 +548,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure:
       "आप Builder.io खाता भी बनाते हैं और Builder की निम्न नीतियों से सहमत हैं:",
+    builderSignupNewAccountDisclosure:
+      "यदि आप नए हैं, तो आप Builder.io खाता भी बनाते हैं और Builder की निम्न नीतियों से सहमत हैं:",
     legalPrefix: "साइन अप करके, आप हमारी",
     legalTerms: "शर्तें",
     legalConnector: "और",
@@ -556,6 +596,8 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",
     builderSignupDisclosure: "تنشئ أيضًا حساب Builder.io وتوافق على",
+    builderSignupNewAccountDisclosure:
+      "إذا كنت مستخدمًا جديدًا، فإنك تنشئ أيضًا حساب Builder.io وتوافق على",
     legalPrefix: "بالتسجيل، فإنك توافق على",
     legalTerms: "الشروط",
     legalConnector: "و",

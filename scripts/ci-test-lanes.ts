@@ -5,8 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  GIT_DIFF_MAX_BUFFER,
   isDocsPath,
   isInstructionPath,
+  isStandaloneE2eRunner,
   normalizeChangedPath,
 } from "./ci-change-scope.ts";
 import { pnpmCommand } from "./lib/pnpm-command.ts";
@@ -17,7 +19,6 @@ const LANES = Math.max(1, Number(process.env.LANES || 5));
 // Each lane pays ~100 s of checkout and install, so a shard smaller than this
 // spends more time on setup than it saves.
 const MIN_SHARD_FILES = 100;
-const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = {};
 const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = {};
 const MIN_PACKAGE_SHARD_FILES: Readonly<Record<string, number>> = {};
 
@@ -79,6 +80,58 @@ type PnpmWorkspace = {
   name?: unknown;
 };
 
+function readPackageShardMinimums(
+  raw: string | undefined,
+  packages: readonly Pkg[],
+  laneCount: number,
+): ReadonlyMap<string, number> | undefined {
+  if (raw === undefined) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("CI_MIN_PACKAGE_SHARDS must be valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("CI_MIN_PACKAGE_SHARDS must be a JSON object");
+  }
+  const minimums = new Map<string, number>();
+  for (const [name, count] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    if (
+      typeof count !== "number" ||
+      !Number.isSafeInteger(count) ||
+      !Number.isSafeInteger(laneCount) ||
+      count < 2 ||
+      count > laneCount
+    ) {
+      throw new Error(
+        `CI_MIN_PACKAGE_SHARDS for ${name} must be an integer from 2 to ${laneCount}`,
+      );
+    }
+    if (
+      name === CORE ||
+      !packages.some((pkg) => pkg.name === name && pkg.shardable)
+    ) {
+      throw new Error(
+        `CI_MIN_PACKAGE_SHARDS: ${name} must name a shardable non-Core test package`,
+      );
+    }
+    minimums.set(name, count);
+  }
+  return minimums;
+}
+
+/**
+ * Only a Vitest script forwards `--shard` to the runner. Appended arguments
+ * land on the last command of an `&&` chain, so a `pnpm <script> &&` prefix
+ * (Design's bridge codegen) still ends in Vitest.
+ */
+export function isShardableTestScript(script: string): boolean {
+  return /^(?:pnpm [\w:-]+ && )?vitest(?:[ \t][^&|;#\r\n]*)?$/.test(script);
+}
+
 function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
   const out: Pkg[] = [];
   const dirs: string[] = [];
@@ -111,8 +164,7 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
       throw new Error(`Duplicate workspace package name ${pj.name}`);
     }
     seen.add(pj.name);
-    // Only a bare Vitest script forwards `--shard` to the runner.
-    const shardable = /^vitest(\s|$)/.test(pj.scripts.test);
+    const shardable = isShardableTestScript(pj.scripts.test);
     out.push({ name: pj.name, dir, shardable });
   }
   return out;
@@ -222,6 +274,27 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
+const CLI_ENTRY_CORE_SPECS = [
+  "src/cli/create-tui.spec.ts",
+  "src/cli/deploy-build.spec.ts",
+  "src/cli/telemetry-routing.spec.ts",
+  "src/cli/typecheck-ancestor.spec.ts",
+  "src/cli/typecheck-command.spec.ts",
+  "src/cli/typecheck-path-permissions.spec.ts",
+] as const;
+
+export function cliEntryCoreSpecs(paths: readonly string[]): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      /^packages\/core\/(?:src|bin)\/.+\.[cm]?[jt]sx?$/u.test(normalized) &&
+      !TEST_FILE_RE.test(normalized)
+    );
+  })
+    ? CLI_ENTRY_CORE_SPECS
+    : [];
+}
+
 // These specs build every app's MCP catalog by running each template's real
 // agent-chat plugin, which reaches template code, framework tools, and tools
 // that workspace packages register through dynamic imports `vitest --changed`
@@ -229,7 +302,9 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
 // that cannot change a catalog. Do not narrow this to the directories known to
 // register tools: a missed directory skips the contract without any failure.
 const CATALOG_CONTRACT_CORE_SPECS = [
+  "src/action-conformance-inventory.spec.ts",
   "src/mcp/advertised-tool-annotations.spec.ts",
+  "src/mcp/agent-mcp-parity.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
   "src/mcp/hidden-inline-apps.spec.ts",
 ] as const;
@@ -261,11 +336,13 @@ const NON_CODE_ASSET_RE =
 
 export function catalogContractCoreSpecs(
   paths: readonly string[],
+  repositoryRoot = ROOT,
 ): readonly string[] {
   return paths.some((path) => {
     const normalized = normalizeChangedPath(path);
     return (
       /^(?:templates|packages)\//u.test(normalized) &&
+      !isStandaloneE2eRunner(normalized, repositoryRoot) &&
       !isDocsPath(normalized) &&
       !TEST_FILE_RE.test(normalized) &&
       !/\.d\.[cm]?ts$/u.test(normalized) &&
@@ -289,6 +366,13 @@ function readCoreFastTestFiles(since?: string): string[] {
     cwd: ROOT,
     encoding: "utf8",
     shell: pnpm.shell,
+    // CI's blobless checkout cannot fetch the blobs that vitest --changed's rename detection reads.
+    env: {
+      ...process.env,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "diff.renames",
+      GIT_CONFIG_VALUE_0: "false",
+    },
   });
   let result: unknown;
   try {
@@ -330,11 +414,14 @@ function readCoreFastTestFiles(since?: string): string[] {
   ];
 }
 
-function readChangedPaths(baseSha: string): string[] {
+export function readChangedPaths(
+  baseSha: string,
+  cwd = process.cwd(),
+): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "-z", `${baseSha}...HEAD`],
-    { encoding: "utf8" },
+    ["diff", "--name-only", "--find-renames=100%", "-z", `${baseSha}...HEAD`],
+    { encoding: "utf8", cwd, maxBuffer: GIT_DIFF_MAX_BUFFER },
   );
   return output.split("\0").filter(Boolean);
 }
@@ -385,14 +472,6 @@ function splitWeight(total: number, index: number, count: number): number {
   return Math.floor(total / count) + (index < remainder ? 1 : 0);
 }
 
-function partition(pkgs: Pkg[], laneCount: number, core?: Pkg): Lane[] {
-  return partitionWeighted(
-    weighPackages(pkgs),
-    laneCount,
-    core ? Math.max(1, countTestFiles(core.dir)) : null,
-  );
-}
-
 /**
  * Split each shardable package heavier than a fair lane share into Vitest
  * shards, so one large template no longer sets the floor for every lane.
@@ -401,21 +480,25 @@ export function splitLargePackages(
   pkgs: readonly WeightedPkg[],
   laneCount: number,
   coreFiles: number,
+  minimums?: ReadonlyMap<string, number>,
 ): LaneItem[] {
   const total = coreFiles + pkgs.reduce((sum, pkg) => sum + pkg.files, 0);
   const fairShare = Math.max(1, Math.ceil(total / laneCount));
   return pkgs.flatMap((pkg) => {
+    const minimum = minimums?.get(pkg.name) ?? 1;
+    const cap = Math.min(
+      MAX_PACKAGE_SHARDS[pkg.name] ?? laneCount,
+      Math.floor(
+        pkg.files / (MIN_PACKAGE_SHARD_FILES[pkg.name] ?? MIN_SHARD_FILES),
+      ),
+    );
+    if (minimum > 1 && (!pkg.shardable || cap < minimum)) {
+      throw new Error(
+        `CI_MIN_PACKAGE_SHARDS: ${pkg.name} cannot support ${minimum} shards`,
+      );
+    }
     const count = pkg.shardable
-      ? Math.min(
-          MAX_PACKAGE_SHARDS[pkg.name] ?? laneCount,
-          Math.max(
-            MIN_PACKAGE_SHARDS[pkg.name] ?? 1,
-            Math.ceil(pkg.files / fairShare),
-          ),
-          Math.floor(
-            pkg.files / (MIN_PACKAGE_SHARD_FILES[pkg.name] ?? MIN_SHARD_FILES),
-          ),
-        )
+      ? Math.min(cap, Math.max(minimum, Math.ceil(pkg.files / fairShare)))
       : 1;
     if (count < 2) return [{ name: pkg.name, files: pkg.files }];
     return Array.from({ length: count }, (_, index) => ({
@@ -437,15 +520,20 @@ export function partitionWeighted(
   pkgs: readonly WeightedPkg[],
   laneCount: number,
   coreFiles: number | null,
+  minimums?: ReadonlyMap<string, number>,
 ): Lane[] {
-  const sorted = splitLargePackages(pkgs, laneCount, coreFiles ?? 0).sort(
-    (a, b) => b.files - a.files,
-  );
+  const sorted = splitLargePackages(
+    pkgs,
+    laneCount,
+    coreFiles ?? 0,
+    minimums,
+  ).sort((a, b) => b.files - a.files);
   const maxSolo =
     coreFiles === null ? 0 : Math.min(laneCount - 1, sorted.length);
   let best: LaneBin[] | null = null;
   for (let solo = 0; solo <= maxSolo; solo++) {
-    const bins = planBins(sorted, laneCount, coreFiles, solo);
+    const bins = planBins(sorted, laneCount, coreFiles, solo, minimums);
+    if (!meetsPackageShardMinimums(bins, minimums)) continue;
     if (!best || largestBin(bins) < largestBin(best)) best = bins;
   }
   return toLanes(best!, "full");
@@ -457,13 +545,15 @@ export function partitionTargetedWeighted(
   coreFiles: number,
   coreMode: "changed" | "full",
   coreTestFiles: readonly string[] = [],
+  minimums?: ReadonlyMap<string, number>,
 ): Lane[] {
   if (coreMode === "changed" && coreFiles !== coreTestFiles.length) {
     throw new Error("Changed core test count does not match its file list");
   }
-  if (coreFiles === 0) return partitionWeighted(pkgs, laneCount, null);
+  if (coreFiles === 0)
+    return partitionWeighted(pkgs, laneCount, null, minimums);
 
-  const sorted = splitLargePackages(pkgs, laneCount, coreFiles).sort(
+  const sorted = splitLargePackages(pkgs, laneCount, coreFiles, minimums).sort(
     (a, b) => b.files - a.files,
   );
   const coreShardCount = Math.min(laneCount, coreFiles);
@@ -477,13 +567,7 @@ export function partitionTargetedWeighted(
     coreShard: index < coreShardCount ? `${index + 1}/${coreShardCount}` : "",
   }));
 
-  for (const item of sorted) {
-    const lightest = bins.reduce((best, bin) =>
-      bin.files < best.files ? bin : best,
-    );
-    lightest.items.push(item);
-    lightest.files += item.files;
-  }
+  for (const item of sorted) assignLightest(bins, item, minimums);
 
   return toLanes(bins, coreMode);
 }
@@ -492,6 +576,37 @@ interface LaneBin {
   items: LaneItem[];
   files: number;
   coreShard: string;
+}
+
+function assignLightest(
+  bins: LaneBin[],
+  item: LaneItem,
+  minimums?: ReadonlyMap<string, number>,
+): void {
+  const distinct =
+    item.shard && minimums?.has(item.name)
+      ? bins.filter((bin) =>
+          bin.items.every((placed) => placed.name !== item.name),
+        )
+      : bins;
+  const lightest = (distinct.length ? distinct : bins).reduce((best, bin) =>
+    bin.files < best.files ? bin : best,
+  );
+  lightest.items.push(item);
+  lightest.files += item.files;
+}
+
+function meetsPackageShardMinimums(
+  bins: LaneBin[],
+  minimums?: ReadonlyMap<string, number>,
+): boolean {
+  for (const [name, minimum] of minimums ?? []) {
+    const lanes = bins.filter((bin) =>
+      bin.items.some((item) => item.name === name && item.shard),
+    ).length;
+    if (lanes > 0 && lanes < minimum) return false;
+  }
+  return true;
 }
 
 function largestBin(bins: LaneBin[]): number {
@@ -503,6 +618,7 @@ function planBins(
   laneCount: number,
   coreFiles: number | null,
   soloCount: number,
+  minimums?: ReadonlyMap<string, number>,
 ): LaneBin[] {
   const shared = sorted.slice(soloCount);
   const n =
@@ -516,8 +632,7 @@ function planBins(
   }));
   for (const item of shared) {
     sharedBins.sort((a, b) => a.files - b.files);
-    sharedBins[0].items.push(item);
-    sharedBins[0].files += item.files;
+    assignLightest(sharedBins, item, minimums);
   }
   return [
     ...sorted
@@ -564,6 +679,7 @@ export function assertFullCoverage(
   lanes: Lane[],
   expected: ReadonlyArray<{ name: string }>,
   core?: unknown,
+  minimums?: ReadonlyMap<string, number>,
 ): void {
   const covered = new Set<string>();
   const packageShards = new Map<string, string[]>();
@@ -589,6 +705,17 @@ export function assertFullCoverage(
     .map((p) => p.name);
   if (missing.length > 0) {
     throw new Error(`Packages missing from all lanes: ${missing.join(", ")}`);
+  }
+  for (const [name, minimum] of minimums ?? []) {
+    if (!covered.has(name)) continue;
+    const distinctLanes = lanes.filter((lane) =>
+      lane.packageShards.some((shard) => shard.name === name),
+    ).length;
+    if (distinctLanes < minimum) {
+      throw new Error(
+        `CI_MIN_PACKAGE_SHARDS: ${name} must run on at least ${minimum} distinct lanes`,
+      );
+    }
   }
 
   if (
@@ -646,6 +773,11 @@ function main(): void {
   const filters = readTargetedFilters();
   const targeted = filters !== undefined;
   const all = discoverTestPackages(targeted);
+  const minimums = readPackageShardMinimums(
+    process.env.CI_MIN_PACKAGE_SHARDS,
+    all,
+    LANES,
+  );
   const selected = resolveTestPackages(all, filters);
   const core = all.find((p) => p.name === CORE);
   const rest = selected.filter((p) => p.name !== CORE);
@@ -669,6 +801,7 @@ function main(): void {
         ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
         ...(fullCore ? [] : catalogContractCoreSpecs(changedPaths)),
         ...(fullCore ? [] : toolSearchBenchmarkCoreSpecs(changedPaths)),
+        ...(fullCore ? [] : cliEntryCoreSpecs(changedPaths)),
       ]),
     ];
     coreFiles = coreTestFiles.length;
@@ -678,13 +811,24 @@ function main(): void {
       coreFiles,
       coreMode,
       fullCore ? [] : coreTestFiles,
+      minimums,
     );
   } else {
     coreFiles = core ? countTestFiles(core.dir) : 0;
     coreMode = core ? "full" : "";
-    lanes = partition(rest, LANES, targeted ? undefined : core);
+    lanes = partitionWeighted(
+      weighPackages(rest),
+      LANES,
+      core ? Math.max(1, coreFiles) : null,
+      minimums,
+    );
   }
-  assertFullCoverage(lanes, rest, core && coreFiles > 0 ? core : null);
+  assertFullCoverage(
+    lanes,
+    rest,
+    core && coreFiles > 0 ? core : null,
+    minimums,
+  );
 
   emit("matrix", JSON.stringify({ include: lanes }));
   emit("has_tests", String(lanes.length > 0));

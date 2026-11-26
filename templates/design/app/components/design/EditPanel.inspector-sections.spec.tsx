@@ -324,3 +324,66 @@ describe("bare-number values", () => {
     );
   });
 });
+
+describe("tweaks section", () => {
+  const WAVE_SPEED = {
+    id: "wave-speed",
+    label: "Wave speed",
+    type: "slider" as const,
+    min: 0,
+    max: 4,
+    step: 0.1,
+    defaultValue: 1,
+    cssVar: "--wave-speed",
+    scope: { screenId: "home", nodeId: "wave" },
+  };
+  const FILES = [
+    {
+      id: "home",
+      content:
+        '<section data-agent-native-node-id="hero"><canvas data-agent-native-node-id="wave"></canvas><h1 data-agent-native-node-id="layer-1">Hi</h1></section>',
+    },
+  ];
+
+  function renderWithTweaks(element: ElementInfo | null) {
+    act(() =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <EditPanel
+            selectedElement={element}
+            selectedScreenGeometry={{
+              id: "home",
+              title: "Home",
+              x: 0,
+              y: 0,
+              width: 800,
+              height: 600,
+            }}
+            fileId="home"
+            files={FILES}
+            tweaks={[WAVE_SPEED]}
+            tweakValues={{ "wave-speed": 2 }}
+            onTweakChange={vi.fn()}
+            viewMode="overview"
+            mode="edit"
+            onStyleChange={vi.fn()}
+            onStylesChange={vi.fn()}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+  }
+
+  it("lists the knobs of the selected screen's effect, already open", () => {
+    renderWithTweaks(null);
+    const tweaks = section("designEditor.tweaks");
+    expect(tweaks?.textContent).toContain("Wave speed");
+  });
+
+  it("shows the knobs on the effect's parent but not its sibling", () => {
+    renderWithTweaks(layer({ sourceId: "hero" }));
+    expect(section("designEditor.tweaks")).not.toBeNull();
+    renderWithTweaks(layer({ sourceId: "layer-1" }));
+    expect(section("designEditor.tweaks")).toBeNull();
+  });
+});

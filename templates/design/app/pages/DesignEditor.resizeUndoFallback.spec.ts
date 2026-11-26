@@ -6,6 +6,8 @@ import {
   type ContentHistoryChange,
 } from "./design-editor/history";
 
+// oracle-change: removed the BEFORE FIX case that asserted a simulated empty stack; the AFTER FIX case runs the real recovery
+
 const FILE_ID = "screen-1";
 const BEFORE_RESIZE_HTML =
   '<div id="box" style="position:absolute;left:10px;top:10px;width:100px;height:100px;"></div>';
@@ -17,19 +19,6 @@ function simulateYjsUndoManagerTornDown() {
 }
 
 describe("resize-drag undo — local fallback mirror (BUG-UNDO-RESIZE-STACK)", () => {
-  it("BEFORE FIX: a resize commit that never mirrors leaves nothing to recover once the Yjs stack is gone", () => {
-    let localContentUndoStack: ContentHistoryChange[] = [];
-
-    const um = simulateYjsUndoManagerTornDown();
-    expect(um.canUndo()).toBe(false);
-
-    const recoverableIndex = findLastContentHistoryChangeIndex(
-      localContentUndoStack,
-      FILE_ID,
-    );
-    expect(recoverableIndex).toBe(-1);
-  });
-
   it("AFTER FIX: commitVisualStyles' local mirror lets handleUndo recover the pre-resize content", () => {
     let localContentUndoStack: ContentHistoryChange[] = [];
 

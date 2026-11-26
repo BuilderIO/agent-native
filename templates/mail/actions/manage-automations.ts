@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -53,7 +53,7 @@ function actionsForAgentMode(
 }
 
 function ruleNameForMode(mode: AgentRuleMode, sentence: string): string {
-  const prefix = mode === "filter" ? "spam" : mode;
+  const prefix = mode === "filter" ? "spam" : mode === "tag" ? "label" : mode;
   return `AI ${prefix}: ${sentence.slice(0, 72)}`;
 }
 
@@ -229,6 +229,10 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
           },
         }
       : {}),
+    needsApproval: agentTool
+      ? (args, ctx) => isOutsideAgentCall(ctx) && args.action !== "list"
+      : false,
+    mcpTool: agentTool ? ("search" as const) : false,
     schema: z
       .object({ ...ruleFields, actions: z.unknown().optional() })
       .superRefine((args, ctx) => {

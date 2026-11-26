@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
+import { BROWSER_FIG_LIMITS } from "../../shared/fig-file-limits.js";
 import type { RenderedFigImport } from "../../shared/fig-to-frames.js";
 
 const mocks = vi.hoisted(() => ({
@@ -15,7 +15,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
   getBrowserTabId: () => "tab-1",
 }));
-vi.mock("../../server/lib/fig-file-decoder.js", async (importOriginal) => ({
+vi.mock("../../shared/fig-file-decoder.js", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   decodeFig: mocks.decodeFig,
 }));

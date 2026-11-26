@@ -400,6 +400,19 @@ describe("ownership history adapter", () => {
     ).toHaveLength(2);
   });
 
+  it("forwards opt-in edit grouping to both ownership history lists", async () => {
+    await render({ apiUrl: "/test-chat", collapseEdits: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const ownerships = new Set<string>();
+    for (const [urlValue] of fetchMock.mock.calls) {
+      const params = new URL(String(urlValue), "http://test.local")
+        .searchParams;
+      expect(params.get("collapseEdits")).toBe("1");
+      ownerships.add(params.get("ownership")!);
+    }
+    expect(ownerships).toEqual(new Set(["mine", "shared"]));
+  });
+
   it("forwards two ownership queries before independent pagination and preserves attribution", async () => {
     mine = [row("mine-org", { visibility: "org" }), row("mine-second")];
     shared = [

@@ -36,6 +36,7 @@ on:
       - "packages/agentkit/**"
       - "packages/core/**"
       - "packages/creative-context/**"
+      - "packages/design-system/**"
       - "packages/dispatch/**"
       - "packages/otel/**"
       - "packages/pinpoint/**"
@@ -188,6 +189,7 @@ jobs:
             packages/agentkit/**
             packages/core/**
             packages/creative-context/**
+            packages/design-system/**
             packages/dispatch/**
             packages/otel/**
             packages/pinpoint/**
@@ -559,6 +561,11 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
+          # A stable publish outlasts an app token (one hour) and pushes its
+          # tags at the very end. Persisting the job-start token would make
+          # that push fail, so a publish keeps nothing and authenticates on
+          # its own below.
+          persist-credentials: ${{ github.event_name != 'push' }}
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -621,6 +628,7 @@ jobs:
                 . == "@agent-native/core" or
                 . == "@agent-native/core-corpus" or
                 . == "@agent-native/creative-context" or
+                . == "@agent-native/design-system" or
                 . == "@agent-native/dispatch" or
                 . == "@agent-native/otel" or
                 . == "@agent-native/pinpoint" or
@@ -645,6 +653,7 @@ jobs:
           --filter '@agent-native/core...'
           --filter '@agent-native/core-corpus...'
           --filter '@agent-native/creative-context...'
+          --filter '@agent-native/design-system...'
           --filter '@agent-native/dispatch...'
           --filter '@agent-native/otel...'
           --filter '@agent-native/pinpoint...'
@@ -663,15 +672,35 @@ jobs:
           title: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
           commit: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # A push runs the publish, and its tag push lands after the app
+          # token above has expired, so it uses the job's own token, which
+          # lasts the whole job. No workflow reacts to a tag push. A dispatch
+          # only opens the release PR, which needs the app token so the PR's
+          # checks run.
+          GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || steps.app-token.outputs.token }}
           NPM_CONFIG_PROVENANCE: "true"
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Generate fresh app token for the post-publish push
+        id: app-token-post-publish
+        if: ${{ github.event_name == 'push' && steps.changesets.outcome == 'success' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
       - name: Consume concurrent public-package changesets
         id: consume-stable-changesets
         if: ${{ github.event_name == 'push' && steps.changesets.outcome == 'success' }}
+        env:
+          POST_PUBLISH_TOKEN: ${{ steps.app-token-post-publish.outputs.token }}
         run: |
           set -euo pipefail
+          # The checkout kept no credential; use the app token minted after
+          # the publish, as the job-start token has expired by now.
+          git config --local http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$POST_PUBLISH_TOKEN" | base64 | tr -d '\n')"
+          trap 'git config --local --unset-all http.https://github.com/.extraheader || true' EXIT
           hold="$RUNNER_TEMP/agent-native-pending-changesets"
           eligible="$hold/eligible.txt"
 

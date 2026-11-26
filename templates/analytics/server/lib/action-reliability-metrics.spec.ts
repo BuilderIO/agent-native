@@ -1,10 +1,11 @@
 import { createRequire } from "node:module";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSql } from "./first-party-analytics.js";
 import { buildPanel } from "./first-party-metric-catalog";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -66,7 +67,11 @@ const FILTERS = { timeRange: "", emailFilter: "", appFilter: "" };
 describe("action reliability & latency catalog metrics", () => {
   let client: PGliteClient;
 
-  afterEach(async () => {
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
     await client?.close();
   });
 
@@ -95,7 +100,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("excludes cancelled from both sides of the weighted success rate", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -159,7 +164,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("reports a 0 rate, not NULL, for an app-day with only failures", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -194,7 +199,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("counts distinct sessions and the share with at least one failure", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -235,7 +240,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("infers the pre-sample_weight fast-success weight and leaves explicit weights alone", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -323,7 +328,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("dimensions by read vs mutation, auth_state, and deployment_env", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -384,7 +389,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("computes a sample_weight-bucketed cumulative p50/p90 over successful calls only", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -431,7 +436,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("classifies a hidden-tab timeout as suspended, excluded from the rate like cancelled -- but a visible timeout still counts as a failure", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -495,7 +500,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("splits action-success-rate-over-time by deployment_env instead of mixing beta into production", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -548,7 +553,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("computes action-latency-{p50,p90}-over-time per date/app/deployment_env, excluding page_hidden rows", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -612,7 +617,7 @@ describe("action reliability & latency catalog metrics", () => {
   });
 
   it("leaves a no-traffic day/series blank (NULL) instead of a fabricated 0% or 0ms", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const rows = (
       (await client.query(

@@ -1,13 +1,8 @@
-import { defineAction } from "@agent-native/core/action";
-import { appStateGetMany } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { defineAction, fail } from "@agent-native/core/action";
+import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
-const PROVIDERS = ["apollo", "hubspot", "gong", "pylon"] as const;
-
-function hasConfiguredKey(value: Record<string, unknown> | null): boolean {
-  return typeof value?.apiKey === "string" && value.apiKey.trim().length > 0;
-}
+import { readIntegrationStatuses } from "../server/lib/integration-keys.js";
 
 export default defineAction({
   description:
@@ -23,14 +18,13 @@ export default defineAction({
   readOnly: true,
   agentTool: false,
   run: async () => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const states = await appStateGetMany(ownerEmail, PROVIDERS);
-    return {
-      apollo: hasConfiguredKey(states.apollo),
-      hubspot: hasConfiguredKey(states.hubspot),
-      gong: hasConfiguredKey(states.gong),
-      pylon: hasConfiguredKey(states.pylon),
-    };
+    const ctx = getCredentialContext();
+    if (!ctx) {
+      fail("no authenticated user", {
+        errorCode: "authentication_required",
+        statusCode: 401,
+      });
+    }
+    return readIntegrationStatuses(ctx);
   },
 });

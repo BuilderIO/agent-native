@@ -2611,6 +2611,7 @@ async function screenshotActionContext(
 
 async function assertAgentKitChatAcceptance(
   page: Page,
+  baseUrl: string,
   provider: LoopbackProviderState,
   network: BrowserNetworkState,
 ): Promise<void> {
@@ -3055,6 +3056,22 @@ async function assertAgentKitChatAcceptance(
   await assertViewportContract(page, "narrow dark conversation", {
     dark: true,
   });
+
+  const approvalSettingUrl = `${baseUrl}/_agent-native/settings/no-approvals`;
+  const request = page.context().request;
+  const saved = await request.put(approvalSettingUrl, {
+    data: { enabled: false },
+  });
+  assert.ok(
+    apiResponseOk(saved),
+    "could not enable approvals for the smoke user",
+  );
+  const approvalSetting = await request.get(approvalSettingUrl);
+  assert.ok(
+    apiResponseOk(approvalSetting),
+    "could not read the smoke user's approval setting",
+  );
+  assert.deepEqual(await approvalSetting.json(), { enabled: false });
 
   await fillAndSubmitComposer(page, approvalPrompt);
   const approval = page.locator(".agentkit-approval");
@@ -3629,7 +3646,7 @@ async function runBrowserSmoke(
   );
 
   log("acceptance: real AgentKit chat and action widget lifecycle");
-  await assertAgentKitChatAcceptance(page, provider, network);
+  await assertAgentKitChatAcceptance(page, baseUrl, provider, network);
   log("acceptance pass: real AgentKit chat and action widget lifecycle");
   assert.ok(
     provider.requests.length >= 10,
@@ -4019,6 +4036,25 @@ async function main(): Promise<void> {
       if (
         status === 409 &&
         request.method() === "POST" &&
+        /^\/_agent-native\/agent-chat\/threads\/[^/]+\/queued$/u.test(
+          responseUrl.pathname,
+        )
+      ) {
+        pendingHttpErrorDetails.push(
+          response
+            .text()
+            .then((detail) =>
+              httpErrors.push(`${error}: ${detail.slice(0, 500)}`),
+            )
+            .catch(() =>
+              httpErrors.push(`${error}: response body unavailable`),
+            ),
+        );
+        return;
+      }
+      if (
+        status === 409 &&
+        request.method() === "POST" &&
         responseUrl.pathname === "/_agent-native/agent-chat"
       ) {
         pendingHttpErrorDetails.push(
@@ -4095,6 +4131,7 @@ async function main(): Promise<void> {
       "  checked:  no-spend loopback → hello action → HITL → queue → rich reload",
     );
   } catch (err) {
+    await Promise.all(pendingHttpErrorDetails);
     const logs = running.logs.slice(-160).join("");
     const message =
       err instanceof Error ? err.stack || err.message : String(err);
@@ -4130,13 +4167,14 @@ async function main(): Promise<void> {
       historyDiagnostics.length > 0
         ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`
         : "";
+    const queueBlock = `\n\nQueue operations:\n${JSON.stringify(network.queueOperations, null, 2)}`;
     const providerBlock = `\n\nLoopback provider state:\n${JSON.stringify(
       provider.state,
       null,
       2,
     )}`;
     primaryError = new Error(
-      `${message}${browserBlock}${httpBlock}${diagnosticsBlock}${historyBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
+      `${message}${browserBlock}${httpBlock}${diagnosticsBlock}${historyBlock}${queueBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
     );
   } finally {
     try {

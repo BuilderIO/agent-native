@@ -17,6 +17,7 @@ import * as AppStore from "../app-store";
 
 export interface AppsIpcDeps {
   getManagedDesktopAppIds: () => string[];
+  syncLocalAppNames?: () => boolean;
   stopManagedDesktopApp: (appId: string) => void;
   refreshDesktopShortcutBindings: () => void;
   chooseLocalAppFolder: () => Promise<LocalAppFolderSelectResult>;
@@ -46,9 +47,11 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     prepareDesktopAppForLocalCodeChange,
     showDesktopAppContextMenu,
     loadWorkspaceApps,
+    syncLocalAppNames,
   } = deps;
 
   ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
+    syncLocalAppNames?.();
     return AppStore.loadApps();
   });
 

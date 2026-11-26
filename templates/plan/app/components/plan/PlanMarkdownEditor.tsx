@@ -51,7 +51,8 @@ export function PlanMarkdownEditor({
   blockId,
   user,
 }: PlanMarkdownEditorProps) {
-  const { requestUpload, uploadImage, storagePrompt } = usePlanImageUpload();
+  const { requestUpload, uploadImage, storagePrompt } =
+    usePlanImageUpload(planId);
   const onSaveRef = useRef(onSave);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedMarkdownRef = useRef(markdown);

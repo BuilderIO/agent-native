@@ -8,75 +8,14 @@ import {
 } from "./advertised-catalog.harness.js";
 import type { MCPConfig } from "./build-server.js";
 
-// Cards an app declares that no chat host can open today. A card needs a session
-// limited to one resource, so without a widget target for its tool the tool
-// answers with a full-app link instead. Add a target rather than growing this
-// list; each entry says what is missing.
+// Cards an app declares that no chat host can open today. Outside a directory
+// listing a card without a widget target opens the full app, so only cards kept
+// off the production MCP catalog for other reasons remain; each says why.
 const CARDS_WITHOUT_A_TARGET: Record<string, { why: string; tools: string[] }> =
   {
-    analytics: {
-      why: "Bounding each dashboard's queries to one resource is separate work (#8076).",
-      tools: [
-        "compose-dashboard",
-        "ensure-demo-dashboards",
-        "ensure-native-v2-dashboards",
-        "ensure-risk-meeting-dashboard",
-        "get-analysis",
-        "get-sql-dashboard",
-        "list-sql-dashboards",
-        "mutate-dashboard",
-        "open-traffic-dashboard",
-        "save-analysis",
-        "update-dashboard",
-      ],
-    },
-    assets: {
-      why: "No target yet (#8071).",
-      tools: ["generate-asset", "open-asset-picker"],
-    },
-    calendar: {
-      why: "Limiting its account, week and preference reads would change how it behaves (#8076).",
-      tools: ["manage-event-draft"],
-    },
-    clips: {
-      why: "No target yet (#8071).",
-      tools: ["get-recording-player-data", "search-recordings"],
-    },
-    content: {
-      why: "No target yet (#8071); form submission stays delegated.",
-      tools: ["submit-content-database-form", "suggest-document-edit"],
-    },
     design: {
-      why: "No target yet (#8071).",
-      tools: [
-        "add-localhost-screens",
-        "get-design-snapshot",
-        "open-visual-edit",
-        "show-design-questions",
-      ],
-    },
-    forms: {
-      why: "No target yet (#8071).",
-      tools: ["create-form"],
-    },
-    plan: {
-      why: "No target yet (#8071).",
-      tools: [
-        "convert-visual-plan-to-prototype",
-        "create-plan-design",
-        "create-prototype-plan",
-        "create-ui-plan",
-        "create-visual-plan",
-        "create-visual-questions",
-        "create-visual-recap",
-        "import-visual-plan-source",
-        "update-visual-plan",
-        "visual-answer",
-      ],
-    },
-    slides: {
-      why: "The editor needs organization context, and its loader's reads aren't bound to one deck (#8076).",
-      tools: ["clone-context-slide", "get-deck"],
+      why: "The action sets mcpTool: false.",
+      tools: ["show-design-questions"],
     },
   };
 // Declares a card in every app, but no connector advertises it (#8070).
@@ -176,6 +115,30 @@ describe("default template catalogs when organization tools opt in", () => {
     });
     expect(implicit.map((app) => app.appId)).toEqual([]);
   });
+
+  it(
+    "keeps Brain's existing default catalog when its policy is explicit",
+    async () => {
+      const brain = apps.find((app) => app.appId === "brain");
+      const surface = brain?.surfaces[0];
+      if (!surface) throw new Error("Brain catalog surface is missing");
+      const config = surface.config;
+      const { connectorCatalog: _catalog, ...implicit } = config;
+      vi.stubEnv("AGENT_MODE", "production");
+      vi.stubEnv("AGENT_PROD_CODE_EXECUTION", "off");
+      try {
+        const options = { fullCatalog: false, fullSurface: false };
+        const before = await listAdvertised(implicit, options);
+        const after = await listAdvertised(config, options);
+        expect(after.tools.map((tool) => tool.name).sort()).toEqual(
+          before.tools.map((tool) => tool.name).sort(),
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+    LOAD_TIMEOUT_MS,
+  );
 
   it(
     "keeps each default list exactly, adding only mounted organization tools",

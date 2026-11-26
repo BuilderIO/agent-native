@@ -87,6 +87,50 @@ describe("useShareVisibilityTransition resource locks", () => {
     expect(transition.pending).toMatchObject({ from: "private", to: "org" });
   });
 
+  it("holds a change the resource asks about, even one the type saves at once", async () => {
+    const apply = vi.fn(async () => undefined);
+    const confirmVisibility = vi.fn(
+      (_from: string, to: string) => to === "public",
+    );
+    render({
+      current: "org",
+      apply,
+      confirmOrgVisibility: false,
+      confirmVisibility,
+    });
+
+    let held!: Promise<void>;
+    act(() => {
+      held = transition.request("public");
+    });
+    expect(confirmVisibility).toHaveBeenCalledWith("org", "public");
+    expect(apply).not.toHaveBeenCalled();
+    expect(transition.pending).toMatchObject({ from: "org", to: "public" });
+
+    await act(async () => {
+      await transition.confirm();
+      await held;
+    });
+    expect(apply).toHaveBeenCalledWith("public");
+    expect(transition.pending).toBeNull();
+  });
+
+  it("saves at once when the resource doesn't ask about the change", async () => {
+    const apply = vi.fn(async () => undefined);
+    render({
+      current: "public",
+      apply,
+      confirmOrgVisibility: false,
+      confirmVisibility: () => false,
+    });
+
+    await act(async () => {
+      await transition.request("private");
+    });
+    expect(apply).toHaveBeenCalledWith("private");
+    expect(transition.pending).toBeNull();
+  });
+
   it("refuses a visibility change while a role save runs", async () => {
     const role = deferred();
     const apply = vi.fn(async () => undefined);

@@ -690,6 +690,65 @@ export interface AgentUploadProgress {
   total: number;
 }
 
+export const ACTION_SUGGESTION_KINDS = [
+  "filter",
+  "saved-view",
+  "automation",
+  "customize-app",
+  "create-app",
+] as const;
+
+export const ACTION_SUGGESTION_TRIGGERS = [
+  "ai-narrowing",
+  "repeated-query",
+  "missing-control",
+  "cross-app-workflow",
+  "new-domain",
+] as const;
+
+export const MAX_ACTION_SUGGESTIONS_PER_TURN = 2;
+
+export interface ActionSuggestion {
+  id: string;
+  kind: (typeof ACTION_SUGGESTION_KINDS)[number];
+  trigger: (typeof ACTION_SUGGESTION_TRIGGERS)[number];
+  label: string;
+  rationale: string;
+  /** The target installation, or "dispatch" for a proposed new app. */
+  appId: string;
+  execution:
+    | { type: "action"; action: string; params: Record<string, unknown> }
+    | { type: "customize"; targetAppId: string; editSpec: string }
+    | { type: "create-app"; domainSpec: string };
+}
+
+export interface ActionSuggestionResult {
+  suggestions: ActionSuggestion[];
+}
+
+export type ActionSuggestionReceipt =
+  | {
+      suggestionId: string;
+      status: "accepted";
+      outcome:
+        | "action-completed"
+        | "app-creation-started"
+        | "customization-started";
+      url?: string;
+    }
+  | {
+      suggestionId: string;
+      status: "handoff";
+      outcome: "open-creation-workspace";
+      url: string;
+    }
+  | {
+      suggestionId: string;
+      status: "handoff";
+      outcome: "local-app-creation";
+      prompt: string;
+    };
+
 export interface AgentSuggestion {
   id: string;
   label: string;
@@ -1225,7 +1284,15 @@ export interface UpdateThreadInput extends ThreadIdInput {
 }
 
 export interface ForkThreadInput extends ThreadIdInput {
+  /** Retain this message and everything preceding it. */
   fromMessageId?: string;
+  /**
+   * Retain only messages preceding this message; excludes the boundary itself.
+   * Derived state requires retained event provenance or an explicit message/run
+   * binding. Unscoped snapshots without that provenance are omitted.
+   */
+  beforeMessageId?: string;
+  forkPurpose?: "edit";
   title?: string;
   metadata?: AgentProtocolMetadata;
 }

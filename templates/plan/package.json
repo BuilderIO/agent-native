@@ -39,6 +39,7 @@
     "jszip": "^3.10.1",
     "mermaid": "11.15.0",
     "node-pty": "^1.1.0",
+    "parse5": "8.0.1",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",

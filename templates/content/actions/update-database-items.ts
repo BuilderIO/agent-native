@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema as dbSchema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   isComputedPropertyType,
   type DocumentPropertyType,
@@ -23,9 +24,16 @@ const actionSchema = z.intersection(
   }),
 );
 
+// A failed call reaches changeResource with no result, whatever its type says.
+function updatedCollectionChangeResource(
+  result: { databaseDocumentId: string } | undefined,
+) {
+  return documentChangeResource(result?.databaseDocumentId);
+}
+
 export default defineAction({
   description:
-    "Set one Content collection property to the same value on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent. To give rows different values, use patch-database-items. Outside the app's UI, Blocks fields can't be written in bulk: each row needs its own expectedBlocksFieldRevision, so use set-document-property per row.",
+    "Set one Content collection property to the same value on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent. To give rows different values, use patch-database-items. Outside the app's UI, Blocks fields can't be written in bulk: each row needs its own revision (baseRevision for the collection's main Blocks field, expectedBlocksFieldRevision for others), so use set-document-property per row.",
   mcpTool: true,
   schema: actionSchema,
   run: async (args, ctx) => {
@@ -50,6 +58,7 @@ export default defineAction({
       itemId: string;
       documentId: string;
       success: boolean;
+      generation?: number;
       error?: string;
     }> = [];
 
@@ -60,7 +69,7 @@ export default defineAction({
         try {
           // Passing the caller on keeps set-document-property's Blocks
           // revision guard: a bulk write has no per-row revision to name.
-          await setDocumentProperty.run(
+          const saved = await setDocumentProperty.run(
             {
               documentId: row.document.id,
               databaseId: database.id,
@@ -73,6 +82,7 @@ export default defineAction({
             itemId: row.item.id,
             documentId: row.document.id,
             success: true,
+            ...("generation" in saved ? { generation: saved.generation } : {}),
           };
         } catch (error) {
           results[index] = {
@@ -88,10 +98,14 @@ export default defineAction({
     const failed = results.filter((result) => !result.success).length;
     return {
       databaseId: database.id,
+      databaseDocumentId: database.documentId,
       propertyId: args.propertyId,
       updated: results.length - failed,
       failed,
       results,
     };
   },
+  // The call may name the collection by databaseId alone, so its page comes
+  // from the result.
+  changeResource: (_input, result) => updatedCollectionChangeResource(result),
 });

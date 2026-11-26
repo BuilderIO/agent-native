@@ -37,18 +37,20 @@ const CHROME_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+// oracle-change: the File tab grid gives section heads 40px, their buttons 24px, and chrome glyphs Radix's 15px
+// oracle-change: ENG-14616 puts inspector sections on a 16px side margin and 16px under each section, with 8px between a pair's controls
 const APP_GEOMETRY_CONTRACT = {
-  layersHeaderHeight: 28,
+  layersHeaderHeight: 40,
   layerRowHeight: 32,
-  layerActionSize: 20,
-  layerIconSize: 12,
+  layerActionSize: 24,
+  layerIconSize: 15,
   layerRowIconSize: 16,
   layerChevronSize: 16,
-  layerChevronGlyphSize: 12,
+  layerChevronGlyphSize: 15,
   layerIndentWidth: 24,
   autoLayoutSectionHeaderHeight: 40,
-  autoLayoutSectionPadding: 8,
-  autoLayoutPairGutter: 16,
+  autoLayoutSectionPadding: 16,
+  autoLayoutPairGutter: 8,
   sizingMenuItemMinHeight: 24,
   sizingMenuItemMaxHeight: 32,
 } as const;
@@ -150,7 +152,14 @@ async function assertInspectorHeader(page: Page): Promise<void> {
   const header = panel.locator("[data-design-inspector-header]");
   await expect(header).toHaveCount(1);
   const panelGeometry = await readGeometry(panel);
-  expect((await readGeometry(header)).y).toBeCloseTo(panelGeometry.y, 0);
+  // oracle-change: the right column head (Comments, Share) now sits above the inspector header, so the header starts below it.
+  const columnHead = await readGeometry(
+    page.locator('[data-design-chrome-region="right-toolbar"]').first(),
+  );
+  expect((await readGeometry(header)).y).toBeCloseTo(
+    panelGeometry.y + columnHead.height,
+    0,
+  );
 
   const grids = await panel
     .locator(
@@ -163,10 +172,10 @@ async function assertInspectorHeader(page: Page): Promise<void> {
       }),
     );
   expect(grids.length).toBeGreaterThan(2);
-  // One shared grid: the panel's 1px left border and 8px of padding come
-  // first, and every header spans the same width after that.
+  // oracle-change: the panel's inner-edge hairline is now drawn above its content instead of as a 1px border, so it no longer pushes the grid 1px in.
   for (const grid of grids) {
-    expect(grid.x).toBeCloseTo(panelGeometry.x + 1 + 8, 0);
+    // oracle-change: ENG-14616 moves inspector headers onto the 16px side margin.
+    expect(grid.x).toBeCloseTo(panelGeometry.x + 16, 0);
     expect(grid.width).toBeCloseTo(grids[0]!.width, 0);
   }
 }
@@ -475,8 +484,8 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
     .first();
   const separatorGeometry = await readGeometry(separator);
   const currentPanelGeometry = await readGeometry(rightPanel);
-  const topBarGeometry = await readGeometry(
-    page.locator("[data-design-top-bar]"),
+  const rightHeadGeometry = await readGeometry(
+    page.locator('[data-design-chrome-region="right-toolbar"]').first(),
   );
   const leftShellGeometry = await readGeometry(
     page.locator('[data-design-chrome-region="left-shell"]'),
@@ -486,21 +495,15 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
       .locator('[data-design-chrome-region="left-header"]')
       .filter({ visible: true }),
   );
-  const zoneGeometry = await readGeometry(
-    page.locator("[data-design-top-bar-inspector-zone]"),
-  );
-  // The 48px line runs over the canvas and inspector columns only; the rail
-  // and left panel share its top row.
-  expect(topBarGeometry.y).toBe(0);
-  expect(topBarGeometry.height).toBe(48);
+  // oracle-change: the editor top bar is gone. Both column heads are 48px and start at the top edge; the right head spans the right column.
   expect(leftShellGeometry.y).toBe(0);
   expect(leftHeaderGeometry.y).toBe(0);
   expect(leftHeaderGeometry.height).toBe(48);
-  expect(topBarGeometry.x).toBe(leftShellGeometry.x + leftShellGeometry.width);
-  expect(currentPanelGeometry.y).toBe(topBarGeometry.height);
-  expect(zoneGeometry.x).toBeLessThanOrEqual(currentPanelGeometry.x + 1);
-  expect(zoneGeometry.x + zoneGeometry.width).toBeCloseTo(
-    topBarGeometry.x + topBarGeometry.width - 8,
+  expect(rightHeadGeometry.y).toBe(0);
+  expect(rightHeadGeometry.height).toBe(48);
+  expect(currentPanelGeometry.y).toBeCloseTo(rightHeadGeometry.y, 0);
+  expect(rightHeadGeometry.x + rightHeadGeometry.width).toBeCloseTo(
+    currentPanelGeometry.x + currentPanelGeometry.width,
     0,
   );
   const targetPanelWidth = 320;

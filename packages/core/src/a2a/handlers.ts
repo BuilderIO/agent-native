@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { setResponseHeader, setResponseStatus } from "h3";
+import { setResponseHeader, setResponseStatus, type H3Event } from "h3";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
@@ -19,7 +19,14 @@ import {
   renewTaskExecutionLease,
   TURN_EXECUTION_LEASE_MS,
 } from "../agent/run-store.js";
+import { normalizeBrowserTabId } from "../application-state/script-helpers.js";
 import { uploadFile } from "../file-upload/registry.js";
+import { createBrowserTabTargetSlot } from "../mcp/browser-tab-target.js";
+import {
+  MCP_CHAT_TURN_FIELD,
+  admitMcpChatTurn,
+  readMcpChatTurn,
+} from "../mcp/chat-turn-store.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
@@ -27,28 +34,50 @@ import {
   recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
+import { runWithProviderInteractiveScope } from "../provider-api/interactive-scope.js";
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
+import {
+  readBrowserTabIdHeader,
+  readViewportModeHeader,
+} from "../server/agent-run-context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
 import {
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "../server/h3-helpers.js";
-import { markExplicitPersonalOrgScope } from "../server/request-context.js";
-import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  markExplicitPersonalOrgScope,
+  type RequestRunContext,
+} from "../server/request-context.js";
+import {
+  fireInternalDispatch,
+  UnsignedHandoffRefusedError,
+} from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import { track } from "../tracking/registry.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
+import {
+  A2A_CALL_REFUSED_KIND,
+  decideIncomingA2AActionCall,
+  hasA2AActionCallHooks,
+} from "./call-hooks.js";
 import { callAction } from "./client.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import { runAsA2AForegroundCall } from "./foreground-call-scope.js";
 import { assertA2APersistablePayload } from "./persistence-safety.js";
 import {
   createTask,
   createOrReuseTask,
   cancelA2ATask,
+  getIdempotentTask,
   getTask,
   getTaskOwnership,
   updateTask,
@@ -244,6 +273,58 @@ function requestOriginForContext(
   return receiverOrigin;
 }
 
+function eventContextRecord(
+  event: H3Event | undefined,
+): Record<string, unknown> | undefined {
+  if (!event) return undefined;
+  return (event as { context?: Record<string, unknown> }).context;
+}
+
+function resolveA2ABrowserTabId(
+  metadata: Record<string, unknown> | undefined,
+  event: H3Event | undefined,
+): string | undefined {
+  const fromContext = normalizeBrowserTabId(
+    eventContextRecord(event)?.__a2aBrowserTabId,
+  );
+  if (fromContext) return fromContext;
+  const fromHeader = event ? readBrowserTabIdHeader(event) : undefined;
+  if (fromHeader) return fromHeader;
+  return normalizeBrowserTabId(metadata?.browserTabId) ?? undefined;
+}
+
+function resolveA2AViewportMode(
+  metadata: Record<string, unknown> | undefined,
+  event: H3Event | undefined,
+): ViewportMode | undefined {
+  return (
+    normalizeViewportMode(eventContextRecord(event)?.__a2aViewportMode) ??
+    (event ? readViewportModeHeader(event) : undefined) ??
+    normalizeViewportMode(metadata?.viewportMode)
+  );
+}
+
+function buildA2ARunContext(input: {
+  verifiedEmail?: string | undefined;
+  identityAssurance?: "user" | "organization" | "org-member" | undefined;
+  browserTabId?: string | undefined;
+  viewportMode?: ViewportMode | undefined;
+}): RequestRunContext | undefined {
+  const canTargetUserTab =
+    Boolean(input.verifiedEmail) &&
+    input.identityAssurance !== "organization" &&
+    !parseServiceIdentityEmail(input.verifiedEmail);
+  const browserTabTarget =
+    canTargetUserTab && input.browserTabId
+      ? createBrowserTabTargetSlot(input.browserTabId)
+      : undefined;
+  if (!browserTabTarget && !input.viewportMode) return undefined;
+  return {
+    ...(browserTabTarget ? { browserTabTarget } : {}),
+    ...(input.viewportMode ? { viewportMode: input.viewportMode } : {}),
+  };
+}
+
 function trustedA2AMetadata(
   metadata: Record<string, unknown> | undefined,
   event: any,
@@ -251,6 +332,7 @@ function trustedA2AMetadata(
   if (!metadata) return undefined;
   const trusted = { ...metadata };
   delete trusted.sourceContext;
+  delete trusted[MCP_CHAT_TURN_FIELD];
   const requestOrigin = requestOriginForContext(metadata, event);
   if (requestOrigin) trusted.requestOrigin = requestOrigin;
   else delete trusted.requestOrigin;
@@ -478,6 +560,9 @@ async function processClaimedA2ATask(
   }
   const requestOrigin =
     requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
+  const browserTabId =
+    normalizeBrowserTabId(processorMeta.browserTabId) ?? undefined;
+  const viewportMode = normalizeViewportMode(processorMeta.viewportMode);
   const contextId =
     (processorMeta.contextId as string | null | undefined) ?? undefined;
   const callerMetadata =
@@ -507,6 +592,12 @@ async function processClaimedA2ATask(
   try {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
+    const run = buildA2ARunContext({
+      verifiedEmail,
+      identityAssurance,
+      browserTabId,
+      viewportMode,
+    });
     await runWithRequestContext(
       {
         userEmail: verifiedEmail,
@@ -519,6 +610,7 @@ async function processClaimedA2ATask(
             ? { orgScope: "personal" as const }
             : {}),
         ...(requestOrigin ? { requestOrigin } : {}),
+        ...(run ? { run } : {}),
       },
       () =>
         runHandlerAndPersist(
@@ -797,6 +889,14 @@ async function withA2ARequestContext<T>(
       ? rawIdentityAssurance
       : undefined;
   const requestOrigin = requestOriginForContext(metadata, event);
+  const browserTabId = resolveA2ABrowserTabId(metadata, event);
+  const viewportMode = resolveA2AViewportMode(metadata, event);
+  const run = buildA2ARunContext({
+    verifiedEmail,
+    identityAssurance,
+    browserTabId,
+    viewportMode,
+  });
   if (event?.context && verifiedEmail && !verifiedOrgId) {
     markExplicitPersonalOrgScope(event);
   }
@@ -811,12 +911,116 @@ async function withA2ARequestContext<T>(
           ? { orgScope: "personal" as const }
           : {}),
       ...(requestOrigin ? { requestOrigin } : {}),
+      ...(run ? { run } : {}),
     },
     fn,
   ) as Promise<T>;
 }
 
+function chatTurnBinding(
+  config: A2AConfig,
+  taskId: string,
+  event: { context?: Record<string, unknown> } | undefined,
+) {
+  return {
+    appId: config.appId ?? "",
+    taskId,
+    owner:
+      typeof event?.context?.__a2aVerifiedEmail === "string"
+        ? event.context.__a2aVerifiedEmail
+        : undefined,
+    assurance:
+      typeof event?.context?.__a2aIdentityAssurance === "string"
+        ? event.context.__a2aIdentityAssurance
+        : undefined,
+  };
+}
+
+class ChatTurnRefusedError extends Error {
+  constructor(readonly reason: string) {
+    super(`MCP chat-turn proof refused: ${reason}`);
+  }
+}
+
+/** Fails a just-created task whose chat-turn proof was refused, so it is never left submitted. */
+async function failRefusedChatTurn(taskId: string, reason: string) {
+  const text = `MCP chat-turn proof refused: ${reason}`;
+  await updateTask(taskId, {
+    state: "failed",
+    message: taskFailureMessage(new Error(text), text),
+  });
+  return { ...jsonRpcError(0, -32000, text), _id: 0 };
+}
+
+/** Runs a task's handler inside the chat-turn grant its admitted proof earned, if any. */
+async function withMcpChatTaskScope<T>(
+  config: A2AConfig,
+  taskId: string,
+  event: { context?: Record<string, unknown> } | undefined,
+  work: () => Promise<T>,
+  signal?: AbortSignal,
+  proofPresented = false,
+): Promise<T> {
+  const admission = await readMcpChatTurn(
+    chatTurnBinding(config, taskId, event),
+  );
+  // Only an absent proof means "an ordinary turn"; a refused lookup must not
+  // pass for one, or an intended interactive turn quietly loses its grant.
+  if (
+    admission.status === "refused" &&
+    admission.reason === "storage-or-signing-unavailable" &&
+    !proofPresented
+  ) {
+    // Most tasks carry no proof; a store outage must not fail them. The turn
+    // runs without a grant, so it is never more privileged for the outage. A
+    // task that did present a proof fails instead of losing its grant.
+    console.warn("[a2a] chat-turn lookup unavailable; running without a grant");
+  } else if (admission.status === "refused") {
+    throw new ChatTurnRefusedError(admission.reason);
+  }
+  return runWithProviderInteractiveScope(false, work, {
+    action: false,
+    ...(signal ? { signal } : {}),
+    ...(admission.status === "admitted"
+      ? { chatTurnGrant: admission.grant }
+      : {}),
+  });
+}
+
 async function runHandlerAndPersist(
+  taskId: string,
+  message: Message,
+  config: A2AConfig,
+  contextId: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+  event?: { context?: Record<string, unknown> },
+  sourceContext?: A2ASourceContext,
+  ownerEmail?: string,
+  signal?: AbortSignal,
+  processingAttemptId?: string,
+): Promise<void> {
+  return withMcpChatTaskScope(
+    config,
+    taskId,
+    event,
+    () =>
+      runHandlerAndPersistInScope(
+        taskId,
+        message,
+        config,
+        contextId,
+        metadata,
+        event,
+        sourceContext,
+        ownerEmail,
+        signal,
+        processingAttemptId,
+      ),
+    signal,
+  );
+}
+
+async function runHandlerAndPersistInScope(
   taskId: string,
   message: Message,
   config: A2AConfig,
@@ -939,7 +1143,19 @@ async function handleSend(
   config: A2AConfig,
   event?: any,
 ): Promise<JsonRpcResponse & { _id: string | number }> {
-  const message = params.message as Message;
+  const incomingMessage = params.message as Message | undefined;
+  const chatTurnClaim =
+    incomingMessage?.metadata?.[MCP_CHAT_TURN_FIELD] ??
+    (params.metadata as Record<string, unknown> | undefined)?.[
+      MCP_CHAT_TURN_FIELD
+    ];
+  const message = incomingMessage && {
+    ...incomingMessage,
+    ...(incomingMessage.metadata
+      ? { metadata: { ...incomingMessage.metadata } }
+      : {}),
+  };
+  if (message?.metadata) delete message.metadata[MCP_CHAT_TURN_FIELD];
   if (!message || !message.role || !Array.isArray(message.parts)) {
     return {
       ...jsonRpcError(
@@ -1043,6 +1259,8 @@ async function handleSend(
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
     const requestOrigin = requestOriginForContext(metadata, event);
+    const browserTabId = resolveA2ABrowserTabId(metadata, event);
+    const viewportMode = resolveA2AViewportMode(metadata, event);
     const safeMetadata = trustedA2AMetadata(metadata, event);
 
     const taskMetadata: Record<string, unknown> = {
@@ -1057,12 +1275,35 @@ async function handleSend(
           ? { verifiedOrgId: event.context.__a2aVerifiedOrgId }
           : {}),
         ...(requestOrigin ? { requestOrigin } : {}),
+        ...(browserTabId ? { browserTabId } : {}),
+        ...(viewportMode ? { viewportMode } : {}),
         contextId: contextId ?? null,
         callerMetadata: safeMetadata ?? null,
         sourceContext: sourceContext ?? null,
       },
     };
     event?.context?.__a2aBeforeTaskPersistence?.();
+    if (
+      idempotencyKey &&
+      ownerEmailForTask &&
+      event?.context?.__a2aOrgFromSoleMembership === true
+    ) {
+      const personalTask = await getIdempotentTask(
+        ownerEmailForTask,
+        A2A_PERSONAL_OWNER_SCOPE,
+        idempotencyKey,
+      );
+      if (
+        personalTask &&
+        personalTask.status.state !== "failed" &&
+        personalTask.status.state !== "canceled"
+      ) {
+        return {
+          ...jsonRpcResult(0, sanitizeTaskForResponse(personalTask)),
+          _id: 0,
+        };
+      }
+    }
     const { task, reused } = await createOrReuseTask(
       message,
       contextId,
@@ -1077,11 +1318,25 @@ async function handleSend(
         _id: 0,
       };
     }
+    const admitted = await admitMcpChatTurn(
+      chatTurnClaim,
+      chatTurnBinding(config, task.id, event),
+    );
+    if (admitted.status === "refused") {
+      return failRefusedChatTurn(task.id, admitted.reason);
+    }
     const working = await updateTask(task.id, { state: "working" });
 
     try {
       await fireProcessTaskDispatch(event, task.id, config);
     } catch (err) {
+      if (err instanceof UnsignedHandoffRefusedError) {
+        await updateTask(task.id, {
+          state: "failed",
+          message: taskFailureMessage(err, err.message),
+        });
+        return { ...jsonRpcError(0, -32001, err.message), _id: 0 };
+      }
       console.error("[a2a] Failed to dispatch process-task:", err);
     }
 
@@ -1106,88 +1361,108 @@ async function handleSend(
         _id: 0,
       };
     }
-    await updateTask(task.id, { state: "working" });
-
-    const ctx = makeHandlerContext(
-      task.id,
-      contextId,
-      trustedA2AMetadata(metadata, event),
-      event,
-      sourceContext,
+    const admitted = await admitMcpChatTurn(
+      chatTurnClaim,
+      chatTurnBinding(config, task.id, event),
     );
+    if (admitted.status === "refused") {
+      return failRefusedChatTurn(task.id, admitted.reason);
+    }
+    return withMcpChatTaskScope(
+      config,
+      task.id,
+      event,
+      async () => {
+        await updateTask(task.id, { state: "working" });
 
-    try {
-      try {
-        const result = getHandler(config)(message, ctx.context);
+        const ctx = makeHandlerContext(
+          task.id,
+          contextId,
+          trustedA2AMetadata(metadata, event),
+          event,
+          sourceContext,
+        );
 
-        if (isMessageStream(result)) {
-          let lastMessage: Message | undefined;
-          for await (const msg of result) {
-            lastMessage = msg;
-          }
-          if (
-            lastMessage?.metadata?.agentNativeTaskState === "input-required"
-          ) {
+        try {
+          try {
+            const result = getHandler(config)(message, ctx.context);
+
+            if (isMessageStream(result)) {
+              let lastMessage: Message | undefined;
+              for await (const msg of result) {
+                lastMessage = msg;
+              }
+              if (
+                lastMessage?.metadata?.agentNativeTaskState === "input-required"
+              ) {
+                const updated = await updateTask(task.id, {
+                  state: "input-required",
+                  message: lastMessage,
+                });
+                return { ...jsonRpcResult(0, updated), _id: 0 };
+              }
+              await ctx.persistFileArtifacts();
+              const updated = await updateTask(
+                task.id,
+                completedTaskUpdate(lastMessage, ctx.artifacts),
+              );
+              return { ...jsonRpcResult(0, updated), _id: 0 };
+            }
+
+            const handlerResult = await (result as Promise<A2AHandlerResult>);
+            const allArtifacts = [
+              ...ctx.artifacts,
+              ...(handlerResult.artifacts ?? []),
+            ];
+            if (handlerResult.taskState === "input-required") {
+              const updated = await updateTask(task.id, {
+                state: "input-required",
+                message: handlerResult.message,
+              });
+              return { ...jsonRpcResult(0, updated), _id: 0 };
+            }
+            await ctx.persistFileArtifacts();
             const updated = await updateTask(task.id, {
-              state: "input-required",
-              message: lastMessage,
+              state: "completed",
+              message: handlerResult.message,
+              artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
             });
             return { ...jsonRpcResult(0, updated), _id: 0 };
+          } catch (err: unknown) {
+            const failureMessage = taskFailureMessage(err, "Handler failed");
+            await updateTask(task.id, {
+              state: "failed",
+              message: failureMessage,
+            });
+            return {
+              ...jsonRpcError(
+                0,
+                -32000,
+                failureMessage.parts[0]?.type === "text"
+                  ? failureMessage.parts[0].text
+                  : "Handler failed",
+              ),
+              _id: 0,
+            };
           }
-          await ctx.persistFileArtifacts();
-          const updated = await updateTask(
-            task.id,
-            completedTaskUpdate(lastMessage, ctx.artifacts),
-          );
-          return { ...jsonRpcResult(0, updated), _id: 0 };
+        } catch (err: unknown) {
+          // A cancel that landed first is the answer; the handler's outcome is dropped.
+          if (err instanceof A2ATaskCanceledError) {
+            return {
+              ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
+              _id: 0,
+            };
+          }
+          throw err;
         }
-
-        const handlerResult = await (result as Promise<A2AHandlerResult>);
-        const allArtifacts = [
-          ...ctx.artifacts,
-          ...(handlerResult.artifacts ?? []),
-        ];
-        if (handlerResult.taskState === "input-required") {
-          const updated = await updateTask(task.id, {
-            state: "input-required",
-            message: handlerResult.message,
-          });
-          return { ...jsonRpcResult(0, updated), _id: 0 };
-        }
-        await ctx.persistFileArtifacts();
-        const updated = await updateTask(task.id, {
-          state: "completed",
-          message: handlerResult.message,
-          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-        });
-        return { ...jsonRpcResult(0, updated), _id: 0 };
-      } catch (err: unknown) {
-        const failureMessage = taskFailureMessage(err, "Handler failed");
-        await updateTask(task.id, {
-          state: "failed",
-          message: failureMessage,
-        });
-        return {
-          ...jsonRpcError(
-            0,
-            -32000,
-            failureMessage.parts[0]?.type === "text"
-              ? failureMessage.parts[0].text
-              : "Handler failed",
-          ),
-          _id: 0,
-        };
-      }
-    } catch (err: unknown) {
-      // A cancel that landed first is the answer; the handler's outcome is dropped.
-      if (err instanceof A2ATaskCanceledError) {
-        return {
-          ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
-          _id: 0,
-        };
-      }
-      throw err;
-    }
+      },
+      undefined,
+      chatTurnClaim !== undefined,
+    ).catch((err: unknown) =>
+      err instanceof ChatTurnRefusedError
+        ? failRefusedChatTurn(task.id, err.reason)
+        : Promise.reject(err),
+    );
   });
 }
 
@@ -1197,7 +1472,16 @@ async function handleStream(
   res: { write: (chunk: string) => void; end: () => void },
   event?: any,
 ): Promise<void> {
-  const message = params.message as Message;
+  const incomingMessage = params.message as Message | undefined;
+  // Streaming turns take no chat-turn grant: drop a supplied proof so it never
+  // lands in task history or the handler's input.
+  const message = incomingMessage && {
+    ...incomingMessage,
+    ...(incomingMessage.metadata
+      ? { metadata: { ...incomingMessage.metadata } }
+      : {}),
+  };
+  if (message?.metadata) delete message.metadata[MCP_CHAT_TURN_FIELD];
   if (!message || !message.role || !Array.isArray(message.parts)) {
     res.write(
       `data: ${JSON.stringify(jsonRpcError(0, -32602, "Invalid params"))}\n\n`,
@@ -1425,8 +1709,8 @@ function authorizeTaskAccess(
       }
     } else if (
       storedScope === A2A_PERSONAL_OWNER_SCOPE &&
-      !verifiedOrgId &&
-      !verifiedOrgDomain
+      ((!verifiedOrgId && !verifiedOrgDomain) ||
+        event?.context?.__a2aOrgFromSoleMembership === true)
     ) {
       // A verified identity with no organization is in its personal scope.
     } else {
@@ -1683,13 +1967,30 @@ async function handleInvokeReadOnlyAction(
     );
   };
 
+  let foreground: { expiresAt: number } | undefined;
+  if (hasA2AActionCallHooks()) {
+    const admission = await admitIncomingA2AActionCall(
+      params,
+      action,
+      input as Record<string, unknown>,
+      verifiedEmail,
+      event,
+    );
+    if ("error" in admission) return admission.error;
+    foreground = admission.foreground;
+  }
+
   try {
-    const result = await withA2ARequestContext(undefined, event, () =>
+    const execute = () =>
       config.executeReadOnlyAction!({
         action,
         input: input as Record<string, unknown>,
         invocationId,
-      }),
+      });
+    const result = await withA2ARequestContext(undefined, event, () =>
+      foreground
+        ? runForegroundA2AActionCall(foreground.expiresAt, event, execute)
+        : execute(),
     );
     emitTracking(result.status);
     return jsonRpcResult(0, { action, ...result });
@@ -1698,6 +1999,154 @@ async function handleInvokeReadOnlyAction(
     console.error(`[a2a] Direct action ${action} failed:`, error);
     return jsonRpcError(0, -32000, "Direct action invocation failed");
   }
+}
+
+function refusedA2AActionCall(
+  message: string,
+  reason: string | undefined,
+  hookId?: string,
+): JsonRpcResponse {
+  return {
+    jsonrpc: "2.0",
+    id: 0,
+    error: {
+      code: -32001,
+      message,
+      data: {
+        kind: A2A_CALL_REFUSED_KIND,
+        ...(hookId ? { hookId } : {}),
+        ...(reason ? { reason } : {}),
+      },
+    },
+  };
+}
+
+/**
+ * Ask the deployment's call hooks about a verified direct action call. An
+ * admitted organization is bound only when the caller's token carried it or
+ * the caller is a member of it.
+ */
+async function admitIncomingA2AActionCall(
+  params: Record<string, unknown>,
+  action: string,
+  input: Record<string, unknown>,
+  verifiedEmail: string,
+  event: H3Event,
+): Promise<
+  { error: JsonRpcResponse } | { foreground: { expiresAt: number } | undefined }
+> {
+  const verifiedOrgId =
+    typeof event.context.__a2aVerifiedOrgId === "string"
+      ? (event.context.__a2aVerifiedOrgId as string)
+      : undefined;
+  const identityAssurance = event.context.__a2aIdentityAssurance;
+  const audiences: unknown = event.context.__a2aVerifiedAudiences;
+  const isOrgMember = async (orgId: string) => {
+    const { isOrgMemberForA2A } = await import("../org/membership.js");
+    return isOrgMemberForA2A(orgId, verifiedEmail, event);
+  };
+  let outcome: Awaited<ReturnType<typeof decideIncomingA2AActionCall>>;
+  try {
+    outcome = await decideIncomingA2AActionCall({
+      action,
+      input,
+      params: Object.freeze({ ...params }),
+      caller: {
+        email: verifiedEmail,
+        ...(typeof identityAssurance === "string" ? { identityAssurance } : {}),
+        ...(verifiedOrgId ? { orgId: verifiedOrgId } : {}),
+        audiences: Array.isArray(audiences)
+          ? audiences.filter((value) => typeof value === "string")
+          : [],
+      },
+      isOrgMember,
+    });
+  } catch (error) {
+    console.error(`[a2a] Call hook failed for direct action ${action}:`, error);
+    return { error: jsonRpcError(0, -32000, "A2A call hook failed") };
+  }
+  if (outcome === undefined) return { foreground: undefined };
+  if (outcome.status === "refused") {
+    return {
+      error: refusedA2AActionCall(
+        outcome.message,
+        outcome.reason,
+        outcome.hookId,
+      ),
+    };
+  }
+  if (outcome.orgId !== undefined && outcome.orgId !== verifiedOrgId) {
+    if (verifiedOrgId) {
+      return {
+        error: refusedA2AActionCall(
+          "A2A call organization does not match the verified organization",
+          "org-mismatch",
+        ),
+      };
+    }
+    let member: boolean;
+    try {
+      member = await isOrgMember(outcome.orgId);
+    } catch (error) {
+      console.error("[a2a] Organization membership check failed:", error);
+      return {
+        error: jsonRpcError(
+          0,
+          -32003,
+          "Organization membership check is temporarily unavailable",
+        ),
+      };
+    }
+    if (!member) {
+      return {
+        error: refusedA2AActionCall(
+          "A2A caller is not a member of the requested organization",
+          "org-not-member",
+        ),
+      };
+    }
+    event.context.__a2aVerifiedOrgId = outcome.orgId;
+  }
+  if (outcome.foreground && outcome.foreground.expiresAt <= Date.now()) {
+    return {
+      error: refusedA2AActionCall(
+        "A2A foreground admission has expired",
+        "foreground-expired",
+      ),
+    };
+  }
+  // A timer cannot run longer than this; a longer window would abort at once.
+  if (
+    outcome.foreground &&
+    outcome.foreground.expiresAt - Date.now() > MAX_TIMER_DELAY_MS
+  ) {
+    return {
+      error: refusedA2AActionCall(
+        "A2A foreground admission is longer than the server can hold",
+        "foreground-too-long",
+      ),
+    };
+  }
+  return { foreground: outcome.foreground };
+}
+
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+/** Run an admitted call as foreground work, revoked at expiry or when the request aborts. */
+function runForegroundA2AActionCall<T>(
+  expiresAt: number,
+  event: H3Event,
+  work: () => Promise<T>,
+): Promise<T> {
+  const expiry = AbortSignal.timeout(Math.max(0, expiresAt - Date.now()));
+  const requestSignal: unknown = event.req.signal;
+  const signal =
+    requestSignal instanceof AbortSignal
+      ? AbortSignal.any([requestSignal, expiry])
+      : expiry;
+  return runAsA2AForegroundCall(expiresAt, () =>
+    runWithProviderInteractiveScope(true, work, { signal }),
+  );
 }
 
 export async function handleJsonRpcH3(

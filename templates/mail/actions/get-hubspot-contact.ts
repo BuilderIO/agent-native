@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestOrgId } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
-  getHubSpotApiKey,
   HubSpotLookupError,
   lookupHubSpotContact,
 } from "../server/lib/hubspot.js";
+import { readIntegrationKey } from "../server/lib/integration-keys.js";
 import { resolveOwnerEmail } from "./helpers.js";
 
 export default defineAction({
@@ -20,9 +21,13 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ email }) => {
     const ownerEmail = await resolveOwnerEmail();
-    const apiKey = await getHubSpotApiKey(ownerEmail);
+    const apiKey = await readIntegrationKey("hubspot", {
+      userEmail: ownerEmail,
+      orgId: getRequestOrgId() ?? null,
+    });
 
     if (!apiKey) {
       return { error: "HubSpot API key not configured" };

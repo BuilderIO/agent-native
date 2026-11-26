@@ -145,8 +145,6 @@ assertFilesExist("clips", [
 assertFilesExist("design", [
   "_index.tsx",
   "design.$id.tsx",
-  "design-systems.tsx",
-  "design-systems_.setup.tsx",
   "examples.tsx",
   "extensions.tsx",
   "extensions._index.tsx",

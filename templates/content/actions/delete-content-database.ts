@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { assertContentDatabaseLifecycleAccess } from "./_content-database-lifecycle.js";
 import {
   runDatabaseSetupMutation,
@@ -21,7 +22,7 @@ import {
 
 export default defineAction({
   description:
-    "Move one exact ordinary collection to recoverable Trash using its fresh configuration revision and an idempotency key; preserve records for restoration and return a receipt.",
+    "Move one exact ordinary collection to Trash using its fresh configuration revision and an idempotency key; preserve records for restoration until a daily job deletes it permanently, which it becomes eligible for after 30 days in Trash, and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   mcpAnnotations: {
@@ -55,6 +56,10 @@ export default defineAction({
     summary: (_args, result) =>
       setupAuditSummary(result, "Moved Content database to recoverable Trash"),
   },
+  changeResource: (input) =>
+    "target" in input
+      ? documentChangeResource(input.target.databaseDocumentId)
+      : null,
   run: async (args, ctx) => {
     if (ctx?.caller === "mcp") setupLifecycleSchema.parse(args);
     if ("target" in args) {

@@ -24,17 +24,18 @@ import Animated, {
 
 import { AppIcon } from "@/components/AppCard";
 import { AppLauncherMenu } from "@/components/AppLauncherMenu";
+import { useTabBarMinimized } from "@/components/TabBarEffects";
 import {
-  TabBarBackgroundFade,
-  useTabBarMinimized,
-} from "@/components/TabBarEffects";
-import { getAppRoute } from "@/lib/mobile-app-navigation";
+  activateMobileTab,
+  getAppRoute,
+  getCurrentMobileTabRouteName,
+} from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
+import { navigateToPath } from "@/lib/navigation";
 import {
   TAB_BAR_ACTION_GAP,
   TAB_BAR_ACTION_SIZE,
-  TAB_BAR_FADE_BLEED,
   TAB_BAR_MARGIN,
   TAB_BAR_MINIMIZED_HEIGHT,
   TAB_BAR_PILL_HEIGHT,
@@ -153,18 +154,16 @@ function handleTabPress({
   emitter: BottomTabBarProps["emitter"];
   navigateToTab: BottomTabBarProps["navigateToTab"];
 }) {
-  const route = state.routes.find(
-    (candidate) => candidate.name === item.routeName,
-  );
-  if (!route) return;
-  const event = emitter.emit({
-    type: "tabPress",
-    target: route.key,
-    canPreventDefault: true,
+  activateMobileTab({
+    routeName: item.routeName,
+    appId: item.app?.id,
+    routes: state.routes,
+    currentIndex: state.index,
+    emit: (key) =>
+      emitter.emit({ type: "tabPress", target: key, canPreventDefault: true }),
+    navigateToTab,
+    navigate: navigateToPath,
   });
-  if (state.index !== state.routes.indexOf(route) && !event.defaultPrevented) {
-    navigateToTab(route.key);
-  }
 }
 
 export default function ChatFirstBottomTabs({
@@ -173,7 +172,7 @@ export default function ChatFirstBottomTabs({
   navigateToTab,
 }: BottomTabBarProps) {
   const { border, card, foreground, secondary, theme } = useMobileThemeColors();
-  const { bottom, contentInset } = useTabBarLayout();
+  const { bottom } = useTabBarLayout();
   const { enabledApps } = useApps();
   const { selectedAppIds } = useMobileTabLayout(enabledApps);
   const { width: windowWidth } = useWindowDimensions();
@@ -194,7 +193,9 @@ export default function ChatFirstBottomTabs({
     { key: "settings", label: "Settings", routeName: "settings" },
   ];
 
-  const currentRouteName = state.routes[state.index]?.name;
+  const currentRouteName = getCurrentMobileTabRouteName(
+    state.routes[state.index],
+  );
   const activeIndex = Math.max(
     items.findIndex((item) => item.routeName === currentRouteName),
     0,
@@ -306,18 +307,6 @@ export default function ChatFirstBottomTabs({
       pointerEvents="box-none"
       style={{ bottom: 0, left: 0, position: "absolute", right: 0 }}
     >
-      {/* Dissolves scrolling content into the bar instead of ending it at a
-          hard edge. */}
-      <TabBarBackgroundFade
-        style={{
-          bottom: 0,
-          height: contentInset + TAB_BAR_FADE_BLEED,
-          left: 0,
-          position: "absolute",
-          right: 0,
-        }}
-      />
-
       <View
         className="flex-row items-center"
         pointerEvents="box-none"

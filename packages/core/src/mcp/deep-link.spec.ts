@@ -158,6 +158,12 @@ describe("toDesktopOpenUrl", () => {
   it("returns the bare desktop URL when there is no query string", () => {
     expect(toDesktopOpenUrl("/_agent-native/open")).toBe(DESKTOP_OPEN_URL);
   });
+
+  it("targets the nightly channel's scheme when asked", () => {
+    expect(
+      toDesktopOpenUrl("/_agent-native/open?view=inbox", "agentnative-nightly"),
+    ).toBe("agentnative-nightly://open?view=inbox");
+  });
 });
 
 describe("toVsCodeOpenUrl", () => {

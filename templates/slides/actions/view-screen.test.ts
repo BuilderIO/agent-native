@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hashSlideContent } from "../shared/slide-fit";
 
 let mockRows: unknown[] = [];
-let mockCommentRows: unknown[] = [];
+let mockComments: Array<{ id: string; createdAt: string }> = [];
 let navigationState: Record<string, unknown> | null = null;
 let slidesSelectionState: Record<string, unknown> | null = null;
 let slideFitState: Record<string, unknown> | null = null;
@@ -12,17 +12,8 @@ let deckFitState: Record<string, unknown> | null = null;
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
 const whereFn = vi.fn(() => ({ limit: limitFn, orderBy: orderByFn }));
-const fromFn = vi.fn((table: unknown) => ({
-  where: (condition: unknown) =>
-    typeof table === "object" &&
-    table !== null &&
-    Object.values(table).includes("comment_id_col")
-      ? {
-          orderBy: () => ({
-            limit: async () => mockCommentRows,
-          }),
-        }
-      : whereFn(condition),
+const fromFn = vi.fn((_table: unknown) => ({
+  where: (condition: unknown) => whereFn(condition),
 }));
 const selectFn = vi.fn((..._args: unknown[]) => ({ from: fromFn }));
 const mockDb = { select: selectFn };
@@ -36,22 +27,30 @@ vi.mock("../server/db/index.js", () => ({
       ownerEmail: "owner_email_col",
       updatedAt: "updated_at_col",
     },
-    slideComments: {
-      id: "comment_id_col",
-      slideId: "comment_slide_id_col",
-      deckId: "comment_deck_id_col",
-      threadId: "comment_thread_id_col",
-      parentId: "comment_parent_id_col",
-      content: "comment_content_col",
-      quotedText: "comment_quoted_text_col",
-      anchor: "comment_anchor_col",
-      emojiReactionsJson: "comment_reactions_col",
-      authorEmail: "comment_author_email_col",
-      resolved: "comment_resolved_col",
-      createdAt: "comment_created_at_col",
-    },
     deckShares: {},
   },
+}));
+
+vi.mock("../server/lib/slide-comments.js", () => ({
+  listSlideComments: vi.fn(async ({ limit }: { limit: number }) => ({
+    comments: mockComments.slice(0, limit),
+    hasMore: mockComments.length > limit,
+  })),
+  toSlideCommentRows: vi.fn(
+    async (comments: Array<{ id: string; createdAt: string }>) =>
+      comments.map((comment) => ({
+        id: comment.id,
+        thread_id: comment.id,
+        parent_id: null,
+        content: `Text of ${comment.id}`,
+        quoted_text: null,
+        anchor: null,
+        reactions: [],
+        author_email: "alice@example.com",
+        resolved: false,
+        created_at: comment.createdAt,
+      })),
+  ),
 }));
 
 vi.mock("./_tab-state.js", () => ({
@@ -118,7 +117,7 @@ describe("template library screen context", () => {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRows = [];
-  mockCommentRows = [];
+  mockComments = [];
   navigationState = null;
   slidesSelectionState = null;
   slideFitState = null;
@@ -576,18 +575,9 @@ describe("view-screen", () => {
       },
     ];
     navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
-    mockCommentRows = Array.from({ length: 101 }, (_, index) => ({
+    mockComments = Array.from({ length: 101 }, (_, index) => ({
       id: `comment-${index}`,
-      slideId: "slide-a",
-      threadId: `thread-${index}`,
-      parentId: null,
-      content: `Comment ${index}`,
-      quotedText: null,
-      anchor: null,
-      emojiReactionsJson: "{}",
-      authorEmail: "alice@example.com",
-      resolved: false,
-      createdAt: `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`,
+      createdAt: `2026-01-01T01:${String(index % 60).padStart(2, "0")}:00.000Z`,
     }));
 
     const result = await action.run({});
@@ -596,9 +586,26 @@ describe("view-screen", () => {
       "### Comments on current slide (100; more available)",
     );
     expect(result).toContain(
-      'commentsStatus: truncated; showing the first 100. Use list-slide-comments with { deckId: "deck-1", slideId: "slide-a", limit: 100, offset: 100 } to continue.',
+      'commentsStatus: truncated; showing the first 100. Use list-slide-comments with {"deckId":"deck-1","slideId":"slide-a","limit":100,"cursor":{"createdAt":"2026-01-01T01:39:00.000Z","id":"comment-99"}} to continue.',
     );
     expect(result).toContain("commentId: comment-0");
     expect(result).not.toContain("commentId: comment-100");
+  });
+
+  it("lists no comments for a current slide that has no ID", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Deck with an unnamed slide",
+        data: JSON.stringify({ slides: [{ content: "<p>Slide</p>" }] }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    mockComments = [{ id: "deck-comment", createdAt: "2026-01-01T01:00:00Z" }];
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Comments on current slide (0)");
+    expect(result).not.toContain("commentId: deck-comment");
   });
 });

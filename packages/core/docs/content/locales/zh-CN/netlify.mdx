@@ -10,7 +10,7 @@ Netlify 会替你托管应用，因此无需搭建或维护服务器。构建会
 HTTPS 的公共地址。
 
 本指南将从零开始演示如何部署一个独立应用。你将创建应用，为它配置生产数据库和
-身份验证密钥，为它创建一个 Netlify 站点，准备好数据库，然后构建并部署它。
+两个密钥，为它创建一个 Netlify 站点，准备好数据库，然后构建并部署它。
 
 <Callout tone="info">
 
@@ -20,6 +20,8 @@ HTTPS 的公共地址。
 
 你还需要一个 Netlify 账户。请在你自己的电脑上运行本指南中的命令。Netlify CLI 会替你
 把完成的构建上传到 Netlify。
+
+这些命令是为 bash shell 编写的，例如 macOS 或 Linux 上的终端。在 Windows 上，请在 Git Bash 或 WSL 中运行，而不是在 PowerShell 中。
 
 ## 第 1 步：创建应用 {#step-1-create-the-app}
 
@@ -54,6 +56,7 @@ pnpm install
 | -------------------- | ---- | ------------------------------------ |
 | `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
 | `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `A2A_SECRET`         | 是   | 为运行自动化的定时调用签名           |
 | `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
 
 下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
@@ -91,6 +94,14 @@ export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 
 请把生成的值保存在安全的地方，例如密码管理器。每次部署时都使用相同的值。
 
+### 自动化密钥 {#automation-secret}
+
+Netlify 每分钟运行一个定时函数，用来启动应用中到期的自动化和后台工作。它用 `A2A_SECRET` 为每次调用签名，应用会拒绝任何无法验证的调用，所以没有这个密钥，任何自动化都不会运行。只需生成一次，和身份验证密钥放在一起保管，并同样保持不变：
+
+```bash
+export A2A_SECRET="$(openssl rand -hex 32)"
+```
+
 ### 公共 URL {#public-url}
 
 可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
@@ -119,17 +130,21 @@ npx netlify sites:create --name my-app
 Netlify 中共享，因此如果 `my-app` 已被占用，请换一个名称。你不需要 GitHub 仓库，
 因为你会在第 5 步中从自己的电脑部署应用。
 
-把两个必填变量保存到站点的环境中：
+把三个必填变量保存到站点的环境中：
 
 ```bash
 npx netlify env:set DATABASE_URL "$DATABASE_URL"
 
 npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+
+npx netlify env:set A2A_SECRET "$A2A_SECRET"
 ```
 
 每条命令都会读取你在第 2 步中导出的值并保存到 Netlify，因此你无需手动粘贴密钥。
 如果你设置了 `BETTER_AUTH_URL`，请用同样的方式保存它。之后你也可以在 Netlify
 控制台的站点设置中查看和更改这些值。
+
+然后确认站点是公开的。有些 Netlify 团队会把新站点创建为私有，只有已登录的团队成员才能打开。定时函数也通过公共地址访问应用，所以在私有站点上，每次自动化调用都会被拒绝。在 Netlify 控制台中打开站点，进入 **Project configuration** > **General** > **Visitor access**。如果站点是私有的，请把它改为公开。
 
 ## 第 4 步：迁移 {#step-4-migrate}
 
@@ -156,11 +171,13 @@ NITRO_PRESET=netlify pnpm build
 上传构建并发布它：
 
 ```bash
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 `--dir` 和 `--functions` 告诉 CLI 在哪里找到你刚刚构建的静态文件和函数。`--prod`
 会把它们发布到你的生产地址，而不是草稿预览。
+
+`--no-build` 会直接上传这份构建，而不会重新构建。
 
 命令完成后，会输出应用的生产地址。打开它并创建第一个账户。
 
@@ -173,10 +190,18 @@ pnpm migrate:production
 
 NITRO_PRESET=netlify pnpm build
 
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 站点关联和已保存的变量会保持不变，因此你无需重复第 3 步。
+
+## 自动化与空闲的数据库 {#netlify-idle-sweep}
+
+构建会添加一个每分钟运行的定时函数 `agent-native-recurring-jobs`。在有人使用应用期间，每次运行都会检查数据库中是否有到期的自动化和其他后台工作。一旦十分钟内没人打开应用，并且没有任何任务在运行，函数就会停止检查，直到下一个自动化到期，最长一小时。它把这个时间安排保存在 Netlify Blobs 而不是数据库中，所以空闲的应用不会发出任何数据库查询，Neon 免费套餐这类缩容到零的数据库就可以暂停。空闲之后的第一个请求会让检查恢复为每分钟一次。
+
+有些后台工作没有函数能看到的到期时间，例如检查已连接账户的变化，所以在应用空闲时，这类工作每小时只运行一次。设置 `AGENT_NATIVE_IDLE_SWEEP_MAX_MINUTES` 可以修改最长等待时间，范围为 `0` 到 `1440` 分钟。设为 `0` 时每分钟检查一次，数据库会一直保持唤醒。这个变量由运行中的应用读取，所以请用 `npx netlify env:set` 把它保存到站点环境中，然后重新部署。下面介绍的 keep-warm 无论这个设置是什么，都会让数据库保持唤醒。
+
+如果开启 `AGENT_INTEGRATION_DURABLE_DISPATCH`，它的恢复函数会每分钟检查一次数据库，因此数据库会一直保持唤醒。
 
 ## Keep-warm 与缩容到零的数据库 {#netlify-keep-warm}
 
@@ -198,6 +223,13 @@ Keep-warm **默认是关闭的**。让数据库保持唤醒会阻止它暂停，
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 即使设置了 `AGENT_NATIVE_ENABLE_KEEP_WARM`，也会关闭 keep-warm。为兼容旧配置而保留。                                                |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 用 5 段式 cron 表达式更改预热的运行频率，例如 `*/5 * * * *`。默认值是 `* * * * *`，即每分钟一次。无效的 cron 值会**导致构建失败**。 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 跳过后台函数的预热，仍保持服务器函数的预热。预热服务器只是一次请求。预热后台函数会启动一个新容器，并再次检查数据库 schema。         |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | 仅限多应用工作区：每个应用保持预热的服务器实例数，范围 1 到 50。默认值为 `1`。超出范围的值**会使构建失败**。                        |
+
+### 多应用工作区 {#netlify-workspace-keep-warm}
+
+工作区部署读取相同的变量。启用 keep-warm 后，它会生成一个计划函数 `agent-native-workspace-keep-warm`，按计划调用每个应用的 `/<app>/_agent-native/health` 端点。
+
+Netlify 函数实例一次只处理一个请求，而打开一个应用会同时发出一批并行的框架请求。每个找不到空闲实例的请求都会冷启动一个新实例，因此只有一个预热实例对页面加载帮助不大。设置 `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` 可为每个应用发送相应数量的重叠健康检查请求，从而保持相应数量的实例处于预热状态。每次运行会发送 `应用数 x 并发数` 个请求，因此较高的值应搭配较慢的计划，例如 `*/3 * * * *`。
 
 如果你的数据库使用的是免费套餐或其他受限套餐，请让 `AGENT_NATIVE_ENABLE_KEEP_WARM`
 保持未设置。如果你启用了它，请选择更慢的计划，或设置

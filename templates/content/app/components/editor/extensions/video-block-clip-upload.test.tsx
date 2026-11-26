@@ -149,6 +149,8 @@ function render(attrs: Record<string, unknown> = {}) {
   const editor = {
     isEditable: true,
     isDestroyed: false,
+    on: () => {},
+    off: () => {},
     chain: () => {
       const chain = {
         focus: () => chain,
@@ -775,6 +777,33 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(gate?.textContent).toContain("clipEmbed.rateLimited");
       expect(state.toast.error).not.toHaveBeenCalled();
       expect(state.reportWriteFailure).not.toHaveBeenCalled();
+
+      await clickTryAgain();
+      expect(starts()).toHaveLength(2);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the file with its key, trying nothing again, when Content couldn't check whether Clips are on", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Couldn't check"), {
+            errorCode: "clip_embed_unavailable",
+          }),
+        )
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(1);
+      const gate = container.querySelector("[data-clip-upload-gate]");
+      expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
+      expect(gate?.textContent).toContain("clipEmbed.flagUnavailable");
 
       await clickTryAgain();
       expect(starts()).toHaveLength(2);

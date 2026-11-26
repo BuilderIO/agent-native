@@ -7,6 +7,7 @@ import { saveCalendarSettings } from "../server/lib/calendar-settings.js";
 import { isCalendarTimezone } from "../shared/timezone.js";
 
 export default defineAction({
+  mcpTool: false,
   description: "Update calendar settings",
   schema: z.object({
     timezone: z

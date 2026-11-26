@@ -91,6 +91,13 @@ export const agentConfig = z.object({
       env: ["AGENT_MODE"],
       doc: 'Runtime mode. "production" turns off development-only agent behavior.',
     }),
+  interactiveChatTurns: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["AGENT_INTERACTIVE_CHAT_TURNS"],
+      doc: "Mark a chat turn its signed-in owner sent from this app's own page as interactive (foreground) provider work, including the tool calls of the durable run it hands off to, so provider call gates can admit them.",
+    }),
   preferBringYourOwnKey: z
     .boolean()
     .default(false)
@@ -140,7 +147,25 @@ export const agentConfig = z.object({
     .optional()
     .meta({
       env: ["AGENT_RUN_SOFT_TIMEOUT_MS"],
-      doc: "Soft timeout for an agent run, in milliseconds. 0 disables it.",
+      doc: "Soft timeout for an agent run, in milliseconds. 0 disables it. On a hosted (serverless) runtime a foreground run is clamped to hostedRunSoftTimeoutCeilingMs.",
+    }),
+  hostedRunSoftTimeoutCeilingMs: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .meta({
+      env: ["AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS"],
+      doc: "Longest foreground run soft timeout on a hosted runtime, in milliseconds, and the default there when runSoftTimeoutMs is unset. Unset keeps 40000. Raise it on hosts that allow long requests, such as Google Cloud Run.",
+    }),
+  maxAutoContinuesPerTurn: z
+    .number()
+    .int()
+    .positive()
+    .default(3)
+    .meta({
+      env: ["AGENT_MAX_AUTO_CONTINUES_PER_TURN"],
+      doc: "Automatic continuations of one user turn after the server stopped it at its run time limit. Past it the turn waits for the user to press Continue. The turn wall-clock limit still ends a runaway turn.",
     }),
   completedRunRetentionMs: z
     .number()
@@ -174,5 +199,24 @@ export const agentConfig = z.object({
     .meta({
       env: ["AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"],
       doc: "Hard abort for one in-process background automation run, in milliseconds. This is the host's real function budget for scheduled work.",
+    }),
+  noApprovalsEmails: z
+    .array(z.string().email())
+    .default([])
+    .meta({
+      env: ["AGENT_NATIVE_NO_APPROVALS_EMAILS"],
+      doc: "User emails for which no-approvals mode defaults on unless overridden by their stored setting.",
+    }),
+  detailRoutes: z.array(z.string().trim().min(1)).optional().meta({
+    doc: "Optional per-app route patterns (for example `/tasks/:id` or `/apps/:appId/*`) that mark item detail pages for agent navigation checks. When set, pathname matching uses these patterns instead of the generic multi-segment rule; item ID keys and query parameters still apply.",
+  }),
+  sharedMemoryDir: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_MEMORY_DIR"],
+      doc: "Directory shared by local app processes in the desktop app so personal memory written by one app's agent loads in every other app's new chats.",
     }),
 });

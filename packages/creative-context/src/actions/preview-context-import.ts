@@ -17,6 +17,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async (args) => {
     const source = await getContextSource(args.sourceId);
     if (!source) throw new Error("Context source not found or not accessible");

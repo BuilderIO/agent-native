@@ -16,6 +16,8 @@ export const chatThreads = table("chat_threads", {
   pinnedAt: bigint("pinned_at", { mode: "number" }),
   archivedAt: bigint("archived_at", { mode: "number" }),
   shareTokenHash: text("share_token_hash"),
+  editRootId: text("edit_root_id"),
+  editPrefixCount: bigint("edit_prefix_count", { mode: "number" }),
   sourcePlatform: text("source_platform"),
   sourceAppId: text("source_app_id"),
   sourceUrl: text("source_url"),

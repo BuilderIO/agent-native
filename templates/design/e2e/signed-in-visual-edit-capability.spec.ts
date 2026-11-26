@@ -223,7 +223,7 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
       .locator("[data-frame-title]")
       .click();
     const capabilityScreenUrl = page.getByRole("textbox", {
-      name: "Screen URL",
+      name: "Page URL",
     });
     await expect(capabilityScreenUrl).toBeEnabled();
     await capabilityScreenUrl.fill(`${devServerUrl}/?signedInEdit=1`);

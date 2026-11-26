@@ -53,6 +53,7 @@ export default defineAction({
     targetApp: z.string().nullable().optional(),
     startedAt: z.string().datetime().optional(),
   }),
+  mcpTool: "search",
   run: async (args, context) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

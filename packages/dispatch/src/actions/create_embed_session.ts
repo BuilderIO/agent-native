@@ -5,7 +5,7 @@ import { createGrantedDispatchMcpEmbedSession } from "../server/lib/mcp-gateway.
 
 export default defineAction({
   description:
-    "MCP Apps helper: create a browser embed session for a Dispatch-granted app URL. Usually called by an MCP App iframe, not directly by the model.",
+    "Create a one-time browser embed session for a Dispatch-granted app URL, used by embedded MCP App views.",
   schema: z.object({
     app: z
       .string()
@@ -27,5 +27,11 @@ export default defineAction({
   readOnly: false,
   parallelSafe: true,
   mcpApp: { visibility: ["app"] },
-  run: async (args) => createGrantedDispatchMcpEmbedSession(args),
+  run: async (args, context) =>
+    createGrantedDispatchMcpEmbedSession(
+      args,
+      context?.caller === "http" && args.chrome === "minimal"
+        ? { bindBrowserTab: true }
+        : undefined,
+    ),
 });

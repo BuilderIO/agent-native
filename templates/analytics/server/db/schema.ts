@@ -206,6 +206,35 @@ export const analysisRevisions = table(
 
 export const analysisShares = createSharesTable("analysis_shares");
 
+/**
+ * One row per keyed write to a dashboard, analysis, or dashboard folder,
+ * committed in the same transaction as the write, so a retry with the same
+ * idempotency key replays this result instead of writing again.
+ */
+export const analyticsWriteReceipts = table(
+  "analytics_write_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    targetKind: text("target_kind").notNull(),
+    /** Empty for a create whose id the server assigns. */
+    targetId: text("target_id").notNull(),
+    action: text("action").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => ({
+    targetScopeKeyIdx: uniqueIndex(
+      "analytics_write_receipts_target_scope_key_idx",
+    ).on(t.targetKind, t.targetId, t.callerScope, t.idempotencyKey),
+    createdIdx: index("analytics_write_receipts_created_idx").on(t.createdAt),
+  }),
+);
+
 export const bigqueryCache = table("bigquery_cache", {
   key: text("key").primaryKey(),
   sql: text("sql").notNull(),
@@ -1070,6 +1099,31 @@ export const sessionRecordingSessionAssociations = table(
   }),
 );
 
+// recording_id has no foreign key: a report keeps its saved text after
+// replay retention deletes the recording it cites.
+export const sessionReports = table(
+  "session_reports",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull().default(""),
+    keyMoments: text("key_moments").notNull().default("[]"),
+    reproSteps: text("repro_steps").notNull().default("[]"),
+    errorIssueId: text("error_issue_id"),
+    build: text("build"),
+    fromMs: integer("from_ms"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    ...ownableColumns(),
+  },
+  (report) => ({
+    recordingIdx: index("session_reports_recording_idx").on(report.recordingId),
+  }),
+);
+
+export const sessionReportShares = createSharesTable("session_report_shares");
+
 export const sessionReplayChunks = table(
   "session_replay_chunks",
   {
@@ -1212,11 +1266,42 @@ export const analyticsContentCollectionRuns = table(
     costUsd: real("cost_usd"),
     errorCode: text("error_code"),
     errorMessage: text("error_message"),
+    detail: text("detail"),
   },
   (t) => ({
     tenantStepStartedIdx: index(
       "analytics_content_collection_runs_step_idx",
     ).on(t.tenantKey, t.step, t.startedAt),
+  }),
+);
+
+export const analyticsContentSearchQueries = table(
+  "analytics_content_search_queries",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    itemId: text("item_id").notNull(),
+    weekStart: text("week_start").notNull(),
+    query: text("query").notNull(),
+    clicks: real("clicks").notNull(),
+    impressions: real("impressions").notNull(),
+    positionWeighted: real("position_weighted").notNull(),
+    runId: text("run_id").notNull(),
+    collectedAt: text("collected_at").notNull(),
+  },
+  (t) => ({
+    queryUnique: uniqueIndex("analytics_content_search_queries_key_idx").on(
+      t.tenantKey,
+      t.itemId,
+      t.weekStart,
+      t.query,
+    ),
+    tenantWeekIdx: index("analytics_content_search_queries_week_idx").on(
+      t.tenantKey,
+      t.weekStart,
+    ),
   }),
 );
 

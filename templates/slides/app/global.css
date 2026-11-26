@@ -172,6 +172,14 @@ button[title="Open agent sidebar"] {
   --slides-crop-control: 0 0% 0%;
   --slides-crop-control-contrast: 0 0% 100%;
   --slides-thumbnail-shadow: 0 0% 0%;
+  --review-avatar-1: 24 71% 42%;
+  --review-avatar-2: 247 84% 65%;
+  --review-avatar-3: 160 47% 35%;
+  --review-avatar-4: 215 65% 51%;
+  --review-avatar-5: 336 59% 53%;
+  --review-avatar-6: 48 79% 30%;
+  --review-avatar-foreground: 0 0% 100%;
+  --slides-comment-accent: 215 92% 67%;
 }
 
 .light {

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
+// oracle-change: removed the plain click on a label case; the hero-copy click and shield-path click cases still pin direct nested selection
+
 // A single screen's iframe: the body is the screen frame.
 type Surface = { boardSurface?: boolean; readOnly?: boolean };
 type SelectionPacket = {
@@ -122,14 +124,6 @@ const dblclick = (page: Page, point: { x: number; y: number }) => () =>
 
 describe("click depth inside a screen", () => {
   // oracle-change: screen clicks directly select semantic content; the board retains container-first selection.
-  it("a plain click selects the nested layer under the pointer", async () => {
-    await withPage(async (page) => {
-      expect(await selectionAfter(page, click(page, PRIMARY_LABEL))).toBe(
-        "primary-label",
-      );
-    });
-  });
-
   it("the click-only shield path selects the same nested layer", async () => {
     await withPage(async (page) => {
       expect(

@@ -10,6 +10,7 @@ import {
   useRef,
   useMemo,
   type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
 } from "react";
 import * as Y from "yjs";
 
@@ -43,13 +44,10 @@ import {
 } from "../commands/file-creation-history";
 import { createLinkedComponentMutationQueue } from "../commands/linked-component-mutation";
 import { runStartSidebarResize } from "../commands/start-sidebar-resize";
-import {
-  MOTION_DOCK_EXIT_FALLBACK_MS,
-  MOTION_DOCK_EXIT_SETTLE_MS,
-} from "../editor-constants";
 import { reloadRunningAppPreviewFrames } from "../editor-helpers";
 import {
   removeUndoRedoOrderKind,
+  undoRedoOrderKind,
   type UndoRedoOrderKind,
 } from "../editor-state";
 import { focusAgentComposer } from "../effects/focus-agent-composer";
@@ -70,7 +68,17 @@ import {
   mergeLocalContentHistoryFallback,
   removeRecentUndoRedoOrderKinds,
 } from "../history";
+import { handleHostChatState } from "../host-chat-state";
+import {
+  DEFAULT_INSPECTOR_WIDTH,
+  resolveInspectorWidth,
+} from "../inspector-width";
 import { scopedLayerStateId } from "../layer-state-scope";
+import {
+  DEFAULT_DESIGN_LEFT_PANEL,
+  nextDesignLeftPanel,
+  visibleLeftPanel,
+} from "../left-panel-tabs";
 import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../left-sidebar-width";
 import {
   getPendingVisualEditCount,
@@ -86,6 +94,13 @@ import {
   type PendingVisualStyleUndoEntry,
   shouldClearPendingLiveEditsAfterReload,
 } from "../pending-edits";
+import {
+  INSPECTOR_WIDTH_STORAGE_KEY,
+  LEFT_SIDEBAR_WIDTH_STORAGE_KEY,
+  readStoredSidebarWidth,
+  storedSidebarWidthOr,
+  writeStoredSidebarWidth,
+} from "../sidebar-width-storage";
 import { type DesignLeftPanel } from "../types";
 import type { EditorCore } from "./use-editor-core";
 
@@ -119,6 +134,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     cancelPendingStructureVerification,
     minimalUiByDefault,
     minimalUiLocked,
+    mode,
   } = editorCore;
 
   const hostChatGeneratingRef = useRef(false);
@@ -164,20 +180,61 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     "idle",
   );
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
+  const stagedHandoffStartedRef = useRef<(() => void) | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
-  const [activeLeftPanel, setActiveLeftPanel] =
-    useState<DesignLeftPanel | null>("file");
-  const collapseLeftPanel = useCallback(() => setActiveLeftPanel(null), []);
-  // The workbench loads Monaco and follows the selection with source reads, so
-  // it mounts on first open and then stays mounted to keep its state.
-  const codeWorkbenchOpenedRef = useRef(false);
-  if (activeLeftPanel === "code") codeWorkbenchOpenedRef.current = true;
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
-    DEFAULT_LEFT_SIDEBAR_WIDTH,
+  const [designLeftPanel, setDesignLeftPanel] =
+    useState<DesignLeftPanel | null>(DEFAULT_DESIGN_LEFT_PANEL);
+  const activeLeftPanel = visibleLeftPanel(mode, designLeftPanel);
+  const editorModeRef = useRef(mode);
+  editorModeRef.current = mode;
+  const setActiveLeftPanelState = useCallback(
+    (next: SetStateAction<DesignLeftPanel | null>) => {
+      setDesignLeftPanel((current) =>
+        nextDesignLeftPanel(
+          editorModeRef.current,
+          current,
+          typeof next === "function" ? next(current) : next,
+        ),
+      );
+    },
+    [],
   );
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const [floatingTopChromeHeight, setFloatingTopChromeHeight] = useState(0);
+  const setActiveLeftPanel = useCallback(
+    (next: SetStateAction<DesignLeftPanel | null>) => {
+      if (next === "threads") {
+        setCommentsPanelOpen(true);
+        return;
+      }
+      setActiveLeftPanelState(next);
+    },
+    [],
+  );
+  const [leftSidebarWidth, setLeftSidebarWidthState] = useState(() =>
+    storedSidebarWidthOr(
+      readStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY),
+      DEFAULT_LEFT_SIDEBAR_WIDTH,
+    ),
+  );
+  const [storedRightSidebarWidth, setRightSidebarWidthState] = useState(() =>
+    storedSidebarWidthOr(
+      readStoredSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY),
+      DEFAULT_INSPECTOR_WIDTH,
+    ),
+  );
+  const rightSidebarWidth = resolveInspectorWidth(storedRightSidebarWidth);
+  const setLeftSidebarWidth = useCallback((width: number) => {
+    setLeftSidebarWidthState(width);
+    writeStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY, width);
+  }, []);
+  const setRightSidebarWidth = useCallback((width: number) => {
+    setRightSidebarWidthState(width);
+    writeStoredSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY, width);
+  }, []);
   const [minimalUiRequested, setMinimalUi] = useState(minimalUiByDefault);
   const minimalUi = minimalUiRequested || minimalUiLocked;
+  const collapseLeftPanel = useCallback(() => setMinimalUi(true), []);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const leftSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);
@@ -323,83 +380,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
 
-  const [motionDockOpen, setMotionDockOpen] = useState(false);
-  const [motionDockMounted, setMotionDockMounted] = useState(false);
-  const motionDockUnmountTimerRef = useRef<number | null>(null);
-  const motionDockOpenAnimationFrameRef = useRef<number | null>(null);
-  const motionDockOpenRequestedRef = useRef(false);
-  const motionAutosaveTimerRef = useRef<number | null>(null);
-  const motionAutosaveFlushRef = useRef<(() => void) | null>(null);
-  const clearMotionDockUnmountTimer = useCallback(() => {
-    if (motionDockUnmountTimerRef.current === null) return;
-    window.clearTimeout(motionDockUnmountTimerRef.current);
-    motionDockUnmountTimerRef.current = null;
-  }, []);
-  const clearMotionDockOpenAnimationFrame = useCallback(() => {
-    if (
-      typeof window === "undefined" ||
-      motionDockOpenAnimationFrameRef.current === null
-    ) {
-      return;
-    }
-    window.cancelAnimationFrame(motionDockOpenAnimationFrameRef.current);
-    motionDockOpenAnimationFrameRef.current = null;
-  }, []);
-  const clearMotionAutosaveTimer = useCallback(() => {
-    motionAutosaveFlushRef.current = null;
-    if (motionAutosaveTimerRef.current === null) return;
-    window.clearTimeout(motionAutosaveTimerRef.current);
-    motionAutosaveTimerRef.current = null;
-  }, []);
-  const setMotionDockOpenAnimated = useCallback(
-    (open: boolean) => {
-      motionDockOpenRequestedRef.current = open;
-      clearMotionDockUnmountTimer();
-      clearMotionDockOpenAnimationFrame();
-      if (open) {
-        setMotionDockMounted(true);
-        if (typeof window === "undefined") {
-          setMotionDockOpen(true);
-          return;
-        }
-        motionDockOpenAnimationFrameRef.current = window.requestAnimationFrame(
-          () => {
-            motionDockOpenAnimationFrameRef.current =
-              window.requestAnimationFrame(() => {
-                setMotionDockOpen(true);
-                motionDockOpenAnimationFrameRef.current = null;
-              });
-          },
-        );
-        return;
-      }
-
-      setMotionDockOpen(false);
-      if (typeof window === "undefined") {
-        setMotionDockMounted(false);
-        return;
-      }
-      motionDockUnmountTimerRef.current = window.setTimeout(() => {
-        setMotionDockMounted(false);
-        motionDockUnmountTimerRef.current = null;
-      }, MOTION_DOCK_EXIT_FALLBACK_MS);
-    },
-    [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
-  );
-  const handleMotionDockExitComplete = useCallback(() => {
-    // A reopen sets motionDockOpen two frames late; an exit transition ending
-    // in between must not unmount the dock it is reopening.
-    if (motionDockOpenRequestedRef.current) return;
-    clearMotionDockUnmountTimer();
-    if (typeof window === "undefined") {
-      setMotionDockMounted(false);
-      return;
-    }
-    motionDockUnmountTimerRef.current = window.setTimeout(() => {
-      setMotionDockMounted(false);
-      motionDockUnmountTimerRef.current = null;
-    }, MOTION_DOCK_EXIT_SETTLE_MS);
-  }, [clearMotionDockUnmountTimer]);
   const [activeBreakpointWidthState, setActiveBreakpointWidthState] = useState<
     number | undefined
   >(undefined);
@@ -416,18 +396,24 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) =>
       runStartSidebarResize(
         {
-          activeLeftPanel,
           leftSidebarContentRef,
           leftSidebarWidth,
           rightSidebarContentRef,
           rightSidebarWidth,
-          setLeftSidebarWidth,
-          setRightSidebarWidth,
+          setLeftSidebarWidth: setLeftSidebarWidthState,
+          setRightSidebarWidth: setRightSidebarWidthState,
+          commitLeftSidebarWidth: setLeftSidebarWidth,
+          commitRightSidebarWidth: setRightSidebarWidth,
         },
         side,
         event,
       ),
-    [activeLeftPanel, leftSidebarWidth, rightSidebarWidth],
+    [
+      leftSidebarWidth,
+      rightSidebarWidth,
+      setLeftSidebarWidth,
+      setRightSidebarWidth,
+    ],
   );
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -500,6 +486,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
         }
       }
       stagedSourceHandoffRef.current = "idle";
+      stagedHandoffStartedRef.current = undefined;
       setApplyingViaHost(false);
       if (pendingEditSessionDesignIdRef.current === id) {
         clearPendingEditSessionRecovery();
@@ -514,10 +501,14 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       pendingLiveNonStyleUndoStackRef.current = [];
       pendingLiveNonStyleRedoStackRef.current = [];
       historyOrderRef.current = historyOrderRef.current.filter(
-        (kind) => kind !== "pending-style" && kind !== "pending-live",
+        (kind) =>
+          undoRedoOrderKind(kind) !== "pending-style" &&
+          undoRedoOrderKind(kind) !== "pending-live",
       );
       redoOrderRef.current = redoOrderRef.current.filter(
-        (kind) => kind !== "pending-style" && kind !== "pending-live",
+        (kind) =>
+          undoRedoOrderKind(kind) !== "pending-style" &&
+          undoRedoOrderKind(kind) !== "pending-live",
       );
       pendingStructureRedoReplayRef.current = undefined;
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
@@ -627,6 +618,20 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     mediaQuery.addEventListener("change", update);
     return () => mediaQuery.removeEventListener("change", update);
   }, []);
+  const minimalUiRequestedRef = useRef(minimalUiRequested);
+  minimalUiRequestedRef.current = minimalUiRequested;
+  const minimalUiBeforePhoneRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (isMobileViewport) {
+      minimalUiBeforePhoneRef.current = minimalUiRequestedRef.current;
+      setMinimalUi(true);
+      return;
+    }
+    const before = minimalUiBeforePhoneRef.current;
+    if (before === null) return;
+    minimalUiBeforePhoneRef.current = null;
+    setMinimalUi(before);
+  }, [isMobileViewport]);
   useEffect(() => {
     hasActiveSelectionRef.current =
       selectedElement !== null || selectedLayerIdsState.length > 0;
@@ -683,24 +688,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [pendingLayerNameReplayRequest]);
-  useEffect(
-    () => () => {
-      clearMotionDockUnmountTimer();
-      clearMotionDockOpenAnimationFrame();
-    },
-    [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
-  );
-  useEffect(
-    () => () => {
-      const flushPendingMotionAutosave = motionAutosaveFlushRef.current;
-      if (flushPendingMotionAutosave) {
-        flushPendingMotionAutosave();
-        return;
-      }
-      clearMotionAutosaveTimer();
-    },
-    [clearMotionAutosaveTimer],
-  );
   useEffect(() => {
     activeBreakpointWidthStateRef.current = activeBreakpointWidthState;
     invalidateRenderedElementInfo();
@@ -769,26 +756,20 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       }
 
       if (data.type === "design:chatState") {
-        const next = data.data?.state;
-        if (
-          next === "generating" &&
-          stagedSourceHandoffRef.current === "awaiting-start"
-        ) {
-          stagedSourceHandoffRef.current = "running";
-          if (stagedHandoffStartTimerRef.current !== undefined) {
-            window.clearTimeout(stagedHandoffStartTimerRef.current);
-            stagedHandoffStartTimerRef.current = undefined;
-          }
-        }
-        if (hostChatGeneratingRef.current && next !== "generating") {
-          reloadRunningAppPreviewFrames();
-          if (stagedSourceHandoffRef.current === "running") {
-            stagedSourceHandoffRef.current = "idle";
-            setApplyingViaHost(false);
-            if (next === "idle") clearPendingLiveEditStateRef.current();
-          }
-        }
-        hostChatGeneratingRef.current = next === "generating";
+        handleHostChatState({
+          next: data.data?.state,
+          hostChatGeneratingRef,
+          stagedSourceHandoffRef,
+          stagedHandoffStartedRef,
+          clearStartTimer: () => {
+            if (stagedHandoffStartTimerRef.current !== undefined) {
+              window.clearTimeout(stagedHandoffStartTimerRef.current);
+              stagedHandoffStartTimerRef.current = undefined;
+            }
+          },
+          setApplyingViaHost,
+          reloadRunningAppPreviewFrames,
+        });
       }
     }
 
@@ -1260,6 +1241,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     pendingLiveNonStyleRedoStackRef,
     pendingStructureRedoReplayRef,
     stagedSourceHandoffRef,
+    stagedHandoffStartedRef,
     stagedHandoffStartTimerRef,
     applyingViaHost,
     setApplyingViaHost,
@@ -1268,11 +1250,17 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     clearReloadedPendingLiveEdits,
     handleLiveScreenRuntimeReload,
     activeLeftPanel,
+    designLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
-    codeWorkbenchOpenedRef,
+    commentsPanelOpen,
+    setCommentsPanelOpen,
+    floatingTopChromeHeight,
+    setFloatingTopChromeHeight,
     leftSidebarWidth,
+    setLeftSidebarWidth,
     rightSidebarWidth,
+    setRightSidebarWidth,
     minimalUi,
     setMinimalUi,
     isMobileViewport,
@@ -1315,16 +1303,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     latestClipboardMutationContentRef,
     clipboardPasteUndoStackRef,
     clipboardPasteRedoStackRef,
-    motionDockOpen,
-    setMotionDockOpen,
-    motionDockMounted,
-    setMotionDockMounted,
-    motionAutosaveTimerRef,
-    motionAutosaveFlushRef,
-    clearMotionDockUnmountTimer,
-    clearMotionAutosaveTimer,
-    setMotionDockOpenAnimated,
-    handleMotionDockExitComplete,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
     activeBreakpointWidthStateRef,

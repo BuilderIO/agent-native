@@ -3,8 +3,6 @@ import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   compareAndSetAppState,
-  deleteAppState,
-  deleteAppStateByPrefix,
   listAppState,
 } from "@agent-native/core/application-state";
 import {
@@ -21,12 +19,13 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { composeDeepLink } from "../server/lib/compose-deep-link.js";
+import { syncDraftToMailbox } from "../server/lib/draft-mailbox-sync.js";
 import {
+  assertGmailDraftAccount,
   deleteGmailDraft,
   saveGmailDraft,
 } from "../server/lib/gmail-drafts.js";
 import { GmailQuotaRefusedError } from "../server/lib/gmail-quota.js";
-import { updateLocalSavedDraft } from "../server/lib/local-email-drafts.js";
 import {
   readLocalEmails,
   withLocalEmailMutationLock,
@@ -251,11 +250,13 @@ const manageDraftSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+const MAX_DELETE_ATTEMPTS = 3;
+
 async function deletePersistedDraft(args: {
   ownerEmail: string;
   savedDraftId: string;
-  savedDraftBackend?: "gmail" | "local";
-  accountEmail?: string;
+  savedDraftBackend?: "gmail" | "local" | undefined;
+  accountEmail?: string | undefined;
 }): Promise<void> {
   const ownership = await resolveExistingSavedDraftOwnership(args);
 
@@ -277,6 +278,57 @@ async function deletePersistedDraft(args: {
       await writeLocalEmails(args.ownerEmail, remaining);
     }
   });
+}
+
+/**
+ * Removes a compose draft and its mailbox copy, and returns whether there was a
+ * draft to remove. A sync can point the draft at a new mailbox copy while this
+ * runs, so the draft goes only if it's still the one read here. If it changed,
+ * the copy it points at now goes too, on the next pass. The copy goes first, so
+ * if the mailbox refuses, the draft is still there to delete again.
+ */
+async function deleteComposeDraft(id: string): Promise<boolean> {
+  const key = `compose-${id}`;
+  const removedCopies = new Set<string>();
+  for (let attempt = 1; attempt <= MAX_DELETE_ATTEMPTS; attempt += 1) {
+    const storedDraft = await readAppState(key);
+    if (!storedDraft) return attempt > 1;
+    const savedDraftId = storedDraft.savedDraftId;
+    if (
+      typeof savedDraftId === "string" &&
+      savedDraftId &&
+      !removedCopies.has(savedDraftId)
+    ) {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("Unauthenticated");
+      await deletePersistedDraft({
+        ownerEmail,
+        savedDraftId,
+        savedDraftBackend:
+          storedDraft.savedDraftBackend === "gmail" ||
+          storedDraft.savedDraftBackend === "local"
+            ? storedDraft.savedDraftBackend
+            : undefined,
+        accountEmail:
+          typeof storedDraft.savedDraftAccountEmail === "string"
+            ? storedDraft.savedDraftAccountEmail
+            : typeof storedDraft.accountEmail === "string"
+              ? storedDraft.accountEmail
+              : undefined,
+      });
+      removedCopies.add(savedDraftId);
+    }
+    if (await compareAndSetAppState(key, storedDraft, null)) return true;
+  }
+  // Deleting a version this never read could leave behind a mailbox copy a sync
+  // just made.
+  const copyNote = removedCopies.size
+    ? " Its mailbox copy is already gone; the draft's next save makes a new one."
+    : "";
+  fail(
+    `Draft "${id}" kept changing while it was being deleted, so it's still there.${copyNote} Delete it again.`,
+    { errorCode: "draft_busy", statusCode: 409 },
+  );
 }
 
 async function readConfiguredSignature(): Promise<string | undefined> {
@@ -397,6 +449,81 @@ async function storeComposeDraft(
   }
 }
 
+/**
+ * The draft as stored now, or `known` if it's gone or can't be read. `reread` says
+ * which: when it `failed`, `known` may not be the newest version.
+ */
+async function latestStoredDraft(
+  id: string,
+  known: ComposeState,
+): Promise<{ draft: ComposeState; reread: "found" | "gone" | "failed" }> {
+  try {
+    const stored = await readAppState(`compose-${id}`);
+    return stored
+      ? { draft: stored as unknown as ComposeState, reread: "found" }
+      : { draft: known, reread: "gone" };
+  } catch (error) {
+    console.error(`[manage-draft] draft ${id} reread failed:`, error);
+    return { draft: known, reread: "failed" };
+  }
+}
+
+/**
+ * Brings the mailbox copy of a draft this call stored up to date, and returns
+ * the update result for the draft as stored after that. Mail's copy is already
+ * saved, so a mailbox failure doesn't fail the update: the result says the copy
+ * is pending, and the next save of the draft brings it up to date.
+ */
+async function updatedDraftResult(
+  id: string,
+  draft: ComposeState,
+  message: string,
+) {
+  const ownerEmail = getRequestUserEmail();
+  const sync = ownerEmail
+    ? await syncDraftToMailbox({ ownerEmail, id })
+    : ({ status: "unavailable" } as const);
+  const { draft: current, reread } =
+    sync.status === "synced"
+      ? { draft: sync.draft, reread: "found" as const }
+      : await latestStoredDraft(id, draft);
+  // A delete that landed while the copy was pending outranks the pending copy.
+  const mailbox = reread === "gone" ? ({ status: "gone" } as const) : sync;
+  const deepLink = composeDeepLink(current);
+  const note =
+    mailbox.status === "pending"
+      ? ` Its copy in the mailbox's drafts isn't updated yet: ${mailbox.message} Mail's copy is the one that sends.`
+      : mailbox.status === "gone"
+        ? " It has since been deleted."
+        : "";
+  const leftovers =
+    "leftoverDraftIds" in sync && sync.leftoverDraftIds
+      ? ` A spare copy Mail made (${sync.leftoverDraftIds.join(", ")}) couldn't be removed and stays in the mailbox's drafts.`
+      : "";
+  const staleness =
+    reread === "failed"
+      ? " Mail couldn't read the draft back, so this shows what this update stored; a newer save may have landed since."
+      : "";
+  return {
+    id,
+    draft: current,
+    deepLink,
+    ...draftCardEmbed(current, deepLink),
+    revision: saveRevisionOf(current),
+    mailboxSync:
+      mailbox.status === "synced"
+        ? {
+            status: mailbox.status,
+            ...(mailbox.leftoverDraftIds
+              ? { leftoverDraftIds: mailbox.leftoverDraftIds }
+              : {}),
+          }
+        : mailbox,
+    message: `${message}.${note}${leftovers}${staleness}`,
+    change: draftChange("updated", current, deepLink),
+  };
+}
+
 export default defineAction({
   searchHints: [
     "reply",
@@ -447,26 +574,10 @@ export default defineAction({
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("Unauthenticated");
       const storedDrafts = await listAppState("compose-");
-      for (const { value } of storedDrafts) {
-        const savedDraftId = value.savedDraftId;
-        if (typeof savedDraftId !== "string" || !savedDraftId) continue;
-        await deletePersistedDraft({
-          ownerEmail,
-          savedDraftId,
-          savedDraftBackend:
-            value.savedDraftBackend === "gmail" ||
-            value.savedDraftBackend === "local"
-              ? value.savedDraftBackend
-              : undefined,
-          accountEmail:
-            typeof value.savedDraftAccountEmail === "string"
-              ? value.savedDraftAccountEmail
-              : typeof value.accountEmail === "string"
-                ? value.accountEmail
-                : undefined,
-        });
+      let count = 0;
+      for (const { key } of storedDrafts) {
+        if (await deleteComposeDraft(key.slice("compose-".length))) count += 1;
       }
-      const count = await deleteAppStateByPrefix("compose-");
       return `Deleted ${count} draft(s)`;
     }
 
@@ -476,38 +587,12 @@ export default defineAction({
         fail(`Invalid draft ID "${args.id}"`, {
           errorCode: "draft_invalid_id",
         });
-      const storedDraft = await readAppState(`compose-${safeId}`);
-      if (!storedDraft)
+      if (!(await deleteComposeDraft(safeId))) {
         fail(`Draft "${safeId}" not found`, {
           errorCode: "draft_not_found",
           statusCode: 404,
-        });
-      const savedDraftId = storedDraft.savedDraftId;
-      if (typeof savedDraftId === "string" && savedDraftId) {
-        const ownerEmail = getRequestUserEmail();
-        if (!ownerEmail) throw new Error("Unauthenticated");
-        await deletePersistedDraft({
-          ownerEmail,
-          savedDraftId,
-          savedDraftBackend:
-            storedDraft.savedDraftBackend === "gmail" ||
-            storedDraft.savedDraftBackend === "local"
-              ? storedDraft.savedDraftBackend
-              : undefined,
-          accountEmail:
-            typeof storedDraft.savedDraftAccountEmail === "string"
-              ? storedDraft.savedDraftAccountEmail
-              : typeof storedDraft.accountEmail === "string"
-                ? storedDraft.accountEmail
-                : undefined,
         });
       }
-      const deleted = await deleteAppState(`compose-${safeId}`);
-      if (!deleted)
-        fail(`Draft "${safeId}" not found`, {
-          errorCode: "draft_not_found",
-          statusCode: 404,
-        });
       return `Deleted draft ${safeId}`;
     }
 
@@ -666,17 +751,12 @@ export default defineAction({
             hasSameAttachments(current.attachments, args.attachments)),
       });
       if (decision === "already_applied") {
-        const draft = storedDraft as unknown as ComposeState;
-        const deepLink = composeDeepLink(draft);
-        return {
-          id: safeId,
-          draft,
-          deepLink,
-          ...draftCardEmbed(draft, deepLink),
-          revision: saveRevisionOf(draft),
-          message: `Draft ${safeId} already has this update`,
-          change: draftChange("updated", draft, deepLink),
-        };
+        // A retry also retries the mailbox copy an earlier attempt left behind.
+        return updatedDraftResult(
+          safeId,
+          storedDraft as unknown as ComposeState,
+          `Draft ${safeId} already has this update`,
+        );
       }
       const draft = { ...storedDraft } as unknown as ComposeState;
       for (const key of [
@@ -739,6 +819,11 @@ export default defineAction({
           statusCode: 400,
         });
       }
+      if (!ownership && args.accountEmail) {
+        // Checked now: the sync runs after this is stored, and only says pending.
+        if (!ownerEmail) throw new Error("Unauthenticated");
+        await assertGmailDraftAccount(args.accountEmail, ownerEmail);
+      }
       for (const key of DRAFT_UPDATE_FIELDS) {
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
@@ -750,99 +835,33 @@ export default defineAction({
           draft.attachments,
         );
       }
-      const accountEmail =
-        ownership?.backend === "gmail"
-          ? ownership.accountEmail
-          : (args.accountEmail ??
-            (draft.savedDraftId ? draft.accountEmail : undefined));
-      if (!draft.savedDraftId && args.accountEmail === undefined) {
+      if (ownership) {
+        // Stored, so the mailbox sync needn't look the owner up again.
+        draft.savedDraftBackend = ownership.backend;
+        if (ownership.backend === "gmail") {
+          draft.savedDraftAccountEmail = ownership.accountEmail;
+          draft.accountEmail = ownership.accountEmail;
+        } else {
+          delete draft.savedDraftAccountEmail;
+        }
+      } else if (args.accountEmail === undefined) {
+        // With no mailbox copy yet, the sync makes one in the default account.
         delete draft.accountEmail;
       }
-      if (ownership?.backend === "local" && ownerEmail) {
-        await updateLocalSavedDraft({
-          ownerEmail,
-          draftId: draft.savedDraftId!,
-          to: draft.to || "",
-          cc: draft.cc ?? "",
-          bcc: draft.bcc ?? "",
-          subject: draft.subject || "",
-          body: draft.body || "",
-          replyToId: draft.replyToId,
-          replyToThreadId: draft.replyToThreadId,
-          attachments: args.attachments ? draft.attachments : undefined,
-        });
-        draft.savedDraftBackend = "local";
-        delete draft.savedDraftAccountEmail;
-      }
 
-      // A local draft was saved above and skips this, so this save is still
-      // the call's first write.
-      const savedGmailDraft =
-        ownership?.backend === "gmail" || !ownership
-          ? ownerEmail
-            ? await beforeFirstWrite(() =>
-                saveGmailDraft({
-                  ownerEmail,
-                  accountEmail,
-                  draftId:
-                    ownership?.backend === "gmail"
-                      ? draft.savedDraftId
-                      : undefined,
-                  to: draft.to || "",
-                  cc: draft.cc,
-                  bcc: draft.bcc,
-                  subject: draft.subject || "",
-                  body: draft.body || "",
-                  attachments: draft.attachments,
-                  replyToId: draft.replyToId,
-                  replyToThreadId: draft.replyToThreadId,
-                }),
-              )
-            : null
-          : null;
-      if (ownership?.backend === "gmail" && !savedGmailDraft) {
-        throw new Error("Could not save the existing Gmail draft.");
-      }
-      if (savedGmailDraft) {
-        draft.savedDraftId = savedGmailDraft.draftId;
-        draft.savedDraftBackend = "gmail";
-        draft.savedDraftAccountEmail = savedGmailDraft.accountEmail;
-        draft.accountEmail = savedGmailDraft.accountEmail;
-      }
-      const newGmailDraft =
-        savedGmailDraft?.created && ownerEmail
-          ? {
-              ownerEmail,
-              accountEmail: savedGmailDraft.accountEmail,
-              draftId: savedGmailDraft.draftId,
-            }
-          : null;
-      // The revision was checked before Gmail. This catches a save in between.
-      if (!(await storeComposeDraft(draft, storedDraft, newGmailDraft))) {
-        // Nothing points at a Gmail draft this call made, and a redo makes another.
-        const discarded =
-          !newGmailDraft || (await discardUnstoredGmailDraft(newGmailDraft));
+      // Mail's copy is stored first, and only over the revision checked above.
+      // The mailbox copy then follows what Mail stores, so a save that loses
+      // here has written nothing anywhere.
+      if (!(await storeComposeDraft(draft, storedDraft, null))) {
         const latest = await readAppState(`compose-${safeId}`);
         throw saveConflict(
           "draft",
           latest,
           latest ? saveRevisionOf(latest) : null,
-          discarded
-            ? undefined
-            : { leftoverGmailDraftId: newGmailDraft.draftId },
         );
       }
       countSaveOutcome("draft", "written");
-      const deepLink = composeDeepLink(draft);
-      return {
-        id: safeId,
-        draft,
-        deepLink,
-        ...draftCardEmbed(draft, deepLink),
-        revision: saveRevisionOf(draft),
-        message: `Updated draft ${safeId}`,
-        change: draftChange("updated", draft, deepLink),
-      };
+      return updatedDraftResult(safeId, draft, `Updated draft ${safeId}`);
     }
 
     return fail(`Unknown action "${String(action)}"`, {

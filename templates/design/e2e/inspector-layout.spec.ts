@@ -1,7 +1,14 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { waitForEditorBoot } from "./editor-boot";
-import { appPath, gotoEditor, readSeedDesignId, selectByText } from "./helpers";
+import {
+  appPath,
+  EDIT_MODE_BUTTON,
+  gotoEditor,
+  INTERACT_MODE_BUTTON,
+  readSeedDesignId,
+  selectByText,
+} from "./helpers";
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
@@ -91,12 +98,12 @@ test("hides the inspector in Interact and brings it back in Design", async ({
   await gotoEditor(page, designId);
   await expect(inspector(page)).toBeVisible();
 
-  await page.locator('[data-design-mode="interact"]').click();
+  await page.locator(INTERACT_MODE_BUTTON).click();
   await expect(
     page.locator('[data-design-chrome-region="right-panel"]'),
   ).toHaveCount(0);
 
-  await page.locator('[data-design-mode="edit"]').click();
+  await page.locator(EDIT_MODE_BUTTON).click();
   await expect(inspector(page)).toBeVisible();
 });
 

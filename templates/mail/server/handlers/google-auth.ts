@@ -14,8 +14,11 @@ import {
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
+  hasGoogleAuthIdentity,
+  oauthCallbackOwner,
   resolveOAuthOwner,
   createOAuthSession,
+  recordBuilderSignupBinding,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
@@ -26,8 +29,10 @@ import {
   setDesktopExchange,
   setDesktopExchangeError,
   runWithRequestContext,
+  resolveLocaleFromRequest,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { resolveNativeAuthCopy } from "@agent-native/core/shared";
 import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
@@ -51,12 +56,19 @@ import {
 } from "../lib/google-auth.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
+class GoogleProfileUnreadableError extends Error {
+  constructor() {
+    super("Google profile lookup failed during Builder signup");
+    this.name = "GoogleProfileUnreadableError";
+  }
+}
+
 const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
   "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
 
 async function syncGoogleSignInIdentity(
   email: string,
-): Promise<boolean | undefined> {
+): Promise<{ isNewUser: boolean; emailVerified: boolean } | undefined> {
   let client;
   try {
     client = await getClient(email);
@@ -77,12 +89,22 @@ async function syncGoogleSignInIdentity(
   }
   const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
   if (!accountId) return undefined;
-  return ensureGoogleAuthIdentity({
+  const isNewUser = await ensureGoogleAuthIdentity({
     email,
     accountId,
     name: typeof profile.name === "string" ? profile.name : undefined,
     image: typeof profile.picture === "string" ? profile.picture : undefined,
   });
+  return { isNewUser, emailVerified: profile.verified_email === true };
+}
+
+async function isLinkedGoogleUser(email: string): Promise<boolean> {
+  try {
+    return (await hasGoogleAuthIdentity(email)) === true;
+  } catch (error) {
+    console.warn("[auth] Google identity lookup failed:", error);
+    return false;
+  }
 }
 
 function oauthRedirectResponse(url: string) {
@@ -145,7 +167,17 @@ function googleOAuthErrorResponse(
   error: any,
   opts: { desktop?: boolean; flowId?: string; prefix?: string } = {},
 ) {
-  const payload = googleOAuthErrorPayload(error, opts.prefix);
+  const payload =
+    error instanceof GoogleProfileUnreadableError
+      ? {
+          message: resolveNativeAuthCopy(
+            resolveLocaleFromRequest({
+              acceptLanguage: getHeader(event, "accept-language") ?? null,
+            }).locale,
+          ).failedToConnect,
+          code: "google_profile_unreadable",
+        }
+      : googleOAuthErrorPayload(error, opts.prefix);
   if (opts.desktop && opts.flowId) {
     setDesktopExchangeError(opts.flowId, payload);
     return oauthDesktopExchangePage("Returning to Mail...");
@@ -216,6 +248,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
+      builderSignupAttemptId:
+        typeof q.builder_signup_attempt === "string"
+          ? q.builder_signup_attempt.slice(0, 128)
+          : undefined,
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
@@ -297,12 +333,14 @@ export const handleGoogleCallback = defineEventHandler(
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
+        state,
       );
 
       const email = await exchangeCode(code, undefined, redirectUri, owner);
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
       let isNewUser: boolean | undefined;
+      let googleEmailVerified = false;
       track(
         "account_connected",
         {
@@ -315,7 +353,16 @@ export const handleGoogleCallback = defineEventHandler(
         { userId: owner ?? email },
       );
       if (!isAddAccount) {
-        isNewUser = await syncGoogleSignInIdentity(email);
+        const identity = await syncGoogleSignInIdentity(email);
+        if (
+          !identity &&
+          typeof state.builderSignupAttemptId === "string" &&
+          !(await isLinkedGoogleUser(email))
+        ) {
+          throw new GoogleProfileUnreadableError();
+        }
+        isNewUser = identity?.isNewUser;
+        googleEmailVerified = identity?.emailVerified === true;
       }
 
       try {
@@ -372,6 +419,16 @@ export const handleGoogleCallback = defineEventHandler(
               isNewUser,
             },
           });
+
+      if (isNewUser && googleEmailVerified && sessionToken) {
+        await recordBuilderSignupBinding(
+          event,
+          state.builderSignupAttemptId,
+          "google",
+          email,
+          { email, token: sessionToken, emailVerified: true },
+        );
+      }
 
       if (flowId && sessionToken) {
         if (!desktopVerifierHash) {
@@ -534,9 +591,9 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         );
       }
 
-      const { redirectUri, owner: stateOwner } = state;
+      const { redirectUri } = state;
 
-      const ownerEmail = session?.email || stateOwner;
+      const ownerEmail = oauthCallbackOwner(session?.email, state);
       if (!ownerEmail) {
         return oauthErrorPage("Session expired. Please log in again.");
       }

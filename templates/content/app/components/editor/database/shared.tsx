@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   ContentDatabaseItem,
   ContentDatabaseViewType,
@@ -61,6 +62,7 @@ import {
   useDeleteContentSpace,
 } from "@/hooks/use-content-spaces";
 import { useDocument } from "@/hooks/use-documents";
+import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { cn } from "@/lib/utils";
 
 import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
@@ -479,6 +481,7 @@ export function RowActionsCell({
   onDeletedPreviewItem?: (item: ContentDatabaseItem) => boolean;
   onOpenPage: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
   const { data: databaseDocument } = useDocument(databaseDocumentId);
@@ -526,7 +529,10 @@ export function RowActionsCell({
     } catch (err) {
       toast.error("Failed to duplicate row", {
         description:
-          err instanceof Error ? err.message : "Something went wrong",
+          workspaceReferenceErrorMessage(
+            err,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ?? (err instanceof Error ? err.message : "Something went wrong"),
       });
     }
   }
@@ -564,7 +570,10 @@ export function RowActionsCell({
           : dbText("failedToRemoveRowFromDatabase"),
         {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            workspaceReferenceErrorMessage(
+              err,
+              t("sidebar.workspaceReferenceProtected"),
+            ) ?? (err instanceof Error ? err.message : "Something went wrong"),
         },
       );
     }

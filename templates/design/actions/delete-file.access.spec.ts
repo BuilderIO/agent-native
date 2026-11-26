@@ -45,7 +45,6 @@ vi.mock(
 );
 
 vi.mock("../server/lib/design-versions.js", () => ({
-  cleanupPreparedDesignVersionCheckpoint: vi.fn(),
   persistPreparedDesignVersionCheckpoint: vi.fn(),
   prepareDesignVersionBeforeAgentEditInVersionLock: vi.fn(async () => null),
   snapshotDesignBeforeAgentEditInVersionLock: vi.fn(),
@@ -219,7 +218,6 @@ function makeDatabase() {
               data_operation_revisions: "{}",
               live_collaboration_enabled: false,
               project_type: "prototype",
-              design_system_id: null,
               created_at: "2026-09-19T00:00:00.000Z",
               updated_at: design.updatedAt,
               owner_email: design.ownerEmail,

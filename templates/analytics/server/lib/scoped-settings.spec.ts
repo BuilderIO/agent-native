@@ -57,6 +57,7 @@ describe("migrateGlobalSettingsPrefixesToUser", () => {
     );
     expect(settingsMock.deleteSetting).toHaveBeenCalledWith(
       "analytics:dashboard",
+      { global: true },
     );
   });
 

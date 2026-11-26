@@ -51,6 +51,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import {
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
@@ -66,6 +67,7 @@ import type {
   DocumentUpdateResponse,
   LiveCopyBodySave,
 } from "../shared/api.js";
+import { editorBlockIdsForSavedText } from "../shared/block-identity-ids.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
@@ -138,10 +140,6 @@ export interface DocumentUpdateSupersededResponse {
 
 type BrowserDocumentUpdateResponse = DocumentUpdateResponse & {
   browserSaveAttempt?: BrowserSaveAttemptConfirmation;
-  bodyIntentOutcome?: {
-    status: "applied" | "displaced-preserved";
-    displacedCheckpointId?: string;
-  };
 };
 
 export interface DocumentUpdatePreservationResponse {
@@ -238,6 +236,23 @@ function documentConflictResponse(
     id: doc.id,
     document: documentUpdateResponse(doc, accessRole, isFavorite),
   };
+}
+
+// A script or automation treats any answered request as a save.
+function staleBaseRevisionError(doc: {
+  bodyRevision: number;
+  content: string;
+}) {
+  return new ActionContractError(
+    "The page changed after it was read; nothing was saved. Read it again with get-document and retry with its baseRevision.",
+    {
+      errorCode: "DOCUMENT_REVISION_CONFLICT",
+      details: {
+        currentRevision: documentRevisionToken(doc.bodyRevision, doc.content),
+      },
+      statusCode: 409,
+    },
+  );
 }
 
 function isFavoriteOnlyUpdate(args: {
@@ -604,7 +619,7 @@ const updateDocumentAction = defineAction({
       .string()
       .optional()
       .describe(
-        "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
+        "Opaque body revision from get-document; guards content saves without treating metadata changes as body conflicts. Scripts, the CLI and automations send it, or baseUpdatedAt, with content.",
       ),
     authoredBaseRevision: z.string().optional(),
     // Body copies take any length `content` takes. A tighter cap here refused
@@ -648,6 +663,15 @@ const updateDocumentAction = defineAction({
         "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
       ),
     editorSnapshotContent: z.string().optional(),
+    editorBlockIds: z
+      .object({
+        shape: z.string().min(1).max(100),
+        idsByPath: z.record(z.string().max(200), z.string().min(1).max(200)),
+      })
+      .optional()
+      .describe(
+        "The browser editor's block IDs by path, so links to its blocks survive the save",
+      ),
     browserSaveAttemptId: z
       .string()
       .min(1)
@@ -797,6 +821,7 @@ const updateDocumentAction = defineAction({
         ctx?.caller === "mcp" ||
         ctx?.caller === "webmcp" ||
         ctx?.caller === "a2a";
+      const trustsEditorBlockIds = !ctx || ctx.caller === "frontend";
       const respond = (result: DocumentUpdateActionResponse, owner: string) =>
         scopeDocumentAudit(
           isExternalCaller ? documentMetadataResponse(result) : result,
@@ -813,13 +838,41 @@ const updateDocumentAction = defineAction({
           { errorCode: "INVALID_BROWSER_SAVE_ATTEMPT", statusCode: 400 },
         );
       }
-      if (isExternalCaller && args.content !== undefined) {
+      const isOutsideBodyWrite =
+        args.content !== undefined &&
+        ctx !== undefined &&
+        ctx.caller !== "frontend" &&
+        !isScopedWidgetDocumentWriter(ctx, id);
+      if (isOutsideBodyWrite) {
+        if (isExternalCaller) {
+          throw new ActionContractError(
+            "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
+            {
+              errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+              statusCode: 400,
+            },
+          );
+        }
+        // Without a base, the body replaces whatever was saved since the
+        // caller read the page.
+        if (
+          args.baseRevision === undefined &&
+          args.baseUpdatedAt === undefined
+        ) {
+          throw new ActionContractError(
+            "Replacing a document body from outside the app requires baseRevision from get-document, or that read's updatedAt as baseUpdatedAt.",
+            { errorCode: "BASE_REVISION_REQUIRED", statusCode: 400 },
+          );
+        }
+      }
+      const parsedBaseRevision =
+        args.baseRevision === undefined
+          ? null
+          : parseDocumentRevisionToken(args.baseRevision);
+      if (args.baseRevision !== undefined && !parsedBaseRevision) {
         throw new ActionContractError(
-          "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
-          {
-            errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
-            statusCode: 400,
-          },
+          "baseRevision is not a valid document revision token.",
+          { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
         );
       }
 
@@ -834,6 +887,16 @@ const updateDocumentAction = defineAction({
         : await assertDocumentMutationAccess(id, "editor", "id");
       let existing = access.resource;
       let ownerEmail = existing.ownerEmail as string;
+      // A write that changes nothing never reaches the commit's check.
+      if (
+        isOutsideBodyWrite &&
+        (args.baseRevision !== undefined
+          ? args.baseRevision !==
+            documentRevisionToken(existing.bodyRevision, existing.content)
+          : args.baseUpdatedAt !== existing.updatedAt)
+      ) {
+        throw staleBaseRevisionError(existing);
+      }
 
       const observeSaveBase = (snapshot: {
         bodyRevision: number;
@@ -915,7 +978,7 @@ const updateDocumentAction = defineAction({
         ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
         : parseDocumentFavorite(existing.isFavorite);
       const browserSavePayload = args.browserSaveAttemptId
-        ? browserSavePayloadDigest(args)
+        ? browserSavePayloadDigest({ ...args, editorBlockIds: undefined })
         : undefined;
       const authoredMetadataHash = authoredBase
         ? browserSavePayloadDigest({
@@ -978,7 +1041,12 @@ const updateDocumentAction = defineAction({
       if (!favoriteOnly) assertEditableDocument(existing);
 
       const normalizeAuthoredContent = (value: string) => {
-        if (args.preserveLeadingTitleHeading) return value;
+        if (
+          args.preserveLeadingTitleHeading ||
+          existing.sourceMode === "local-files"
+        ) {
+          return value;
+        }
         const titleToCheck = args.title || existing.title;
         if (!titleToCheck) return value;
         const h1Match = value.match(/^#\s+(.+?)(\r?\n|$)/);
@@ -991,12 +1059,19 @@ const updateDocumentAction = defineAction({
         args.content === undefined
           ? undefined
           : normalizeAuthoredContent(args.content);
+      const editorContent = content;
       const authoredCandidateContent =
         args.authoredCandidateContent === undefined
           ? undefined
           : normalizeAuthoredContent(args.authoredCandidateContent);
       let staleBodySave: "stale_builder_image" | "stale_empty_body" | undefined;
-      if (content !== undefined && !args.preserveLeadingTitleHeading) {
+      // An outside write proves freshness with its base. Keeping the stored
+      // body for it would answer its dropped text as a save.
+      if (
+        content !== undefined &&
+        !args.preserveLeadingTitleHeading &&
+        !isOutsideBodyWrite
+      ) {
         if (
           content.includes('componentName="Image"') &&
           existing.content.includes("![")
@@ -1090,10 +1165,11 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
-      if (titleChanged || contentChanged || descriptionChanged) {
-        assertSourceAllowsPageEdit(existing);
+      const textChanged = titleChanged || contentChanged || descriptionChanged;
+      if (textChanged) assertSourceAllowsPageEdit(existing);
+      // The page's level keeps its icon out of agents' reach with its text.
+      if (textChanged || iconChanged)
         assertAgentsMayEditPageText(existing, ctx);
-      }
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1207,7 +1283,7 @@ const updateDocumentAction = defineAction({
           // still gets its receipt. The page lock above makes this see Trash.
           if (!favoriteOnly) assertEditableDocument(existing);
           // Again under the page lock, which a person's switch has to wait for.
-          if (titleChanged || contentChanged || descriptionChanged) {
+          if (textChanged || iconChanged) {
             assertAgentsMayEditPageText(existing, ctx);
           }
           if (settlesPreviewDraft) {
@@ -1550,15 +1626,6 @@ const updateDocumentAction = defineAction({
             lockedContentChanged ||
             lockedDescriptionChanged ||
             lockedIconChanged;
-          const parsedBaseRevision = args.baseRevision
-            ? parseDocumentRevisionToken(args.baseRevision)
-            : null;
-          if (args.baseRevision && !parsedBaseRevision) {
-            throw new ActionContractError(
-              "baseRevision is not a valid document revision token.",
-              { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
-            );
-          }
           if (
             lockedContentChanged &&
             args.baseRevision &&
@@ -1598,6 +1665,11 @@ const updateDocumentAction = defineAction({
             updates.description = args.description?.trim();
           if (lockedContentChanged) {
             assertNoNewlySharedVideoIds(
+              historyBefore.content,
+              content as string,
+            );
+            assertInteractiveHtmlBlocks(
+              ctx,
               historyBefore.content,
               content as string,
             );
@@ -1673,6 +1745,16 @@ const updateDocumentAction = defineAction({
             },
             afterWrite: async () => {
               if (lockedContentChanged && content !== undefined) {
+                const editorIds =
+                  args.editorBlockIds &&
+                  trustsEditorBlockIds &&
+                  editorContent !== undefined
+                    ? editorBlockIdsForSavedText({
+                        editorMarkdown: editorContent,
+                        savedMarkdown: content,
+                        ids: args.editorBlockIds,
+                      })
+                    : undefined;
                 for (const field of primaryBlocksFields) {
                   await persistBlocksFieldIdentity({
                     db: tx as unknown as ReturnType<typeof getDb>,
@@ -1681,6 +1763,7 @@ const updateDocumentAction = defineAction({
                     propertyId: field.propertyId,
                     previousMarkdown: historyBefore.content,
                     markdown: content,
+                    ...(editorIds ? { editorIds } : {}),
                     now: updatedAt,
                   });
                 }
@@ -1984,6 +2067,7 @@ const updateDocumentAction = defineAction({
                 { errorCode: "DOCUMENT_UPDATE_CONFLICT", statusCode: 409 },
               );
             }
+            if (isOutsideBodyWrite) throw staleBaseRevisionError(current);
             return respond(
               documentConflictResponse(
                 current,

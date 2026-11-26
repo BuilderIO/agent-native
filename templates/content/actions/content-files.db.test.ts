@@ -3,10 +3,20 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// The real space check, wrapped so one test can make it fail once.
+const spaceAccess = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock("./_content-space-access.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_content-space-access.js")>();
+  spaceAccess.check.mockImplementation(actual.resolveContentSpaceAccess);
+  return { ...actual, resolveContentSpaceAccess: spaceAccess.check };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -15,6 +25,11 @@ const TEST_DB_PATH = join(
 const OWNER = "files-owner@example.com";
 const ORG_ID = "files-org";
 const VIEWER = "files-viewer@example.com";
+
+// What the browser's Files tree sends when someone reads it.
+function readerContext(userEmail: string): ActionRunContext {
+  return { userEmail, caller: "frontend" };
+}
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -130,6 +145,51 @@ describe("Content Files membership reconciliation", () => {
       message: 'Database "missing-personal-view-database" not found',
       statusCode: 404,
     });
+  });
+
+  it("refuses a Files tree read from outside its space with a typed not found, so the browser drops what it showed", async () => {
+    const queryContentDatabaseItemsAction = (
+      await import("./query-content-database-items.js")
+    ).default;
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const read = {
+      databaseId: filesDatabase.id,
+      navigation: { parentId: null },
+    };
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        queryContentDatabaseItemsAction.run(read, readerContext(OWNER)),
+      ),
+    ).resolves.toHaveProperty("items");
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        queryContentDatabaseItemsAction.run(read, readerContext(VIEWER)),
+      ),
+    ).rejects.toMatchObject({
+      message: `Database "${filesDatabase.id}" not found`,
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  });
+
+  it("keeps a Files access check that fails, rather than refuses, a server error", async () => {
+    const queryContentDatabaseItemsAction = (
+      await import("./query-content-database-items.js")
+    ).default;
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const outage = new Error("connection reset");
+    spaceAccess.check.mockRejectedValueOnce(outage);
+
+    // A refusal would clear the reader's Files tree; an outage must not.
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        queryContentDatabaseItemsAction.run(
+          { databaseId: filesDatabase.id, navigation: { parentId: null } },
+          readerContext(VIEWER),
+        ),
+      ),
+    ).rejects.toBe(outage);
   });
 
   it("removes the retired Parent default from legacy personal Files views", async () => {
@@ -1317,6 +1377,116 @@ describe("Content Files membership reconciliation", () => {
           "hidden-org-page",
         ]),
       );
+  });
+
+  it("files another member's private legacy page only for people it is shared with, never for an organization role", async () => {
+    const orgId = "files-admin-org";
+    const admin = "files-org-admin@example.com";
+    const member = "files-private-member@example.com";
+    const pageId = "member-private-legacy-org";
+    const sharedPageId = "member-shared-legacy-org";
+    const pageIds = [pageId, sharedPageId];
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [orgId, "Admin Org", admin, Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5), ($6, $2, $7, $8, $5)",
+      args: [
+        "files-admin-org-admin",
+        orgId,
+        admin,
+        "admin",
+        Date.now(),
+        "files-admin-org-member",
+        member,
+        "member",
+      ],
+    });
+    for (const email of [admin, member]) {
+      await runWithRequestContext({ userEmail: email }, () =>
+        provisionContentSpaces(getDb(), email),
+      );
+    }
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values(
+        pageIds.map((id) => ({
+          id,
+          ownerEmail: member,
+          orgId,
+          spaceId: null,
+          title: id,
+          content: "",
+          description: "",
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb().insert(schema.documentShares).values({
+      id: "member-shared-legacy-org-admin-share",
+      resourceId: sharedPageId,
+      principalType: "user",
+      principalId: admin,
+      role: "viewer",
+      createdBy: member,
+      createdAt: now,
+    });
+    const spaceId = organizationContentSpaceId(orgId);
+    const filesDatabase = await getFilesDatabase(spaceId);
+    const readSpaceId = async (id: string) => {
+      const [page] = await getDb()
+        .select({ spaceId: schema.documents.spaceId })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      return page?.spaceId;
+    };
+    const countFilesItems = async (id: string) =>
+      (
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
+              eq(schema.contentDatabaseItems.documentId, id),
+            ),
+          )
+      ).length;
+
+    await runWithRequestContext({ userEmail: admin }, () =>
+      reconcileContentFilesMemberships(getDb(), admin),
+    );
+    expect(await readSpaceId(pageId)).toBeNull();
+    expect(await countFilesItems(pageId)).toBe(0);
+    expect(await readSpaceId(sharedPageId)).toBe(spaceId);
+    expect(await countFilesItems(sharedPageId)).toBe(1);
+
+    await runWithRequestContext({ userEmail: member }, () =>
+      reconcileContentFilesMemberships(getDb(), member),
+    );
+    expect(await readSpaceId(pageId)).toBe(spaceId);
+    expect(await countFilesItems(pageId)).toBe(1);
+
+    await runWithRequestContext({ userEmail: admin }, () =>
+      reconcileContentFilesMemberships(getDb(), admin),
+    );
+    expect(await countFilesItems(pageId)).toBe(1);
+
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.documentId, pageIds));
+    await getDb()
+      .delete(schema.documentShares)
+      .where(inArray(schema.documentShares.resourceId, pageIds));
+    await getDb()
+      .delete(schema.documents)
+      .where(inArray(schema.documents.id, pageIds));
   });
 
   it("assigns personal and organization legacy pages to their canonical Files databases", async () => {

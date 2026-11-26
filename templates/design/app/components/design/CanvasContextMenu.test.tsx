@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -219,6 +220,42 @@ describe("CanvasContextMenu Select layer", () => {
     expect(buttons.indexOf(front!)).toBeLessThan(buttons.indexOf(parent!));
 
     await act(async () => parent?.click());
+    expect(onSelectLayer).toHaveBeenCalledWith(candidates[1]);
+    await view.cleanup();
+  });
+
+  it("hints the paint kind of a layer that sits behind the pointer", async () => {
+    const onSelectLayer = vi.fn();
+    const layerInfo = (tagName: string, sourceId: string) => ({
+      tagName,
+      sourceId,
+      selector: `[data-agent-native-node-id="${sourceId}"]`,
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 600, height: 400 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    });
+    const candidates = [
+      { key: "hero", label: "Hero", info: layerInfo("div", "hero") },
+      {
+        key: "hero-canvas",
+        label: "CANVAS",
+        kind: "webgl" as const,
+        info: layerInfo("canvas", "hero-canvas"),
+      },
+    ];
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: candidates,
+      onSelectLayer,
+    });
+
+    const canvas = view.findButton("Canvas · WebGL");
+    expect(canvas?.textContent).toContain("CANVAS");
+    expect(view.findButton("Hero")?.textContent).toBe("Hero");
+
+    await act(async () => canvas?.click());
     expect(onSelectLayer).toHaveBeenCalledWith(candidates[1]);
     await view.cleanup();
   });
@@ -680,108 +717,6 @@ describe("CanvasContextMenu send to", () => {
     const view = await renderContextMenu({ selectedCount: 1 });
 
     expect(view.container.textContent).not.toContain("Copy agent prompt");
-    await view.cleanup();
-  });
-});
-
-describe("CanvasContextMenu add animation", () => {
-  const exactButton = (view: { container: HTMLElement }, label: string) =>
-    Array.from(view.container.querySelectorAll("button")).find(
-      (button) => button.textContent === label,
-    );
-  const labelsOf = (view: { container: HTMLElement }, ...labels: string[]) =>
-    labels.map((label) => Boolean(exactButton(view, label)));
-
-  it("lists the offered controls, a More group, and the ready-made choice", async () => {
-    const onSelect = vi.fn();
-    const view = await renderContextMenu({
-      selectedCount: 1,
-      motionMenu: {
-        basic: ["translate", "scale", "rotate", "opacity"],
-        more: [
-          "border-radius",
-          "background-color",
-          "border-color",
-          "border-width",
-          "box-shadow",
-        ],
-        onSelect,
-      },
-    });
-
-    expect(view.findButton("Add animation")).toBeDefined();
-    expect(
-      labelsOf(
-        view,
-        "Position",
-        "Scale",
-        "Rotation",
-        "Opacity",
-        "More",
-        "Corner radius",
-        "Fill",
-        "Stroke color",
-        "Stroke weight",
-        "Drop shadow",
-        "Animation style",
-      ),
-    ).toEqual(Array(11).fill(true));
-
-    await act(async () => exactButton(view, "Rotation")?.click());
-    await act(async () => exactButton(view, "Stroke weight")?.click());
-    await act(async () => exactButton(view, "Animation style")?.click());
-    expect(onSelect.mock.calls).toEqual([
-      ["rotate"],
-      ["border-width"],
-      ["ready-made"],
-    ]);
-    await view.cleanup();
-  });
-
-  it("leaves out controls the panel does not offer and hides an empty More group", async () => {
-    const view = await renderContextMenu({
-      selectedCount: 1,
-      motionMenu: {
-        basic: ["translate", "opacity"],
-        more: [],
-        onSelect: vi.fn(),
-      },
-    });
-
-    expect(labelsOf(view, "Position", "Opacity")).toEqual([true, true]);
-    expect(
-      labelsOf(view, "Scale", "Rotation", "More", "Corner radius", "Fill"),
-    ).toEqual(Array(5).fill(false));
-    expect(exactButton(view, "Animation style")).toBeDefined();
-    await view.cleanup();
-  });
-
-  it("shows only the controls that are offered inside More", async () => {
-    const view = await renderContextMenu({
-      selectedCount: 1,
-      motionMenu: {
-        basic: ["translate"],
-        more: ["border-radius", "background-color"],
-        onSelect: vi.fn(),
-      },
-    });
-
-    expect(labelsOf(view, "More", "Corner radius", "Fill")).toEqual([
-      true,
-      true,
-      true,
-    ]);
-    expect(
-      labelsOf(view, "Stroke color", "Stroke weight", "Drop shadow"),
-    ).toEqual([false, false, false]);
-    await view.cleanup();
-  });
-
-  it("omits the submenu when no motion menu is provided", async () => {
-    const view = await renderContextMenu({ selectedCount: 1 });
-
-    expect(view.container.textContent).not.toContain("Add animation");
-    expect(view.container.textContent).not.toContain("Animation style");
     await view.cleanup();
   });
 });

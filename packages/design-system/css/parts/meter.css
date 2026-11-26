@@ -1,0 +1,126 @@
+/*
+ * Part: meter
+ *
+ *   <div class="meter" role="meter"            Base UI Meter.Root
+ *        data-variant="surface|soft"
+ *        [data-color="accent|gray|danger|warning|success|info"]
+ *        [data-high-contrast] [data-radius]>
+ *     <span class="meter-label">               Meter.Label
+ *     <span class="meter-value">               Meter.Value
+ *     <div class="meter-track">                Meter.Track
+ *       <div class="meter-indicator">          Meter.Indicator
+ *
+ * Radix Themes' progress drawn for a level: a 4, 6 or 8px track under its
+ * label and value, filled to the level in the nearest `data-color`.
+ * Surface is a gray track with an edge, soft a deeper gray under a tinted
+ * fill.
+ */
+
+@layer components {
+  .meter {
+    --_meter-height: calc(var(--space-2) * 0.75);
+    display: flex;
+    flex-wrap: wrap;
+    min-inline-size: 0;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-2);
+    width: 100%;
+  }
+
+  .meter-label,
+  .meter-value {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .meter-label {
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-default);
+  }
+
+  .meter-value {
+    margin-inline-start: auto;
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
+  }
+
+  .meter-track {
+    position: relative;
+    flex: 0 0 100%;
+    height: var(--_meter-height);
+    overflow: hidden;
+    border-radius: var(--radius-full);
+  }
+
+  .meter[data-radius]:not([data-radius="full"]) .meter-track {
+    border-radius: calc(var(--radius-factor) * var(--_meter-height) / 3);
+  }
+
+  /* The edge draws over the fill, as Radix Themes' does. */
+  .meter-track::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  .meter-indicator {
+    height: 100%;
+    border-radius: inherit;
+    transition: width var(--duration-3) var(--ease-standard);
+  }
+
+  /* ---- variants ---- */
+
+  .meter[data-variant="surface"] .meter-track {
+    background-color: var(--gray-a3);
+  }
+
+  .meter[data-variant="surface"] .meter-track::after {
+    box-shadow: inset 0 0 0 1px var(--gray-a4);
+  }
+
+  .meter[data-variant="surface"] .meter-indicator {
+    background-color: var(--accent-track);
+  }
+
+  .meter[data-variant="soft"] .meter-track {
+    background-color: var(--gray-a4);
+  }
+
+  .meter[data-variant="soft"] .meter-indicator {
+    background-color: var(--accent-8);
+    background-image: linear-gradient(var(--accent-a5), var(--accent-a5));
+  }
+
+  .meter[data-high-contrast] .meter-indicator {
+    background-color: var(--accent-12);
+    background-image: none;
+  }
+
+  @media (forced-colors: active) {
+    .meter[data-variant] .meter-track {
+      background-color: Canvas;
+    }
+
+    .meter-track::after {
+      border: 1px solid CanvasText;
+    }
+
+    .meter[data-variant] .meter-indicator {
+      forced-color-adjust: none;
+      background: Highlight;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .meter-indicator {
+      transition: none;
+    }
+  }
+}

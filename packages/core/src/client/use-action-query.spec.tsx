@@ -194,9 +194,10 @@ describe("useActionQuery refetchInterval", () => {
         client.getQueryState(["action", "read-thing", undefined])?.status,
       ).toBe("error"),
     );
+    // oracle-change: the user sees catalog copy; send-gate diagnostics stay in cause.
     expect(
-      client.getQueryState(["action", "read-thing", undefined])?.error?.message,
-    ).toContain("gate failed");
+      client.getQueryState(["action", "read-thing", undefined])?.error,
+    ).toHaveProperty("cause.message", expect.stringContaining("gate failed"));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

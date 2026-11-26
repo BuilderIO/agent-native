@@ -1,0 +1,86 @@
+[
+  {
+    "id": 0,
+    "html": "",
+    "expectedText": "",
+    "expectedStepCount": 0
+  },
+  {
+    "id": 1,
+    "html": "   ",
+    "expectedText": "",
+    "expectedStepCount": 0
+  },
+  {
+    "id": 2,
+    "html": "<p><strong>Bold</strong> <em>italic</em></p>",
+    "expectedText": "Bold italic",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 3,
+    "html": "<p><u>Underlined</u> <s>struck</s></p>",
+    "expectedText": "Underlined struck",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 4,
+    "html": "<p><a href=\"https://example.test/path\">Link label</a></p>",
+    "expectedText": "Link label",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 5,
+    "html": "<p>First</p><p>Second</p>",
+    "expectedText": "FirstSecond",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 6,
+    "html": "<p>First<br>Second</p>",
+    "expectedText": "FirstSecond",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 7,
+    "html": "<ul><li>One</li><li>Two</li></ul>",
+    "expectedText": "OneTwo",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 8,
+    "html": "<ol><li>One</li><li>Two</li></ol>",
+    "expectedText": "OneTwo",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 9,
+    "html": "<blockquote><p>Quoted text</p></blockquote>",
+    "expectedText": "Quoted text",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 10,
+    "html": "<h2>Heading</h2><p>Body</p>",
+    "expectedText": "HeadingBody",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 11,
+    "html": "<p>  A&nbsp;&amp;&nbsp;B  </p>",
+    "expectedText": "A & B",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 12,
+    "html": "<p><code>Inline code</code></p>",
+    "expectedText": "Inline code",
+    "expectedStepCount": 1
+  },
+  {
+    "id": 13,
+    "html": "<p>Before <span><strong>nested</strong></span> after</p>",
+    "expectedText": "Before nested after",
+    "expectedStepCount": 1
+  }
+]

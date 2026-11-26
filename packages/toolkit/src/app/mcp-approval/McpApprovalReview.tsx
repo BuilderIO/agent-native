@@ -562,6 +562,9 @@ function Review({
           <Outcome state={view.state} view={view} messages={messages} />
         ) : (
           <>
+            {view.notice ? (
+              <p className="whitespace-pre-line text-sm">{view.notice}</p>
+            ) : null}
             {view.priorRun ? (
               <Alert>
                 <IconAlertTriangle className="size-4" aria-hidden="true" />

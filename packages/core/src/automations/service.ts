@@ -1,5 +1,6 @@
 import type { ActionCaller, ActionRunContext } from "../action.js";
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
@@ -24,6 +25,11 @@ import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
+  resolveMembershipOrgScope,
+  type OrgScopeResolution,
+} from "../org/context.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
+import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
   ensureResourceStoreReady,
@@ -40,6 +46,7 @@ import {
   type TransactionScopedResourceWrite,
 } from "../resources/store.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
+import type { RequestContext } from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -134,6 +141,8 @@ export interface DefineAutomationInput {
   delegatedPolicyId?: string;
   model?: string;
   reasoningEffort?: ReasoningEffort;
+  /** Last moment the automation may start a run, ISO-8601. */
+  expiresAt?: string | null;
   executionHostId?: string;
   executionEngine?: string;
   executionCwd?: string;
@@ -161,6 +170,7 @@ export interface UpdateAutomationInput {
   timezone?: string;
   model?: string | null;
   reasoningEffort?: ReasoningEffort | null;
+  expiresAt?: string | null;
   executionHostId?: string | null;
   executionEngine?: string | null;
   executionCwd?: string | null;
@@ -222,6 +232,23 @@ function automationPath(name: string): string {
     throw httpError("Automation name is required (lowercase, hyphens).", 400);
   }
   return `jobs/${normalized}.md`;
+}
+
+/**
+ * An end date is a real moment, not free text: an unparseable value would either
+ * never expire or expire immediately, so it is refused.
+ */
+function normalizeExpiration(
+  value: string | null | undefined,
+): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw httpError(`invalid expiration date "${trimmed}".`, 400);
+  }
+  return parsed.toISOString();
 }
 
 function ownerForScope(actor: AutomationActor, scope: AutomationScope): string {
@@ -754,6 +781,7 @@ export async function defineAutomation(
     );
   }
 
+  const expiresAt = normalizeExpiration(input.expiresAt);
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
   const executionHostId = normalizeExecutionTarget(
     input.executionHostId,
@@ -803,6 +831,7 @@ export async function defineAutomation(
     executionEngine,
     executionCwd,
     mcpTools: mcpTools?.length ? mcpTools : undefined,
+    ...(expiresAt ? { expiresAt } : {}),
     originScopeId: input.delivery?.originScopeId,
     deliveryPlatform: input.delivery?.platform,
     deliveryDestination: input.delivery?.destination,
@@ -1125,6 +1154,11 @@ export async function updateAutomation(
     const mcpTools = normalizeJobMcpTools(input.mcpTools);
     meta.mcpTools = mcpTools?.length ? mcpTools : undefined;
     fields.mcpTools = meta.mcpTools;
+  }
+  if (input.expiresAt !== undefined) {
+    const expiresAt = normalizeExpiration(input.expiresAt);
+    meta.expiresAt = expiresAt;
+    fields.expiresAt = expiresAt;
   }
 
   const owningOrganizationId = organizationIdFromResourceOwner(
@@ -1464,12 +1498,46 @@ export async function deleteAutomation(
   }
 }
 
-export interface AutomationExecutionIdentity {
+export type AutomationExecutionIdentity = {
   userEmail: string;
-  orgId?: string;
-  orgScope?: "personal";
-  defaultAgentEngineScope?: "deployment";
   eventOwner: string;
+} & (
+  | {
+      orgScope: "personal";
+      providerKeyOrgId: string | null;
+      orgId?: undefined;
+      defaultAgentEngineScope?: undefined;
+    }
+  | {
+      orgScope?: undefined;
+      providerKeyOrgId?: undefined;
+      orgId?: string;
+      defaultAgentEngineScope?: "deployment";
+    }
+);
+
+export function automationRunScopeContext(
+  identity: AutomationExecutionIdentity,
+): Pick<
+  RequestContext,
+  "orgScope" | "defaultAgentEngineScope" | "providerKeyOrg"
+> {
+  if (identity.orgScope === "personal") {
+    return {
+      orgScope: "personal",
+      ...(identity.providerKeyOrgId
+        ? {
+            providerKeyOrg: {
+              orgId: identity.providerKeyOrgId,
+              userEmail: identity.userEmail,
+            },
+          }
+        : {}),
+    };
+  }
+  return identity.defaultAgentEngineScope === "deployment"
+    ? { defaultAgentEngineScope: "deployment" }
+    : {};
 }
 
 /**
@@ -1484,6 +1552,8 @@ export type AutomationExecutionIdentityResult =
       ok: false;
       reason: string;
       code?: "owner_missing" | "owner_unverifiable" | "config_invalid";
+      /** The read failure behind an `owner_unverifiable` that may clear. */
+      cause?: unknown;
     };
 
 /**
@@ -1524,9 +1594,37 @@ export async function resolveAutomationExecutionIdentity(
         code: "config_invalid",
       };
     }
+    let membership: OrgScopeResolution;
+    try {
+      membership = await resolveMembershipOrgScope(userEmail);
+    } catch (cause) {
+      // The creator's active-org setting is read outside the membership query.
+      if (isTransientDatabaseError(cause, { source: "database" })) throw cause;
+      membership = { status: "unknown", cause };
+    }
+    // An unreadable membership could hide the org's key or its "Restrict
+    // personal API keys" rule, so retry rather than run as if there were no
+    // org. A deployment without organization tables has none.
+    if (
+      membership.status === "unknown" &&
+      !isMissingOrganizationTableError(membership.cause)
+    ) {
+      return {
+        ok: false,
+        reason: `Could not read the organization membership of automation creator "${userEmail}".`,
+        code: "owner_unverifiable",
+        cause: membership.cause,
+      };
+    }
     return {
       ok: true,
-      identity: { userEmail, orgScope: "personal", eventOwner: userEmail },
+      identity: {
+        userEmail,
+        orgScope: "personal",
+        providerKeyOrgId:
+          membership.status === "organization" ? membership.orgId : null,
+        eventOwner: userEmail,
+      },
     };
   }
 

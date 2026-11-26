@@ -1,3 +1,8 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
+// oracle-change: the editor top bar was removed; the mode switch now sits in the bottom toolbar, so the top-bar exit assertions are gone
+// oracle-change(templates/design/app/components/design/editor/EditorTopBar.test.tsx): the editor top bar was removed with its component; its controls moved to the column heads and the bottom toolbar
+// oracle-change(templates/design/app/pages/design-editor/top-bar.test.ts): the top bar and its visibility rule were removed; no shell renders a top bar any more
+// oracle-change(templates/design/app/components/design/editor/DesignWorkspaceRail.test.tsx): the left workspace rail was removed with its component; its panels and collapse moved into the left column
 // @vitest-environment happy-dom
 
 import { act, type ReactNode } from "react";
@@ -5,16 +10,8 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { EditorMode } from "@/pages/design-editor/types";
 
-import { EditorTopBar } from "./EditorTopBar";
-import {
-  InteractDevicePicker,
-  InteractFloatingBar,
-  InteractScreenControls,
-  InteractThemePicker,
-} from "./InteractControls";
-import { InteractZoomControl } from "./InteractZoomControl";
+import { InteractFloatingBar } from "./InteractControls";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -32,101 +29,6 @@ async function mount(node: ReactNode) {
     unmount: () => act(async () => root.unmount()).then(() => host.remove()),
   };
 }
-
-const noop = () => {};
-
-function interactTopBar(onModeChange: (mode: EditorMode) => void) {
-  return (
-    <EditorTopBar
-      mode="interact"
-      onModeChange={onModeChange}
-      leftInset={344}
-      narrowLeftInset={64}
-      leading={
-        <>
-          <InteractDevicePicker
-            deviceName="iPhone 17"
-            width={402}
-            height={874}
-            onChange={noop}
-          />
-          <InteractThemePicker mode="light" darkAvailable onChange={noop} />
-        </>
-      }
-      center={
-        <InteractScreenControls
-          screens={[{ screenId: "home", title: "Home" }]}
-          activeScreenId="home"
-          canGoBack={false}
-          canGoForward={false}
-          onSelect={noop}
-          onBack={noop}
-          onForward={noop}
-          onReload={noop}
-        />
-      }
-      zoomControl={
-        <InteractZoomControl zoom={67} choice="fit" onChange={noop} />
-      }
-    />
-  );
-}
-
-describe("Interact top bar: the mode switch is the exit", () => {
-  it("leaves Interact through the mode switch, with no separate Exit, Edit or Annotate button", async () => {
-    const onModeChange = vi.fn<(mode: EditorMode) => void>();
-    const { host, unmount } = await mount(interactTopBar(onModeChange));
-
-    const labels = Array.from(host.querySelectorAll("[aria-label]")).map(
-      (element) => element.getAttribute("aria-label"),
-    );
-    expect(labels).not.toContain("designEditor.responsiveInteract.exit");
-    expect(labels).not.toContain("designEditor.modes.edit");
-    expect(
-      host.querySelector("button[aria-label='designEditor.modes.annotate']"),
-    ).toBeNull();
-
-    await act(async () => {
-      host
-        .querySelector<HTMLButtonElement>('[data-design-mode="edit"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(onModeChange).toHaveBeenCalledWith("edit");
-    await unmount();
-  });
-
-  it("has no width or height inputs", async () => {
-    const { host, unmount } = await mount(interactTopBar(noop));
-    expect(host.querySelector("input")).toBeNull();
-    expect(host.textContent).not.toContain("widthAbbreviation");
-    await unmount();
-  });
-
-  it("puts device and theme beside the mode switch, screens in the centre and zoom on the right", async () => {
-    const { host, unmount } = await mount(interactTopBar(noop));
-    const bar = host.querySelector("[data-design-top-bar]")!;
-    const switchEl = bar.querySelector("[data-design-mode-switch]")!;
-    const device = bar.querySelector("[data-design-interact-device]")!;
-    const theme = bar.querySelector("[data-design-interact-theme]")!;
-    const center = bar.querySelector("[data-design-top-bar-center]")!;
-    const zoom = bar.querySelector("[data-design-interact-zoom]")!;
-
-    expect(switchEl.parentElement?.contains(device)).toBe(true);
-    expect(switchEl.parentElement?.contains(theme)).toBe(true);
-    expect(
-      center.querySelector("[data-design-interact-routes]"),
-    ).not.toBeNull();
-    expect(center.contains(device)).toBe(false);
-    expect(
-      switchEl.compareDocumentPosition(device) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      center.compareDocumentPosition(zoom) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    await unmount();
-  });
-});
 
 describe("InteractFloatingBar (minimal UI, no mode switch)", () => {
   it("keeps an explicit Exit and calls it", async () => {

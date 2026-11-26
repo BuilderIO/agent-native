@@ -18,7 +18,9 @@ export default defineEventHandler(async (event) => {
       statusMessage: "direction must be 'pull' or 'push'",
     });
   }
-  const owner = await getDocumentOwnerEmail(event, id);
+  const owner = await getDocumentOwnerEmail(event, id, {
+    requireOwner: direction === "push",
+  });
   return runAsRouteCaller(event, (ctx) =>
     resolveDocumentSyncConflict(owner, id, direction, ctx),
   );

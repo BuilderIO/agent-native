@@ -186,3 +186,46 @@ describe("mixed script entry Plan-mode effects", () => {
     ]);
   });
 });
+
+describe("resources approval for jobs paths", () => {
+  it.each([
+    "jobs/foo.md",
+    "/jobs/foo.md",
+    "./jobs/foo.md",
+    "notes/../jobs/foo.md",
+    "jobs//nested/foo.md",
+  ])("asks to write or delete %s", async (path) => {
+    const gate = (await createResourceScriptEntries()).resources.needsApproval;
+    if (typeof gate !== "function") throw new Error("no gate");
+    expect(await gate({ action: "write", path, scope: "personal" })).toBe(true);
+    expect(await gate({ action: "delete", path })).toBe(true);
+  });
+
+  it.each(["notes/foo.md", "jobsheet/foo.md", "notes/jobs/foo.md", "jobs"])(
+    "does not ask for personal %s",
+    async (path) => {
+      const gate = (await createResourceScriptEntries()).resources
+        .needsApproval;
+      if (typeof gate !== "function") throw new Error("no gate");
+      expect(await gate({ action: "write", path, scope: "personal" })).toBe(
+        false,
+      );
+      expect(await gate({ action: "delete", path })).toBe(false);
+    },
+  );
+
+  it("does not ask to read or list jobs", async () => {
+    const gate = (await createResourceScriptEntries()).resources.needsApproval;
+    if (typeof gate !== "function") throw new Error("no gate");
+    expect(await gate({ action: "read", path: "jobs/foo.md" })).toBe(false);
+    expect(await gate({ action: "list", prefix: "jobs/" })).toBe(false);
+  });
+
+  it("applies to write-resource", async () => {
+    const gate = (await createResourceScriptEntries())["write-resource"]
+      .needsApproval;
+    if (typeof gate !== "function") throw new Error("no gate");
+    expect(await gate({ path: "jobs/foo.md", content: "x" })).toBe(true);
+    expect(await gate({ path: "notes/foo.md", content: "x" })).toBe(false);
+  });
+});

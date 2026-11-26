@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "In diesem Durchgang wurden keine Designänderungen gespeichert.",
+  },
   journeyCanvas: {
     observedSessionReference: "Beobachtete Sitzungsreferenz",
     sessionsOfAll: "{count} Sitzungen · {percent} aller",
@@ -75,149 +79,6 @@ export default {
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },
-  creativeContext: {
-    title: "Bibliothek",
-    description:
-      "Wiederverwendbarer kreativer Kontext für konsistente Ergebnisse.",
-    modeLabel: "Kreativen Kontext verwenden",
-    automatic: "Automatisch",
-    automaticDescription:
-      "Der Agent wählt die relevantesten Quellen und das passende Kontextpaket.",
-    off: "Aus",
-    offDescription: "Ohne gespeicherten kreativen Kontext erstellen.",
-    activePack: "Aktuelles Kontextpaket",
-    noActivePack: "In dieser Sitzung wurde noch kein Kontextpaket verwendet.",
-    pinned: "Angeheftet",
-    pin: "Anheften",
-    unpin: "Lösen",
-    sourcesTitle: "Quellen",
-    sourcesDescription:
-      "Referenzen, Dokumente und frühere Arbeiten zur kreativen Wiederverwendung.",
-    searchTitle: "Kontext durchsuchen",
-    searchDescription:
-      "Genaue Details finden, bevor Aussagen, Stile oder Entscheidungen wiederverwendet werden.",
-    searchPlaceholder: "Kreativen Kontext durchsuchen",
-    searchPrompt: "Durchsuche die Quellen in dieser Bibliothek.",
-    noResults: "Kein passender Kontext gefunden.",
-    resultsLabel: "Ergebnisse: {{count}}",
-    noSourcesTitle: "Noch kein kreativer Kontext",
-    noSourcesDescription:
-      "Verbinde eine Quelle oder bitte den Agenten, wiederverwendbaren Kontext zu erfassen.",
-    connectSources: "Verbindungen öffnen",
-    refresh: "Aktualisieren",
-    refreshing: "Wird aktualisiert…",
-    refreshed: "Aktualisierung gestartet",
-    refreshFailed: "Diese Quelle konnte nicht aktualisiert werden.",
-    itemsLabel: "Elemente: {{count}}",
-    discoveredItems: "Gefunden: {{count}}",
-    selectedItems: "Ausgewählt: {{count}}",
-    selectAll: "Alle auswählen",
-    clearSelection: "Leeren",
-    packsTitle: "Kontextpakete",
-    noPacks: "Es wurden noch keine Kontextpakete zusammengestellt.",
-    loading: "Kreativer Kontext wird geladen…",
-    unavailable: "Kreativer Kontext ist derzeit nicht verfügbar.",
-    stateSaveFailed:
-      "Die Einstellung für kreativen Kontext konnte nicht gespeichert werden.",
-    sourceError: "Aktion erforderlich",
-    personal: "Persönlich",
-    organization: "Organisation",
-    addSource: "Quelle hinzufügen",
-    addToContext: "Zum Kontext hinzufügen…",
-    sourceName: "Quellenname",
-    sourceReference: "Quellenreferenz",
-    preview: "Vorschau",
-    startImport: "Import starten",
-    importing: "Wird importiert…",
-    importComplete: "Import abgeschlossen",
-    importFailed: "Import fehlgeschlagen",
-    brandDnaTitle: "Abgeleiteter Markenkontext",
-    publishedBrandContext: "Veröffentlichter Markenkontext",
-    applyBrandContext: "Als meinen Markenkontext anwenden",
-    applyingBrandContext: "Markenkontext wird angewendet…",
-    brandContextPublished: "Markenkontext veröffentlicht",
-    restrictedItems: "Eingeschränkte Elemente: {{count}}",
-    unknownAccess: "Zugriff unbekannt",
-    reviewRestricted: "Eingeschränkte Elemente prüfen",
-    approve: "Genehmigen",
-    exclude: "Ausschließen",
-    packDetails: "Details",
-    influence: "Einfluss",
-    cancel: "Schließen",
-    saveFailed: "Diese Änderungen konnten nicht gespeichert werden.",
-    updateAvailable: "Aktualisierung verfügbar",
-    submitUpdate: "Aktualisierung einreichen",
-    submittingUpdate: "Wird eingereicht…",
-    submitUpdateTitle: "Neueste Version einreichen?",
-    submitUpdateDescription:
-      "Erfassen Sie die aktuelle Version von „{{name}}“ und reichen Sie sie gemäß der Freigaberichtlinie dieses Kontexts ein. Dadurch kann sie für ein größeres Publikum veröffentlicht werden.",
-    submitUpdateFailed: "Die neueste Version konnte nicht eingereicht werden.",
-    chooseFiles: "Dateien auswählen",
-    chooseFolder: "Ordner auswählen",
-    dropFiles: "PPTX-, DOCX-, PDF- oder Bilddateien hier ablegen.",
-    promoteToOrganization: "Mit Organisation teilen",
-    promotionDescription:
-      "Bestätige den genauen Container und den importierten Bestand, bevor diese verwaltete Kopie geteilt wird.",
-    promotionComplete: "Mit der Organisation geteilt.",
-    manage: "Quelle verwalten",
-    pause: "Pausieren",
-    restore: "Wiederherstellen",
-    delete: "Löschen",
-    sourcePaused: "Quelle pausiert.",
-    sourceRestored: "Quelle wiederhergestellt.",
-    deleteSourceTitle: "Quelle löschen?",
-    deleteSourceDescription:
-      "{{name}} wird sofort entfernt. Der importierte Kontext wird im Hintergrund gelöscht.",
-    deletionQueued: "Quelle entfernt. Der importierte Kontext wird gelöscht.",
-    curateItems: "Elemente kuratieren",
-    exemplar: "Musterbeispiel",
-    ignore: "Ignorieren",
-    deprecated: "Veraltet",
-    star: "Markieren",
-    unstar: "Markierung entfernen",
-    deprecate: "Als veraltet markieren",
-    colors: "Farben",
-    fonts: "Schriften",
-    layouts: "Layoutbeispiele",
-    voice: "Tonalität",
-    generateWithContext: "Mit diesem Kontext generieren",
-    chooseConnection: "Arbeitsbereichsverbindung auswählen",
-    setupConnection: "Verbinde diesen Anbieter vor dem Import einer Quelle.",
-    connectProvider: "Anbieter verbinden",
-    choosePresentations: "Präsentationen auswählen",
-    googlePickerDescription:
-      "Wähle die Präsentationen für diese Bibliotheksverbindung aus. Es wird kein Zugriff auf das gesamte Drive angefordert.",
-    suggestions: "Vorschläge prüfen",
-    logo: "Kanonisches Logo",
-    share: {
-      title: "Kreativer Kontext",
-      documentation: "Creative-Context-Dokumentation",
-      tabLabel: "Kontext",
-      pendingResource: "Ausstehende Ressource",
-      publishedResource: "Veröffentlichte Ressource",
-      canonical: "Kanonisch",
-      reference: "Referenz",
-      pendingReview: "Prüfung ausstehend",
-      published: "Veröffentlicht",
-      withdraw: "Zurückziehen",
-      requestChanges: "Änderungen anfordern",
-      remove: "Entfernen",
-      chooseContext: "Kontext auswählen",
-      selectedResources: "{{count}} ausgewählte Ressourcen",
-      noContexts: "Noch keine Kontexte verfügbar.",
-      purpose: "Zweck",
-      reviewerNote: "Notiz für Prüfer",
-      submit: "Senden",
-      broaderPublication:
-        "Dieser Kontext wird umfassender geteilt als diese Ressource. Beim Veröffentlichen wird eine verwaltete Kopie für die Zielgruppe des Kontexts erstellt.",
-      newContextName: "Name des neuen Kontexts",
-      new: "Neu",
-      partialSubmission:
-        "{{submitted}} gesendet; {{failed}} konnten nicht gesendet werden.",
-      resourceSubmitted: "{{count}} Ressource gesendet.",
-      resourcesSubmitted: "{{count}} Ressourcen gesendet.",
-    },
-  },
   root: {
     commandActions: "Aktionen",
     commandSearch: "Suchen",
@@ -229,8 +90,6 @@ export default {
     brand: "Design",
     home: "Startseite",
     templates: "Vorlagen",
-    designSystems: "Designsysteme",
-    setupDesignSystem: "Designsystem einrichten",
     agent: "Agent",
     settings: "Einstellungen",
     openNavigation: "Navigation öffnen",
@@ -247,7 +106,6 @@ export default {
     retry: "Erneut versuchen",
     steps: {
       createDesign: "Erstelle dein erstes Design",
-      addBrand: "Füge deine Marke hinzu",
       useRealData: "Nutze deine echten Daten",
       shareFeedback: "Für Feedback teilen",
       inviteTeammate: "Teammitglied einladen",
@@ -264,15 +122,6 @@ export default {
     labFullAppBuilding: "Vollständige Apps erstellen",
     labFullAppBuildingDescription:
       "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
-    labDesignReviewTools: "Tools zur Designprüfung",
-    labDesignReviewToolsDescription:
-      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
-    labMotion: "Motion-Design",
-    labMotionDescription:
-      "Erstelle und bearbeite Keyframe-Animationen in deinen Designs.",
-    labAnnotate: "Annotieren",
-    labAnnotateDescription:
-      "Zeichne auf deine Designs und sende die Markierungen an den Agenten.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -419,7 +268,7 @@ export default {
     pageHelpDescription:
       "Bearbeiten Sie Typografie, Abstände, Größen, Ränder und Füllung für alles, was Sie auswählen. Seitenstandards unten.",
     sections: {
-      page: "Screen",
+      page: "Seite",
       canvas: "Arbeitsfläche",
       typography: "Typografie",
       autoLayout: "Auto-Layout",
@@ -522,6 +371,8 @@ export default {
       blur: "Unschärfe",
       spread: "Ausbreitung",
       rotation3d: "3D-Rotation",
+      constraints: "Constraints",
+      absolutePosition: "Absolute Position",
       rotationX: "X-Rotation",
       rotationY: "Y-Rotation",
       perspective: "Perspektive",
@@ -576,7 +427,7 @@ export default {
       addRecordRow: "{{item}} hinzufügen",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}} entfernen",
-      selectElementFirst: "Wähle zuerst ein Bildschirmelement aus",
+      selectElementFirst: "Wähle zuerst ein Element auf der Seite aus",
       selectCanvasElementFirst: "Wähle zuerst ein Element auf der Leinwand aus",
       saveFailed: "Shader konnte nicht gespeichert werden",
       custom: "Benutzerdefiniert",
@@ -857,10 +708,6 @@ export default {
       resetOverrideTooltip:
         "Überschreibung dieses Zustands löschen und Standardwert verwenden",
     },
-    motionKeyframe: {
-      addTooltip: "Keyframe hinzufügen",
-      removeTooltip: "Keyframe entfernen",
-    },
     breakpointOverride: {
       overriddenTooltip: "Bei diesem Breakpoint überschrieben",
       overriddenAtTooltip: "Bei {{width}}px überschrieben",
@@ -1006,11 +853,11 @@ export default {
     screenSource: {
       title: "Quelle",
       url: "URL",
-      urlLabel: "Screen-URL",
+      urlLabel: "Seiten-URL",
       urlPlaceholder: "/plans oder http://localhost:5173/plans",
       update: "Aktualisieren",
       chooseLocalApp: "Lokale App auswählen",
-      remove: "Screen entfernen",
+      remove: "Seite entfernen",
     },
     borderStyleOptions: {
       none: "Keine",
@@ -1022,6 +869,10 @@ export default {
     exportPreview: {
       rendering: "Vorschau wird erstellt…",
       failed: "Vorschau nicht verfügbar",
+      noPreview: "Kein Screen zur Vorschau",
+      externalPreview: "Die Vorschau benötigt die Live-App",
+      readOnlyPreview: "Vorschau im Nur-Lese-Modus nicht verfügbar",
+      selectionUnresolved: "Auswahl auf diesem Screen nicht gefunden",
     },
     framePresets: {
       title: "Rahmen",
@@ -1055,7 +906,42 @@ export default {
     },
   },
   designEditor: {
-    sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
+    livePreview: {
+      share: "Live-Vorschau teilen",
+      instructions:
+        "Füge eine öffentliche HTTPS-Vorschau-URL für deine App ein, etwa einen ngrok- oder cloudflared-Tunnel. Dein Rechner nutzt weiter localhost; andere sehen die öffentliche Vorschau oder schlagen Änderungen am veröffentlichten Abbild vor.",
+      tunnelUrl: "Öffentliche Vorschau-URL",
+      enableCollaboration:
+        "Live-Zusammenarbeit für alle mit Zugriff auf das Design aktivieren",
+      save: "Speichern",
+      unavailable:
+        "Live-Vorschau nicht verfügbar — Momentaufnahme wird angezeigt",
+      live: "Live-Vorschau",
+      openLive: "Live-Vorschau auf {{hostname}} öffnen",
+      suggest: "Am Abbild vorschlagen",
+      localOnly: "Live-Vorschau nur auf dem Rechner des Eigentümers",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript ist deaktiviert; dynamische Inhalte fehlen möglicherweise.",
+      captureAction: "Statisches Abbild erfassen",
+      capturePrompt:
+        "Erfasse Screenshot und DOM dieser öffentlichen Referenz-URL und füge sie als statischen Referenzbildschirm zur Designfläche hinzu. Kennzeichne ihn als Abbild, nicht als Live-Seite.",
+      unavailable:
+        "Diese Seite blockiert möglicherweise Frames oder konnte nicht geladen werden.",
+      load: "Referenzkopie laden",
+      label: "Referenzkopie · öffentliche Seite, schreibgeschützt",
+      noBridge:
+        "Verbinde eine lokale Bridge, um eine öffentliche Referenzkopie zu laden.",
+      snapshot: "Veröffentlichtes Abbild verwenden",
+      capture: "Bitte den Agenten um einen Screenshot und ein DOM-Abbild.",
+      failed:
+        "Referenzkopie fehlgeschlagen. Erfasse stattdessen Screenshot und DOM.",
+      loading: "Referenzkopie wird geladen…",
+      original: "Originalseite versuchen",
+    },
+
+    sourceLoadFailed: "Diese Seite konnte nicht geladen werden.",
     selectionPublishFailed:
       "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
     liveCollaboration: {
@@ -1105,6 +991,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Ebene auswählen",
+      layerKinds: {
+        webgl: "Leinwand · WebGL",
+        canvas: "Leinwand",
+        video: "Video",
+        image: "Bild",
+        svg: "SVG-Grafik",
+        embed: "Einbettung",
+        background: "Hintergrund",
+        effect: "Effekt",
+      },
       goToMain: "Zur Hauptkomponente",
       restore: "Komponente wiederherstellen",
       swap: "Instanz austauschen",
@@ -1162,6 +1058,19 @@ export default {
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
     },
+    leftTabs: {
+      label: "Seitenleiste",
+      agent: "Agent",
+      file: "Datei",
+      library: "Bibliothek",
+    },
+    columnHead: {
+      comments: "Kommentare",
+      unreadComments: "Ungelesene Kommentare",
+      resizeLeftPanel: "Linkes Panel anpassen",
+      resizeInspector: "Inspektor anpassen",
+      whatsNew: "Neuigkeiten",
+    },
     breakpointBar: {
       base: "Basis",
       editBaseWidth: "Basisbreite bearbeiten",
@@ -1194,7 +1103,7 @@ export default {
       themeSystem: "System",
       themeSystemHint:
         "Zeigt das Design wie erstellt (nutzt die Systemeinstellung)",
-      screen: "Screen",
+      screen: "Seite",
       back: "Zurück",
       forward: "Weiter",
       reload: "Vorschau neu laden",
@@ -1205,396 +1114,8 @@ export default {
       zoomFit: "An die Zeichenfläche angepasst",
       zoomFitOption: "Anpassen",
       exit: "Responsive-Vorschau verlassen",
-      noScreens: "Dieses Design hat keine Screens für die Vorschau.",
-      unknownScreen: "Dieser Screen gehört nicht zu diesem Design.",
-    },
-    motion: {
-      openDock: "Motion",
-      animations: "Animationen",
-      code: {
-        list: "Liste",
-        code: "Code",
-        format: "Codeformat",
-        css: "CSS",
-        data: "Daten",
-        styles: "Stile",
-        keyframes: "Keyframes",
-        copy: "Kopieren",
-        copyAll: "Alle kopieren",
-        copied: "Kopiert",
-        copyFailed: "Kopieren fehlgeschlagen",
-        showMore: "Mehr anzeigen",
-        openInTimeline: "In Zeitleiste öffnen",
-        nothingToList: "Keine Animationszeilen zum Auflisten",
-        nothingToShow: "Keine Motion zum Anzeigen als Code",
-        unavailable: "Code für diese Motion kann nicht angezeigt werden",
-      },
-      pathEditAmbiguous:
-        "Diese Ebene hat mehrere Positionsanimationen. Ihr Pfad kann daher nicht eindeutig bearbeitet werden.",
-      pathEditPositionConflict:
-        "Diese Ebene hat bereits eine andere Positionsanimation, daher kann ihr Pfad nicht gekrümmt werden.",
-      positionStyleConflict:
-        "Diese Ebene hat bereits eine Positionsanimation, die sich nicht mit einer weiteren kombinieren lässt.",
-      animationStyles: {
-        title: "Animationen",
-        createTitle: "Neuen Animationsstil erstellen",
-        addAnimation: "Animation hinzufügen",
-        animation: "Animation",
-        distance: "Abstand",
-        amount: "Wert",
-        axis: "Achse",
-        axisBoth: "Beide",
-        axisX: "X",
-        axisY: "Y",
-        startWidth: "Startbreite",
-        endWidth: "Endbreite",
-        startHeight: "Starthöhe",
-        endHeight: "Endhöhe",
-        delay: "Verzögerung",
-        easing: "Beschleunigung",
-        editCurve: "Kurve bearbeiten",
-        showEasingCurveEditor: "Easing-Kurveneditor anzeigen",
-        bezier: "Bézier",
-        curvePreview: "Kurvenvorschau",
-        flipCurve: "Kurve spiegeln",
-        easingPicker: {
-          presets: "Voreinstellungen",
-          libraries: "Bibliotheken",
-          newVariable: "Neue Variable",
-          searchPlaceholder: "Easing-Variablen suchen",
-          variableSet: "Variablensatz",
-          allLibraries: "Alle Bibliotheken",
-          noVariables: "Keine Variablen",
-          noResults: "Keine Ergebnisse",
-        },
-        easingVariable: {
-          title: "Neue Easing-Variable",
-          collection: "Sammlung",
-          name: "Name",
-          value: "Wert",
-          create: "Erstellen",
-          cancel: "Abbrechen",
-          duplicateName:
-            "In dieser Sammlung gibt es bereits eine Variable mit diesem Namen.",
-        },
-        settle: "Abklingen",
-        slideIn: "Hereingleiten",
-        slideOut: "Hinausgleiten",
-        scaleIn: "Einzoomen",
-        scaleOut: "Auszoomen",
-        rotateIn: "Hereindrehen",
-        rotateOut: "Herausdrehen",
-        resizeIn: "Größe beim Einblenden",
-        resizeOut: "Größe beim Ausblenden",
-        fadeIn: "Einblenden",
-        fadeOut: "Ausblenden",
-        custom: "Benutzerdefiniert",
-        toLeft: "Nach links",
-        toRight: "Nach rechts",
-        toTop: "Nach oben",
-        toBottom: "Nach unten",
-        toTopLeft: "Nach links oben",
-        toTopRight: "Nach rechts oben",
-        toBottomLeft: "Nach links unten",
-        toBottomRight: "Nach rechts unten",
-        fromLeft: "Von links",
-        fromRight: "Von rechts",
-        fromTop: "Von oben",
-        fromBottom: "Von unten",
-        fromTopLeft: "Von links oben",
-        fromTopRight: "Von rechts oben",
-        fromBottomLeft: "Von links unten",
-        fromBottomRight: "Von rechts unten",
-        clockwise: "Im Uhrzeigersinn",
-        counterclockwise: "Gegen den Uhrzeigersinn",
-        easingPresets: {
-          hold: "Halten",
-          linear: "Linear",
-          easeIn: "Langsam starten",
-          easeOut: "Langsam enden",
-          easeInOut: "Langsam starten und enden",
-          easeInBack: "Rücksprung am Anfang",
-          easeOutBack: "Rücksprung am Ende",
-          easeInOutBack: "Rücksprung am Anfang und Ende",
-          gentle: "Sanft",
-          quick: "Schnell",
-          bouncy: "Federnd",
-          slow: "Langsam",
-        },
-        text: "Text",
-        position: "Position",
-        scale: "Skalierung",
-        rotation: "Drehung",
-        size: "Größe",
-        opacity: "Deckkraft",
-        path: "Pfad",
-        close: "Schließen",
-        hide: "Ausblenden",
-        show: "Einblenden",
-        removeAnimation: "Animation entfernen",
-        noAnimations: "Animation hinzufügen",
-        searchPlaceholder: "Suchen",
-        search: "Animationsstile suchen",
-        filter: "Animationsstile filtern",
-        list: "Animationsstile",
-        all: "Alle",
-        basic: "Einfach",
-        enter: "Eingang",
-        cycle: "Zyklus",
-        exit: "Ausgang",
-        create: "Stil erstellen",
-        apply: "Stil anwenden",
-        empty: "Keine Animationsstile",
-        noResults: "Keine passenden Stile",
-        target: "Ziel",
-        name: "Name",
-        category: "Kategorie",
-        description: "Beschreibung",
-        cancel: "Abbrechen",
-        save: "Stil speichern",
-        createDescription:
-          "Die Bewegungsabläufe des ausgewählten Ziels als wiederverwendbaren Stil speichern.",
-        unsupportedSequence:
-          "Dieser Stil kann nicht angewendet werden, da Segmente derselben Eigenschaft überlappen oder nicht anschließen.",
-        tooMany: "Ein Stil kann bis zu 24 Animationen enthalten.",
-        limit: "Dieses Design hat das Limit von 64 Animationsstilen erreicht.",
-      },
-      builtInRecipes: {
-        tempo: { fast: "Schnell", medium: "Mittel", slow: "Langsam" },
-        enter: {
-          recipe01: "Builder Ankunft 01",
-          recipe02: "Builder Ankunft 02",
-          recipe03: "Builder Ankunft 03",
-          recipe04: "Builder Ankunft 04",
-          recipe05: "Builder Ankunft 05",
-          recipe06: "Builder Ankunft 06",
-          recipe07: "Builder Ankunft 07",
-          recipe08: "Builder Ankunft 08",
-          recipe09: "Builder Ankunft 09",
-          recipe10: "Builder Ankunft 10",
-          recipe11: "Builder Ankunft 11",
-          recipe12: "Builder Ankunft 12",
-        },
-        cycle: {
-          recipe01: "Builder Schleife 01",
-          recipe02: "Builder Schleife 02",
-          recipe03: "Builder Schleife 03",
-          recipe04: "Builder Schleife 04",
-          recipe05: "Builder Schleife 05",
-          recipe06: "Builder Schleife 06",
-          recipe07: "Builder Schleife 07",
-          recipe08: "Builder Schleife 08",
-          recipe09: "Builder Schleife 09",
-          recipe10: "Builder Schleife 10",
-          recipe11: "Builder Schleife 11",
-          recipe12: "Builder Schleife 12",
-        },
-        exit: {
-          recipe01: "Builder Abgang 01",
-          recipe02: "Builder Abgang 02",
-          recipe03: "Builder Abgang 03",
-          recipe04: "Builder Abgang 04",
-          recipe05: "Builder Abgang 05",
-          recipe06: "Builder Abgang 06",
-          recipe07: "Builder Abgang 07",
-          recipe08: "Builder Abgang 08",
-          recipe09: "Builder Abgang 09",
-          recipe10: "Builder Abgang 10",
-          recipe11: "Builder Abgang 11",
-          recipe12: "Builder Abgang 12",
-        },
-      },
-      tabLabel: "Bewegung",
-      transform: "Transformation",
-      layout: "Layout",
-      dimensions: "Abmessungen",
-      audio: "Audio",
-      addAudio: "Audio hinzufügen",
-      uploadingAudio: "Audio wird hochgeladen",
-      volume: "Lautstärke",
-      muteAudio: "Audio stummschalten",
-      unmuteAudio: "Stummschaltung aufheben",
-      removeAudio: "Audio entfernen",
-      playbackError: "Audio konnte nicht abgespielt werden",
-      audioDurationUnavailable: "Audiodauer konnte nicht gelesen werden",
-      audioUploadFailed: "Audio konnte nicht hochgeladen werden",
-      unsupportedAudio: "Audiodatei auswählen",
-      splitAudioAtPlayhead: "Audio am Abspielkopf teilen",
-      origin: "Ursprung",
-      currentTimeSeconds: "Aktuelle Zeit in Sekunden",
-      durationSeconds: "Dauer in Sekunden",
-      timeFormat: "Zeitformat: {{unit}}",
-      changeTimeFormat: "Zeitformat ändern",
-      milliseconds: "Millisekunden",
-      seconds: "Sekunden",
-      timelineZoom: "Zeitleistenzoom ({{percent}} %)",
-      timelineZoomLevel: "Zoomstufe der Zeitleiste",
-      timelineScrubber: "Zeitleisten-Abspielkopf",
-      timelineDescription:
-        "Keyframe-Zeitleiste. {{tracks}} Spuren, {{keyframes}} Keyframes. Mit Pfeiltasten oder Leertaste + Ziehen scrollen, mit Pinch oder Strg/Cmd + Mausrad zoomen, Keyframes zum Verschieben ziehen, Umschalt/Cmd zur Mehrfachauswahl, doppelklicken zum Hinzufügen.",
-      size: "Größe",
-      sourceReadUnavailable:
-        "Motion kann diese Animation nicht lesen, ohne ihr Verhalten zu ändern.",
-      sourceWriteUnavailable:
-        "Motion-Code kann derzeit nur in eingebettete HTML-Designs geschrieben werden.",
-      unresolvedStylesheets:
-        "Löse externe oder zur Laufzeit erzeugte Styles auf, bevor du Motion bearbeitest oder hinzufügst.",
-      sourceConflict:
-        "Der Motion-Quellcode wurde geändert, während diese Zeitleiste ungespeicherte Änderungen hatte. Lade den Code neu, um diese Änderungen zu verwerfen und die aktuelle Quelle zu verwenden.",
-      reloadFromSource: "Code neu laden",
-      dockLabel: "Bewegungsleiste",
-      collapseDock: "Bewegungsleiste einklappen",
-      expandAllTracks: "Alle Spuren erweitern",
-      collapseAllTracks: "Alle Spuren einklappen",
-      play: "Abspielen",
-      pause: "Pausieren",
-      resetPlayhead: "Wiedergabekopf zurücksetzen",
-      reset: "Zurücksetzen",
-      addKeyframeAtPlayhead: "Keyframe am Wiedergabekopf hinzufügen",
-      addKeyframeAtPlayheadForProperty:
-        "Keyframe am Wiedergabekopf hinzufügen ({{property}})",
-      selectPropertyRowFirst: "Wähle zuerst eine Eigenschaftszeile aus",
-      currentTimeMs: "Aktuelle Zeit in ms",
-      currentTimeLabel: "Aktuelle Zeit",
-      duration: "Dauer",
-      durationMs: "Dauer in ms",
-      editAnimation: "Animation bearbeiten",
-      type: "Typ",
-      startTimeMs: "Startzeit in ms",
-      playbackMode: "Wiedergabemodus: {{mode}}",
-      playbackModeButton: "{{mode}} abspielen",
-      playback: "Wiedergabe: {{mode}}",
-      loop: "Schleife",
-      once: "Einmal",
-      pingPong: "Hin und her",
-      toggleAutoKeyframe: "Auto-Keyframing umschalten",
-      addOrRemoveKeyframe: "Keyframe hinzufügen oder entfernen",
-      previousKeyframe: "Vorheriges Keyframe",
-      toggleAnimationVisibility: "Animationssichtbarkeit umschalten",
-      toggleLayerVisibility: "Sichtbarkeit der Ebene umschalten",
-      autoKeyframe: "Auto-Keyframe",
-      savingMotion: "Bewegung wird gespeichert",
-      emptyStateAnimate: "Animiere",
-      emptyStatePickProperty:
-        ". Wähle eine Eigenschaft, um die erste Spur hinzuzufügen.",
-      emptyStateNoSelection:
-        "Wähle ein Element auf der Leinwand aus und füge dann eine Spur hinzu, um es zu animieren.",
-      addMotion: "Animation hinzufügen",
-      addMenu: {
-        strokeColor: "Konturfarbe",
-        strokeWeight: "Konturstärke",
-        readyMade: "Animationsstil",
-        outermostFrame:
-          "Frames der obersten Ebene können nicht animiert werden",
-        allStylesAdded: "Diese Auswahl hat bereits alle Animationsstile",
-      },
-      text: "Text",
-      textAnimation: {
-        title: "Textanimation",
-        remove: "Textanimation entfernen",
-        addPropertyTrack: "Eigenschaftsspur hinzufügen",
-        removePropertyTrack: "Eigenschaftsspur entfernen",
-        unit: "Einheit",
-        direction: "Richtung",
-        stagger: "Versatz (ms)",
-        property: "Eigenschaft",
-        duration: "Dauer (ms)",
-        keyframeValue: "Keyframe-Wert",
-        keyframeEase: "Keyframe-Easing",
-        easePlaceholder: "ease-out",
-        units: {
-          character: "Zeichen",
-          word: "Wort",
-          line: "Zeile",
-          paragraph: "Absatz",
-        },
-        directions: {
-          forward: "Vorwärts",
-          reverse: "Rückwärts",
-        },
-        properties: {
-          opacity: "Deckkraft",
-          translate: "Verschiebung",
-          scale: "Skalierung",
-          rotate: "Drehung",
-          filter: "Unschärfe",
-        },
-      },
-      nativePathTrim: {
-        startAtBeginning: "Start am Anfang",
-        endAtBeginning: "Ende am Anfang",
-        startAtEnd: "Start am Ende",
-        endAtEnd: "Ende am Ende",
-      },
-      nativeTextStagger: {
-        create: "Textstaffelung",
-        animationDirection: "Richtung",
-        enter: "Ein",
-        exit: "Aus",
-        grouping: "Je",
-        order: "Reihenfolge",
-        overlap: "Überlappung",
-        ignoreSpaces: "Leerzeichen ignorieren",
-        positionDirection: "Positionsrichtung",
-        rotationDirection: "Drehrichtung",
-        orderOptions: {
-          leftToRight: "Von links nach rechts",
-          rightToLeft: "Von rechts nach links",
-          centerOut: "Von der Mitte nach außen",
-          random: "Zufällig",
-          topToBottom: "Von oben nach unten",
-          bottomToTop: "Von unten nach oben",
-        },
-        effects: {
-          position: "Position",
-          rotation: "Drehung",
-          scale: "Skalierung",
-          opacity: "Deckkraft",
-          blur: "Unschärfe",
-          distance: "Abstand",
-          amount: "Menge",
-        },
-      },
-      textStaggerControls: {
-        settings: "Einstellungen",
-        effects: "Effekte",
-        addEffect: "Effekt hinzufügen",
-        crop: "Zuschneiden",
-        showDetails: "Details anzeigen",
-        hideDetails: "Details ausblenden",
-        removeEffect: "Effekt entfernen",
-        effectNames: {
-          move: "Bewegen",
-          growShrink: "Vergrößern oder verkleinern",
-          spin: "Drehen",
-          fade: "Verblassen",
-          soften: "Weichzeichnen",
-        },
-      },
-      selectElementFirst: "Wähle zuerst ein Element auf der Leinwand aus",
-      animateLayer: "Animiere „{{label}}“",
-      more: "Mehr",
-      addKeyframe: "Keyframe hinzufügen",
-      trackExists:
-        "Eine „{{property}}“-Spur für {{label}} existiert bereits. Bearbeite ihre Keyframes in der Zeitleiste.",
-      recipeDoesNotFit:
-        "An der aktuellen Timeline-Position ist nicht genug Platz für diese Animation.",
-      textSyncUnsupported:
-        "Diese Textbewegungseinstellungen können nicht synchronisiert werden.",
-      textPropertyAlreadyAnimated:
-        "Eine Textanimation im Code steuert diese Eigenschaft bereits.",
-      layerAnimationSpan: "Animationsbereich von {{label}}",
-      keyframeAt: "Keyframe bei {{ms}}ms",
-      deleteKeyframe: "Keyframe löschen",
-      segmentEasing: "Segment-Easing: {{ease}}",
-      curveTab: "Kurve",
-      springTab: "Feder",
-      customBezier: "Benutzerdefinierte Bézier-Kurve",
-      customSpring: "Benutzerdefinierte Feder",
-      bounce: "Sprungkraft",
-      bezierCurveEditor: "Bézier-Kurveneditor",
-      springCurvePreview: "Federkurvenvorschau",
-      defaultEase: "Standard",
+      noScreens: "Dieses Design hat keine Seiten für die Vorschau.",
+      unknownScreen: "Diese Seite gehört nicht zu diesem Design.",
     },
     applyToSource: "Auf Quelle anwenden",
     applyToSourcePath: "Auf Quelle anwenden ({{path}})",
@@ -1652,10 +1173,16 @@ export default {
         opacity: "Deckkraft",
       },
       editColor: "Farbe von {{name}} bearbeiten",
+      field: {
+        open: "Tokens",
+        detach: "Token lösen",
+        primitives: "{{group}}-Primitive",
+        loading: "Tokens werden geladen…",
+      },
     },
     import: {
       description:
-        "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
+        "Füge HTML aus der Figma-Zwischenablage oder eigenständiges HTML als Design-Seiten ein.",
       figmaUrlLabel: "Figma-Frame- oder Datei-URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma-Zugriffstoken",
@@ -1720,12 +1247,26 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
+        "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neue Seite, ohne es in diese Editor-Oberfläche einzufügen.",
       allSupportedFiles: "Alle unterstützten Dateien",
       githubDescription:
-        "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
+        "Demnächst: Seiten und Komponenten direkt aus einem Repository importieren.",
       localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
       warningsToast: "Import mit Warnungen abgeschlossen",
+      pasteUnreadable: "Die kopierten Ebenen konnten nicht gelesen werden.",
+      pasteInexact: "Details, die nicht exakt eingefügt wurden: {{count}}",
+      pasteLayerTypes:
+        "{{tool}}-Ebenentypen als einfache Frames eingefügt: {{count}}",
+      pasteImagePlaceholders:
+        "Als Platzhalter eingefügte Bilder: {{count}}. {{tool}} kopiert keine Bilddaten.",
+      pasteImagesLinked:
+        "Weiterhin mit {{tool}} verknüpfte Bilder: {{count}}. Sie konnten nicht in deinen Dateispeicher kopiert werden.",
+      pasteImagesUnsaved:
+        "Bilder, die möglicherweise nicht mehr geladen werden, weil ihr Speichern nicht bestätigt wurde: {{count}}",
+      pasteNeedsEditAccess:
+        "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
+      pastePartialImport:
+        "Das Einfügen ist fehlgeschlagen, einige Seiten wurden möglicherweise erstellt. Prüfe deine Seiten.",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",
@@ -1736,6 +1277,8 @@ export default {
         notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
         importFailed: "Import fehlgeschlagen",
         figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
+        paperPasteFailed: "Paper-Einfügeimport fehlgeschlagen",
+        wonderPasteFailed: "Wonder-Einfügeimport fehlgeschlagen",
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
         unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
@@ -1771,22 +1314,22 @@ export default {
     signInToRequestAccessTitle: "Anmelden, um Zugriff anzufordern",
     signInToRequestAccessDescription:
       "Melden Sie sich an oder erstellen Sie ein Konto, um Zugriff beim Eigentümer anzufordern.",
-    signInOrSignUp: "Anmelden oder registrieren",
     accessCheckFailed:
       "Der Zugriff auf dieses Design konnte nicht geprüft werden.",
     retryAccessCheck: "Erneut versuchen",
     saveAsTemplate: "Als Vorlage speichern…",
     saveTemplateDescription:
-      "Aktuelle Screens, Abmessungen, Standardwerte und gesperrte Ebenen als wiederverwendbaren Ausgangspunkt sichern.",
+      "Speichere die aktuellen Seiten, Abmessungen, Standardwerte und gesperrten Ebenen als wiederverwendbaren Ausgangspunkt.",
     templateName: "Vorlagenname",
     templateDescription: "Beschreibung",
     templateCategory: "Kategorie",
     templateSnapshotSummary:
-      "{{screens}} Screen(s) · {{locks}} gesperrte Ebene(n) werden beibehalten",
+      "{{screens}} Seite(n) · {{locks}} gesperrte Ebene(n) bleiben erhalten",
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
     appMenu: {
+      backToDashboard: "Zurück zum Dashboard",
       file: "Datei",
       preferences: "Einstellungen",
       newDesign: "Neues Design",
@@ -1830,12 +1373,10 @@ export default {
     shareEditorLinkDescription:
       "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
     modes: {
-      annotate: "Annotieren",
       comment: "Kommentar",
       edit: "Bearbeiten",
-      draw: "Zeichnen",
       interact: "Interact",
-      screens: "Bildschirme",
+      screens: "Seiten",
     },
     topBar: {
       modeDesign: "Design",
@@ -1846,7 +1387,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "Seite",
       shapes: "Formen",
       rect: "Rectangle",
       line: "Linie",
@@ -1869,7 +1410,7 @@ export default {
       categoriesLabel: "Kategorien der Tastenkürzel",
       empty: "Keine Tastenkürzel passen zu „{{query}}“",
       codeContext: "Code",
-      screenContext: "Screens",
+      screenContext: "Seite",
       nudgeAmount: {
         title: "Verschiebeschrittweite",
         small: "Kleiner Schritt",
@@ -1918,7 +1459,6 @@ export default {
         arrange: "Anordnen",
         components: "Komponenten",
         layout: "Layout",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Tastenkürzel",
@@ -1932,7 +1472,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "Pipette",
         commentTool: "Kommentar anheften",
-        drawTool: "Zeichnen",
         showLayers: "Ebenen",
         showAssets: "Ressourcen",
         toggleUi: "Benutzeroberfläche ein- oder ausblenden",
@@ -1957,8 +1496,8 @@ export default {
         enterSelection: "Auswahl",
         nextSibling: "Auswahl →",
         previousSibling: "← Auswahl",
-        nextScreen: "Screens →",
-        previousScreen: "← Screens",
+        nextScreen: "Nächste Seite",
+        previousScreen: "Vorherige Seite",
         toggleLayoutGrids: "Layoutraster ein- oder ausblenden",
         toggleRulers: "Lineale ein- oder ausblenden",
         nudge: "Move",
@@ -2011,10 +1550,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "Zum aktuellen Bildschirm zurückkehren",
-    openScreenOverview: "Bildschirmübersicht öffnen",
-    currentScreen: "Aktueller Bildschirm",
-    screenOverview: "Bildschirmübersicht",
+    returnToCurrentScreen: "Zur aktuellen Seite zurück",
+    openScreenOverview: "Seitenübersicht öffnen",
+    currentScreen: "Aktuelle Seite",
+    screenOverview: "Seitenübersicht",
     devicePreview: "Gerätevorschau",
     devices: {
       responsive: "Reaktionsschnell",
@@ -2044,14 +1583,13 @@ export default {
     downloadSvg: "SVG herunterladen",
     downloadFigmaSvg: "Für Figma herunterladen (SVG)",
     downloadZip: "ZIP herunterladen",
-    downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
+    downloadPdfAllScreens: "PDF herunterladen (alle Seiten)",
     publishApp: "App veröffentlichen",
     exportOptions: "Exportoptionen",
     exportHtml: "HTML exportieren",
     exportPdf: "PDF exportieren",
     copyCodingHandoff: "Code-Übergabe kopieren",
     designTools: "Design-Tools",
-    drawOnCanvas: "Zeichnen Sie auf Leinwand",
     dropCommentPin: "Kommentar-Pin hinterlassen",
     presentInThisTab: "Auf dieser Registerkarte",
     presentFullscreen: "Vollbild",
@@ -2117,13 +1655,13 @@ export default {
       rollback: "Zurückrollen",
       keep: "Behalten",
       selectorMissing:
-        "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        "Das ausgewählte Element hat keine bearbeitbare Entsprechung im Quellcode dieser Seite. Wenn eine Komponente es rendert, wende die Änderung über den Agenten an.",
       noRenderedBox:
         "Die ausgewählte Ebene hat keine gerenderte Box, daher wurde die Stiländerung nicht angewendet.",
       clientRenderedShell:
-        "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
+        "Diese Seite wird clientseitig gerendert, daher enthält das ausgelieferte HTML kein App-Markup zum Patchen. Bitte den Agenten, die Änderung im Komponenten-Quellcode vorzunehmen.",
       snapshotNotLoaded:
-        "Der Quellcode dieses Screens wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis der Screen vollständig geladen ist, und versuche es erneut.",
+        "Der Quellcode dieser Seite wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis die Seite fertig geladen ist, und versuche es erneut.",
       selectorAmbiguous:
         "Dieses Element ist eine von {{count}} identischen Instanzen im Quellcode, daher wurde die Änderung nicht geschrieben. Bitte den Agenten, sie auf diese Instanz zu beschränken.",
       status: {
@@ -2138,6 +1676,7 @@ export default {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
       applySharedEdits: "Änderungen anwenden",
+      reviewSuggestion: "Vorschlag prüfen",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
@@ -2146,6 +1685,7 @@ export default {
       copyPrompt: "Prompt an deinen Agent kopieren",
       copyAgentPrompt: "Agentenprompt kopieren",
       copyFullPrompt: "Vollständigen Prompt kopieren",
+      clearEdits: "Änderungen löschen",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
         "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
@@ -2161,6 +1701,11 @@ export default {
       copiedToastDescription:
         "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
+      clearedToast: "Ausstehende Änderungen gelöscht",
+      localPreviewsClearedToast:
+        "Lokale Vorschauen wurden verworfen; die ausstehenden Änderungen einer anderen mitarbeitenden Person bleiben bestehen.",
+      clearFailedToast:
+        "Ausstehende Änderungen konnten nicht gelöscht werden. Versuchen Sie es erneut.",
       interactBlocked:
         "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
       leaveTitle: "Design-Updates vor dem Verlassen anwenden?",
@@ -2172,18 +1717,18 @@ export default {
       leave: "Ohne Anwenden verlassen",
     },
     addLocalhostScreen: {
-      title: "Einen Screen aus deiner App hinzufügen",
+      title: "Seite aus deiner App hinzufügen",
       description:
         "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
       searchPlaceholder: "Routen durchsuchen…",
       noRoutes: "Keine passenden Routen",
       noDiscoveredRoutes:
-        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um einen Screen hinzuzufügen.",
+        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um eine Seite hinzuzufügen.",
       useCustomPath: "„{{path}}“ hinzufügen",
       viewportDesktop: "Desktop",
       viewportMobile: "Mobil",
-      added: "Screen hinzugefügt",
-      addFailed: "Screen konnte nicht hinzugefügt werden",
+      added: "Seite hinzugefügt",
+      addFailed: "Seite konnte nicht hinzugefügt werden",
     },
     localhostConsent: {
       approvedTitle: "Genehmigt – führe die Änderung erneut aus",
@@ -2241,13 +1786,22 @@ export default {
       "agent-structural-edit": "Agent für Strukturbewegung nötig",
     },
     toasts: {
-      annotationSendError:
-        "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      unknownCollaborator: "Mitwirkende Person",
+      supersededVisualEditSuggestion:
+        "Ein früherer Vorschlag von {{authorEmail}} wurde ersetzt. Originaltext: {{text}}",
       visualEditPendingConflict:
         "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
       clipboardBlocked: "Zwischenablage blockiert",
+      pasteMediaTooMany_one:
+        "{{count}} Datei wurde nicht eingefügt. Du kannst auf einmal bis zu {{limit}} Dateien einfügen.",
+      pasteMediaTooMany_other:
+        "{{count}} Dateien wurden nicht eingefügt. Du kannst auf einmal bis zu {{limit}} Dateien einfügen.",
+      pasteMediaTooLarge_one:
+        "{{count}} Datei wurde nicht eingefügt, weil sie größer als {{limitMb}} MB ist.",
+      pasteMediaTooLarge_other:
+        "{{count}} Dateien wurden nicht eingefügt, weil sie größer als {{limitMb}} MB sind.",
       htmlCreateError: "HTML-Download konnte nicht erstellt werden",
       htmlDownloaded: "HTML heruntergeladen",
       htmlExportError: "HTML konnte nicht exportiert werden",
@@ -2257,7 +1811,7 @@ export default {
       zipCreateError: "ZIP-Download konnte nicht erstellt werden",
       zipDownloaded: "ZIP heruntergeladen",
       zipExportError: "ZIP konnte nicht exportiert werden",
-      openScreenPng: "Öffnen Sie vor dem PNG-Export einen Bildschirm",
+      openScreenPng: "Öffne eine Seite, bevor du PNG exportierst",
       pngCreateError: "PNG-Download konnte nicht erstellt werden",
       pngDownloaded: "PNG heruntergeladen",
       pngCopied: "PNG in die Zwischenablage kopiert",
@@ -2285,8 +1839,8 @@ export default {
         "Der Export ist nicht verfügbar, weil der Renderer nicht gestartet werden konnte. Versuchen Sie es später erneut.",
       pdfExportError: "PDF konnte nicht exportiert werden",
       pdfDownloaded: "PDF heruntergeladen",
-      pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",
-      openScreenSvg: "Öffnen Sie vor dem SVG-Export einen Bildschirm",
+      pdfAllScreensDownloaded: "PDF heruntergeladen (alle Seiten)",
+      openScreenSvg: "Öffne eine Seite, bevor du SVG exportierst",
       svgDownloaded: "SVG heruntergeladen",
       svgExportError: "SVG konnte nicht exportiert werden",
       figmaSvgCopied: "Als Figma-SVG kopiert",
@@ -2299,17 +1853,17 @@ export default {
         "SVG konnte nicht in die Zwischenablage kopiert werden",
       figmaSvgRenderError: "Figma-SVG konnte nicht erstellt werden",
       figmaSvgExportError: "Figma-SVG konnte nicht exportiert werden",
-      screenDuplicated: "Screen dupliziert",
-      screenDuplicateError: "Screen konnte nicht dupliziert werden",
+      screenDuplicated: "Seite dupliziert",
+      screenDuplicateError: "Seite konnte nicht dupliziert werden",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "Eigenschaften kopiert",
       propsPasted: "Eigenschaften eingefügt",
       primitiveInsertFailed:
-        "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
+        "Diese Ebene konnte der Seite nicht hinzugefügt werden",
       designStateLiveScreen:
-        "Design-Zustände lassen sich in einem Live-Screen nicht vorschauen — sein Inhalt ist die laufende App, kein Dokument.",
+        "Designzustände können auf einer Live-Seite nicht in der Vorschau angezeigt werden: ihr Inhalt ist die laufende App, kein Dokument.",
       layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
       groupFillApplyFailed:
         "Diese Füllung konnte nicht auf alle Ebenen der Gruppe angewendet werden.",
@@ -2322,13 +1876,17 @@ export default {
         "Doppelklicke auf eine Zeile auf der Leinwand, um ihren Text zu bearbeiten",
       eyedropperUnsupported:
         "Die Pipette wird von diesem Browser nicht unterstützt",
+      claimBoardError:
+        "Dieses Board konnte nicht in dein Konto verschoben werden",
       saveCopyError:
         "Eine Kopie dieses Designs konnte nicht gespeichert werden",
-      auditRunFailed: "Design-Audit konnte nicht ausgefuehrt werden",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
+      tweakBaselineUnreadable:
+        "Die gespeicherte Tweaks-Basis konnte nicht gelesen werden. Änderungen an Tweaks sind pausiert, bis die Designdaten repariert sind.",
+      resetTweakBaseline: "Ausgangswert zurücksetzen",
       tweakSaveNotDurable:
         "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
       undoSkippedConcurrentEdit:
@@ -2336,12 +1894,10 @@ export default {
       redoSkippedConcurrentEdit:
         "Wiederholen übersprungen – jemand anderes hat das verschoben",
       saveConflict:
-        "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
-      versionHistoryUnavailable:
-        "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
+        "Diese Seite wurde an anderer Stelle geändert. Deine letzte Änderung wurde nicht gespeichert.",
       removeAutoLayoutFailed: "Auto-Layout konnte nicht entfernt werden",
       autoLayoutScreensUnsupported:
-        "Auto-Layout hinzufügen gilt nicht für Bildschirme",
+        "Auto-Layout hinzufügen gilt nicht für Seiten",
       booleanSubtractUnsupported:
         "Wähle benachbarte Rechtecke oder Ellipsen mit einfarbiger Füllung aus, um sie zu subtrahieren.",
       booleanSubtractFailed: "Diese Ebenen konnten nicht subtrahiert werden.",
@@ -2351,9 +1907,8 @@ export default {
         "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
       sourceLocationSnapshotFailed:
         "Quellcode-Positionen für diese Vorschau konnten nicht geprüft werden.",
-      screenSourceUpdated: "Screen-Quelle aktualisiert",
-      screenSourceUpdateFailed:
-        "Screen-Quelle konnte nicht aktualisiert werden",
+      screenSourceUpdated: "Seitenquelle aktualisiert",
+      screenSourceUpdateFailed: "Seitenquelle konnte nicht aktualisiert werden",
       vectorEditUnsupported:
         "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
       imageUploading: "Bild wird hochgeladen…",
@@ -2369,7 +1924,7 @@ export default {
       alignNeedsTwoLayers:
         "Wähle zwei oder mehr Ebenen aus, um sie auszurichten",
       alignNeedsTwoScreens:
-        "Wähle zwei oder mehr Screens aus, um sie auszurichten",
+        "Wähle zwei oder mehr Seiten aus, um sie auszurichten",
       layoutUnmeasurable:
         "Eine ausgewählte Ebene konnte nicht gemessen werden. Prüfe, ob sie auf der Arbeitsfläche sichtbar ist, und versuche es erneut.",
       layoutAutoLayoutChildren:
@@ -2419,11 +1974,11 @@ export default {
   },
   layersPanel: {
     title: "Ebenen",
-    screens: "Screens",
-    resizeScreens: "Größe des Bildschirmbereichs ändern",
-    allScreens: "Alle Screens",
+    screens: "Seiten",
+    components: "Komponenten",
+    resizeScreens: "Größe des Seitenbereichs ändern",
     thumbnail: "Miniaturansicht",
-    addScreen: "Screen hinzufügen",
+    addScreen: "Seite hinzufügen",
     searchPlaceholder: "Ebenen suchen",
     empty: "Keine Ebenen",
     noMatches: "Keine passenden Ebenen",
@@ -2472,7 +2027,7 @@ export default {
         "Die Live-Editor-Bridge hat die Verbindung auch nach mehreren Versuchen nicht bestätigt.",
       connectionNotConfirmed:
         "Die Live-Editor-Bridge hat die Verbindung nicht bestätigt. Läuft der lokale Entwicklungsserver noch?",
-      permissionPromptTitle: "Lokale Bildschirme verbinden",
+      permissionPromptTitle: "Lokale Seiten verbinden",
       permissionPromptDescription:
         "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
@@ -2482,15 +2037,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
       previewCredentialsUnavailableDescription:
-        "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+        "Verbinde die Localhost-Verbindung dieser Seite im Inspektor neu und versuche es dann erneut.",
       publicPreviewUnavailableDescription:
-        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitarbeiter, um diese Seite zu sehen.",
       previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "{{label}}-Breakpoint ({{width}}px) zu allen Screens hinzufügen",
+      "Breakpoint {{label}} ({{width}}px) zu allen Seiten hinzufügen",
     preparingLiveEditor: "Live-Editor wird vorbereitet…",
     duplicate: "Duplizieren",
     fork: "Abzweigen",
@@ -2583,11 +2138,6 @@ export default {
     startWithAiHint:
       "Beschreibe eine Seite und erhalte einen bearbeitbaren Entwurf.",
     startBlankCanvasHint: "Zeichne selbst mit Rahmen, Formen und Text.",
-    designSystem: "Design-System",
-    noDesignSystem: "Kein Designsystem",
-    designSystemIndexing: "Wird indiziert…",
-    newDesignSystem: "Neu",
-    createDesignSystem: "Designsystem erstellen",
     template: "Vorlage",
     blank: "Leer",
     builtIn: "Integriert",
@@ -2598,8 +2148,6 @@ export default {
     builtInTemplates: "Integrierte Vorlagen",
     templatePromptPlaceholder:
       "Beschreibe, wie {{title}} angepasst werden soll...",
-    reskinTemplatePrompt:
-      "Wende das Designsystem {{system}} auf {{title}} an und erhalte Struktur und gesperrte Ebenen.",
     addAttachment: "Hinzufügen",
     removeAttachment: "Entfernen Sie {{name}}",
     uploadFile: "Datei hochladen",
@@ -2608,16 +2156,6 @@ export default {
     pickAssetDescription: "Durchsuchen oder generieren Sie Bilder",
   },
   visualEditor: {
-    typeAnnotation: "Anmerkung eingeben...",
-    typeAnnotationFancy: "Anmerkung eingeben…",
-    typeAnywhere: "Geben Sie irgendwo ein",
-    typeAnywhereOnCanvas:
-      "Geben Sie eine beliebige Stelle auf der Leinwand ein",
-    clearAll: "Alles löschen",
-    exitDrawMode: "Zeichenmodus verlassen",
-    undoStroke: "Strich rückgängig machen",
-    redoStroke: "Strich wiederholen",
-    tellAgentWhatToDo: "Sagen Sie dem Agenten, was er tun soll ...",
     clickToDropCommentPin:
       "Klicken Sie auf eine beliebige Stelle, um einen Kommentar-Pin zu hinterlassen",
     editDesign: "Design bearbeiten",
@@ -2632,12 +2170,7 @@ export default {
     saveRetrying:
       "Änderungen konnten nicht gespeichert werden. Es wird automatisch erneut versucht.",
     saving: "Speichern...",
-    clearedAllAnnotations: "Alle Anmerkungen gelöscht",
-    annotationsDiscardedOnViewChange:
-      "{{count}} nicht gesendete Anmerkung(en) wurden beim Verlassen dieser Ansicht verworfen.",
-    undo: "Rückgängig",
     send: "Senden",
-    sendingDrawing: "Wird gesendet …",
     commentSent: "Kommentar gesendet",
     comment: "Kommentar",
     annotationQueue: "Anmerkungswarteschlange",
@@ -2695,22 +2228,16 @@ export default {
       "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
     tooMany: "Wähle bis zu 20 Referenzen.",
     invalidWebsiteUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
-    createSystem: "Designsystem erstellen",
-    noSystems:
-      "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
-    searchSystems: "Designsysteme suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
     searchPages: "Seiten suchen…",
     searchDesign: "Design suchen…",
-    useDesignSystem: "Ein Designsystem verwenden",
     notReady:
       "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
     search: "Kontext suchen…",
     loadFailed: "Diese Referenz konnte nicht geladen werden.",
     retry: "Erneut versuchen",
     empty: "Keine passenden Referenzen.",
-    none: "Keine",
     design: "Designreferenzen",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
@@ -2768,8 +2295,6 @@ export default {
       design: {
         portfolioHome:
           "Gestalte die Startseite eines Design-Portfolios mit Kurzvorstellung, Projektübersicht, Profil und Kontakt in einem sorgfältigen Editorial-Ton.",
-        designSystem:
-          "Erstelle eine Designsystem-Referenz mit Farb- und Typografie-Tokens, Komponentenübersicht und Nutzungshinweisen in einem präzisen Dokumentationston.",
         bankingApp:
           "Erstelle den Startbildschirm einer Mobile-Banking-App mit Kontostand, Umsätzen und Sparzielen in einem ruhigen, vertrauenswürdigen Ton.",
         travelBooking:
@@ -2988,7 +2513,6 @@ export default {
       },
       design: {
         portfolioHome: "Startseite eines Design-Portfolios",
-        designSystem: "Designsystem-Referenz",
         bankingApp: "Startbildschirm einer Mobile-Banking-App",
         travelBooking: "Reisesuche",
         coffeeShop: "Kaffeeshop",
@@ -3067,10 +2591,10 @@ export default {
     openDesign: "Design oeffnen",
     templatesCta: "Vorlagen durchsuchen",
     previewLabel: "Lokale Vorschau",
-    layoutLabel: "Bildschirm-Layout bereit zum Speichern",
+    layoutLabel: "Seitenlayout bereit zum Speichern",
   },
   templatesPage: {
-    previewEmpty: "Diese Vorlage enthält keine Vorschauseiten.",
+    previewEmpty: "Diese Vorlage enthält keine Seiten mit Vorschau.",
     loading: "Vorlagen werden geladen",
     title: "Vorlagen",
     description:
@@ -3120,8 +2644,6 @@ export default {
   },
   routeTitles: {
     notFound: "Nicht gefunden - Design",
-    designSystems: "Designsysteme",
-    designSystemSetup: "Designsystem einrichten",
     designEditor: "Design-Editor",
     designTemplates: "Designvorlagen",
     toolDesign: "Werkzeug — Design",
@@ -3132,280 +2654,13 @@ export default {
     teamDesign: "Team - Design-App",
     visualEdit: "Visuelle Bearbeitung - Design",
   },
-  designSystemSetup: {
-    importedBrand: "Importierte Marke",
-    figmaCreateSuccess: "Designsystem erstellt aus Figma",
-    figmaCreateError: "Das Designsystem konnte nicht erstellt werden",
-    backToDesignSystems: "Zurück zu Designsystemen",
-    otherSources: "Andere",
-    otherSourcesDescription:
-      "Von einer Website, Code, Dateien oder einem vorhandenen Designsystem verbinden.",
-    chooseSourcePrompt: "Quelle zum Konfigurieren auswählen",
-    continue: "Weiter zur Generation",
-    starting: "Wird gestartet…",
-    githubIndexStarted: "GitHub-Indizierung gestartet",
-    designMdIndexStarted: "design.md-Indizierung gestartet",
-    designMdUpload: "design.md importieren",
-    designMdHelp: "design.md-Anweisungen in Builder DSI importieren",
-    title: "Richten Sie Ihr Designsystem ein",
-    description:
-      "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
-    figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
-    figmaParsingDescription:
-      "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
-    figmaDecodeFailed: "Dekodierung fehlgeschlagen: {{error}}",
-    uploadFig: "Figma mit einer .fig-Datei verbinden",
-    figmaSaveLocalCopy:
-      "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
-    websiteUrl: "Website URL",
-    add: "Hinzufügen",
-    githubRepository: "GitHub-Repository",
-    githubRef: "Branch, Tag oder Commit (optional)",
-    githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
-    privateRepoPrefix:
-      "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
-    privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
-    localCodeFiles: "Code-Dateien verbinden",
-    dropCodeFiles:
-      "CSS, Tailwind-Konfiguration, Theme-Dateien oder design.md hier ablegen",
-    codeFilePatterns:
-      "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "Dokumente und Präsentationen",
-    documentsHelp:
-      "PPTX, DOCX, PDF, XLSX – Markenführer, Pitchdecks, Stildokumente",
-    visualReferences: "Screenshots und visuelle Referenzen",
-    visualReferencesHelp: "Produkt-Screenshots, Moodboards, Inspirationsbilder",
-    assets: "Logos, Schriftarten und andere Assets",
-    assetsHelp: "SVG-Logos,.woff2-Schriftarten, Marken-Asset-Dateien",
-    designSystem: "Designsystem",
-    designProject: "Designprojekt",
-    companyPlaceholder:
-      "z.B. Acme Corp – Wir entwickeln Entwicklertools für moderne Teams...",
-    notesPlaceholder:
-      "z.B. Wir bevorzugen ein dunkles Thema mit hohem Kontrast. Unsere Marke verwendet Poppins für Überschriften und DM Sans für Text. Halten Sie die Ecken bei 12 Pixel abgerundet...",
-    customInstructionsPlaceholder:
-      "z.B. Fügen Sie immer ein selbstklebendes Top-Navigationssystem hinzu. Bevorzugen Sie redaktionelle Zitate gegenüber Heldenstatistiken. Verwenden Sie niemals Hintergründe mit Farbverlauf. Logos erscheinen immer unten links...",
-    designSystemName: "Name des Designsystems",
-    brandNamePlaceholder: "Markenname",
-    extractedSummary:
-      "Extrahiert aus {{nodes}}-Knoten, {{gradients}}-Verläufen und {{images}}-Bildern",
-    previewColors: "Farben",
-    signatureGradients: "Signaturverläufe",
-    previewTypography: "Typografie",
-    headingsLabel: "Überschriften:",
-    bodyLabel: "Körper:",
-    brandBrief: "Markenbrief",
-    brandBriefHelp:
-      "Dies leitet jedes Design, das mit diesem System erstellt wurde. Sie können es nach der Erstellung jederzeit verfeinern.",
-    creating: "Erstellen...",
-    createDesignSystem: "Designsystem erstellen",
-    chooseDifferentFile: "Wählen Sie eine andere Datei",
-    figmaThumbnailAlt: "Miniaturansicht der Figma-Datei",
-    errors: {
-      chooseFig:
-        "Bitte wählen Sie eine.fig-Datei (in Figma: Datei -> Lokale Kopie speichern).",
-      parseFig:
-        "Die Builder-Indizierung für diese Figma-Datei konnte nicht gestartet werden.",
-      enterWebsite: "Geben Sie eine Website URL ein, bevor Sie sie hinzufügen.",
-      websiteProtocol:
-        "Die Website URLs muss mit http:// oder https:// beginnen.",
-      enterGithub:
-        "Geben Sie ein GitHub-Repository URL ein, bevor Sie es hinzufügen.",
-      githubUrl:
-        "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
-      githubIndex:
-        "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
-      nameConflict:
-        "Ein Designsystem mit diesem Namen existiert bereits. Wähle einen anderen Namen und versuche es erneut.",
-      chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
-      readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
-      designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
-      designMdIndex:
-        "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
-      noSources:
-        "Fügen Sie mindestens eine Quelle hinzu, bevor Sie ein Designsystem erstellen.",
-    },
-    sections: {
-      figma: {
-        title: "Figma verbinden",
-        description:
-          "Lade eine .fig hoch und Builder DSI indexiert Tokens, Komponenten, Assets und Markenanweisungen als wiederverwendbares Designsystem.",
-      },
-      company: {
-        title: "Unternehmen / Marke",
-        description: "Name, Beschreibung und Website",
-      },
-      code: {
-        title: "Code verbinden",
-        description:
-          "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
-      },
-      designMd: {
-        title: "design.md importieren",
-        description:
-          "Eine design.md-Datei als Quelle für das Designsystem verwenden",
-      },
-      designFiles: {
-        title: "Referenzdateien",
-        description:
-          "Dokumente, Screenshots und Markenassets ergänzen den Builder-DSI-Kontext",
-      },
-      importExisting: {
-        title: "Aus vorhandenem importieren",
-        description:
-          "Forken Sie ein Designsystem oder extrahieren Sie Token aus einem Projekt",
-      },
-      notes: {
-        title: "Zusätzliche Hinweise",
-        description: "Designpräferenzen, Einschränkungen, Markenrichtlinien",
-      },
-      customInstructions: {
-        title: "Benutzerdefinierte Anweisungen",
-        description:
-          "Mit dem Designsystem gespeichert. Wird jedes Mal erneut angewendet, wenn der Agent es zum Generieren eines Designs verwendet.",
-      },
-    },
-    colorLabels: {
-      accent: "Akzent",
-      primary: "Primär",
-      secondary: "Sekundär",
-      background: "Hintergrund",
-      surface: "Oberfläche",
-      text: "Text",
-      muted: "Stummgeschaltet",
-    },
-    codeIndexingEnterpriseOnly:
-      "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
-  },
-  designSystems: {
-    comingSoonTitle: "Designsysteme kommen bald",
-    waitlist: {
-      join: "Warteliste beitreten",
-      joining: "Wird eingetragen…",
-      joined: "Sie stehen auf der Warteliste",
-      error:
-        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
-      unavailable:
-        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
-    },
-    deleteError: "Das Designsystem konnte nicht gelöscht werden",
-    updateSuccess: "Designsystem aktualisiert",
-    updateError: "Das Designsystem konnte nicht aktualisiert werden",
-    bulkDeleteError: "Ausgewählte Designsysteme konnten nicht gelöscht werden",
-    selectedLabel: "ausgewählt",
-    yoursTitle: "Ihre Designsysteme",
-    newCardDescription: "Richten Sie Ihre Marke ein",
-    defaultBadge: "Standard",
-    selectAria: "Wählen Sie {{title}}",
-    currentlyDefault: "Derzeit Standard",
-    moreActionsAria: "Weitere Aktionen für {{title}}",
-    showcase: {
-      title: "Produktionsreife Ausgangspunkte",
-      description:
-        "Nutzen Sie eine mit Quellen verknüpfte Kopie eines etablierten öffentlichen Designsystems. Jede Kopie enthält echte Tokens, Typografieskalen, Abstände, Formen, Zustände und Quellenangaben.",
-      useTemplate: "Dieses System verwenden",
-      adding: "Wird hinzugefügt...",
-      openSource: "Quelldokumentation für {{title}} öffnen",
-      license: "Quelllizenz: {{license}}",
-      addSuccess: "Designsystem hinzugefügt",
-      addError: "Designsystem konnte nicht hinzugefügt werden",
-      descriptions: {
-        material3:
-          "Googles helle Basisrollen, Roboto-Typografieskala, 4-dp-Abstände und Material-Formensystem.",
-        carbon:
-          "IBM Carbon v11 White Theme, IBM Plex, Farbrollen für Unternehmenssoftware und 2/4/8-Abstände.",
-        primer:
-          "GitHub Primer Light Tokens, Mona Sans, kompakte Werkzeugdichte und responsive Abstände.",
-      },
-    },
-    actions: {
-      done: "Erledigt",
-      select: "Wählen",
-      new: "Neues Designsystem",
-      clearAll: "Löschen Sie alle Designsysteme",
-      selectAll: "Wählen Sie alle Designsysteme aus",
-      clearSelection: "Klare Auswahl",
-      delete: "Löschen",
-      setDefault: "Als Standard festlegen",
-      cancel: "Stornieren",
-    },
-    deleteDialog: {
-      title: "Designsystem löschen?",
-      description:
-        "Dadurch wird dieses Designsystem dauerhaft gelöscht und die Verknüpfung mit allen Designs, die es verwenden, wird aufgehoben. Diese Aktion kann nicht rückgängig gemacht werden.",
-      bulkTitle: "{{count}} Design Systems löschen?",
-      bulkDescription:
-        "Dadurch werden {{count}}-Designsysteme dauerhaft gelöscht und die Verknüpfung mit allen Designs, die sie verwenden, wird aufgehoben. Diese Aktion kann nicht rückgängig gemacht werden.",
-    },
-    details: {
-      description:
-        "Überprüfen Sie die gespeicherten Token und aktualisieren Sie die Details, die Agenten verwenden, wenn sie dieses Designsystem anwenden.",
-      titleLabel: "Titel",
-      descriptionLabel: "Beschreibung",
-      customInstructionsTitle: "Benutzerdefinierte Anweisungen",
-      customInstructionsDescription:
-        "Dauerhafte Anleitung, die der Agent immer dann wiederverwendet, wenn dieses System mit einem Design verknüpft wird.",
-      noCustomInstructions:
-        "Noch keine benutzerdefinierten Anweisungen gespeichert.",
-      useAsStartingPoint: "Als Ausgangspunkt verwenden",
-      saving: "Sparen...",
-      saveChanges: "Änderungen speichern",
-    },
-    preview: {
-      title: "Vorschau",
-      description:
-        "Dieses Designsystem wird von Builder Design System Intelligence verwaltet. Öffnen Sie das verknüpfte Projekt, um das vollständige Designsystem einzusehen, einschließlich aller Tokens, Komponenten und Nutzungshinweise.",
-    },
-    tokenPreview: {
-      title: "Token-Vorschau",
-      description:
-        "Eine Momentaufnahme der Farben, des Typs, der Abstände und der aktuell gespeicherten Elemente.",
-      colors: "Farben",
-      noColors: "Keine Farbtokens gespeichert.",
-      typography: "Typografie",
-      details: "Details",
-      spacing: "Abstand",
-      borders: "Grenzen",
-      defaults: "Standardeinstellungen",
-      logos: "Logos",
-      assets: "Vermögenswerte",
-      savedCount: "{{count}} gespeichert",
-      namedTokens: "Benannte Tokens",
-      colorLabels: {
-        primary: "Primär",
-        secondary: "Sekundär",
-        accent: "Akzent",
-        background: "Hintergrund",
-        surface: "Oberfläche",
-        text: "Text",
-        mutedText: "Stummgeschalteter Text",
-      },
-      typeLabels: {
-        headingFont: "Schriftart der Überschrift",
-        bodyFont: "Körperschrift",
-        headingWeight: "Überschriftsgewicht",
-        bodyWeight: "Körpergewicht",
-      },
-    },
-    empty: {
-      title: "Erstellen Sie Ihr erstes Designsystem",
-      description:
-        "Sorgen Sie für ein einheitliches Branding aller Ihrer Designs mit gemeinsamen Farben, Typografie und Assets.",
-    },
-    tierLimitTitle: "Limit für Designsysteme erreicht",
-    tierLimitDescription:
-      "Du hast das Limit für Designsysteme deines Builder-Plans erreicht. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
-    tierLimitDescriptionWithCount:
-      "Du nutzt {{current}} von {{max}} Designsystemen in deinem Builder-Plan {{plan}}. Upgrade deinen Builder-Plan, um ein weiteres zu erstellen.",
-    tierLimitUpgrade: "Builder-Plan upgraden",
-  },
   review: {
     comments: "Kommentare",
     commentsTab: "Kommentare · {{count}}",
     commentsTitle: "Prüfkommentare",
     commentNumber: "Prüfkommentar {{count}}",
-    thisScreen: "Dieser Bildschirm",
-    allScreens: "Alle Bildschirme",
+    thisScreen: "Diese Seite",
+    allScreens: "Alle Seiten",
     signInToComment: "Zum Kommentieren anmelden",
     panelTitle: "Feedback",
     placeholder: "Feedback hinterlassen…",
@@ -3458,6 +2713,18 @@ export default {
     addEmoji: "Emoji hinzufügen",
     mention: "Jemanden erwähnen",
     noMentions: "Keine Personen gefunden",
+    format: {
+      toolbar: "Formatierung",
+      bold: "Fett",
+      italic: "Kursiv",
+      strike: "Durchgestrichen",
+      code: "Als Code formatieren",
+      link: "Verlinken",
+      linkField: "Linkadresse",
+      linkPlaceholder: "Link einfügen",
+      applyLink: "Link übernehmen",
+      removeLink: "Link entfernen",
+    },
     mentionsFailed: "Personen konnten nicht geladen werden",
     reopen: "Wieder öffnen",
     reopening: "Wird wieder geöffnet…",
@@ -3485,6 +2752,10 @@ export default {
     markedUnread: "Als ungelesen markiert",
     markUnreadFailed: "Konnte nicht als ungelesen markiert werden",
     attachImage: "Bild anhängen",
+    removeImage: "Bild entfernen",
+    imageUploadFailed: "Das Bild konnte nicht hochgeladen werden",
+    editChanged:
+      "Dieser Kommentar wurde geändert, nachdem Sie mit dem Bearbeiten begonnen haben. Speichern Sie erneut, um ihn zu ersetzen.",
     searching: "Suche…",
     reactionFailed: "Reaktion konnte nicht aktualisiert werden",
     moveFailed: "Kommentar konnte nicht verschoben werden",
@@ -3528,6 +2799,8 @@ export default {
       fallbackName: "AI",
       setupRequired: "Verbinde ein KI-Modell, um Agenten zu nutzen",
       startFailed: "Der Agent konnte nicht gestartet werden",
+      hostChatUnconfirmed:
+        "Es ließ sich nicht bestätigen, dass die Nachricht den Host-Chat erreicht hat. Prüfe den Host-Chat, bevor du es erneut versuchst.",
       cancelFailed: "Der Agent konnte nicht gestoppt werden",
       busy: "Ein Agent arbeitet bereits an diesem Thread",
       error: {
@@ -3537,7 +2810,7 @@ export default {
         permission: "Du hast keinen Bearbeitungszugriff mehr",
         threadUnavailable: "Dieser Thread ist nicht mehr geöffnet",
         targetChanged: "Das Design wurde geändert, während der Agent arbeitete",
-        applyUnavailable: "Ein Agent kann diesen Bildschirm nicht bearbeiten",
+        applyUnavailable: "Ein Agent kann diese Seite nicht bearbeiten",
         applyIncomplete:
           "Das Design wurde bearbeitet, der Thread wurde aber nicht erledigt. Prüfe die Änderung.",
         cancelledAfterEdit:

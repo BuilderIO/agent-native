@@ -1,4 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
+import { durableAttachmentUrl } from "@shared/compose-attachments";
 import type { ComposeAttachment } from "@shared/types";
 
 export interface UploadResult {
@@ -25,6 +26,18 @@ function isStorageSetupReason(value: unknown): value is StorageSetupReason {
     value === "storage-refused" ||
     value === "not-configured"
   );
+}
+
+export function storageSetupReasonOf(
+  error: unknown,
+): StorageSetupReason | null {
+  const { errorCode, details } = (error ?? {}) as {
+    errorCode?: unknown;
+    details?: { storageSetupReason?: unknown };
+  };
+  if (errorCode !== "storage_setup_required") return null;
+  const reason = details?.storageSetupReason;
+  return isStorageSetupReason(reason) ? reason : "not-configured";
 }
 
 export class UploadError extends Error {
@@ -73,13 +86,14 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 export function uploadResultToAttachment(
   result: UploadResult,
 ): ComposeAttachment {
+  const url = durableAttachmentUrl(result.url);
   return {
     id: result.filename,
     filename: result.filename,
     originalName: result.originalName,
     mimeType: result.mimeType,
     size: result.size,
-    url: result.url,
+    ...(url ? { url } : {}),
   };
 }
 

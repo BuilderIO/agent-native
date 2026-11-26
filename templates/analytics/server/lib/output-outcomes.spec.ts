@@ -3,7 +3,15 @@ import { createRequire } from "node:module";
 
 import { and, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -37,6 +45,7 @@ import {
   sessionEventTenantKey,
   type SessionEventIndexInputRow,
 } from "./session-event-index";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 function migrationSql(pattern: RegExp, name: string): string[] {
   // source-read-ok: runs the migration's SQL against PGlite; nothing asserts on the text.
@@ -317,9 +326,17 @@ describe("output outcomes on Postgres", () => {
   let client: PGliteClient;
   let db: any;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     __resetOutputOutcomesForTests();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     for (const statement of outputOutcomesMigrationSql()) {
       await client.query(statement);
     }
@@ -362,10 +379,6 @@ describe("output outcomes on Postgres", () => {
     }
     db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   async function ingest(

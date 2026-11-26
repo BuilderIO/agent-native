@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import type { DbExec } from "../db/client.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
@@ -7,7 +8,10 @@ const state = vi.hoisted(() => ({
   membership: vi.fn(),
   db: undefined as DbExec | undefined,
 }));
-vi.mock("../db/client.js", () => ({ getDbExec: () => state.db }));
+vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
+  getDbExec: () => state.db,
+}));
 vi.mock("./credential-membership.js", () => ({
   checkCredentialOrgMembership: state.membership,
 }));
@@ -66,6 +70,24 @@ describe("MCP credential issuance", () => {
       }),
       transaction,
     };
+  });
+
+  it("refuses refreshing a personal grant outside the deployment domain policy", async () => {
+    const previous = process.env.AUTH_ALLOWED_EMAIL_DOMAINS;
+    process.env.AUTH_ALLOWED_EMAIL_DOMAINS = "builder.io";
+    resetAppConfigForTests();
+    const mint = vi.fn();
+    try {
+      await expect(
+        withMcpCredentialIssuance(input, mint),
+      ).rejects.toMatchObject({ reason: "not-member" });
+      expect(mint).not.toHaveBeenCalled();
+      expect(transaction).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.AUTH_ALLOWED_EMAIL_DOMAINS;
+      else process.env.AUTH_ALLOWED_EMAIL_DOMAINS = previous;
+      resetAppConfigForTests();
+    }
   });
 
   it("validates authority before starting the transaction and locks the owner's address, then the live member, before materialization", async () => {

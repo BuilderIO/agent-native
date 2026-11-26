@@ -29,7 +29,6 @@ export const DESIGN_HOME_SUGGESTION_POOLS: HomeSuggestionPools<HomeSuggestionPro
     ]),
     design: prompts("design", [
       "portfolioHome",
-      "designSystem",
       "bankingApp",
       "travelBooking",
       "coffeeShop",

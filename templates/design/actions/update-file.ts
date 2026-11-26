@@ -5,6 +5,7 @@ import {
   hasCollabState,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -17,10 +18,7 @@ import {
   withLegacyOperationReceipt,
 } from "../server/lib/content-operation-receipts.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
-import {
-  checkpointSkippedResultField,
-  snapshotDesignBeforeAgentEdit,
-} from "../server/lib/design-versions.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   LegacyEmailFrameTypeNotStoredError,
   writeWithLegacyEmailFrameTypes,
@@ -29,6 +27,12 @@ import {
   readDesignDataForUpdate,
   serializeFrameTypeChange,
 } from "../server/lib/screen-frame-type-store.js";
+import {
+  assertVisualEditBoardDataSize,
+  assertVisualEditBoardFileSize,
+  assertVisualEditCapabilityDesign,
+  visualEditCapabilityFileScope,
+} from "../server/lib/visual-edit-capability.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -259,6 +263,7 @@ export default defineAction({
         }
       }
     }),
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       id,
@@ -312,7 +317,9 @@ export default defineAction({
           ...(widgetDesignId
             ? [eq(schema.designFiles.designId, widgetDesignId)]
             : []),
-          accessFilter(schema.designs, schema.designShares),
+          visualEditCapabilityFileScope(
+            accessFilter(schema.designs, schema.designShares),
+          ),
         ),
       )
       .limit(1);
@@ -329,6 +336,8 @@ export default defineAction({
       syncCollab,
     });
 
+    assertVisualEditCapabilityDesign(file.designId);
+    assertVisualEditBoardFileSize(requestedContent);
     const access = await assertAccess("design", file.designId, "editor");
     // Only a non-HTML file can fail the check, so HTML saves skip parsing the
     // design data.
@@ -348,12 +357,7 @@ export default defineAction({
             : frameTypeFromStored(frameType),
       });
     }
-    const checkpoint = await snapshotDesignBeforeAgentEdit(
-      file.designId,
-      context,
-      { allowCheckpointFailureSkip: true },
-    );
-    const checkpointField = checkpointSkippedResultField(checkpoint);
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
     const writesContent =
       requestedContent !== undefined || contentPatch !== undefined;
 
@@ -392,7 +396,6 @@ export default defineAction({
           file.designId,
           write.changed ? 1 : 0,
         ),
-        ...checkpointField,
       };
     }
 
@@ -471,6 +474,7 @@ export default defineAction({
                   previousContent,
                 })
               : undefined;
+          if (data !== undefined) assertVisualEditBoardDataSize(data);
           await tx
             .update(schema.designs)
             .set({ updatedAt: now, ...(data === undefined ? {} : { data }) })
@@ -554,6 +558,8 @@ export default defineAction({
             throw new LegacyEmailFrameTypeNotStoredError(id);
           }
           if (content !== undefined) {
+            // A patch is checked by the file it produces, not by its text.
+            assertVisualEditBoardFileSize(content);
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
               nextContent: content,
@@ -771,13 +777,20 @@ export default defineAction({
               )
               .limit(1);
             if (collision && collision.id !== id) {
-              fail(
-                `File "${filename}" already exists in design ${file.designId}`,
-                {
-                  errorCode: "filename_taken",
-                  statusCode: 409,
-                },
+              const taken = new Set(
+                (
+                  await tx
+                    .select({
+                      id: schema.designFiles.id,
+                      filename: schema.designFiles.filename,
+                    })
+                    .from(schema.designFiles)
+                    .where(eq(schema.designFiles.designId, file.designId))
+                )
+                  .filter((sibling) => sibling.id !== id)
+                  .map((sibling) => sibling.filename),
               );
+              throw nameTaken("file", filename, nextFreeName(filename, taken));
             }
             updateResult = await tx
               .update(schema.designFiles)
@@ -918,7 +931,6 @@ export default defineAction({
           file.designId,
           outputChanged ? 1 : 0,
         ),
-        ...checkpointField,
       };
     }
     if (operationSource !== undefined && operationRevision !== undefined) {
@@ -934,7 +946,6 @@ export default defineAction({
           outputChanged ? 1 : 0,
         ),
         ...(persistedUpdatedAt ? { updatedAt: persistedUpdatedAt } : {}),
-        ...checkpointField,
       };
     }
     return {
@@ -942,7 +953,6 @@ export default defineAction({
       designId: file.designId,
       updated: true,
       _receipt: designOutputWriteReceipt(file.designId, outputChanged ? 1 : 0),
-      ...checkpointField,
     };
   },
   // A call that threw has no result, and the input names only the file, so

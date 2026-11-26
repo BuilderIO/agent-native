@@ -24,6 +24,7 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
   },
+  mcpTool: false,
   run: async ({ requestToken }) => {
     if (!getRequestUserEmail()) {
       throw new Error(

@@ -167,6 +167,28 @@ describe("content comment notifications", () => {
     expect(owner.subject).toBe('Writer commented on "Launch plan"');
   });
 
+  it("says how many images a comment carries without showing them", async () => {
+    await notifyDocumentComment({ ...BASE, imageCount: 2 });
+    await notifyDocumentComment({ ...BASE, imageCount: 1 });
+    await notifyDocumentComment(BASE);
+    for (const call of mocks.notifyActivity.mock.calls) {
+      await (call[0] as { send: (to: string) => Promise<unknown> }).send(
+        "owner@example.com",
+      );
+    }
+
+    const emails = mocks.sendEmail.mock.calls.map(
+      (call) => call[0] as { text: string; html: string },
+    );
+    expect(emails.map((email) => email.text)).toEqual([
+      expect.stringContaining("Includes 2 images."),
+      expect.stringContaining("Includes 1 image."),
+      expect.not.stringContaining("Includes"),
+    ]);
+    for (const email of emails)
+      expect(email.html).not.toContain("private-media");
+  });
+
   it.each(["mcp", "agent"])(
     "identifies %s comments without changing the account",
     async (submissionSource) => {

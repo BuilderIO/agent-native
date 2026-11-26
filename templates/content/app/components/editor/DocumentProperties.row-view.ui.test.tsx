@@ -212,6 +212,35 @@ describe("a row's failed Properties read", () => {
     expect(shows("empty.genericError")).toBe(false);
   });
 
+  it("keeps a new Comment waiting under a Property in reach below the error", () => {
+    failRead(mocks.response);
+    const inline = {
+      openPropertyId: null,
+      toggle: vi.fn(),
+      renderThreads: (propertyId: string) => (
+        <p data-threads-for={propertyId}>threads</p>
+      ),
+    };
+    renderProperties(null, { comments: { pendingPropertyId: "b", inline } });
+
+    expect(shows("empty.genericError")).toBe(true);
+    expect(rowIds()).toEqual([]);
+    const waiting = document.querySelector("[data-property-waiting-comment]");
+    expect(waiting?.textContent).toContain("b");
+    expect(
+      waiting?.querySelector(
+        '[data-property-threads="b"] [data-threads-for="b"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("leaves the error alone with no Comment waiting, or beside the page", () => {
+    failRead(mocks.response);
+    renderProperties(null, { comments: { pendingPropertyId: "b" } });
+    expect(shows("empty.genericError")).toBe(true);
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
+  });
+
   it("shows nothing at all above a body that reports it", () => {
     failRead();
     renderProperties(null, { leaveReadFailureToPage: true });
@@ -524,6 +553,28 @@ describe("a row's Properties in its view", () => {
     expect(alwaysHiddenLine()).toBeUndefined();
   });
 
+  it("lists a hidden Property for them while a Comment on it is written or open", () => {
+    mocks.response.canManageSchema = false;
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("empty", "", "hide_when_empty"),
+      property("quiet", "", "hide_when_empty"),
+      property("shown"),
+    ];
+    renderProperties(null, {
+      comments: {
+        pendingPropertyId: "always",
+        inline: {
+          openPropertyId: "empty",
+          toggle: vi.fn(),
+          renderThreads: () => null,
+        },
+      },
+    });
+    expect(rowIds()).toEqual(["shown", "always", "empty"]);
+    expect(alwaysHiddenLine()).toBeUndefined();
+  });
+
   it("waits for the view instead of drawing the page's order first", () => {
     mocks.response.properties = [property("always", "value", "always_hide")];
     renderProperties(null, { rowViewPending: true });
@@ -586,6 +637,31 @@ describe("a row's Properties in its view", () => {
     expect(rowIds()).toEqual(["shown", "hidden", "always"]);
   });
 
+  it("opens a line closed by hand when Info asks back the Comment in it", async () => {
+    const rowView: DatabaseRowView = {
+      type: "board",
+      hiddenPropertyIds: ["hidden"],
+    };
+    mocks.response.properties = [property("hidden"), property("shown")];
+    const comments = (revealKey: number) => ({
+      pendingPropertyId: "hidden",
+      inline: {
+        openPropertyId: null,
+        revealKey,
+        toggle: vi.fn(),
+        renderThreads: () => null,
+      },
+    });
+    const { rerender } = renderProperties(rowView, { comments: comments(0) });
+    expect(rowIds()).toEqual(["shown", "hidden"]);
+
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["shown"]);
+
+    rerender(propertiesElement(rowView, { comments: comments(1) }));
+    expect(rowIds()).toEqual(["shown", "hidden"]);
+  });
+
   it("stays closed for a thread that is only hovered", () => {
     renderProperties(
       { type: "board", hiddenPropertyIds: ["a"] },
@@ -599,5 +675,113 @@ describe("a row's Properties in its view", () => {
       },
     );
     expect(rowIds()).toEqual(["b", "c"]);
+  });
+
+  it("opens the line for a Property whose threads are open in Info", () => {
+    renderProperties(
+      { type: "board", hiddenPropertyIds: ["a"] },
+      {
+        comments: {
+          inline: {
+            openPropertyId: "a",
+            toggle: vi.fn(),
+            renderThreads: () => null,
+          },
+        },
+      },
+    );
+    expect(rowIds()).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("a Property's threads in Info", () => {
+  const thread = { threadId: "thread" } as never;
+  const inline = (openPropertyId: string | null) => ({
+    openPropertyId,
+    toggle: vi.fn(),
+    renderThreads: (propertyId: string) => (
+      <p data-threads-for={propertyId}>threads</p>
+    ),
+  });
+
+  it("shows the open Property's threads right under its row", () => {
+    renderProperties(null, {
+      comments: {
+        openThreadsByProperty: new Map([["b", [thread]]]),
+        inline: inline("b"),
+      },
+    });
+    const box = document.querySelector("[data-property-threads]");
+    expect(box?.getAttribute("data-property-threads")).toBe("b");
+    expect(box?.previousElementSibling?.getAttribute("data-property-row")).toBe(
+      "b",
+    );
+    expect(box?.querySelector("[data-threads-for]")?.textContent).toBe(
+      "threads",
+    );
+    expect(
+      document
+        .querySelector('[data-property-row="b"]')
+        ?.classList.contains("comment-property-row--active"),
+    ).toBe(true);
+  });
+
+  it("shows a new Comment there before the Property has threads", () => {
+    renderProperties(null, {
+      comments: { pendingPropertyId: "a", inline: inline("a") },
+    });
+    expect(
+      document
+        .querySelector("[data-property-threads]")
+        ?.getAttribute("data-property-threads"),
+    ).toBe("a");
+  });
+
+  it("keeps a new Comment under its row while another Property's threads open", () => {
+    renderProperties(null, {
+      comments: {
+        openThreadsByProperty: new Map([["b", [thread]]]),
+        pendingPropertyId: "a",
+        inline: inline("b"),
+      },
+    });
+    expect(
+      [...document.querySelectorAll("[data-property-threads]")].map((box) =>
+        box.getAttribute("data-property-threads"),
+      ),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("shows a resolved thread Show opened there", () => {
+    renderProperties(null, {
+      comments: { selectedPropertyId: "a", inline: inline("a") },
+    });
+    expect(
+      document
+        .querySelector("[data-property-threads]")
+        ?.getAttribute("data-property-threads"),
+    ).toBe("a");
+  });
+
+  it("shows nothing under a row that has neither", () => {
+    renderProperties(null, { comments: { inline: inline("a") } });
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
+  });
+
+  it("leaves a closed Property's threads out", () => {
+    renderProperties(null, {
+      comments: {
+        openThreadsByProperty: new Map([["b", [thread]]]),
+        inline: inline(null),
+      },
+    });
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
+  });
+
+  it("keeps the threads beside the page while Properties are on it", () => {
+    renderProperties(null, {
+      comments: { openThreadsByProperty: new Map([["b", [thread]]]) },
+    });
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
   });
 });

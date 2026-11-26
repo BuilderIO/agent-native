@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -8,6 +8,7 @@ import {
   assertAccess,
   currentAccess,
   roleSatisfies,
+  type Visibility,
 } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
@@ -20,7 +21,20 @@ import {
   privateMediaAgentLinks,
   readsWithoutSessionCookie,
 } from "../server/lib/private-media-agent-links.js";
+import { agentLevelFromStored } from "../shared/agent-level.js";
+import type {
+  ContentContextPathEntry,
+  ContentDatabaseBodyHydration,
+  ContentDatabaseMembership,
+  ContentDocumentBodyHydration,
+  DocumentProperty,
+} from "../shared/api.js";
+import { isPrimaryBlocksField } from "../shared/properties.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
+import {
+  contentOutputContract,
+  getDocumentOutputSchema,
+} from "./_content-output-contracts.js";
 import {
   getDatabaseByDocumentId,
   getBuilderBodyHydrationMembershipFromDatabaseItems,
@@ -40,6 +54,10 @@ import {
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
+import {
+  interactiveHtmlBlockLinks,
+  type InteractiveHtmlBlockLink,
+} from "./_interactive-html-blocks.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   propertyChangeIdsFor,
@@ -76,6 +94,64 @@ function canManageRole(role: string) {
 }
 
 /**
+ * Callers whose reader is a model, which get agentReadProperty's fields. An
+ * automation run's agent calls tools as "automation".
+ */
+const AGENT_READ_CALLERS = new Set<ActionRunContext["caller"]>([
+  "tool",
+  "mcp",
+  "webmcp",
+  "a2a",
+  "automation",
+]);
+
+/**
+ * A field as an agent reads it. The page body's own field says valueIsContent
+ * instead of repeating `content`, and a Blocks field keeps only the revision
+ * of the editor's block map (list-content-database-blocks reads the blocks).
+ * Display settings, timestamps and option colors go too. Descriptions stay:
+ * agents follow them as guidance.
+ */
+function agentReadProperty({
+  definition,
+  value,
+  blocksField,
+  ...rest
+}: DocumentProperty) {
+  const { options } = definition;
+  return {
+    definition: {
+      id: definition.id,
+      databaseId: definition.databaseId,
+      ...(definition.systemRole ? { systemRole: definition.systemRole } : {}),
+      name: definition.name,
+      type: definition.type,
+      ...(definition.description !== undefined
+        ? { description: definition.description }
+        : {}),
+      options: options.options
+        ? {
+            ...options,
+            options: options.options.map(({ color, ...option }) => option),
+          }
+        : options,
+    },
+    ...(isPrimaryBlocksField(options)
+      ? { valueIsContent: true as const }
+      : { value }),
+    ...rest,
+    ...(blocksField
+      ? {
+          blocksField: {
+            fieldId: blocksField.fieldId,
+            revision: blocksField.revision,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
  * Starts a read now but raises its failure only where the result is awaited,
  * so a read whose result a later check discards cannot fail the request.
  */
@@ -91,9 +167,65 @@ function deferFailure<T>(read: Promise<T>): () => Promise<T> {
   };
 }
 
+type ResolvedDocument = NonNullable<
+  Awaited<ReturnType<typeof resolveDocumentAccess>>
+>;
+
+type GetDocumentResult = {
+  id: string;
+  spaceId: string | null;
+  deepLink: ReturnType<typeof buildDeepLink>;
+  parentId: string | null;
+  title: string;
+  content: string;
+  revision: string;
+  baseRevision: string;
+  bodyRevision: number;
+  collabContentRevision: string | null;
+  writePath: Awaited<ReturnType<typeof liveBodyWriterGate>>["writePath"];
+  contentHash: string;
+  privateMediaLinks?: NonNullable<
+    Awaited<ReturnType<typeof privateMediaAgentLinks>>
+  >;
+  interactiveBlocks?: InteractiveHtmlBlockLink[];
+  description: string;
+  icon: string | null;
+  position: number;
+  isFavorite: boolean;
+  hideFromSearch: boolean;
+  agentTextLocked: boolean;
+  agentLevel: ReturnType<typeof agentLevelFromStored>;
+  visibility: Visibility;
+  source: ReturnType<typeof serializeDocumentSource>;
+  accessRole: ResolvedDocument["role"];
+  canComment: boolean;
+  canSuggest: boolean;
+  canEdit: boolean;
+  canManage: boolean;
+  mcpDirectoryWidgetReadOnly?: true;
+  mcpDirectoryWidgetCanEditDocument?: true;
+  mcpDirectoryWidgetCanEditDatabaseRows?: true;
+  database: ReturnType<typeof serializeDatabase> | undefined;
+  databaseMembership: ContentDatabaseMembership | undefined;
+  bodyHydration:
+    | (ContentDocumentBodyHydration & {
+        hydration: ContentDatabaseBodyHydration;
+      })
+    | undefined;
+  createdAt: string;
+  updatedAt: string;
+  properties: DocumentProperty[];
+  propertyGenerations: ReturnType<typeof propertyGenerationsFor>;
+  propertyChangeIds: ReturnType<typeof propertyChangeIdsFor>;
+  contextPath: ContentContextPathEntry[];
+  previewDraft?: NonNullable<
+    Awaited<ReturnType<typeof previewDocumentDraftAnswer>>
+  >;
+};
+
 export default defineAction({
   description:
-    "Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. Use list-documents or search-documents first when the ID is unknown.",
+    "Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. interactiveBlocks lists the body's interactive HTML blocks in order, each with its title, its block ID and the link that opens it full screen, so a link someone gives you names one of them. Fields leave out display settings, option colors and block maps, and the page body's own field says valueIsContent instead of repeating the body; detail: \"full\" returns them. Use list-documents or search-documents first when the ID is unknown.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -119,7 +251,17 @@ export default defineAction({
       .describe(
         "Also return the current user's private unsaved draft of this page as previewDraft. The editor sets this when it opens a page; other callers omit it.",
       ),
+    detail: z
+      .enum(["full"])
+      .optional()
+      .describe(
+        "Pass full to get every field as the editor reads it: display settings, timestamps, option colors, each Blocks field's block map, and the page body's own field value. Omit it otherwise.",
+      ),
   }),
+  outputSchema: contentOutputContract<GetDocumentResult>(
+    getDocumentOutputSchema,
+  ),
+  mcpOutputSchema: true,
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
@@ -128,13 +270,18 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async (args, ctx) => {
+  mcpScript: "read",
+  run: async (args, ctx): Promise<GetDocumentResult> => {
     if (!args.id) throw new Error("--id is required");
 
     let access = await resolveDocumentAccess(args.id);
+    // A GitHub file's page says so; a pull request's row is an ordinary
+    // page in its collection, so any page under a parent asks too.
     if (
-      access?.resource.sourceMode === "github" &&
+      access &&
       !access.resource.trashedAt &&
+      (access.resource.sourceMode === "github" ||
+        (!access.resource.sourceMode && access.resource.parentId)) &&
       (await refreshGitHubPageBeforeRead(access.resource.id))
     ) {
       access = await resolveDocumentAccess(args.id);
@@ -421,6 +568,18 @@ export default defineAction({
         })
       : undefined;
 
+    const agentCaller = !!ctx && AGENT_READ_CALLERS.has(ctx.caller);
+    const interactiveBlocks = agentCaller
+      ? await interactiveHtmlBlockLinks(doc.id, doc.content)
+      : [];
+    const agentRead = args.detail !== "full" && agentCaller;
+    const readProperties = hasPropertyDatabaseAccess
+      ? properties
+      : properties.map((property) => ({
+          ...property,
+          definition: { ...property.definition, databaseId: null },
+        }));
+
     track(
       "document_viewed",
       {
@@ -453,12 +612,14 @@ export default defineAction({
       writePath: (await liveBodyWriterGate(doc.id)).writePath,
       contentHash: documentContentHash(doc.content ?? ""),
       ...(privateMediaLinks ? { privateMediaLinks } : {}),
+      ...(interactiveBlocks.length > 0 ? { interactiveBlocks } : {}),
       description: doc.description,
       icon: doc.icon,
       position: doc.position,
       isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       agentTextLocked: Boolean(doc.agentTextLocked),
+      agentLevel: agentLevelFromStored(doc.agentTextLocked),
       visibility: doc.visibility,
       source,
       accessRole: access.role,
@@ -512,12 +673,13 @@ export default defineAction({
         : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: hasPropertyDatabaseAccess
-        ? properties
-        : properties.map((property) => ({
-            ...property,
-            definition: { ...property.definition, databaseId: null },
-          })),
+      // An agent's read goes to a model as JSON, never to the editor's typed
+      // client, so it keeps the editor read's type.
+      properties: agentRead
+        ? (readProperties.map(
+            agentReadProperty,
+          ) as unknown as DocumentProperty[])
+        : readProperties,
       propertyGenerations: propertyGenerationsFor(
         doc.id,
         properties,

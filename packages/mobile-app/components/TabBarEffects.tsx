@@ -4,15 +4,12 @@ import {
   useMemo,
   type PropsWithChildren,
 } from "react";
-import { View, type ViewProps } from "react-native";
 import {
   useAnimatedScrollHandler,
   useSharedValue,
   withSpring,
   type SharedValue,
 } from "react-native-reanimated";
-
-import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 const MINIMIZE_SPRING = { duration: 380, dampingRatio: 1 };
 
@@ -72,20 +69,4 @@ export function useMinimizeOnScroll() {
       else if (dy < -3) setMinimized(state, 0);
     },
   });
-}
-
-export function TabBarBackgroundFade({ style, ...props }: ViewProps) {
-  const { background } = useMobileThemeColors();
-  return (
-    <View
-      {...props}
-      pointerEvents="none"
-      style={[
-        style,
-        {
-          experimental_backgroundImage: `linear-gradient(to top, ${background} 0%, transparent 100%)`,
-        },
-      ]}
-    />
-  );
 }

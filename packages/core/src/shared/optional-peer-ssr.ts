@@ -2,12 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+// Every parser an ingestion path loads through `loadOptionalPeer` belongs here. An app is
+// not expected to declare core's optional peers, so an unlisted parser resolves to nothing
+// on a deployed build and the user's attachment fails at runtime (a .xlsx came back as
+// "the XLSX parser isn't installed in this environment").
 export const CORE_BUNDLED_INGESTION_OPTIONAL_PEERS = [
   "fast-xml-parser",
   "jszip",
+  "mammoth",
   "officeparser",
   "pdf-parse",
   "pdfjs-dist",
+  "xlsx",
 ] as const;
 
 function isMissingFileError(error: unknown): boolean {
@@ -154,6 +160,21 @@ function getRuntimeDependencyNames(cwd: string, coreRoot: string): Set<string> {
   return dependencies;
 }
 
+// The bundler resolves a parser from Core's own files, so only a parser installed where
+// Core can see it can be bundled. One nobody installed stays an optional-peer external,
+// and its loader reports the missing peer instead of the bundler failing the build.
+function installedIngestionPeers(coreRoot: string): string[] {
+  return CORE_BUNDLED_INGESTION_OPTIONAL_PEERS.filter((name) =>
+    findDependencyManifestPath(name, coreRoot),
+  );
+}
+
+export function getBundledCoreIngestionPeers(cwd: string): string[] {
+  const coreRoot = findCorePackageRoot(cwd);
+  if (!coreRoot) return [...CORE_BUNDLED_INGESTION_OPTIONAL_PEERS];
+  return installedIngestionPeers(coreRoot);
+}
+
 export function getMissingCoreOptionalPeers(cwd: string): string[] {
   const coreRoot = findCorePackageRoot(cwd);
   if (!coreRoot) return [];
@@ -165,7 +186,7 @@ export function getMissingCoreOptionalPeers(cwd: string): string[] {
   };
   const runtimeDependencies = getRuntimeDependencyNames(cwd, coreRoot);
   const bundledIngestionPeers = new Set<string>(
-    CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+    installedIngestionPeers(coreRoot),
   );
   return Object.entries(corePackage.peerDependenciesMeta ?? {})
     .filter(

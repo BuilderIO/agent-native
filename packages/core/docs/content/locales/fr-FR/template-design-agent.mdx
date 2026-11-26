@@ -9,7 +9,7 @@ Tout dans Design est accessible à l'agent via les mêmes actions que celles uti
 
 ## Comment l'agent voit votre écran
 
-Avant de faire quoi que ce soit, l'agent vérifie ce que vous regardez : quel design ou modèle est ouvert, sur quelle vue vous êtes (la liste des designs, Modèles, l'éditeur, Systèmes de conception, ou une vue de présentation publique), quel écran et quel élément vous avez sélectionnés, et quel panneau du rail gauche est ouvert (Fichier, Agent, Ressources, Importer, Outils, ou Jetons). C'est pourquoi « rends ceci plus dense » ou « corrige le contraste sur ce bouton » se résout correctement sans que vous ayez à nommer l'écran ou l'élément. L'agent sait déjà à quoi « ceci » fait référence.
+Avant de faire quoi que ce soit, l'agent vérifie ce que vous regardez : quel design ou modèle est ouvert, sur quelle vue vous êtes (la liste des designs, Modèles, l'éditeur, ou une vue de présentation publique), quel écran et quel élément vous avez sélectionnés, et quel panneau du rail gauche est ouvert (Fichier, Agent, Ressources, Importer, Outils, ou Jetons). C'est pourquoi « rends ceci plus dense » ou « corrige le contraste sur ce bouton » se résout correctement sans que vous ayez à nommer l'écran ou l'élément. L'agent sait déjà à quoi « ceci » fait référence.
 
 Quelques situations changent ce que l'agent fait ensuite :
 
@@ -44,24 +44,12 @@ Rien sur votre écran ne change, puisque rien n'a été créé ou modifié.
 - **« Crée trois directions de page d'atterrissage pour un produit d'analyse technique. »** Quelques variantes véritablement différentes apparaissent pour comparer et choisir.
 - **« Rends ce tableau de bord plus dense et plus facile à parcourir pour une équipe opérationnelle. »** L'écran choisi se met à jour en direct.
 - **« Transforme cette carte répétée en un composant réutilisable. »** Les futures modifications d'une instance restent séparées des autres, sauf si vous demandez de toutes les mettre à jour.
-- **« Ajoute une animation au survol sur ce bouton. »** Une piste de mouvement est créée sans que vous ayez à ouvrir vous-même le panneau Motion.
 - **« Ajoute un shader de vague à l'arrière-plan du hero. »** Applique l'effet directement, sans passer par le sélecteur du menu Effets.
-
-### Vérifier la qualité
-
-- **« Lance un audit d'accessibilité sur cet écran. »** L'agent le vérifie et rapporte ce qu'il a trouvé.
-- **« Corrige le problème de contraste que tu viens de trouver. »** La correction s'applique directement au design.
 
 ### Intégrer du contenu externe
 
 - **« Importe ce cadre Figma : [lien]. »** Le cadre apparaît comme un nouvel écran modifiable.
 - **« Colle ce HTML comme nouvel écran. »** L’agent l’ajoute au canevas pour vous.
-
-### Marque et systèmes de conception
-
-- **« Applique notre système de conception enregistré et simplifie la mise en page mobile. »** Chaque génération après cela reste conforme à la marque.
-- **« Démarre un système de conception à partir de notre dépôt GitHub. »** Indexe vos véritables jetons déployés au lieu de deviner.
-- **« Crée un système de conception basé sur Material 3. »** Part d'un véritable système public maintenu au lieu d'un sosie.
 
 ### Modèles
 
@@ -88,7 +76,7 @@ Design prend en charge les Extensions : de petits widgets sandboxés que vous ou
 ## Et ensuite
 
 - [**Design**](/docs/template-design) — la vue d'ensemble et les étapes de démarrage
-- [**Fonctionnalités**](/docs/template-design-features) — Designs, Modifier un design, Modèles, et Systèmes de conception, avec les étapes de configuration pour chacun
+- [**Fonctionnalités**](/docs/template-design-features) — Designs, Modifier un design, et Modèles, avec les étapes de configuration pour chacun
 - [**Design dans un espace de travail multi-apps**](/docs/template-design-integrations) — la connexion à Dispatch et l'appel de Design via MCP
 - [**Guide développeur**](/docs/template-design-developers) — chaque action, le modèle de données, et comment étendre l'application
 - [**Extensions**](/docs/extensions) — créer un widget pour l'emplacement de l'inspecteur de l'éditeur

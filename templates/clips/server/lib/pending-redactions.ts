@@ -43,6 +43,21 @@ export function readEditsRecord(
   }
 }
 
+/**
+ * True once any redaction was burned into the recording's video. Its separate
+ * tracks were made before that and still show what was redacted, so they are
+ * never kept; unreadable edits count as true.
+ */
+export function hasBurnedRedactions(
+  editsJson: string | null | undefined,
+): boolean {
+  const edits = readEditsRecord(editsJson);
+  if (!edits) return true;
+  return (
+    Array.isArray(edits.burnedRedactions) && edits.burnedRedactions.length > 0
+  );
+}
+
 /** The marker's files, or null when there is no burn in progress. */
 export function markerUrls(edits: Record<string, unknown>): string[] | null {
   const marker = edits[BURN_IN_PROGRESS_KEY];

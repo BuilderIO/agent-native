@@ -1,8 +1,13 @@
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCustomField } from "../custom-fields/store.js";
-import { listTaskFieldValues } from "../custom-fields/task-fields.js";
+import {
+  getTaskWithFields,
+  listTaskFieldValues,
+  type TaskFieldValue,
+} from "../custom-fields/task-fields.js";
 import { updateCustomFieldValuesByTaskId } from "../custom-fields/values/store.js";
 import { BULK_WRITE_CHUNK_SIZE } from "../db/bulk-write.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
@@ -445,5 +450,144 @@ describe("task store", () => {
 
     const task = await listTasks({ ownerEmail: "alice@example.com" });
     expect(task[0]?.title).toBe("Original");
+  });
+});
+
+describe("checked task updates", () => {
+  async function taskWithEstimate() {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Write brief",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    const estimate = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Estimate",
+      type: "number",
+      config: { precision: 0, positiveOnly: true },
+    });
+    const read = await getTaskWithFields({
+      ownerEmail: "alice@example.com",
+      taskId: "t1",
+    });
+    return { estimate, read };
+  }
+
+  function valueOf(task: { fields: TaskFieldValue[] }, fieldId: string) {
+    return task.fields.find((field) => field.id === fieldId)?.value;
+  }
+
+  it("returns the saved task with its fields and a new revision", async () => {
+    const { estimate, read } = await taskWithEstimate();
+
+    const saved = await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      fieldValues: [{ fieldId: estimate.id, value: 3 }],
+      expectedRevision: read.revision,
+    });
+
+    expect(valueOf(saved, estimate.id)).toBe(3);
+    expect(saved.revision).not.toBe(read.revision);
+    const reread = await getTaskWithFields({
+      ownerEmail: "alice@example.com",
+      taskId: "t1",
+    });
+    expect(saved.revision).toBe(reread.revision);
+  });
+
+  it("refuses an update made on a stale read and writes nothing", async () => {
+    const { estimate, read } = await taskWithEstimate();
+    await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      title: "Write the brief",
+    });
+
+    const error = await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      done: true,
+      fieldValues: [{ fieldId: estimate.id, value: 3 }],
+      expectedRevision: read.revision,
+    }).catch((caught: unknown) => caught);
+
+    expect(isSaveConflict(error)).toBe(true);
+    const now = await getTaskWithFields({
+      ownerEmail: "alice@example.com",
+      taskId: "t1",
+    });
+    expect((error as { details: unknown }).details).toMatchObject({
+      current: { title: "Write the brief", done: false, fields: {} },
+      currentRevision: now.revision,
+    });
+    expect(now.done).toBe(false);
+    expect(valueOf(now, estimate.id)).toBeNull();
+  });
+
+  it("treats a repeat of a saved update as done", async () => {
+    const { estimate, read } = await taskWithEstimate();
+    const update = {
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      title: "Write brief ",
+      fieldValues: [{ fieldId: estimate.id, value: 3 }],
+      expectedRevision: read.revision,
+      now: "2026-06-22T11:00:00.000Z",
+    };
+    const saved = await updateTask(update);
+
+    const repeated = await updateTask({
+      ...update,
+      now: "2026-06-22T12:00:00.000Z",
+    });
+
+    expect(repeated.revision).toBe(saved.revision);
+    expect(repeated.updatedAt).toBe("2026-06-22T11:00:00.000Z");
+  });
+
+  it("counts a cleared field in the revision", async () => {
+    const { estimate } = await taskWithEstimate();
+    const set = await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      fieldValues: [{ fieldId: estimate.id, value: 3 }],
+    });
+
+    const cleared = await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      fieldValues: [{ fieldId: estimate.id, value: null }],
+      expectedRevision: set.revision,
+    });
+
+    expect(valueOf(cleared, estimate.id)).toBeNull();
+    await expect(
+      updateTask({
+        ownerEmail: "alice@example.com",
+        id: "t1",
+        fieldValues: [{ fieldId: estimate.id, value: 4 }],
+        expectedRevision: set.revision,
+      }),
+    ).rejects.toMatchObject({ details: { current: { fields: {} } } });
+  });
+
+  it("applies an update sent without a revision", async () => {
+    const { estimate } = await taskWithEstimate();
+    await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      title: "Changed elsewhere",
+    });
+
+    const saved = await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t1",
+      fieldValues: [{ fieldId: estimate.id, value: 2 }],
+    });
+
+    expect(saved).toMatchObject({ title: "Changed elsewhere" });
+    expect(valueOf(saved, estimate.id)).toBe(2);
   });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, isOutsideAgentCall } from "../../action.js";
 import {
   assertWorkspaceUserGroupManager,
   deleteWorkspaceUserGroup,
@@ -9,6 +9,7 @@ import {
 import { listWorkspaceConnections } from "../store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Delete a reusable workspace user group after it is removed from shared connections. Only workspace owners and admins can delete groups.",
   schema: z.object({
@@ -19,6 +20,8 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id }, ctx) => {
     await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     const orgId = ctx?.orgId ?? "";

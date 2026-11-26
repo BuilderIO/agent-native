@@ -1100,6 +1100,247 @@ describe("requestTranscript regeneration", () => {
     );
   });
 
+  it("saves a recording with no speech as ready with an empty transcript", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "failed",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_silent" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_silent" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_silent",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_silent",
+      status: "ready",
+      segments: 0,
+      provider: "builder",
+    });
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        fullText: "",
+        failureReason: null,
+        failureCode: null,
+        segmentsJson: "[]",
+      }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(mockRegenerateSummaryRun).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_silent",
+        has_transcript: false,
+      }),
+      expect.anything(),
+    );
+    expect(mockTrack).not.toHaveBeenCalledWith(
+      "recording_transcription_failed",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the ready transcript when a regeneration finds no speech", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "Saved transcript.",
+          segmentsJson: existingSegments,
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText: "Saved transcript.",
+          segmentsJson: existingSegments,
+          language: "en",
+        },
+      ],
+      [
+        {
+          title: "Human title",
+          titleSource: "manual",
+          durationMs: 1200,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_ready",
+      force: true,
+      regenerate: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_ready",
+      status: "ready",
+      provider: "existing",
+      preserved: true,
+    });
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("keeps a language-mismatched ready transcript when its retry finds no speech", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    const mismatched = {
+      status: "ready",
+      fullText: "这是一个用于测试的转录文本内容",
+      segmentsJson: "[]",
+      language: "en",
+    };
+    mockSelectRows.queue = [
+      [{ ...mismatched, updatedAt: "2026-07-09T00:00:00.000Z", retryCount: 0 }],
+      [{ recordingId: "rec_mismatch" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [mismatched],
+      [mismatched],
+      [{ title: "Human title", titleSource: "manual", durationMs: 1200 }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_mismatch",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_mismatch",
+      status: "ready",
+      provider: "existing",
+      preserved: true,
+    });
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ fullText: "" }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("does not transcribe a settled no-speech recording again on an unforced request", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({ recordingId: "rec_silent" });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_silent",
+      status: "ready",
+      skipped: true,
+      reason: "no-speech",
+    });
+    expect(mockTranscribeWithBuilder).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("transcribes a no-speech recording again when the user retries", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_silent" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_silent" }],
+      [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_silent",
+      force: true,
+    });
+
+    expect(result).toMatchObject({ status: "ready", provider: "builder" });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a still-running transcription marked live instead of going stale", async () => {
     vi.useFakeTimers();
     try {

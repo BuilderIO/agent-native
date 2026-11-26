@@ -1,3 +1,4 @@
+// oracle-change: the component archive reads one screen through readDesignVersionFile instead of reading design_versions itself
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,10 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   createDesignVersionSnapshot: vi.fn(),
-  readDesignVersionSnapshot: vi.fn(),
+  readDesignVersionFile: vi.fn(),
   readLiveSourceFile: vi.fn(),
   resolveSourceWorkspace: vi.fn(),
-  select: vi.fn(),
   writeInlineSourceFilesBatch: vi.fn(),
 }));
 
@@ -16,25 +16,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({
-  and: vi.fn(),
-  eq: vi.fn(),
-}));
-
-vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ select: mocks.select }),
-  schema: {
-    designVersions: {
-      designId: "designVersions.designId",
-      id: "designVersions.id",
-      snapshot: "designVersions.snapshot",
-    },
-  },
-}));
-
 vi.mock("../server/lib/design-versions.js", () => ({
+  COMPONENT_DELETE_CHECKPOINT_LABEL: "Before component delete",
   createDesignVersionSnapshot: mocks.createDesignVersionSnapshot,
-  readDesignVersionSnapshot: mocks.readDesignVersionSnapshot,
+  readDesignVersionFile: mocks.readDesignVersionFile,
 }));
 
 vi.mock("../server/source-workspace.js", () => ({
@@ -104,16 +89,13 @@ function configure(snapshotContent = mainContent) {
     createdAt: "2026-09-15T00:00:00.000Z",
     label: "Before component delete",
   });
-  mocks.readDesignVersionSnapshot.mockResolvedValue({
-    designId,
-    files: [
-      {
-        id: "file-main",
-        filename: "main.html",
-        fileType: "html",
-        content: snapshotContent,
-      },
-    ],
+  mocks.readDesignVersionFile.mockResolvedValue({
+    file: {
+      id: "file-main",
+      filename: "main.html",
+      fileType: "html",
+      content: snapshotContent,
+    },
   });
   mocks.writeInlineSourceFilesBatch.mockImplementation(
     async ({ files: batch }) => ({
@@ -126,13 +108,6 @@ function configure(snapshotContent = mainContent) {
       collaboration: { status: "synced", files: [] },
     }),
   );
-  mocks.select.mockReturnValue({
-    from: () => ({
-      where: () => ({
-        limit: async () => [{ snapshot: "checkpoint-snapshot" }],
-      }),
-    }),
-  });
 }
 
 describe("component archive server helper", () => {
@@ -164,10 +139,11 @@ describe("component archive server helper", () => {
       fileId: "file-main",
       nodeIds: [],
     });
-    expect(mocks.readDesignVersionSnapshot).toHaveBeenCalledWith(
-      "checkpoint-snapshot",
+    expect(mocks.readDesignVersionFile).toHaveBeenCalledWith({
       designId,
-    );
+      versionId: "checkpoint-1",
+      fileId: "file-main",
+    });
     expect(mocks.writeInlineSourceFilesBatch).toHaveBeenCalledOnce();
     const [{ files }] = mocks.writeInlineSourceFilesBatch.mock.calls[0]!;
     expect(files.map(({ file }) => file.id)).toEqual([
@@ -185,16 +161,13 @@ describe("component archive server helper", () => {
       sourceVersionHash: sourceContentHash(mainContent),
       boundingRect: { x: 10, y: 20, width: 100, height: 70 },
     };
-    mocks.readDesignVersionSnapshot.mockResolvedValue({
-      designId,
-      files: [
-        {
-          id: "file-main",
-          filename: "main.html",
-          fileType: "html",
-          content: mainContent,
-        },
-      ],
+    mocks.readDesignVersionFile.mockResolvedValue({
+      file: {
+        id: "file-main",
+        filename: "main.html",
+        fileType: "html",
+        content: mainContent,
+      },
       deletionGeometry,
     });
 

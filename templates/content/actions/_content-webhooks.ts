@@ -1059,6 +1059,8 @@ export interface ContentWebhookScope {
   accessDocumentId: string;
   ownerEmail: string;
   orgId: string | null;
+  /** The workspace the collection or page was in when access was checked. */
+  spaceId: string | null;
 }
 
 /**
@@ -1095,6 +1097,7 @@ export async function resolveContentWebhookScope(
       accessDocumentId: database.documentId,
       ownerEmail: database.ownerEmail,
       orgId: database.orgId ?? null,
+      spaceId: database.spaceId ?? null,
     };
   }
   if (documentId && !databaseId) {
@@ -1105,6 +1108,7 @@ export async function resolveContentWebhookScope(
       accessDocumentId: documentId,
       ownerEmail: access.resource.ownerEmail as string,
       orgId: (access.resource.orgId as string | null) ?? null,
+      spaceId: (access.resource.spaceId as string | null) ?? null,
     };
   }
   throw new ActionContractError(

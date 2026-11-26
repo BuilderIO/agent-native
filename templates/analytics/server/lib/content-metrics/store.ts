@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -57,8 +57,19 @@ export type ContentSnapshotInput = {
   value: number;
 };
 
+export type ContentSearchQueryInput = {
+  itemSource: ContentCollectionStepId;
+  itemExternalId: string;
+  weekStart: string;
+  query: string;
+  clicks: number;
+  impressions: number;
+  positionWeighted: number;
+};
+
 export type ContentRunOutcome = {
   rowCount: number;
+  detail?: string | null;
   windowStart?: string | null;
   windowEnd?: string | null;
   configFingerprint?: string | null;
@@ -215,6 +226,57 @@ export async function latestContentRun(
     .orderBy(desc(schema.analyticsContentCollectionRuns.startedAt))
     .limit(1);
   return row ?? null;
+}
+
+export async function listContentRunWindows(
+  collection: ContentCollection,
+  step: ContentCollectionStepId,
+): Promise<
+  Array<{
+    startedAt: string;
+    windowStart: string;
+    windowEnd: string;
+    configFingerprint: string | null;
+  }>
+> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      startedAt: schema.analyticsContentCollectionRuns.startedAt,
+      windowStart: schema.analyticsContentCollectionRuns.windowStart,
+      windowEnd: schema.analyticsContentCollectionRuns.windowEnd,
+      configFingerprint:
+        schema.analyticsContentCollectionRuns.configFingerprint,
+    })
+    .from(schema.analyticsContentCollectionRuns)
+    .where(
+      and(
+        eq(
+          schema.analyticsContentCollectionRuns.tenantKey,
+          collection.tenantKey,
+        ),
+        eq(schema.analyticsContentCollectionRuns.step, step),
+        eq(schema.analyticsContentCollectionRuns.status, "succeeded"),
+      ),
+    );
+  return rows.flatMap(
+    (row: {
+      startedAt: string;
+      windowStart: string | null;
+      windowEnd: string | null;
+      configFingerprint: string | null;
+    }) =>
+      row.windowStart && row.windowEnd
+        ? [
+            {
+              startedAt: row.startedAt,
+              windowStart: row.windowStart,
+              windowEnd: row.windowEnd,
+              configFingerprint: row.configFingerprint,
+            },
+          ]
+        : [],
+  );
 }
 
 /** The last run of a step that wrote its data, for choosing a backfill window. */
@@ -402,6 +464,10 @@ export async function completeContentRun(
     items?: ContentItemInput[];
     snapshots?: ContentSnapshotInput[];
     replaceSnapshots?: boolean;
+    searchQueries?: {
+      weekStarts: string[];
+      rows: ContentSearchQueryInput[];
+    };
   },
   outcome: ContentRunOutcome,
 ): Promise<void> {
@@ -409,6 +475,7 @@ export async function completeContentRun(
   const timestamp = nowIso();
   const items = data.items ?? [];
   const snapshots = data.snapshots ?? [];
+  const searchQueries = data.searchQueries;
 
   await db.transaction(async (tx: any) => {
     // Lock in startContentRun's order, collection before run. The share lock
@@ -561,6 +628,46 @@ export async function completeContentRun(
         });
     }
 
+    if (searchQueries && searchQueries.weekStarts.length > 0) {
+      await tx
+        .delete(schema.analyticsContentSearchQueries)
+        .where(
+          and(
+            eq(
+              schema.analyticsContentSearchQueries.tenantKey,
+              collection.tenantKey,
+            ),
+            inArray(
+              schema.analyticsContentSearchQueries.weekStart,
+              searchQueries.weekStarts,
+            ),
+          ),
+        );
+      const rows = searchQueries.rows;
+      for (let start = 0; start < rows.length; start += WRITE_BATCH_SIZE) {
+        await tx.insert(schema.analyticsContentSearchQueries).values(
+          rows.slice(start, start + WRITE_BATCH_SIZE).map((row) => ({
+            id: `ccq_${randomUUID()}`,
+            tenantKey: collection.tenantKey,
+            ownerEmail: collection.ownerEmail,
+            orgId: collection.orgId,
+            itemId: itemId(
+              collection.tenantKey,
+              row.itemSource,
+              row.itemExternalId,
+            ),
+            weekStart: row.weekStart,
+            query: row.query,
+            clicks: row.clicks,
+            impressions: row.impressions,
+            positionWeighted: row.positionWeighted,
+            runId,
+            collectedAt: timestamp,
+          })),
+        );
+      }
+    }
+
     await tx
       .update(schema.analyticsContentCollectionRuns)
       .set({
@@ -573,6 +680,7 @@ export async function completeContentRun(
         bytesProcessed: outcome.bytesProcessed ?? null,
         bytesCap: outcome.bytesCap ?? null,
         costUsd: outcome.costUsd ?? null,
+        detail: outcome.detail ?? null,
       })
       .where(eq(schema.analyticsContentCollectionRuns.id, runId));
   });

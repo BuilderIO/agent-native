@@ -1,5 +1,6 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { canonicalizeNfm } from "@shared/nfm";
+import { operationOnText } from "@shared/suggestion-apply";
 import {
   joinRewrittenParagraphs,
   markdownSuggestionOperations,
@@ -473,9 +474,40 @@ function jointTransition(
     : null;
 }
 
+type SavedOperation = ResourceSuggestion["operations"][number];
+const operationsOnBasis = new WeakMap<
+  SavedOperation,
+  Map<string, SavedOperation | null>
+>();
+
+function firstOperation(suggestion: {
+  operations: SavedOperation[];
+}): SavedOperation | undefined {
+  return suggestion.operations[0];
+}
+
+function operationOnBasis(operation: SavedOperation, basis: string) {
+  let moved = operationsOnBasis.get(operation);
+  if (!moved) operationsOnBasis.set(operation, (moved = new Map()));
+  const known = moved.get(basis);
+  if (known !== undefined) return known;
+  const anchor = operation.anchor as {
+    prefix?: unknown;
+    suffix?: unknown;
+  } | null;
+  const result =
+    typeof anchor?.prefix === "string" && typeof anchor.suffix === "string"
+      ? operationOnText(operation, basis)
+      : null;
+  moved.set(basis, result);
+  return result;
+}
+
 export function hydrateSuggestionPresentationTransitions(
   current: SuggestionPresentationTransitions,
-  suggestions: PendingSuggestion[],
+  suggestions: Array<
+    PendingSuggestion & { proposalId?: ResourceSuggestion["proposalId"] }
+  >,
   committed: Array<
     Pick<ResourceSuggestion, "status" | "operations"> & {
       proposalId?: ResourceSuggestion["proposalId"];
@@ -491,28 +523,46 @@ export function hydrateSuggestionPresentationTransitions(
       !retained.has(suggestionPresentationTransitionKey(suggestion)),
   );
   if (missing.length === 0) return retained;
-  const bases = new Set(
-    missing.map(
-      (suggestion) =>
-        checkedOperation(suggestion.operations[0]!)?.before.markdown,
-    ),
-  );
-  const groups = new Map<string, typeof committed>();
-  committed.forEach((suggestion, index) => {
-    const operation = suggestion.operations[0];
+  const bases = new Set<string>();
+  const proposalBases = new Map<string, Set<string>>();
+  for (const suggestion of missing) {
+    const [operation] = suggestion.operations;
     const basis = operation && checkedOperation(operation)?.before.markdown;
-    if (
-      suggestion.status !== "accepted" ||
-      basis === undefined ||
-      !bases.has(basis)
-    )
-      return;
-    const key = suggestion.proposalId
-      ? JSON.stringify([suggestion.proposalId, basis])
-      : `record:${index}`;
+    if (basis === undefined) continue;
+    bases.add(basis);
+    if (!suggestion.proposalId) continue;
+    const known = proposalBases.get(suggestion.proposalId) ?? new Set();
+    proposalBases.set(suggestion.proposalId, known.add(basis));
+  }
+  const groups = new Map<string, typeof committed>();
+  const group = (key: string, member: (typeof committed)[number]) => {
     const members = groups.get(key) ?? [];
-    members.push(suggestion);
+    members.push(member);
     groups.set(key, members);
+  };
+  committed.forEach((suggestion, index) => {
+    const operation = firstOperation(suggestion);
+    if (!operation || suggestion.status !== "accepted") return;
+    const basis = checkedOperation(operation)?.before.markdown;
+    if (basis === undefined) return;
+    if (bases.has(basis))
+      group(
+        suggestion.proposalId
+          ? JSON.stringify([suggestion.proposalId, basis])
+          : `record:${index}`,
+        suggestion,
+      );
+    const late = suggestion.proposalId
+      ? proposalBases.get(suggestion.proposalId)
+      : undefined;
+    for (const onto of late ?? []) {
+      const moved = onto === basis ? null : operationOnBasis(operation, onto);
+      if (moved)
+        group(JSON.stringify([suggestion.proposalId, onto]), {
+          ...suggestion,
+          operations: [moved],
+        });
+    }
   });
   const candidates = [...groups.values()]
     .map(createCommittedSuggestionPresentationTransition)

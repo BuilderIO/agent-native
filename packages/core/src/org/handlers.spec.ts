@@ -61,6 +61,7 @@ vi.mock("../a2a/server.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute, transaction: mockTransaction }),
 }));
 
@@ -157,6 +158,7 @@ import {
   removeMemberHandler,
   retryPendingFederatedRemovalHandler,
   acceptInvitationHandler,
+  cancelInvitationHandler,
   createInvitationHandler,
   joinByDomainHandler,
   updateOrgHandler,
@@ -166,6 +168,7 @@ import {
   setWorkspaceAppDefaultVisibilityHandler,
   createOrgHandler,
   switchOrgHandler,
+  leaveOrgHandler,
 } from "./handlers.js";
 import {
   cachedMemberships,
@@ -503,6 +506,44 @@ describe("org handlers", () => {
         actorEmail: "owner@example.test",
       }),
     );
+  });
+
+  it("revokes a deactivated federated member at the identity authority before keeping the Deactivated record", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [{ role: "member", federation_removal_pending_at: null }],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({
+        rows: [{ email: "successor@example.test" }],
+        rowsAffected: 0,
+      });
+    mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test", {
+          transferTo: "successor@example.test",
+          deactivate: true,
+        }),
+      ),
+    ).resolves.toEqual({ success: true });
+
+    expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        orgId: "org-1",
+        memberEmail: "member@example.test",
+      }),
+    );
+    expect(mockOffboardMember).toHaveBeenCalledWith(
+      expect.anything(),
+      "member@example.test",
+      expect.objectContaining({ orgId: "org-1", deactivate: true }),
+    );
+    expect(
+      mockRevokeFederatedOrganizationMember.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockOffboardMember.mock.invocationCallOrder[0]);
   });
 
   it("does not remove a local member when federated revocation fails", async () => {
@@ -1029,6 +1070,110 @@ describe("org handlers", () => {
     expect(mockOffboardMember).not.toHaveBeenCalled();
   });
 
+  it("reports when each member was last active from the usage ledger", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            email: "bob@example.test",
+            role: "member",
+            joinedAt: 2,
+            totalCount: 2,
+          },
+          {
+            email: "alice@example.test",
+            role: "admin",
+            joinedAt: 1,
+            totalCount: 2,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ email: "bob@example.test", lastActiveAt: 1_700_000_000_000 }],
+      });
+    mockGetUserProfiles.mockResolvedValue(new Map());
+
+    const answer = await listMembersHandler(
+      makeEvent("/_agent-native/org/members"),
+    );
+
+    const byEmail = new Map(
+      (
+        answer as {
+          members: Array<{ email: string; lastActiveAt: number | null }>;
+        }
+      ).members.map((member) => [member.email, member.lastActiveAt]),
+    );
+    expect(byEmail.get("bob@example.test")).toBe(1_700_000_000_000);
+    // A member the ledger has never seen is "never active", not missing.
+    expect(byEmail.get("alice@example.test")).toBeNull();
+    const lastActiveSql = mockExecute.mock.calls
+      .map(([call]) => String(call.sql))
+      .find((sql) => sql.includes("token_usage"));
+    expect(lastActiveSql).toContain("MAX(created_at)");
+  });
+
+  it("answers members with no last-active when the usage ledger does not exist", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [{ email: "bob@example.test", role: "member", joinedAt: 2 }],
+      })
+      .mockRejectedValueOnce(new Error("no such table: token_usage"));
+    mockGetUserProfiles.mockResolvedValue(new Map());
+
+    await expect(
+      listMembersHandler(makeEvent("/_agent-native/org/members")),
+    ).resolves.toMatchObject({
+      members: [{ email: "bob@example.test", lastActiveAt: null }],
+    });
+  });
+
+  it("falls back to session activity for members the token ledger never saw", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            email: "bob@example.test",
+            role: "member",
+            joinedAt: 2,
+            totalCount: 2,
+          },
+          {
+            email: "alice@example.test",
+            role: "admin",
+            joinedAt: 1,
+            totalCount: 2,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          { email: "bob@example.test", lastActiveAt: 1_700_000_000_000 },
+          { email: "alice@example.test", lastActiveAt: 1_600_000_000_000 },
+        ],
+      });
+    mockGetUserProfiles.mockResolvedValue(new Map());
+
+    const answer = await listMembersHandler(
+      makeEvent("/_agent-native/org/members"),
+    );
+
+    const byEmail = new Map(
+      (
+        answer as {
+          members: Array<{ email: string; lastActiveAt: number | null }>;
+        }
+      ).members.map((member) => [member.email, member.lastActiveAt]),
+    );
+    expect(byEmail.get("bob@example.test")).toBe(1_700_000_000_000);
+    expect(byEmail.get("alice@example.test")).toBe(1_600_000_000_000);
+    const sessionSql = mockExecute.mock.calls
+      .map(([call]) => String(call.sql))
+      .find((sql) => sql.includes("FROM session"));
+    expect(sessionSql).toContain('JOIN "user"');
+  });
+
   it("searches organization members by profile name as well as email", async () => {
     mockExecute.mockResolvedValueOnce({
       rows: [
@@ -1065,10 +1210,19 @@ describe("org handlers", () => {
         },
       ],
     });
-    expect(mockExecute).toHaveBeenCalledTimes(1);
-    expect(mockExecute.mock.calls[0][0].sql).toContain(
-      "LOWER(COALESCE(u.name, '')) LIKE",
+    // The search runs one member query; the member list also asks the usage
+    // ledger when each member was last active, so this
+    // pins the member query itself rather than the total call count.
+    const searchStatements = mockExecute.mock.calls.map(([call]) =>
+      String(call.sql),
     );
+    expect(
+      searchStatements.filter((sql) => sql.includes("FROM org_members m")),
+    ).toHaveLength(1);
+    expect(
+      searchStatements.filter((sql) => sql.includes("token_usage")),
+    ).toHaveLength(1);
+    expect(searchStatements[0]).toContain("LOWER(COALESCE(u.name, '')) LIKE");
     expect(mockGetUserProfiles).toHaveBeenCalledWith(["bob@example.test"]);
   });
 
@@ -1407,6 +1561,33 @@ describe("org handlers", () => {
       expect(mockTransaction).toHaveBeenCalledTimes(1);
     });
 
+    it("rejects setting a domain when the caller's email is unverified", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "owner@example.test",
+        emailVerified: false,
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("lets an unverified owner clear the domain", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "owner@example.test",
+        emailVerified: false,
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: null }),
+        ),
+      ).resolves.toEqual({ domain: null });
+    });
+
     it("rejects a member", async () => {
       mockGetOrgContext.mockResolvedValue({
         email: "member@example.test",
@@ -1444,6 +1625,116 @@ describe("org handlers", () => {
       expect(mockExecute.mock.calls[0][0].sql).toContain("LIMIT 2");
       expect(mockVerifyA2AToken).not.toHaveBeenCalled();
       expect(mockExecute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("leaveOrgHandler", () => {
+    function leaveScript(rows: {
+      role?: string;
+      other?: boolean;
+      successor?: string;
+      nextOrg?: string;
+    }) {
+      mockGetOrgContext.mockResolvedValue({
+        email: "Member@Example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: rows.role ?? "member",
+      });
+      mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+        if (sql.includes("SELECT role FROM org_members"))
+          return {
+            rows: rows.role === "none" ? [] : [{ role: rows.role ?? "member" }],
+          };
+        if (sql.includes("SELECT 1 FROM org_members"))
+          return { rows: rows.other === false ? [] : [{ 1: 1 }] };
+        if (sql.includes("SELECT email FROM org_members"))
+          return {
+            rows: rows.successor ? [{ email: ` ${rows.successor} ` }] : [],
+          };
+        if (sql.includes('AS "orgId"'))
+          return { rows: rows.nextOrg ? [{ orgId: rows.nextOrg }] : [] };
+        return { rows: [], rowsAffected: 1 };
+      });
+    }
+    const updates = () =>
+      mockExecute.mock.calls.filter(([q]) =>
+        String(q.sql).includes("UPDATE org_members"),
+      );
+
+    it("rejects a caller with no live membership", async () => {
+      leaveScript({ role: "none" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("rejects the owner", async () => {
+      leaveScript({ role: "owner" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("rejects leaving the only organization", async () => {
+      leaveScript({ other: false, successor: "owner@example.test" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("finds a successor before marking the caller pending", async () => {
+      leaveScript({});
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(updates()).toHaveLength(0);
+      expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    });
+
+    it("transfers to the successor and returns the next org", async () => {
+      leaveScript({ successor: "owner@example.test", nextOrg: "org-2" });
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).resolves.toEqual({ success: true, orgId: "org-1", nextOrgId: "org-2" });
+      expect(updates()).toHaveLength(1);
+      expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          orgId: "org-1",
+          actorEmail: "member@example.test",
+          memberEmail: "member@example.test",
+        }),
+      );
+      expect(mockOffboardMember).toHaveBeenCalledWith(
+        expect.anything(),
+        "member@example.test",
+        expect.objectContaining({
+          transferTo: "owner@example.test",
+          orgId: "org-1",
+        }),
+      );
+    });
+
+    it("keeps the removal pending when the identity authority fails", async () => {
+      leaveScript({ successor: "owner@example.test", nextOrg: "org-2" });
+      mockRevokeFederatedOrganizationMember.mockRejectedValueOnce(
+        new Error("down"),
+      );
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 503 });
+      expect(mockOffboardMember).not.toHaveBeenCalled();
+    });
+
+    it("reports pending cleanup when local offboarding fails", async () => {
+      leaveScript({ successor: "owner@example.test", nextOrg: "org-2" });
+      mockOffboardMember.mockRejectedValueOnce(new Error("db"));
+      await expect(
+        leaveOrgHandler(makeEvent("/_agent-native/org/leave")),
+      ).rejects.toMatchObject({ statusCode: 503 });
     });
   });
 
@@ -1603,5 +1894,50 @@ describe("org handlers", () => {
       await prime();
       expect(load).toHaveBeenCalledTimes(2);
     });
+  });
+  it("cancels a pending invitation and reports the id", async () => {
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    await expect(
+      cancelInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-9"),
+      ),
+    ).resolves.toEqual({ id: "invite-9", status: "canceled" });
+    const statement = mockExecute.mock.calls
+      .map(([input]) => input.sql)
+      .find((sql) => sql.includes("UPDATE org_invitations"));
+    expect(statement).toContain("status = 'canceled'");
+    expect(statement).toContain("status = 'pending'");
+  });
+
+  it("reads the invitation id from a path the org plugin already stripped", async () => {
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    await expect(
+      cancelInvitationHandler(makeEvent("/invite-7")),
+    ).resolves.toMatchObject({ id: "invite-7" });
+  });
+
+  it("refuses a non-admin cancel and an unknown invitation", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "member@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "member",
+    });
+    await expect(
+      cancelInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-9"),
+      ),
+    ).rejects.toThrow(/Only owners and admins/);
+
+    mockGetOrgContext.mockResolvedValue({
+      email: "owner@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "owner",
+    });
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    await expect(
+      cancelInvitationHandler(makeEvent("/_agent-native/org/invitations/gone")),
+    ).rejects.toThrow(/No pending invitation/);
   });
 });

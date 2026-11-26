@@ -29,6 +29,10 @@ status such as draft, review, approved, or needs changes.
 | `ReviewThreadPanel`            | Drop-in React panel with capability-gated composer, reply, resolve, delete, and custom thread-action controls.                                                    |
 | `ReviewStatusBadge`            | Controlled status badge for app headers, sidebars, and review panels.                                                                                             |
 | `isCommentSendKey()`           | The send key in every comment box: Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too, but not while an input method composes.              |
+| `ReviewCommentComposer`        | The comment box, which saves Markdown. A bar over selected text, shortcuts and Markdown typed as you go format it; Enter goes on with a list or code block.       |
+| `useReviewCommentDraft()`      | A comment box's unsent text, mentions and images, kept in the browser per thread so they survive a reload.                                                        |
+| Comment images                 | `useReviewCommentImageUpload()` uploads pasted, dropped or picked images for a box of your own, up to five; `ReviewCommentImageStrip` shows them.                 |
+| `commentDocToMarkdown()`       | The box's document as a comment's Markdown, and `commentMarkdownToDoc()` back, from `@agent-native/core/review/markdown`.                                         |
 | Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
 | Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
 | `CommentBody`                  | Draws a comment's Markdown the same way in every app, with mention chips and a `compact` mode for previews.                                                       |
@@ -46,6 +50,15 @@ specialize anchor shapes, but the common model preserves:
 - optional `mentions`
 - optional `anchor` or `resolutionTarget`
 - optional `resolutionNote` on a resolved root thread
+- optional images in `metadata.attachments`
+
+A comment needs text or an image. `create-review-comment` and
+`reply-review-comment` keep up to five images from `metadata.attachments`:
+Builder's image CDN, or files the app's upload provider says it stored. A
+comment whose body is empty and whose images were all dropped is refused with
+`empty_comment`. `update-review-comment` takes `attachments` to replace an
+author's images, checked the same way, and keeps the rest of the comment's
+metadata.
 
 `list-review-comments` supports anonymous reads for resources whose access
 resolver grants public viewer access. Public viewer responses redact ownership,
@@ -82,9 +95,20 @@ A registration can also set how comments behave on its resource:
 ```ts
 registerReviewableResource({
   type: "deck",
-  comments: { minimumRole: "viewer", unmentionedRoute: "human" },
+  comments: {
+    minimumRole: "viewer",
+    unmentionedRoute: "human",
+    resolveRole: "commenter",
+    agentDeleteApproval: true,
+  },
   anchorKinds: {
     "slide-point": { version: 2, parse: parseSlidePoint },
+  },
+  resolveTitle: async (deckId) => (await readDeck(deckId))?.title,
+  resolveUrl: (deckId, comment) => deckUrl(deckId, comment?.surfaceId),
+  email: {
+    preferenceKey: "slides-user-prefs",
+    settingsName: "Slides settings",
   },
   async onCommentWrite(event, tx) {
     await tx.execute(/* keep the deck's comment count in step */);
@@ -96,7 +120,21 @@ registerReviewableResource({
   edit or delete their own comments (default `commenter`). Suggesting needs it
   too, and never less than `commenter`.
   `comments.unmentionedRoute` sends a new thread with no mention to the agent
-  (the default) or to people.
+  (the default) or to people. `comments.resolveRole` is the lowest role that
+  may resolve and reopen threads (default `editor`).
+  `comments.agentDeleteApproval` makes the kit's `delete-review-comment` ask
+  an agent's person before it deletes anyone else's comment (default `false`).
+- The comment email names the resource by `resolveTitle`, links to
+  `resolveUrl`, which is given the comment so it can open the slide or page the
+  thread is on, and reads each person's choice from the setting
+  `email.preferenceKey` (default `activity-notification-prefs`), whose
+  `emailNotifications: false` turns it off. `email.settingsName` tells them
+  where that setting is. An app that keeps its own comment emails, with its
+  own recipients and settings, sets `email.send(comment)` instead; what it
+  returns is the comment's `notified`. Returning `null` means the app sends
+  them after it answers. A keyed comment calls it once: the kit marks the
+  comment's emails sent before it calls, so a retried or duplicate write never
+  sends them again, even when some failed.
 - `anchorKinds` types the anchor. Once a resource declares any, every anchored
   comment names its `anchorKind`, and `parse(anchor, version)` checks it and
   returns what's stored, so an older version can be read forward. A comment is
@@ -127,6 +165,91 @@ Notion discussion, so an import skips what it already copied.
 `findReviewCommentLink()` and `listReviewCommentLinks()` read those links back.
 An ID links to one comment, and a link outlives the comment's deletion.
 
+### Moving an app's comments onto the kit {#moving-comments}
+
+An app with its own comment table moves in three releases: it writes both
+stores, then reads from the kit, then drops its old table. While it writes
+both, its comment actions call `ensureReviewTables()`, open their transaction,
+and call `mirrorReviewComments(resource, copies)` inside it after changing
+their own table, so the two commit or roll back together. The mirror joins a
+Drizzle `db.transaction()`, or a `getDbExec().transaction()` whose handle is
+scoped with `withDbExec(tx, …)`; `getEnclosingTransactionDbExec()` returns
+that handle. Mirror the rows each write actually changed, such as those an
+`UPDATE … RETURNING` reports, rather than rows read before it. Each copy is one
+comment in the kit's terms (`ReviewCommentCopy`): its IDs, surface, anchor,
+text, author, resolution, times, metadata and reactions, and for an app that
+keeps them, its `kind`, `resolutionTarget` and `consumedAt`; one left out stays
+as the kit has it. The kit adds what it lacks, rewrites what changed, and marks
+the comment's email as sent, without running the write hook. A resolved comment keeps the time it was first
+resolved while it stays resolved. A comment ID the kit already holds on
+another resource is refused with `comment_resource_conflict`.
+`deleteMirroredReviewComments(resource, ids | "all")` marks deleted comments
+deleted and clears their text, as the kit's own delete does.
+
+While the app still writes its comments, register the resource with
+`commentsWrittenByApp` set to a message naming the app's own actions. Through
+the kit everyone then reads the comments as a viewer, and every kit action
+that would write one (a comment, reply, reaction, resolution or routing) is
+refused with that message, since the app wouldn't show the change. Each
+person's own state, such as muting a thread or marking it read, still works.
+
+A startup step copies the comments written before, and can run again safely.
+`compareMirroredReviewComments(resource, copies)` then lists what's `missing`
+from the kit, what it has `extra`, and what's `different`, by field, so the
+app switches only once the stores agree. Sharing counts: the kit keeps the
+resource's owner, org and visibility on each copy, so a resource whose sharing
+changed since its comments were copied differs until they're copied again. `listMirroredResourceIds(type, page)`
+finds resources with comments only the kit still has, which a copy driven by
+the app's own table would miss. While the first copy rolls out, a server still
+on the old code can delete a comment only in the app's table, after a reply
+went in through the kit's own actions. `deleteOrphanedMirroredReplies(resource,
+ids)` deletes the comments among `ids` whose thread's first comment the kit no
+longer holds, as the kit's own delete would have; a copy passes it the `extra`
+comments. The app runs the copy once more in a later release, once
+every server writes both stores, to catch what the old servers wrote.
+
+At the switch the app's actions keep their names and results but call the
+kit's actions, `commentsWrittenByApp` comes off, and the copy runs once more
+with `mirrorReviewComments(resource, copies, { onlyMissing: true })`, which
+only adds the comments the kit lacks. A comment changed or deleted through the
+kit since stays as it is. The kit takes every comment with no parent for a
+thread's first, and deleting one deletes its thread, so an app that once saved
+replies with no parent gives each its parent in the copy, and links the ones
+the kit already has with `linkMirroredReviewReplies(resource, links)`.
+
+A switched app keeps its own result shapes with a few reads and errors:
+
+- `listReviewCommentReactors(ids)` names who reacted with what on each
+  comment, for an app whose results list reactors rather than counts.
+- A keyed write (`clientOperationId`, a UUID) saves the comment as
+  `reviewCommentIdForClientOperation(id)`. Resending it with anything else
+  changed refuses with `ReviewCommentSubmissionConflictError` (409
+  `submission_conflict`), which an app can turn into its own error.
+- `moveMirroredReviewAnchors(resource, moves)` moves comments' anchors when
+  the app changes the resource under them, as footage added at the start of a
+  video moves every comment later. It runs no write hook, joins the app's
+  transaction, and leaves deleted comments alone.
+
+Slides and Clips have switched; their old tables go in a later release. Clips
+keeps its own comment emails through `email.send`. Plan writes both stores:
+its comments sit on the `plan` resource, keyed by plan ID, with one anchor kind,
+`plan-anchor`, and its local plans keep theirs in `comments.json`.
+
+A comment write holds its thread, and then whatever the app's
+`onCommentWrite` hook reads, until it commits. An app that deletes a resource
+and its comments in one transaction calls `lockMirroredReviewThreads(resource)`
+first, before it locks the resource's own row, so the two take their locks in
+the same order. Slides' hook reads the deck `FOR KEY SHARE`, so a comment
+written while its deck is deleted is either deleted with it or refused.
+
+An app that asks before its agent deletes other people's comments sets
+`comments.agentDeleteApproval`, so the agent can't skip the question by
+calling `delete-review-comment` itself, and its own delete action passes
+`onlyOwnComments: true` to the kit for an agent call without that approval.
+The kit then refuses, with a 409 `approval_required`, a delete that would take
+anyone else's comment, checking again as it locks the thread, so a reply that
+lands after the app's own check refuses it too.
+
 ## UI Usage {#ui-usage}
 
 ```tsx
@@ -150,6 +273,58 @@ The `anchor` field is intentionally `unknown`: editors, canvases, diagrams, and
 documents can store the shape they need while still using the shared review
 actions and thread UI. Declare [anchor kinds](#app-rules) to have the kit check
 that shape for you.
+
+The panel's comment box is `ReviewCommentComposer`, which an app with its own
+thread UI can use alone. It saves Markdown that `CommentBody` draws the way the
+box showed it. Selecting text brings up a bar for bold, italic, strikethrough,
+code and links, which also have shortcuts: Cmd/Ctrl+B, I, Shift+S, E and K.
+Markdown typed as you go formats too, including `- ` lists, `> ` quotes and
+fenced code blocks. Enter sends, except in a list or code block, where it goes
+on with it; Enter on an empty list item ends the list. Pasted text reads as
+Markdown, and Shift pastes it as typed. The bar's labels are English unless
+you pass `formatLabels`, to the box or to `ReviewThreadPanel`.
+
+Give the box `images` and `onImagesChange` and it takes images too: pasted,
+dropped, or picked with its image button, up to five. It uploads each with the
+app's file upload (pass `uploadImage` for another) and sends a comment that's
+only an image. A paste with text in it, such as cells from a spreadsheet,
+pastes as text. Send the images as the comment's `metadata.attachments`; the
+card shows them below its text.
+
+`useReviewCommentDraft(scope, key, initial?)` keeps what a box holds until it's
+sent, so a reload or a closed thread doesn't lose it. Give each box its own
+key, such as `new`, `reply:<threadId>` or `edit:<commentId>`, and call
+`clear()` once the comment is saved. Drafts are kept per person, account and
+resource, and only the newest 50 are kept. Without a signed-in person nothing
+is stored, and a draft lasts while a box on the resource is open. Give the box
+the draft's `target` as `imageTarget`, so an image still uploading when the
+box moves to another thread or account isn't added to that one's draft.
+
+```tsx
+const reply = useReviewCommentDraft(
+  { resourceType: "design", resourceId, userEmail, orgId },
+  `reply:${threadId}`,
+);
+
+<ReviewCommentComposer
+  value={reply.draft.text}
+  onChange={reply.setText}
+  mentions={reply.draft.mentions}
+  onMentionsChange={reply.setMentions}
+  images={reply.draft.images}
+  onImagesChange={reply.setImages}
+  imageTarget={reply.target}
+  onSubmit={async () => {
+    await replyToThread({
+      body: reply.draft.text,
+      metadata: {
+        attachments: reviewCommentImageMetadata(reply.draft.images),
+      },
+    });
+    reply.clear();
+  }}
+/>;
+```
 
 ## UX Standard {#ux-standard}
 

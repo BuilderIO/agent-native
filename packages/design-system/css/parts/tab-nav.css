@@ -1,0 +1,48 @@
+/*
+ * Part: tab-nav
+ *
+ *   <nav class="tab-nav" data-orientation="horizontal">   Base UI NavigationMenu.Root
+ *     <ul class="tab-nav-list"                            NavigationMenu.List
+ *         data-justify="start|center|end"
+ *         data-wrap="nowrap|wrap|wrap-reverse"
+ *         [data-color="accent|gray|danger|warning|success|info"]
+ *         [data-high-contrast]>
+ *       <li class="tab-nav-item">                         NavigationMenu.Item
+ *         <a class="tab-nav-link"                         NavigationMenu.Link
+ *            [aria-current="page"] [data-active]>
+ *
+ * Radix Themes' tab nav: Tabs' row of triggers as links between pages, the
+ * current page's link underlined in the nearest `data-color`'s indicator
+ * step. The list, the links, their sizes, hover tint, focus ring and
+ * underline are tabs.css's rules, shared through `:is()` so the two stay
+ * one look; this sheet only resets the list and draws the underline's box.
+ */
+
+@layer components {
+  .tab-nav {
+    display: flex;
+    min-width: 0;
+  }
+
+  .tab-nav-list {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .tab-nav-item {
+    display: flex;
+  }
+
+  .tab-nav-link {
+    text-decoration: none;
+  }
+
+  .tab-nav-link[aria-current="page"]::after {
+    content: "";
+    left: 0;
+    right: 0;
+  }
+}

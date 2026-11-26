@@ -1,4 +1,8 @@
 import {
+  readFullScreenBlockLink,
+  type FullScreenBlockLink,
+} from "./block-link.js";
+import {
   formatColumnRatio,
   normalizeColumnRatios,
   parseColumnRatio,
@@ -8,6 +12,10 @@ import {
   matchInlineMathAt,
   MAX_INLINE_MATH_LENGTH,
 } from "./inline-math.js";
+import {
+  INTERACTIVE_HTML_LANGUAGE,
+  readInteractiveHtmlNote,
+} from "./interactive-html-language.js";
 import { registryBlockSpecByTag } from "./nfm-registry.js";
 
 export interface PMMark {
@@ -52,6 +60,9 @@ export interface NfmParseLoss {
 }
 
 let activeLossSink: NfmParseLoss[] | null = null;
+// Set while reading Notion's own Markdown, where a <br> between backticks is a
+// line break. See notionMarkdownToNfm.
+let readingNotionMarkdown = false;
 
 function reportLoss(kind: NfmParseLossKind, sample: string): void {
   activeLossSink?.push({ kind, sample });
@@ -265,6 +276,7 @@ function hasUnsupportedJsxProps(raw: string): boolean {
 // own attribute, so `data-markdown="1"` isn't it.
 const TOGGLE_MARKDOWN_TITLE_ATTR = 'markdown="1"';
 const TOGGLE_MARKDOWN_TITLE_PATTERN = /(?:^|\s)markdown\s*=\s*"1"/;
+const CODE_BLOCK_WRAP_ATTR = 'wrap="true"';
 
 function toggleTitleNode(inline: PMNode[]): PMNode {
   return inline.length
@@ -459,28 +471,49 @@ function serializeInlineTextNode(
   if (node.type !== "text") return null;
   const raw = node.text ?? "";
   const code = markOf(node, "code");
+  // Text between backticks is literal, so a typed <br> stays text. A line
+  // break in code is written as Shift+Enter there writes it: a <br> between
+  // two runs, each with all of the text's marks.
+  if (code && raw.includes("\n")) {
+    let source = "";
+    const textOffsets: number[] = [];
+    raw.split("\n").forEach((line, lineIndex) => {
+      if (lineIndex > 0) source += "<br>";
+      const part = line
+        ? serializeInlineTextNode(
+            { ...node, text: line },
+            true,
+            escapeUnderscore,
+            false,
+            startsLine && lineIndex === 0,
+          )
+        : null;
+      for (const offset of part?.textOffsets ?? [0])
+        textOffsets.push(source.length + offset);
+      source += part?.source ?? "";
+    });
+    return { source, textOffsets: collectOffsets ? textOffsets : null };
+  }
   let out: string;
   let textOffsets: number[] | null = collectOffsets ? [0] : null;
   if (code) {
-    const codeText = raw.replace(/\n/g, "<br>");
     // The reader strips padding only around code that is not all whitespace.
     const isAllSpaces = raw.trim() === "";
-    const delim = "`".repeat(longestRun(codeText, /`+/g) + 1);
+    const delim = "`".repeat(longestRun(raw, /`+/g) + 1);
     const needsPadding =
       !isAllSpaces &&
-      (codeText.startsWith("`") ||
-        codeText.endsWith("`") ||
-        codeText.startsWith(" ") ||
-        codeText.endsWith(" "));
-    const body = needsPadding ? ` ${codeText} ` : codeText;
+      (raw.startsWith("`") ||
+        raw.endsWith("`") ||
+        raw.startsWith(" ") ||
+        raw.endsWith(" "));
+    const body = needsPadding ? ` ${raw} ` : raw;
     out = delim + body + delim;
     if (textOffsets) {
-      let contentOffset = delim.length + (needsPadding ? 1 : 0);
-      textOffsets = [contentOffset];
-      for (let index = 0; index < raw.length; index += 1) {
-        contentOffset += raw[index] === "\n" ? "<br>".length : 1;
-        textOffsets.push(contentOffset);
-      }
+      const contentOffset = delim.length + (needsPadding ? 1 : 0);
+      textOffsets = Array.from(
+        { length: raw.length + 1 },
+        (_, index) => contentOffset + index,
+      );
     }
   } else {
     if (escapeUnderscore) contextualSpellings?.escapedUnderscores.add(node);
@@ -1058,7 +1091,8 @@ function parseInline(input: string, depth = 0): PMNode[] {
       const openRun = runEnd - at;
       const close = end - openRun;
       flush();
-      let codeText = input.slice(at + openRun, close).replace(/<br\/?>/g, "\n");
+      let codeText = input.slice(at + openRun, close);
+      if (readingNotionMarkdown) codeText = codeText.replace(/<br\/?>/g, "\n");
       if (
         codeText.startsWith(" ") &&
         codeText.endsWith(" ") &&
@@ -1449,6 +1483,7 @@ export interface NfmSerializeContext {
    * page has no place for.
    */
   omitMediaIds?: boolean;
+  omitCodeBlockWrap?: boolean;
 }
 
 /**
@@ -1522,13 +1557,22 @@ function isEmptyParagraphNode(node: PMNode | undefined): boolean {
   return (Number(node.attrs?.indent) || 0) === 0;
 }
 
+export function isEditorTerminalFiller(
+  last: PMNode | undefined,
+  previous: Pick<PMNode, "type"> | undefined,
+): boolean {
+  return (
+    isEmptyParagraphNode(last) &&
+    previous !== undefined &&
+    previous.type !== "paragraph"
+  );
+}
+
 function trimEditorTerminalFiller(blocks: PMNode[]): PMNode[] {
   if (blocks.length < 2) return blocks;
   const last = blocks[blocks.length - 1];
   const previous = blocks[blocks.length - 2];
-  if (!isEmptyParagraphNode(last) || previous?.type === "paragraph") {
-    return blocks;
-  }
+  if (!isEditorTerminalFiller(last, previous)) return blocks;
   return blocks.slice(0, -1);
 }
 
@@ -1607,8 +1651,12 @@ function serializeBlock(node: PMNode, indent: number): string[] {
         Math.max(3, longestRun(text, marker === "`" ? /`+/g : /~+/g) + 1),
       );
       const gap = lang.startsWith(marker) ? " " : "";
+      const wrap =
+        node.attrs?.wrap === true && !activeSerializeContext?.omitCodeBlockWrap
+          ? ` {${CODE_BLOCK_WRAP_ATTR}}`
+          : "";
       return [
-        indentStr(ind) + fence + gap + lang,
+        indentStr(ind) + fence + gap + lang + wrap,
         ...body,
         indentStr(ind) + fence,
       ];
@@ -1884,7 +1932,10 @@ function serializeTaskList(node: PMNode, indent: number): string[] {
 }
 
 // A cell reads back as one line, so its children share one underscore check.
-function serializeCellInline(cell: PMNode, escapeUnderscore = false): string {
+export function serializeCellInline(
+  cell: PMNode,
+  escapeUnderscore = false,
+): string {
   const parts: string[] = [];
   for (const child of cell.content || []) {
     const part = serializeCellChildInline(child, escapeUnderscore);
@@ -1990,6 +2041,19 @@ function leadingTabs(line: string): number {
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
 
+function splitCodeFenceInfo(info: string | undefined): {
+  lang: string;
+  wrap: boolean;
+} {
+  const trimmed = info?.trim() ?? "";
+  const m = matchBlockAttrSuffix(trimmed);
+  return m &&
+    (m.text === "" || trimmed[m.text.length] !== "{") &&
+    /^\s*wrap\s*=\s*"true"\s*$/.test(m.body)
+    ? { lang: m.text, wrap: true }
+    : { lang: trimmed, wrap: false };
+}
+
 // A backtick fence's language holds no backtick, so a line that starts with
 // a long code span, as the editor writes ``` `` ```, stays a paragraph.
 function matchFenceOpen(line: string): RegExpMatchArray | null {
@@ -2030,6 +2094,19 @@ export function parseNfmWithLosses(nfm: string | null | undefined): {
   }
 }
 
+export interface NfmBlockSpan {
+  nodes: PMNode[];
+  startLine: number;
+  endLine: number;
+}
+
+export function locateNfmBlocks(nfm: string): NfmBlockSpan[] {
+  const spans: NfmBlockSpan[] = [];
+  const lines = nfm.replace(/\r\n?/g, "\n").split("\n");
+  parseBlockSequence(lines, 0, 0, (span) => spans.push(span));
+  return spans;
+}
+
 interface ParseResult {
   nodes: PMNode[];
   end: number;
@@ -2050,6 +2127,7 @@ function parseBlockSequence(
   lines: string[],
   start: number,
   baseIndent: number,
+  onBlock?: (span: NfmBlockSpan) => void,
 ): ParseResult {
   const out: PMNode[] = [];
   let i = start;
@@ -2069,6 +2147,11 @@ function parseBlockSequence(
     const pipeTable = parseGfmPipeTable(lines, i, ind, rel);
     if (pipeTable) {
       out.push(pipeTable.nodes[0]);
+      onBlock?.({
+        nodes: pipeTable.nodes,
+        startLine: i,
+        endLine: pipeTable.end,
+      });
       i = pipeTable.end;
       continue;
     }
@@ -2082,12 +2165,14 @@ function parseBlockSequence(
     if (listKind) {
       const res = parseList(lines, i, ind, listKind);
       out.push(res.nodes[0]);
+      onBlock?.({ nodes: res.nodes, startLine: i, endLine: res.end });
       i = res.end;
       continue;
     }
 
     const res = parseSingleBlock(lines, i, ind, rel);
     pushAll(out, res.nodes);
+    onBlock?.({ nodes: res.nodes, startLine: i, endLine: res.end });
     i = res.end;
   }
 
@@ -2318,6 +2403,16 @@ export function splitGfmPipeRow(line: string): string[] | null {
   return cells;
 }
 
+export function escapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]|\|/g, (match) =>
+    match === "|" ? "\\|" : match,
+  );
+}
+
+function unescapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]/g, (match) => (match === "\\|" ? "|" : match));
+}
+
 function isGfmDelimiterCell(value: string): boolean {
   return /^-+$/.test(value.trim());
 }
@@ -2382,7 +2477,12 @@ function parseGfmPipeTable(
     content: Array.from({ length: columnCount }, (_, index) => ({
       type: rowIndex === 0 ? "tableHeader" : "tableCell",
       attrs: { color: null, textAlign: alignments[index] ?? null },
-      content: [{ type: "paragraph", content: parseInline(row[index] ?? "") }],
+      content: [
+        {
+          type: "paragraph",
+          content: parseInline(unescapeGfmPipes(row[index] ?? "")),
+        },
+      ],
     })),
   }));
   const attrs: Record<string, unknown> = {
@@ -2396,6 +2496,92 @@ function parseGfmPipeTable(
     nodes: [{ type: "table", attrs, content: tableRows }],
     end,
   };
+}
+
+export interface NfmTableSource {
+  startLine: number;
+  endLine: number;
+  indent: number;
+}
+
+function containerCloseLine(
+  lines: readonly string[],
+  start: number,
+  indent: number,
+  tagKey: string,
+): number {
+  const closeTag = CONTAINER_CLOSE[tagKey];
+  let depth = 1;
+  let fence: string | undefined;
+  for (const [i, line] of lines.entries()) {
+    if (i <= start) continue;
+    const tabs = leadingTabs(line);
+    const dedent = line.slice(tabs);
+    if (fence !== undefined) {
+      if (closesFence(dedent.match(FENCE_CLOSE), fence)) fence = undefined;
+      continue;
+    }
+    if (matchFenceOpen(dedent)) {
+      fence = dedent.replace(FENCE_OPEN, "$1");
+      continue;
+    }
+    if (tabs !== indent) continue;
+    if (matchContainerOpen(dedent) === tagKey) depth++;
+    else if (dedent === closeTag && --depth === 0) return i;
+  }
+  return -1;
+}
+
+export function locateNfmTables(lines: readonly string[]): NfmTableSource[] {
+  const source = [...lines];
+  const tables: NfmTableSource[] = [];
+  let fence: { marker: string; indent: number } | undefined;
+  let next = 0;
+  let ends: number[] = [];
+  for (const [i, line] of source.entries()) {
+    ends = ends.filter((end) => end > i);
+    if (i < next) continue;
+    const indent = leadingTabs(line);
+    const dedent = line.slice(indent);
+    if (fence) {
+      if (
+        indent >= fence.indent &&
+        closesFence(dedent.trim().match(FENCE_CLOSE), fence.marker)
+      ) {
+        fence = undefined;
+      }
+      continue;
+    }
+    const open = matchFenceOpen(dedent);
+    if (open) {
+      fence = { marker: dedent.replace(FENCE_OPEN, "$1"), indent };
+      continue;
+    }
+    const container = matchContainerOpen(dedent);
+    if (container === "<table") {
+      const bound = Math.min(source.length, ...ends);
+      const close = source.findIndex(
+        (candidate, at) =>
+          at > i && at < bound && candidate.trim() === "</table>",
+      );
+      if (close === -1) continue;
+      tables.push({ startLine: i, endLine: close + 1, indent });
+      next = close + 1;
+      continue;
+    }
+    if (container) {
+      const close = containerCloseLine(source, i, indent, container);
+      if (close !== -1 && container === "<meeting-notes>") next = close + 1;
+      else if (close !== -1) ends.push(close);
+      continue;
+    }
+    const pipeTable = parseGfmPipeTable(source, i, indent, 0);
+    if (pipeTable) {
+      tables.push({ startLine: i, endLine: pipeTable.end, indent });
+      next = pipeTable.end;
+    }
+  }
+  return tables;
 }
 
 type ListKind = "bullet" | "ordered" | "task";
@@ -2784,7 +2970,7 @@ function parseSingleBlock(
   const fenceOpenMatch = matchFenceOpen(dedent);
   if (fenceOpenMatch) {
     const marker = fenceOpenMatch[1];
-    const lang = fenceOpenMatch[2].trim();
+    const { lang, wrap } = splitCodeFenceInfo(fenceOpenMatch[2]);
     const body: string[] = [];
     let i = start + 1;
     for (; i < lines.length; i++) {
@@ -2800,7 +2986,7 @@ function parseSingleBlock(
     const code = body.join("\n");
     const node: PMNode = {
       type: "codeBlock",
-      attrs: { language: lang || null },
+      attrs: { language: lang || null, ...(wrap ? { wrap: true } : {}) },
       content: code ? [{ type: "text", text: code }] : [],
     };
     return { nodes: [withIndentAttr(node)], end: i + 1 };
@@ -3922,6 +4108,11 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
   return canonical;
 }
 
+export function appendNfmBlocks(body: string, blocks: string): string {
+  const kept = body.replace(/[\r\n]+$/, "");
+  return kept && kept !== "<empty-block/>" ? `${kept}\n${blocks}` : blocks;
+}
+
 /**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes
@@ -3930,10 +4121,109 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
  * a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
-  return docToNfm(nfmToDoc(nfm ?? ""), {
+  return notionNfmFromDoc(nfmToDoc(nfm ?? ""));
+}
+
+/**
+ * `canonicalizeNotionNfm` for Markdown that Notion's API returned. Notion's
+ * default format there, v1 enhanced markdown, reads a <br> between backticks
+ * as a line break, where Content's Markdown keeps it as text, so a pulled
+ * page's line breaks in inline code stay line breaks. Notion's v2 format
+ * keeps text in code literal too; once Content reads v2, this goes.
+ */
+export function notionMarkdownToNfm(markdown: string): string {
+  const previous = readingNotionMarkdown;
+  readingNotionMarkdown = true;
+  let doc: PMDoc;
+  try {
+    doc = nfmToDoc(markdown);
+  } finally {
+    readingNotionMarkdown = previous;
+  }
+  readInteractiveHtmlFromNotion(doc);
+  return notionNfmFromDoc(doc);
+}
+
+export function soleLinkHref(node: PMNode): unknown {
+  if (node.type !== "paragraph" && node.type !== "heading") return null;
+  const hrefs = new Set<unknown>(
+    (node.content ?? []).map(
+      (child) =>
+        (child.marks ?? []).find((mark) => mark.type === "link")?.attrs?.href,
+    ),
+  );
+  return hrefs.size === 1 ? [...hrefs][0] : null;
+}
+
+function readInteractiveHtmlFromNotion(parent: PMNode): void {
+  if (!parent.content) return;
+  const kept: PMNode[] = [];
+  let above: FullScreenBlockLink | null = null;
+  for (const node of parent.content) {
+    const link = readFullScreenBlockLink(soleLinkHref(node));
+    const captions: boolean =
+      above !== null &&
+      link?.pagePath === above.pagePath &&
+      link.blockId === above.blockId;
+    above = captions ? null : readInteractiveHtmlCode(node);
+    if (captions) continue;
+    if (!above) readInteractiveHtmlFromNotion(node);
+    kept.push(node);
+  }
+  parent.content = kept;
+}
+
+function readInteractiveHtmlCode(node: PMNode): FullScreenBlockLink | null {
+  if (node.type !== "codeBlock" || node.attrs?.language !== "html") return null;
+  const noted = readInteractiveHtmlNote(
+    (node.content ?? []).map((text) => text.text ?? "").join(""),
+  );
+  if (!noted) return null;
+  node.attrs = { ...node.attrs, language: INTERACTIVE_HTML_LANGUAGE };
+  node.content = noted.source ? [{ type: "text", text: noted.source }] : [];
+  return noted.link;
+}
+
+function notionNfmFromDoc(doc: PMDoc): string {
+  return docToNfm(doc, {
     keepTrailingEmptyBlock: true,
     omitMediaIds: true,
+    omitCodeBlockWrap: true,
   });
+}
+
+export function keepCodeBlockWrap(
+  local: string | null | undefined,
+  incoming: string,
+): string {
+  const codeOf = (node: PMNode) =>
+    (node.content ?? []).map((text) => text.text ?? "").join("");
+  const codeBlocksIn = (root: PMNode) => {
+    const blocks: PMNode[] = [];
+    const walk = (node: PMNode) => {
+      if (node.type === "codeBlock") blocks.push(node);
+      else node.content?.forEach(walk);
+    };
+    walk(root);
+    return blocks;
+  };
+  const localWraps = new Map<string, boolean[]>();
+  for (const block of codeBlocksIn(nfmToDoc(local ?? ""))) {
+    const wraps = localWraps.get(codeOf(block)) ?? [];
+    wraps.push(block.attrs?.wrap === true);
+    localWraps.set(codeOf(block), wraps);
+  }
+  if (![...localWraps.values()].some((wraps) => wraps.includes(true)))
+    return incoming;
+  const doc = nfmToDoc(incoming);
+  let kept = false;
+  for (const block of codeBlocksIn(doc)) {
+    if (!localWraps.get(codeOf(block))?.shift() || block.attrs?.wrap === true)
+      continue;
+    block.attrs = { ...block.attrs, wrap: true };
+    kept = true;
+  }
+  return kept ? docToNfm(doc, { keepTrailingEmptyBlock: true }) : incoming;
 }
 
 /**

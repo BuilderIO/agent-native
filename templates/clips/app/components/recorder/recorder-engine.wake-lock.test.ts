@@ -31,13 +31,18 @@ class FakeStream {
   }
 }
 
-function makeEngine() {
+function makeEngine(
+  displaySurface: "window" | "monitor" = "window",
+  states: string[] = [],
+) {
   return new RecorderEngine({
     recordingId: "rec-1",
     mode: "screen",
     micDeviceId: NO_MIC_DEVICE_ID,
     uploadUrl: "/api/uploads/rec-1/chunk",
     abortUrl: "/api/uploads/rec-1/abort",
+    displaySurface,
+    onState: (state) => states.push(state),
   });
 }
 
@@ -157,5 +162,51 @@ describe("RecorderEngine screen wake lock", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start display capture when cancelled while native surface intent is pending", async () => {
+    let resolvePrepare!: (value: { width: number; height: number }) => void;
+    const prepare = vi.fn(
+      () =>
+        new Promise<{ width: number; height: number }>((resolve) => {
+          resolvePrepare = resolve;
+        }),
+    );
+    const getDisplayMedia = vi.fn(
+      async () => new FakeStream([new FakeTrack()]),
+    );
+    const states: string[] = [];
+    vi.stubGlobal("agentNativeDisplayCapture", { prepare });
+    vi.stubGlobal("window", {
+      setTimeout,
+      clearTimeout,
+      isSecureContext: true,
+    });
+    vi.stubGlobal(
+      "AudioContext",
+      class {
+        close() {
+          return Promise.resolve();
+        }
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response()),
+    );
+    vi.stubGlobal("navigator", {
+      mediaDevices: { getDisplayMedia, getUserMedia: vi.fn() },
+    });
+
+    const engine = makeEngine("monitor", states);
+    const acquiring = engine.acquire();
+    await Promise.resolve();
+    expect(prepare).toHaveBeenCalledWith("monitor");
+    await engine.cancel("user_cancelled");
+    resolvePrepare({ width: 3456, height: 2234 });
+
+    await expect(acquiring).rejects.toMatchObject({ name: "AbortError" });
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    expect(states[states.length - 1]).toBe("idle");
   });
 });

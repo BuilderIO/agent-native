@@ -40,6 +40,7 @@ function stringifyValue(value: unknown): string {
 
 import crypto from "node:crypto";
 
+import type { ActionCaller, ActionRunContext } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import {
   ensureColumnExists,
@@ -55,6 +56,10 @@ export type SandboxExecutionStatus =
   | "succeeded"
   | "failed"
   | "timed_out";
+
+export type SandboxExecutionNetworkProtocol = NonNullable<
+  ActionRunContext["networkProtocol"]
+>;
 
 export interface SandboxExecutionRow {
   id: string;
@@ -79,6 +84,9 @@ export interface SandboxExecutionRow {
   error: string | null;
   bridgeToolsUsed: string[];
   allowedActionNames: string[] | undefined;
+  /** Who queued the run; null for runs queued before this was kept. */
+  caller: ActionCaller | null;
+  networkProtocol: SandboxExecutionNetworkProtocol | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -95,12 +103,16 @@ export interface CreateSandboxExecutionInput {
   maxAttempts?: number;
   runtime?: string;
   allowedActionNames?: readonly string[];
+  caller?: ActionCaller | null;
+  networkProtocol?: SandboxExecutionNetworkProtocol | null;
 }
 
 export interface FinalizeSandboxExecutionInput {
   status: Extract<SandboxExecutionStatus, "succeeded" | "failed" | "timed_out">;
   stdout?: string;
   stderr?: string;
+  /** The evaluator already dropped stdout past the execution's cap. */
+  stdoutTruncated?: boolean;
   exitCode?: number | null;
   timedOut?: boolean;
   error?: string | null;
@@ -108,7 +120,7 @@ export interface FinalizeSandboxExecutionInput {
 }
 
 export const SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS = 2;
-export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 200_000;
+export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 5 * 1024 * 1024;
 
 const TABLE = "sandbox_executions";
 
@@ -170,6 +182,19 @@ export const sandboxExecutionsStore = defineStore({
         await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
       },
     },
+    {
+      name: "sandbox-executions-origin-caller",
+      run: async (exec) => {
+        for (const column of ["caller", "network_protocol"] as const) {
+          await ensureColumnExists(
+            TABLE,
+            column,
+            `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+            { injectedClient: exec },
+          );
+        }
+      },
+    },
   ],
 });
 
@@ -193,6 +218,24 @@ function capOutput(
   if (raw.length <= cap) return { text: raw, truncated: false };
   return { text: raw.slice(0, cap), truncated: true };
 }
+
+const ACTION_CALLERS: Record<ActionCaller, true> = {
+  tool: true,
+  http: true,
+  frontend: true,
+  "mcp-widget": true,
+  "mcp-widget-write": true,
+  cli: true,
+  mcp: true,
+  webmcp: true,
+  a2a: true,
+  automation: true,
+};
+const NETWORK_PROTOCOLS: Record<SandboxExecutionNetworkProtocol, true> = {
+  a2a: true,
+  mcp: true,
+  "provider-api": true,
+};
 
 function toBool(value: unknown): boolean {
   return value === true || value === 1 || value === "1" || value === "true";
@@ -275,6 +318,16 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
         : stringifyValue(raw.error),
     bridgeToolsUsed,
     allowedActionNames,
+    caller:
+      typeof raw.caller === "string" &&
+      Object.hasOwn(ACTION_CALLERS, raw.caller)
+        ? (raw.caller as ActionCaller)
+        : null,
+    networkProtocol:
+      typeof raw.network_protocol === "string" &&
+      Object.hasOwn(NETWORK_PROTOCOLS, raw.network_protocol)
+        ? (raw.network_protocol as SandboxExecutionNetworkProtocol)
+        : null,
     createdAt: toNumberOrNull(raw.created_at) ?? 0,
     startedAt: toNumberOrNull(raw.started_at),
     finishedAt: toNumberOrNull(raw.finished_at),
@@ -293,10 +346,11 @@ export async function createSandboxExecution(
     1,
     Math.min(input.maxAttempts ?? SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS, 5),
   );
+  // raw-sql-ok: TABLE is a module constant; every value is a bound ? arg.
   await client.execute({
     sql: `INSERT INTO ${TABLE}
-      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, allowed_action_names, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?)`,
+      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, allowed_action_names, caller, network_protocol, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.owner,
@@ -310,6 +364,8 @@ export async function createSandboxExecution(
       input.allowedActionNames === undefined
         ? null
         : JSON.stringify([...new Set(input.allowedActionNames)]),
+      input.caller ?? null,
+      input.networkProtocol ?? null,
       now,
       now,
     ],
@@ -421,6 +477,7 @@ export async function finalizeSandboxExecution(
   if (!row) return false;
   const stdout = capOutput(input.stdout, row.maxOutputChars);
   const stderr = capOutput(input.stderr, row.maxOutputChars);
+  // raw-sql-ok: TABLE is this module's fixed table name; every value is a bound ? arg
   const result = await client.execute({
     sql: `UPDATE ${TABLE}
       SET status = ?,
@@ -440,7 +497,7 @@ export async function finalizeSandboxExecution(
       input.status,
       stdout.text,
       stderr.text,
-      stdout.truncated ? 1 : 0,
+      stdout.truncated || input.stdoutTruncated ? 1 : 0,
       stderr.truncated ? 1 : 0,
       input.exitCode ?? null,
       input.timedOut ? 1 : 0,
@@ -453,6 +510,25 @@ export async function finalizeSandboxExecution(
     ],
   });
   return (result.rowsAffected ?? 0) === 1;
+}
+
+/**
+ * Empty a finished execution's stored output once its caller has kept what it
+ * needed, so a large result isn't stored twice. A running execution is left
+ * alone.
+ */
+export async function discardSandboxExecutionOutput(
+  id: string,
+  now = Date.now(),
+): Promise<void> {
+  await ensureTable();
+  // raw-sql-ok: TABLE is this module's fixed table name; every value is a bound ? arg
+  await getDbExec().execute({
+    sql: `UPDATE ${TABLE}
+      SET stdout = '', stderr = '', updated_at = ?
+      WHERE id = ? AND status IN ('succeeded', 'failed', 'timed_out')`,
+    args: [now, id],
+  });
 }
 
 export async function failExpiredSandboxExecution(

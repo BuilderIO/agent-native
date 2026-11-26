@@ -68,7 +68,9 @@ describe("AgentSuggestionBar", () => {
     expect(buttons).toHaveLength(2);
     expect(bar?.className).toContain("py-2");
     expect(bar?.className).toContain("min-w-0");
-    expect(buttons[0]?.className).toContain("rounded-full");
+    expect(buttons[0]?.className).toContain(
+      "rounded-[var(--agent-kit-radius-xs,0.25rem)]",
+    );
     expect(buttons[0]?.className).toContain("whitespace-nowrap");
     expect(buttons[0]?.className).not.toContain("max-w-");
     expect(buttons[0]?.className).toContain("text-foreground");
@@ -220,5 +222,64 @@ describe("AgentSuggestionBar", () => {
     );
     expect(track?.className).toContain("flex-nowrap");
     expect(track?.className).toContain("h-6");
+  });
+
+  // The filled variant renders after-composer prompt cards as filled 28px
+  // rows at ~6px radius, stacked one per row with an 8px gap. "pill" stays the
+  // default so every existing host keeps the same look.
+  it("renders filled 28px stacked rows when the host asks for the filled variant", () => {
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={["First", "Second", "Third"]}
+          layout="stacked"
+          variant="filled"
+          onSelect={() => {}}
+        />,
+      );
+    });
+
+    const bar = container.querySelector('[data-agent-suggestion-bar="true"]');
+    expect(bar?.getAttribute("data-agent-suggestion-variant")).toBe("filled");
+    const track = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-track="true"]',
+    );
+    expect(track?.className).toContain("flex-col");
+    expect(track?.className).toContain("items-center");
+    expect(track?.className).toContain("gap-2");
+    for (const button of container.querySelectorAll("button")) {
+      expect(button.className).toContain("h-7");
+      expect(button.className).toContain("rounded-md");
+      expect(button.className).toContain("bg-muted");
+      expect(button.className).not.toContain("rounded-full");
+      expect(button.className).not.toContain("bg-transparent");
+    }
+    const scroller = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-scroller="true"]',
+    );
+    expect(scroller?.className).toContain("overflow-visible");
+    expect(scroller?.className).not.toContain("overflow-x-auto");
+  });
+
+  it("keeps the outlined pill variant by default", () => {
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={["First"]}
+          onSelect={() => {}}
+        />,
+      );
+    });
+
+    const bar = container.querySelector('[data-agent-suggestion-bar="true"]');
+    expect(bar?.getAttribute("data-agent-suggestion-variant")).toBe("pill");
+    const button = container.querySelector("button");
+    expect(button?.className).toContain("h-6");
+    expect(button?.className).toContain(
+      "rounded-[var(--agent-kit-radius-xs,0.25rem)]",
+    );
+    expect(button?.className).toContain("bg-transparent");
   });
 });

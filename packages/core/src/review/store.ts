@@ -9,8 +9,10 @@ import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import {
   ReviewAnchorError,
+  ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
   ReviewCommentRevisionConflictError,
+  ReviewCommentSubmissionConflictError,
   ReviewCursorError,
 } from "./errors.js";
 import {
@@ -67,6 +69,11 @@ export interface InsertReviewCommentResult {
 
 export interface UpdateReviewCommentInput {
   body?: string;
+  /**
+   * The comment's images, already checked, in place of the ones in its
+   * metadata. The rest of its metadata stays.
+   */
+  attachments?: Record<string, unknown>[];
   anchor?: unknown;
   /** With `anchor`: a new kind for it. Left out, the comment's kind stays. */
   anchorKind?: string | null;
@@ -80,6 +87,12 @@ export interface ReviewCommentWriteOptions {
    * is written and a `ReviewCommentRevisionConflictError` is thrown.
    */
   expectedRevision?: number | undefined;
+  /**
+   * Refuse, with a `ReviewCommentEmptyError`, a change that leaves the comment
+   * with no text and no image. Checked against the locked row, so a change
+   * made since the caller read the comment counts.
+   */
+  requireContent?: boolean | undefined;
   /** Who made the change, for the resource's write hook. */
   actorEmail?: string | null | undefined;
 }
@@ -94,12 +107,16 @@ export interface QueryReviewCommentsInput {
   targetId?: string | null | undefined;
   /** One surface's comments, or with `null` those on no surface. */
   surfaceId?: string | null | undefined;
+  /** One thread's comments. */
+  threadId?: string | undefined;
   newestFirst?: boolean | undefined;
   rootOnly?: boolean;
   resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
   unconsumedOnly?: boolean;
   /** Oldest first only: start after this comment. */
   after?: ReviewCommentPosition | undefined;
+  /** Oldest first only: skip this many matching comments first. */
+  offset?: number | undefined;
   limit?: number | undefined;
 }
 
@@ -308,31 +325,61 @@ export function ensureReviewTables(): Promise<void> {
   return reviewStore.ready();
 }
 
+/**
+ * Turns an actor's reaction on or off. Without `active` it toggles: the
+ * comment's row lock makes two toggles at once take turns, so the second
+ * undoes the first. Actors match whatever their case.
+ */
 export async function setReviewCommentReaction(input: {
   commentId: string;
   actorEmail: string;
   reaction: string;
+  active?: boolean;
+}): Promise<{
+  commentId: string;
+  actorEmail: string;
+  reaction: string;
   active: boolean;
-}) {
+}> {
   await ensureReviewTables();
+  const set = async (client: DbExec) => {
+    let active = input.active;
+    if (active === undefined) {
+      await client.execute({
+        sql: "SELECT id FROM agent_review_comments WHERE id = ? FOR UPDATE",
+        args: [input.commentId],
+      });
+      const { rows } = await client.execute({
+        sql: "SELECT 1 FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?",
+        args: [input.commentId, input.actorEmail, input.reaction],
+      });
+      active = rows.length === 0;
+    }
+    if (active) {
+      await client.execute({
+        sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
+        args: [
+          input.commentId,
+          input.actorEmail,
+          input.reaction,
+          new Date().toISOString(),
+          input.commentId,
+          input.actorEmail,
+          input.reaction,
+        ],
+      });
+    } else {
+      await client.execute({
+        sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND lower(actor_email) = lower(?) AND reaction = ?",
+        args: [input.commentId, input.actorEmail, input.reaction],
+      });
+    }
+    return { ...input, active };
+  };
   const client = getDbExec();
-  if (input.active) {
-    await client.execute({
-      sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) VALUES (?,?,?,?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
-      args: [
-        input.commentId,
-        input.actorEmail,
-        input.reaction,
-        new Date().toISOString(),
-      ],
-    });
-  } else {
-    await client.execute({
-      sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND actor_email = ? AND reaction = ?",
-      args: [input.commentId, input.actorEmail, input.reaction],
-    });
-  }
-  return { ...input };
+  return input.active === undefined && client.transaction
+    ? client.transaction(set)
+    : set(client);
 }
 
 export async function setReviewThreadPreference(input: {
@@ -419,9 +466,15 @@ export async function setReviewThreadUnreadPreferences(input: {
   }));
 }
 
+/**
+ * Reactions and thread preferences for these comments, as `userEmail` sees
+ * them. `reactionActor` is whose reactions count as theirs, when that isn't
+ * `userEmail` (see `reviewReactionActor`).
+ */
 export async function getReviewDiscussionStateForComments(
   comments: Pick<ReviewComment, "id" | "threadId">[],
   userEmail: string | null,
+  reactionActor: string | null = userEmail,
 ) {
   const reactions: Record<string, ReviewCommentReaction[]> = {};
   const threadPreferences: Record<string, ReviewThreadPreference> = {};
@@ -433,10 +486,11 @@ export async function getReviewDiscussionStateForComments(
   for (const id of threadIds)
     threadPreferences[id] = { muted: false, unread: false };
   const client = getDbExec();
+  // raw-sql-ok: the IN lists are placeholders only; every value is bound.
   const [reactionRows, preferenceRows] = await Promise.all([
     client.execute({
-      sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN actor_email = ? THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
-      args: [userEmail, ...commentIds],
+      sql: `SELECT comment_id,reaction,COUNT(*) AS count,MAX(CASE WHEN lower(actor_email) = lower(?) THEN 1 ELSE 0 END) AS reacted_by_me FROM agent_review_comment_reactions WHERE comment_id IN (${commentIds.map(() => "?").join(",")}) GROUP BY comment_id,reaction ORDER BY comment_id,reaction`,
+      args: [reactionActor, ...commentIds],
     }),
     userEmail
       ? client.execute({
@@ -459,6 +513,46 @@ export async function getReviewDiscussionStateForComments(
     };
   }
   return { reactions, threadPreferences };
+}
+
+const REACTORS_PER_STATEMENT = 1_000;
+
+/**
+ * Who reacted to each comment, by reaction, in the order they reacted. Every
+ * comment asked about has an entry, empty when no one reacted.
+ */
+export async function listReviewCommentReactors(
+  commentIds: readonly string[],
+): Promise<Record<string, Record<string, string[]>>> {
+  const ids = [...new Set(commentIds)];
+  const reactors = new Map<string, Map<string, string[]>>(
+    ids.map((id) => [id, new Map()]),
+  );
+  if (!ids.length) return {};
+  await ensureReviewTables();
+  for (let start = 0; start < ids.length; start += REACTORS_PER_STATEMENT) {
+    const batch = ids.slice(start, start + REACTORS_PER_STATEMENT);
+    // raw-sql-ok: the IN list is placeholders only; every value is bound.
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT comment_id,reaction,actor_email FROM agent_review_comment_reactions WHERE comment_id IN (${batch.map(() => "?").join(",")}) ORDER BY comment_id,created_at,actor_email`,
+      args: batch,
+    });
+    for (const row of rows) {
+      const byReaction = reactors.get(String(row.comment_id));
+      if (!byReaction) continue;
+      const reaction = String(row.reaction);
+      byReaction.set(reaction, [
+        ...(byReaction.get(reaction) ?? []),
+        String(row.actor_email),
+      ]);
+    }
+  }
+  return Object.fromEntries(
+    [...reactors].map(([id, byReaction]) => [
+      id,
+      Object.fromEntries(byReaction),
+    ]),
+  );
 }
 
 export async function filterUnmutedReviewThreadRecipients(
@@ -538,12 +632,13 @@ export async function reviewCommentNotificationCompleted(
 
 export async function markReviewCommentNotificationCompleted(
   id: string,
-): Promise<void> {
+): Promise<boolean> {
   await ensureReviewTables();
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: "UPDATE agent_review_comments SET notification_completed_at = ? WHERE id = ? AND notification_completed_at IS NULL",
     args: [new Date().toISOString(), id],
   });
+  return result.rowsAffected > 0;
 }
 
 export async function claimReviewNotificationDelivery(
@@ -819,9 +914,7 @@ async function assertMatchingReplyRouteTarget(
     args: [commentId],
   });
   if (result.rows?.[0]?.reply_route_target !== routeTarget) {
-    throw new Error(
-      "Review comment submission ID conflicts with another submission",
-    );
+    throw new ReviewCommentSubmissionConflictError();
   }
 }
 
@@ -1158,9 +1251,7 @@ function assertMatchingReviewCommentReceipt(
       (field) => !reviewReceiptValueEquals(existing[field], submitted[field]),
     )
   ) {
-    throw new Error(
-      "Review comment submission ID conflicts with another submission",
-    );
+    throw new ReviewCommentSubmissionConflictError();
   }
 }
 
@@ -1256,6 +1347,10 @@ async function selectReviewComments(
       filterParams.push(input.surfaceId);
     }
   }
+  if (input.threadId !== undefined) {
+    filters.push("thread_id = ?");
+    filterParams.push(input.threadId);
+  }
   if (input.rootOnly) {
     filters.push("parent_comment_id IS NULL");
   }
@@ -1287,7 +1382,7 @@ async function selectReviewComments(
     );
   }
 
-  if (input.after && input.newestFirst) {
+  if ((input.after || input.offset) && input.newestFirst) {
     throw new ReviewCursorError("Comment lists page oldest first only.");
   }
 
@@ -1362,15 +1457,17 @@ async function selectReviewComments(
          FROM agent_review_comments AS comment
         WHERE ${[...filters, ...(afterSql ? [afterSql] : [])].join(" AND ")}`;
   const order = input.newestFirst ? "DESC" : "ASC";
+  const offset = Math.max(0, Math.floor(input.offset ?? 0));
   // raw-sql-ok: the order is ASC or DESC and the rest constant; values are bound.
   const result = await client.execute({
     sql: `${selectSql}
       ORDER BY created_at ${order}, id ${order}
-      LIMIT ?`,
+      LIMIT ?${offset ? " OFFSET ?" : ""}`,
     args: [
       ...filterParams,
       ...afterParams,
       clampLimit(input.limit) + lookahead,
+      ...(offset ? [offset] : []),
     ],
   });
   const rows = result.rows ?? [];
@@ -1636,6 +1733,16 @@ async function writeReviewCommentChange(
   ) {
     throw new ReviewCommentRevisionConflictError(id, revision);
   }
+  if (options.requireContent) {
+    const body = input.body ?? current.body;
+    const attachments = input.attachments ?? current.metadata?.attachments;
+    if (
+      !body.trim() &&
+      !(Array.isArray(attachments) && attachments.length > 0)
+    ) {
+      throw new ReviewCommentEmptyError(id);
+    }
+  }
   const assignments: SqlFragment[] = [];
   if (input.body !== undefined) {
     assignments.push(sql`body = ${sql.value(input.body)}`);
@@ -1643,6 +1750,19 @@ async function writeReviewCommentChange(
   if (input.mentions !== undefined) {
     assignments.push(
       sql`mentions_json = ${sql.value(stringifyOptionalJson(input.mentions))}`,
+    );
+  }
+  if (input.attachments !== undefined) {
+    // From the locked row, so a change made since the caller read the comment
+    // keeps the rest of its metadata.
+    const { attachments: _previous, ...rest } = current.metadata ?? {};
+    const metadata = input.attachments.length
+      ? { ...rest, attachments: input.attachments }
+      : rest;
+    assignments.push(
+      sql`metadata_json = ${sql.value(
+        stringifyOptionalJson(Object.keys(metadata).length ? metadata : null),
+      )}`,
     );
   }
   if (input.anchor !== undefined) {
@@ -1681,7 +1801,9 @@ async function writeReviewCommentChange(
   const updated = await getReviewCommentByIdWithClient(client, id);
   if (!updated) throw new Error("Review comment not found after update");
   const changesContent =
-    input.body !== undefined || input.mentions !== undefined;
+    input.body !== undefined ||
+    input.mentions !== undefined ||
+    input.attachments !== undefined;
   // An edit that also moves the anchor tells the hook both, so a hook keeping
   // anchor or surface state still hears of the move.
   const events = changesContent
@@ -2106,6 +2228,16 @@ export async function deleteReviewComment(
         now,
       )),
     );
+    for (
+      let start = 0;
+      start < deletedIds.length;
+      start += DELETED_REPLIES_PER_STATEMENT
+    ) {
+      await tx.execute(sql`DELETE FROM agent_review_comment_reactions
+          WHERE comment_id IN ${sql.in(
+            deletedIds.slice(start, start + DELETED_REPLIES_PER_STATEMENT),
+          )}`);
+    }
     if (target && deletedIds.length > 0) {
       const resourceType = String(target.resource_type);
       await runReviewCommentWriteHook(

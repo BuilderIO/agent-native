@@ -22,7 +22,10 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppState: mocks.writeAppState,
   writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));

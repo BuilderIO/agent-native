@@ -196,6 +196,7 @@ export default defineAction({
   },
   needsApproval: (_args, ctx?: ActionRunContext) =>
     requiresEmailSendApproval(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

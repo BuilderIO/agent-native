@@ -28,7 +28,7 @@ export const LEGACY_MOBILE_DEFAULT_APP_IDS = [
 ] as const;
 
 export function getAppRoute(appId: string): string {
-  return APP_ID_TO_ROUTE[appId] ?? `/app/${appId}`;
+  return APP_ID_TO_ROUTE[appId] ?? `/tab-app/${encodeURIComponent(appId)}`;
 }
 
 export function getMobileAppUrl(baseUrl: string, path?: string): string {
@@ -43,7 +43,7 @@ export function getMobileAppUrl(baseUrl: string, path?: string): string {
 }
 
 export function supportsMobileTab(appId: string): boolean {
-  return appId !== "chat" && appId in APP_ID_TO_ROUTE;
+  return appId !== "chat" && appId.trim().length > 0;
 }
 
 export function orderMobileApps<T extends Pick<AppConfig, "id">>(
@@ -103,4 +103,48 @@ export function toggleMobileTabAppId(
     changed: true,
     limitReached: false,
   };
+}
+
+export function getCurrentMobileTabRouteName(
+  route:
+    | {
+        name: string;
+        params?: object;
+      }
+    | undefined,
+): string | undefined {
+  if (route?.name !== "tab-app/[id]") return route?.name;
+  const id = (route.params as { id?: string } | undefined)?.id ?? "";
+  return `tab-app/${encodeURIComponent(id)}`;
+}
+
+export function activateMobileTab({
+  routeName,
+  appId,
+  routes,
+  currentIndex,
+  emit,
+  navigateToTab,
+  navigate,
+}: {
+  routeName: string;
+  appId?: string | undefined;
+  routes: readonly { name: string; key: string }[];
+  currentIndex: number;
+  emit: (key: string) => { defaultPrevented?: boolean };
+  navigateToTab: (key: string) => void;
+  navigate: (path: string) => void;
+}): void {
+  // Every dynamic app tab shares the single "tab-app/[id]" screen, so it is
+  // reached by path; navigating by route key would reopen the last app id.
+  if (appId && routeName.startsWith("tab-app/")) {
+    navigate(getAppRoute(appId));
+    return;
+  }
+  const route = routes.find((candidate) => candidate.name === routeName);
+  if (!route) return;
+  const event = emit(route.key);
+  if (currentIndex !== routes.indexOf(route) && !event.defaultPrevented) {
+    navigateToTab(route.key);
+  }
 }

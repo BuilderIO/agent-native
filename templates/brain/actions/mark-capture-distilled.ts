@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
+import { defineAction, fail } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -31,69 +31,91 @@ export default defineAction({
         });
       }
     }),
+  mcpTool: false,
   run: async ({ captureId, status, queueId, claimToken }) => {
     const access = await getAccessibleCapture(captureId);
     if (!access) throw new Error(`No access to capture ${captureId}`);
-    const db = getDb();
+    await assertAccess("brain-source", access.capture.sourceId, "editor");
     const now = nowIso();
 
-    if (queueId && claimToken) {
-      const result = await getDbExec().execute({
-        sql: `UPDATE brain_ingest_queue
-          SET status = $1, error = NULL, lease_token = NULL,
-              lease_expires_at = NULL, updated_at = $2
-          WHERE id = $3 AND capture_id = $4 AND operation = 'distill'
-            AND status = 'processing' AND lease_token = $5`,
-        args: ["done", now, queueId, captureId, claimToken],
-      });
-      if (result.rowsAffected === 0) {
-        throw new Error(
-          "The distillation claim is no longer active; do not complete a newer worker's queue item.",
-        );
+    await getDb().transaction(async (tx) => {
+      await tx
+        .select({ id: schema.brainRawCaptures.id })
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, captureId))
+        .limit(1)
+        .for("update");
+      if (queueId && claimToken) {
+        const completed = await tx
+          .update(schema.brainIngestQueue)
+          .set({
+            status: "done",
+            error: null,
+            leaseToken: null,
+            leaseExpiresAt: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.brainIngestQueue.id, queueId),
+              eq(schema.brainIngestQueue.captureId, captureId),
+              eq(schema.brainIngestQueue.operation, "distill"),
+              eq(schema.brainIngestQueue.status, "processing"),
+              eq(schema.brainIngestQueue.leaseToken, claimToken),
+            ),
+          )
+          .returning({ id: schema.brainIngestQueue.id });
+        if (completed.length === 0) {
+          fail(
+            "The distillation claim is no longer active; do not complete a newer worker's queue item.",
+            { errorCode: "distillation_claim_inactive", statusCode: 409 },
+          );
+        }
+      } else {
+        await tx
+          .update(schema.brainIngestQueue)
+          .set({
+            status: "done",
+            error: null,
+            leaseToken: null,
+            leaseExpiresAt: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.brainIngestQueue.captureId, captureId),
+              eq(schema.brainIngestQueue.operation, "distill"),
+              eq(schema.brainIngestQueue.status, "queued"),
+            ),
+          );
+        const processing = await tx
+          .select({ id: schema.brainIngestQueue.id })
+          .from(schema.brainIngestQueue)
+          .where(
+            and(
+              eq(schema.brainIngestQueue.captureId, captureId),
+              eq(schema.brainIngestQueue.operation, "distill"),
+              eq(schema.brainIngestQueue.status, "processing"),
+            ),
+          )
+          .orderBy(desc(schema.brainIngestQueue.updatedAt))
+          .limit(1);
+        if (processing.length > 0) {
+          fail(
+            "This capture has an active distillation claim. Supply its queueId and claimToken to complete it.",
+            { errorCode: "distillation_claim_active", statusCode: 409 },
+          );
+        }
       }
-    } else {
-      const [processing] = await db
-        .select()
-        .from(schema.brainIngestQueue)
-        .where(
-          and(
-            eq(schema.brainIngestQueue.captureId, captureId),
-            eq(schema.brainIngestQueue.operation, "distill"),
-            eq(schema.brainIngestQueue.status, "processing"),
-          ),
-        )
-        .orderBy(desc(schema.brainIngestQueue.updatedAt))
-        .limit(1);
-      if (processing) {
-        throw new Error(
-          "This capture has an active distillation claim. Supply its queueId and claimToken to complete it.",
-        );
-      }
-      await db
-        .update(schema.brainIngestQueue)
+      await tx
+        .update(schema.brainRawCaptures)
         .set({
-          status: "done",
-          error: null,
-          leaseToken: null,
-          leaseExpiresAt: null,
+          status,
+          distilledAt: status === "distilled" ? now : null,
           updatedAt: now,
         })
-        .where(
-          and(
-            eq(schema.brainIngestQueue.captureId, captureId),
-            eq(schema.brainIngestQueue.operation, "distill"),
-            eq(schema.brainIngestQueue.status, "queued"),
-          ),
-        );
-    }
-    await db
-      .update(schema.brainRawCaptures)
-      .set({
-        status,
-        distilledAt: status === "distilled" ? now : null,
-        updatedAt: now,
-      })
-      .where(eq(schema.brainRawCaptures.id, captureId));
+        .where(eq(schema.brainRawCaptures.id, captureId));
+    });
     const updated = await getAccessibleCapture(captureId);
     if (!updated) return { capture: null };
     const capture = serializeCapture(updated.capture);

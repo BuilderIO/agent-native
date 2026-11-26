@@ -1,6 +1,8 @@
+import type { SQL } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 const captured = vi.hoisted(() => ({
+  selection: null as Record<string, SQL> | null,
   selectedCondition: null as any,
   claimCondition: null as any,
   updateValues: null as any,
@@ -12,16 +14,19 @@ const captured = vi.hoisted(() => ({
 vi.mock("../db/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/index.js")>();
   const mockDb = {
-    select: () => ({
-      from: () => ({
-        where: (condition: unknown) => {
-          captured.selectedCondition = condition;
-          return Object.assign(Promise.resolve(captured.selectedRows), {
-            limit: async () => captured.selectedRows,
-            orderBy: () => ({ limit: async () => captured.selectedRows }),
-          });
-        },
-      }),
+    select: (selection?: unknown) => ({
+      from: () => {
+        captured.selection = selection as Record<string, SQL> | null;
+        return {
+          where: (condition: unknown) => {
+            captured.selectedCondition = condition;
+            return Object.assign(Promise.resolve(captured.selectedRows), {
+              limit: async () => captured.selectedRows,
+              orderBy: () => ({ limit: async () => captured.selectedRows }),
+            });
+          },
+        };
+      },
     }),
     update: () => ({
       set: (values: unknown) => {
@@ -53,6 +58,7 @@ import {
   cancelScheduledJobForOwner,
   confirmUncertainScheduledJobSentForOwner,
   getDuePendingJobs,
+  getNextScheduledJobDueAt,
   getSyntheticEmailsForView,
   listPendingJobs,
   markExpiredScheduledSendsUncertain,
@@ -115,6 +121,32 @@ describe("scheduled job lease claims", () => {
     expect(query.params).not.toContain("uncertain");
     expect(query.params).toContain("snooze");
     expect(query.params).toContain(now);
+  });
+
+  it("reports when the next snooze, send-later or lapsed claim is due", async () => {
+    captured.selectedRows = [{ dueAt: "30000" }];
+
+    await expect(getNextScheduledJobDueAt()).resolves.toBe(30_000);
+
+    const dialect = new PgDialect();
+    const selected = captured.selection?.dueAt;
+    if (!selected) throw new Error("The due-time query selected nothing.");
+    const dueAt = dialect.sqlToQuery(selected).sql.replace(/\s+/g, " ");
+    const lease = 'COALESCE("scheduled_jobs"."processing_lease_until", 0)';
+    expect(dueAt).toBe(
+      `MIN(CASE WHEN "scheduled_jobs"."status" = 'processing' AND ` +
+        `"scheduled_jobs"."type" = 'send_later' AND ` +
+        `"scheduled_jobs"."send_started_at" IS NOT NULL THEN ${lease} ` +
+        `WHEN "scheduled_jobs"."status" = 'processing' AND ${lease} > ` +
+        `"scheduled_jobs"."run_at" THEN ${lease} ` +
+        `ELSE "scheduled_jobs"."run_at" END)`,
+    );
+    const where = dialect.sqlToQuery(captured.selectedCondition);
+    expect(where.sql).toContain('"send_started_at" is null');
+    expect(where.params).toEqual(["processing", "pending", "snooze"]);
+
+    captured.selectedRows = [{ dueAt: null }];
+    await expect(getNextScheduledJobDueAt()).resolves.toBeNull();
   });
 
   it("claims an expired job with a fresh token and deadline lease using compare-and-set", async () => {

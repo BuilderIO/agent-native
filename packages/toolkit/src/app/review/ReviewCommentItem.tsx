@@ -9,18 +9,12 @@ import type { ReactNode } from "react";
 
 import { CommentBody } from "./CommentBody.js";
 import { resolveReviewAgent } from "./review-agent.js";
+import { reviewCommentImages } from "./review-comment-images.js";
 import { ReviewAuthorAvatar } from "./ReviewAuthorAvatar.js";
 import {
   ReviewReactionBar,
   type ReviewReactionBarProps,
 } from "./ReviewReactionBar.js";
-
-const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
-
-interface ReviewCommentAttachment {
-  url: string;
-  name: string;
-}
 
 export interface ReviewCommentItemProps {
   comment: ReviewComment;
@@ -222,7 +216,7 @@ export function formatReviewCommentRelativeTime(
 }
 
 function ReviewCommentAttachmentStrip({ comment }: { comment: ReviewComment }) {
-  const attachments = reviewCommentAttachments(comment);
+  const attachments = reviewCommentImages(comment);
   if (!attachments.length) return null;
   return (
     <div
@@ -247,59 +241,6 @@ function ReviewCommentAttachmentStrip({ comment }: { comment: ReviewComment }) {
       ))}
     </div>
   );
-}
-
-function reviewCommentAttachments(
-  comment: ReviewComment,
-): ReviewCommentAttachment[] {
-  const raw = comment.metadata?.attachments;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .flatMap((value) => {
-      if (!value || typeof value !== "object") return [];
-      const attachment = value as Record<string, unknown>;
-      const url = typeof attachment.url === "string" ? attachment.url : "";
-      const contentType =
-        typeof attachment.contentType === "string"
-          ? attachment.contentType
-          : undefined;
-      if (
-        !url ||
-        (contentType && !contentType.startsWith("image/")) ||
-        !isTrustedReviewAttachmentUrl(url)
-      ) {
-        return [];
-      }
-      return [
-        {
-          url,
-          name:
-            typeof attachment.name === "string" && attachment.name.trim()
-              ? attachment.name
-              : "image",
-        },
-      ];
-    })
-    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
-}
-
-export function isTrustedReviewAttachmentUrl(value: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(
-      value,
-      typeof window === "undefined"
-        ? "http://localhost"
-        : window.location.origin,
-    );
-    // coercion-ok: an unparseable attachment URL is untrusted, not absent.
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-  if (typeof window !== "undefined" && parsed.origin === window.location.origin)
-    return true;
-  return parsed.protocol === "https:" && parsed.hostname === "cdn.builder.io";
 }
 
 function getReviewResolutionNote(comment: ReviewComment): string | null {

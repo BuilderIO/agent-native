@@ -30,6 +30,7 @@ export default defineAction({
       .describe("Maximum drafts to return"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const drafts = await listQueuedDrafts({
       scope: args.scope,

@@ -15,6 +15,7 @@ import {
   scanServerPluginDefaultExport,
   scanUnscopedCredentials,
   scanUnscopedQueries,
+  parseTestEnvKeys,
 } from "../guards/index.js";
 import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
@@ -87,12 +88,14 @@ export const ALL_GUARD_NAMES: GuardName[] = [
 export interface DoctorConfig {
   disabledGuards: string[];
   dbToolScopingDenylist: Record<string, string>;
+  testEnvKeys: string[];
   failOnBuild: boolean;
 }
 
 const DEFAULT_DOCTOR_CONFIG: DoctorConfig = {
   disabledGuards: [],
   dbToolScopingDenylist: {},
+  testEnvKeys: [],
   failOnBuild: true,
 };
 
@@ -117,7 +120,11 @@ interface DoctorGuardResult extends GuardResult {
 export function readDoctorConfig(root: string): DoctorConfig {
   const manifestPath = path.join(root, "agent-native.json");
   if (!fs.existsSync(manifestPath)) {
-    return { ...DEFAULT_DOCTOR_CONFIG, dbToolScopingDenylist: {} };
+    return {
+      ...DEFAULT_DOCTOR_CONFIG,
+      dbToolScopingDenylist: {},
+      testEnvKeys: [],
+    };
   }
   try {
     const raw = fs.readFileSync(manifestPath, "utf-8");
@@ -142,7 +149,8 @@ export function readDoctorConfig(root: string): DoctorConfig {
       typeof doctor.failOnBuild === "boolean"
         ? doctor.failOnBuild
         : DEFAULT_DOCTOR_CONFIG.failOnBuild;
-    return { disabledGuards, dbToolScopingDenylist, failOnBuild };
+    const testEnvKeys = parseTestEnvKeys(doctor.testEnvKeys);
+    return { disabledGuards, dbToolScopingDenylist, testEnvKeys, failOnBuild };
   } catch (error) {
     throw new Error(
       `Could not read Doctor configuration from ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -200,7 +208,7 @@ function runGuard(
     case "no-unscoped-queries":
       return scanUnscopedQueries({ root, extraExemptPaths: [] });
     case "no-env-credentials":
-      return scanEnvCredentials({ root });
+      return scanEnvCredentials({ root, testEnvKeys: config.testEnvKeys });
     case "db-tool-scoping":
       return scanDbToolScoping({
         root,

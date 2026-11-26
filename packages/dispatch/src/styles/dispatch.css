@@ -1,7 +1,7 @@
 @source "../components/**/*.{js,mjs,ts,tsx}";
 @source "../hooks/**/*.{js,mjs,ts,tsx}";
 @source "../routes/**/*.{js,mjs,ts,tsx}";
-@source "../../../core/src/client/chat-first/**/*.{ts,tsx}";
+@source "../../../toolkit/src/app/chat/chat-first/**/*.{ts,tsx}";
 
 :root {
   --dispatch-brand-blue: 200 97% 39%;

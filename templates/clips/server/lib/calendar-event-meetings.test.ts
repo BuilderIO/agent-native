@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calendarMocks = vi.hoisted(() => ({
   getDb: vi.fn(),
+  getEvent: vi.fn(),
+  resolveAccess: vi.fn(),
   readAppSecret: vi.fn(),
   refreshAccessTokenWithFallback: vi.fn(),
   resolveGoogleOAuthCredentialCandidates: vi.fn(),
@@ -14,7 +16,7 @@ vi.mock("@agent-native/core/secrets", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: vi.fn(),
+  resolveAccess: calendarMocks.resolveAccess,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -36,7 +38,7 @@ vi.mock("../db/index.js", () => ({
 
 vi.mock("./google-calendar-client.js", () => ({
   detectPlatform: vi.fn(),
-  getEvent: vi.fn(),
+  getEvent: calendarMocks.getEvent,
   isPermanentRefreshFailure: (error: unknown) => {
     const message =
       error instanceof Error
@@ -71,6 +73,9 @@ import {
   isSoloCalendarEvent,
 } from "./calendar-event-classification";
 import {
+  encodeCalendarMeetingId,
+  fetchLiveCalendarEventFromId,
+  parseCalendarMeetingId,
   recordCalendarFetchError,
   recordCalendarFetchSuccess,
   resolveCalendarAccessToken,
@@ -404,5 +409,89 @@ describe("calendar declined event detection", () => {
         }),
       }),
     ).toBe(true);
+  });
+});
+
+describe("calendar meeting ids", () => {
+  const TEAM = "team@group.calendar.google.com";
+
+  it("keeps a main-calendar event's id in its original form", () => {
+    const id = encodeCalendarMeetingId("acct-1", "weekly_20261117T150000Z");
+
+    expect(id).toBe(
+      `gcal_acct-1_${Buffer.from("weekly_20261117T150000Z").toString("base64url")}`,
+    );
+    expect(parseCalendarMeetingId(id)).toEqual({
+      accountId: "acct-1",
+      externalId: "weekly_20261117T150000Z",
+      calendarId: "primary",
+    });
+  });
+
+  it("carries another calendar's id through the meeting id", () => {
+    const id = encodeCalendarMeetingId("acct-1", "planning", TEAM);
+
+    expect(parseCalendarMeetingId(id)).toEqual({
+      accountId: "acct-1",
+      externalId: "planning",
+      calendarId: TEAM,
+    });
+  });
+});
+
+describe("opening a live calendar event", () => {
+  const TEAM = "team@group.calendar.google.com";
+
+  function mockAccount(enabledCalendarIdsJson: string | null) {
+    const row = {
+      id: "acct-1",
+      provider: "google",
+      ownerEmail: "user@example.com",
+      accessTokenSecretRef: "access-ref",
+      enabledCalendarIdsJson,
+    };
+    calendarMocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({ where: () => ({ limit: async () => [row] }) }),
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    calendarMocks.getEvent.mockReset();
+    calendarMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+    calendarMocks.resolveGoogleOAuthCredentialCandidates.mockResolvedValue([
+      { clientId: "client", clientSecret: "secret" },
+    ]);
+    calendarMocks.readAppSecret.mockResolvedValue({
+      value: JSON.stringify({ accessToken: "token" }),
+    });
+  });
+
+  it("reads the event from the calendar it came from", async () => {
+    mockAccount(JSON.stringify(["primary", TEAM]));
+    calendarMocks.getEvent.mockResolvedValue(event({ id: "planning" }));
+
+    const live = await fetchLiveCalendarEventFromId(
+      encodeCalendarMeetingId("acct-1", "planning", TEAM),
+    );
+
+    expect(calendarMocks.getEvent).toHaveBeenCalledWith({
+      accessToken: "token",
+      calendarId: TEAM,
+      eventId: "planning",
+    });
+    expect(live?.calendarId).toBe(TEAM);
+  });
+
+  it("won't read a calendar that isn't on", async () => {
+    mockAccount(null);
+
+    await expect(
+      fetchLiveCalendarEventFromId(
+        encodeCalendarMeetingId("acct-1", "planning", TEAM),
+      ),
+    ).resolves.toBeNull();
+    expect(calendarMocks.getEvent).not.toHaveBeenCalled();
   });
 });

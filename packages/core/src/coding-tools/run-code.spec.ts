@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
-import { buildDataProgramPrelude } from "../data-programs/contract.js";
+import {
+  CredentialUseLedger,
+  credentialUseLedgerReadsOnly,
+  recordCredentialUse,
+} from "../credentials/use-ledger.js";
+import {
+  buildDataProgramPrelude,
+  parseDataProgramResult,
+} from "../data-programs/contract.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { createRunCodeEntry, executeSandboxCode } from "./run-code.js";
 import {
@@ -343,6 +351,81 @@ describe("run-code bridge", () => {
       expect(result).toContain(`stdout:\n${expectedStatus}\n`);
     },
   );
+
+  it("carries a run's credential ledger into each bridge call", async () => {
+    const readsOnly: boolean[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          readsOnly.push(credentialUseLedgerReadsOnly());
+          recordCredentialUse({
+            kind: "provider-request",
+            provider: String(args.provider),
+          });
+          return JSON.stringify({ response: { status: 200, json: {} } });
+        },
+      },
+    };
+    const ledger = new CredentialUseLedger({ readsOnly: true });
+
+    const result = await executeSandboxCode({
+      code: `
+        await providerFetch("posthog", "/api/projects/1/insights/");
+        await providerFetch("stripe", "/v1/charges");
+      `,
+      timeoutMs: 30_000,
+      getActions: () => actions,
+      credentialLedger: ledger,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.bridgeToolsUsed).toEqual(["provider-api-request"]);
+    expect(readsOnly).toEqual([true, true]);
+    expect(ledger.uses).toEqual([
+      { kind: "provider-request", provider: "posthog" },
+      { kind: "provider-request", provider: "stripe" },
+    ]);
+  });
+
+  it("refuses every bridge tool but the ledger's own before it runs", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const actions: Record<string, ActionEntry> = {
+      "web-request": {
+        tool,
+        readOnly: true,
+        run: async (args) => {
+          calls.push(args);
+          return { status: 200 };
+        },
+      },
+    };
+    const ledger = new CredentialUseLedger({
+      readsOnly: true,
+      bridgeTools: new Set(["provider-api-request"]),
+    });
+
+    const result = await executeSandboxCode({
+      code: `
+        try {
+          await webFetch("https://example.com/hook", { method: "POST" });
+        } catch (error) {
+          console.log(error.message);
+        }
+      `,
+      timeoutMs: 30_000,
+      getActions: () => actions,
+      credentialLedger: ledger,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      'A run shared with the org only calls provider-api-request, so "web-request" wasn\'t run.',
+    );
+    expect(calls).toEqual([]);
+    expect(result.bridgeToolsUsed).toEqual(["web-request"]);
+  });
 
   it("paginates provider APIs inside sandbox code", async () => {
     const calls: Record<string, any>[] = [];
@@ -934,6 +1017,51 @@ describe("run-code bridge", () => {
     expect(result.stdout).toContain(
       '__DATA_PROGRAM_RESULT__{"rows":[{"value":1}]}',
     );
+  });
+
+  it("keeps an emit() line past the console cap when the caller asks for room", async () => {
+    const code = `${buildDataProgramPrelude({})}\nemit(Array.from({ length: 6000 }, (_, i) => ({ i, note: 'say "hi" '.repeat(10) })));`;
+    const roomy = await executeSandboxCode({
+      code,
+      timeoutMs: 30_000,
+      getActions: () => ({}),
+      evaluator: "run",
+      maxStdoutChars: 1024 * 1024,
+    });
+    const capped = await executeSandboxCode({
+      code,
+      timeoutMs: 30_000,
+      getActions: () => ({}),
+      evaluator: "run",
+    });
+
+    expect(roomy.exitCode).toBe(0);
+    expect(roomy.stdoutTruncated).toBeUndefined();
+    const parsed = parseDataProgramResult(roomy.stdout, {
+      maxRows: 10_000,
+      maxBytes: 4 * 1024 * 1024,
+    });
+    expect(parsed.ok && parsed.result.rows.length).toBe(6000);
+    expect(capped.stdoutTruncated).toBe(true);
+    expect(capped.stdout.length).toBe(512 * 1024);
+  });
+
+  it("returns kept output whose JSON is six times its length", async () => {
+    const result = await executeSandboxCode({
+      code: `${buildDataProgramPrelude({})}\nemit([{ a: 1 }]);\nconsole.log("\\u0001".repeat(900_000));`,
+      timeoutMs: 30_000,
+      getActions: () => ({}),
+      evaluator: "run",
+      maxStdoutChars: 1024 * 1024,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdoutTruncated).toBeUndefined();
+    const parsed = parseDataProgramResult(result.stdout, {
+      maxRows: 10_000,
+      maxBytes: 4 * 1024 * 1024,
+    });
+    expect(parsed.ok && parsed.result.rows).toEqual([{ a: 1 }]);
   });
 
   it("restores org-only credential scope for sandbox action calls", async () => {

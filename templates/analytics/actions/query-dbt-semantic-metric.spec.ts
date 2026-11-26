@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const mocks = vi.hoisted(() => ({
   listWorkspaceConnectionsForApp: vi.fn(),
@@ -847,6 +848,28 @@ describe("query-dbt-semantic-metric", () => {
         }).success,
       ).toBe(false);
     }
+  });
+
+  it("keeps large minimum repeat counts out of the schema sent to OpenAI strict mode", () => {
+    const patterns: string[] = [];
+    const collect = (node: unknown) => {
+      if (Array.isArray(node)) return node.forEach(collect);
+      if (!node || typeof node !== "object") return;
+      for (const [key, value] of Object.entries(node)) {
+        if (key === "pattern" && typeof value === "string")
+          patterns.push(value);
+        else collect(value);
+      }
+    };
+    collect(z.toJSONSchema(action.schema));
+
+    expect(patterns.length).toBeGreaterThan(0);
+    const largeRepeats = patterns.filter((pattern) =>
+      [...pattern.matchAll(/\{(\d+)(?:,\d*)?\}/g)].some(
+        ([, min]) => Number(min) >= 32,
+      ),
+    );
+    expect(largeRepeats).toEqual([]);
   });
 
   it("reports truncated metric dimensions and granularity metadata", async () => {

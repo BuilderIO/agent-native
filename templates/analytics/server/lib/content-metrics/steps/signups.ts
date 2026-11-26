@@ -126,13 +126,13 @@ function costLimited(message: string): ContentStepStop {
   });
 }
 
-function articleHandle(url: string | null): string | null {
+export function articleHandle(url: string | null): string | null {
   if (!url) return null;
   const match = /\/blog\/([^/?#]+)/.exec(url);
   return match ? normalizeHandle(match[1]!) : null;
 }
 
-function normalizeHandle(handle: string): string | null {
+export function normalizeHandle(handle: string): string | null {
   try {
     return decodeURIComponent(handle).toLowerCase();
     // coercion-ok: a malformed escape gets the typed null handle, which matches no row

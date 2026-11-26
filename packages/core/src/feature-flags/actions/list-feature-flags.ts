@@ -49,6 +49,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   toolCallable: false,
+  mcpTool: false,
   run: async (_args, ctx) => {
     const definitions = listFeatureFlags();
     const access = await getFeatureFlagManagerAccess(ctx);

@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import React, { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../../components/ui/tooltip";
@@ -378,5 +384,90 @@ describe("Dispatch ChatRoute", () => {
       "dispatch-chat-panel",
     );
     expect(container.textContent).not.toContain("Request ID");
+  });
+
+  it("ignores stale threadUrlSync navigations after leaving /chat for /apps", async () => {
+    let observedPath = "";
+    let moveToApps: (() => void) | undefined;
+
+    function LocationProbe() {
+      const location = useLocation();
+      const navigate = useNavigate();
+      observedPath = location.pathname;
+      moveToApps = () => {
+        void navigate("/apps");
+      };
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <MemoryRouter initialEntries={["/chat"]}>
+            <LocationProbe />
+            <Routes>
+              <Route path="/chat/*" element={<ChatRoute />} />
+              <Route path="/apps" element={<div data-testid="apps-page" />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>,
+      );
+    });
+
+    const staleNavigate = (
+      clientState.surfaceProps?.threadUrlSync as {
+        navigate: (path: string, options?: { replace?: boolean }) => void;
+      }
+    ).navigate;
+    expect(observedPath).toBe("/chat");
+
+    await act(async () => {
+      moveToApps?.();
+    });
+    expect(observedPath).toBe("/apps");
+
+    await act(async () => {
+      staleNavigate("/chat/thread-late");
+    });
+    expect(observedPath).toBe("/apps");
+  });
+
+  it("ignores threadUrlSync navigations when window.location already left /chat", async () => {
+    let observedPath = "";
+    function LocationProbe() {
+      observedPath = useLocation().pathname;
+      return null;
+    }
+
+    window.history.replaceState(null, "", "/chat");
+    try {
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <MemoryRouter initialEntries={["/chat"]}>
+              <LocationProbe />
+              <Routes>
+                <Route path="/chat/*" element={<ChatRoute />} />
+                <Route path="/apps" element={<div />} />
+              </Routes>
+            </MemoryRouter>
+          </TooltipProvider>,
+        );
+      });
+
+      const syncNavigate = (
+        clientState.surfaceProps?.threadUrlSync as {
+          navigate: (path: string, options?: { replace?: boolean }) => void;
+        }
+      ).navigate;
+
+      window.history.replaceState(null, "", "/apps");
+      await act(async () => {
+        syncNavigate("/chat/thread-late");
+      });
+      expect(observedPath).toBe("/chat");
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
   });
 });

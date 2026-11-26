@@ -1,6 +1,7 @@
+import type { DashboardTimeScope } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import type { DashboardFilter } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { isDateRangePresetFilter } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
-import type { DashboardTimeScope } from "../../app/pages/adhoc/sql-dashboard/types";
-import type { DashboardFilter } from "../../app/pages/adhoc/sql-dashboard/types";
 
 export const DASHBOARD_TIME_SCOPES: readonly DashboardTimeScope[] = [
   "dashboard",

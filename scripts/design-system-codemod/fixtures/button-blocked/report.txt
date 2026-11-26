@@ -1,0 +1,40 @@
+Changed files:
+  app/moves.tsx  (button 1)
+
+Sites transformed:
+  button     1
+  badge      0
+  input      0
+  text-area  0
+  skeleton   0
+  spinner    0
+  toast      0
+
+Shims:
+  app/components/ui/button.tsx: left on the legacy module; held by 2 importer(s): app/blocked.tsx, app/link-child.tsx
+
+Not transformed (8 sites), by reason:
+  [button] asChild child isn't a single element (1)
+    app/link-child.tsx:6
+  [button] held back: another site in the file can't move (1)
+    app/blocked.tsx:9
+  [button] imports `buttonVariants`, which the new module doesn't have (or changed) (1)
+    app/variants.tsx:1
+  [button] legacy `intent` prop (1)
+    app/link-child.tsx:10
+  [button] spread props may carry variant, size or asChild (1)
+    app/blocked.tsx:7
+  [button] unknown size "huge" (1)
+    app/link-child.tsx:11
+  [button] variant isn't a string literal (1)
+    app/blocked.tsx:6
+  [button] variant="link" becomes the Link component by hand (1)
+    app/blocked.tsx:8
+
+Transformed, needs a look (1 sites), by reason:
+  [button] className sets a height (h-7) that now fights the size prop (1)
+    app/moves.tsx:5
+  [button] size "sm" was 32px and is now 24px (1)
+    app/moves.tsx:5
+
+Test mocks of a legacy module (0):

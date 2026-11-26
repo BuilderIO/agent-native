@@ -4,21 +4,21 @@ import { signShortLivedToken } from "@agent-native/core/server/short-lived-token
 import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type CommentRow = {
+type KitComment = {
   id: string;
-  recordingId: string;
-  parentId: string | null;
+  resourceId: string;
+  threadId: string;
+  parentCommentId: string | null;
   authorEmail: string;
-  organizationId: string;
-  expiresAt?: string | null;
 };
 
-const state = vi.hoisted(() => ({ rows: [] as CommentRow[] }));
+const state = vi.hoisted(() => ({ comments: [] as KitComment[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() =>
   vi.fn<() => string | null>(() => "author@example.com"),
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const kitDeletes = vi.hoisted(() => [] as unknown[][]);
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
@@ -32,110 +32,95 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("drizzle-orm", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("drizzle-orm")>()),
-  and: (...conditions: unknown[]) => ({ type: "and", conditions }),
-  eq: (column: unknown, value: unknown) => ({
-    type: "eq",
-    column,
-    value,
-  }),
-  inArray: (column: unknown, values: unknown[]) => ({
-    type: "inArray",
-    column,
-    values,
+vi.mock("../server/lib/recording-comments.js", () => ({
+  RECORDING_REVIEW_RESOURCE: "recording",
+  findRecordingComment: async (id: string) =>
+    state.comments.find((comment) => comment.id === id) ?? null,
+  recordingKitComments: async (resourceId: string, threadId?: string) =>
+    state.comments.filter(
+      (comment) =>
+        comment.resourceId === resourceId &&
+        (!threadId || comment.threadId === threadId),
+    ),
+  commentDeleteContext: (ctx?: { userEmail?: string }) => ({
+    ...ctx,
+    userEmail: ctx?.userEmail ?? mockGetUserEmail() ?? undefined,
   }),
 }));
 
-function matches(row: CommentRow, condition: any): boolean {
-  if (condition.type === "and") {
-    return condition.conditions.every((nested: unknown) =>
-      matches(row, nested),
-    );
-  }
-  const key = String(condition.column).split(".").pop() as keyof CommentRow;
-  if (condition.type === "eq") return row[key] === condition.value;
-  if (condition.type === "inArray") return condition.values.includes(row[key]);
-  return true;
-}
-
-vi.mock("../server/db/index.js", () => {
-  const column = (name: string) => `recordingComments.${name}`;
-  const schema = {
-    recordingComments: {
-      id: column("id"),
-      parentId: column("parentId"),
-      recordingId: column("recordingId"),
-      organizationId: column("organizationId"),
+vi.mock("@agent-native/core/review/actions/delete-review-comment", () => ({
+  default: {
+    run: async (
+      args: { resourceId: string; commentId: string },
+      ctx: { userEmail?: string },
+    ) => {
+      kitDeletes.push([args, ctx.userEmail]);
+      const target = state.comments.find(
+        (comment) => comment.id === args.commentId,
+      );
+      if (!target) throw new Error(`Comment not found: ${args.commentId}`);
+      state.comments = state.comments.filter((comment) =>
+        target.parentCommentId
+          ? comment.id !== target.id
+          : comment.resourceId !== target.resourceId ||
+            comment.threadId !== target.threadId,
+      );
+      return { id: target.id, status: "deleted" };
     },
-  };
-
-  const db = {
-    select: () => ({
-      from: () => ({
-        where: (condition: unknown) => {
-          const result = state.rows.filter((row) => matches(row, condition));
-          return {
-            limit: async (limit: number) => result.slice(0, limit),
-            then: (
-              resolve: (value: CommentRow[]) => unknown,
-              reject: (reason: unknown) => unknown,
-            ) => Promise.resolve(result).then(resolve, reject),
-          };
-        },
-      }),
-    }),
-    delete: () => ({
-      where: async (condition: unknown) => {
-        state.rows = state.rows.filter((row) => !matches(row, condition));
-      },
-    }),
-  };
-
-  return { getDb: () => db, schema };
-});
+  },
+}));
 
 import action from "./delete-comment";
 
+function deletedThrough(commentId: string, email: string) {
+  return [
+    [
+      { resourceType: "recording", resourceId: "recording-1", commentId },
+      email,
+    ],
+  ];
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
+  kitDeletes.length = 0;
   mockAssertAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mockGetUserEmail.mockReturnValue("author@example.com");
-  state.rows = [
+  state.comments = [
     {
       id: "comment-1",
-      recordingId: "recording-1",
-      parentId: null,
+      resourceId: "recording-1",
+      threadId: "comment-1",
+      parentCommentId: null,
       authorEmail: "author@example.com",
-      organizationId: "org-1",
     },
     {
       id: "comment-1-reply",
-      recordingId: "recording-1",
-      parentId: "comment-1",
+      resourceId: "recording-1",
+      threadId: "comment-1",
+      parentCommentId: "comment-1",
       authorEmail: "reply@example.com",
-      organizationId: "org-1",
     },
     {
       id: "comment-1-reply-2",
-      recordingId: "recording-1",
-      parentId: "comment-1-reply",
+      resourceId: "recording-1",
+      threadId: "comment-1",
+      parentCommentId: "comment-1-reply",
       authorEmail: "reply-2@example.com",
-      organizationId: "org-1",
     },
     {
       id: "comment-2",
-      recordingId: "recording-1",
-      parentId: null,
+      resourceId: "recording-1",
+      threadId: "comment-2",
+      parentCommentId: null,
       authorEmail: "other@example.com",
-      organizationId: "org-1",
     },
     {
       id: "comment-1-cross-record-reply",
-      recordingId: "recording-2",
-      parentId: "comment-1",
+      resourceId: "recording-2",
+      threadId: "comment-1",
+      parentCommentId: "comment-1",
       authorEmail: "other@example.com",
-      organizationId: "org-2",
     },
   ];
 });
@@ -158,12 +143,13 @@ describe("delete-comment", () => {
           sharePasswordVersion: "initial",
         },
       });
-      const original = [...state.rows];
+      const original = [...state.comments];
       await expect(action.run({ id: "comment-1" })).rejects.toBeInstanceOf(
         ForbiddenError,
       );
-      expect(state.rows).toEqual(original);
+      expect(state.comments).toEqual(original);
       expect(mockWriteAppState).not.toHaveBeenCalled();
+      expect(kitDeletes).toEqual([]);
     },
   );
 
@@ -185,6 +171,9 @@ describe("delete-comment", () => {
         "comment-1-reply",
         "comment-1-reply-2",
       ]);
+      expect(kitDeletes).toEqual(
+        deletedThrough("comment-1", "owner@example.com"),
+      );
     },
   );
 
@@ -199,11 +188,11 @@ describe("delete-comment", () => {
         role,
         resource: { enableComments: true, trashedAt: "2026-01-01T00:00:00Z" },
       });
-      const originalRows = [...state.rows];
+      const original = [...state.comments];
       await expect(
         action.run(action.schema.parse({ id: "comment-1" })),
       ).rejects.toBeInstanceOf(ForbiddenError);
-      expect(state.rows).toEqual(originalRows);
+      expect(state.comments).toEqual(original);
       expect(mockWriteAppState).not.toHaveBeenCalled();
     },
   );
@@ -226,10 +215,10 @@ describe("delete-comment", () => {
   );
 
   it("lets an author delete whatever case their email was stored in", async () => {
-    state.rows = state.rows.map((row) =>
-      row.id === "comment-1"
-        ? { ...row, authorEmail: "Author@Example.com" }
-        : row,
+    state.comments = state.comments.map((comment) =>
+      comment.id === "comment-1"
+        ? { ...comment, authorEmail: "Author@Example.com" }
+        : comment,
     );
     mockAssertAccess.mockImplementation(async (_type, _id, role) => {
       if (role === "editor") throw new ForbiddenError();
@@ -262,17 +251,99 @@ describe("delete-comment", () => {
           "comment-1-reply-2",
         ],
       });
-      expect(state.rows.map((row) => row.id)).toEqual([
+      expect(state.comments.map((comment) => comment.id)).toEqual([
         "comment-2",
         "comment-1-cross-record-reply",
       ]);
+      expect(kitDeletes).toEqual(
+        deletedThrough("comment-1", "author@example.com"),
+      );
       expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
         ts: expect.any(Number),
       });
     },
   );
+
+  it("deletes only the reply it is given", async () => {
+    mockGetUserEmail.mockReturnValue("reply@example.com");
+    mockAssertAccess.mockImplementation(async (_type, _id, role) => {
+      if (role === "editor") throw new ForbiddenError();
+      return { role: "viewer", resource: { enableComments: true } };
+    });
+
+    const result = await action.run({ id: "comment-1-reply" });
+
+    expect(result.deletedCommentIds).toEqual(["comment-1-reply"]);
+    expect(state.comments.map((comment) => comment.id)).toEqual([
+      "comment-1",
+      "comment-1-reply-2",
+      "comment-2",
+      "comment-1-cross-record-reply",
+    ]);
+  });
+
+  it("refuses a reply the copy has not linked to its thread yet", async () => {
+    state.comments.push({
+      id: "unlinked-reply",
+      resourceId: "recording-1",
+      threadId: "comment-1",
+      parentCommentId: null,
+      authorEmail: "author@example.com",
+    });
+    const original = [...state.comments];
+
+    await expect(action.run({ id: "unlinked-reply" })).rejects.toMatchObject({
+      errorCode: "reply_not_linked",
+      statusCode: 409,
+    });
+    expect(state.comments).toEqual(original);
+    expect(kitDeletes).toEqual([]);
+  });
+
+  it("deletes a thread whose first comment is already gone through the reply that now leads it", async () => {
+    state.comments = [
+      {
+        id: "left-first",
+        resourceId: "recording-1",
+        threadId: "deleted-root",
+        parentCommentId: null,
+        authorEmail: "author@example.com",
+      },
+      {
+        id: "left-second",
+        resourceId: "recording-1",
+        threadId: "deleted-root",
+        parentCommentId: "left-first",
+        authorEmail: "author@example.com",
+      },
+    ];
+
+    const result = await action.run({ id: "left-first" });
+
+    expect(result.deletedCommentIds).toEqual(["left-first", "left-second"]);
+    expect(kitDeletes).toEqual(
+      deletedThrough("left-first", "author@example.com"),
+    );
+  });
+
+  it("refuses the first of several unlinked replies whose thread's first comment is gone", async () => {
+    state.comments = ["left-first", "left-second"].map((id) => ({
+      id,
+      resourceId: "recording-1",
+      threadId: "deleted-root",
+      parentCommentId: null,
+      authorEmail: "author@example.com",
+    }));
+
+    await expect(action.run({ id: "left-first" })).rejects.toMatchObject({
+      errorCode: "reply_not_linked",
+      statusCode: 409,
+    });
+    expect(kitDeletes).toEqual([]);
+  });
+
   it("recognizes the author regardless of email case", async () => {
-    state.rows[0].authorEmail = "Author@Example.com";
+    state.comments[0].authorEmail = "Author@Example.com";
     mockGetUserEmail.mockReturnValue("author@example.COM");
     mockAssertAccess.mockImplementation(async (_type, _id, role) => {
       if (role === "editor") throw new ForbiddenError();
@@ -281,7 +352,9 @@ describe("delete-comment", () => {
     expect(await action.run({ id: "comment-1" })).toMatchObject({
       id: "comment-1",
     });
-    expect(state.rows.map((row) => row.id)).not.toContain("comment-1");
+    expect(state.comments.map((comment) => comment.id)).not.toContain(
+      "comment-1",
+    );
   });
 
   it("still refuses deletion by an unrelated viewer", async () => {
@@ -290,11 +363,11 @@ describe("delete-comment", () => {
       if (role === "editor") throw new ForbiddenError();
       return { role: "viewer", resource: { enableComments: true } };
     });
-    const originalRows = [...state.rows];
+    const original = [...state.comments];
     await expect(action.run({ id: "comment-1" })).rejects.toBeInstanceOf(
       ForbiddenError,
     );
-    expect(state.rows).toEqual(originalRows);
+    expect(state.comments).toEqual(original);
   });
 });
 

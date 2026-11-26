@@ -105,3 +105,16 @@ export async function uploadAvatar(file: File, email: string): Promise<void> {
   _inFlight.delete(email);
   notifyListeners(email, image);
 }
+
+/** Drops the current user's photo, leaving the initials fallback behind. */
+export async function removeAvatar(email: string): Promise<void> {
+  const res = await fetch(agentNativePath("/_agent-native/avatar"), {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`Avatar removal failed: ${res.status}`);
+  }
+  _cache.set(email, null);
+  _inFlight.delete(email);
+  notifyListeners(email, null);
+}

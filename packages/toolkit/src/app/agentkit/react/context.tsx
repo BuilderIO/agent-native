@@ -47,11 +47,13 @@ import {
 } from "react";
 
 import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
+import { formatAgentKitDuration } from "./duration.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
 import {
   AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
   agentKitClientRequestId,
   agentKitPendingSubmissions,
+  createClientRequestId,
   visiblePendingSubmissions,
   type AgentKitPendingSubmission,
   type AgentKitPendingSubmissionDraft,
@@ -248,6 +250,9 @@ export interface AgentKitLabels {
     other: string;
   };
   working: string;
+  resolveToolStepLabel?:
+    | ((tool: AgentToolCall) => string | undefined)
+    | undefined;
   workingFor: string;
   worked: string;
   workedFor: string;
@@ -263,6 +268,23 @@ export interface AgentKitLabels {
   workStepReadPagesOther: string;
   workStepFetchedOne: string;
   workStepFetchedOther: string;
+  /** A message's citations: "Used 1 source", "Used {{count}} sources". */
+  workStepSourcesOne: string;
+  workStepSourcesOther: string;
+  /** A folded run of two or more framework frames in a stack trace. */
+  workStepFrameworkFrames: string;
+  workStepCopyStackTrace: string;
+  /** Takes {{code}}; shown only for a nonzero exit. */
+  workStepTerminalExitCode: string;
+  workStepTerminalTimedOut: string;
+  workStepTerminalEarlierLines: string;
+  workStepCopyOutput: string;
+  /** A file change cut short in what was kept. */
+  workStepFilePartial: string;
+  workStepFileMoreLines: string;
+  /** Screen-reader prefix for an added or removed diff line. */
+  workStepLineAdded: string;
+  workStepLineRemoved: string;
   workStepReadFilesOne: string;
   workStepReadFilesOther: string;
   workStepEditedOne: string;
@@ -281,11 +303,44 @@ export interface AgentKitLabels {
   workStepEditing: string;
   workStepRunningCommands: string;
   workStepRunningActions: string;
+  workStepSourcesUsed: string;
+  workStepSourcesSeparator: string;
+  workStepSourcesDocumentsOne: string;
+  workStepSourcesDocumentsOther: string;
+  workStepSourcesWebOne: string;
+  workStepSourcesWebOther: string;
+  workStepSourcesFilesOne: string;
+  workStepSourcesFilesOther: string;
+  workStepSourcesSearchesOne: string;
+  workStepSourcesSearchesOther: string;
+  workStepSourceRead: string;
+  workStepSourceOpened: string;
+  workStepSourceSearched: string;
+  workStepSourceFailedRead: string;
+  workStepSourceFailedOpen: string;
+  workStepSourceFailedSearch: string;
+  workStepSourceFailedPage: string;
+  workStepSourceFailedFile: string;
+  workStepSourceFailedWeb: string;
+  workStepSourceFailedSearchAny: string;
   durationHourShort: string;
   durationMinuteShort: string;
   durationSecondShort: string;
   agents: string;
   tasks: string;
+  tasksProgress: string;
+  question: string;
+  questionProgress: string;
+  questionProgressLabel: string;
+  questionOwnResponse: string;
+  questionAnswer: string;
+  questionSkip: string;
+  questionNext: string;
+  questionSend: string;
+  questionRecommended: string;
+  questionDismiss: string;
+  questionChooseFiles: string;
+  questionRemoveFile: string;
   toolInput?: string;
   toolResult?: string;
   activityValueIdentifierHidden?: string;
@@ -383,6 +438,8 @@ export interface AgentKitLabels {
   dropFilesToAttach: string;
   dropFileFailed: string;
   scrollToBottom: string;
+  /** Skip link past the transcript; visible only when focused. */
+  skipToComposer: string;
   formatTimestamp?: (createdAt: string) => string;
   error: string;
   renderError: string;
@@ -399,6 +456,8 @@ export interface AgentKitLabels {
   agentResumed: string;
   agentMessaged: string;
   agentDelegated: string;
+  agentWorking: string;
+  agentWorkedFor: string;
   agentPaused: string;
   agentCompleted: string;
   agentFailed: string;
@@ -474,6 +533,18 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   workStepReadPagesOther: "Read {{count}} pages",
   workStepFetchedOne: "Fetched 1 URL",
   workStepFetchedOther: "Fetched {{count}} URLs",
+  workStepSourcesOne: "Used 1 source",
+  workStepSourcesOther: "Used {{count}} sources",
+  workStepFrameworkFrames: "{{count}} framework frames",
+  workStepCopyStackTrace: "Copy stack trace",
+  workStepTerminalExitCode: "Exit code {{code}}",
+  workStepTerminalTimedOut: "Timed out",
+  workStepTerminalEarlierLines: "Show {{count}} earlier lines",
+  workStepCopyOutput: "Copy output",
+  workStepFilePartial: "Partial",
+  workStepFileMoreLines: "Show {{count}} more lines",
+  workStepLineAdded: "Added",
+  workStepLineRemoved: "Removed",
   workStepReadFilesOne: "Read 1 file",
   workStepReadFilesOther: "Read {{count}} files",
   workStepEditedOne: "Edited 1 file",
@@ -491,11 +562,44 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   workStepEditing: "Editing files",
   workStepRunningCommands: "Running commands",
   workStepRunningActions: "Running actions",
+  workStepSourcesUsed: "Used {{sources}}",
+  workStepSourcesSeparator: ", ",
+  workStepSourcesDocumentsOne: "1 page",
+  workStepSourcesDocumentsOther: "{{count}} pages",
+  workStepSourcesWebOne: "1 web page",
+  workStepSourcesWebOther: "{{count}} web pages",
+  workStepSourcesFilesOne: "1 file",
+  workStepSourcesFilesOther: "{{count}} files",
+  workStepSourcesSearchesOne: "1 search",
+  workStepSourcesSearchesOther: "{{count}} searches",
+  workStepSourceRead: "Read",
+  workStepSourceOpened: "Opened",
+  workStepSourceSearched: "Searched",
+  workStepSourceFailedRead: "Couldn't read {{name}}",
+  workStepSourceFailedOpen: "Couldn't open {{name}}",
+  workStepSourceFailedSearch: "Couldn't search for {{name}}",
+  workStepSourceFailedPage: "Couldn't read a page",
+  workStepSourceFailedFile: "Couldn't read a file",
+  workStepSourceFailedWeb: "Couldn't open a web page",
+  workStepSourceFailedSearchAny: "Couldn't search",
   durationHourShort: "h",
   durationMinuteShort: "m",
   durationSecondShort: "s",
   agents: "Agent collaboration",
   tasks: "Agent tasks",
+  tasksProgress: "{{completed}} of {{total}} done",
+  question: "Question",
+  questionProgress: "{{current}}/{{total}}",
+  questionProgressLabel: "{{current}} of {{total}}",
+  questionOwnResponse: "Or write your own response",
+  questionAnswer: "Write your answer",
+  questionSkip: "Skip",
+  questionNext: "Next",
+  questionSend: "Send",
+  questionRecommended: "Recommended",
+  questionDismiss: "Dismiss questions",
+  questionChooseFiles: "Choose files…",
+  questionRemoveFile: "Remove {{name}}",
   toolInput: "Input",
   toolResult: "Result",
   activityValueIdentifierHidden: "[Identifier hidden]",
@@ -590,6 +694,7 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   dropFilesToAttach: "Drop files to attach",
   dropFileFailed: "Could not add the dropped file. Try a different format.",
   scrollToBottom: "Scroll to bottom",
+  skipToComposer: "Skip to message box",
   error: "Something went wrong",
   renderError: "This content couldn’t be displayed.",
   runFailed: "Run failed",
@@ -605,6 +710,8 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   agentResumed: "resumed working",
   agentMessaged: "sent a message",
   agentDelegated: "delegated work",
+  agentWorking: "working",
+  agentWorkedFor: "worked for {{duration}}",
   agentPaused: "paused",
   agentCompleted: "finished",
   agentFailed: "needs attention",
@@ -698,6 +805,12 @@ export interface AgentKitProviderProps {
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   /**
+   * Whether run details show the run's Builder credits. Defaults to true; a
+   * host that ships no credits passes false, and the run's provider dollar
+   * cost, tool-call and model rows still show.
+   */
+  showRunCredits?: boolean;
+  /**
    * Resolves a provider identifier through host-owned connection setup. The
    * callback, never the agent-authored request, owns OAuth URLs and scopes.
    */
@@ -710,6 +823,10 @@ export interface AgentKitProviderProps {
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
+  /** Detail beside an interaction row's label; undefined keeps its own. */
+  formatAgentInteractionDetail?: (
+    interaction: AgentInteraction,
+  ) => string | undefined;
   /** Display name for a model id in run details; the id shows without it. */
   formatModelName?: (model: string) => string;
   onClientEffect?: (effect: {
@@ -738,7 +855,7 @@ export interface AgentKitThreadLoadState {
   retry?: () => void;
 }
 
-interface ResolvedAgentKitLabels extends AgentKitLabels {
+export interface ResolvedAgentKitLabels extends AgentKitLabels {
   toolInput: string;
   toolResult: string;
   queueSendNow: string;
@@ -762,12 +879,16 @@ export interface AgentKitContextValue {
   onCopyMessage?: AgentKitCopyMessageHandler;
   buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
+  showRunCredits: boolean;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
+  formatAgentInteractionDetail?: (
+    interaction: AgentInteraction,
+  ) => string | undefined;
   formatModelName?: (model: string) => string;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
@@ -850,12 +971,14 @@ export function AgentKitProvider({
   onCopyMessage: onCopyMessageInput,
   buildFeedbackReport: buildFeedbackReportInput,
   loadRunUsage: loadRunUsageInput,
+  showRunCredits = true,
   onConnectionRequest: onConnectionRequestInput,
   onRenderError: onRenderErrorInput,
   resolveMessageContentOrder,
   workedForRowLayout: workedForRowLayoutInput,
   dataChartLayout: dataChartLayoutInput,
   formatWorkedForDuration,
+  formatAgentInteractionDetail,
   formatModelName: formatModelNameInput,
   onClientEffect: onClientEffectInput,
   threadLoad,
@@ -965,12 +1088,14 @@ export function AgentKitProvider({
       onCopyMessage,
       buildFeedbackReport,
       loadRunUsage,
+      showRunCredits,
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
       workedForRowLayout,
       dataChartLayout,
       formatWorkedForDuration,
+      formatAgentInteractionDetail,
       formatModelName,
       registerComposerFocus,
       requestComposerFocus,
@@ -988,12 +1113,14 @@ export function AgentKitProvider({
       onCopyMessage,
       buildFeedbackReport,
       loadRunUsage,
+      showRunCredits,
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
       workedForRowLayout,
       dataChartLayout,
       formatWorkedForDuration,
+      formatAgentInteractionDetail,
       formatModelName,
       registerComposerFocus,
       requestComposerFocus,
@@ -1132,6 +1259,25 @@ function useAgentKitControllerSnapshot(
     subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
+  );
+}
+
+/** Falls back to English defaults so parts also work outside a provider. */
+export function useAgentKitLabels(): ResolvedAgentKitLabels {
+  return useContext(AgentKitContext)?.labels ?? defaultAgentKitLabels;
+}
+
+export function useAgentKitDurationFormat(): (durationMs: number) => string {
+  const value = useContext(AgentKitContext);
+  const labels = value?.labels ?? defaultAgentKitLabels;
+  return (
+    value?.formatWorkedForDuration ??
+    ((durationMs) =>
+      formatAgentKitDuration(durationMs, {
+        hour: labels.durationHourShort,
+        minute: labels.durationMinuteShort,
+        second: labels.durationSecondShort,
+      }))
   );
 }
 
@@ -1434,13 +1580,14 @@ export function useAgentKitPendingSubmissions(
 /** A send on the thread was accepted and its run is not registered yet. */
 export function useAgentKitSubmissionStarting(
   requestedThreadId?: ThreadId,
+  requestId?: string,
 ): boolean {
   const { controller, threadId: contextThreadId } = useAgentKit();
   const threadId = requestedThreadId ?? contextThreadId;
   const store = agentKitPendingSubmissions(controller);
   const getStarting = useCallback(
-    () => store.starting(threadId),
-    [store, threadId],
+    () => store.starting(threadId, requestId),
+    [store, threadId, requestId],
   );
   return useSyncExternalStore(store.subscribe, getStarting, getStarting);
 }
@@ -1481,11 +1628,13 @@ async function sendWithPendingSubmission(
   input: SendMessageInput,
 ): ReturnType<AgentKitController["sendMessage"]> {
   const store = agentKitPendingSubmissions(controller);
-  const showsMessage =
+  const visible =
     input.metadata?.hideUserMessage !== true &&
-    !input.queuedMessageReservationId &&
-    !hasActiveAgentRuns(controller.getThread(input.threadId)) &&
     (input.text.trim().length > 0 || Boolean(input.attachments?.length));
+  const showsMessage =
+    visible &&
+    !input.queuedMessageReservationId &&
+    !hasActiveAgentRuns(controller.getThread(input.threadId));
   const requestId =
     agentKitClientRequestId(input.metadata) ??
     (showsMessage ? store.adopt(input.threadId) : undefined);
@@ -1504,7 +1653,8 @@ async function sendWithPendingSubmission(
       input.queuedMessageReservationId || input.queuedWhileRunActive,
     ),
   };
-  if (store.hasAhead(input.threadId, ahead)) {
+  const waitsForPredecessor = store.hasAhead(input.threadId, ahead);
+  if (waitsForPredecessor) {
     // The client cannot queue behind a turn it has no run id for yet, and
     // sending now would race that turn's start. The row shows at once and
     // the send follows once the turn's run is registered.
@@ -1521,11 +1671,34 @@ async function sendWithPendingSubmission(
           ).id
         : undefined);
     await store.settled(input.threadId, ahead);
-    return controller.sendMessage(
-      queuedMessageReservationId
-        ? { ...input, queuedMessageReservationId }
-        : input,
+    if (queuedMessageReservationId)
+      input = { ...input, queuedMessageReservationId };
+  }
+  if (waitsForPredecessor || input.queuedMessageReservationId) {
+    if (!visible) return controller.sendMessage(input);
+    const id = requestId ?? createClientRequestId();
+    let pending: AgentKitPendingSubmission | undefined;
+    const send = Promise.resolve().then(() =>
+      controller.sendMessage({
+        ...withRequestId(id),
+        onImmediateMessageAppended: () => {
+          if (!store.has(id)) {
+            pending = store.begin(
+              input.threadId,
+              {
+                text: input.text,
+                attachments: input.attachments,
+                metadata: input.metadata,
+              },
+              { id },
+            );
+          }
+          void store.track(id, send);
+          input.onImmediateMessageAppended?.();
+        },
+      }),
     );
+    return send.finally(() => pending?.end());
   }
   if (requestId && store.has(requestId)) {
     return store.track(

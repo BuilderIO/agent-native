@@ -2,7 +2,12 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import {
+  getOrgSetting,
+  getSetting,
+  putOrgSetting,
+  putSetting,
+} from "@agent-native/core/settings";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
@@ -19,6 +24,7 @@ import {
 } from "./search-index-contracts.js";
 import { readEmbeddingReadiness } from "./search-index.js";
 import { redactSensitiveText } from "./search.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 const APP_ID = "brain";
 const LAST_EVAL_SETTINGS_KEY = "brain-last-eval";
@@ -32,6 +38,9 @@ const SOURCE_PROVIDERS = [
   "clips",
   "generic",
   "manual",
+  "google_calendar",
+  "gmail",
+  "google_drive",
 ] as const;
 
 type SourceRow = typeof schema.brainSources.$inferSelect;
@@ -104,12 +113,20 @@ export async function writeBrainEvalSnapshot(result: EvalResultLike) {
     fallbackSeeded: result.fallbackSeeded,
     ranAt: new Date().toISOString(),
   };
-  await putSetting(LAST_EVAL_SETTINGS_KEY, { ...snapshot }).catch(() => {});
+  const orgId = getRequestOrgId();
+  await (
+    orgId
+      ? putOrgSetting(orgId, LAST_EVAL_SETTINGS_KEY, { ...snapshot })
+      : putSetting(LAST_EVAL_SETTINGS_KEY, { ...snapshot })
+  ).catch(() => {});
   return snapshot;
 }
 
 export async function readBrainEvalSnapshot() {
-  const value = await getSetting(LAST_EVAL_SETTINGS_KEY).catch(() => null);
+  const orgId = getRequestOrgId();
+  const value = await (orgId
+    ? getOrgSetting(orgId, LAST_EVAL_SETTINGS_KEY)
+    : getSetting(LAST_EVAL_SETTINGS_KEY));
   if (!value || typeof value !== "object") return null;
   const snapshot = value as Partial<BrainEvalSnapshot>;
   if (
@@ -168,7 +185,10 @@ function sourceAutoSync(source: SourceRow) {
     source.provider === "slack" ||
     source.provider === "granola" ||
     source.provider === "github" ||
-    source.provider === "zoom"
+    source.provider === "zoom" ||
+    source.provider === "google_calendar" ||
+    source.provider === "gmail" ||
+    source.provider === "google_drive"
   );
 }
 
@@ -325,7 +345,10 @@ export async function readBrainHealth() {
     .from(schema.brainSources)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         ne(schema.brainSources.status, "archived"),
       ),
     )
@@ -440,7 +463,10 @@ export async function readBrainHealth() {
         )
         .where(
           and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
             eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
             inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
           ),
@@ -464,7 +490,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSensitivityEvents.sourceId, adminSourceIds),
               ),
             )
@@ -501,7 +530,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSearchArtifacts.audienceId, audienceIds),
               ),
             )
@@ -526,7 +558,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSearchEmbeddings.audienceId, audienceIds),
               ),
             )
@@ -548,7 +583,10 @@ export async function readBrainHealth() {
             )
             .where(
               and(
-                accessFilter(schema.brainSources, schema.brainSourceShares),
+                and(
+                  accessFilter(schema.brainSources, schema.brainSourceShares),
+                  personalGoogleSourceFilter(),
+                ),
                 inArray(schema.brainSearchBursts.audienceId, audienceIds),
               ),
             )

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { commercialSurfacesHidden } from "../../client/app-config.js";
 import { BUILDER_CREDIT_USAGE_REPORTING_FLAG } from "../../feature-flags/registry.js";
 import { isFeatureFlagEnabled } from "../../feature-flags/store.js";
 import { getBuilderReferralInfo } from "../../server/fusion-app.js";
@@ -12,8 +13,11 @@ export default defineAction({
     "Get the connected Builder workspace's referral eligibility, invite link, and aggregate referral credit totals. The invite link is only available for eligible paid Builder workspaces; the workspace is resolved from the connected Builder credentials.",
   http: { method: "GET" },
   schema: z.object({}),
+  mcpTool: false,
   run: async (_input, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    // Referral rewards are a commercial surface; a hiding deployment has none.
+    if (commercialSurfacesHidden()) return null;
     const enabled = await isFeatureFlagEnabled(
       BUILDER_CREDIT_USAGE_REPORTING_FLAG,
       { userEmail: ctx.userEmail, orgId: ctx.orgId },

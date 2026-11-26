@@ -8,7 +8,7 @@ const OUTBOX_STORE = "entries";
 const UPDATE_FILE = /\/_agent-native\/actions\/update-file(\?|$)/;
 const UPDATE_DESIGN = /\/_agent-native\/actions\/update-design(\?|$)/;
 const STALE_NOTICE =
-  "This screen changed elsewhere. Your last edit was not saved.";
+  "This page changed elsewhere. Your last edit was not saved.";
 const SAVE_CHIP = '[data-save-status="unsaved"]';
 // No padding or background on the card: the editor wraps a painted or padded
 // text leaf in `<span data-an-text>` on open and persists that rewrite
@@ -167,6 +167,11 @@ function allowOfflineReplayNoise(app: App) {
     /^console\.error Failed to load resource: the server responded with a status of 409/,
     "the stale replay is logged by Chromium",
   );
+  // oracle-change: the shared action client now reports every failed call with the safe default message (core #9372), so the aborted save toasts that text instead of "Action update-file failed: ..."
+  app.allowFailure(
+    /^error toast Something went wrong\. Try again\.$/,
+    "the aborted save is reported in the editor",
+  );
 }
 
 /**
@@ -236,7 +241,7 @@ test("a same-spot clash is still dropped loudly", async ({ app, page }) => {
   test.setTimeout(120_000);
   allowOfflineReplayNoise(app);
   app.allowFailure(
-    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    /^error toast This page changed elsewhere\. Your last edit was not saved\.$/,
     "the scenario's same-spot clash is reported",
   );
   const designId = await app.seed(ORIGINAL_HTML);
@@ -270,8 +275,9 @@ test("a save the server keeps refusing shows Not saved and recovers", async ({
     /^console\.error Failed to load resource: the server responded with a status of 500/,
     "the refused save is logged by Chromium",
   );
+  // oracle-change: same toast, now worded with the shared client's safe default message (core #9372)
   app.allowFailure(
-    /^error toast Action update-file failed: Internal server error$/,
+    /^error toast Something went wrong\. Try again\.$/,
     "the refused save is reported in the editor",
   );
   const designId = await app.seed(ORIGINAL_HTML);

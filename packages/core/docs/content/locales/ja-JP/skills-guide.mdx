@@ -118,7 +118,7 @@ Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向け
 
 ## アプリベースの skills {#app-backed-skills}
 
-現在の app-backed skills には、Plan の `visual-plan`、`visual-recap`、`visualize-repo`、Design の `visual-edit`、Assets の `assets`、repo-backed docs/blog/MDX editing 用の `content` が含まれます。
+現在の app-backed skills には、Plan の `visual-plan`、`visual-recap`、`visualize-repo`、Design の `visual-edit` と `remix`、Assets の `assets`、repo-backed docs/blog/MDX editing 用の `content` が含まれます。
 
 <Callout tone="info">
 
@@ -339,11 +339,14 @@ scope: dev
 Hosted はデフォルトのインストール パスです。ローカル起動はカスタマイズのために明示的に行われます。
 オフラインでの作業、またはプライバシーに配慮した使用。
 
+`remix` は Design なしでリポジトリ内でも直接使えます: `/remix add the stripe hero animation to ours but make it blue`。キャンバス上で視覚的に選ぶ場合は Design を指定してください。仕様から独自のコードで動作を再構築します。
+
 ```bash
 # ハッピー パス: エクスポートされた命令とホストされた MCP コネクタ。
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add remix
 npx @agent-native/core@latest skills add assets
 
 # リポジトリ優先コンテンツ docs/blog/MDX 編集。

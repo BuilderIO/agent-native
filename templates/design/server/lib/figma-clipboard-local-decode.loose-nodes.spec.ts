@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const decoded = vi.hoisted(() => ({ document: {} as unknown }));
-vi.mock("./fig-file-decoder.js", () => ({
+vi.mock("../../shared/fig-file-decoder.js", () => ({
   decodeFig: () => ({
     document: decoded.document,
     format: "kiwi",

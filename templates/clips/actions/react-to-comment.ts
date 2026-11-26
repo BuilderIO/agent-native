@@ -1,14 +1,17 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq } from "drizzle-orm";
+import { listReviewCommentReactors } from "@agent-native/core/review";
+import reactToReviewComment from "@agent-native/core/review/actions/react-to-review-comment";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
 import { assertCommentAccess } from "../server/lib/comment-access.js";
-
-const MAX_CAS_ATTEMPTS = 3;
+import {
+  commentVideoTimestampMs,
+  findRecordingComment,
+  RECORDING_REVIEW_RESOURCE,
+  recordingReviewContext,
+} from "../server/lib/recording-comments.js";
 
 export default defineAction({
   description:
@@ -17,93 +20,58 @@ export default defineAction({
     commentId: z.string().describe("Comment ID"),
     emoji: z.string().min(1).describe("Emoji character (e.g. 👍, ❤️, 🔥)"),
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
-    const db = getDb();
-    const viewerEmail = getRequestUserEmail();
+    const reviewCtx = recordingReviewContext(ctx);
+    const viewerEmail = reviewCtx.userEmail;
     if (!viewerEmail) {
       throw new Error("Sign in required to react to comments.");
     }
 
-    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
-      const [existing] = await db
-        .select()
-        .from(schema.recordingComments)
-        .where(eq(schema.recordingComments.id, args.commentId))
-        .limit(1);
-      if (!existing) throw new Error(`Comment not found: ${args.commentId}`);
-
-      if (attempt === 0) {
-        await assertCommentAccess(
-          existing.recordingId,
-          "write",
-          ctx?.requestHeaders,
-        );
-      }
-
-      const previousJson = existing.emojiReactionsJson;
-      let reactions: Record<string, string[]> = {};
-      try {
-        const parsed = JSON.parse(previousJson || "{}");
-        if (parsed && typeof parsed === "object") {
-          reactions = parsed as Record<string, string[]>;
-        }
-      } catch {
-        reactions = {};
-      }
-
-      const bucket = Array.isArray(reactions[args.emoji])
-        ? reactions[args.emoji]
-        : [];
-      const had = bucket.includes(viewerEmail);
-      const nextBucket = had
-        ? bucket.filter((e) => e !== viewerEmail)
-        : [...bucket, viewerEmail];
-
-      const next = { ...reactions };
-      if (nextBucket.length === 0) {
-        delete next[args.emoji];
-      } else {
-        next[args.emoji] = nextBucket;
-      }
-
-      const updated = await db
-        .update(schema.recordingComments)
-        .set({
-          emojiReactionsJson: JSON.stringify(next),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.recordingComments.id, args.commentId),
-            eq(schema.recordingComments.emojiReactionsJson, previousJson),
-          ),
-        )
-        .returning({ id: schema.recordingComments.id });
-
-      if (updated.length > 0) {
-        const notified = had
-          ? null
-          : await notifyRecordingReaction({
-              recordingId: existing.recordingId,
-              emoji: args.emoji,
-              viewerEmail,
-              videoTimestampMs: existing.videoTimestampMs,
-              extraRecipients: [existing.authorEmail],
-            });
-
-        await writeAppState("refresh-signal", { ts: Date.now() });
-        return {
-          id: args.commentId,
-          emoji: args.emoji,
-          reacted: !had,
-          reactions: next,
-          notified,
-        };
-      }
+    const existing = await findRecordingComment(args.commentId);
+    if (!existing) {
+      fail(`Comment not found: ${args.commentId}`, {
+        errorCode: "comment_not_found",
+        statusCode: 404,
+      });
     }
 
-    throw new Error(
-      `Could not toggle reaction on comment ${args.commentId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
+    await assertCommentAccess(
+      existing.resourceId,
+      "write",
+      ctx?.requestHeaders,
     );
+
+    const { active } = await reactToReviewComment.run(
+      {
+        resourceType: RECORDING_REVIEW_RESOURCE,
+        resourceId: existing.resourceId,
+        commentId: existing.id,
+        reaction: args.emoji,
+      },
+      reviewCtx,
+    );
+    const reactors = await listReviewCommentReactors([existing.id]);
+    // coercion-ok: the kit answers every comment it is asked about, so this default never applies.
+    const reactions = reactors[existing.id] ?? {};
+
+    const notified = active
+      ? await notifyRecordingReaction({
+          recordingId: existing.resourceId,
+          emoji: args.emoji,
+          viewerEmail,
+          videoTimestampMs: commentVideoTimestampMs(existing.anchor),
+          extraRecipients: [existing.authorEmail],
+        })
+      : null;
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
+    return {
+      id: args.commentId,
+      emoji: args.emoji,
+      reacted: active,
+      reactions,
+      notified,
+    };
   },
 });

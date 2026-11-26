@@ -28,3 +28,7 @@ describe("upload-image action SSRF guard", () => {
     ).rejects.toThrow(/SSRF blocked/i);
   });
 });
+
+it("serves upload-image to outside agents unlisted, through tool search", () => {
+  expect(action.mcpTool).toBe("search");
+});

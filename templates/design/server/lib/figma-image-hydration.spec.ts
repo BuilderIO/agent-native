@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   mutateDesignData: vi.fn(),
 }));
 
-vi.mock("./fig-file-decoder.js", () => ({
+vi.mock("../../shared/fig-file-decoder.js", () => ({
   decodeFigImages: mocks.decodeFigImages,
 }));
 vi.mock("@agent-native/core/file-upload", () => ({

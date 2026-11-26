@@ -39,6 +39,7 @@ import {
 } from "../../actions/_document-edit-mutation.js";
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
+import { ANALYTICS_CHART_TAG } from "../../shared/analytics-chart-block.js";
 import {
   commentAnchorHoldsOn,
   commentAnchorText,
@@ -70,6 +71,7 @@ import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { lockLegacyBodyWrites } from "./document-body-revision.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
+import { assertInteractiveHtmlBlocks } from "./interactive-html-blocks.js";
 import { liveBodyWriterGate } from "./live-body-writer.js";
 import { syncPrivateBodyReferences } from "./private-icon-references.js";
 import {
@@ -917,7 +919,9 @@ async function commitAcceptedContent(input: {
       if (
         currentContent.includes("<callout") ||
         nextContent.includes("<callout") ||
-        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX)
+        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX) ||
+        currentContent.includes(`<${ANALYTICS_CHART_TAG}`) ||
+        nextContent.includes(`<${ANALYTICS_CHART_TAG}`)
       ) {
         const actorEmail = input.ctx?.userEmail;
         if (typeof actorEmail !== "string" || !actorEmail) {
@@ -1164,6 +1168,11 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       before.markdown,
       after.markdown,
       "Suggestions can change text inside tables, callouts, toggles, and columns, but not a table's rows or cells, a callout's icon, a toggle's title, the columns themselves, images, or other content or formatting they do not support yet. Suggest a change to the text instead.",
+    );
+    assertInteractiveHtmlBlocks(
+      input.ctx as ActionRunContext | undefined,
+      before.markdown,
+      after.markdown,
     );
     return operations;
   },

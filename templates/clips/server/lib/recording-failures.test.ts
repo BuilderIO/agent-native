@@ -19,9 +19,12 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 import {
+  builderGatewayFailure,
+  finalizeFailureTracking,
   hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
   normalizeRecordingPlatform,
+  normalizeRecorderStage,
   trackRecordingFailure,
 } from "./recording-failures.js";
 
@@ -162,6 +165,84 @@ describe("recording failure analytics", () => {
     );
   });
 
+  describe("Builder gateway failures", () => {
+    const gatewayError = (over: Record<string, unknown> = {}) =>
+      Object.assign(
+        new Error("Builder.io upload complete failed (502): HTML error page"),
+        {
+          name: "BuilderGatewayError",
+          step: "complete",
+          status: 502,
+          attempts: 4,
+          isHtml: true,
+          traceIds: ["trace-a", "trace-b"],
+          headers: { server: "Google Frontend" },
+          ...over,
+        },
+      );
+
+    it("finds the gateway error through the wrapping finalize error", () => {
+      const wrapped = Object.assign(
+        new Error(
+          "Upload completion failed: Builder.io upload complete failed",
+        ),
+        { cause: gatewayError() },
+      );
+
+      expect(builderGatewayFailure(wrapped)).toEqual({
+        step: "complete",
+        status: 502,
+        attempts: 4,
+        traceId: "trace-b",
+        server: "Google Frontend",
+      });
+    });
+
+    it("reports nothing for errors that did not come from the gateway", () => {
+      expect(builderGatewayFailure(new Error("boom"))).toBeNull();
+      expect(builderGatewayFailure("boom")).toBeNull();
+      expect(
+        builderGatewayFailure(gatewayError({ step: "something_else" })),
+      ).toBeNull();
+    });
+
+    it("leaves out the status when the gateway never answered", () => {
+      expect(
+        builderGatewayFailure(gatewayError({ status: 0 })),
+      ).not.toHaveProperty("status");
+    });
+
+    it("tracks a failed finalize with its stage, status, attempts and trace id", () => {
+      trackRecordingFailure({
+        recordingId: "rec_1",
+        userId: "owner@example.com",
+        platform: "web",
+        failureCode: "finalize_failed",
+        ...finalizeFailureTracking(gatewayError()),
+      });
+
+      expect(mockTrack).toHaveBeenCalledWith(
+        "recording_failed",
+        expect.objectContaining({
+          failure_code: "finalize_failed",
+          failure_stage: "finalize",
+          http_status: 502,
+          gateway_step: "complete",
+          gateway_attempts: 4,
+          gateway_trace_id: "trace-b",
+          gateway_server: "Google Frontend",
+        }),
+        { userId: "owner@example.com" },
+      );
+    });
+
+    it("tags a finalize failure that was not the gateway with the stage only", () => {
+      expect(finalizeFailureTracking(new Error("chunks missing"))).toEqual({
+        failureStage: "finalize",
+      });
+    });
+  });
+
   it("records cancellation separately from recording failures", () => {
     trackRecordingFailure({
       recordingId: "rec_1",
@@ -175,5 +256,53 @@ describe("recording failure analytics", () => {
       expect.objectContaining({ failure_code: "user_cancelled" }),
       { userId: "owner@example.com" },
     );
+  });
+
+  describe("stage facts", () => {
+    it("sends the recorder stage and timeout status it was given", () => {
+      trackRecordingFailure({
+        recordingId: "rec_1",
+        userId: "owner@example.com",
+        platform: "web",
+        failureCode: "recording_interrupted",
+        recorderStage: "recording",
+      });
+      trackRecordingFailure({
+        recordingId: "rec_2",
+        userId: "owner@example.com",
+        platform: "web",
+        failureCode: "upload_timed_out",
+        statusAtTimeout: "processing",
+      });
+
+      expect(mockTrack).toHaveBeenCalledTimes(2);
+      expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+        failure_code: "recording_interrupted",
+        recorder_stage: "recording",
+      });
+      expect(mockTrack.mock.calls[1]?.[1]).toMatchObject({
+        failure_code: "upload_timed_out",
+        status_at_timeout: "processing",
+      });
+    });
+
+    it("leaves out facts the caller did not have", () => {
+      trackRecordingFailure({
+        recordingId: "rec_1",
+        userId: "owner@example.com",
+        platform: "web",
+        failureCode: "finalize_failed",
+      });
+
+      const props = mockTrack.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(props).not.toHaveProperty("recorder_stage");
+      expect(props).not.toHaveProperty("status_at_timeout");
+    });
+
+    it("reads only recorder stages the recorder can report", () => {
+      expect(normalizeRecorderStage("pickingSources")).toBe("pickingSources");
+      expect(normalizeRecorderStage("closing-tab")).toBeNull();
+      expect(normalizeRecorderStage(undefined)).toBeNull();
+    });
   });
 });

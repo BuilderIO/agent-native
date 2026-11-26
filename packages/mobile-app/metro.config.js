@@ -1,13 +1,22 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const { withUniwindConfig } = require("uniwind/metro");
 const path = require("path");
+const fs = require("fs");
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, "../..");
 
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = [monorepoRoot];
+config.watchFolders = [
+  monorepoRoot,
+  fs.realpathSync(path.resolve(monorepoRoot, "node_modules")),
+  fs.realpathSync(path.resolve(projectRoot, "node_modules")),
+  path.resolve(
+    fs.realpathSync(path.resolve(projectRoot, "node_modules")),
+    "../..",
+  ),
+];
 
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),

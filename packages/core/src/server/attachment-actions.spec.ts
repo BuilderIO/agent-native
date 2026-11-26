@@ -604,6 +604,7 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     expect(missing.error).toContain(
       'No stored attachment found with name "DESIGN.md"',
     );
+    expect(missing.errorCode).toBe("attachment_not_stored");
   });
 
   it("still finds attachments stored before paths had a batch id", async () => {
@@ -740,7 +741,19 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
       { caller: "tool", userEmail: "user@example.com" },
     );
     expect(failed.error).toContain('Could not re-read "mfh2a1b2-0-DESIGN.md"');
+    expect(failed.errorCode).toBe("attachment_reread_failed");
     expect(failed.content).toBeUndefined();
+  });
+
+  it("reports a storage listing failure with a typed error code", async () => {
+    resourceListMock.mockRejectedValue(new Error("db down"));
+    const entries = createCoreAttachmentActionEntries();
+    const failed = await entries["read-attachment"].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(failed.error).toBe("Failed to read attachment: db down");
+    expect(failed.errorCode).toBe("attachment_read_failed");
   });
 
   it("downloads a referenced file once while paging through it", async () => {

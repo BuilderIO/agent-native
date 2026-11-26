@@ -123,6 +123,7 @@ import {
   penPathScreenContentOffset,
 } from "@/pages/design-editor/clone-and-pen-edit";
 import { CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS } from "@/pages/design-editor/commands/cross-screen-insert-timeout";
+import { readIframeScrollOffset } from "@/pages/design-editor/iframe-scroll";
 import { getMarqueeScreenSelectionIds } from "@/pages/design-editor/selection-state";
 
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
@@ -730,7 +731,6 @@ function shallowEqualObjects(a: object | undefined, b: object | undefined) {
   );
 }
 
-// Grouped props compare member by member, exactly as the flat props did.
 function areMultiScreenCanvasPropsEqual(
   prev: MultiScreenCanvasGroupedProps,
   next: MultiScreenCanvasGroupedProps,
@@ -8695,7 +8695,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         hasMoved: false,
       };
       setIsDragging(true);
-      // Object drags keep the default arrow cursor.
 
       // The surface itself never moves mid-gesture, so its bounding rect is
       // invariant for the whole drag. Cache it once instead of letting the
@@ -11398,8 +11397,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (!offset || iframe.clientWidth <= 0 || iframe.clientHeight <= 0) return;
     const renderedScale = rect.width / iframe.clientWidth;
     if (!Number.isFinite(renderedScale) || renderedScale <= 0) return;
-    const scrollX = iframe.contentWindow?.scrollX ?? 0;
-    const scrollY = iframe.contentWindow?.scrollY ?? 0;
+    const iframeScroll = readIframeScrollOffset(iframe);
+    if (!iframeScroll) return;
+    const scrollX = iframeScroll.left;
+    const scrollY = iframeScroll.top;
     const toCanvasPoint = (point: { x: number; y: number }) => {
       const clientX =
         rect.left + (offset.x + point.x - scrollX) * renderedScale;
@@ -13345,23 +13346,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
             onStartDrag={beginBoardElementDrag}
-            onDoubleClick={
-              onBoardIframeHotkey
-                ? (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onBoardIframeHotkey({
-                      key: "Enter",
-                      code: "Enter",
-                      metaKey: false,
-                      ctrlKey: false,
-                      shiftKey: false,
-                      altKey: false,
-                      repeat: false,
-                    });
-                  }
-                : undefined
-            }
           />
         ) : null}
 
@@ -13733,7 +13717,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         />
       ) : null}
 
-      {/* Cross-screen element drag: ghost follows the board-space cursor. */}
       {crossScreenGhost ? (
         <span
           data-cross-screen-drag-ghost
@@ -15054,8 +15037,6 @@ const Screen = memo(function Screen({
                 transition: getChromeLabelTransition(chromeSettling),
               }}
             >
-              {/* The screen label has no leading decoration; its text carries the
-              screen name and breakpoint state. */}
               {renamingTitle && onRename ? (
                 <ScreenTitleRenameInput
                   initialName={display}
@@ -15181,7 +15162,6 @@ const Screen = memo(function Screen({
         className={cn(
           "group/artboard relative block overflow-visible bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          // A device preview, not an artboard: rounded, and lifted off the canvas.
           focusedInteract && interactCornerClass
             ? cn(interactCornerClass, "shadow-md")
             : null,
@@ -15946,7 +15926,7 @@ function BreakpointPreviewRow({
                       ) : null}
                       {onRemoveBreakpoint ? (
                         <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
+                          variant="destructive"
                           disabled={breakpointMutationPending}
                           onSelect={() => {
                             if (breakpointMutationPending) return;
@@ -16127,7 +16107,6 @@ function BreakpointPreviewRow({
         );
       })}
 
-      {/* + affordance: add the next standard breakpoint */}
       {onAddBreakpoint && nextWidth !== undefined ? (
         <div
           className="pointer-events-auto absolute flex items-center"

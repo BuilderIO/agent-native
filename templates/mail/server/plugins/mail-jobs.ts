@@ -31,6 +31,7 @@ import { runInboxRetention } from "../lib/inbox-retention.js";
 import { ensureSyncAccountRow } from "../lib/inbox-store.js";
 import {
   getDuePendingJobs,
+  getNextScheduledJobDueAt,
   getSnoozeThreadId,
   markJobCancelled,
   markJobDone,
@@ -641,6 +642,7 @@ export default () => {
     registerRecurringSweepHandler(
       "mail-background-jobs",
       processMailBackgroundJobs,
+      { nextDueAt: getNextScheduledJobDueAt },
     );
   }
   if (!enabled) {

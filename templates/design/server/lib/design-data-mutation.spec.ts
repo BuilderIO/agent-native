@@ -42,6 +42,7 @@ vi.mock("../db/index.js", async () => {
 import {
   InvalidDesignDataError,
   mutateDesignData,
+  withServerOwnedTweakSelectionsRevision,
 } from "./design-data-mutation.js";
 
 async function seed(
@@ -172,5 +173,71 @@ describe("mutateDesignData with real local SQL transactions", () => {
       }),
     ).rejects.toBeInstanceOf(InvalidDesignDataError);
     expect((await persistedRow()).data).toBe("{broken-json");
+  });
+});
+
+describe("withServerOwnedTweakSelectionsRevision", () => {
+  const current = {
+    tweakSelections: { accent: "#00dff6" },
+    tweakSelectionsRevision: 7,
+  };
+
+  it("keeps the current revision when selections are unchanged, even if the write claims another", () => {
+    expect(
+      withServerOwnedTweakSelectionsRevision("design-1", current, {
+        ...current,
+        title: "Renamed",
+        tweakSelectionsRevision: 2,
+      }),
+    ).toEqual({ ...current, title: "Renamed" });
+  });
+
+  it("advances past the current revision when a write or restore changes selections", () => {
+    expect(
+      withServerOwnedTweakSelectionsRevision("design-1", current, {
+        tweakSelections: { accent: "#1b7585" },
+        tweakSelectionsRevision: 3,
+      }),
+    ).toEqual({
+      tweakSelections: { accent: "#1b7585" },
+      tweakSelectionsRevision: 8,
+    });
+  });
+
+  it("compares selections exactly, ignoring only key order", () => {
+    const pair = {
+      tweakSelections: { accent: "#00dff6", radius: "4" },
+      tweakSelectionsRevision: 7,
+    };
+    expect(
+      withServerOwnedTweakSelectionsRevision("design-1", pair, {
+        tweakSelections: { radius: "4", accent: "#00dff6" },
+      }).tweakSelectionsRevision,
+    ).toBe(7);
+    expect(
+      withServerOwnedTweakSelectionsRevision("design-1", pair, {
+        tweakSelections: { accent: "#00dff6", radius: "5" },
+      }).tweakSelectionsRevision,
+    ).toBe(8);
+  });
+
+  it("does not let a write introduce a revision the design never had", () => {
+    expect(
+      withServerOwnedTweakSelectionsRevision(
+        "design-1",
+        {},
+        { tweakSelectionsRevision: 99 },
+      ),
+    ).toEqual({});
+  });
+
+  it("refuses to advance an unreadable revision", () => {
+    expect(() =>
+      withServerOwnedTweakSelectionsRevision(
+        "design-1",
+        { tweakSelections: {}, tweakSelectionsRevision: "x" },
+        { tweakSelections: { accent: "#1b7585" } },
+      ),
+    ).toThrow(InvalidDesignDataError);
   });
 });

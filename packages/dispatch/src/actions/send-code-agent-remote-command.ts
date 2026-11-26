@@ -37,6 +37,11 @@ export default defineAction({
       })
       .optional(),
   }),
+  needsApproval: ({ command }) =>
+    command.type === "create" ||
+    command.type === "continue" ||
+    command.type === "approve",
+  allowPersistentApproval: false,
   run: async ({ command, source }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

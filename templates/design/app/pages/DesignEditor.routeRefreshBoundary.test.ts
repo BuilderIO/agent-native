@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+// oracle-change: removed DesignEditor source and AST greps of hook dependency lists; the Fast Refresh boundary cases remain
 
 describe("Design editor route Fast Refresh boundary", () => {
   const routeSource = readFileSync("app/routes/design.$id.tsx", "utf8");
@@ -62,78 +62,5 @@ describe("Design editor route Fast Refresh boundary", () => {
       [],
     );
     expect(defaultComponents).toHaveLength(1);
-  });
-
-  it("invalidates cached overview canvases for preview-only state changes", () => {
-    const editorSource = readDesignEditorSource();
-    const sourceFile = ts.createSourceFile(
-      "DesignEditor.tsx",
-      editorSource,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TSX,
-    );
-    const dependencyNamesByCallback = new Map<string, string[]>();
-
-    const visit = (node: ts.Node) => {
-      if (
-        ts.isVariableDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        node.initializer &&
-        ts.isCallExpression(node.initializer)
-      ) {
-        const dependencyArray = node.initializer.arguments[1];
-        if (dependencyArray && ts.isArrayLiteralExpression(dependencyArray)) {
-          dependencyNamesByCallback.set(
-            node.name.text,
-            dependencyArray.elements.map((element) =>
-              element.getText(sourceFile),
-            ),
-          );
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-
-    expect(dependencyNamesByCallback.get("renderScreenContent")).toEqual([
-      "renderEditableScreenContent",
-    ]);
-    expect(dependencyNamesByCallback.get("renderBreakpointContent")).toEqual([
-      "renderEditableScreenContent",
-    ]);
-    expect(
-      dependencyNamesByCallback.get("renderEditableScreenContent"),
-    ).toEqual(
-      expect.arrayContaining([
-        "activeBreakpointWidthState",
-        "motionDefaultEase",
-        "motionDurationMs",
-        "inScreenGradientEditTarget",
-        "handleInScreenGradientEditChange",
-        "statePreviewTarget",
-      ]),
-    );
-  });
-
-  it("mirrors live selection chrome to the owning overview screen", () => {
-    const editorSource = readDesignEditorSource();
-    const renderStart = editorSource.indexOf(
-      "const renderEditableScreenContent = useCallback",
-    );
-    const renderEnd = editorSource.indexOf(
-      "const renderScreenContent = useCallback",
-      renderStart,
-    );
-    const renderSource = editorSource.slice(renderStart, renderEnd);
-
-    expect(renderSource).toContain("screenSelectedLayerGroups");
-    expect(renderSource).toContain("selectedElementScreenId === screen.id");
-    expect(renderSource).toContain(
-      "selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}",
-    );
-    expect(renderSource).not.toContain(
-      "selectedSelector={screenIsActive ? selectedCanvasSelector : null}",
-    );
   });
 });

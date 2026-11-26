@@ -275,3 +275,19 @@ in both packaged desktop and local framed-dev builds.
 The repository currently uses Electron 41.2.2. Electron 43.1.0 was the latest
 published package when this decision was written; upgrading Electron is a
 separate compatibility task, not a prerequisite for the contract above.
+
+## External reference screens
+
+Focused Interact previews load external HTTPS screens as top-level Chrome
+WebContentsViews, using the existing persistent, hashed Design-preview partition
+per workspace/connection. Cookies stay in that partition; app-window sessions
+are separate. The user agent omits Electron and the application product token.
+Canvas transforms retain the existing static capture fallback instead of putting
+native views over canvas controls.
+
+Security decision: only navigation responses in `persist:design-preview:<hash>`
+sessions remove `X-Frame-Options` and the `frame-ancestors` CSP directive. Other
+CSP directives, cookie headers, sandboxing, web security, denied permissions and
+origin-bound navigation remain intact. No global or app-window header handler
+is changed. These screens execute the visited site's code with its own origin
+and isolated cookies, like a browser tab; they have no Node or preload access.

@@ -1,0 +1,318 @@
+{
+  "size": {
+    "control": {
+      "1": {
+        "$type": "number",
+        "$value": 16
+      },
+      "2": {
+        "$type": "number",
+        "$value": 20
+      },
+      "3": {
+        "$type": "number",
+        "$value": 24
+      },
+      "4": {
+        "$type": "number",
+        "$value": 32
+      }
+    },
+    "control-icon": {
+      "1": {
+        "$type": "number",
+        "$value": 12
+      },
+      "2": {
+        "$type": "number",
+        "$value": 12
+      },
+      "3": {
+        "$type": "number",
+        "$value": 16
+      },
+      "4": {
+        "$type": "number",
+        "$value": 16
+      }
+    },
+    "box": {
+      "1": {
+        "$type": "number",
+        "$value": 16
+      },
+      "2": {
+        "$type": "number",
+        "$value": 20
+      },
+      "3": {
+        "$type": "number",
+        "$value": 24
+      },
+      "4": {
+        "$type": "number",
+        "$value": 32
+      },
+      "5": {
+        "$type": "number",
+        "$value": 40
+      },
+      "6": {
+        "$type": "number",
+        "$value": 48
+      },
+      "7": {
+        "$type": "number",
+        "$value": 56
+      },
+      "8": {
+        "$type": "number",
+        "$value": 64
+      }
+    }
+  },
+  "radius": {
+    "1": {
+      "$type": "number",
+      "$value": 2
+    },
+    "2": {
+      "$type": "number",
+      "$value": 4
+    },
+    "3": {
+      "$type": "number",
+      "$value": 6
+    },
+    "4": {
+      "$type": "number",
+      "$value": 8
+    },
+    "5": {
+      "$type": "number",
+      "$value": 12
+    },
+    "6": {
+      "$type": "number",
+      "$value": 16
+    }
+  },
+  "font": {
+    "size": {
+      "0": {
+        "$type": "number",
+        "$value": 10
+      },
+      "1": {
+        "$type": "number",
+        "$value": 12
+      },
+      "2": {
+        "$type": "number",
+        "$value": 13
+      },
+      "3": {
+        "$type": "number",
+        "$value": 16
+      },
+      "4": {
+        "$type": "number",
+        "$value": 18
+      },
+      "5": {
+        "$type": "number",
+        "$value": 20
+      },
+      "6": {
+        "$type": "number",
+        "$value": 24
+      },
+      "7": {
+        "$type": "number",
+        "$value": 28
+      },
+      "8": {
+        "$type": "number",
+        "$value": 35
+      },
+      "9": {
+        "$type": "number",
+        "$value": 60
+      }
+    },
+    "line-height": {
+      "0": {
+        "$type": "number",
+        "$value": 16
+      },
+      "1": {
+        "$type": "number",
+        "$value": 16
+      },
+      "2": {
+        "$type": "number",
+        "$value": 16
+      },
+      "3": {
+        "$type": "number",
+        "$value": 24
+      },
+      "4": {
+        "$type": "number",
+        "$value": 26
+      },
+      "5": {
+        "$type": "number",
+        "$value": 28
+      },
+      "6": {
+        "$type": "number",
+        "$value": 30
+      },
+      "7": {
+        "$type": "number",
+        "$value": 36
+      },
+      "8": {
+        "$type": "number",
+        "$value": 40
+      },
+      "9": {
+        "$type": "number",
+        "$value": 60
+      }
+    },
+    "letter-spacing": {
+      "0": {
+        "$type": "number",
+        "$value": 0.01,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "1": {
+        "$type": "number",
+        "$value": 0,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "2": {
+        "$type": "number",
+        "$value": 0,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "3": {
+        "$type": "number",
+        "$value": 0,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "4": {
+        "$type": "number",
+        "$value": -0.0025,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "5": {
+        "$type": "number",
+        "$value": -0.005,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "6": {
+        "$type": "number",
+        "$value": -0.00625,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "7": {
+        "$type": "number",
+        "$value": -0.0075,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "8": {
+        "$type": "number",
+        "$value": -0.01,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      },
+      "9": {
+        "$type": "number",
+        "$value": -0.025,
+        "$extensions": {
+          "com.agent-native": {
+            "unit": "em"
+          }
+        }
+      }
+    },
+    "weight": {
+      "light": {
+        "$type": "number",
+        "$value": 360
+      },
+      "regular": {
+        "$type": "number",
+        "$value": 400
+      },
+      "medium": {
+        "$type": "number",
+        "$value": 480
+      },
+      "semibold": {
+        "$type": "number",
+        "$value": 600
+      },
+      "bold": {
+        "$type": "number",
+        "$value": 700
+      }
+    },
+    "family": {
+      "sans": {
+        "$type": "string",
+        "$value": "\"Inter Variable\", \"Inter\", ui-sans-serif, system-ui, -apple-system, sans-serif"
+      },
+      "heading": {
+        "$type": "string",
+        "$value": "var(--font-family-sans)"
+      },
+      "mono": {
+        "$type": "string",
+        "$value": "ui-monospace, \"SFMono-Regular\", Menlo, Consolas, monospace"
+      },
+      "wordmark": {
+        "$type": "string",
+        "$value": "\"Geist Variable\", \"Geist\", var(--font-family-sans)"
+      }
+    }
+  }
+}

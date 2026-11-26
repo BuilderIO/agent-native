@@ -1,4 +1,5 @@
 import { EMBED_RESULT_SENSITIVE_KEYS } from "../mcp/embed-redaction.js";
+import { redactSecretsInText } from "../shared/secret-redaction.js";
 
 const REDACTED = "[REDACTED]";
 
@@ -62,9 +63,6 @@ function isSensitiveCompoundFieldName(key: string): boolean {
   );
 }
 
-const OPENAI_LIKE_SECRET_PATTERN =
-  /(^|[^A-Za-z0-9_-])(sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{24,})(?=$|[^A-Za-z0-9_-])/g;
-
 /**
  * `compoundNames` also redacts names such as `clientSecret`, `x-api-key`,
  * `githubToken` or `embedTicket`.
@@ -100,19 +98,18 @@ function redactWalk(
   return out;
 }
 
+// The prefix names the tool, and a tool called `create_token` is not a field.
+const TOOL_ERROR_PREFIX = /^Error running [^\s:]+:(?=\s|$)\s*/;
+
 export function sanitizeToolErrorText(value: string): string {
-  let out = value;
-  out = out.replace(/\bBearer\s+[^,\s;)}\]]+/gi, `Bearer ${REDACTED}`);
-  out = out.replace(OPENAI_LIKE_SECRET_PATTERN, `$1${REDACTED}`);
-  out = out.replace(
-    /([?&](?:authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer)=)[^&#\s]+/gi,
-    `$1${REDACTED}`,
+  const prefix = TOOL_ERROR_PREFIX.exec(value)?.[0] ?? "";
+  return (
+    prefix +
+    redactSecretsInText(value.slice(prefix.length), {
+      placeholder: REDACTED,
+      names: "named",
+    })
   );
-  out = out.replace(
-    /((?:^|[^A-Za-z0-9_-])(?:"|')?(?:authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer)(?:"|')?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,\s;)}\]]+)/gi,
-    (_match, prefix: string) => `${prefix}${REDACTED}`,
-  );
-  return out;
 }
 
 export function sanitizeToolErrorValue(value: unknown): string {

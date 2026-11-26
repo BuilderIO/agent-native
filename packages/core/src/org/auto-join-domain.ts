@@ -100,16 +100,26 @@ export async function autoJoinDomainMatchingOrgs(
                      WHERE m.org_id = o.id
                        AND LOWER(m.email) = ?
                        AND m.federation_removal_pending_at IS NULL
-                   ) AS "isMember"
+                   ) AS "isMember",
+                   EXISTS (
+                     SELECT 1 FROM org_invitations i
+                     WHERE i.org_id = o.id
+                       AND LOWER(i.email) = ?
+                       AND i.status = 'deactivated'
+                   ) AS "isDeactivated"
             FROM organizations o
             WHERE LOWER(o.allowed_domain) = ?
             LIMIT 2`,
-      args: [email, domain],
+      args: [email, email, domain],
     });
     if (res.rows.length > 1) return { joined: [], activeOrgId: null };
     if (res.rows.length === 1) {
       const row = res.rows[0] as any;
-      if (Boolean(row.isMember ?? row.is_member)) {
+      // A deactivated member stays out until an admin re-invites them.
+      if (
+        Boolean(row.isMember ?? row.is_member) ||
+        Boolean(row.isDeactivated ?? row.is_deactivated)
+      ) {
         return { joined: [], activeOrgId: null };
       }
       matches = [

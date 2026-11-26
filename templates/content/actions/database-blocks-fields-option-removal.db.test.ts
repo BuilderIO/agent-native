@@ -189,7 +189,7 @@ async function writeField(
   row: { documentId: string },
   propertyId: string,
   value: string,
-  expectedBlocksFieldRevision?: number,
+  guard?: { expectedBlocksFieldRevision: number } | { baseRevision: string },
 ) {
   return asOwner(() =>
     setProperty.run(
@@ -198,13 +198,23 @@ async function writeField(
         documentId: row.documentId,
         propertyId,
         value,
-        ...(expectedBlocksFieldRevision === undefined
-          ? {}
-          : { expectedBlocksFieldRevision }),
+        ...guard,
       },
       asMcp,
     ),
   );
+}
+
+// The main field is the page's body, so an agent guards it with the page's
+// revision rather than the field's.
+async function bodyRevision(
+  state: Awaited<ReturnType<typeof collection>>,
+  row: { itemId: string; documentId: string },
+  body: string,
+) {
+  return {
+    baseRevision: defined((await fieldBlocks(state, row, body)).baseRevision),
+  };
 }
 
 async function setValue(
@@ -283,7 +293,7 @@ describe("agent-managed Blocks fields and option removal", () => {
         row,
         body,
         [...research(topic), ...proposal(topic)].join("\n"),
-        0,
+        await bodyRevision(state, row, body),
       );
       await setValue(state, row, statusId, "proposal");
       await setValue(state, row, priorityId, index % 2 ? "low" : "high");
@@ -295,7 +305,7 @@ describe("agent-managed Blocks fields and option removal", () => {
       researchOnly,
       body,
       research("keep receipts").join("\n"),
-      0,
+      await bodyRevision(state, researchOnly, body),
     );
     await setValue(state, researchOnly, statusId, "idea");
     await setValue(state, researchOnly, priorityId, "low");
@@ -341,25 +351,21 @@ describe("agent-managed Blocks fields and option removal", () => {
         row,
         proposalField,
         notesText.slice(proposalStart).join("\n"),
-        emptyProposal.fieldRevision,
+        { expectedBlocksFieldRevision: emptyProposal.fieldRevision },
       );
       await writeField(
         state,
         row,
         body,
         notesText.slice(0, proposalStart).join("\n"),
-        notesBlocks.fieldRevision,
+        { baseRevision: defined(notesBlocks.baseRevision) },
       );
 
       // A stale or unguarded write from an agent fails and changes nothing.
       await expect(
-        writeField(
-          state,
-          row,
-          proposalField,
-          "Overwritten",
-          emptyProposal.fieldRevision,
-        ),
+        writeField(state, row, proposalField, "Overwritten", {
+          expectedBlocksFieldRevision: emptyProposal.fieldRevision,
+        }),
       ).rejects.toMatchObject({
         name: "BlocksFieldRevisionConflictError",
         statusCode: 409,

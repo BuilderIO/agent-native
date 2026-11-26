@@ -6,6 +6,19 @@ export const onboardingConfig = z.object({
     .regex(/^[a-z][a-z0-9_]*$/)
     .default("design_builder_signup_v1"),
   builderSignupExperiment: z.boolean().default(false),
+  builderSignupHostedHosts: z
+    .array(
+      z
+        .string()
+        .regex(
+          /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/,
+        ),
+    )
+    .default([])
+    .meta({
+      doc: "Exact hostnames where automatic Builder setup at signup is on, such as an app's hosted production and beta hosts.",
+    }),
+  builderSignupAutomaticPercent: z.number().int().min(0).max(100).default(50),
   builderSignupExperimentOverride: z.boolean().optional().meta({
     env: "BUILDER_SIGNUP_EXPERIMENT",
     doc: "Enable the pre-signup automatic Builder account experiment for this app.",

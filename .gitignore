@@ -32,6 +32,7 @@ node-compile-cache/
 
 .react-router/
 .agent-native/
+.agent-native-app-build-id
 
 packages/docs/app/components/searchIndex.ts
 

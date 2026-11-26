@@ -5,8 +5,10 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
@@ -16,6 +18,10 @@ import {
   serializePropertyOptions,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import {
+  assertNoColumnRuleOn,
+  toColumnRuleDefinition,
+} from "./_column-rules.js";
 import {
   assertAgentsMayEditPagesText,
   type CallProvenance,
@@ -223,7 +229,7 @@ export async function snapshotMigration(tx: any, databaseId: string) {
 export function validatePlan(
   plan: MigrationPlan,
   snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
-  options: { checkTimestamps?: boolean } = {},
+  options: { checkTimestamps?: boolean; ctx?: CallProvenance | undefined } = {},
 ) {
   if (
     plan.databaseId !== snapshot.database.id ||
@@ -292,7 +298,9 @@ export function validatePlan(
   );
   if (duplicate(plan.legacyPropertyIds))
     throw new Error("Legacy property IDs must be unique.");
+  const ruleDefinitions = snapshot.definitions.map(toColumnRuleDefinition);
   for (const propertyId of plan.legacyPropertyIds) {
+    assertNoColumnRuleOn(ruleDefinitions, propertyId, "delete");
     const definition = oldDefs.get(propertyId);
     if (!definition || definition.systemRole || definition.type === "blocks")
       throw new Error("Legacy property is missing or unsafe to finalize.");
@@ -317,6 +325,11 @@ export function validatePlan(
     )
       throw new Error(`Stale row ${row.documentId}.`);
     assertNoNewlySharedVideoIds(persisted.document.content, row.content);
+    assertInteractiveHtmlBlocks(
+      options.ctx,
+      persisted.document.content,
+      row.content,
+    );
     if (
       duplicate(row.propertyValues.map((v) => v.propertyId)) ||
       duplicate(row.protectedPropertyValues.map((v) => v.propertyId))
@@ -515,10 +528,12 @@ export async function applyMigration(
     appliedUpdatedAt: string;
   }> = [];
   const versionRows: Array<typeof schema.documentVersions.$inferInsert> = [];
+  const priorBodies = new Map<string, string>();
   for (const row of plan.rows) {
     const persisted = snapshot.rows.find(
       (candidate: any) => candidate.item.id === row.itemId,
     )!;
+    priorBodies.set(row.documentId, persisted.document.content ?? "");
     const versionId = deterministicId(
       "migration_version",
       receiptId,
@@ -581,6 +596,11 @@ export async function applyMigration(
       documentId: row.documentId,
       after: row.content,
       userEmail: documentAttributionActor(),
+    });
+    await syncAnalyticsChartCitations(tx, {
+      documentId: row.documentId,
+      before: priorBodies.get(row.documentId),
+      after: row.content,
     });
   }
   const definitionRows = plan.propertyDefinitions.map((definition, index) => ({

@@ -106,9 +106,7 @@ const ADVANCED_PANEL_SPEC_FILES = [
   /canvas-tools\.spec\.ts$/,
   /code-native-deep-surfaces\.spec\.ts$/,
   /code-native-pr-surfaces\.spec\.ts$/,
-  /code-workbench-local-files\.spec\.ts$/,
 ];
-const HOME_SYSTEM_SELECTION_SPEC = /home-system-selection\.spec\.ts$/;
 const CHROMIUM_PROJECT_USE = {
   ...devices["Desktop Chrome"],
   ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}),
@@ -152,21 +150,9 @@ const config = defineConfig({
   projects: [
     {
       name: BROWSER_CHANNEL ? `chromium-${BROWSER_CHANNEL}` : "chromium",
-      testIgnore: [
-        ...(SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES),
-        HOME_SYSTEM_SELECTION_SPEC,
-      ],
+      testIgnore: SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES,
       use: CHROMIUM_PROJECT_USE,
     },
-    ...(USE_SIDEBAR_LOOPBACK
-      ? [
-          {
-            name: "home-system-selection",
-            testMatch: HOME_SYSTEM_SELECTION_SPEC,
-            use: CHROMIUM_PROJECT_USE,
-          },
-        ]
-      : []),
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined

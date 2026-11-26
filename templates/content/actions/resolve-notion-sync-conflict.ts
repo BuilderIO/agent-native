@@ -20,7 +20,9 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
-    const owner = await getNotionDocumentOwner(documentId);
+    const owner = await getNotionDocumentOwner(documentId, {
+      requireOwner: args.direction === "push",
+    });
     if (args.direction === "pull") {
       // Pulling writes Notion's text into the page. Pushing leaves the page alone.
       await assertAgentsMayEditPagesText(getDb(), [documentId], ctx);

@@ -436,6 +436,8 @@ Endpoints REST montados automaticamente:
 | `DELETE` | `/_agent-native/resources/:id`                | Excluir um recurso                             |
 | `POST`   | `/_agent-native/resources/upload`             | Fazer upload de um arquivo como recurso        |
 
+Um recurso lido com `GET /_agent-native/resources/:id` vem com uma `revision`. Envie-a de volta como `expectedRevision` junto com o novo `content` no `PUT`; se alguém salvou outro conteúdo depois da sua leitura, nada é gravado: a resposta é um 409 com `errorCode: "save_conflict"`, o conteúdo atual em `details.current.content` e sua revisão em `details.currentRevision`. Um `PUT` sem `expectedRevision` continua sobrescrevendo o que estiver salvo. Um salvamento verificado não pode também renomear o recurso: envie primeiro o novo `path` em um `PUT` separado. `<ResourceEditor saveContent>` faz isso por você: quando outra pessoa salvou outro conteúdo durante uma edição, ele pergunta qual versão manter e depois oferece a outra de volta.
+
 ### Ação API {#script-api}
 
 O agente usa esses actions integrados. Você também pode chamá-los do seu próprio actions:
@@ -456,9 +458,14 @@ pnpm action resource-effective --path "context/brand.md"
 # Escreva um recurso
 pnpm action resource-write --path "notes/meeting.md" --content "# Notas da reunião..."
 
+# Substituir um recurso só se ninguém o salvou desde a sua leitura
+pnpm action resource-write --path "notes/meeting.md" --content "# Notas da reunião..." --expected-revision "rev_…"
+
 # Excluir um recurso
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+As leituras de recursos do agente começam com uma linha `[revision …, scope …]`, e as duas ferramentas de escrita dele aceitam essa revisão como `expectedRevision` (`--expected-revision` na linha de comando). Se alguém salvou o arquivo depois da leitura, nada é gravado: a escrita falha com `errorCode: "save_conflict"` e a revisão atual, então o agente lê o arquivo de novo e refaz a edição. Uma escrita sem revisão continua substituindo o que estiver lá.
 
 ## Próximos passos {#whats-next}
 

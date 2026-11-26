@@ -18,6 +18,7 @@ import {
   encodeOAuthState,
   getSession,
   isElectron,
+  oauthCallbackOwner,
   oauthCallbackResponse,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -260,7 +261,7 @@ export async function handleSlackOAuthCallback(
   }
 
   const session = await getSession(event);
-  const userEmail = session?.email ?? state.owner;
+  const userEmail = oauthCallbackOwner(session?.email, state);
   if (!userEmail) {
     return oauthErrorPage(
       "Your session expired during the Slack install flow. Sign in again and retry.",

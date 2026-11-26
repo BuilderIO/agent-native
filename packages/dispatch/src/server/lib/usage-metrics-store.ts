@@ -14,6 +14,7 @@ import { readOrgMemberRole } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   builderCreditsFromCostCents,
+  deploymentUsageBilling,
   getUsageSummary,
   isSelfScopedUsageRead,
   MIXED_USAGE_BILLING,
@@ -1180,7 +1181,7 @@ export async function listDispatchUsageMetrics(input: {
   const billing = unknownCalls
     ? UNKNOWN_USAGE_BILLING
     : builderCalls > 0 && providerCalls > 0
-      ? MIXED_USAGE_BILLING
+      ? deploymentUsageBilling(MIXED_USAGE_BILLING)
       : builderCalls > 0
         ? usageBillingForEngine("builder")
         : providerCalls > 0

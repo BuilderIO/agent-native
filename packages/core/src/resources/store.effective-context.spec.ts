@@ -8,6 +8,7 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
@@ -1448,6 +1449,53 @@ describe("resourceEffectiveContext", () => {
       await expect(
         resourceRestoreSnapshotIfCurrent(before, null),
       ).resolves.toBe(false);
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("writes over a row read back with empty strings and unknown values", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutIfSnapshot,
+    } = await import("./store.js");
+    const path = `context/snapshot-normalized-${Date.now()}-${Math.random()}.md`;
+    try {
+      await resourcePut(SHARED_OWNER, path, "before");
+      // Rows older writers left: read back as null, "user" and "workspace".
+      await sharedClient.execute({
+        sql: "UPDATE resources SET thread_id = '', run_id = '', metadata = '', created_by = 'assistant', visibility = 'legacy' WHERE owner = ? AND path = ?",
+        args: [SHARED_OWNER, path],
+      });
+      const before = await resourceGetByPath(SHARED_OWNER, path);
+      expect(before).toMatchObject({
+        threadId: null,
+        runId: null,
+        metadata: null,
+        createdBy: "user",
+        visibility: "workspace",
+      });
+      if (!before) throw new Error("The resource was not written");
+
+      const written = await resourcePutIfSnapshot({
+        previous: before,
+        owner: SHARED_OWNER,
+        path,
+        content: "written",
+      });
+      expect(written?.resource.content).toBe("written");
+
+      await sharedClient.execute({
+        sql: "UPDATE resources SET metadata = '' WHERE owner = ? AND path = ?",
+        args: [SHARED_OWNER, path],
+      });
+      const current = await resourceGetByPath(SHARED_OWNER, path);
+      if (!current) throw new Error("The resource was not written");
+      await expect(resourceDeleteIfCurrent(current)).resolves.toBe(true);
     } finally {
       await resourceDeleteByPath(SHARED_OWNER, path);
     }

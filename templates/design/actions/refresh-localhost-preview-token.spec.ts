@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  getRequestAuthCapability: vi.fn(),
+  settings: new Map<string, Record<string, unknown>>(),
   resolveScope: vi.fn(),
   eq: vi.fn(),
   connections: [] as Array<{
@@ -19,6 +21,14 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
+  getRequestAuthCapability: mocks.getRequestAuthCapability,
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async (key: string) => mocks.settings.get(key) ?? null,
+  putSetting: async (key: string, value: Record<string, unknown>) => {
+    mocks.settings.set(key, value);
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -64,6 +74,8 @@ import action from "./refresh-localhost-preview-token.js";
 beforeEach(() => {
   mocks.assertAccess.mockReset();
   mocks.getRequestUserEmail.mockReset();
+  mocks.getRequestAuthCapability.mockReset();
+  mocks.settings.clear();
   mocks.resolveScope.mockReset();
   mocks.eq.mockReset();
   mocks.connections = [
@@ -490,6 +502,55 @@ describe("refresh-localhost-preview-token", () => {
       "design-owner@example.com",
     );
     expect(mocks.eq).toHaveBeenCalledWith("orgId", "design-org");
+  });
+
+  it("refuses a board capability a connection open-visual-edit never linked to its board", async () => {
+    mocks.getRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_1",
+    );
+    mocks.settings.set("design-visual-edit-board-connections:design_1", {
+      connectionIds: ["conn_1"],
+    });
+    // The board's data names another board's connection: data is writable
+    // through the capability, so it cannot vouch for the link.
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        ownerEmail: "design-owner@example.com",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          screenMetadata: { other: { connectionId: "conn_2" } },
+        }),
+      },
+    });
+    mocks.resolveScope.mockResolvedValue({
+      ownerEmail: "design-owner@example.com",
+      orgId: null,
+    });
+    mocks.connections = [
+      {
+        id: "conn_1",
+        previewToken: "own-preview",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+      {
+        id: "conn_2",
+        previewToken: "other-preview",
+        bridgeUrl: "http://127.0.0.1:7332",
+      },
+    ];
+
+    await expect(
+      action.run({ designId: "design_1", connectionId: "conn_2" }),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_connection_not_linked" });
+    await expect(action.run({ designId: "design_1" })).rejects.toMatchObject({
+      errorCode: "visual_edit_connection_not_linked",
+    });
+    await expect(
+      action.run({ designId: "design_1", connectionId: "conn_1" }),
+    ).resolves.toMatchObject({ previewToken: "own-preview" });
+    expect(mocks.resolveScope).toHaveBeenCalledTimes(1);
   });
 
   it("returns caller-owned preview credentials when other Screens use another scope", async () => {

@@ -185,21 +185,25 @@ describe("Tokens panel header", () => {
 });
 
 describe("Tokens panel list", () => {
+  // oracle-change: Tokens rows moved onto the File tab grid with Layers: depth 0 has no indent and the chevron has its own slot, so the counts and padding changed
   it("lays rows out like Layers: 32px rows, 24px indent slots per level", () => {
     const colors = groupRow("Colors");
     expect(colors.classList.contains("h-[var(--design-row-height)]")).toBe(
       true,
     );
-    expect(colors.classList.contains("pl-2.5")).toBe(true);
-    expect(colors.querySelectorAll("[data-layer-row-indent]")).toHaveLength(1);
+    expect(colors.classList.contains("px-4")).toBe(true);
+    expect(colors.querySelectorAll("[data-layer-row-indent]")).toHaveLength(0);
+    expect(
+      colors.querySelector("[data-tree-row-chevron-slot] svg"),
+    ).not.toBeNull();
 
     const tokenRow = button("Edit Accent")!.closest<HTMLElement>(".group")!;
     expect(tokenRow.classList.contains("h-[var(--design-row-height)]")).toBe(
       true,
     );
-    expect(tokenRow.classList.contains("pl-2.5")).toBe(true);
+    expect(tokenRow.classList.contains("px-4")).toBe(true);
     const slots = tokenRow.querySelectorAll("[data-layer-row-indent]");
-    expect(slots).toHaveLength(2);
+    expect(slots).toHaveLength(1);
     expect(
       Array.from(slots).every((slot) => slot.classList.contains("w-6")),
     ).toBe(true);

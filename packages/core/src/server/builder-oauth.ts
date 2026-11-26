@@ -4,6 +4,7 @@ import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
 
 import {
   finishMcpOAuthAuthorization,
+  getMcpOAuthConnectionState,
   getMcpOAuthAccessToken,
   McpOAuthReauthorizationRequiredError,
   McpOAuthRefreshUnavailableError,
@@ -392,7 +393,13 @@ export async function saveBuilderOAuthCredentials(input: {
   const options = await writeBuilderOAuthOptions(input);
   await saveMcpOAuthCredentials({
     ...options,
-    credentials: { ...input.credentials, connectedAt: Date.now() },
+    credentials: {
+      ...input.credentials,
+      connectedAt: Date.now(),
+      ...(options.scope === "org"
+        ? { connectedBy: normalizeOwnerEmail(input.ownerEmail) }
+        : {}),
+    },
   });
   invalidateAgentEngineStatusCache();
   return options.scope;
@@ -550,6 +557,40 @@ export async function hasStoredBuilderOAuthGrantForUse(
       `${options.scope}:${options.scopeId}`,
     );
     if (stored !== null) return true;
+  }
+  return false;
+}
+
+export async function hasOwnStoredBuilderOAuthGrantForUse(
+  ownerEmail: string,
+  orgId?: string | null,
+): Promise<boolean> {
+  const email = normalizeOwnerEmail(ownerEmail);
+  const resolvedOrgId =
+    orgId === undefined
+      ? await resolveOrgIdForEmail(email)
+      : orgId?.trim() || null;
+  const options = await resolveBuilderOAuthOptions(email, resolvedOrgId, {
+    forUse: true,
+  });
+  for (const candidate of options) {
+    const state = await getMcpOAuthConnectionState(candidate);
+    if (state.kind === "missing") continue;
+    if (state.kind === "malformed" || !isBuilderCredential(state.credential)) {
+      throw new Error("The stored Builder OAuth grant could not be read.");
+    }
+    if (candidate.scope === "org" && state.credential.connectedBy !== email) {
+      continue;
+    }
+    if (state.kind === "connected") return true;
+    if (state.kind === "reconnect_required") continue;
+    const accessToken = await getMcpOAuthAccessToken({
+      ...candidate,
+      throwOnTransientRefreshFailure: true,
+      shouldMarkReconnectRequiredOnRefreshFailure:
+        shouldMarkBuilderReconnectRequiredOnRefreshFailure,
+    });
+    if (accessToken) return true;
   }
   return false;
 }
@@ -777,12 +818,19 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
   let storedGrant = input.connectionId !== undefined;
   let unreadable = false;
   let unusable = false;
+  let transientRefreshFailure = false;
 
   for (const candidate of candidates) {
     const resolved = await resolveMcpOAuthCredentialAccess({
       ...candidate,
       forceRefresh: input.forceRefresh ?? false,
+      shouldMarkReconnectRequiredOnRefreshFailure:
+        shouldMarkBuilderReconnectRequiredOnRefreshFailure,
     });
+    if (resolved.refreshFailure === "transient") {
+      transientRefreshFailure = true;
+      continue;
+    }
     if (resolved.state.kind === "missing") continue;
     storedGrant = true;
     if (
@@ -821,6 +869,7 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
     };
   }
 
+  if (transientRefreshFailure) throw new McpOAuthRefreshUnavailableError();
   if (!storedGrant) return { kind: "not_connected" };
   return unreadable && !unusable
     ? { kind: "unreadable" }

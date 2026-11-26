@@ -14,7 +14,9 @@ import {
 
 import { getAppConfig } from "../app-config/index.js";
 import {
+  getWorkspaceConnectionOAuth,
   getWorkspaceConnectionProvider,
+  SLACK_PUBLIC_HISTORY_OAUTH_SCOPES,
   type WorkspaceConnectionProvider,
 } from "../connections/catalog.js";
 import {
@@ -38,6 +40,8 @@ import {
   writeAppSecret,
 } from "../secrets/storage.js";
 import {
+  getWorkspaceConnectionAppAccess,
+  getWorkspaceConnectionGrant,
   listWorkspaceConnections,
   normalizeOAuthScope,
   upsertWorkspaceConnection,
@@ -62,24 +66,7 @@ import {
 import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import { runWithRequestContext } from "./request-context.js";
 
-export type GenericWorkspaceOAuthProvider =
-  | "figma"
-  | "gmail"
-  | "google_calendar"
-  | "google_docs"
-  | "google_drive"
-  | "bigquery"
-  | "google_sheets"
-  | "google_slides"
-  | "github"
-  | "hubspot"
-  | "salesforce"
-  | "jira"
-  | "sentry"
-  | "notion"
-  | "sigma";
-
-const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
+export const WORKSPACE_PROVIDER_OAUTH_PROVIDERS = [
   "figma",
   "gmail",
   "google_calendar",
@@ -95,7 +82,39 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "sentry",
   "notion",
   "sigma",
-]);
+  "slack",
+  "zoom",
+] as const;
+
+export type GenericWorkspaceOAuthProvider =
+  (typeof WORKSPACE_PROVIDER_OAUTH_PROVIDERS)[number];
+
+const SUPPORTED_PROVIDERS = new Set<string>(WORKSPACE_PROVIDER_OAUTH_PROVIDERS);
+// Whether one upstream account (a portal, an org, a site) is linked by each
+// user separately, so each owner gets its own token row. A provider that
+// starts owner-scoping after connections were saved must keep those
+// connections on their bare-id rows, which only their owner can rewrite.
+const OWNER_SCOPED_ACCOUNTS: Readonly<
+  Record<GenericWorkspaceOAuthProvider, boolean>
+> = {
+  figma: false,
+  gmail: false,
+  google_calendar: false,
+  google_docs: false,
+  google_drive: false,
+  bigquery: false,
+  google_sheets: false,
+  google_slides: false,
+  github: false,
+  hubspot: true,
+  salesforce: true,
+  jira: true,
+  sentry: false,
+  notion: false,
+  sigma: true,
+  slack: true,
+  zoom: true,
+};
 const FLOW_TTL_SECONDS = 10 * 60;
 const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
 const PROVIDER_RESPONSE_MAX_BYTES = 256 * 1024;
@@ -104,6 +123,8 @@ const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
 const SIGMA_OAUTH_CLIENTS_SECRET = "SIGMA_OAUTH_CLIENT_REGISTRATIONS";
 const WORKSPACE_OAUTH_ADMIN_ERROR =
   "This shared connection requires organization or app-admin access. Personal connections can be connected by any workspace member.";
+import { OAUTH_ACCOUNT_ALREADY_LINKED_ERROR } from "../connections/oauth-callback-error.js";
+
 const OAUTH_ACCOUNT_OWNERSHIP_ERROR =
   "This account is already linked to another user. Choose a different account to connect.";
 
@@ -259,13 +280,31 @@ export function oauthFlowFailure(
 function oauthAccountOwnershipFailure(
   event: H3Event,
   error: unknown,
+  returnPath: string | undefined,
+  accountLabel: string,
 ): Response | { error: string } | null {
   if (!(error instanceof OAuthAccountOwnedByOtherUserError)) return null;
-  return oauthFlowFailure(
-    event,
-    error.statusCode,
-    OAUTH_ACCOUNT_OWNERSHIP_ERROR,
-  );
+  const accept = getRequestHeader(event, "accept") ?? "";
+  if (returnPath && accept.includes("text/html")) {
+    const returnUrl = new URL(getAppUrl(event, returnPath));
+    returnUrl.searchParams.set(
+      "oauth_error",
+      OAUTH_ACCOUNT_ALREADY_LINKED_ERROR,
+    );
+    returnUrl.searchParams.set("oauth_account", accountLabel);
+    return queryEchoSafeRedirect(
+      event,
+      redirectWithStagedCookies(event, returnUrl.href),
+    );
+  }
+  setResponseStatus(event, error.statusCode);
+  if (!accept.includes("text/html")) {
+    return { error: OAUTH_ACCOUNT_OWNERSHIP_ERROR };
+  }
+  return oauthErrorPage(OAUTH_ACCOUNT_OWNERSHIP_ERROR, error.statusCode, {
+    backHref: "/",
+    backLabel: "Back to app",
+  });
 }
 
 export async function handleWorkspaceProviderOAuthStart(
@@ -282,6 +321,13 @@ export async function handleWorkspaceProviderOAuthStart(
       event,
       400,
       "OAuth connection scope must be user, organization, or app.",
+    );
+  }
+  if (isPersonalProviderOAuth(providerId) && requestedScope !== "user") {
+    return oauthFlowFailure(
+      event,
+      403,
+      "This provider requires personal OAuth consent.",
     );
   }
   const requestedAppId = text(query.appId);
@@ -368,7 +414,10 @@ export async function handleWorkspaceProviderOAuthStart(
     useRootGoogleCallback
       ? "/_agent-native/google/callback"
       : workspaceProviderOAuthPath(providerId, "callback"),
-    { allowRootCallback: useRootGoogleCallback },
+    {
+      allowRootCallback: useRootGoogleCallback,
+      appScopedCallback: !useRootGoogleCallback,
+    },
   );
   if (!redirectUri) {
     return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");
@@ -500,14 +549,16 @@ export async function handleWorkspaceProviderOAuthStart(
         redirectUri,
         state,
         challenge,
-        loginHint: targetAccountEmail ?? session.email,
+        // Only a reconnect names its account. Hinting the signed-in user's own
+        // email on a plain connect pins Google to that account, so a second
+        // account can never be chosen.
+        loginHint: targetAccountEmail,
         includeGrantedScopes: sharesGoogleTokenRow(provider),
         ...(requestedScopes || optionalScopes
           ? {
-              requestedScopes: mergeWorkspaceOAuthValues(
-                requestedScopes ?? provider.oauth.scopes,
-                optionalScopes ?? [],
-              ),
+              requestedScopes:
+                requestedScopes ?? defaultAuthorizationScopes(provider),
+              optionalScopes,
             }
           : {}),
         ...(providerId === "sigma"
@@ -580,6 +631,13 @@ export async function handleWorkspaceProviderOAuthCallback(
     );
   }
   const flow = storedFlow.flow;
+  if (isPersonalProviderOAuth(providerId) && flow.scope !== "user") {
+    return oauthFlowFailure(
+      event,
+      403,
+      "This provider requires personal OAuth consent.",
+    );
+  }
   if (providerId === "sigma" && !sigmaOAuthFlowMatchesCurrentApp(flow)) {
     return oauthFlowFailure(
       event,
@@ -667,6 +725,16 @@ export async function handleWorkspaceProviderOAuthCallback(
             }
           : {}),
       });
+      const personalGrant =
+        isPersonalProviderOAuth(providerId) &&
+        resolvePersonalGrant(provider, flow, tokens);
+      if (personalGrant && personalGrant.missingRequired) {
+        return oauthFlowFailure(
+          event,
+          400,
+          "The provider did not grant the required OAuth scopes.",
+        );
+      }
       const identities = await resolveWorkspaceProviderIdentities(
         providerId,
         tokens,
@@ -701,8 +769,45 @@ export async function handleWorkspaceProviderOAuthCallback(
         const accountId = scopedOAuthAccountId(
           providerId,
           session.email,
-          identity.accountId,
+          isPersonalProviderOAuth(providerId)
+            ? JSON.stringify([orgId, identity.accountId])
+            : identity.accountId,
         );
+        const existing = existingConnections.find(
+          (connection) =>
+            connection.accountId === accountId &&
+            (flow.scope === "user"
+              ? connection.allowedUsers.some(
+                  (allowedUser) =>
+                    allowedUser.toLowerCase() === session.email.toLowerCase(),
+                )
+              : flow.scope === "organization"
+                ? connection.allowedUsers.length === 0 &&
+                  (connection.allowedUserGroups?.length ?? 0) === 0
+                : connection.allowedApps.some(
+                    (allowedApp) =>
+                      allowedApp.toLowerCase() === flow.appId.toLowerCase(),
+                  )),
+        );
+        const existingGrant =
+          personalGrant && existing
+            ? await getWorkspaceConnectionGrant(existing.id, flow.appId)
+            : null;
+        if (
+          personalGrant &&
+          existing &&
+          !getWorkspaceConnectionAppAccess(
+            existing,
+            flow.appId,
+            existingGrant ? [existingGrant] : [],
+          ).available
+        ) {
+          return oauthFlowFailure(
+            event,
+            403,
+            "Grant this app access before reconnecting this account.",
+          );
+        }
         try {
           const previousTokens =
             googleGrant && !googleGrant.explicitScope
@@ -721,7 +826,12 @@ export async function handleWorkspaceProviderOAuthCallback(
             session.email,
           );
         } catch (error) {
-          const response = oauthAccountOwnershipFailure(event, error);
+          const response = oauthAccountOwnershipFailure(
+            event,
+            error,
+            flow.returnUrl ?? state.returnUrl,
+            identity.label,
+          );
           if (response) return response;
           throw error;
         }
@@ -730,24 +840,9 @@ export async function handleWorkspaceProviderOAuthCallback(
           accountId,
           identity.label,
         );
-        const existing = existingConnections.find(
-          (connection) =>
-            connection.accountId === accountId &&
-            (flow.scope === "user"
-              ? connection.allowedUsers.some(
-                  (allowedUser) =>
-                    allowedUser.toLowerCase() === session.email.toLowerCase(),
-                )
-              : flow.scope === "organization"
-                ? connection.allowedUsers.length === 0 &&
-                  (connection.allowedUserGroups?.length ?? 0) === 0
-                : connection.allowedApps.some(
-                    (allowedApp) =>
-                      allowedApp.toLowerCase() === flow.appId.toLowerCase(),
-                  )),
-        );
         const scopes =
           googleGrant?.scopes ??
+          (personalGrant ? personalGrant.scopes : undefined) ??
           mergeWorkspaceOAuthValues(
             identity.scopes ?? [],
             tokenScopes(
@@ -760,6 +855,7 @@ export async function handleWorkspaceProviderOAuthCallback(
           );
         const connectionConfig = {
           credentialMode: "oauth",
+          ...(personalGrant ? { personalProviderOAuth: true } : {}),
           ...(googleGrant?.missingScopes.length
             ? { missingScopes: googleGrant.missingScopes }
             : {}),
@@ -809,7 +905,10 @@ export async function handleWorkspaceProviderOAuthCallback(
           appId: flow.appId,
           provider: providerId,
           scopes,
-          config: connectionConfig,
+          config: { ...existingGrant?.config, ...connectionConfig },
+          ...(existingGrant
+            ? { credentialRefs: existingGrant.credentialRefs }
+            : {}),
         });
         if (googleGrant?.explicitScope) {
           await dropGoogleScopesTokenLacks(
@@ -845,14 +944,21 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   loginHint?: string;
   includeGrantedScopes?: boolean;
   requestedScopes?: readonly string[];
+  optionalScopes?: readonly string[];
   resource?: string;
 }): string {
-  if (!input.provider.oauth)
-    throw new Error("Provider does not support OAuth.");
-  const requestedScopes = input.requestedScopes ?? input.provider.oauth.scopes;
+  const oauth = getWorkspaceConnectionOAuth(input.provider);
+  if (!oauth) throw new Error("Provider does not support OAuth.");
+  const requiredScopes =
+    input.requestedScopes ?? defaultAuthorizationScopes(input.provider);
+  const optionalScopes = input.optionalScopes ?? [];
+  const requestedScopes = mergeWorkspaceOAuthValues(
+    requiredScopes,
+    optionalScopes,
+  );
   if (
-    input.requestedScopes &&
-    !isAllowedWorkspaceOAuthScopes(requestedScopes, input.provider.oauth.scopes)
+    (input.requestedScopes || input.optionalScopes) &&
+    !isAllowedWorkspaceOAuthScopes(requestedScopes, oauth.scopes)
   ) {
     throw new Error("Requested OAuth scopes are invalid or unsupported.");
   }
@@ -861,9 +967,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   const scopes = isGoogleWorkspaceOAuthProvider(input.provider.id)
     ? [...new Set(["openid", "email", ...requestedScopes])]
     : requestedScopes;
-  const url = new URL(
-    input.authorizationUrl ?? input.provider.oauth.authorizationUrl,
-  );
+  const url = new URL(input.authorizationUrl ?? oauth.authorizationUrl);
   url.searchParams.set("client_id", input.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
   url.searchParams.set("response_type", "code");
@@ -892,7 +996,20 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
     url.searchParams.set("prompt", "consent select_account");
     if (input.loginHint) url.searchParams.set("login_hint", input.loginHint);
   }
-  if (scopes.length) {
+  if (input.provider.id === "slack") {
+    url.searchParams.set("user_scope", scopes.join(","));
+  } else if (input.provider.id === "zoom") {
+    const mandatory = mergeWorkspaceOAuthValues(
+      ["user:read:user"],
+      requiredScopes,
+    );
+    url.searchParams.set("scope", mandatory.join(" "));
+    const optional = optionalScopes.filter(
+      (scope) => !mandatory.includes(scope),
+    );
+    if (optional.length)
+      url.searchParams.set("optional_scope", optional.join(" "));
+  } else if (scopes.length) {
     url.searchParams.set("scope", scopes.join(" "));
   }
   if (input.resource) url.searchParams.set("resource", input.resource);
@@ -918,7 +1035,8 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
       | "client_secret_post";
   };
 }): Promise<Record<string, unknown>> {
-  const tokenUrl = input.tokenUrl ?? input.provider.oauth?.tokenUrl;
+  const tokenUrl =
+    input.tokenUrl ?? getWorkspaceConnectionOAuth(input.provider)?.tokenUrl;
   if (!tokenUrl) throw new Error("Provider does not support OAuth.");
   const authorization = `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString("base64")}`;
   if (input.providerId === "sigma" && input.sigma) {
@@ -1094,6 +1212,64 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
         : {}),
     };
   }
+  if (input.providerId === "slack" || input.providerId === "zoom") {
+    const slack = input.providerId === "slack";
+    const { response, body } = await fetchBoundedProviderJson(
+      tokenUrl,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...(slack ? {} : { Authorization: authorization }),
+        },
+        redirect: "error",
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: input.code,
+          redirect_uri: input.redirectUri,
+          ...(slack
+            ? { client_id: input.clientId, client_secret: input.clientSecret }
+            : {}),
+        }),
+      },
+      input.provider.label,
+    );
+    const grant = slack ? record(body.authed_user) : body;
+    const expiresIn = Number(grant?.expires_in);
+    const hasExpiry = Number.isFinite(expiresIn) && expiresIn > 0;
+    const rotating =
+      !slack ||
+      grant?.expires_in !== undefined ||
+      grant?.refresh_token !== undefined;
+    if (
+      !response.ok ||
+      (slack && (body.ok !== true || grant?.token_type !== "user")) ||
+      !text(grant?.access_token) ||
+      (rotating && (!hasExpiry || !text(grant?.refresh_token)))
+    ) {
+      throw new Error(
+        `${input.provider.label} OAuth token exchange failed (${response.status}).`,
+      );
+    }
+    return {
+      access_token: grant?.access_token,
+      refresh_token: grant?.refresh_token,
+      token_type: grant?.token_type,
+      scope: grant?.scope,
+      personalProviderOAuth: true,
+      ...(hasExpiry ? { expiry_date: Date.now() + expiresIn * 1_000 } : {}),
+      ...(slack
+        ? {
+            slackUserId: grant?.id,
+            slackWorkspaceId:
+              record(body.team)?.id ?? record(body.enterprise)?.id,
+            slackWorkspaceName:
+              record(body.team)?.name ?? record(body.enterprise)?.name,
+          }
+        : {}),
+    };
+  }
   const fields = {
     grant_type: "authorization_code",
     code: input.code,
@@ -1235,6 +1411,33 @@ async function resolveWorkspaceProviderIdentitySingle(
   providerId: GenericWorkspaceOAuthProvider,
   tokens: Record<string, unknown>,
 ): Promise<WorkspaceProviderIdentity> {
+  if (providerId === "slack") {
+    const user = text(tokens.slackUserId);
+    const workspace = text(tokens.slackWorkspaceId);
+    if (!user || !workspace)
+      throw new Error("Slack OAuth did not identify the user and workspace.");
+    return {
+      accountId: JSON.stringify([workspace, user]),
+      label: text(tokens.slackWorkspaceName) ?? "Slack workspace",
+    };
+  }
+  if (providerId === "zoom") {
+    const accessToken = text(tokens.access_token);
+    if (!accessToken)
+      throw new Error("Zoom OAuth response did not include an access token.");
+    const { response, body } = await fetchBoundedProviderJson(
+      "https://api.zoom.us/v2/users/me",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        redirect: "error",
+      },
+      "Zoom",
+    );
+    const accountId = text(body.id);
+    if (!response.ok || !accountId)
+      throw new Error("Zoom OAuth did not identify the connected user.");
+    return { accountId, label: text(body.display_name) ?? "Zoom account" };
+  }
   if (providerId === "notion") {
     const owner = record(tokens.owner);
     const user = record(owner?.user);
@@ -1416,9 +1619,10 @@ function requiredProvider(
   oauth: NonNullable<WorkspaceConnectionProvider["oauth"]>;
 } {
   const provider = getWorkspaceConnectionProvider(providerId);
-  if (!provider?.oauth)
+  const oauth = getWorkspaceConnectionOAuth(provider);
+  if (!provider || !oauth)
     throw new Error(`${providerId} OAuth is not configured.`);
-  return { ...provider, oauth: provider.oauth };
+  return { ...provider, oauth };
 }
 
 function readStoredFlow(
@@ -1462,13 +1666,11 @@ function readStoredFlow(
             parsedRecord.provider as GenericWorkspaceOAuthProvider,
           )
         : undefined;
+    const oauth = getWorkspaceConnectionOAuth(providerConfig);
     if (
       !Array.isArray(parsedRecord.requestedScopes) ||
-      !providerConfig?.oauth ||
-      !isAllowedWorkspaceOAuthScopes(
-        parsedRecord.requestedScopes,
-        providerConfig.oauth.scopes,
-      )
+      !oauth ||
+      !isAllowedWorkspaceOAuthScopes(parsedRecord.requestedScopes, oauth.scopes)
     ) {
       return {
         flow: null,
@@ -1546,14 +1748,7 @@ export function scopedOAuthAccountId(
   owner: string,
   accountId: string,
 ): string {
-  if (
-    provider !== "hubspot" &&
-    provider !== "salesforce" &&
-    provider !== "jira" &&
-    provider !== "sigma"
-  ) {
-    return accountId;
-  }
+  if (!OWNER_SCOPED_ACCOUNTS[provider]) return accountId;
   const ownerKey = crypto
     .createHash("sha256")
     .update(`${provider}:${owner.trim().toLowerCase()}`)
@@ -1894,6 +2089,38 @@ export function tokenScopes(
   return [...fallback];
 }
 
+function isPersonalProviderOAuth(
+  provider: string,
+): provider is "slack" | "zoom" {
+  return provider === "slack" || provider === "zoom";
+}
+
+function defaultAuthorizationScopes(provider: WorkspaceConnectionProvider) {
+  return provider.id === "slack"
+    ? SLACK_PUBLIC_HISTORY_OAUTH_SCOPES
+    : (provider.oauth?.scopes ?? []);
+}
+
+function resolvePersonalGrant(
+  provider: ReturnType<typeof requiredProvider>,
+  flow: WorkspaceProviderOAuthFlow,
+  tokens: Record<string, unknown>,
+) {
+  const required = mergeWorkspaceOAuthValues(
+    provider.id === "zoom" ? ["user:read:user"] : [],
+    flow.requestedScopes ?? defaultAuthorizationScopes(provider),
+  );
+  const held = tokenScopes(tokens, []);
+  const allowed = mergeWorkspaceOAuthValues(
+    required,
+    flow.optionalScopes ?? [],
+  );
+  return {
+    scopes: held.filter((scope) => allowed.includes(scope)),
+    missingRequired: required.some((scope) => !held.includes(scope)),
+  };
+}
+
 function sharesGoogleTokenRow(provider: WorkspaceConnectionProvider): boolean {
   return provider.oauth?.provider === "google";
 }
@@ -2009,34 +2236,35 @@ function preserveSigmaWorkspaceOAuthAppAccess(
   return mergeWorkspaceOAuthValues(existing ?? [], [appId]);
 }
 
-function clientCredentialKeys(
+function clientCredentialKeyPairs(
   provider: GenericWorkspaceOAuthProvider,
-  field: "id" | "secret",
-): string[] {
+): Array<readonly [string, string]> {
   const prefix = isGoogleWorkspaceOAuthProvider(provider)
     ? "GOOGLE"
     : provider.toUpperCase();
-  const suffix = field === "id" ? "ID" : "SECRET";
   if (provider === "github") {
-    const integrationPrefix = `GITHUB_INTEGRATION_CLIENT_${suffix}`;
-    return [integrationPrefix, `GITHUB_CLIENT_${suffix}`];
-  }
-  if (provider === "hubspot") {
-    const integrationPrefix = `HUBSPOT_INTEGRATION_CLIENT_${suffix}`;
-    return [integrationPrefix, `HUBSPOT_CLIENT_${suffix}`];
-  }
-  if (provider === "salesforce") {
-    const integrationPrefix = `SALESFORCE_INTEGRATION_CLIENT_${suffix}`;
-    const consumerCredential = `SALESFORCE_CONSUMER_${
-      field === "id" ? "KEY" : "SECRET"
-    }`;
     return [
-      integrationPrefix,
-      `SALESFORCE_CLIENT_${suffix}`,
-      consumerCredential,
+      ["GITHUB_INTEGRATION_CLIENT_ID", "GITHUB_INTEGRATION_CLIENT_SECRET"],
+      ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
     ];
   }
-  return [`${prefix}_CLIENT_${suffix}`];
+  if (provider === "hubspot") {
+    return [
+      ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
+      ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"],
+    ];
+  }
+  if (provider === "salesforce") {
+    return [
+      [
+        "SALESFORCE_INTEGRATION_CLIENT_ID",
+        "SALESFORCE_INTEGRATION_CLIENT_SECRET",
+      ],
+      ["SALESFORCE_CLIENT_ID", "SALESFORCE_CLIENT_SECRET"],
+      ["SALESFORCE_CONSUMER_KEY", "SALESFORCE_CONSUMER_SECRET"],
+    ];
+  }
+  return [[`${prefix}_CLIENT_ID`, `${prefix}_CLIENT_SECRET`]];
 }
 
 function normalizeSalesforceInstanceUrl(value: string | undefined): URL | null {
@@ -2110,16 +2338,14 @@ export function salesforceOAuthEndpoint(
 async function resolveProviderClientCredentials(
   provider: GenericWorkspaceOAuthProvider,
 ): Promise<[string | null, string | null]> {
-  const [clientId, clientSecret] = await Promise.all(
-    (["id", "secret"] as const).map(async (field) => {
-      for (const key of clientCredentialKeys(provider, field)) {
-        const value = await resolveSecret(key);
-        if (value) return value;
-      }
-      return null;
-    }),
-  );
-  return [clientId, clientSecret];
+  for (const [idKey, secretKey] of clientCredentialKeyPairs(provider)) {
+    const [clientId, clientSecret] = await Promise.all([
+      resolveSecret(idKey),
+      resolveSecret(secretKey),
+    ]);
+    if (clientId && clientSecret) return [clientId, clientSecret];
+  }
+  return [null, null];
 }
 
 function flowCookieName(

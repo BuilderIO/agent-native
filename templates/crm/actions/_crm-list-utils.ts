@@ -1,4 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
+import { nextFreeName } from "@agent-native/core/free-name";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -93,11 +94,27 @@ export function crmApiSlug(value: string): string {
   return slug || "list";
 }
 
+/**
+ * A free api_slug for a new list on this connection: `base`, then `base_2`,
+ * `base_3`. The unique index covers every list on the connection, other
+ * people's private ones included, so the slugs are read from all of them, not
+ * only the lists the caller can see. Otherwise each hidden slug would cost
+ * create-crm-list a claim, and enough of them would use up its tries. Another
+ * create can still take the slug at the same moment, so the insert that claims
+ * it can find it taken; create-crm-list then asks again, passing the slugs it
+ * found taken as `alsoTaken`. The read has no cap: one that stopped early
+ * could leave out slugs that are taken, and the claims could run out on those
+ * before reaching a free one.
+ */
 export async function uniqueCrmListSlug(
   db: CrmDb,
   connectionId: string,
   base: string,
+  alsoTaken: ReadonlySet<string> = new Set(),
 ): Promise<string> {
+  // guard:allow-unscoped — reads only the api_slug values the connection's
+  // unique index covers, to skip them; no list or slug is returned, and the
+  // insert would refuse each one anyway.
   const rows = await db
     .select({ apiSlug: schema.crmLists.apiSlug })
     .from(schema.crmLists)
@@ -105,20 +122,12 @@ export async function uniqueCrmListSlug(
       and(
         eq(schema.crmLists.connectionId, connectionId),
         like(schema.crmLists.apiSlug, `${base}%`),
-        accessFilter(schema.crmLists, schema.crmListShares),
       ),
-    )
-    .limit(MAX_LIST_LIMIT);
+    );
   const taken = new Set(rows.map((row) => row.apiSlug));
-  if (!taken.has(base)) return base;
-  for (let suffix = 2; suffix <= MAX_LIST_LIMIT + 1; suffix += 1) {
-    const candidate = `${base}_${suffix}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-  throw new CrmListError(
-    "crm-list-slug-exhausted",
-    `Could not derive a free api_slug from "${base}". Rename the list.`,
-  );
+  return nextFreeName(base, (slug) => taken.has(slug) || alsoTaken.has(slug), {
+    separator: "_",
+  });
 }
 
 export type CrmListRow = typeof schema.crmLists.$inferSelect;

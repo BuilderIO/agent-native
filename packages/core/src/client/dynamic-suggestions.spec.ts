@@ -149,6 +149,36 @@ function ScopedSuggestionsProbe({ scope }: { scope: ChatThreadScope }) {
   });
 }
 
+type SuggestionsRender = {
+  version: string | undefined;
+  loading: boolean;
+  suggestions: string;
+};
+
+const recordingSuggestionsConfig = {
+  getSuggestions: ({ scope }: { scope?: ChatThreadScope | null }) =>
+    scope?.contextVersion ? [`Current ${scope.contextVersion}`] : [],
+};
+
+function RecordingScopedSuggestionsProbe({
+  scope,
+  renders,
+}: {
+  scope: ChatThreadScope;
+  renders: SuggestionsRender[];
+}) {
+  const result = useAgentDynamicSuggestionsResult({
+    dynamicSuggestions: recordingSuggestionsConfig,
+    scope,
+  });
+  renders.push({
+    version: scope.contextVersion,
+    loading: result.isLoading,
+    suggestions: (result.suggestions ?? []).join("|"),
+  });
+  return null;
+}
+
 describe("useAgentDynamicSuggestionsResult", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -241,5 +271,63 @@ describe("useAgentDynamicSuggestionsResult", () => {
         .querySelector("[data-testid='scoped-suggestions-probe']")
         ?.getAttribute("data-suggestions"),
     ).toBe("Current slide-2");
+  });
+
+  it("reports a scope change as loading until that scope's read finishes", async () => {
+    const renders: SuggestionsRender[] = [];
+    const scope = {
+      type: "deck",
+      id: "deck-1",
+      contextVersion: "slide-1",
+    } satisfies ChatThreadScope;
+    act(() => {
+      root.render(
+        React.createElement(RecordingScopedSuggestionsProbe, {
+          scope,
+          renders,
+        }),
+      );
+    });
+
+    await act(async () => {
+      releaseFetches();
+      await fetchGate;
+    });
+    await vi.waitFor(() =>
+      expect(renders[renders.length - 1]).toEqual({
+        version: "slide-1",
+        loading: false,
+        suggestions: "Current slide-1",
+      }),
+    );
+
+    renders.length = 0;
+    act(() => {
+      root.render(
+        React.createElement(RecordingScopedSuggestionsProbe, {
+          scope: { ...scope, contextVersion: "slide-2" },
+          renders,
+        }),
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(renders[renders.length - 1]).toEqual({
+        version: "slide-2",
+        loading: false,
+        suggestions: "Current slide-2",
+      }),
+    );
+
+    expect(renders[0]).toEqual({
+      version: "slide-2",
+      loading: true,
+      suggestions: "Current slide-1",
+    });
+    expect(
+      renders.filter(
+        (render) => !render.loading && render.suggestions === "Current slide-1",
+      ),
+    ).toEqual([]);
   });
 });

@@ -1,13 +1,13 @@
-import { describe, expect, it } from "vitest";
-
-import { FIRST_PARTY_TEMPLATE_NAMES } from "../../server/lib/first-party-metric-catalog";
 import {
   APP_SERIES_COLORS,
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
   appSeriesColor,
   isUnknownApp,
-} from "./app-series-colors";
+} from "@agent-native/toolkit/dashboard/tokens/app-series-colors";
+import { describe, expect, it } from "vitest";
+
+import { FIRST_PARTY_TEMPLATE_NAMES } from "../../server/lib/first-party-metric-catalog";
 
 function contrast(a: string, b: string): number {
   const luminance = (hex: string) => {

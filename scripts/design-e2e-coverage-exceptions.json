@@ -191,6 +191,32 @@
       "reason": "Paste now follows the new targeting rules: with nothing selected in overview the copy lands on the board, so the case selects the screen and the copy goes in at its top level at the corner it fits in; its 10% margin is asserted against the 480px breakpoint preview, and replacement still measures that preview.",
       "evidence": "Design canvas UX fixes branch (claude/design-canvas-ux-fixes-bf57a9): canvas paste placement in app/pages/design-editor/paste-placement.ts and margin neutralizing in setRootLayerPosition (app/pages/design-editor/clone-and-pen-edit.ts, covered by clone-and-pen-edit.spec.ts)",
       "owner": "design-infra"
+    },
+    {
+      "action": "rename",
+      "from": {
+        "file": "pasted-svg-image-inspector.spec.ts",
+        "title": "Figma frame paste uses the live Design scene and updates the selected frame inspector"
+      },
+      "to": {
+        "file": "pasted-svg-image-inspector.spec.ts",
+        "title": "pasting a frame from another design app lands in the selected container without a server import"
+      },
+      "reason": "Pasting from another design app is decoded and planned in the browser, so the spec no longer mocks a server import; the replacement covers the same scene-aware placement and inspector behavior.",
+      "evidence": "PR #9275"
+    },
+    {
+      "action": "rename",
+      "from": {
+        "file": "pasted-svg-image-inspector.spec.ts",
+        "title": "Figma paste plans can insert a frame into the Design board and persist it"
+      },
+      "to": {
+        "file": "pasted-svg-image-inspector.spec.ts",
+        "title": "pasting a frame onto the Design board creates it as a screen in one import and persists it"
+      },
+      "reason": "A frame pasted with no screen to land in becomes a screen in one batched import; the replacement asserts that and its persistence after reload.",
+      "evidence": "PR #9275"
     }
   ],
   "quarantine": []

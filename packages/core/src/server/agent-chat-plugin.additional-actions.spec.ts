@@ -259,6 +259,42 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
     vi.restoreAllMocks();
   });
 
+  it.each(["production", "development"])(
+    "registers first-party open_app in the %s interactive chat action catalog",
+    async (environment) => {
+      vi.stubEnv("NODE_ENV", environment);
+      await boot(undefined, { appId: "chat", frameworkTools: {} });
+      const handlers = booted.handlerOptions.filter(
+        (options) => options.resolveAdditionalActions,
+      );
+      expect(handlers.length).toBeGreaterThan(0);
+      for (const handler of handlers) {
+        expect(handler.actions.open_app).toBeDefined();
+        expect(handler.initialToolNames).toContain("open_app");
+      }
+    },
+  );
+
+  it.each(["production", "development"])(
+    "keeps an app-owned open_app action instead of the shared builtin in %s",
+    async (environment) => {
+      vi.stubEnv("NODE_ENV", environment);
+      const appAction = entry("App-owned open app");
+      await boot(undefined, {
+        appId: "chat",
+        frameworkTools: {},
+        registeredActions: { open_app: appAction },
+      });
+      const handlers = booted.handlerOptions.filter(
+        (options) => options.resolveAdditionalActions,
+      );
+      expect(handlers.length).toBeGreaterThan(0);
+      for (const handler of handlers) {
+        expect(handler.actions.open_app).toBe(appAction);
+      }
+    },
+  );
+
   it("adds the app's chat actions in production and dev without replacing registered names", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const event = { path: "/_agent-native/agent-chat" };

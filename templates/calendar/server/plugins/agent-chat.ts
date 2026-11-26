@@ -16,6 +16,7 @@ import { z } from "zod";
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { CALENDAR_CONNECTOR_CATALOG } from "../lib/calendar-connector-catalog.js";
+import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 
 registerEvent({
   name: "calendar.event.created",
@@ -88,9 +89,10 @@ export default createAgentChatPlugin({
   mcp: {
     appApprovalPage: true,
     connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
+    directoryProfile: CHATGPT_DIRECTORY_PROFILE,
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Read schedules with list-events. Create events with create-event and edit them with update-event. RSVP with respond-to-event; scope=single (default) answers only the supplied recurring occurrence id. Preserve the event id and accountEmail returned by list-events or create-event on subsequent writes. These actions run directly as the authenticated user; use ask_app for work requiring the Calendar agent's reasoning.",
+      "Read schedules with list-events, search-events and get-event. Find a shared free time with find-a-time, or the user's own open slots on one day with check-availability, and look people up with search-people. Create events with create-event, edit them with update-event and delete one with delete-event. RSVP with respond-to-event; scope=single (default) answers only the supplied recurring occurrence id. Manage booking links with list-booking-links, create-booking-link and update-booking-link, and read who booked with list-bookings. Preserve the event id and accountEmail returned by list-events or create-event on subsequent writes. A connected account or calendar feed may carry a description of what it is for, returned by list-events accounts and sourceCoverage; use it to pick the accountEmail for new events, and when the user says what an account or feed is for, save that with the description tool tool-search finds. tool-search finds the rest, run with call-tool: availability settings, calendar feeds, overlay people, bulk event changes, booking cancellations and booking URLs that take exactly one booking. These actions run directly as the authenticated user; deleting, removing or cancelling, sending an email, replacing the calendar feed or overlay list, changing availability, and creating or changing a booking link, including its URLs that take one booking, ask the user to approve first. Use ask_app only for work requiring the Calendar agent's reasoning.",
   },
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => {

@@ -1,18 +1,14 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import reactToReviewComment from "@agent-native/core/review/actions/react-to-review-comment";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import { commentActorKey } from "../shared/comment-author.js";
 import {
-  parseSlideCommentReactionBuckets,
-  serializeSlideCommentReactionBuckets,
-  summarizeSlideCommentReactions,
-} from "../shared/slide-comment-reactions.js";
-
-const MAX_CAS_ATTEMPTS = 3;
+  DECK_REVIEW_RESOURCE,
+  findSlideComment,
+  slideCommentReactions,
+  slideReviewContext,
+} from "../server/lib/slide-comments.js";
 
 export default defineAction({
   description:
@@ -24,7 +20,7 @@ export default defineAction({
       .string()
       .trim()
       .min(1)
-      .max(64)
+      .max(32)
       .describe("Emoji character or sequence (for example, 👍 or 🎉)"),
   }),
   changeResource: ({ deckId }) => ({
@@ -35,80 +31,39 @@ export default defineAction({
     target: (args) => ({ type: "slide-comment", id: args.commentId }),
   },
   run: async ({ commentId, deckId, emoji }, ctx) => {
-    const viewerEmail = getRequestUserEmail()?.trim().toLowerCase();
-    if (!viewerEmail) {
+    const reviewCtx = slideReviewContext(ctx);
+    if (!reviewCtx.userEmail?.trim()) {
       fail("Sign in required to react to comments.", {
         errorCode: "not_authenticated",
         statusCode: 401,
       });
     }
     await assertAccess("deck", deckId, "commenter");
-    const normalizedEmoji = emoji.trim();
-    const actor = commentActorKey(ctx?.caller, viewerEmail);
-
-    const db = getDb();
-    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
-      const rows = await db
-        .select({
-          emojiReactionsJson: schema.slideComments.emojiReactionsJson,
-        })
-        .from(schema.slideComments)
-        .where(
-          and(
-            eq(schema.slideComments.id, commentId),
-            eq(schema.slideComments.deckId, deckId),
-          ),
-        )
-        .limit(1);
-      const comment = rows.at(0);
-      if (!comment)
-        fail(`Comment not found: ${commentId}`, {
-          errorCode: "comment_not_found",
-          statusCode: 404,
-        });
-
-      const previousJson = comment.emojiReactionsJson || "{}";
-      const reactions = parseSlideCommentReactionBuckets(previousJson);
-      const bucket = reactions[normalizedEmoji] ?? [];
-      const had = bucket.some((email) => email.trim().toLowerCase() === actor);
-      const nextBucket = had
-        ? bucket.filter((email) => email.trim().toLowerCase() !== actor)
-        : [...bucket, actor];
-      const next = { ...reactions };
-      if (nextBucket.length === 0) delete next[normalizedEmoji];
-      else next[normalizedEmoji] = nextBucket;
-
-      const updated = await db
-        .update(schema.slideComments)
-        .set({
-          emojiReactionsJson: serializeSlideCommentReactionBuckets(next),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.slideComments.id, commentId),
-            eq(schema.slideComments.deckId, deckId),
-            eq(schema.slideComments.emojiReactionsJson, previousJson),
-          ),
-        )
-        .returning({ id: schema.slideComments.id });
-
-      if (updated.length > 0) {
-        return {
-          id: commentId,
-          emoji: normalizedEmoji,
-          reacted: !had,
-          reactions: summarizeSlideCommentReactions(
-            JSON.stringify(next),
-            actor,
-          ),
-        };
-      }
+    const comment = await findSlideComment(deckId, commentId);
+    if (!comment) {
+      fail(`Comment not found: ${commentId}`, {
+        errorCode: "comment_not_found",
+        statusCode: 404,
+      });
     }
 
-    fail(
-      `Could not toggle reaction on comment ${commentId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
-      { errorCode: "reaction_conflict", statusCode: 409 },
+    const reaction = emoji.trim();
+    const { active } = await reactToReviewComment.run(
+      {
+        resourceType: DECK_REVIEW_RESOURCE,
+        resourceId: deckId,
+        commentId: comment.id,
+        reaction,
+      },
+      reviewCtx,
     );
+    const reactions = await slideCommentReactions([comment], ctx);
+    return {
+      id: comment.id,
+      emoji: reaction,
+      reacted: active,
+      // coercion-ok: a comment no one has reacted to has no entry, which is no reactions.
+      reactions: reactions[comment.id] ?? [],
+    };
   },
 });

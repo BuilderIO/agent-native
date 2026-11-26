@@ -58,6 +58,12 @@ async function archiveOne(id: string) {
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Archive one or more recordings. Hides them from the main library but keeps all data intact. Use restore-recording to undo.",
   schema: z

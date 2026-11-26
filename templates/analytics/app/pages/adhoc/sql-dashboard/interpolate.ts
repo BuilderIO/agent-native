@@ -1,7 +1,8 @@
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { stripSqlComments } from "../../../../shared/sql-comments";
 import { parseDayCount } from "./filter-vars";
 import { serializePanelSql } from "./panel-sql";
-import type { SqlPanel } from "./types";
 
 function escapeSqlValue(value: string): string {
   return value.replace(/'/g, "''");

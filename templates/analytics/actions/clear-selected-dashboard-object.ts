@@ -24,6 +24,7 @@ export default defineAction({
   agentTool: false,
   description:
     "Clear the current browser tab's Analytics dashboard selection when it still belongs to that tab.",
+  automatic: true,
   schema: z.object({
     browserTabId: z
       .string()

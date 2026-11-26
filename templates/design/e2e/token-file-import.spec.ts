@@ -89,7 +89,7 @@ test.beforeEach(async ({ page }) => {
 test("token file import continues after an oversized selection", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Tokens", exact: true }).click();
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
   await page
     .getByRole("button", { name: "Import tokens", exact: true })
     .click();
@@ -130,7 +130,7 @@ test("token file import continues after an oversized selection", async ({
 test("DTCG JSON import updates the token list and shows success feedback", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Tokens", exact: true }).click();
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
   await page
     .getByRole("button", { name: "Import tokens", exact: true })
     .click();

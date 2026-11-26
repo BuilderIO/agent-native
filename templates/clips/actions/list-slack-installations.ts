@@ -10,6 +10,7 @@ export default defineAction({
     "List connected Slack workspaces for Agent-Native Clips for Slack. Tokens are never returned.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: false,
   run: async () => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated.");

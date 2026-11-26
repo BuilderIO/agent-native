@@ -85,14 +85,12 @@ export default defineAction({
     let title: string;
     let category: string;
     let description: string | null;
-    let templateDesignSystemId: string | null;
     let files: OriginalTemplateFile[];
 
     if (preset) {
       title = preset.title;
       category = preset.category;
       description = preset.description;
-      templateDesignSystemId = null;
       files = [
         {
           templateFileId: `file:${preset.id}`,
@@ -111,15 +109,6 @@ export default defineAction({
       category = String(template.category ?? "other");
       description =
         typeof template.description === "string" ? template.description : null;
-      const rawDesignSystemId =
-        typeof template.designSystemId === "string"
-          ? template.designSystemId
-          : null;
-      templateDesignSystemId = rawDesignSystemId
-        ? (await resolveAccess("design-system", rawDesignSystemId))
-          ? rawDesignSystemId
-          : null
-        : null;
 
       const templateData = parseDesignTemplateData(
         typeof template.data === "string" ? template.data : "{}",
@@ -157,7 +146,6 @@ export default defineAction({
       title,
       description,
       category,
-      designSystemId: templateDesignSystemId,
       isBuiltIn: Boolean(preset),
       ...(designId
         ? { designId, fromTemplate: true as const, instantiatedAt }

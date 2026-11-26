@@ -30,6 +30,7 @@ export default defineAction({
   }),
   outputSchema: z.object({ cleanups: z.array(mediaCleanupSummarySchema) }),
   http: { method: "GET" },
+  mcpTool: false,
   run: async ({ limit }) => {
     const ownerEmail = getCurrentOwnerEmail(),
       t = schema.recordingMediaCleanups,

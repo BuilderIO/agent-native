@@ -5,12 +5,14 @@ const evaluateFeatureFlagStrictMock = vi.hoisted(() => vi.fn());
 const validateFederatedMembershipMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("../feature-flags/store.js", () => ({
   evaluateFeatureFlagStrict: evaluateFeatureFlagStrictMock,
 }));
 vi.mock("./federation.js", () => ({
+  federatedSnapshotTransaction: () => undefined,
   validateFederatedOrganizationMembershipForCurrentRequest:
     validateFederatedMembershipMock,
 }));

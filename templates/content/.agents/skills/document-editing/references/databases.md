@@ -140,7 +140,8 @@ page.
 
 To fill or move a whole field, read it with `list-content-database-blocks` and
 write it with `set-document-property`, passing that read's `fieldRevision` as
-`expectedBlocksFieldRevision`. Read every page first: the list returns 50
+`expectedBlocksFieldRevision`, or its `baseRevision` for the main field, which
+is the page's body. Read every page first: the list returns 50
 blocks unless you pass `limit` (up to 100), and `page.nextCursor` continues it.
 A field's text is the NFM of its top-level blocks (`parentId: null`) joined
 with newlines; a nested block's NFM is already inside its parent's, so copying
@@ -148,6 +149,12 @@ every listed block duplicates list items and other nested content. A field
 nobody has written reads as one `<empty-block/>` at revision 0. To move text,
 write it to the new field first, then rewrite the old field without it, each
 with its own revision.
+
+`get-content-database` carries every tab's text except the primary Content
+field's: that one is each row's page body, and it reads `null` unless the call
+passes `includePageText: true`. Pages can be long, so such a read returns at
+most 25 rows; page through the rest with `offset`. `null` there means the page
+wasn't read, not that it's empty. For one row, `get-document` returns the body.
 
 Each tab shows the field's name and word count, tabs reorder by dragging, and a
 dot marks a tab that changed since this browser last showed it. People who can
@@ -181,6 +188,13 @@ value must contain exactly one top-level block of the declared kind. Reuse an
 idempotency key only for an exact retry. Unsupported kinds, kind conversion,
 tombstone reuse, cross-parent reorder, schema drift, and stale row or field
 revisions fail explicitly.
+
+To replace a whole Blocks field with `set-document-property`, pass the field
+revision `list-content-database-blocks` returns as
+`expectedBlocksFieldRevision`. The collection's main Blocks field is the
+page's body, so pass the read's `baseRevision` instead; a field revision alone
+is refused there with `BASE_REVISION_REQUIRED`, and a page that changed since
+the read fails with `DOCUMENT_REVISION_CONFLICT`. Read again and retry.
 
 Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
@@ -244,10 +258,10 @@ browser and on the server. A wall-clock time a daylight-saving change skips
 moves forward by the change, and one it repeats is the first of the two. A
 `between` whose start comes after its end is read the other way round.
 
-Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
-form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
-their own `filterGroupId` (the UI uses `advanced-<id>`) form a group nested one
-level inside it. The view's `filterMode` combines ungrouped rules with each
+Filters can be grouped. Rules that share a `filterGroupId` and have no parent
+form a group (views saved before the shared filter kit use `advanced`); rules
+whose `parentFilterGroupId` names a group, with their own `filterGroupId`, form
+a group nested one level inside it. Groups go no deeper. The view's `filterMode` combines ungrouped rules with each
 top-level group as one member. A group's And/Or lives on its rules:
 `filterGroupMode` is the mode of the rule's `filterGroupId`, and
 `parentFilterGroupMode` (nested rules only) is the mode of its parent. Write a
@@ -404,6 +418,34 @@ Use `create-content-database`, `create-inline-content-database`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
 
+A page table's block menu offers "Turn into collection". It sends the table's
+text to `create-inline-content-database` as `table`: `properties` names one
+text property per column after the first (from the header row, or "Column N"),
+and each entry of `rows` is one row page's title followed by one plain-text
+cell per property. The editor then puts the new inline collection block where
+the table was, in one step that one undo takes back; undoing it leaves the
+collection unlinked, so the page's next save moves it to Trash.
+
+An inline collection's block menu offers the reverse, "Turn into table". It
+reads, as text, every row its current view's filters and search keep, in the
+view's sort order. The view's layout doesn't narrow them: rows in collapsed
+groups, and a calendar's or timeline's rows outside the dates on screen, are
+included. The table has a "Name" column with each row's title, then one column
+per property the view shows, except `blocks` properties, whose rich content a
+cell can't hold. It puts a plain table where the block was, in one undoable
+step, and the page's next save moves the collection to Trash. A view with more
+than 500 rows or 49 properties stays a collection. An agent does the same
+with `export-document` (format `csv`) or `get-content-database`, then
+`edit-document`.
+
+A save whose body brings back a removed inline collection's block (one block
+with the same block ID, `databaseId` and `databaseDocumentId`) takes that
+collection back out of Trash, if it went there because a save dropped its
+block. A collection deleted on purpose, whose page is in Trash, stays there;
+restore it with `restore-content-database`. If the block still shows
+"Collection unavailable" after the page saves, restore the collection the same
+way.
+
 Read `get-content-database.mutationContract` immediately before a single-row
 mutation. Pass its exact target and schema revision to create, exact item and
 document IDs plus the current row revision to sparse update, and a fresh
@@ -412,8 +454,10 @@ payload replays the durable receipt; reusing it with a different payload fails.
 Configure at most one ordinary text property as the collection's natural key,
 then use `upsert-database-item-by-key` with that property. Natural-key upsert
 never accepts an arbitrary property name or silently chooses a field. Blocks,
-computed, system, source-managed, unknown, and relation properties are not
-writable through these actions; use their owning surfaces instead.
+computed, system, unknown, and relation properties are not writable through
+these actions; use their owning surfaces instead. A source-managed property is
+writable only when the mutation contract marks it `writable`, as it does for a
+Builder test-model field whose edits Content saves back to Builder.
 
 For a bounded migration that must rewrite every existing row body while adding
 new property definitions and values, use `migrate-content-database-rows` rather
@@ -436,7 +480,15 @@ rows different values, such as a distinct rank per row, call
 `patch-database-items` once with up to 250 rows, each carrying its own item ID,
 document ID, row revision, and sparse patch from the same fresh read. The batch
 writes every row or none; after a conflict, reread only the rows its error
-lists. Do not loop `update-database-item` for multi-row edits. Removing a row from a
+lists. Do not loop `update-database-item` for multi-row edits. An external MCP
+connection whose server instructions offer the script catalog can do bulk work
+that spans calls, such as reading several collections and patching rows from
+what they return, as one script on that catalog: it calls `get-document`,
+`get-content-database`, `list-content-databases`, `search-documents`,
+`search-content-database-rows` and `patch-database-items` as functions. Each
+patch still carries its own idempotency key, and one script's patches share a
+row budget (200 rows unless the deployment sets another): a patch past it is
+refused, and the script's earlier patches stay committed. Removing a row from a
 collection preserves its Page, descendants, other collection memberships, and
 unrelated property values.
 

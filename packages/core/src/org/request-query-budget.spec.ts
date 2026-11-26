@@ -121,6 +121,9 @@ async function seed(pg: Awaited<ReturnType<typeof createTestPglite>>) {
       id TEXT PRIMARY KEY, org_id TEXT, email TEXT, role TEXT, joined_at BIGINT,
       federation_removal_pending_at BIGINT
     );
+    CREATE TABLE org_invitations (
+      id TEXT PRIMARY KEY, org_id TEXT, email TEXT, status TEXT
+    );
     CREATE TABLE workspace_apps (
       id TEXT PRIMARY KEY, owner_email TEXT, org_id TEXT, visibility TEXT, org_enabled BOOLEAN
     );

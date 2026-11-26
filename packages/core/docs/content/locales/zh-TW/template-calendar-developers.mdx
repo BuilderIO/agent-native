@@ -62,6 +62,8 @@ pnpm dev
 行事曆會把這些資訊儲存到自己的密鑰儲存區，而不是 `.env` 檔案，因此這個步驟
 在 Windows 和 macOS 上完全相同。連線之後，權杖會自動重新整理。
 
+在部署環境中，請在其環境變數裡設定 `GOOGLE_CLIENT_ID` 和 `GOOGLE_CLIENT_SECRET`。這樣 **使用 Google 登入** 會在同一個 Google 畫面上一併要求行事曆存取權限，登入時就會同時連線該帳戶；其他帳戶仍透過 **新增帳戶** 連線。登入與連線會回到同一個 `/_agent-native/google/callback` 位址，因此一個重新導向 URI 就能同時涵蓋兩者。沒有這些變數時，登入只會確認你是誰，之後再連線 Google。
+
 ### 連線 Zoom（可選）
 
 與 Google 不同，Zoom 沒有設定表單。請在專案根目錄建立一個 `.env` 檔案（或

@@ -66,3 +66,21 @@ describe("shared MCP provider matcher parity with the catalog", () => {
     expect(mcpServerUrlMatchesProvider("github", notion!.url)).toBe(false);
   });
 });
+
+describe("the content provider", () => {
+  it("matches Content's MCP server on its own host and subdomains, and nothing that only looks like it", () => {
+    for (const url of [
+      "https://content.agent-native.com/_agent-native/mcp",
+      "https://beta.content.agent-native.com/_agent-native/mcp",
+    ]) {
+      expect(mcpServerUrlMatchesProvider("content", url)).toBe(true);
+    }
+    for (const url of [
+      "https://agent-native.com/_agent-native/mcp",
+      "https://notcontent.agent-native.com/_agent-native/mcp",
+      "https://content.agent-native.com.example.test/_agent-native/mcp",
+    ]) {
+      expect(mcpServerUrlMatchesProvider("content", url)).toBe(false);
+    }
+  });
+});

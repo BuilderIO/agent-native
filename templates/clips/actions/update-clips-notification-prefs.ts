@@ -43,6 +43,7 @@ export default defineAction({
   description:
     "Update Clips email notification preferences. The all-email switch updates every optional notification category atomically; category changes preserve the other categories.",
   schema: patchSchema,
+  mcpTool: false,
   run: async (
     args: ClipsNotificationPrefsPatch,
   ): Promise<ClipsNotificationPreferences> => {

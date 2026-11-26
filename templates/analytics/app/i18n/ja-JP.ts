@@ -1199,6 +1199,7 @@ export default {
     monitoring: "監視 - Analytics",
     agents: "エージェント - Analytics",
     session: "セッションリプレイ - Analytics",
+    sessionReport: "セッションレポート - Analytics",
     tool: "ツール - Analytics",
     extensions: "拡張機能 - Analytics",
     overview: "概要 - Analytics",
@@ -1377,6 +1378,8 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    collapseDescription: "説明を折りたたむ",
+    expandDescription: "説明を展開する",
     drilldownChartPoints: "グラフのデータポイント",
     drilldownPreviousPage: "グラフのデータポイントの前のページ",
     drilldownNextPage: "グラフのデータポイントの次のページ",
@@ -1396,6 +1399,8 @@ export default {
       "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
     drilldownAggregateOnly:
       "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoXValueAggregateOnly:
+      "このパネルでは値なしのポイントのレコードを開けないため、集計行を表示しています。クリックしたポイントに一致する行を強調表示しています。",
     drilldownNoRecords: "一致するレコードがありません",
     drilldownNoRecordsIncomplete:
       "レコードは読み込まれませんでした。結果が不完全なため、一致するレコードがある可能性があります。",
@@ -1873,6 +1878,28 @@ export default {
     emptyStepVisit: "アプリを開く",
     installSnippetTitle: "セッションリプレイを追加",
     backToSessions: "セッションに戻る",
+    createReport: "レポートを作成",
+    createReportTooltip:
+      "このセッションについてエージェントにレポートを書かせます：何が問題だったか、重要な場面、再現方法。",
+    createReportMessage: "このセッションについてレポートを書いてください。",
+    reportCount: "レポート（{{count}}）",
+    reportsUnavailable: "レポートを利用できません",
+    reportNeedsLab: "セッションレポートはセッショントリアージ Lab の機能です。",
+    reportNotFound: "このレポートは存在しないか、あなたと共有されていません。",
+    reportLoadFailed: "このレポートを読み込めませんでした：{{message}}",
+    reportBackToSession: "セッションに戻る",
+    reportTitleLabel: "レポートのタイトル",
+    reportSummaryLabel: "概要",
+    reportSummaryPlaceholder: "何が問題だったか、その理由",
+    reportKeyMoments: "重要な場面",
+    reportReproSteps: "再現手順",
+    reportErrorIssue: "エラーイシュー",
+    reportCommit: "コミット",
+    reportNoCommit: "このセッションはコミットを報告していません",
+    reportSaveFailed: "レポートを保存できませんでした：{{message}}",
+    reportDelete: "レポートを削除",
+    reportDeleteTitle:
+      "このレポートを削除しますか？エージェント用リンクは使えなくなります。",
     copyForAgent: "エージェント用にコピー",
     copyForAgentTooltip:
       "エージェントがこのリプレイを確認できる一時的なプライベートリンクをコピーします。",
@@ -2149,6 +2176,10 @@ export default {
     flagsUnavailable: "機能フラグを利用できません",
     flagsUnreachable:
       "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+    verifiedFlagChangeOrg:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、この組織で {{availability}} に設定されています。",
+    verifiedFlagChangeGlobal:
+      "{{time}} に確認済み：{{app}} の {{flag}} は、すべての組織で {{availability}} に設定されています。",
     flagsEmpty: "フラグを報告したワークスペースアプリはありません",
     flagsEmptyDetail:
       "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",
@@ -2312,6 +2343,16 @@ export default {
     addedBy: "追加者: {{email}}",
     more: "他 {{count}} 件",
     flagLabel: "データノート",
+  },
+  citedIn: {
+    menu: "引用先",
+    menuTooltip: "このダッシュボードのグラフを含む Content ページ",
+    empty:
+      "このダッシュボードのグラフを含む、開ける Content ページはまだありません",
+    unavailable:
+      "Content に接続できませんでした。1 分後にもう一度お試しください。",
+    untitledPage: "無題",
+    more: "Content は最近編集されたページのみを確認したため、ほかにもある可能性があります。",
   },
   annotations: {
     menu: "注釈",

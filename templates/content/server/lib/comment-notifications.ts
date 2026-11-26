@@ -64,7 +64,15 @@ export interface DocumentCommentNotificationInput {
   submissionSource?: string | null;
   content: string;
   mentions: { email: string; name: string }[];
+  imageCount?: number;
   isReply: boolean;
+}
+
+function commentImagesLine(imageCount: number | undefined): string | null {
+  if (!imageCount || imageCount < 1) return null;
+  return imageCount === 1
+    ? "Includes 1 image."
+    : `Includes ${imageCount} images.`;
 }
 
 export function renderDocumentCommentEmail({
@@ -72,6 +80,7 @@ export function renderDocumentCommentEmail({
   title,
   url,
   content,
+  imageCount,
   isReply,
   wasMentioned,
   submissionSource,
@@ -80,10 +89,12 @@ export function renderDocumentCommentEmail({
   title: string;
   url: string;
   content: string;
+  imageCount?: number;
   isReply: boolean;
   wasMentioned: boolean;
   submissionSource?: string | null;
 }) {
+  const images = commentImagesLine(imageCount);
   const attribution =
     submissionSource === "mcp" || submissionSource === "agent"
       ? commentAttributionMessagesByLocale["en-US"].aiAttribution.replace(
@@ -113,13 +124,12 @@ export function renderDocumentCommentEmail({
         : isReply
           ? "New reply on your document"
           : "New comment",
-      paragraphs: attribution
-        ? [
-            escapeEmailText(attribution),
-            lead,
-            `"${escapeEmailText(commentExcerpt(content))}"`,
-          ]
-        : [lead, `"${escapeEmailText(commentExcerpt(content))}"`],
+      paragraphs: [
+        ...(attribution ? [escapeEmailText(attribution)] : []),
+        lead,
+        `"${escapeEmailText(commentExcerpt(content))}"`,
+        ...(images ? [escapeEmailText(images)] : []),
+      ],
       cta: { label: "Open document", url },
       footer:
         "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",
@@ -189,6 +199,7 @@ async function deliverDocumentCommentEmails(
           title,
           url,
           content: input.content,
+          imageCount: input.imageCount,
           isReply: input.isReply,
           wasMentioned,
           submissionSource: input.submissionSource,

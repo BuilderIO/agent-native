@@ -25,6 +25,10 @@ describe("Import planning", () => {
     expect(importFileKind("guide.markdown")).toBe("markdown");
     expect(importFileKind("logo.svg")).toBe("image");
     expect(importFileKind("photo.JPEG")).toBe("image");
+    expect(importFileKind("spec.PDF")).toBe("attachment");
+    expect(importFileKind("Tasks 41a7b5df817a81db89cadaff27c5100b.csv")).toBe(
+      "attachment",
+    );
     expect(importFileKind("export.zip")).toBe("unsupported");
     expect(importFileKind("report.docx")).toBe("unsupported");
     expect(importFileKind("README")).toBe("unsupported");
@@ -57,7 +61,7 @@ describe("Import planning", () => {
 
     expect(page.preview.title).toBe("Guide");
     expect(page.uploads).toEqual([
-      { kind: "file", path: "logo.png", reference: "logo.png" },
+      { kind: "file", path: "logo.png", reference: "logo.png", use: "image" },
     ]);
     expect(page.preview.assets.map((asset) => asset.status)).toEqual([
       "available",

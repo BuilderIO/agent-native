@@ -1034,6 +1034,39 @@ describe("DragHandle app menu", () => {
     }
   });
 
+  it("inserts an empty focused paragraph above the app menu's block", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+    const uiEvents: unknown[] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) uiEvents.push(transaction.getMeta("uiEvent"));
+    });
+
+    try {
+      hoverAt(32, 52);
+      clickHandle(handle);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("Second");
+      request.insertAbove();
+
+      expect(editor.state.doc.childCount).toBe(3);
+      expect(childText(editor, 0)).toBe("First");
+      expect(childText(editor, 1)).toBe("");
+      expect(childText(editor, 2)).toBe("Second");
+      expect(editor.state.selection.$from.parent).toBe(
+        editor.state.doc.child(1),
+      );
+      expect(uiEvents).toEqual([DRAG_HANDLE_UI_EVENT]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("finds no block once the menu's block is deleted", () => {
     const requests: DragHandleMenuRequest[] = [];
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
@@ -1052,6 +1085,7 @@ describe("DragHandle app menu", () => {
       expect(request.getBlock()).toBeNull();
       request.duplicate();
       request.remove();
+      request.insertAbove();
       request.insertBelow();
       expect(editor.state.doc.childCount).toBe(1);
       expect(childText(editor, 0)).toBe("Second");
@@ -1494,6 +1528,12 @@ describe("DragHandle app menu", () => {
       window.dispatchEvent(new Event("resize"));
       window.dispatchEvent(new Event("scroll"));
       expect(close).not.toHaveBeenCalled();
+
+      // A phone draws the menu as a sheet, which is a dialog.
+      menu.setAttribute("role", "dialog");
+      window.dispatchEvent(new Event("resize"));
+      expect(close).not.toHaveBeenCalled();
+      menu.setAttribute("role", "menu");
 
       // Once the keyboard is up, a pan still moves the block away.
       const touch = (type: string, touches: number, x = 100, y = 300) => {

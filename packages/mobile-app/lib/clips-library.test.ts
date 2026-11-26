@@ -13,11 +13,16 @@ import {
   formatClipDuration,
   normalizeClipSummary,
   parseClipsSearchResponse,
+  parseClipsLibraryResponse,
   parseCommentReactionCounts,
   resolveTrustedClipsUrl,
 } from "./clips-library";
 
 describe("native Clips library helpers", () => {
+  it("reports an invalid library response rather than showing an empty library", () => {
+    expect(() => parseClipsLibraryResponse({ recordings: null })).toThrow();
+  });
+
   it("normalizes records without trusting malformed values", () => {
     expect(
       normalizeClipSummary({

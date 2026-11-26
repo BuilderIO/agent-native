@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { serializePublicJob } from "../server/public-serialization.js";
@@ -9,6 +9,8 @@ export default defineAction({
     "Resume a yielded or failed creative-context import from its durable checkpoint.",
   schema: z.object({ jobId: z.string().min(1) }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ jobId }) => ({
     job: serializePublicJob(await continueJob(jobId)),
   }),

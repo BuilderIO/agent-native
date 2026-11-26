@@ -36,6 +36,7 @@ import {
   isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isMcpToolServed,
   preparedCallArguments,
   recordInvalidActionCall,
   runPreparedActionCall,
@@ -46,6 +47,7 @@ import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
+import { createReversibleWriteApprovalPolicy } from "./approval/reversible-write-policy.js";
 import * as actionAuditRecord from "./audit/record.js";
 import { boundedJsonValueBranches } from "./json-schema/json-value.js";
 import {
@@ -59,6 +61,12 @@ import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { createMCPServerForRequest } from "./mcp/build-server.js";
 import { providerSchemaViolations } from "./mcp/provider-schema-conformance.js";
 import { mcpToolInputSchema } from "./mcp/tool-input-schema.js";
+import {
+  isDurableProviderInteractiveScope,
+  registerBackgroundWorkerProbe,
+  runWithDurableTurnToolScope,
+  runWithProviderInteractiveScope,
+} from "./provider-api/interactive-scope.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
 import { filesystemActionEntry } from "./server/filesystem-action-entry.js";
@@ -179,6 +187,40 @@ describe("defineAction", () => {
 
     expect(ordinary.persistInChatHistory).toBeUndefined();
     expect(privateAction.persistInChatHistory).toBe(false);
+  });
+
+  it("redacts private input failures on direct and prepared calls while preserving public diagnostics", async () => {
+    const body = "QA test private search text";
+    const schema = z.object({ query: z.string(), limit: z.number() }).strict();
+    const run = vi.fn(async () => "ok");
+    const privateAction = defineAction({
+      description: "private query",
+      schema,
+      persistInChatHistory: false,
+      run,
+    });
+    const input = { query: body, limit: "invalid" };
+    const failure = await privateAction
+      .run(input as never)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ActionInputValidationError);
+    expect((failure as Error).message).toBe("Invalid action parameters");
+    expect((failure as ActionInputValidationError).paths).toEqual(["limit"]);
+    const prepared = await actionCallIntent(privateAction, input);
+    expect(prepared.valid).toBe(false);
+    if (!prepared.valid) {
+      expect(prepared.error).toBeInstanceOf(ActionInputValidationError);
+      expect((prepared.error as Error).message).toBe(
+        "Invalid action parameters",
+      );
+    }
+    expect(run).not.toHaveBeenCalled();
+    const publicAction = defineAction({
+      description: "ordinary query",
+      schema,
+      run,
+    });
+    await expect(publicAction.run(input as never)).rejects.toThrow(body);
   });
 
   it("infers readOnly=true for GET actions", () => {
@@ -386,6 +428,42 @@ describe("defineAction", () => {
     });
     expect(plain.mcpTool).toBeUndefined();
     expect(plain.deferLoading).toBeUndefined();
+
+    const unlisted = defineAction({
+      description: "read a plan's history",
+      parameters: { id: { type: "string" } },
+      mcpTool: "search",
+      run: async () => "ok",
+    });
+    expect(unlisted.mcpTool).toBe("search");
+
+    const unknown = defineAction({
+      description: "a decision this version doesn't know",
+      parameters: { id: { type: "string" } },
+      mcpTool: "listed" as never,
+      run: async () => "ok",
+    });
+    expect(unknown.mcpTool).toBeUndefined();
+  });
+
+  it("serves an action to external agents for mcpTool true or search", () => {
+    expect(isMcpToolServed(true)).toBe(true);
+    expect(isMcpToolServed("search")).toBe(true);
+    expect(isMcpToolServed(false)).toBe(false);
+    expect(isMcpToolServed(undefined)).toBe(false);
+
+    expect(
+      isActionExposedToExternalAgents({ agentTool: false, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionHiddenFromEveryAgentSurface({
+        agentTool: false,
+        mcpTool: "search",
+      }),
+    ).toBe(false);
   });
 
   it("keeps searchHints off the model-facing tool and through registry loading", () => {
@@ -480,6 +558,41 @@ describe("defineAction", () => {
     expect(isActionHiddenFromEveryAgentSurface({ uiOnly: true })).toBe(true);
   });
 
+  it("keeps a durable turn grant active through a tool action in a background worker", async () => {
+    registerBackgroundWorkerProbe(() => true);
+    try {
+      const seen: boolean[] = [];
+      const action = defineAction({
+        description: "reads in the durable turn",
+        parameters: {},
+        run: async () => {
+          seen.push(isDurableProviderInteractiveScope());
+          return "ok";
+        },
+      });
+      await runWithProviderInteractiveScope(
+        false,
+        () =>
+          runWithDurableTurnToolScope(
+            () => action.run({}, { caller: "tool" }),
+            new AbortController().signal,
+            { runId: "run-1", turnId: "turn-1", owner: "person@example.test" },
+          ),
+        {
+          turnGrant: {
+            owner: "person@example.test",
+            runId: "run-1",
+            turnId: "turn-1",
+            expiresAt: Date.now() + 60_000,
+          },
+        },
+      );
+      expect(seen).toEqual([true]);
+    } finally {
+      registerBackgroundWorkerProbe(() => false);
+    }
+  });
+
   it("requires the frontend caller for UI-only actions", async () => {
     const run = vi.fn(async () => "ok");
     const action = defineAction({
@@ -495,6 +608,22 @@ describe("defineAction", () => {
     });
     await expect(action.run({}, { caller: "frontend" })).resolves.toBe("ok");
     expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("carries the signed-in-browser requirement to the route", () => {
+    const run = async () => "ok";
+    expect(
+      defineAction({
+        description: "mint a token",
+        parameters: {},
+        requiresSignedInBrowser: true,
+        run,
+      }).requiresSignedInBrowser,
+    ).toBe(true);
+    expect(
+      defineAction({ description: "read", parameters: {}, run })
+        .requiresSignedInBrowser,
+    ).toBeUndefined();
   });
 
   it("preserves valid MCP Apps resource metadata", () => {
@@ -1233,7 +1362,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
         expect(tools.map(({ name }) => name)).toEqual(["pair"]);
-        const { inputSchema } = tools[0]!;
+        const inputSchema = tools.find(
+          ({ name }) => name === "pair",
+        )?.inputSchema;
+        if (!inputSchema) throw new Error("Expected the pair tool");
         expect(inputSchema.properties).toMatchObject({
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         });
@@ -4313,5 +4445,310 @@ describe("resolveToolMaxResultChars", () => {
     expect(resolveToolMaxResultChars({}, { hardMaxResultChars: 80_000 })).toBe(
       DEFAULT_TOOL_RESULT_CHARS,
     );
+  });
+});
+
+describe("defineAction approvalProof", () => {
+  it("refuses review-page proof on an inline-form approval, which nothing could approve", () => {
+    expect(() =>
+      defineAction({
+        description: "Archive",
+        needsApproval: createReversibleWriteApprovalPolicy(),
+        approvalProof: "review-page",
+        run: () => null,
+      }),
+    ).toThrow(
+      'defineAction: approvalProof: "review-page" can\'t be combined with a reversible-write inline approval, which never links to the review page, so no call could be approved.',
+    );
+  });
+
+  it("keeps an inline-form approval without review-page proof, and review-page proof on another predicate", () => {
+    const inline = createReversibleWriteApprovalPolicy();
+    expect(
+      defineAction({
+        description: "Archive",
+        needsApproval: inline,
+        run: () => null,
+      }).needsApproval,
+    ).toBe(inline);
+    expect(
+      defineAction({
+        description: "Read",
+        needsApproval: () => true,
+        approvalProof: "review-page",
+        run: () => null,
+      }).approvalProof,
+    ).toBe("review-page");
+  });
+});
+
+describe("defineAction userTurn", () => {
+  const predicate = () => false;
+  it("keeps each declared user turn and drops an unknown one", () => {
+    for (const userTurn of ["read", "approval", "direct"] as const) {
+      const action = defineAction({
+        description: "Turn",
+        userTurn,
+        needsApproval: predicate,
+        run: () => null,
+      });
+      expect(action.userTurn).toBe(userTurn);
+    }
+    const unknown = defineAction({
+      description: "Turn",
+      userTurn: "grant" as never,
+      run: () => null,
+    });
+    expect(unknown.userTurn).toBeUndefined();
+  });
+
+  it("refuses a direct action that also requires a turn, or lacks a predicate", () => {
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        requiresUserTurn: true,
+        needsApproval: predicate,
+        run: () => null,
+      }),
+    ).toThrow(/no requiresUserTurn/);
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        needsApproval: true,
+        run: () => null,
+      }),
+    ).toThrow(/needs a needsApproval predicate/);
+  });
+
+  it("accepts a direct action with a predicate and keeps requiresUserTurn for approval", () => {
+    expect(() =>
+      defineAction({
+        description: "Turn",
+        userTurn: "direct",
+        needsApproval: predicate,
+        run: () => null,
+      }),
+    ).not.toThrow();
+    expect(
+      defineAction({
+        description: "Turn",
+        userTurn: "approval",
+        requiresUserTurn: true,
+        run: () => null,
+      }).requiresUserTurn,
+    ).toBe(true);
+  });
+});
+
+describe("defineAction — action_kind", () => {
+  async function capture(
+    name: string,
+    calls: (ctx: ActionRunContext) => Promise<unknown>,
+  ): Promise<Array<Record<string, unknown>>> {
+    const tracked: Array<Record<string, unknown>> = [];
+    const { registerTrackingProvider, unregisterTrackingProvider } =
+      await import("./tracking/registry.js");
+    registerTrackingProvider({
+      name: `action-kind-${name}`,
+      track: (event) => {
+        if (event.name === "action_completed" && event.properties) {
+          tracked.push(event.properties);
+        }
+      },
+    });
+    const { runWithRequestContext } =
+      await import("./server/request-context.js");
+    try {
+      await runWithRequestContext({ appPageRequest: true }, () =>
+        calls({ caller: "frontend", actionName: name }),
+      );
+    } finally {
+      unregisterTrackingProvider(`action-kind-${name}`);
+    }
+    return tracked;
+  }
+
+  it("labels automatic, read, and write calls, a planMode read first", async () => {
+    const settings = defineAction({
+      description: "Read or change a setting.",
+      schema: z.object({ set: z.boolean().optional() }),
+      planMode: {
+        effect: (args) => (args.set === undefined ? "read" : "write"),
+      },
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const create = defineAction({
+      description: "Create a note.",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-precedence", async (ctx) => {
+      await settings.run({}, ctx);
+      await settings.run({ set: true }, ctx);
+      await create.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "read",
+      "automatic",
+      "write",
+    ]);
+    expect(settings.automatic).toBe(true);
+    expect(create.automatic).toBeUndefined();
+  });
+
+  it("ignores an automatic option that is neither a boolean nor a predicate", async () => {
+    const save = defineAction({
+      description: "Save a position.",
+      schema: z.object({}),
+      automatic: "yes" as never,
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-invalid-option", async (ctx) => {
+      await save.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual(["write"]);
+    expect(save.automatic).toBeUndefined();
+  });
+
+  it("asks a predicate with a copy of the arguments and the call's context", async () => {
+    const received: number[] = [];
+    const sync = defineAction({
+      description: "Sync the inbox.",
+      schema: z.object({ at: z.date(), force: z.boolean().optional() }),
+      automatic: (input, ctx) => {
+        input.at.setTime(0);
+        return ctx.actionName === "kind-predicate" && !input.force;
+      },
+      run: async (args) => {
+        received.push(args.at.getTime());
+        return { ok: true };
+      },
+    });
+    const events = await capture("kind-predicate", async (ctx) => {
+      await sync.run({ at: new Date(1_000) }, ctx);
+      await sync.run({ at: new Date(1_000), force: true }, ctx);
+      await sync.run({ at: new Date(1_000) }, { ...ctx, actionName: "other" });
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "automatic",
+      "write",
+      "write",
+    ]);
+    expect(received).toEqual([1_000, 1_000, 1_000]);
+  });
+
+  it("counts a frontend call the action route did not see from the app page as a write", async () => {
+    const refresh = defineAction({
+      description: "Refresh a sync status.",
+      schema: z.object({}),
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const { runWithRequestContext } =
+      await import("./server/request-context.js");
+    const events = await capture("kind-unproven", async (ctx) => {
+      await runWithRequestContext({ appPageRequest: false }, () =>
+        refresh.run({}, ctx),
+      );
+      await refresh.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "write",
+      "automatic",
+    ]);
+  });
+
+  it("counts a call from anything but the app's own UI as a write", async () => {
+    const refresh = defineAction({
+      description: "Refresh a sync status.",
+      schema: z.object({}),
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const callers = [
+      "tool",
+      "mcp",
+      "cli",
+      "a2a",
+      "http",
+      "automation",
+    ] as const;
+    const events = await capture("kind-callers", async (ctx) => {
+      await refresh.run({}, ctx);
+      for (const caller of callers) await refresh.run({}, { ...ctx, caller });
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "automatic",
+      ...callers.map(() => "write"),
+    ]);
+  });
+
+  it("counts a call whose arguments cannot be copied as a write", async () => {
+    const save = defineAction({
+      description: "Save a position.",
+      schema: z.object({}),
+      automatic: () => true,
+      run: async () => ({ ok: true }),
+    });
+    const args = Object.defineProperty({}, "position", {
+      enumerable: true,
+      get: () => 1,
+    });
+    const events = await capture("kind-uncopyable", async (ctx) => {
+      await save.run(args, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual(["write"]);
+  });
+
+  it("labels a call from the arguments validation hands the handler", async () => {
+    const settings = defineAction({
+      description: "Read or change a setting.",
+      schema: z.object({ mode: z.enum(["read", "write"]).default("read") }),
+      planMode: {
+        effect: (args) => (args.mode === "read" ? "read" : "write"),
+      },
+      run: async () => ({ ok: true }),
+    });
+    const sync = defineAction({
+      description: "Sync the inbox.",
+      schema: z.object({ force: z.boolean().default(false) }),
+      automatic: (input) => input.force === false,
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-validated", async (ctx) => {
+      await settings.run({}, ctx);
+      await settings.run({ mode: "write" }, ctx);
+      await sync.run({}, ctx);
+      await sync.run({ force: true }, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "read",
+      "write",
+      "automatic",
+      "write",
+    ]);
+  });
+
+  it("names the output only for an action kept in chat history", async () => {
+    const shared = defineAction({
+      description: "Create a clip.",
+      schema: z.object({}),
+      run: async () => ({ id: "clip-1" }),
+    });
+    const hidden = defineAction({
+      description: "Create a private clip.",
+      schema: z.object({}),
+      persistInChatHistory: false,
+      run: async () => ({ id: "clip-2" }),
+    });
+    const events = await capture("kind-output-id", async (ctx) => {
+      await shared.run({}, ctx);
+      await hidden.run({}, ctx);
+    });
+    expect(events[0]).toMatchObject({ output_id: "clip-1" });
+    expect(events[1]).not.toHaveProperty("output_id");
   });
 });

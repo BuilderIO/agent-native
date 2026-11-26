@@ -40,11 +40,6 @@ const mocks = vi.hoisted(() => {
     selectChain,
     contentSelectChain,
     requestSelectChain,
-    getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
-      id,
-      title: "Acme",
-      agentContext: "Use --brand-accent: #123456.",
-    })),
   };
 });
 
@@ -119,10 +114,6 @@ vi.mock("../shared/canvas-frames.js", () => ({
   parseCanvasFrameGeometryById: mocks.parseCanvasFrameGeometryById,
 }));
 
-vi.mock("./get-design-system.js", () => ({
-  default: { run: mocks.getDesignSystemRun },
-}));
-
 import action from "./view-screen.js";
 
 describe("view-screen", () => {
@@ -157,13 +148,12 @@ describe("view-screen", () => {
     mocks.getReviewThreadRoot.mockResolvedValue(null);
   });
 
-  it("reports the design's own linked design system, not just a template's", async () => {
+  it("reports the design's live collaboration opt-in", async () => {
     mocks.resolveAccess.mockResolvedValue({
       role: "editor",
       resource: {
         title: "Shared checkout",
         liveCollaborationEnabled: true,
-        designSystemId: "system-7",
         data: '{"canvasFrames":[]}',
       },
     });
@@ -188,45 +178,9 @@ describe("view-screen", () => {
     ]);
 
     const result = JSON.parse(await action.run({}));
+    // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
-    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith(
-      expect.objectContaining({ compact: "true" }),
-    );
-    expect(result.design?.designSystemId).toBe("system-7");
     expect(result.design?.liveCollaborationEnabled).toBe(true);
-    expect(result.design?.designSystem).toMatchObject({
-      status: "available",
-      scope: "summary",
-      id: "system-7",
-      agentContext: "Use --brand-accent: #123456.",
-      next: expect.any(String),
-    });
-  });
-
-  it("reports no linked design system rather than guessing one", async () => {
-    mocks.readAppStateForCurrentTab
-      .mockResolvedValueOnce({
-        view: "editor",
-        editorView: "overview",
-        designId: "design_123",
-      })
-      .mockResolvedValueOnce({
-        viewMode: "overview",
-        activeFileId: "file_index",
-        activeFilename: "index.html",
-      });
-    mocks.selectChain.where.mockResolvedValue([
-      {
-        id: "file_index",
-        filename: "index.html",
-        fileType: "html",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-    ]);
-
-    const result = JSON.parse(await action.run({}));
-
-    expect(result.design?.designSystemId).toBeNull();
   });
 
   it("shows the Interact preview's device and theme from the published selection", async () => {
@@ -341,7 +295,7 @@ describe("view-screen", () => {
       })
       .mockResolvedValueOnce({
         viewMode: "overview",
-        mode: "annotate",
+        mode: "comment",
         activeTool: "comment",
         leftPanel: "threads",
       });
@@ -350,7 +304,7 @@ describe("view-screen", () => {
     const result = JSON.parse(await action.run({}));
 
     expect(result.designSelection).toMatchObject({
-      mode: "annotate",
+      mode: "comment",
       activeTool: "comment",
       leftPanel: "threads",
     });
@@ -1163,7 +1117,7 @@ describe("view-screen", () => {
     });
   });
 
-  it("reports an accessible linked design system for a selected user template", async () => {
+  it("reports a selected user template", async () => {
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({
         view: "list",
@@ -1177,13 +1131,9 @@ describe("view-screen", () => {
           resource: {
             title: "Saved template",
             category: "social",
-            designSystemId: "system-1",
             visibility: "private",
           },
         };
-      }
-      if (type === "design-system") {
-        return { role: "viewer", resource: { id: "system-1" } };
       }
       return null;
     });
@@ -1194,7 +1144,6 @@ describe("view-screen", () => {
       id: "saved-template",
       isBuiltIn: false,
       source: "user",
-      designSystemId: "system-1",
     });
   });
 });

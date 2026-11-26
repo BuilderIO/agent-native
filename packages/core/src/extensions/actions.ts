@@ -10,6 +10,7 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
+import { withAuthorizedAgentNavigation } from "../application-state/navigate-write-guard.js";
 import { writeAppState } from "../application-state/script-helpers.js";
 import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
@@ -685,12 +686,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (existing) {
           const existingPath = extensionPath(existing.id, existing.name);
           try {
-            await writeAppState("navigate", {
-              view: "extensions",
-              extensionId: existing.id,
-              path: existingPath,
-              _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            });
+            await withAuthorizedAgentNavigation(() =>
+              writeAppState("navigate", {
+                view: "extensions",
+                extensionId: existing.id,
+                path: existingPath,
+                _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              }),
+            );
           } catch {
             // Non-fatal — agent can still mention the path in its reply.
           }
@@ -712,12 +715,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const path = extensionPath(extension.id, extension.name);
 
         try {
-          await writeAppState("navigate", {
-            view: "extensions",
-            extensionId: extension.id,
-            path,
-            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          });
+          await withAuthorizedAgentNavigation(() =>
+            writeAppState("navigate", {
+              view: "extensions",
+              extensionId: extension.id,
+              path,
+              _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            }),
+          );
         } catch {
           // Non-fatal — agent can still mention the path in its reply.
         }

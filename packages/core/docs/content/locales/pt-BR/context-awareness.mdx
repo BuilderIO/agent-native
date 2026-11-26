@@ -18,7 +18,7 @@ Para entender o que colocar em qual superfície (AGENTS.md vs. skills vs. applic
 Seis padrões resolvem isso:
 
 1. **Estado de navegação** -- o UI grava uma chave `navigation` no estado da aplicação em cada mudança de rota
-2. **URL atual** – a estrutura grava `__url__` para que os parâmetros de consulta sejam visíveis e editáveis pelo agente
+2. **URL atual** – a estrutura grava `__url__` para que o agente veja o caminho da página e os parâmetros de consulta declarados pelo aplicativo, e possa editá-los
 3. **Estado de seleção** -- o UI grava uma chave `selection` quando o usuário foca, seleciona ou seleciona multiplamente algo significativo
 4. **`view-screen`** – uma ação que lê o estado do aplicativo, busca dados contextuais e retorna um instantâneo do que o usuário vê
 5. **Transferência imediata** -- UI controla a chamada `sendToAgentChat()` quando um clique deve se tornar uma vez do agente
@@ -93,7 +93,7 @@ Use canais de contexto diferentes para trabalhos diferentes:
 | Camada                                                    | Proprietário      | Use-o para                                                                                      |
 | --------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
 | Chave de estado do aplicativo `navigation`                | UI                | Estado da rota semântica: visualização atual, registro aberto, guia ativa, IDs estáveis         |
-| Chave de estado do aplicativo `__url__`                   | Estrutura UI      | Nome do caminho atual, string de pesquisa, hash e parâmetros de consulta URL analisados         |
+| Chave de estado do aplicativo `__url__`                   | Estrutura UI      | Caminho atual, hash e parâmetros de consulta URL (valores apenas para chaves declaradas)        |
 | Chave de estado do aplicativo `__set_url__`               | Agente/estrutura  | Edições URL únicas de `set-search-params` e `set-url-path`                                      |
 | Chave de estado do aplicativo `selection`                 | UI                | Seleção semântica durável: linhas, blocos, formas, ativos, mensagens                            |
 | Chave de estado do aplicativo `pending-selection-context` | UI / `AgentPanel` | Texto selecionado de uma só vez anexado ao próximo turno de bate-papo, geralmente de Cmd+I      |
@@ -148,6 +148,8 @@ searchParams:
 </current-url>
 ```
 
+O agente vê o caminho e o hash, mas o valor de uma consulta apenas para as chaves que o aplicativo declara: passe `urlQueryKeys` para `AgentSidebar` (nomes exatos e padrões `prefix*`; este exemplo declara `["f_*", "q"]`). Qualquer outra chave mantém o nome, e seu valor aparece como `<redacted>`.
+
 Esta é a camada canônica para estado de filtro compartilhável. Se o usuário puder copiar um URL e voltar para a mesma lista filtrada, o filtro pertencerá à string de consulta. O agente pode alterar esses filtros com a ferramenta integrada `set-search-params`:
 
 ```text
@@ -156,7 +158,7 @@ set-search-params({ "params": { "f_region": "east", "q": null } })
 
 Use `navigation` apenas para aliases semânticos que ajudam `view-screen` a buscar ou resumir os dados corretos. Um painel pode manter `navigation.dashboardId` enquanto `__url__.searchParams` possui `f_region`, `f_dateStart` e `q`.
 
-Quando `view-screen` retorna um instantâneo mais rico, ele pode copiar filtros URL importantes em um objeto `activeFilters` amigável:
+Quando `view-screen` retorna um instantâneo mais rico, ele pode copiar filtros URL importantes em um objeto `activeFilters` amigável. Ele lê o mesmo `__url__` editado, então declare essas chaves em `urlQueryKeys` também:
 
 ```ts
 const url = (await readAppState("__url__")) as {
@@ -360,6 +362,18 @@ ferramentas da estrutura URL (`set-url-path`, `set-search-params`) e filtro some
 mudanças. Para comandos que podem chegar durante o streaming do chat, confirme a rota
 com `navigate(path, { replace: true, flushSync: true })` em vez de envolvê-lo
 em uma transição de visualização para que a barra de endereço e a página visível permaneçam juntas.
+
+### Agentes mantêm a visualização do usuário {#agent-keeps-view}
+
+A tela do usuário só muda quando ele pediu para ver algo. Isso vale para todos os agentes: o chat integrado, agentes externos via MCP ou WebMCP e pares via A2A (`isAgentCaller(ctx)` de `@agent-native/core`).
+
+- Leituras nunca navegam. Uma ação somente leitura que grava `navigate` durante uma chamada de agente é recusada no armazenamento de estado do aplicativo.
+- Gravações mantêm a tela por padrão. Uma gravação de agente que tenta gravar `navigate` sem `intent: "open"` é recusada; chame `navigateAfterWrite(navigation, { ctx, intent })` de `@agent-native/core/application-state` para ignorar a mudança sem erro salvo quando `intent` for `"open"`, ou defina `allowsAgentNavigation: true` em uma ação feita para abrir uma interface.
+- Abrir um item exige `intent: "open"`. `createNavigateAction()` e o armazenamento de estado aplicam isso por padrão para campos de ID (`id`, `*Id`) e rotas de detalhe sem código por aplicativo. Passe `isDetailView` para `createNavigateAction()` só quando precisar de regras próprias.
+
+```ts
+export const navigate = createNavigateAction();
+```
 
 ## O gancho useNavigationState {#use-navigation-state}
 

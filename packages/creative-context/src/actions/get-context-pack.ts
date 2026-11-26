@@ -10,5 +10,6 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpTool: "search",
   run: async ({ packId }) => ({ pack: await getContextPack(packId) }),
 });

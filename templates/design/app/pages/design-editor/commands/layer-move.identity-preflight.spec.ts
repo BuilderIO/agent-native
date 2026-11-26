@@ -120,7 +120,6 @@ function runMove(args: {
       handleScreenLayerMove: vi.fn(),
       recordContentHistoryEntry: vi.fn(),
       recordLocalContentHistoryEntry: vi.fn(),
-      remapMotionTracksForClone: vi.fn(),
       runtimeStructureMoveRevisionRef: { current: 0 },
       sendRuntimeLayerMoveSemanticHandoff: () => false,
       setExpandedLayerIds: vi.fn(),

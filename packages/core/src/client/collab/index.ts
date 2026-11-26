@@ -11,6 +11,7 @@ export {
   type CollabInitializationState,
   type CollaborativeDocSyncResult,
   type CollabUpdateAck,
+  type FlushUpdatesOptions,
   type CollabLocalCopyOptions,
   type DisplacedCollabEdits,
 } from "../../collab/client.js";

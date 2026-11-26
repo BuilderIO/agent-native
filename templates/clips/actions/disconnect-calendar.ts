@@ -11,11 +11,13 @@ import { lockCalendarAccount } from "../server/lib/calendar-event-meetings.js";
 import { revokeToken } from "../server/lib/google-calendar-client.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Disconnect a calendar account. Revokes the Google tokens (best-effort), deletes secrets, and removes synced events.",
   schema: z.object({
     id: z.string().describe("calendar_accounts.id"),
   }),
+  mcpTool: false,
   run: async (args) => {
     await assertAccess("calendar-account", args.id, "admin");
     const db = getDb();

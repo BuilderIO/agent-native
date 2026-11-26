@@ -1,4 +1,3 @@
-// templates/design/shared/review-agent.ts
 export const REVIEW_AGENT_INTENTS = [
   "reply",
   "suggest",

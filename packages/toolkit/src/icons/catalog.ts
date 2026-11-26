@@ -1,12 +1,10 @@
-import { createReactComponent, type IconNode } from "@tabler/icons-react";
-import type { ComponentType, SVGProps } from "react";
+import {
+  createReactComponent,
+  type IconNode,
+  type TablerIcon,
+} from "@tabler/icons-react";
 
-export type TablerIconComponent = ComponentType<
-  Omit<SVGProps<SVGSVGElement>, "stroke"> & {
-    size?: number | string;
-    stroke?: number;
-  }
->;
+export type TablerIconComponent = TablerIcon;
 
 type TablerChunk = Record<string, IconNode>;
 type ViteImportMeta = ImportMeta & { env: { SSR: boolean; MODE: string } };

@@ -113,6 +113,60 @@ export function applyMarkdownSuggestionOperation(
  */
 export type AcceptedSiblingRange = MarkdownRange & { text?: string };
 
+export function rangeOnText<T extends MarkdownRange>(
+  text: string,
+  onto: string,
+  range: T,
+): T | null {
+  if (text === onto) return range;
+  const moved = resolveOutsideChange(text, onto, range);
+  return moved &&
+    onto.slice(moved.from, moved.to) === text.slice(range.from, range.to)
+    ? { ...range, from: moved.from, to: moved.to }
+    : null;
+}
+
+export function operationOnText<T extends MarkdownSuggestionOperationLike>(
+  operation: T,
+  onto: string,
+): T | null {
+  const before = markdownPayload(operation.before, "before");
+  if (before.markdown === onto) return operation;
+  const after = markdownPayload(operation.after, "after");
+  if (
+    operation.anchor == null ||
+    typeof before.changedText !== "string" ||
+    typeof after.changedText !== "string"
+  )
+    return null;
+  const anchor = operationAnchor(operation);
+  const range = rangeOnText(before.markdown, onto, anchor);
+  if (!range) return null;
+  const siblingRanges = anchor.siblingRanges?.flatMap((sibling) => {
+    const moved = rangeOnText(before.markdown, onto, sibling);
+    return moved ? [{ from: moved.from, to: moved.to }] : [];
+  });
+  return {
+    ...operation,
+    before: { ...before, markdown: onto },
+    after: {
+      ...after,
+      markdown: `${onto.slice(0, range.from)}${after.changedText}${onto.slice(range.to)}`,
+    },
+    anchor: {
+      ...anchor,
+      from: range.from,
+      to: range.to,
+      prefix: onto.slice(
+        Math.max(0, range.from - anchor.prefix.length),
+        range.from,
+      ),
+      suffix: onto.slice(range.to, range.to + anchor.suffix.length),
+      ...(siblingRanges && { siblingRanges }),
+    },
+  };
+}
+
 export function withSiblingRanges<T extends MarkdownSuggestionOperationLike>(
   operation: T,
   ranges: MarkdownRange[],

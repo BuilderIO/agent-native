@@ -13,6 +13,7 @@ export {
   getThemeInitScript,
   parseEmbeddedThemeUpdate,
   themeInitScript,
+  themeStorageKeyForApp,
   type EmbeddedThemeUpdate,
   type NormalizedEmbeddedThemeUpdate,
   type ResolvedTheme,
@@ -26,6 +27,12 @@ export {
   useAppearanceSync,
   type AppearancePresetId,
 } from "../appearance.js";
+export {
+  resolveThemeFamilyConfig,
+  resolveThemeFamilyPreference,
+  type ResolvedThemeFamilyConfig,
+  type ThemeFamilyConfig,
+} from "../../appearance/theme-family.js";
 export {
   applyThemeFamily,
   readStoredThemeFamily,

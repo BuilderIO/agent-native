@@ -72,8 +72,8 @@ vi.mock("@/components/layout/AppLayout", () => ({
   useCalendarContext: () => ({ setEventDetailSidebar: vi.fn() }),
 }));
 
-vi.mock("@/hooks/use-events", () => ({
-  useUpdateEvent: () => ({ mutate: vi.fn(), isPending: false }),
+vi.mock("@/hooks/use-event-save", () => ({
+  useEventSave: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/use-view-preferences", () => ({

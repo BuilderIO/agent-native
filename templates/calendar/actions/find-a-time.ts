@@ -162,6 +162,7 @@ function projectTimeChoice(result: unknown) {
 }
 
 export default defineAction({
+  mcpTool: true,
   description:
     "Find shared available time slots for a calendar event organizer and attendees using Google free/busy plus local calendar conflicts.",
   schema: z.object({
@@ -213,6 +214,11 @@ export default defineAction({
       .describe("Existing event end to ignore while rescheduling"),
   }),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   chatUI: {
     renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,

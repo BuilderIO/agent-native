@@ -43,6 +43,8 @@ import {
 } from "../shared/llm-connection.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { isTestIdentityEmail } from "../shared/qa-test-email.js";
+import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
+import { redactSecretsInValue } from "../shared/secret-redaction.js";
 import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
@@ -77,6 +79,7 @@ import {
 import {
   firstPartyHosts,
   installErrorCapture,
+  redactSecrets,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
 import {
@@ -89,7 +92,12 @@ import type {
   SessionReplayOptions,
   SessionReplayStartResult,
 } from "./session-replay.js";
-import { scrubUrl } from "./url-scrub.js";
+import {
+  FIRST_TOUCH_QUERY_FIELDS,
+  routePathname,
+  scrubQueryString,
+  scrubUrl,
+} from "./url-scrub.js";
 import {
   installWebVitals,
   type PageViewVitals,
@@ -190,6 +198,12 @@ export type ConfigureTrackingOptions = {
   authSessionRefresh?: boolean;
   pageviewTracking?: boolean;
   webVitals?: boolean;
+  /**
+   * Report each page by its route template (`/share/:shareId`) instead of its
+   * path. Defaults to true; a public content site whose slugs are the point of
+   * its analytics sets it to false. Query and hash values are scrubbed either way.
+   */
+  routeTemplates?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
@@ -252,6 +266,7 @@ let _sessionReplayModuleForCapture:
   | null = null;
 let _trackingContentCaptureEnabled = true;
 let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
+let _routeTemplates = true;
 let _pendingSentryUser: TrackingIdentityUser | null | undefined = undefined;
 let _pendingSentryOrgId: string | null | undefined = undefined;
 
@@ -283,20 +298,6 @@ const RETURN_USAGE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 const FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS = 2592000;
 const FIRST_TOUCH_MAX_FIELD_LENGTH = 120;
 const FIRST_TOUCH_MAX_COOKIE_BYTES = 1500;
-const FIRST_TOUCH_QUERY_FIELDS = [
-  "ref",
-  "via",
-  "utm_source",
-  "utm_medium",
-  "utm_campaign",
-  "utm_content",
-  "utm_term",
-  "gclid",
-  "msclkid",
-  "vector_source",
-  "site_referrer",
-  "site_landing_path",
-] as const;
 const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "gclid",
   "msclkid",
@@ -714,6 +715,10 @@ export function getAnalyticsSessionId(): string | undefined {
   return getOrCreateSessionId();
 }
 
+function pagePath(pathname: string): string {
+  return _routeTemplates ? routePathname(pathname) : pathname;
+}
+
 function truncateFirstTouchField(value: string | null | undefined): string {
   if (!value) return "";
   const trimmed = value.trim();
@@ -739,23 +744,43 @@ function scrubReferrerHost(referrer: string | undefined): string {
   }
 }
 
+function hasLandingSource(params: URLSearchParams): boolean {
+  return [
+    ...FIRST_TOUCH_QUERY_FIELDS,
+    ...Object.keys(FORWARDED_LAST_TOUCH_FIELDS),
+  ].some((field) => truncateFirstTouchField(params.get(field)));
+}
+
+function readLandingParams(landingSearch: string | undefined): {
+  params: URLSearchParams | null;
+  continued: boolean;
+} {
+  try {
+    const own = new URLSearchParams(window.location.search);
+    if (landingSearch === undefined || hasLandingSource(own)) {
+      return { params: own, continued: false };
+    }
+    const continued = new URLSearchParams(landingSearch);
+    return hasLandingSource(continued)
+      ? { params: continued, continued: true }
+      : { params: own, continued: false };
+  } catch {
+    return { params: null, continued: false };
+  }
+}
+
 function buildFirstTouchAttribution(
   landingPathname: string,
+  params: URLSearchParams | null,
 ): FirstTouchAttribution {
   const attribution: FirstTouchAttribution = {};
-  let params: URLSearchParams | null = null;
-  try {
-    params = new URLSearchParams(window.location.search);
-  } catch {
-    params = null;
-  }
   if (params) {
     for (const field of FIRST_TOUCH_QUERY_FIELDS) {
       const value = truncateFirstTouchField(params.get(field));
       if (value) attribution[field] = value;
     }
   }
-  const landingPath = truncateFirstTouchField(landingPathname);
+  const landingPath = truncateFirstTouchField(pagePath(landingPathname));
   if (landingPath) attribution.landing_path = landingPath;
   const landingReferrer =
     typeof document !== "undefined" ? scrubReferrerHost(document.referrer) : "";
@@ -947,6 +972,15 @@ function restoreNewestLastTouchCookie(): boolean {
  * leaves a worse touch there than this browser holds, send the better one
  * again. Until the server holds it, signup still reads `an_ft`.
  */
+function isExternalEmbed(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    Boolean(
+      (window as unknown as Record<string, unknown>)[EXTERNAL_EMBED_WINDOW_KEY],
+    )
+  );
+}
+
 function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
   if (
     !_attributionCookieWritten &&
@@ -955,8 +989,10 @@ function syncFirstTouchToServer(firstTouch: FirstTouchAttribution): void {
     return;
   }
   // An embed that must not call our API (the Builder shell canvas) keeps only
-  // the browser's copies.
-  if (agentNativeApiDisabledReason()) return;
+  // the browser's copies. So does an app running in an MCP host's panel: its
+  // requests go to our origin without cookies, so the server refuses them and
+  // could not set this cookie anyway.
+  if (agentNativeApiDisabledReason() || isExternalEmbed()) return;
   if (_firstTouchSyncsLeft <= 0 || typeof fetch !== "function") return;
   _firstTouchSyncsLeft -= 1;
   _attributionCookieWritten = false;
@@ -1019,17 +1055,19 @@ function captureFirstTouchAttribution(
   if (typeof window === "undefined") return;
   try {
     // Read the visit now: the URL can change before the visitor consents.
+    const { params, continued } = readLandingParams(options.landingSearch);
     const current = buildFirstTouchAttribution(
       options.landingPath ?? window.location.pathname,
+      params,
     );
-    const forwarded = readForwardedLastTouch();
-    const forwardedAt = readForwardedLastTouchAt();
+    const forwarded = readForwardedLastTouch(params);
+    const forwardedAt = readForwardedLastTouchAt(params);
     // Where the banner applies, nothing is stored until the visitor accepts
     // targeting cookies, and a later "reject" clears it again.
     whenConsentAllows(
       "targeting",
       () => storeTouches(current, forwarded, forwardedAt),
-      { optimistic: true, revoke: clearStoredAttribution },
+      { optimistic: !continued, revoke: clearStoredAttribution },
     );
   } catch {
     // coercion-ok: attribution is best-effort telemetry; never let it break
@@ -1100,18 +1138,20 @@ function captureLastTouchAttribution(
   storeAttribution(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE, lastTouch);
 }
 
-function readForwardedLastTouchAt(): string | undefined {
-  const raw = new URLSearchParams(window.location.search).get(
-    FORWARDED_LAST_TOUCH_AT_PARAM,
-  );
+function readForwardedLastTouchAt(
+  params: URLSearchParams | null,
+): string | undefined {
+  const raw = params?.get(FORWARDED_LAST_TOUCH_AT_PARAM);
   const time = Date.parse(raw ?? "");
   // A visit can't be in the future; a bad clock or value means "now".
   if (!Number.isFinite(time) || time > Date.now()) return undefined;
   return new Date(time).toISOString();
 }
 
-function readForwardedLastTouch(): LastTouchAttribution | null {
-  const params = new URLSearchParams(window.location.search);
+function readForwardedLastTouch(
+  params: URLSearchParams | null,
+): LastTouchAttribution | null {
+  if (!params) return null;
   const forwarded: LastTouchAttribution = {};
   for (const [param, field] of Object.entries(FORWARDED_LAST_TOUCH_FIELDS)) {
     const value = truncateFirstTouchField(params.get(param));
@@ -1188,6 +1228,13 @@ export interface CaptureAttributionOptions {
    * must name that path, not the sign-in page.
    */
   landingPath?: string;
+  /**
+   * That path's query string. A visitor sent to the sign-in page brings the
+   * query of the page they asked for, with its `utm_*` fields, only inside
+   * the continuation. It is read only when the page's own query has no source
+   * field, so a link straight to the sign-in page keeps its own.
+   */
+  landingSearch?: string;
 }
 
 /**
@@ -1515,6 +1562,36 @@ function captureWithSentry(
   });
 }
 
+function redactSentryValue<T>(value: T): T {
+  return redactSecretsInValue(value, { placeholder: "<redacted>" }) as T;
+}
+
+// Sentry gathers exception text, breadcrumbs and extras itself, so none of it
+// has passed through the capture redactor.
+function redactBrowserSentryEvent(event: Sentry.Event): void {
+  for (const exception of event.exception?.values ?? []) {
+    if (typeof exception.value === "string") {
+      exception.value = redactSecrets(exception.value);
+    }
+  }
+  if (typeof event.message === "string") {
+    event.message = redactSecrets(event.message);
+  }
+  if (event.extra) event.extra = redactSentryValue(event.extra);
+  if (event.contexts) event.contexts = redactSentryValue(event.contexts);
+  if (event.tags) event.tags = redactSentryValue(event.tags);
+  if (event.request?.query_string !== undefined) {
+    event.request.query_string =
+      scrubQueryString(event.request.query_string) ?? "";
+  }
+  for (const crumb of event.breadcrumbs ?? []) {
+    if (typeof crumb.message === "string") {
+      crumb.message = redactSecrets(crumb.message);
+    }
+    if (crumb.data) crumb.data = redactSentryValue(crumb.data);
+  }
+}
+
 function ensureSentry(loadWithoutDsn = false): void {
   if (isSyntheticBrowserTraffic()) return;
   if (_sentryInitialized || _sentryLoadPromise) return;
@@ -1547,24 +1624,28 @@ function ensureSentry(loadWithoutDsn = false): void {
             return null;
           }
           if (event.request?.url) {
-            event.request.url = scrubUrl(event.request.url);
+            event.request.url =
+              scrubUrl(event.request.url, { routePath: _routeTemplates }) ?? "";
           }
           if (Array.isArray(event.breadcrumbs)) {
             for (const crumb of event.breadcrumbs) {
               if (crumb && typeof crumb === "object" && "data" in crumb) {
                 const data = crumb.data as Record<string, unknown> | undefined;
                 if (data && typeof data.url === "string") {
-                  data.url = scrubUrl(data.url);
+                  data.url = scrubUrl(data.url, { routePath: _routeTemplates });
                 }
                 if (data && typeof data.from === "string") {
-                  data.from = scrubUrl(data.from);
+                  data.from = scrubUrl(data.from, {
+                    routePath: _routeTemplates,
+                  });
                 }
                 if (data && typeof data.to === "string") {
-                  data.to = scrubUrl(data.to);
+                  data.to = scrubUrl(data.to, { routePath: _routeTemplates });
                 }
               }
             }
           }
+          redactBrowserSentryEvent(event);
           addRecorderContext(event, hint);
           return event;
         },
@@ -1812,6 +1893,7 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
   }
+  _routeTemplates = options.routeTemplates !== false;
   _contentCaptureForPath = options.contentCaptureForPath ?? null;
   _trackingContentCaptureEnabled =
     _contentCaptureForPath && typeof window !== "undefined"
@@ -2376,7 +2458,7 @@ function resolveProps(
   }
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
-    url: window.location.origin + window.location.pathname,
+    url: window.location.origin + pagePath(window.location.pathname),
     app: window.location.hostname.split(".")[0] || "localhost",
     ...params,
   };
@@ -2451,20 +2533,25 @@ type PageviewSnapshot = {
 function snapshotPageview(reason: string): PageviewSnapshot {
   const { href, origin, pathname, hostname, search } = window.location;
   const contentCaptureEnabled = _trackingContentCaptureEnabled;
+  const path = pagePath(pathname);
   const properties: Record<string, unknown> = {
-    url: !contentCaptureEnabled ? origin + pathname : scrubUrl(href),
-    path: pathname,
+    url: !contentCaptureEnabled
+      ? origin + path
+      : scrubUrl(href, { routePath: _routeTemplates }),
+    path,
     hostname,
     navigation_type: reason,
     [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
     [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
   if (contentCaptureEnabled && search) {
-    properties.search = scrubUrl(search);
+    properties.search = scrubUrl(`/${search}`)?.slice(1);
   }
   if (contentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
-      properties.referrer = scrubUrl(document.referrer);
+      properties.referrer = scrubUrl(document.referrer, {
+        routePath: _routeTemplates,
+      });
     }
     if (document.title) {
       properties.title = document.title;
@@ -2536,8 +2623,9 @@ function emitAppEntered(entryPath?: string): void {
   if (typeof window === "undefined" || !_getDefaultProps) return;
   const scheduledEntryPath = entryPath ?? window.location.pathname;
   if (waitForTrackingIdentityBeforeAppEntry(scheduledEntryPath)) return;
+  const entryRoute = pagePath(scheduledEntryPath);
   const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
-    entry_path: scheduledEntryPath,
+    entry_path: entryRoute,
   });
   const appName = normalizeTrackingDimension(
     properties.app_name ?? properties.app,
@@ -2554,7 +2642,7 @@ function emitAppEntered(entryPath?: string): void {
   const attribution = getFirstTouchAttribution();
   trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     app_name: appName,
-    entry_path: scheduledEntryPath,
+    entry_path: entryRoute,
     ...(attribution?.ref ? { source: attribution.ref } : {}),
     ...(attribution?.landing_referrer
       ? { referrer: attribution.landing_referrer }
@@ -2926,6 +3014,31 @@ export function trackLifecycleEvent(
   trackEvent(name, params);
 }
 
-export function trackSessionStatus(signedIn: boolean): void {
-  trackEvent("session status", { signed_in: signedIn });
+/**
+ * What made the tab read the session: its first read in the page (`"load"`,
+ * which the page's first answer always says, even when it comes on a retry, a
+ * later return to the tab, or a read a sign-in change or 401 started), a
+ * return to the tab, by focus or by becoming visible, once the answer was
+ * stale (`"focus"`), a component mounting after the answer expired
+ * (`"expired"`), a sign-in, sign-out, or account or organization switch in
+ * this tab or another (`"auth_change"`), a request answered 401
+ * (`"unauthorized"`), or requests moving to another transport, such as an
+ * embed's token arriving (`"transport_change"`). Only `"load"` is a page load.
+ */
+export type SessionStatusTrigger =
+  | "load"
+  | "focus"
+  | "expired"
+  | "auth_change"
+  | "unauthorized"
+  | "transport_change";
+
+export function trackSessionStatus(
+  signedIn: boolean,
+  trigger?: SessionStatusTrigger,
+): void {
+  trackEvent("session status", {
+    signed_in: signedIn,
+    ...(trigger !== undefined ? { trigger } : {}),
+  });
 }

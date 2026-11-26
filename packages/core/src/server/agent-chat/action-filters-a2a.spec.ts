@@ -26,7 +26,9 @@ import {
   filterDelegatedA2ACapabilityActions,
   filterDelegatedRegistry,
   filterDirectA2AActions,
+  filterDirectA2AWriteActions,
   filterMcpOnlyActions,
+  resolveDirectA2AAction,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -473,14 +475,35 @@ describe("filterDirectA2AActions", () => {
     ).toEqual(["search-text", "semantic"]);
   });
 
+  it("keeps a read whose MCP calls may ask for approval, and drops one that always may", () => {
+    const actions = {
+      "mcp-asks": action({
+        mcpNeedsApproval: () => true,
+        approvalNotice: () => "Allow up to $5.00 of BigQuery today?",
+        approvalProof: "review-page",
+      }),
+      "always-asks": action({ needsApproval: () => true }),
+    };
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: Object.keys(actions),
+        }),
+      ),
+    ).toEqual(["mcp-asks"]);
+  });
+
   it("reads `mcpTool` as catalog membership and as a veto", () => {
     const actions = {
       "list-plans": action({ mcpTool: true }),
+      "find-plans": action({ mcpTool: "search" }),
       "get-plan": action(),
       "open-inspector": action({ mcpTool: false }),
     };
 
-    expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
+    expect(Object.keys(filterDirectA2AActions(actions, {})).sort()).toEqual([
+      "find-plans",
       "list-plans",
     ]);
 
@@ -490,7 +513,7 @@ describe("filterDirectA2AActions", () => {
           connectorCatalog: ["get-plan", "open-inspector"],
         }),
       ).sort(),
-    ).toEqual(["get-plan", "list-plans"]);
+    ).toEqual(["find-plans", "get-plan", "list-plans"]);
   });
 
   it("inherits agentTool when mcpTool is undefined, and lets mcpTool override it", () => {
@@ -517,12 +540,13 @@ describe("filterDirectA2AActions", () => {
       Object.keys(
         filterMcpOnlyActions({
           "mcp-only": action({ agentTool: false, mcpTool: true }),
+          "mcp-only-unlisted": action({ agentTool: false, mcpTool: "search" }),
           "agent-hidden": action({ agentTool: false }),
           "catalog-member": action({ mcpTool: true }),
           normal: action(),
         }),
       ),
-    ).toEqual(["mcp-only"]);
+    ).toEqual(["mcp-only", "mcp-only-unlisted"]);
   });
 
   it("allows a raw query input only with an explicit opt-in", () => {
@@ -710,6 +734,97 @@ describe("filterDirectA2AActions", () => {
         }),
       ),
     ).toEqual(["allowed"]);
+  });
+});
+
+describe("filterDirectA2AWriteActions", () => {
+  const directWrite = (
+    overrides: Partial<ActionEntry> = {},
+    exposure: Partial<NonNullable<ActionEntry["publicAgent"]>> = {},
+  ) =>
+    action({
+      http: { method: "POST" },
+      readOnly: false,
+      mcpTool: true,
+      publicAgent: {
+        expose: true,
+        readOnly: false,
+        requiresAuth: true,
+        directWrite: true,
+        ...exposure,
+      },
+      ...overrides,
+    });
+
+  it("admits only writes that opt in by name and need a signed-in user", () => {
+    const actions = {
+      "add-note": directWrite(),
+      "not-opted-in": directWrite({}, { directWrite: undefined }),
+      "no-auth": directWrite({}, { requiresAuth: false }),
+      consequential: directWrite({}, { isConsequential: true }),
+      approval: directWrite({ needsApproval: true }),
+      "not-served": directWrite({ mcpTool: false }),
+      "ui-only": directWrite({ uiOnly: true }),
+      denied: directWrite(),
+      "read-claims-write": directWrite({ readOnly: true }),
+    };
+
+    expect(
+      Object.keys(
+        filterDirectA2AWriteActions(actions, {
+          externalAgents: { denyActions: ["denied"] },
+        }),
+      ),
+    ).toEqual(["add-note"]);
+  });
+
+  it("keeps an opted-in write out of the read-only path and off the agent card", () => {
+    const actions = { "add-note": directWrite() };
+
+    expect(filterDirectA2AActions(actions, {})).toEqual({});
+    expect(filterDelegatedA2ACapabilityActions(actions, {})).toEqual({});
+    expect(buildAuthenticatedAgentA2ASkills(actions, {})).toEqual([]);
+  });
+});
+
+describe("resolveDirectA2AAction", () => {
+  const actions = {
+    "get-note": action({
+      readOnly: true,
+      mcpTool: true,
+      publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+    }),
+    "add-note": action({
+      http: { method: "POST" },
+      readOnly: false,
+      mcpTool: true,
+      publicAgent: {
+        expose: true,
+        readOnly: false,
+        requiresAuth: true,
+        directWrite: true,
+      },
+    }),
+  };
+
+  it("runs an opted-in write only for a caller verified as the user", () => {
+    expect(resolveDirectA2AAction(actions, {}, "add-note", "user")).toEqual({
+      entry: actions["add-note"],
+    });
+    for (const assurance of ["org-member", "organization", undefined]) {
+      expect(
+        resolveDirectA2AAction(actions, {}, "add-note", assurance),
+      ).toMatchObject({ refused: expect.stringContaining("organization") });
+    }
+  });
+
+  it("leaves reads to the existing read-only rules", () => {
+    expect(
+      resolveDirectA2AAction(actions, {}, "get-note", "org-member"),
+    ).toEqual({ entry: actions["get-note"] });
+    expect(
+      resolveDirectA2AAction(actions, {}, "missing", "user"),
+    ).toMatchObject({ refused: expect.stringContaining("Unknown") });
   });
 });
 

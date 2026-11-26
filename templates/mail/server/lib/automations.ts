@@ -18,6 +18,7 @@ import type {
 } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
 import { buildLabelCache, ensureGmailLabel } from "./automation-actions.js";
+import { GmailQuotaCooldownError } from "./gmail-quota.js";
 import { getClientsWithErrors, isConnected } from "./google-auth.js";
 import { readCachedLabels } from "./inbox-store.js";
 import { normalizeMailSettings } from "./mail-settings.js";
@@ -175,7 +176,7 @@ async function ensureAiTagLabelExists(
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (clients.length === 0 && errors.length > 0) {
     throw new Error(
-      `Unable to create the Mail tag label: ${errors.map((error) => error.error).join("; ")}`,
+      `Unable to create the Mail label: ${errors.map((error) => error.error).join("; ")}`,
     );
   }
   if (clients.length === 0) {
@@ -198,12 +199,24 @@ async function ensureAiTagLabelExists(
     return;
   }
 
-  await Promise.all(
+  const results = await Promise.allSettled(
     clients.map(async (client) => {
       const cache = await buildLabelCache(client.accessToken);
       await ensureGmailLabel(client.accessToken, labelName, cache);
     }),
   );
+  // Applying the rule creates the label too, so a Gmail cooldown must not
+  // stop the rule from being saved (first-run setup saves several at once).
+  // Settle every account first so a cooldown on one cannot mask another's
+  // real failure.
+  for (const result of results) {
+    if (
+      result.status === "rejected" &&
+      !(result.reason instanceof GmailQuotaCooldownError)
+    ) {
+      throw result.reason;
+    }
+  }
 }
 
 function assertAiFilterActions(actions: AutomationAction[]): void {

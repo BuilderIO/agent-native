@@ -80,11 +80,12 @@ interface EmailListItemProps {
     e: React.MouseEvent,
     thread: ThreadSummary,
   ) => void;
-  onHover: (thread: ThreadSummary) => void;
   onPrefetch?: (thread: ThreadSummary) => void;
+  onFocusRow?: (thread: ThreadSummary) => void;
   onSwipeArchive?: (thread: ThreadSummary) => void;
   onSwipeSnooze?: (thread: ThreadSummary) => void;
   highlight?: string;
+  layout?: "row" | "rich";
 }
 
 function renderWithHighlight(text: string, term?: string) {
@@ -162,11 +163,12 @@ export const EmailListItem = memo(function EmailListItem({
   onCancelSchedule,
   onConfirmUncertainScheduled,
   onRetryUncertainScheduled,
-  onHover,
   onPrefetch,
+  onFocusRow,
   onSwipeArchive,
   onSwipeSnooze,
   highlight,
+  layout = "row",
 }: EmailListItemProps) {
   const t = useT();
   const { allAccounts } = useAccountFilter();
@@ -208,6 +210,20 @@ export const EmailListItem = memo(function EmailListItem({
     prevT: number;
   } | null>(null);
   const didSwipeRef = useRef(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!isFocused || !row) return;
+    const active = document.activeElement;
+    if (
+      active !== row &&
+      active instanceof HTMLElement &&
+      active.hasAttribute("data-mail-email-row")
+    ) {
+      row.focus({ preventScroll: true });
+    }
+  }, [isFocused]);
 
   const canSwipe = Boolean(onSwipeArchive || onSwipeSnooze);
 
@@ -333,10 +349,6 @@ export const EmailListItem = memo(function EmailListItem({
     if (thread) onSelect(thread);
   }, [onSelect, thread]);
 
-  const handleRowHover = useCallback(() => {
-    if (thread) onHover(thread);
-  }, [onHover, thread]);
-
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelPrefetch = useCallback(() => {
     if (prefetchTimerRef.current === null) return;
@@ -371,6 +383,13 @@ export const EmailListItem = memo(function EmailListItem({
       onPrefetch(thread);
     }, THREAD_PREFETCH_INTENT_MS);
   }, [cancelPrefetch, onPrefetch, thread]);
+
+  const handleRowFocus = useCallback(
+    (e: React.FocusEvent) => {
+      if (thread && e.target === e.currentTarget) onFocusRow?.(thread);
+    },
+    [onFocusRow, thread],
+  );
 
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -506,6 +525,326 @@ export const EmailListItem = memo(function EmailListItem({
   const snoozeProgress = dragX > 0 ? Math.min(1, dragX / SWIPE_ICON_SNAP) : 0;
   const showSwipeBackgrounds = canSwipe && dragX !== 0;
 
+  const selectionMarker = (
+    <div
+      className={cn(
+        "relative me-2 flex w-5 shrink-0 items-center justify-center",
+        layout === "rich" ? "h-[18px]" : "h-full",
+      )}
+    >
+      <button
+        type="button"
+        aria-label={t(
+          isMultiSelected
+            ? "mail.selection.deselectEmail"
+            : "mail.selection.selectEmail",
+        )}
+        onClick={handleToggleMultiSelectClick}
+        className={cn(
+          "absolute inset-y-0 left-1/2 flex w-6 -translate-x-1/2 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
+          isMultiSelected
+            ? "opacity-100"
+            : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+        )}
+      >
+        {isMultiSelected ? (
+          <IconSquareCheck className="h-4 w-4 text-primary" />
+        ) : (
+          <IconSquare className="h-4 w-4" />
+        )}
+      </button>
+      <div
+        className={cn(
+          "transition-opacity",
+          isMultiSelected
+            ? "opacity-0"
+            : "group-hover:opacity-0 group-focus-within:opacity-0",
+        )}
+      >
+        {isUnread ? (
+          <div className="h-[7px] w-[7px] rounded-full bg-primary" />
+        ) : isMultiAccount && email.accountEmail ? (
+          <div
+            className={cn(
+              "h-[5px] w-[5px] rounded-full opacity-50",
+              getAccountColor(email.accountEmail, allAccounts),
+            )}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const labelBadges =
+    displayLabels.length > 0 ? (
+      <div data-an-mask className="flex items-center gap-1 shrink-0 me-2">
+        {displayLabels.slice(0, 2).map((labelId) => {
+          const labelName =
+            labelNames?.get(labelId) ??
+            labelId.replace(/^label:/, "").replace(/^CATEGORY_/, "");
+          const isAiImportant = mailLabelMatches(labelName, AI_IMPORTANT_LABEL);
+          const style = isAiImportant
+            ? { bg: "bg-muted", text: "text-muted-foreground" }
+            : getLabelStyle(labelId);
+          const displayName = isAiImportant
+            ? t("mail.aiFilter.importantMode")
+            : mailLabelDisplayName(labelName);
+          const sizeToContent = displayName === "automated notifications";
+          return (
+            <span
+              key={labelId}
+              className={cn(
+                "label-badge",
+                sizeToContent && "shrink-0",
+                style.bg,
+                style.text,
+              )}
+              style={sizeToContent ? { maxWidth: "max-content" } : undefined}
+            >
+              {displayName}
+            </span>
+          );
+        })}
+      </div>
+    ) : null;
+
+  const scheduledStatus = (
+    <>
+      {isUncertainScheduled && (
+        <>
+          <p
+            role="alert"
+            className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+          >
+            <IconAlertCircle
+              aria-hidden="true"
+              className="h-3.5 w-3.5 shrink-0"
+            />
+            <span>{t("mail.sendLater.deliveryUnknownWarning")}</span>
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleConfirmUncertainScheduledClick}
+              aria-label={t("mail.sendLater.markSentAfterChecking")}
+              className="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+            >
+              {t("mail.sendLater.markSentAfterChecking")}
+            </button>
+            <button
+              type="button"
+              onClick={handleRetryUncertainScheduledClick}
+              aria-label={t("mail.sendLater.sendNewCopy")}
+              className="rounded border border-amber-600/50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-500/10 dark:text-amber-200"
+            >
+              {t("mail.sendLater.sendNewCopy")}
+            </button>
+          </div>
+        </>
+      )}
+      {isProcessingScheduled && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("mail.sendLater.sendingStatus")}
+        </p>
+      )}
+    </>
+  );
+
+  const actionRail = (
+    <div className="row-action-rail">
+      <span className="row-time text-xs text-muted-foreground tabular-nums sm:text-[12px]">
+        {formatEmailDate(email.date)}
+      </span>
+      {importanceScore !== undefined && (
+        <Popover
+          open={priorityScorePopoverOpen}
+          onOpenChange={setPriorityScorePopoverOpen}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              aria-label={`${t("mail.sort.priority")} ${importanceScore.toFixed(2)}`}
+              className="email-importance-score mx-1 inline-flex h-6 w-10 shrink-0 items-center justify-end rounded px-1 text-[11px] font-medium tabular-nums hover:bg-accent"
+              style={
+                {
+                  "--mail-importance-weight": `${Math.round(importanceScore * 100)}%`,
+                } as CSSProperties
+              }
+            >
+              {importanceScore.toFixed(2)}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-56 p-2"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <div className="mb-1 text-xs font-medium">
+              {t("mail.sort.priority")} · {importanceScore.toFixed(2)}
+            </div>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t("mail.sort.priorityScoreHelp")}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setPriorityScorePopoverOpen(false);
+                onImportanceFeedback?.("important");
+              }}
+              className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+            >
+              <IconThumbUp aria-hidden="true" className="size-3.5" />
+              {t("mail.aiFilter.importantMode")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPriorityScorePopoverOpen(false);
+                onImportanceFeedback?.("not-important");
+              }}
+              className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+            >
+              <IconThumbDown aria-hidden="true" className="size-3.5" />
+              {t("mail.aiFilter.notImportantMode")}
+            </button>
+            <Link
+              to={`${mailSettingsRoute("ai-filter")}#importance-rules`}
+              className="mt-1 block border-t border-border/40 px-2 pt-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {t("mail.sort.priorityEditRules")}
+            </Link>
+          </PopoverContent>
+        </Popover>
+      )}
+      <div
+        className={cn(
+          "hover-actions gap-0.5",
+          (isUncertainScheduled || isProcessingScheduled) && "hidden",
+        )}
+      >
+        {onToggleRead && (
+          <ActionTooltip
+            label={t(
+              isUnread ? "mail.actions.markRead" : "mail.actions.markUnread",
+            )}
+            keys={MAIL_ACTION_KEYS.toggleRead}
+          >
+            <button
+              type="button"
+              onClick={handleToggleReadClick}
+              aria-label={t(
+                isUnread ? "mail.actions.markRead" : "mail.actions.markUnread",
+              )}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              {isUnread ? (
+                <IconMailOpened className="h-3.5 w-3.5" />
+              ) : (
+                <IconMail className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </ActionTooltip>
+        )}
+        {showArchive && (
+          <ActionTooltip
+            label={t("mail.actions.archive")}
+            keys={MAIL_ACTION_KEYS.archive}
+          >
+            <button
+              type="button"
+              onClick={handleArchiveClick}
+              aria-label={t("mail.actions.archive")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
+            >
+              <IconArchive className="h-3.5 w-3.5" />
+            </button>
+          </ActionTooltip>
+        )}
+        {showSnooze && (
+          <ActionTooltip
+            label={t("mail.snooze.snooze")}
+            keys={MAIL_ACTION_KEYS.snooze}
+          >
+            <button
+              type="button"
+              onClick={handleSnoozeClick}
+              aria-label={t("mail.snooze.snooze")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
+            >
+              <IconClock className="h-3.5 w-3.5" />
+            </button>
+          </ActionTooltip>
+        )}
+        {showSendNow && (
+          <ActionTooltip label={t("mail.sendLater.sendNow")}>
+            <button
+              type="button"
+              onClick={handleSendNowClick}
+              aria-label={t("mail.sendLater.sendNow")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
+            </button>
+          </ActionTooltip>
+        )}
+        {showCancelSchedule && (
+          <ActionTooltip label={t("mail.sendLater.cancelScheduledSend")}>
+            <button
+              type="button"
+              onClick={handleCancelScheduleClick}
+              aria-label={t("mail.sendLater.cancelScheduledSend")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </button>
+          </ActionTooltip>
+        )}
+        {showTrash && (
+          <ActionTooltip
+            label={t("mail.actions.moveToTrash")}
+            keys={MAIL_ACTION_KEYS.trash}
+          >
+            <button
+              type="button"
+              onClick={handleTrashClick}
+              aria-label={t("mail.actions.moveToTrash")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            >
+              <IconTrash className="h-3.5 w-3.5" />
+            </button>
+          </ActionTooltip>
+        )}
+        {onImportanceFeedback && (
+          <ImportanceFeedbackMenu onFeedback={onImportanceFeedback} />
+        )}
+        <ActionTooltip
+          label={t(isStarred ? "mail.actions.unstar" : "mail.actions.star")}
+          keys={MAIL_ACTION_KEYS.star}
+        >
+          <button
+            type="button"
+            onClick={handleStarClick}
+            aria-label={t(
+              isStarred ? "mail.actions.unstar" : "mail.actions.star",
+            )}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded transition-colors",
+              isStarred
+                ? "text-amber-400"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent",
+            )}
+          >
+            <IconStarFilled className="h-3.5 w-3.5" />
+          </button>
+        </ActionTooltip>
+      </div>
+    </div>
+  );
+
   return (
     <div
       className="relative overflow-hidden"
@@ -551,6 +890,7 @@ export const EmailListItem = memo(function EmailListItem({
       )}
 
       <div
+        ref={rowRef}
         role="row"
         tabIndex={0}
         data-mail-email-row
@@ -559,10 +899,10 @@ export const EmailListItem = memo(function EmailListItem({
         aria-selected={isMultiSelected}
         aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
-        onMouseMove={handleRowHover}
         onMouseEnter={handleRowMouseEnter}
         onMouseLeave={cancelPrefetch}
         onPointerDown={handleRowPointerDown}
+        onFocus={handleRowFocus}
         onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
         onTouchMove={canSwipe ? handleTouchMove : undefined}
@@ -589,382 +929,122 @@ export const EmailListItem = memo(function EmailListItem({
             : undefined
         }
         className={cn(
-          "email-list-row group relative flex cursor-pointer items-center px-3 transition-colors",
-          !isUncertainScheduled &&
-            !isProcessingScheduled &&
-            "h-[48px] sm:h-[38px]",
-          isUncertainScheduled &&
-            "h-auto min-h-[96px] items-start py-2 sm:min-h-[88px]",
-          isProcessingScheduled &&
-            "h-auto min-h-[56px] items-start py-2 sm:min-h-[50px]",
+          "email-list-row group relative flex cursor-pointer transition-colors",
+          layout === "rich"
+            ? "email-list-row-rich items-start border-b border-border/30 py-2.5 ps-3 pe-3.5"
+            : [
+                "items-center px-3",
+                !isUncertainScheduled &&
+                  !isProcessingScheduled &&
+                  "h-[48px] sm:h-[38px]",
+                isUncertainScheduled &&
+                  "h-auto min-h-[96px] items-start py-2 sm:min-h-[88px]",
+                isProcessingScheduled &&
+                  "h-auto min-h-[56px] items-start py-2 sm:min-h-[50px]",
+              ],
           isSelected && "selected",
           isFocused && !isSelected && "focused",
           isMultiSelected && "multi-selected",
         )}
       >
         {/* Multi-select left border indicator */}
-        {isMultiSelected && (
+        {(isMultiSelected || (layout === "rich" && isSelected)) && (
           <div className="absolute start-0 top-0 bottom-0 w-[3px] bg-primary rounded-e" />
         )}
 
-        {/* Selection / unread / account dot */}
-        <div className="relative me-2 flex h-full w-5 shrink-0 items-center justify-center">
-          <button
-            type="button"
-            aria-label={t(
-              isMultiSelected
-                ? "mail.selection.deselectEmail"
-                : "mail.selection.selectEmail",
-            )}
-            onClick={handleToggleMultiSelectClick}
-            className={cn(
-              "absolute inset-y-0 left-1/2 flex w-6 -translate-x-1/2 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
-              isMultiSelected
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-            )}
-          >
-            {isMultiSelected ? (
-              <IconSquareCheck className="h-4 w-4 text-primary" />
-            ) : (
-              <IconSquare className="h-4 w-4" />
-            )}
-          </button>
-          <div
-            className={cn(
-              "transition-opacity",
-              isMultiSelected
-                ? "opacity-0"
-                : "group-hover:opacity-0 group-focus-within:opacity-0",
-            )}
-          >
-            {isUnread ? (
-              <div className="h-[7px] w-[7px] rounded-full bg-primary" />
-            ) : isMultiAccount && email.accountEmail ? (
-              <div
+        {selectionMarker}
+
+        {layout === "rich" ? (
+          <div className="min-w-0 flex-1">
+            <div className="flex h-[18px] items-center">
+              <span
+                data-an-mask
                 className={cn(
-                  "h-[5px] w-[5px] rounded-full opacity-50",
-                  getAccountColor(email.accountEmail, allAccounts),
+                  "min-w-0 flex-1 truncate text-[13px]",
+                  isUnread
+                    ? "font-semibold text-foreground"
+                    : "font-normal text-foreground/90",
                 )}
-              />
-            ) : null}
+              >
+                {senderName}
+              </span>
+              {actionRail}
+            </div>
+            <div
+              data-an-mask
+              className="mt-0.5 flex min-w-0 items-center overflow-hidden"
+            >
+              {labelBadges}
+              <span
+                className={cn(
+                  "min-w-0 truncate text-[13px]",
+                  isUnread
+                    ? "font-medium text-foreground"
+                    : "font-normal text-foreground/90",
+                )}
+              >
+                {renderWithHighlight(email.subject, highlight)}
+              </span>
+            </div>
+            <p
+              data-an-mask
+              className="mt-0.5 line-clamp-2 text-[12.5px] leading-[17px] text-muted-foreground/80"
+            >
+              {renderWithHighlight(email.snippet, highlight)}
+            </p>
+            {(isUncertainScheduled || isProcessingScheduled) && (
+              <div className="mt-1.5 flex flex-col items-start gap-1">
+                {scheduledStatus}
+              </div>
+            )}
           </div>
-        </div>
-
-        {/* Sender name — fixed width column */}
-        <span
-          data-an-mask
-          className={cn(
-            "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate me-3",
-            isUnread
-              ? "font-semibold text-foreground"
-              : "font-normal text-foreground/90",
-          )}
-        >
-          {senderName}
-        </span>
-
-        {/* Label badges */}
-        {displayLabels.length > 0 && (
-          <div data-an-mask className="flex items-center gap-1 shrink-0 me-2">
-            {displayLabels.slice(0, 2).map((labelId) => {
-              const labelName =
-                labelNames?.get(labelId) ??
-                labelId.replace(/^label:/, "").replace(/^CATEGORY_/, "");
-              const isAiImportant = mailLabelMatches(
-                labelName,
-                AI_IMPORTANT_LABEL,
-              );
-              const style = isAiImportant
-                ? { bg: "bg-muted", text: "text-muted-foreground" }
-                : getLabelStyle(labelId);
-              const displayName = isAiImportant
-                ? t("mail.aiFilter.importantMode")
-                : mailLabelDisplayName(labelName);
-              const sizeToContent = displayName === "automated notifications";
-              return (
-                <span
-                  key={labelId}
-                  className={cn(
-                    "label-badge",
-                    sizeToContent && "shrink-0",
-                    style.bg,
-                    style.text,
-                  )}
-                  style={
-                    sizeToContent ? { maxWidth: "max-content" } : undefined
-                  }
-                >
-                  {displayName}
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Subject + snippet — fills remaining space */}
-        <div
-          className={cn(
-            "row-content flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden",
-            (isUncertainScheduled || isProcessingScheduled) &&
-              "flex-col items-start justify-center gap-1 overflow-visible",
-          )}
-        >
-          <div
-            data-an-mask
-            className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden"
-          >
+        ) : (
+          <>
             <span
+              data-an-mask
               className={cn(
-                "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",
+                "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate me-3",
                 isUnread
-                  ? "font-medium text-foreground"
+                  ? "font-semibold text-foreground"
                   : "font-normal text-foreground/90",
               )}
             >
-              {renderWithHighlight(email.subject, highlight)}
+              {senderName}
             </span>
-            <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
-              {renderWithHighlight(email.snippet, highlight)}
-            </span>
-          </div>
-          {isUncertainScheduled && (
-            <>
-              <p
-                role="alert"
-                className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
-              >
-                <IconAlertCircle
-                  aria-hidden="true"
-                  className="h-3.5 w-3.5 shrink-0"
-                />
-                <span>{t("mail.sendLater.deliveryUnknownWarning")}</span>
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleConfirmUncertainScheduledClick}
-                  aria-label={t("mail.sendLater.markSentAfterChecking")}
-                  className="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
-                >
-                  {t("mail.sendLater.markSentAfterChecking")}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRetryUncertainScheduledClick}
-                  aria-label={t("mail.sendLater.sendNewCopy")}
-                  className="rounded border border-amber-600/50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-500/10 dark:text-amber-200"
-                >
-                  {t("mail.sendLater.sendNewCopy")}
-                </button>
-              </div>
-            </>
-          )}
-          {isProcessingScheduled && (
-            <p className="text-xs text-muted-foreground" role="status">
-              {t("mail.sendLater.sendingStatus")}
-            </p>
-          )}
-        </div>
 
-        <div className="row-action-rail">
-          {/* Time — right aligned, hidden when row actions are visible */}
-          <span className="row-time text-xs text-muted-foreground tabular-nums sm:text-[12px]">
-            {formatEmailDate(email.date)}
-          </span>
-          {importanceScore !== undefined && (
-            <Popover
-              open={priorityScorePopoverOpen}
-              onOpenChange={setPriorityScorePopoverOpen}
+            {labelBadges}
+
+            <div
+              className={cn(
+                "row-content flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden",
+                (isUncertainScheduled || isProcessingScheduled) &&
+                  "flex-col items-start justify-center gap-1 overflow-visible",
+              )}
             >
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => event.stopPropagation()}
-                  aria-label={`${t("mail.sort.priority")} ${importanceScore.toFixed(2)}`}
-                  className="email-importance-score mx-1 inline-flex h-6 w-10 shrink-0 items-center justify-end rounded px-1 text-[11px] font-medium tabular-nums hover:bg-accent"
-                  style={
-                    {
-                      "--mail-importance-weight": `${Math.round(importanceScore * 100)}%`,
-                    } as CSSProperties
-                  }
-                >
-                  {importanceScore.toFixed(2)}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-56 p-2"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
+              <div
+                data-an-mask
+                className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden"
               >
-                <div className="mb-1 text-xs font-medium">
-                  {t("mail.sort.priority")} · {importanceScore.toFixed(2)}
-                </div>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  {t("mail.sort.priorityScoreHelp")}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPriorityScorePopoverOpen(false);
-                    onImportanceFeedback?.("important");
-                  }}
-                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
-                >
-                  <IconThumbUp aria-hidden="true" className="size-3.5" />
-                  {t("mail.aiFilter.importantMode")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPriorityScorePopoverOpen(false);
-                    onImportanceFeedback?.("not-important");
-                  }}
-                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
-                >
-                  <IconThumbDown aria-hidden="true" className="size-3.5" />
-                  {t("mail.aiFilter.notImportantMode")}
-                </button>
-                <Link
-                  to={`${mailSettingsRoute("ai-filter")}#importance-rules`}
-                  className="mt-1 block border-t border-border/40 px-2 pt-2 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  {t("mail.sort.priorityEditRules")}
-                </Link>
-              </PopoverContent>
-            </Popover>
-          )}
-          {/* Hover actions overlay the preview while the time stays fixed. */}
-          <div
-            className={cn(
-              "hover-actions gap-0.5",
-              (isUncertainScheduled || isProcessingScheduled) && "hidden",
-            )}
-          >
-            {onToggleRead && (
-              <ActionTooltip
-                label={t(
-                  isUnread
-                    ? "mail.actions.markRead"
-                    : "mail.actions.markUnread",
-                )}
-                keys={MAIL_ACTION_KEYS.toggleRead}
-              >
-                <button
-                  type="button"
-                  onClick={handleToggleReadClick}
-                  aria-label={t(
+                <span
+                  className={cn(
+                    "text-sm sm:text-[13px] truncate shrink-0 max-w-[75%]",
                     isUnread
-                      ? "mail.actions.markRead"
-                      : "mail.actions.markUnread",
+                      ? "font-medium text-foreground"
+                      : "font-normal text-foreground/90",
                   )}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
-                  {isUnread ? (
-                    <IconMailOpened className="h-3.5 w-3.5" />
-                  ) : (
-                    <IconMail className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </ActionTooltip>
-            )}
-            {showArchive && (
-              <ActionTooltip
-                label={t("mail.actions.archive")}
-                keys={MAIL_ACTION_KEYS.archive}
-              >
-                <button
-                  type="button"
-                  onClick={handleArchiveClick}
-                  aria-label={t("mail.actions.archive")}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
-                >
-                  <IconArchive className="h-3.5 w-3.5" />
-                </button>
-              </ActionTooltip>
-            )}
-            {showSnooze && (
-              <ActionTooltip
-                label={t("mail.snooze.snooze")}
-                keys={MAIL_ACTION_KEYS.snooze}
-              >
-                <button
-                  type="button"
-                  onClick={handleSnoozeClick}
-                  aria-label={t("mail.snooze.snooze")}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
-                >
-                  <IconClock className="h-3.5 w-3.5" />
-                </button>
-              </ActionTooltip>
-            )}
-            {showSendNow && (
-              <ActionTooltip label={t("mail.sendLater.sendNow")}>
-                <button
-                  type="button"
-                  onClick={handleSendNowClick}
-                  aria-label={t("mail.sendLater.sendNow")}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
-                </button>
-              </ActionTooltip>
-            )}
-            {showCancelSchedule && (
-              <ActionTooltip label={t("mail.sendLater.cancelScheduledSend")}>
-                <button
-                  type="button"
-                  onClick={handleCancelScheduleClick}
-                  aria-label={t("mail.sendLater.cancelScheduledSend")}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </ActionTooltip>
-            )}
-            {showTrash && (
-              <ActionTooltip
-                label={t("mail.actions.moveToTrash")}
-                keys={MAIL_ACTION_KEYS.trash}
-              >
-                <button
-                  type="button"
-                  onClick={handleTrashClick}
-                  aria-label={t("mail.actions.moveToTrash")}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <IconTrash className="h-3.5 w-3.5" />
-                </button>
-              </ActionTooltip>
-            )}
-            {onImportanceFeedback && (
-              <ImportanceFeedbackMenu onFeedback={onImportanceFeedback} />
-            )}
-            <ActionTooltip
-              label={t(isStarred ? "mail.actions.unstar" : "mail.actions.star")}
-              keys={MAIL_ACTION_KEYS.star}
-            >
-              <button
-                type="button"
-                onClick={handleStarClick}
-                aria-label={t(
-                  isStarred ? "mail.actions.unstar" : "mail.actions.star",
-                )}
-                className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                  isStarred
-                    ? "text-amber-400"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                )}
-              >
-                <IconStarFilled className="h-3.5 w-3.5" />
-              </button>
-            </ActionTooltip>
-          </div>
-        </div>
+                  {renderWithHighlight(email.subject, highlight)}
+                </span>
+                <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
+                  {renderWithHighlight(email.snippet, highlight)}
+                </span>
+              </div>
+              {scheduledStatus}
+            </div>
+
+            {actionRail}
+          </>
+        )}
       </div>
     </div>
   );

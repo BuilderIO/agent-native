@@ -172,7 +172,9 @@ export function parseClipsLibraryResponse(
   payload: unknown,
 ): NativeClipSummary[] {
   const recordings = asRecord(payload)?.recordings;
-  if (!Array.isArray(recordings)) return [];
+  if (!Array.isArray(recordings)) {
+    throw new Error("Clips returned an invalid recordings list.");
+  }
   return recordings.flatMap((item) => {
     const recording = normalizeClipSummary(item);
     return recording ? [recording] : [];

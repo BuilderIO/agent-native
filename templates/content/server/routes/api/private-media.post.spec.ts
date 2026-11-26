@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   putPrivateMedia: vi.fn(),
   deletePrivateMedia: vi.fn(),
   resolveEditablePrivateIconOrgId: vi.fn(),
+  resolveCommentablePrivateMediaOrgId: vi.fn(),
   bindUploadedPrivateMedia: vi.fn(),
 }));
 vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
@@ -26,6 +27,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("../../lib/private-icon-target.js", () => ({
   resolveEditablePrivateIconOrgId: mocks.resolveEditablePrivateIconOrgId,
+  resolveCommentablePrivateMediaOrgId:
+    mocks.resolveCommentablePrivateMediaOrgId,
 }));
 vi.mock("../../lib/private-media-references.js", () => ({
   bindUploadedPrivateMedia: mocks.bindUploadedPrivateMedia,
@@ -57,10 +60,46 @@ beforeEach(() => {
     orgId: "org-1",
   });
   mocks.resolveEditablePrivateIconOrgId.mockResolvedValue("org-1");
+  mocks.resolveCommentablePrivateMediaOrgId.mockResolvedValue("org-1");
   mocks.putPrivateMedia.mockResolvedValue({ id: MEDIA_ID });
 });
 
 describe("Content private image upload", () => {
+  it("takes a comment's image from anyone who can comment on the page", async () => {
+    const event = upload([
+      ["documentId", "document-1"],
+      ["purpose", "comment"],
+      ["file", image()],
+    ]);
+    await expect(handler(event)).resolves.toEqual({
+      id: MEDIA_ID,
+      url: `/api/private-media/${MEDIA_ID}`,
+    });
+    expect(mocks.resolveCommentablePrivateMediaOrgId).toHaveBeenCalledWith(
+      "document-1",
+    );
+    expect(mocks.resolveEditablePrivateIconOrgId).not.toHaveBeenCalled();
+    expect(mocks.bindUploadedPrivateMedia).toHaveBeenCalledWith({
+      documentId: "document-1",
+      mediaId: MEDIA_ID,
+    });
+  });
+
+  it("refuses a comment image that isn't PNG, JPEG, GIF or WebP", async () => {
+    const svg = new File(["<svg/>"], "shot.svg", { type: "image/svg+xml" });
+    await expect(
+      handler(
+        upload([
+          ["documentId", "document-1"],
+          ["purpose", "comment"],
+          ["file", svg],
+        ]),
+      ),
+    ).rejects.toMatchObject({ statusCode: 415 });
+    expect(mocks.resolveCommentablePrivateMediaOrgId).not.toHaveBeenCalled();
+    expect(mocks.putPrivateMedia).not.toHaveBeenCalled();
+  });
+
   it("stores the image in the page's workspace and binds it to the page", async () => {
     const event = upload([
       ["documentId", "document-1"],

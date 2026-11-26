@@ -5,6 +5,7 @@ import {
   commentAiIntentSchema,
   submitCommentAiClassification,
 } from "../server/lib/comment-ai.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
 
 export default defineAction({
   description:
@@ -12,4 +13,5 @@ export default defineAction({
   toolCallable: false,
   schema: z.object({ intent: commentAiIntentSchema }),
   run: ({ intent }) => submitCommentAiClassification(intent),
+  changeResource: commentAiChangeResource,
 });

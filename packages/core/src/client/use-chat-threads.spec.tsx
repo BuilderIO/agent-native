@@ -506,6 +506,133 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBeNull();
   });
 
+  for (const collapseEdits of [false, true]) {
+    it(`keeps an explicitly opened older edit accessible with collapseEdits=${collapseEdits}`, async () => {
+      const older: ChatThreadSnapshot = {
+        id: "edit-root",
+        title: "Original prompt",
+        preview: "old",
+        messageCount: 2,
+        createdAt: 1,
+        updatedAt: 9,
+        scope: null,
+        threadData: "{}",
+      };
+      const newest: ChatThreadSummary = {
+        id: "latest-edit",
+        editRootId: "edit-root",
+        title: "Edited prompt",
+        preview: "new",
+        messageCount: 2,
+        createdAt: 2,
+        updatedAt: 3,
+        scope: null,
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (
+            url === `/chat/threads${collapseEdits ? "?collapseEdits=1" : ""}`
+          ) {
+            return jsonResponse({ threads: [newest] });
+          }
+          if (url === "/chat/threads/edit-root") return jsonResponse(older);
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+      let hook: ReturnType<typeof useChatThreads> | null = null;
+      function Harness() {
+        hook = useChatThreads("/chat", "edit-history", null, {
+          autoCreate: false,
+          collapseEdits,
+        });
+        return null;
+      }
+      await act(async () => {
+        root.render(<Harness />);
+      });
+      await act(async () => {
+        expect(await hook!.openThread("edit-root")).toBe("opened");
+      });
+      act(() => {
+        hook!.switchThread("edit-root");
+      });
+      expect(hook!.activeThreadId).toBe("edit-root");
+      expect(hook!.threads.map((t) => t.id)).toEqual(
+        collapseEdits ? ["latest-edit"] : ["edit-root", "latest-edit"],
+      );
+      await act(async () => {
+        hook!.refreshThreads();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(hook!.activeThreadId).toBe("edit-root");
+      expect(hook!.threads.map((t) => t.id)).toEqual(
+        collapseEdits ? ["latest-edit"] : ["latest-edit", "edit-root"],
+      );
+    });
+  }
+
+  for (const pinnedAt of [null, 20]) {
+    it(`orders collapsed explicit edits by selected summary and group pin ${pinnedAt}`, async () => {
+      const older: ChatThreadSnapshot = {
+        id: "root-edit",
+        title: "Old",
+        preview: "",
+        messageCount: 2,
+        createdAt: 1,
+        updatedAt: 99,
+        scope: null,
+        threadData: "{}",
+        pinnedAt,
+      };
+      const latest: ChatThreadSummary = {
+        ...older,
+        id: "latest-edit",
+        editRootId: older.id,
+        createdAt: 2,
+        updatedAt: 3,
+        pinnedAt: null,
+      };
+      const unrelated: ChatThreadSummary = {
+        ...latest,
+        id: "unrelated",
+        editRootId: undefined,
+        title: "Old",
+        updatedAt: 10,
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (url === "/chat/threads?collapseEdits=1")
+            return jsonResponse({ threads: [unrelated, latest] });
+          if (url === "/chat/threads/root-edit") return jsonResponse(older);
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+      let hook: ReturnType<typeof useChatThreads> | null = null;
+      function Harness() {
+        hook = useChatThreads("/chat", "edit-order", null, {
+          autoCreate: false,
+          collapseEdits: true,
+        });
+        return null;
+      }
+      await act(async () => {
+        root.render(<Harness />);
+      });
+      await act(async () => {
+        await hook!.openThread(older.id);
+      });
+      expect(hook!.threads.map((t) => t.id)).toEqual(
+        pinnedAt ? [latest.id, unrelated.id] : [unrelated.id, latest.id],
+      );
+      expect(
+        hook!.threads.find((t) => t.id === latest.id)?.pinnedAt ?? null,
+      ).toBe(pinnedAt);
+    });
+  }
+
   it("removes a detached thread from isolated history and replaces the active tab", async () => {
     const activeThread: ChatThreadSummary = {
       id: "app-one-thread",
@@ -830,6 +957,82 @@ describe("useChatThreads", () => {
       false,
     );
   });
+
+  it.each(["snapshot", "history list"])(
+    "report app-intent cleanup: does not recreate a thread confirmed by %s after deletion",
+    async (confirmation) => {
+      let exists = true;
+      let creates = 0;
+      vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+        if (url === "/chat/threads" && !init)
+          return jsonResponse({
+            threads:
+              confirmation === "history list"
+                ? [
+                    {
+                      id: "deleted-thread",
+                      title: "Test",
+                      preview: "Message",
+                      messageCount: 1,
+                      createdAt: 1,
+                      updatedAt: 1,
+                      scope: null,
+                    },
+                  ]
+                : [],
+          });
+        if (url === "/chat/threads" && init?.method === "POST") {
+          creates++;
+          exists = true;
+          return jsonResponse({ id: "deleted-thread" });
+        }
+        if (url === "/chat/threads/deleted-thread" && init?.method === "PUT") {
+          return exists
+            ? jsonResponse({ ok: true })
+            : jsonResponse({ absent: true });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      let hook: ReturnType<typeof useChatThreads> | null = null;
+      function getHook() {
+        if (!hook) throw new Error("Chat hook did not mount");
+        return hook;
+      }
+      function Harness() {
+        hook = useChatThreads("/chat", "deleted-save", null, {
+          autoCreate: false,
+          restoreActiveThread: false,
+        });
+        return null;
+      }
+      await act(async () => {
+        root.render(<Harness />);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      const data = {
+        threadData: "{}",
+        title: "Test",
+        preview: "Message",
+        messageCount: 1,
+      };
+      if (confirmation === "snapshot") {
+        await act(async () => {
+          expect(await getHook().saveThreadData("deleted-thread", data)).toBe(
+            true,
+          );
+        });
+      }
+      expect(getHook().isThreadPersisted("deleted-thread")).toBe(true);
+      exists = false;
+      await act(async () => {
+        expect(await getHook().saveThreadData("deleted-thread", data)).toBe(
+          false,
+        );
+      });
+      expect(creates).toBe(0);
+      expect(exists).toBe(false);
+    },
+  );
 
   it("reports when a thread save fails", async () => {
     let putStatus = 500;
@@ -3411,6 +3614,55 @@ describe("useChatThreads", () => {
 
     expect(
       hook!.threads.find((thread) => thread.id === "draft-1")?.scope,
+    ).toBeNull();
+  });
+
+  it("drops a local scope when a refreshed list row reports the thread unscoped", async () => {
+    const row = {
+      id: "moved-thread",
+      title: "Moved chat",
+      preview: "moved",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    let scope: ChatThreadScope | null = { type: "project", id: "7" };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [{ ...row, scope }], hasMore: false });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      hook?.threads.find((thread) => thread.id === "moved-thread")?.scope,
+    ).toEqual({ type: "project", id: "7" });
+
+    scope = null;
+    await act(async () => {
+      hook?.refreshThreads();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      hook?.threads.find((thread) => thread.id === "moved-thread")?.scope,
     ).toBeNull();
   });
 

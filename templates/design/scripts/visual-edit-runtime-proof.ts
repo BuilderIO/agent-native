@@ -19,7 +19,6 @@ const screenPaths = [
   "/home",
   "/home?focus=deck",
   "/templates",
-  "/design-systems",
   "/settings",
   "/settings/account",
   "/settings/agent",

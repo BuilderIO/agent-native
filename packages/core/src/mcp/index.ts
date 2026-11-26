@@ -20,6 +20,25 @@ export { runScreenMemoryMCPStdio } from "./screen-memory-stdio.js";
 export type { RunScreenMemoryMCPStdioOptions } from "./screen-memory-stdio.js";
 
 export { getBuiltinCrossAppTools } from "./builtin-tools.js";
+export { mcpChatTurnOwner } from "./chat-turn-scope.js";
+export {
+  MCP_CHAT_TURN_FIELD,
+  mintMcpChatTurn,
+  registerMcpChatTurnApps,
+  type McpChatTurnBinding,
+} from "./chat-turn-store.js";
+export {
+  isMcpTurnGrantAction,
+  MCP_TURN_GRANT_HEADER,
+  MCP_USER_TURN_META_KEY,
+} from "./turn-grant-scope.js";
+export {
+  listMcpTurnGrantAdmitters,
+  registerMcpTurnGrantAdmitter,
+  type McpTurnGrantAdmitter,
+  type McpTurnGrantAdmitterDecision,
+  type McpTurnGrantPresentation,
+} from "./turn-grant-admitters.js";
 export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
@@ -33,6 +52,19 @@ export {
   type EmbedRouteResult,
 } from "./embed-route.js";
 
+export {
+  MCP_SKILLS_EXTENSION_ID,
+  buildSkill,
+  getBuiltinMcpSkill,
+  type BuiltMcpSkill,
+  type McpBuiltinSkillId,
+  type McpSkillAuthContext,
+  type McpSkillConfig,
+  type McpSkillDefinition,
+  type McpSkillEntry,
+  type McpSkillReferenceFileInput,
+  type McpSkillResourceDigest,
+} from "./skills-extension.js";
 export {
   resolveWorkspace,
   resolveLocalAppOrigin,

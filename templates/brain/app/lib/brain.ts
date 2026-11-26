@@ -2,12 +2,14 @@ import type { Icon } from "@tabler/icons-react";
 import {
   IconBook2,
   IconChecks,
+  IconBrain,
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
 } from "@tabler/icons-react";
 
 export type BrainView =
+  | "intelligence"
   | "ask"
   | "extensions"
   | "search"
@@ -130,6 +132,7 @@ export interface BrainSource {
   status?: "active" | "paused" | "archived" | "error";
   enabled?: boolean;
   recordCount?: number;
+  hasIngestSourceKey?: boolean;
   coverage?: number;
   lastSyncAt?: string | null;
   lastSyncedAt?: string | null;
@@ -157,8 +160,11 @@ export interface MarkdownImportFileResult {
   path: string;
   status: "imported" | "blocked" | "failed";
   captureId?: string;
+  withheldPassages?: number | null;
+  passageQuarantine?: { version: 1; withheldPassages: number | null };
   distillation?: "queued" | "existing" | "skipped" | "failed";
   error?: string;
+  errorCode?: string;
   sensitivityReceipt?: Record<string, unknown>;
 }
 
@@ -182,6 +188,7 @@ export interface BrainOverviewResponse {
 }
 
 export interface KnowledgeResponse {
+  scanLimited?: boolean;
   rows?: KnowledgeRow[];
   knowledge?: KnowledgeRow[];
   facets?: {
@@ -216,6 +223,7 @@ export interface SearchEverythingResult {
   citation?: {
     captureId?: string | null;
     captureTitle?: string | null;
+    capturedAt?: string | null;
     quote?: string | null;
     sourceUrl?: string | null;
   } | null;
@@ -1058,6 +1066,12 @@ export const navItems: Array<{
   icon: Icon;
 }> = [
   { view: "ask", label: "Ask", href: "/home", icon: IconMessageQuestion },
+  {
+    view: "intelligence",
+    label: "Intelligence",
+    href: "/intelligence",
+    icon: IconBrain,
+  },
   { view: "sources", label: "Sources", href: "/sources", icon: IconDatabase },
   { view: "review", label: "Review", href: "/review", icon: IconChecks },
   {
@@ -1121,6 +1135,7 @@ function decodeThreadSegment(segment: string): string {
 
 export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/extensions")) return "extensions";
+  if (pathname.startsWith("/intelligence")) return "intelligence";
   if (pathname.startsWith("/search")) return "search";
   if (pathname.startsWith("/knowledge")) return "knowledge";
   if (pathname.startsWith("/review")) return "review";
@@ -1135,6 +1150,8 @@ export function viewFromPath(pathname: string): BrainView {
 
 export function pathFromView(view?: string): string {
   switch (view) {
+    case "intelligence":
+      return "/intelligence";
     case "extensions":
       return "/extensions";
     case "search":

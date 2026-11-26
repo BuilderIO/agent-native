@@ -11,6 +11,8 @@
  * never land in source, logs, or fixtures.
  */
 
+import { redactSecretsInText } from "../shared/secret-redaction.js";
+
 const SENSITIVE_KEY =
   /(?:pass(?:word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(?:id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(?:url|secret))/i;
 
@@ -27,7 +29,6 @@ const MAX_KEYS = 100;
 const MAX_ARRAY = 100;
 const MAX_JSON = 8000;
 const MARKER_SLACK = 32;
-const GOOGLE_API_KEY = /AIzaSy[A-Za-z0-9_-]{20,}/g;
 
 function looksCredential(value: string): boolean {
   if (/^bearer\s+\S/i.test(value)) return true;
@@ -117,11 +118,13 @@ function redactEmbeddedField(
 function redactEmbeddedSecrets(value: string): string {
   // Token matching can consume an escape that belongs to a quoted field,
   // so complete field values must be redacted first.
-  return value
-    .replace(EMBEDDED_AUTHORIZATION, redactEmbeddedField)
-    .replace(EMBEDDED_CREDENTIAL_FIELD, redactEmbeddedField)
-    .replace(EMBEDDED_BEARER, `$1${REDACTED}`)
-    .replace(GOOGLE_API_KEY, REDACTED);
+  return redactSecretsInText(
+    value
+      .replace(EMBEDDED_AUTHORIZATION, redactEmbeddedField)
+      .replace(EMBEDDED_CREDENTIAL_FIELD, redactEmbeddedField)
+      .replace(EMBEDDED_BEARER, `$1${REDACTED}`),
+    { placeholder: REDACTED },
+  );
 }
 
 function redact(

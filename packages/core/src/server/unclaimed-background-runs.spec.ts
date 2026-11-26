@@ -15,11 +15,13 @@ vi.mock("../agent/run-store.js", () => ({
   reapUnclaimedBackgroundRun: mocks.reap,
   shouldRedispatchUnclaimedBackgroundRun: mocks.shouldRedispatch,
   updateRunHeartbeat: mocks.heartbeat,
+  getTurnInitiatorByRun: async () => null,
 }));
 
 vi.mock("../agent/durable-background.js", () => ({
   AGENT_CHAT_BACKGROUND_RUN_FIELD: "backgroundRun",
   resolveAgentChatProcessRunDispatchPath: mocks.dispatchPath,
+  backgroundRunInitiatorMarker: () => ({}),
 }));
 
 vi.mock("./self-dispatch.js", () => ({

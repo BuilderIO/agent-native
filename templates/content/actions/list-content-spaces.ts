@@ -7,6 +7,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  canContributeToOrgSpace,
+  contentSpaceRoleForOrgRole,
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
 } from "./_content-space-access.js";
@@ -67,11 +69,7 @@ export default defineAction({
     const roleByOrgId = new Map(
       memberships.map((membership) => [
         membership.orgId,
-        membership.role === "owner"
-          ? "owner"
-          : membership.role === "admin"
-            ? "editor"
-            : "viewer",
+        contentSpaceRoleForOrgRole(membership.role),
       ]),
     );
     const filesDatabaseIds = rows.map((row) => row.space.filesDatabaseId);
@@ -130,7 +128,7 @@ export default defineAction({
           memberships.some(
             (membership) =>
               membership.orgId === row.space.orgId &&
-              ["owner", "admin", "member"].includes(membership.role),
+              canContributeToOrgSpace(membership.role),
           ),
         catalogItemId: row.mapping.databaseItemId,
         catalogDocumentId: row.mapping.documentId,

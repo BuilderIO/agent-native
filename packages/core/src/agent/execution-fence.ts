@@ -180,7 +180,9 @@ export async function lockAndAssertCurrentExecutionFences(
 export async function ownsLapsedTurnLease(
   tx: DbExec,
   fence: ExecutionFence,
+  options?: { lapsedWithinMs?: number },
 ): Promise<boolean> {
+  const lapsedWithinMs = options?.lapsedWithinMs ?? null;
   const lease = await tx.execute({
     sql: `SELECT generation
           FROM agent_execution_leases
@@ -189,8 +191,18 @@ export async function ownsLapsedTurnLease(
             AND owner_run_id = ?
             AND generation = CAST(? AS BIGINT)
             AND lease_expires_at >= updated_at + INTERVAL '1 second'
+            AND (CAST(? AS BIGINT) IS NULL
+              OR lease_expires_at > clock_timestamp() -
+                (CAST(? AS BIGINT) * INTERVAL '1 millisecond'))
           FOR UPDATE`,
-    args: [fence.threadId, fence.turnId, fence.runId, fence.generation],
+    args: [
+      fence.threadId,
+      fence.turnId,
+      fence.runId,
+      fence.generation,
+      lapsedWithinMs,
+      lapsedWithinMs,
+    ],
     timeoutMs: LAPSED_LEASE_STATEMENT_TIMEOUT_MS,
     maxAttempts: 1,
   });

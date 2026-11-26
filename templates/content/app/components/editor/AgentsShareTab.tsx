@@ -20,7 +20,7 @@ import {
 
 import type { AgentLevel } from "./AgentLevel";
 
-const LEVEL_ORDER: AgentLevel[] = ["comment", "edit"];
+const LEVEL_ORDER: AgentLevel[] = ["view", "comment", "edit"];
 
 /**
  * The Share panel's Agents tab: what agents may do on this page, and where to
@@ -48,6 +48,10 @@ export function AgentsShareTab({
 }) {
   const t = useT();
   const levels: Record<AgentLevel, { label: string; description: string }> = {
+    view: {
+      label: t("agentChat.share.canView"), // i18n-key-ignore shared framework catalog
+      description: t("editor.toolbar.agentLevelViewDescription"),
+    },
     comment: {
       label: t("agentChat.share.canComment"), // i18n-key-ignore shared framework catalog
       description: t("editor.toolbar.agentLevelCommentDescription"),

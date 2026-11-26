@@ -13,6 +13,7 @@ export * from "@agent-native/core/connections/runtime";
 
 export const WORKSPACE_CONNECTION_PROVIDERS: WorkspaceConnectionProvider[] = [
   "slack",
+  "zoom",
   "github",
   "figma",
   "notion",

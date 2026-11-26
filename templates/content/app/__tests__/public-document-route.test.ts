@@ -3,6 +3,7 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "@agent-native/core/shared";
 import { createElement } from "react";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -65,10 +66,16 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../../server/db", () => ({
   getDb: () => ({ select }),
   schema: {
+    contentDatabases: {
+      id: "database_id_col",
+      documentId: "database_document_id_col",
+      deletedAt: "database_deleted_at_col",
+    },
     documents: {
       id: "id_col",
       title: "title_col",
       content: "content_col",
+      description: "description_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
       trashedAt: "trashed_at_col",
@@ -90,15 +97,29 @@ import {
   ReadOnlyMarkdownContent,
 } from "../routes/p.$id";
 
-function firstPaint(content: string, appUrl: string | null) {
+function firstPaint(
+  content: string,
+  appUrl: string | null,
+  options: { blockIds?: Record<string, string>; basePath?: string } = {},
+) {
   return renderToStaticMarkup(
-    createElement(ReadOnlyMarkdownContent, {
-      documentId: "doc-1",
-      content,
-      clipsAppUrl: appUrl,
-      pageLinks: {},
-      basePath: "",
-    }),
+    createElement(
+      MemoryRouter,
+      null,
+      createElement(ReadOnlyMarkdownContent, {
+        documentId: "doc-1",
+        content,
+        clipsAppUrl: appUrl,
+        pageLinks: {},
+        interactiveHtml: options.blockIds
+          ? {
+              blockIds: options.blockIds,
+              displaySources: { imageSources: [], mediaSources: [] },
+            }
+          : null,
+        basePath: options.basePath ?? "",
+      }),
+    ),
   );
 }
 
@@ -111,12 +132,16 @@ function requestFor(id = "doc-1", token?: string) {
   } as any;
 }
 
-function documentRows(visibility: "public" | "private" | "org") {
+function documentRows(
+  visibility: "public" | "private" | "org",
+  overrides: { content?: string; description?: string } = {},
+) {
   return [
     {
       id: "doc-1",
       title: "Launch notes",
-      content: "## Summary\n\n- Ship it",
+      content: overrides.content ?? "## Summary\n\n- Ship it",
+      description: overrides.description ?? "",
       updatedAt: "2026-01-02T03:04:05.000Z",
       visibility,
       parentId: "parent-1",
@@ -168,23 +193,36 @@ describe("public document route", () => {
     expect(html).not.toContain("Ship it");
   });
 
-  it("does not disclose private document fields to an anonymous share-page request", async () => {
-    resultQueue.current = [documentRows("private")];
+  it.each(["private", "org"] as const)(
+    "does not disclose a %s page's fields to an anonymous share-page request",
+    async (visibility) => {
+      resultQueue.current = [
+        documentRows(visibility, { description: "Org-only plans" }),
+      ];
 
-    const result = (await loader(requestFor())).data;
+      const result = (await loader(requestFor())).data;
 
-    expect(result).toMatchObject({
-      document: null,
-      unavailable: {
-        reason: "private",
-        id: "doc-1",
-      },
-    });
-    expect(JSON.stringify(result)).not.toContain("Launch notes");
-    expect(JSON.stringify(result)).not.toContain("Ship it");
-    expect(mockLoadPublicReaderContext).not.toHaveBeenCalled();
-    expect(result).not.toHaveProperty("reader");
-  });
+      expect(result).toMatchObject({
+        document: null,
+        unavailable: {
+          reason: "private",
+          id: "doc-1",
+        },
+      });
+      const shared = JSON.stringify([
+        result,
+        meta({ loaderData: result } as never),
+      ]);
+      expect(shared).not.toContain("Launch notes");
+      expect(shared).not.toContain("Ship it");
+      expect(shared).not.toContain("Org-only plans");
+      expect(shared.toLowerCase()).not.toContain("public");
+      expect(mockLoadPublicReaderContext).not.toHaveBeenCalled();
+      expect(result).not.toHaveProperty("reader");
+      // Its preview never asks whether it is a database.
+      expect(limit).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("advertises the agent context endpoint for private share pages", () => {
     const descriptors = meta({
@@ -288,6 +326,90 @@ describe("public document route", () => {
     expect(JSON.stringify(privateMeta)).not.toContain("Launch notes");
   });
 
+  function publicPreview(document: Record<string, unknown>) {
+    return (
+      meta({
+        loaderData: {
+          document: {
+            id: "doc-1",
+            title: "Launch notes",
+            visibility: "public",
+            ...document,
+          },
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+        },
+      } as never) ?? []
+    );
+  }
+
+  it("previews a public page with its own description and the site's name", () => {
+    const preview = publicPreview({
+      content: "## Summary\n\n- Ship it",
+      description: "What ships in March, and why.",
+      kind: "page",
+    });
+
+    expect(preview).toContainEqual({
+      property: "og:description",
+      content: "What ships in March, and why.",
+    });
+    expect(preview).toContainEqual({
+      name: "twitter:description",
+      content: "What ships in March, and why.",
+    });
+    expect(preview).toContainEqual({
+      property: "og:site_name",
+      content: "Agent-Native Content",
+    });
+  });
+
+  it("previews a public database by its description, or names it a database", () => {
+    expect(
+      publicPreview({
+        content: "",
+        description: "37 article ideas, sorted by status.",
+        kind: "database",
+      }),
+    ).toContainEqual({
+      property: "og:description",
+      content: "37 article ideas, sorted by status.",
+    });
+
+    expect(
+      publicPreview({ content: "", description: "", kind: "database" }),
+    ).toContainEqual({
+      property: "og:description",
+      content: "A database in Agent-Native Content.",
+    });
+  });
+
+  it("tells the preview a public page is a database", async () => {
+    resultQueue.current = [
+      documentRows("public", {
+        content: "",
+        description: "37 article ideas, sorted by status.",
+      }),
+      [{ id: "db-1" }],
+    ];
+
+    const result = (await loader(requestFor())).data;
+
+    expect(result.document).toMatchObject({
+      description: "37 article ideas, sorted by status.",
+      kind: "database",
+    });
+  });
+
+  it("tells the preview a public page without a database is a page", async () => {
+    resultQueue.current = [documentRows("public")];
+
+    const result = (await loader(requestFor())).data;
+
+    expect(result.document).toMatchObject({ kind: "page" });
+  });
+
   it("renders a Clip as a link to it on Clips before the editor mounts", () => {
     const html = firstPaint(
       `Before.
@@ -343,6 +465,45 @@ Second part
     expect(html).not.toContain("&lt;");
     expect(html).toContain(">Next</h2>");
     expect(html).toContain("<li>one</li><li>two</li>");
+  });
+
+  it("captions interactive blocks with their links, at any depth, and never their source", () => {
+    const html = firstPaint(
+      [
+        "Before.",
+        "```html interactive",
+        "<title>Tap counter</title><button>0</button>",
+        "```",
+        "- item",
+        "  ```html interactive",
+        "  <title>In a list</title>",
+        "  ```",
+        '<callout icon="💡">',
+        "\tRead this",
+        "\t```html interactive",
+        "\t<button>Unnamed</button>",
+        "\t```",
+        "</callout>",
+      ].join("\n"),
+      null,
+      {
+        blockIds: { "1": "block_a", "2.0.1": "block_b" },
+        basePath: "/content",
+      },
+    );
+    const links = [
+      ...html.matchAll(/<a href="([^"]*)"[^>]*>([^<]*)<\/a>/g),
+    ].map(([, href, label]) => [href, label]);
+
+    expect(links).toEqual([
+      ["/content/page/doc-1?block=block_a&amp;full=1", "Tap counter"],
+      ["/content/page/doc-1?block=block_b&amp;full=1", "In a list"],
+    ]);
+    expect(html).toContain("Before.");
+    expect(html).toContain("item");
+    expect(html).toContain("Read this");
+    expect(html).toContain(">editor.interactiveHtml.untitled</span>");
+    expect(html).not.toContain("button");
   });
 
   it("hands the public page the Clips URL from deployment config", async () => {
@@ -460,5 +621,52 @@ Second part
 
     expect(answer.get("Referrer-Policy")).toBe("no-referrer");
     expect(answer.get(SSR_MAX_AGE_HEADER)).toBe("0");
+  });
+
+  it("keeps every answer out of search engines", () => {
+    for (const answer of [
+      headers({
+        loaderHeaders: new Headers(),
+        parentHeaders: new Headers(),
+        actionHeaders: new Headers(),
+        errorHeaders: undefined,
+      }),
+      headers({
+        loaderHeaders: new Headers(),
+        parentHeaders: new Headers(),
+        actionHeaders: new Headers(),
+        errorHeaders: new Headers(),
+      }),
+    ]) {
+      expect(answer.get("X-Robots-Tag")).toBe("noindex");
+    }
+
+    const loaded = {
+      agentAccessToken: null,
+      basePath: "/content",
+      origin: "https://content.example.test",
+    };
+    for (const loaderData of [
+      {
+        ...loaded,
+        document: {
+          id: "doc-1",
+          title: "Launch notes",
+          content: "",
+          visibility: "public",
+        },
+      },
+      {
+        ...loaded,
+        document: null,
+        unavailable: { reason: "private", id: "doc-1", basePath: "/content" },
+      },
+      undefined,
+    ]) {
+      expect(meta({ loaderData } as never)).toContainEqual({
+        name: "robots",
+        content: "noindex",
+      });
+    }
   });
 });

@@ -27,6 +27,7 @@ import {
   IconDots,
   IconFilter,
   IconInbox,
+  IconLink,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconTrash,
@@ -56,6 +57,13 @@ import {
   type AiFilterDialogTarget,
 } from "@/components/email/AiFilterDialog";
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
+import {
+  LabelPicker,
+  useApplyLabel,
+  type LabelChoice,
+  type LabelPickerAction,
+  type LabelPickerRequest,
+} from "@/components/email/LabelPicker";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -71,6 +79,7 @@ import {
   applyDraftSaveResult,
   useComposeState,
 } from "@/hooks/use-compose-state";
+import { useCopyEmailLink } from "@/hooks/use-copy-email-link";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -93,13 +102,18 @@ import {
 } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
+import { emailHasFixedWidthLayout } from "@/lib/designed-email";
 import {
   decodeHtmlEntities,
   processHtmlImages,
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
 import { mailLabelDisplayName } from "@/lib/label-display";
-import { mailThreadHref, mailViewHref } from "@/lib/mail-routes";
+import {
+  mailThreadHref,
+  mailViewHasThreadLinks,
+  mailViewHref,
+} from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -173,9 +187,10 @@ export function EmailThread({
   onNavigateThread,
   isMaximized = false,
   onToggleMaximize,
+  variant = "full",
 }: {
   activeThreadId?: string;
-  activeThreadAccountEmail?: string | null;
+  activeThreadAccountEmail?: string | null | undefined;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   threads?: ThreadSummary[];
@@ -188,6 +203,7 @@ export function EmailThread({
   ) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
+  variant?: "full" | "pane";
 }) {
   const t = useT();
   const { view = "inbox", threadId: routeThreadId } = useParams<{
@@ -206,6 +222,7 @@ export function EmailThread({
   const compose = useComposeState();
   const queryClient = useQueryClient();
   const priorityFeedback = useAiPriorityFeedback();
+  const copyEmailLink = useCopyEmailLink();
 
   useEffect(() => {
     if (!threadId) return;
@@ -587,6 +604,7 @@ export function EmailThread({
           searchParams,
           nextThread?.latestMessage.accountEmail,
         ),
+        { replace: variant === "pane" },
       );
     },
     [
@@ -597,6 +615,7 @@ export function EmailThread({
       setSelectedIds,
       onNavigateThread,
       threads,
+      variant,
     ],
   );
 
@@ -1001,6 +1020,44 @@ export function EmailThread({
     () => new Map(labels.map((label) => [label.id, label.name])),
     [labels],
   );
+  const userLabels = useMemo(
+    () => labels.filter((label) => label.type === "user"),
+    [labels],
+  );
+  const applyLabel = useApplyLabel(labelParam || undefined);
+  const [labelPicker, setLabelPicker] = useState<LabelPickerRequest | null>(
+    null,
+  );
+  const resolveActionTargets = useCallback(
+    () =>
+      getActionThreadKeys()
+        .map((key) => {
+          const t = threads.find(
+            (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
+          );
+          if (t) return t.latestMessage;
+          if (email && (email.threadId || email.id) === key) return email;
+          return undefined;
+        })
+        .filter((m): m is EmailMessage => !!m),
+    [email, threads, getActionThreadKeys],
+  );
+  const openLabelPicker = useCallback(
+    (action: LabelPickerAction) => {
+      if (resolveActionTargets().length > 0) setLabelPicker({ action });
+    },
+    [resolveActionTargets],
+  );
+  const labelCurrent = useCallback(
+    (action: LabelPickerAction, choice: LabelChoice) => {
+      const targets = resolveActionTargets();
+      if (targets.length === 0) return;
+      if (action === "move") advanceOrGoBack();
+      setSelectedIds?.(new Set());
+      void applyLabel(action, choice, targets);
+    },
+    [resolveActionTargets, advanceOrGoBack, setSelectedIds, applyLabel],
+  );
   const myEmails = useMemo(() => {
     const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
     if (settings?.email) emails.add(settings.email.toLowerCase());
@@ -1116,6 +1173,8 @@ export function EmailThread({
       { key: "d", handler: handleTrash },
       { key: "#", shift: "either", handler: handleTrash },
       { key: "s", handler: handleStar },
+      { key: "l", handler: () => openLabelPicker("label") },
+      { key: "v", handler: () => openLabelPicker("move") },
       {
         key: "r",
         handler: () => {
@@ -1375,19 +1434,21 @@ export function EmailThread({
       {/* Thread header */}
       <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
-          <ActionTooltip
-            label={t("mail.thread.back")}
-            keys={MAIL_ACTION_KEYS.back}
-          >
-            <button
-              type="button"
-              onClick={goBack}
-              aria-label={t("mail.thread.back")}
-              className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          {variant === "full" && (
+            <ActionTooltip
+              label={t("mail.thread.back")}
+              keys={MAIL_ACTION_KEYS.back}
             >
-              <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
-            </button>
-          </ActionTooltip>
+              <button
+                type="button"
+                onClick={goBack}
+                aria-label={t("mail.thread.back")}
+                className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
+              </button>
+            </ActionTooltip>
+          )}
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
@@ -1505,6 +1566,23 @@ export function EmailThread({
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                     >
                       <IconTrash className="h-4 w-4" />
+                    </button>
+                  </ActionTooltip>
+                )}
+                {threadId && mailViewHasThreadLinks(view) && (
+                  <ActionTooltip label={t("mail.actions.copyLink")}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void copyEmailLink(
+                          threadId,
+                          email.accountEmail ?? accountEmail,
+                        )
+                      }
+                      aria-label={t("mail.actions.copyLink")}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <IconLink className="h-4 w-4" />
                     </button>
                   </ActionTooltip>
                 )}
@@ -1632,7 +1710,7 @@ export function EmailThread({
       {/* Thread messages */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4"
+        className="mail-thread-scroll flex-1 overflow-y-auto px-(--mail-thread-gutter) pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
           {!hasFullBody && messages.length > 0 && (
@@ -1756,6 +1834,16 @@ export function EmailThread({
           }
         />
       )}
+      <LabelPicker
+        request={labelPicker}
+        labels={
+          labelPicker?.action === "move"
+            ? userLabels.filter((label) => label.id !== labelParam)
+            : userLabels
+        }
+        onClose={() => setLabelPicker(null)}
+        onPick={(choice, action) => labelCurrent(action, choice)}
+      />
       <AiFilterDialog
         open={!!aiFilterDialog}
         onOpenChange={(open) => !open && setAiFilterDialog(null)}
@@ -1990,6 +2078,16 @@ export const ExpandedMessageCard = forwardRef<
 ) {
   const t = useT();
   const [showDetails, setShowDetails] = useState(false);
+  const hasDesignedBackground = useMemo(
+    () => !!email.bodyHtml && emailHasDesignedBackground(email.bodyHtml),
+    [email.bodyHtml],
+  );
+  const isDesigned = useMemo(
+    () =>
+      hasDesignedBackground ||
+      (!!email.bodyHtml && emailHasFixedWidthLayout(email.bodyHtml)),
+    [email.bodyHtml, hasDesignedBackground],
+  );
   const senderName = email.from.name || email.from.email;
   const recipients = [
     ...email.to.map((r) => r.name || r.email),
@@ -2022,6 +2120,7 @@ export const ExpandedMessageCard = forwardRef<
       onClick={onFocus}
       className={cn(
         "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
+        isDesigned && "mail-message-designed",
         isFocused
           ? "ring-1 ring-primary/40"
           : "ring-1 ring-transparent hover:ring-border/30",
@@ -2029,7 +2128,7 @@ export const ExpandedMessageCard = forwardRef<
     >
       {/* Header */}
       {showDetails ? (
-        <div className="px-3 sm:px-4 py-3">
+        <div className="mail-message-header px-3 sm:px-4 py-3">
           <div className="flex flex-col gap-1 text-[13px]">
             <div className="flex gap-3">
               <span className="w-10 shrink-0 text-muted-foreground/60">
@@ -2091,7 +2190,7 @@ export const ExpandedMessageCard = forwardRef<
         </div>
       ) : (
         <div
-          className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 cursor-pointer"
+          className="mail-message-header flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 cursor-pointer"
           onClick={onCollapse}
         >
           <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -2183,7 +2282,13 @@ export const ExpandedMessageCard = forwardRef<
       )}
 
       {/* Body */}
-      <div data-an-block className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
+      <div
+        data-an-block
+        className={cn(
+          "pb-5 pt-1 overflow-x-hidden",
+          hasDesignedBackground ? "px-0" : "px-3 sm:px-4",
+        )}
+      >
         {email.bodyHtml ? (
           <HtmlEmailBody
             html={email.bodyHtml}

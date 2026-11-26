@@ -77,3 +77,88 @@ test("ignores ownable tables that only appear in comments", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+void test("scopes ownable table matching to the owning unit plus packages/core", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "guard-ownable-units-"));
+  const write = (rel: string, text: string) => {
+    const abs = path.join(root, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, text);
+  };
+  write(
+    "packages/core/src/chat-threads/schema.ts",
+    'export const chatThreads = pgTable("chat_threads", { ...ownableColumns() });',
+  );
+  write(
+    "templates/notes/server/db/schema.ts",
+    'export const notes = pgTable("notes", { ...ownableColumns() });',
+  );
+  write(
+    "templates/notes/server/lib/store.ts",
+    "export async function list() { return db.select().from(schema.notes); }",
+  );
+  write(
+    "templates/analytics/server/lib/data-notes-store.ts",
+    "const notes = schema.analyticsDataNotes;\nexport async function list() { return db.select().from(notes); }",
+  );
+  write(
+    "templates/analytics/server/lib/core-leak.ts",
+    "export async function leak() { return db.select().from(schema.chatThreads); }",
+  );
+  write(
+    "templates/analytics/server/plugins/chat.ts",
+    "export const cfg = { mentionProviders: { notes: { search: async () => { return db.select().from(notes); } } } };",
+  );
+  write(
+    "templates/notes/server/plugins/chat.ts",
+    "export const cfg = { mentionProviders: { notes: { search: async () => { return db.select().from(schema.notes); } } } };",
+  );
+
+  try {
+    const guard = (await import(
+      pathToFileURL(path.resolve("scripts/guard-no-unscoped-queries.mjs")).href
+    )) as {
+      collectOwnableTables(root: string): Promise<Map<string, Set<string>>>;
+      scanFiles(
+        ownables: Map<string, Set<string>>,
+        root: string,
+      ): Promise<Array<{ file: string; hits: Array<{ name: string }> }>>;
+      scanMentionProviders(
+        ownables: Map<string, Set<string>>,
+        root: string,
+      ): Promise<Array<{ file: string; table: string }>>;
+    };
+    const ownables = await guard.collectOwnableTables(root);
+    const violations = await guard.scanFiles(ownables, root);
+    assert.deepEqual(
+      violations
+        .map((v) => ({
+          file: v.file,
+          tables: v.hits.map((h) => h.name),
+        }))
+        .sort((a, b) => a.file.localeCompare(b.file)),
+      [
+        {
+          file: "templates/analytics/server/lib/core-leak.ts",
+          tables: ["chatThreads"],
+        },
+        {
+          file: "templates/notes/server/lib/store.ts",
+          tables: ["notes"],
+        },
+        {
+          file: "templates/notes/server/plugins/chat.ts",
+          tables: ["notes"],
+        },
+      ],
+    );
+
+    const mentionViolations = await guard.scanMentionProviders(ownables, root);
+    assert.deepEqual(
+      mentionViolations.map((v) => ({ file: v.file, table: v.table })),
+      [{ file: "templates/notes/server/plugins/chat.ts", table: "notes" }],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

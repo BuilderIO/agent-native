@@ -18,7 +18,6 @@ export type DesignHotkeyTool =
   | "pen"
   | "hand"
   | "comment"
-  | "draw"
   | "scale";
 
 export type DesignHotkeyDirection = "up" | "right" | "down" | "left";
@@ -101,7 +100,6 @@ export interface UseDesignHotkeysProps {
   onPenTool?: DesignHotkeyHandler;
   onHandTool?: DesignHotkeyHandler;
   onCommentTool?: DesignHotkeyHandler;
-  onDrawTool?: DesignHotkeyHandler;
   onScaleTool?: DesignHotkeyHandler;
   onCopy?: DesignHotkeyHandler;
   onCopyAsPng?: DesignHotkeyHandler;
@@ -193,7 +191,6 @@ const SHIFT_TOOL_SHORTCUTS: Record<
   { tool: DesignHotkeyTool; handler: keyof UseDesignHotkeysProps }
 > = {
   l: { tool: "arrow", handler: "onArrowTool" },
-  y: { tool: "draw", handler: "onDrawTool" },
 };
 
 export function isDesignHotkeyEditableTarget(target: EventTarget | null) {

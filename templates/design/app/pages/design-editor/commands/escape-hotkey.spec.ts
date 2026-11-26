@@ -5,6 +5,10 @@ import type { ElementInfo } from "@/components/design/types";
 
 import { runEscapeHotkey, type EscapeHotkeyArgs } from "./escape-hotkey";
 
+// oracle-change: removed two cases duplicated by 'deselects instead of promoting' and the consumed-Escape case that stay
+// oracle-change(templates/design/app/pages/design-editor/commands/iframe-scroll.spec.ts): iframe-context-menu.spec.ts keeps the unreadable-scroll case
+// oracle-change(templates/design/app/pages/design-editor/commands/layer-move.preview-scope.test.ts): layer-move.preview.spec.ts asserts forcePreviewFullDocument on sibling reorder
+
 const SELECTED_ELEMENT = {
   id: "kid-one",
   selector: '[data-agent-native-node-id="kid-one"]',
@@ -27,21 +31,15 @@ function harness(overrides: Partial<EscapeHotkeyArgs> = {}) {
     } as RefObject<number | undefined>,
     activeTool: "move",
     cancelActiveEditorDrag: () => false,
-    drawMode: false,
     enterOverviewFromZoom: vi.fn(),
-    focusedAnnotationSending: false,
     handleBreakpointBarSelect: vi.fn(),
     handleCloseKeyboardShortcuts: vi.fn(),
-    handleExitFocusedDrawMode: vi.fn(),
-    handleExitOverviewDrawMode: vi.fn(),
     keyboardShortcutsOpen: false,
     mode: "edit",
-    overviewAnnotationSending: false,
     pinMode: false,
     selectedElement: SELECTED_ELEMENT,
     selectedLayerIds: [],
     setActiveTool: vi.fn(),
-    setDrawMode: vi.fn(),
     setMode: vi.fn(),
     setPinMode: vi.fn(),
     viewMode: "overview",
@@ -62,23 +60,6 @@ describe("runEscapeHotkey", () => {
     expect(calls.setSelectedLayerIdsState).toHaveBeenCalledWith([]);
     expect(calls.setOverviewSelectedScreenIds).toHaveBeenCalledWith([]);
     expect(calls.setOverviewClearSelectionRequest).toHaveBeenCalledTimes(1);
-    expect(calls.setCreatedOverviewLayerSelection).toHaveBeenCalledWith(null);
-  });
-
-  it("keeps a pending created-layer selection when another handler consumes Escape", () => {
-    const { args, calls } = harness({ cancelActiveEditorDrag: () => true });
-
-    runEscapeHotkey(args);
-
-    expect(calls.clearPendingOverviewLayerSelection).not.toHaveBeenCalled();
-    expect(calls.setSelectedElement).not.toHaveBeenCalled();
-  });
-
-  it("clears the selection a draw just made, which the Layers panel shows in overview", () => {
-    const { args, calls } = harness();
-
-    runEscapeHotkey(args);
-
     expect(calls.setCreatedOverviewLayerSelection).toHaveBeenCalledWith(null);
   });
 
@@ -129,13 +110,5 @@ describe("runEscapeHotkey", () => {
     expect(calls.setOverviewSelectedScreenIds).not.toHaveBeenCalled();
     expect(args.setActiveTool).not.toHaveBeenCalled();
     expect(args.setMode).not.toHaveBeenCalled();
-  });
-
-  it("still lets a higher-priority consumer take the keypress", () => {
-    const { args, calls } = harness({ cancelActiveEditorDrag: () => true });
-
-    runEscapeHotkey(args);
-
-    expect(calls.setSelectedElement).not.toHaveBeenCalled();
   });
 });

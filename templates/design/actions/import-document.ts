@@ -17,7 +17,7 @@ export default defineAction({
     "structured design context. Since binary parsing happens client-side, this " +
     "action accepts pre-extracted text and metadata, scans for design cues " +
     "(colors, fonts, spacing), and returns structured hints the agent uses " +
-    "when building or refining a design system.",
+    "when building or refining a design.",
   schema: z.object({
     files: z
       .array(
@@ -107,7 +107,7 @@ export default defineAction({
     const hasSpreadsheets = fileTypes.includes("spreadsheet");
 
     let agentInstructions =
-      "The user uploaded documents to inform the design system. ";
+      "The user uploaded documents to inform the design. ";
 
     if (hasPresentations) {
       agentInstructions +=
@@ -124,10 +124,10 @@ export default defineAction({
     }
 
     agentInstructions +=
-      "Use the extracted colors and fonts as starting points for the design system. " +
+      "Use the extracted colors and fonts as starting points for the design. " +
       "If the extracted data is sparse, ask the user to send the file as a chat attachment " +
       "so you can visually analyze its contents. Cross-reference with any existing design " +
-      "system or brand guidelines the user has set up.";
+      "tokens or brand guidelines the user has set up.";
 
     return {
       source: "document",

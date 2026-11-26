@@ -11,10 +11,7 @@ import {
   readAgentRunStatus,
   type AgentRunStatusRead,
 } from "@/lib/agent-run-status";
-import {
-  SYSTEM_CONTEXT_KEY,
-  TEMPLATE_CONTEXT_KEY,
-} from "@/lib/composer-context";
+import { TEMPLATE_CONTEXT_KEY } from "@/lib/composer-context";
 import {
   runWhenTabVisible,
   trackDesignRelay,
@@ -28,7 +25,6 @@ export type DesignPromptSource =
 
 export type DesignPromptReferenceType =
   | "template"
-  | "design_system"
   | "figma"
   | "url"
   | "design"
@@ -52,19 +48,15 @@ export function designPromptReferenceTypes({
   contextItems,
   files,
   templateSelected,
-  designSystemId,
 }: {
   contextItems?: readonly { key: string }[];
   files?: readonly { type?: string }[];
   templateSelected: boolean;
-  designSystemId?: string | null;
 }): DesignPromptReferenceType[] {
   const types = new Set<DesignPromptReferenceType>();
   if (templateSelected) types.add("template");
-  if (designSystemId) types.add("design_system");
   for (const item of contextItems ?? []) {
     if (item.key === TEMPLATE_CONTEXT_KEY) types.add("template");
-    else if (item.key === SYSTEM_CONTEXT_KEY) types.add("design_system");
     else if (item.key.startsWith(HOME_REFERENCE_KEY_PREFIX)) {
       const source = item.key
         .slice(HOME_REFERENCE_KEY_PREFIX.length)

@@ -433,6 +433,8 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 | `DELETE` | `/_agent-native/resources/:id`                | 删除资源             |
 | `POST`   | `/_agent-native/resources/upload`             | 上传文件作为资源     |
 
+通过 `GET /_agent-native/resources/:id` 读取的资源会带有 `revision`。在 `PUT` 时将它作为 `expectedRevision` 与新的 `content` 一起发回；如果在你读取之后有人保存了其他内容，则不会写入任何内容：响应为 409，包含 `errorCode: "save_conflict"`，当前内容在 `details.current.content` 中，其修订版本在 `details.currentRevision` 中。不带 `expectedRevision` 的 `PUT` 仍会覆盖已保存的内容。带修订检查的保存不能同时重命名资源：请先用单独的 `PUT` 发送新的 `path`。`<ResourceEditor saveContent>` 会替你完成这些：如果编辑期间有其他人保存了不同的内容，它会询问保留哪个版本，并在之后提供找回另一个版本的选项。
+
 ### 动作API {#script-api}
 
 代理使用这些内置的 actions。您也可以从您自己的 actions 中调用它们：
@@ -453,9 +455,14 @@ pnpm action resource-effective --path "context/brand.md"
 # 写一个资源
 pnpm action resource-write --path "notes/meeting.md" --content "# 会议记录...”
 
+# 仅在你读取之后无人保存时才替换资源
+pnpm action resource-write --path "notes/meeting.md" --content "# 会议记录...” --expected-revision "rev_…"
+
 # 删除资源
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+智能体读取资源时，结果以 `[revision …, scope …]` 一行开头；它的两个写入工具都接受该修订版本作为 `expectedRevision`（命令行中为 `--expected-revision`）。如果在读取之后有人保存了该文件，则不会写入任何内容：写入会失败，并返回 `errorCode: "save_conflict"` 和当前的修订版本，于是智能体会重新读取文件并重做编辑。不带修订版本的写入仍会替换现有内容。
 
 ## 接下来 {#whats-next}
 

@@ -12,6 +12,11 @@ import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
+  lockRecordingCommentThreads,
+  prepareRecordingCommentMirror,
+} from "../server/lib/recording-comment-mirror.js";
+import { shiftRecordingComments } from "../server/lib/recording-comments.js";
+import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
@@ -345,6 +350,7 @@ export default defineAction({
         videoUrl: recording.videoUrl,
         updatedAt: recording.updatedAt,
       };
+      await prepareRecordingCommentMirror();
       for (let attempt = 1; ; attempt++) {
         const edits = parseEdits(current.editsJson);
         edits.trims = edits.trims.map((trim) => ({
@@ -363,6 +369,7 @@ export default defineAction({
 
         const outcome = await db
           .transaction(async (tx) => {
+            await lockRecordingCommentThreads(args.recordingId);
             const claimed = await tx
               .update(schema.recordings)
               .set({ trashedAt: now, expiresAt: now, updatedAt: now })
@@ -475,15 +482,7 @@ export default defineAction({
                 .set({ segmentsJson })
                 .where(eq(versions.id, version.id));
             }
-            await tx
-              .update(schema.recordingComments)
-              .set({
-                videoTimestampMs: sql`${schema.recordingComments.videoTimestampMs} + ${args.addedMs}`,
-                updatedAt: now,
-              })
-              .where(
-                eq(schema.recordingComments.recordingId, args.recordingId),
-              );
+            await shiftRecordingComments(tx, args.recordingId, args.addedMs);
             await tx
               .update(schema.recordingReactions)
               .set({

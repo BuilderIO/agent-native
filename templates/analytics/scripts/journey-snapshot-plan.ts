@@ -147,6 +147,48 @@ export function validateSnapshotCostEstimate(
   return estimatedBytes as number;
 }
 
+// A read too slow for one hosted call finishes over several: each call
+// collects the queries the last one left running and starts the next ones.
+export const SNAPSHOT_JOURNEY_CALLS = 8;
+export const SNAPSHOT_JOURNEY_CALL_DELAY_MS = 10_000;
+
+/** The watermark a journey response asks the next call to send, if any. */
+export function snapshotContinueWatermark(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) return null;
+  const continueWith = (value as { continueWith?: unknown }).continueWith;
+  if (typeof continueWith !== "object" || continueWith === null) return null;
+  const watermark = (continueWith as { observationWatermark?: unknown })
+    .observationWatermark;
+  return typeof watermark === "string" ? watermark : null;
+}
+
+/**
+ * Calls the journey action again while a time limit stopped it, sending the
+ * first stopped call's watermark so every later call reads the same queries.
+ */
+export async function callJourneyUntilComplete(
+  call: (observationWatermark: string | undefined) => Promise<unknown>,
+  wait: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<{
+  value: unknown;
+  calls: number;
+  observationWatermark: string | undefined;
+}> {
+  let value = await call(undefined);
+  let calls = 1;
+  let observationWatermark: string | undefined;
+  while (calls < SNAPSHOT_JOURNEY_CALLS) {
+    const next = snapshotContinueWatermark(value);
+    if (!next) break;
+    observationWatermark ??= next;
+    await wait(SNAPSHOT_JOURNEY_CALL_DELAY_MS);
+    value = await call(observationWatermark);
+    calls += 1;
+  }
+  return { value, calls, observationWatermark };
+}
+
 export function isBuilderCdnUrl(value: unknown): value is string {
   if (typeof value !== "string" || !URL.canParse(value)) return false;
   const url = new URL(value);

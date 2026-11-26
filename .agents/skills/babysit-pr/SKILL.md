@@ -90,8 +90,9 @@ see `factory-run/references/babysit-round.md`.
 
 - Follow a human reviewer over a bot. Treat a bot comment as a hypothesis and
   verify it before acting.
-- Fix real bugs, security issues, data-loss risks, and repo-rule violations,
-  even when this PR didn't introduce them.
+- In rounds 1-2, fix real bugs, security issues, data-loss risks, and
+  repo-rule violations, even when this PR didn't introduce them. From round 3,
+  see Review round cap.
 - Skip, with a reply saying why: pre-existing issues the PR doesn't touch,
   false positives, nitpicks, and anything the linter or typechecker already
   covers.
@@ -104,6 +105,33 @@ see `factory-run/references/babysit-round.md`.
   something simpler, often by fixing the boundary that made it necessary,
   or, in a sweep, revert that report's commit and leave it for a person.
   #8288 patched one resolver about 25 times in a day and never merged.
+
+## Review round cap
+
+Count a round as one batch of bot or AI review findings posted after a push
+(Steve 11/20: "26 rounds of review is way too much"). Pattern key:
+`review-round-churn`.
+
+- Rounds 1-2: address every item.
+- Round 3 and later: fix only critical and high items. A finding is critical
+  because of what it does (data loss or corruption, a security issue, a crash
+  or broken core flow, or a regression in tested behavior), not because of the
+  label the bot gave it: those findings are fixed or disproven in any round,
+  whatever their severity label. Only findings that are not critical in that
+  sense and are labelled medium or low may be deferred.
+- Reply to a deferred item in its thread with one line, "Deferred as
+  non-critical after round 2; tracked in <follow-up>", resolve the thread, and
+  append the item to one follow-up list (a single PR comment or issue).
+  A deferral counts as answered only once its thread reply is posted; where a
+  reply isn't permitted (factory rounds, others' PRs), the thread stays
+  unanswered and the existing reply-state merge rule applies. Scope this to the existing rules: in
+  factory rounds, don't resolve threads, only record the deferral in the
+  follow-up list; on another person's PR, comment only with that PR's
+  authorization, otherwise list the deferral in your report; when posting or
+  resolving isn't permitted, use that instead of the reply.
+- Merge authorization and `ship`'s merge gate (stable head, mergeability)
+  apply unchanged: standalone, merge only if the user asks.
+- Human reviewer comments are always addressed, in any round.
 
 ## Pushing to an existing PR
 
@@ -136,23 +164,23 @@ directly (the interactive `pnpm changeset add` hangs):
 <one line from the PR title>
 ```
 
-Use `patch` for fixes, docs, and refactors, `minor` for additive features, and
-`major` only if the PR says it's breaking. Commit as
-`chore: add changeset for <packages>` and push with the next batch.
+Use `patch` for fixes, docs, and refactors, and `minor` for additive or
+breaking changes (`major` bumps are blocked by `guard-no-major-changeset`).
+Commit as `chore: add changeset for <packages>` and push with the next batch.
 
 ## Syncing main
 
-Merge `origin/main` only when GitHub reports `CONFLICTING`, or a failing
-required check is already fixed on `main`. A behind count or pending checks
-are no reason to sync. Use a normal merge, never a rebase, with the tree clean
-and HEAD equal to the live PR head:
-
-```bash
-dirty=$(git status --porcelain -- ':/' ':(top,exclude)learnings.md' ':(top,exclude)bridge/**' ':(top,exclude)data/**') \
-  && test -z "$dirty" \
-  && [ "$(git rev-parse HEAD)" = "$(gh pr view $ARGUMENTS --json headRefOid --jq .headRefOid)" ] \
-  && git fetch origin main && git merge --no-edit origin/main
-```
+Run `node scripts/merge-main-into-pr.ts $ARGUMENTS`. It merges `origin/main`
+only when GitHub reports the PR `CONFLICTING`/`DIRTY` and refuses otherwise
+(exit 3): a behind count, pending checks, or a failing check whose fix exists
+only on `main` are no reason to sync (in the last case, stop and report
+blocked with what `main` has). It is a normal merge, never a rebase, and
+requires a clean tree and HEAD equal to the live PR head (`learnings.md`,
+`bridge/**` and `data/**` don't count as dirty). Exit codes: 0 merged; 1
+unresolved conflicts (resolve, `git commit --no-edit`, push); 2 precondition
+failed (dirty tree, HEAD not the live head, fetch failed); 3 refused, no
+conflict; 4 merge failed with no conflicts (inspect `git status`, don't
+resolve); 5 GitHub query failed (retry).
 
 For a `pnpm-lock.yaml` conflict, take one side with
 `git checkout --theirs -- pnpm-lock.yaml`, then

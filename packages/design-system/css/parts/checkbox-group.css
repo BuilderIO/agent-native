@@ -1,0 +1,20 @@
+/*
+ * Part: checkbox-group
+ *
+ *   <div class="checkbox-group"                   Base UI CheckboxGroup
+ *        data-variant="surface|soft"
+ *        [data-color] [data-high-contrast]>
+ *     <span class="checkbox">                     Checkbox, one per value
+ *
+ * Stacks its checkboxes, each usually inside a Field. Its props are the
+ * defaults of the checkboxes inside it, which draw them; the group itself
+ * only lays them out.
+ */
+
+@layer components {
+  .checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+}

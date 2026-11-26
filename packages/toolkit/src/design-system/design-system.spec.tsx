@@ -410,4 +410,24 @@ describe("design-system contract", () => {
     );
     expect(console.error).toHaveBeenCalled();
   });
+  it("keeps a popover trigger's element attached while its parent re-renders", async () => {
+    const attached = vi.fn();
+    const Harness = ({ tick }: { tick: number }) => (
+      <ToolkitProvider>
+        <Popover>
+          <PopoverTrigger asChild>
+            <ActionButton elementRef={attached} data-tick={tick}>
+              Share
+            </ActionButton>
+          </PopoverTrigger>
+          <PopoverContent>Panel</PopoverContent>
+        </Popover>
+      </ToolkitProvider>
+    );
+    for (let tick = 0; tick < 5; tick++) {
+      await act(async () => root.render(<Harness tick={tick} />));
+    }
+    expect(attached).toHaveBeenCalledTimes(1);
+    expect(attached.mock.calls[0]?.[0]).toBeInstanceOf(HTMLButtonElement);
+  });
 });

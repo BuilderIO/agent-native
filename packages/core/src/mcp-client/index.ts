@@ -7,6 +7,8 @@ export {
 
 export {
   McpClientManager,
+  isToolCallReplayable,
+  mcpToolCallWasNotSent,
   buildMcpToolName,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
@@ -15,6 +17,40 @@ export {
   type McpToolAuthorizationResolver,
   type McpClientManagerOptions,
 } from "./manager.js";
+
+export {
+  isMcpToolCallReplayRefusedError,
+  isMcpTransportDisconnectError,
+  McpToolCallReplayRefusedError,
+  type McpToolCallDisconnectReason,
+  type McpToolCallReplayRefusedErrorInit,
+} from "./errors.js";
+
+export {
+  MCP_SKILLS_EXTENSION_ID,
+  McpSkillError,
+  capabilitiesAdvertiseSkills,
+  computeSha256Digest,
+  extractVerifiedSkillResource,
+  mcpSkillEntrySchema,
+  mcpSkillGetResultSchema,
+  mcpSkillListResultSchema,
+  mcpSkillResourceEntrySchema,
+  normalizeSha256Digest,
+  parseSkillGetResult,
+  parseSkillListResult,
+  parseSkillUri,
+  verifySkillResourceDigest,
+  type McpSkillEntry,
+  type McpSkillErrorCode,
+  type McpSkillGetResult,
+  type McpSkillListOptions,
+  type McpSkillListResult,
+  type McpSkillReadOptions,
+  type McpSkillResourceContent,
+  type McpSkillResourceEntry,
+  type ParsedSkillUri,
+} from "./skills.js";
 
 export {
   listRemoteServers,

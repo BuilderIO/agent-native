@@ -3,6 +3,7 @@ import { and, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./brain.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 
 export type SourceTrustTier = "blessed" | "standard" | "untrusted";
 export type SourceConflictBehavior =
@@ -142,7 +143,10 @@ export async function loadAccessibleSourcePolicySnapshots(
     .from(schema.brainSources)
     .where(
       and(
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
         inArray(schema.brainSources.id, ids),
       ),
     );

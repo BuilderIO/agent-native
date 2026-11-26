@@ -6,7 +6,16 @@ const { PGlite } = createRequire(
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
@@ -84,6 +93,7 @@ import {
   type DerivedExceptionFields,
   type RawExceptionInput,
 } from "./error-capture";
+import { resetPublicSchema } from "./testing/pglite-reset";
 
 describe("parseStack", () => {
   it("parses V8/Chrome frames with function + location", () => {
@@ -618,8 +628,16 @@ async function createTables(client: PGliteClient): Promise<void> {
 describe("ingestException", () => {
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     await createTables(client);
     const db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
@@ -627,10 +645,6 @@ describe("ingestException", () => {
     notifyWithDeliveryMock.mockClear();
     getUserSettingMock.mockReset();
     getUserSettingMock.mockResolvedValue(null);
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   async function loadIssues() {
@@ -1123,14 +1137,18 @@ describe("ingestException", () => {
 describe("listRecordingErrorIssues", () => {
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
-    await createTables(client);
-    getDbMock.mockReturnValue(drizzle(client, { schema }));
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
+    await createTables(client);
+    getDbMock.mockReturnValue(drizzle(client, { schema }));
   });
 
   it("uses the legacy recording session while associations are not migrated", async () => {
@@ -1413,8 +1431,16 @@ describe("listRecordingErrorIssues", () => {
 describe("matchErrorIssuesBySignatures", () => {
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     await createTables(client);
     const db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
@@ -1422,10 +1448,6 @@ describe("matchErrorIssuesBySignatures", () => {
     notifyWithDeliveryMock.mockClear();
     getUserSettingMock.mockReset();
     getUserSettingMock.mockResolvedValue(null);
-  });
-
-  afterEach(() => {
-    client.close();
   });
 
   it("resolves a session console error line to its captured issue", async () => {
@@ -1808,11 +1830,19 @@ describe("extractExceptionInput PII", () => {
 describe("error ingest flood control", () => {
   let client: PGliteClient;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-01T12:00:00.000Z"));
     resetErrorIngestStateForTests();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createTables(client);
     getDbMock.mockReturnValue(drizzle(client, { schema }));
     recordChangeMock.mockReset();
@@ -1824,7 +1854,6 @@ describe("error ingest flood control", () => {
   afterEach(async () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-    await client.close();
   });
 
   const db = () => drizzle(client, { schema }) as any;

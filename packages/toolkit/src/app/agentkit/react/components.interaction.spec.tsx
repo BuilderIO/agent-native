@@ -183,6 +183,13 @@ describe("AgentActivityItem replay privacy", () => {
             ?.querySelector('a[href^="https://example.test/report"]')
             ?.closest(`[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`) !== null,
         ).toBe(status === "failed");
+
+        // Closing swaps in a fresh, blocked node rather than re-blocking the
+        // node replay recorded while it was open.
+        await act(async () => disclosure.click());
+        const closed = container.querySelector(".agentkit-activity-summary");
+        expect(summary?.isConnected).toBe(false);
+        expect(closed?.hasAttribute(SESSION_REPLAY_BLOCK_ATTRIBUTE)).toBe(true);
       } finally {
         await act(async () => root.unmount());
         await client.shutdown();

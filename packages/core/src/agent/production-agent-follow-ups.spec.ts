@@ -156,6 +156,26 @@ const readCall: EngineContentPart = {
 };
 
 describe("native agent follow-up publication", () => {
+  it("completes a provider refusal as a persisted assistant reply", async () => {
+    const { opts, events, requests } = setup([
+      [{ type: "stop", reason: "refusal" }],
+    ]);
+    await runAgentLoop(opts);
+
+    expect(requests).toHaveLength(1);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    const reply = buildAssistantMessage(
+      events.map((event, seq) => ({ event, seq })),
+    );
+    expect(reply?.status).toEqual({ type: "complete", reason: "stop" });
+    expect(reply?.content).toEqual([
+      {
+        type: "text",
+        text: "I can’t help with that request. I can help with a different question.",
+      },
+    ]);
+  });
+
   it("keeps full-conversation context processing off the bounded completion call", async () => {
     const { opts, requests } = setup([
       step([reply()]),

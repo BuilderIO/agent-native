@@ -14,6 +14,7 @@ import { liveBodyConversionFor } from "./write-cause.js";
 export const CONTENT_LIVE_COPY_EDITS = {
   replaceBody: "replace-body",
   rebaseBody: "rebase-body",
+  appendBody: "append-body",
   applySuggestion: APPLY_SUGGESTION_EDIT,
 } as const;
 

@@ -1,0 +1,51 @@
+name: Prepare community encryption compatibility artifacts
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: production
+            source: 8cbc964362693c98a01e603904f2bd14583a8ece
+          - lane: beta
+            source: f79ce72f30db99f3aa9fccad76e87c2e3bfeac36
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ matrix.source }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Backport the reviewed encryption readers without changing app source
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin c0215ef5ee74192c56ae8f66f5e44bacbf2e55f7 e7389a2d5ac6fa70757560d9919091b552f511fc
+          for file in app-config/auth.ts secrets/crypto.ts private-blob/blob-crypto.ts private-blob/attachment-ref.ts; do
+            git diff --exit-code c0215ef5ee74192c56ae8f66f5e44bacbf2e55f7 -- "packages/core/src/$file"
+            git show "e7389a2d5ac6fa70757560d9919091b552f511fc:packages/core/src/$file" > "packages/core/src/$file"
+          done
+          pnpm --filter @agent-native/core build
+      - name: Build unchanged community source
+        env:
+          A2A_SECRET: example-build-only-placeholder-not-a-real-secret
+          BETTER_AUTH_SECRET: example-build-only-placeholder-not-a-real-secret
+          DATABASE_URL: postgresql://example:example@127.0.0.1:5432/example
+          CONTEXT: production
+          NITRO_PRESET: netlify
+        run: pnpm --dir community-templates exec agent-native deploy --preset=netlify --build-only
+      - name: Package prebuilt bundle
+        run: tar -czf "$RUNNER_TEMP/community.tar.gz" -C community-templates dist .netlify/functions-internal
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: community-rotation-${{ matrix.lane }}
+          path: ${{ runner.temp }}/community.tar.gz
+          retention-days: 1

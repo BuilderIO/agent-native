@@ -1,5 +1,9 @@
 import { parseRetryAfterMs } from "../../shared/retry-after.js";
 
+export const MODEL_REFUSAL_CODE = "content_filtered";
+export const MODEL_REFUSAL_MESSAGE =
+  "I can’t help with that request. I can help with a different question.";
+
 const DEFAULT_MAX_CAUSE_LINKS = 4;
 const MAX_CAUSE_LINK_CHARS = 200;
 
@@ -51,7 +55,12 @@ export function isProviderConnectionError(err: unknown): boolean {
   return isProviderConnectionErrorMessage(describeErrorWithCauses(err));
 }
 
+export function isProviderTokenRateLimitMessage(message: string): boolean {
+  return /\btokens? per minute\b|\(TPM\)/i.test(message);
+}
+
 export function isContextOverflowMessage(message: string): boolean {
+  if (isProviderTokenRateLimitMessage(message)) return false;
   const msg = message.toLowerCase();
   return (
     msg.includes("context_length_exceeded") ||
@@ -83,7 +92,11 @@ export function isCreditsLimitErrorCode(errorCode?: string): boolean {
  */
 export function isRejectedRequestErrorCode(errorCode?: string): boolean {
   const code = errorCode?.trim().toLowerCase();
-  return code === "invalid_request" || code === "invalid_request_error";
+  return (
+    code === "invalid_request" ||
+    code === "invalid_request_error" ||
+    code === "request_not_read"
+  );
 }
 
 /**

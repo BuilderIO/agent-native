@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "Nur Administratoren können andere einladen. Bitte deinen Administrator um Hilfe beim Einladen oder darum, dich ebenfalls zum Administrator zu machen.",
   "settingsApiKeys.approvedOrigins": "Genehmigte Ursprünge",
   "settingsApiKeys.originsHint":
     "Ein exakter HTTPS-Ursprung pro Zeile. Leer sperrt die Weitergabe. Lokales HTTP ist erlaubt.",
@@ -48,10 +50,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "Agentenaktivität",
   "activity.agents": "Zusammenarbeit der Agenten",
   "activity.tasks": "Agentenaufgaben",
+  "activity.tasksProgress": "{{completed}} von {{total}} erledigt",
   "agent.started": "hat die Arbeit begonnen",
   "agent.resumed": "hat die Arbeit wieder aufgenommen",
   "agent.messaged": "hat eine Nachricht gesendet",
   "agent.delegated": "hat Arbeit delegiert",
+  "agent.working": "arbeitet",
+  "agent.workedFor": "hat {{duration}} gearbeitet",
   "agent.paused": "hat die Arbeit pausiert",
   "agent.queued": "wartet",
   "agent.completed": "hat die Arbeit abgeschlossen",
@@ -465,6 +470,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "Datei ist größer als 8 MB",
   "composer.attachmentNotUtf8": "Datei ist kein UTF-8-Text",
   "composer.scrollToBottom": "Nach unten scrollen",
+  "composer.skipToMessageBox": "Zum Nachrichtenfeld springen",
   "composer.suggestedPrompts": "Vorgeschlagene Prompts",
   "composer.stopResponse": "Antwort stoppen",
   "composer.subAgentReadOnly":
@@ -490,6 +496,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Suche läuft...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Gestern",
+  "history.today": "Heute",
+  "commandMenu.systemGroup": "Anwendung",
+  "share.alreadyInvited": "Bereits eingeladen",
+  "share.notInvitedToPage": "Nicht zur Seite eingeladen",
   "history.mine": "Meine Chats",
   "history.sharedWithYou": "Mit dir geteilt",
   "history.showAll": "Alle anzeigen",
@@ -937,7 +947,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "errorMessages.invalidAttachmentNamed":
     "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
-  "recovery.resendVerificationEmail": "Bestätigungs-E-Mail erneut senden",
+  "recovery.resendVerificationEmail":
+    "Bestätigungs-E-Mail für das App-Konto erneut senden",
   "recovery.sendingVerificationEmail": "Wird gesendet...",
   "recovery.verificationEmailRequested":
     "Bestätigungs-E-Mail angefordert. Prüfe Posteingang und Spam-Ordner.",
@@ -1017,6 +1028,9 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.searchKeys": "Schlüssel suchen...",
   "secrets.usePersonalKey":
     "Stattdessen einen persönlichen Schlüssel verwenden",
+  "secrets.testing": "Wird getestet…",
+  "secrets.cannotCheckAlone":
+    "Dieser Schlüssel lässt sich nicht einzeln prüfen",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
   "setup.addKeyInSettings": "Einen Schlüssel in den Einstellungen hinzufügen",
@@ -1076,6 +1090,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} wird gefragt...",
   "tool.elapsed": "{{duration}} vergangen",
   "tool.askingAgentFailed": "Fehler beim Fragen von {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} braucht deine Genehmigung",
+  "tool.agentApprovalReview": "In {{agent}} prüfen",
+  "tool.agentApprovalReturn":
+    "Genehmige es in {{agent}} und mach dann hier weiter.",
+  "tool.agentApprovalContinueMessage":
+    "Ich habe es in {{agent}} genehmigt. Bitte mach weiter.",
   "tool.failedWithoutDetails": "Keine Fehlerdetails verfügbar.",
   "tool.input": "Eingabe",
   "tool.inputWithLabel": "Eingabe – {{label}}",
@@ -1330,6 +1350,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "Eingefügten Text entfernen",
   "pastedText.title": "Eingefügter Text",
   "voice.dictation.start": "Diktieren ({{shortcut}})",
+  "voice.dictation.startPlain": "Diktieren",
   "voice.dictation.stopRecording": "Aufnahme beenden",
   "voice.dictation.transcribing": "Wird transkribiert…",
   "voiceMode.errors.channelDisconnected":
@@ -1422,6 +1443,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "Fehler: {{message}}",
   "errorMessages.gatewayInternalError":
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
+  "errorMessages.modelRefusal":
+    "Bei dieser Anfrage kann ich nicht helfen. Bei einer anderen Frage helfe ich dir gern.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
   "errorMessages.creditsLimitReached": "Du hast dein KI-Credit-Limit erreicht.",
@@ -1431,6 +1454,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.malformedRequest":
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
+  "errorMessages.requestNotRead":
+    "Das Modell konnte diese Anfrage nicht lesen, weil sie zu groß oder zu komplex war, zum Beispiel wegen zu vieler Tools, daher wurde sie nicht wiederholt. Starten Sie einen neuen Chat oder wählen Sie ein anderes Modell.",
   "errorMessages.requestTooLarge":
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
   "errorMessages.capabilityUnavailable":
@@ -1439,6 +1464,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
+  "errorMessages.writeOutcomeUnknown":
+    "Ich habe die Schreibaktion angehalten, weil ein früherer Versuch möglicherweise bereits Änderungen gespeichert hat und ich das Ergebnis nicht bestätigen konnte. Prüfe vor einem erneuten Versuch, was gespeichert wurde.",
   "errorMessages.runUnverified":
     "Dieser Chat hat den Agenten aus den Augen verloren; er läuft möglicherweise noch. Laden Sie neu, um den Fortschritt zu sehen.",
   "errorMessages.runSignedOut":
@@ -1448,7 +1475,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "Der Modellanbieter hat diesen Anhang wegen seines Formats oder seiner Größe abgelehnt. Exportieren Sie Bilder als kleinere PNG-, JPEG-, GIF- oder WebP-Datei; verwenden Sie für Dokumente ein unterstütztes Dateiformat oder fügen Sie den relevanten Text ein und hängen Sie ihn erneut an.",
   "errorMessages.noProviderConnected":
-    "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und nutze dann Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
+    "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde dann Builder.io oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
     "Builder-Space-Einstellungen öffnen",
   "errorMessages.providerAuthentication":
@@ -1459,6 +1486,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Anbieter hat eine HTML-Fehlerseite zurückgegeben.",
   "errorMessages.providerNetwork":
     "Der Modellanbieter konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut.",
+  "errorMessages.emailVerificationRequired":
+    "Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
   "errorMessages.providerRateLimit":
     "Der Modellanbieter begrenzt diesen Chat derzeit. Warte einen Moment und versuche es dann erneut.",
   "errorMessages.providerTransientRejection":
@@ -1672,6 +1701,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "Öffentlich",
   "share.publicDescription": "Alle mit dem Link können es ansehen",
   "share.remove": "Entfernen",
+  "share.removeInvitee": "{{email}} entfernen",
   "share.role": "Rolle",
   "share.searching": "Wird gesucht...",
   "share.share": "Teilen",
@@ -1695,6 +1725,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Alle Personen in {{organization}}, auch neue Mitglieder, können dies öffnen und alles darin sehen, einschließlich Nachrichten, Dateien und anderer Inhalte. Du kannst das später ändern.",
   "share.confirmOrganizationAction": "Mit Organisation teilen",
   "share.confirmOrganizationSharing": "Wird geteilt...",
+  "share.confirmPublicTitle": "Mit allen teilen, die den Link haben?",
+  "share.confirmPublicDescription":
+    "Alle, die den Link haben, auch Personen außerhalb deiner Organisation, können dies öffnen und alles darin sehen. Du kannst das später ändern.",
+  "share.confirmPublicAction": "Öffentlich teilen",
   "settings.emailTitle": "E-Mail-Adresse",
   "settings.emailChange": "E-Mail-Adresse ändern",
   "settings.emailChanging": "Wird gesendet...",
@@ -2096,6 +2130,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Dateispeicher konnte nicht gespeichert werden.",
   "settings.storage.clearFailed":
     "Speicher-Zugangsdaten konnten nicht gelöscht werden.",
+  "settings.timezoneLoadFailed": "Deine Zeitzone konnte nicht geladen werden.",
   "settings.storage.loadFailed":
     "Dateispeicher-Einstellungen konnten nicht geladen werden.",
   "settings.storage.retry": "Erneut versuchen",
@@ -2303,6 +2338,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "Sprache und Region",
   "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
   "settingsShell.account.appearance": "Darstellung",
+  "settingsShell.account.theme": "Design",
+  "settingsShell.account.themeSystem": "System",
+  "settingsShell.account.themeLight": "Hell",
+  "settingsShell.account.themeDark": "Dunkel",
   "settingsShell.account.themeFamily": "Farbschema",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "Originalfarben der App",
@@ -2332,6 +2371,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "Passwort aktualisiert",
   "settingsShell.account.photoError": "Foto konnte nicht aktualisiert werden.",
   "settingsShell.account.photoUpdated": "Foto aktualisiert",
+  "settingsShell.account.photoRemoved": "Foto entfernt",
+  "settingsShell.account.removePhoto": "Foto entfernen",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "E-Mail-Versand ist hier nicht eingerichtet",
   "settingsShell.account.profilePhoto": "Profilfoto",
   "settingsShell.account.requestCopyDescription":
     "Ein Administrator prüft deine Identität und meldet sich bei dir.",
@@ -2406,17 +2449,18 @@ const messages: ToolkitAgentChatTranslation = {
     "Beispieldaten in diesem Browser für Präsentationen verwenden.",
   "settingsShell.appGroup.labsFootnote":
     "Diese neuen, instabilen Funktionen können Fehler enthalten.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Diese Einstellung wird für dich festgelegt und kann hier nicht geändert werden.",
   "settingsShell.appGroup.labsLoadError":
     "Deine Labs konnten nicht geladen werden.",
   "settingsShell.appGroup.labsReadError":
     "Die gespeicherte Auswahl konnte nicht gelesen werden. Wähle Ein oder Aus, um sie erneut festzulegen.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
+  "settingsShell.appGroup.labsShowAll": "Alle Labs-Funktionen anzeigen",
+  "settingsShell.appGroup.labsUseDefault": "Standard verwenden",
   "settingsShell.appGroup.mcpAbout":
     "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",
-  "settingsShell.appGroup.mcpAppCards": "App-Karten in Chat-Apps",
-  "settingsShell.appGroup.mcpAppCardsDescription":
-    "Tools zeigen interaktive Karten, etwa einen E-Mail-Entwurf, den du bearbeiten und senden kannst, in Chat-Apps, die MCP Apps unterstützen, wie Claude und ChatGPT. Verbinde diese App nach einer Änderung in deiner Chat-App neu.",
   "settingsShell.appGroup.mcpFootnote":
     "Tools, die der Agent selbst verwendet, findest du unter {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Neue Automatisierung",
@@ -3192,6 +3236,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "Erzeugt Bilder für Folien und Designs.",
   "settingsInfra.whyEmbeddings":
     "Verbessert die semantische Suche. Die Stichwortsuche funktioniert auch ohne.",
+  "settingsInfra.semanticSearch": "Semantische Suche",
+  "settingsInfra.semanticSearchOn":
+    "Findet Seiten nach Bedeutung und nach Wörtern. Seitentext und Suchanfragen gehen an den Embeddings-Anbieter.",
+  "settingsInfra.semanticSearchOff":
+    "Aus. Die Suche findet nur Wörter, und kein Seitentext geht an den Embeddings-Anbieter.",
+  "settingsInfra.semanticSearchUnknown":
+    "Konnte nicht lesen, ob die semantische Suche an ist.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "Die semantische Suche ist an. Vorhandene Seiten werden im Hintergrund indexiert.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "Die semantische Suche ist aus. Gespeicherte Seitenvektoren wurden gelöscht.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Die semantische Suche konnte nicht geändert werden.",
   "settingsInfra.designSystem": "Design-System-Intelligenz",
   "settingsInfra.whyDesignSystem":
     "Hält generierte Folien und Designs markenkonform.",
@@ -3594,7 +3651,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "Antwort fehlgeschlagen",
   "message.waitingForApproval": "Wartet auf Freigabe",
   "message.waitingForInput": "Wartet auf Eingabe",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} fehlgeschlagen",
+  "message.workSummaryFailedCount":
+    "{{summary}}, fehlgeschlagene Versuche: {{count}}",
   "message.taskStatusPending": "Ausstehend",
   "message.taskStatusRunning": "Läuft",
   "message.taskStatusCompleted": "Erledigt",
@@ -3634,6 +3692,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "Andere…",
   "guided.otherDescription": "Sag dem Agenten genau, was du meinst.",
   "guided.recommended": "Empfohlen",
+  "guided.question": "Frage",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} von {{total}}",
+  "guided.ownResponse": "Oder eigene Antwort schreiben",
+  "guided.next": "Weiter",
+  "guided.send": "Senden",
+  "guided.dismiss": "Fragen schließen",
+  "guided.chooseFiles": "Dateien auswählen…",
   "guided.typeAnswer": "Antwort eingeben…",
   "guided.typeCustomAnswer": "Eigene Antwort eingeben…",
   "guided.dropFiles": "Dateien hierher ziehen oder",
@@ -3663,6 +3729,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "In neuem Tab öffnen",
   "mcpApps.initFailed": "Die MCP-App konnte nicht initialisiert werden.",
   "mcpApps.readOnly": "Diese gespeicherte MCP-App ist schreibgeschützt.",
+  "markdown.opensInNewTab": "(öffnet sich in einem neuen Tab)",
   "iframeEmbed.blocked": "Einbettung blockiert",
   "iframeEmbed.missingSrc": "Quelle fehlt",
   "iframeEmbed.crossOrigin": "Ursprungsübergreifende URL nicht erlaubt",
@@ -3673,6 +3740,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "{{count}} weitere Zeilen anzeigen",
   "toolCells.partial": "Teilweise",
   "toolCells.timedOut": "Zeitüberschreitung",
+  "toolCells.exitCode": "Exit-Code {{code}}",
+  "toolCells.copyOutput": "Ausgabe kopieren",
+  "toolCells.lineAdded": "Hinzugefügt",
+  "toolCells.lineRemoved": "Entfernt",
   "codeRequired.requestFailed": "Anfrage fehlgeschlagen ({{status}})",
   "chatFirst.chats": "Chats",
   "chatFirst.noChats": "Noch keine Chats.",
@@ -3790,6 +3861,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "Keine Befehle",
   "mentions.noMatches": "Keine Treffer",
   "queue.dragToReorder": "Zum Neuordnen ziehen",
+  "queue.attachedImage": "Angehängtes Bild",
   "queue.moveUp": "Nach oben",
   "queue.moveDown": "Nach unten",
   "queue.movedToPosition": "An Position {{position}} von {{count}} verschoben",
@@ -3850,6 +3922,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "{{count}} Seiten gelesen",
   "workSteps.fetchedOne": "1 URL abgerufen",
   "workSteps.fetchedOther": "{{count}} URLs abgerufen",
+  "workSteps.sourcesOne": "1 Quelle verwendet",
+  "workSteps.sourcesOther": "{{count}} Quellen verwendet",
+  "workSteps.frameworkFrames": "{{count}} Framework-Frames",
+  "workSteps.copyStackTrace": "Stacktrace kopieren",
   "workSteps.readFilesOne": "1 Datei gelesen",
   "workSteps.readFilesOther": "{{count}} Dateien gelesen",
   "workSteps.editedOne": "1 Datei bearbeitet",
@@ -3867,6 +3943,26 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.editing": "Dateien bearbeiten",
   "workSteps.runningCommands": "Befehle ausführen",
   "workSteps.runningActions": "Aktionen ausführen",
+  "workSteps.sourcesUsed": "Verwendet: {{sources}}",
+  "workSteps.sourcesSeparator": ", ",
+  "workSteps.sourcesDocumentsOne": "1 Seite",
+  "workSteps.sourcesDocumentsOther": "{{count}} Seiten",
+  "workSteps.sourcesWebOne": "1 Webseite",
+  "workSteps.sourcesWebOther": "{{count}} Webseiten",
+  "workSteps.sourcesFilesOne": "1 Datei",
+  "workSteps.sourcesFilesOther": "{{count}} Dateien",
+  "workSteps.sourcesSearchesOne": "1 Suche",
+  "workSteps.sourcesSearchesOther": "{{count}} Suchen",
+  "workSteps.sourceRead": "Gelesen",
+  "workSteps.sourceOpened": "Geöffnet",
+  "workSteps.sourceSearched": "Gesucht",
+  "workSteps.sourceFailedRead": "{{name}} konnte nicht gelesen werden",
+  "workSteps.sourceFailedOpen": "{{name}} konnte nicht geöffnet werden",
+  "workSteps.sourceFailedSearch": "Suche nach {{name}} fehlgeschlagen",
+  "workSteps.sourceFailedPage": "Eine Seite konnte nicht gelesen werden",
+  "workSteps.sourceFailedFile": "Eine Datei konnte nicht gelesen werden",
+  "workSteps.sourceFailedWeb": "Eine Webseite konnte nicht geöffnet werden",
+  "workSteps.sourceFailedSearchAny": "Suche fehlgeschlagen",
   "composer.effortDefaultBadge": "Empfohlen",
   "queue.itemBusy": "Diese Nachricht wird nach dieser Antwort gesendet.",
   "queue.itemBlocked":
@@ -3940,6 +4036,180 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "Deine Sprachchat-Einstellungen konnten nicht gespeichert werden.",
   "voice.dictation.cancelTranscription": "Transkription abbrechen",
+  "common.noData": "Keine Daten",
+  "common.rowsPerPage": "Zeilen pro Seite:",
+  "dashboardMode.columnResizePersonal":
+    "Ziehen, um die Breite nur für Sie zu ändern. Doppelklick zum Zurücksetzen.",
+  "dashboardMode.columnResizeShared":
+    "Ziehen, um die Breite für alle zu ändern",
+  "sessions.watchReplay": "Wiedergabe ansehen",
+  "sqlDashboard.calloutSeverityCritical": "Kritisch",
+  "sqlDashboard.calloutSeverityInfo": "Hinweis",
+  "sqlDashboard.calloutSeverityWarning": "Warnung",
+  "sqlDashboard.chartPointLimitFirst":
+    "Die ersten {{shown}} von {{total}} Punkten werden angezeigt",
+  "sqlDashboard.chartPointLimitLast":
+    "Die letzten {{shown}} von {{total}} Punkten werden angezeigt",
+  "sqlDashboard.chartPointLimitNewest":
+    "Die neuesten {{shown}} von {{total}} Punkten werden angezeigt",
+  "sqlDashboard.collapseDescription": "Beschreibung einklappen",
+  "sqlDashboard.columnFormat": "Format",
+  "sqlDashboard.columnFormatCurrency": "Währung",
+  "sqlDashboard.columnFormatDate": "Datum",
+  "sqlDashboard.columnFormatDuration": "Dauer (Sekunden)",
+  "sqlDashboard.columnFormatNumber": "Zahl",
+  "sqlDashboard.columnFormatPercent": "Prozent",
+  "sqlDashboard.columnFormatText": "Nur Text",
+  "sqlDashboard.columnHide": "Spalte ausblenden",
+  "sqlDashboard.columnName": "Spaltenname",
+  "sqlDashboard.columnRename": "Spalte umbenennen",
+  "sqlDashboard.columnResize": "Spaltenbreite ändern",
+  "sqlDashboard.columnShow": 'Einblenden: "{{name}}"',
+  "sqlDashboard.columnShowHidden": "Ausgeblendete Spalten einblenden",
+  "sqlDashboard.drilldownChartPoints": "Diagrammpunkte",
+  "sqlDashboard.drilldownNextPage": "Nächste Seite der Diagrammpunkte",
+  "sqlDashboard.drilldownPageRange":
+    "{{start}}–{{end}} von {{total}} werden angezeigt",
+  "sqlDashboard.drilldownPreviousPage": "Vorherige Seite der Diagrammpunkte",
+  "sqlDashboard.expandDescription": "Beschreibung erweitern",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Abgeschlossen",
+  "sqlDashboard.funnelLeft": "App verlassen",
+  "sqlDashboard.funnelLeftHere": "Hier die App verlassen",
+  "sqlDashboard.funnelMovedOn": "Ohne beides weiter",
+  "sqlDashboard.funnelOptional": "Optional",
+  "sqlDashboard.funnelShown": "{{count}} angezeigt",
+  "sqlDashboard.funnelShownLabel": "Angezeigt",
+  "sqlDashboard.funnelSkipped": "Übersprungen",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}, besser",
+  "sqlDashboard.metricComparisonDown":
+    "Minus {{change}} gegenüber {{previous}} ({{period}})",
+  "sqlDashboard.metricComparisonFlat":
+    "Keine Änderung gegenüber {{previous}} ({{period}})",
+  "sqlDashboard.metricComparisonNoChange": "Keine Änderung",
+  "sqlDashboard.metricComparisonPoints": "{{value}} Pp.",
+  "sqlDashboard.metricComparisonPreviousPeriod": "Vorperiode",
+  "sqlDashboard.metricComparisonUp":
+    "Plus {{change}} gegenüber {{previous}} ({{period}})",
+  "sqlDashboard.metricComparisonVs": "ggü. {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}, schlechter",
+  "sqlDashboard.multiColumnSortHelp":
+    "Zum Sortieren klicken. Mit Umschalt-Klick eine weitere Sortierung hinzufügen.",
+  "sqlDashboard.noXValue": "Kein Wert",
+  "filters.filter": "Filtern",
+  "filters.toolbar": "Filterleiste",
+  "filters.clear": "Zurücksetzen",
+  "filters.done": "Fertig",
+  "filters.back": "Zurück",
+  "filters.apply": "Anwenden",
+  "filters.copyLink": "Link kopieren",
+  "filters.linkCopied": "Link kopiert",
+  "filters.copyFailed": "Link konnte nicht kopiert werden",
+  "filters.activeRules": "Aktive Regeln: {{number}}",
+  "filters.matchSentence":
+    "{{items}} anzeigen, die {{mode}} dieser Regeln entsprechen",
+  "filters.modeAll": "allen",
+  "filters.modeAny": "einer",
+  "filters.and": "und",
+  "filters.or": "oder",
+  "filters.modeAllDescription": "Jede Regel muss zutreffen (UND)",
+  "filters.modeAnyDescription": "Eine passende Regel genügt (ODER)",
+  "filters.switchMode": "Ändern, wie Regeln kombiniert werden",
+  "filters.groupSentence": "Entspricht {{mode}} dieser Regeln:",
+  "filters.addRule": "Regel hinzufügen",
+  "filters.addGroup": "Gruppe hinzufügen",
+  "filters.removeRule": "Regel entfernen",
+  "filters.removeGroup": "Gruppe entfernen",
+  "filters.removeChip": "{{label}} entfernen",
+  "filters.groupChip": "({{rules}})",
+  "filters.noRules":
+    "Noch keine Regeln. Füge eine hinzu, um die Liste einzugrenzen.",
+  "filters.fieldValue": "{{field}}: {{value}}",
+  "filters.quoted": "„{{value}}“",
+  "filters.chipNot": "nicht {{value}}",
+  "filters.chipOperator": "{{operator}} {{value}}",
+  "filters.chooseValue": "Wert auswählen",
+  "filters.pickField": "Feld auswählen",
+  "filters.searchFieldsAndValues": "Felder und Werte suchen…",
+  "filters.search": "Suchen…",
+  "filters.fields": "Felder",
+  "filters.values": "Werte",
+  "filters.noFieldMatch": "Keine Treffer für „{{query}}“.",
+  "filters.noValueMatch":
+    "„{{query}}“ gibt es nicht. Filter verwenden nur Werte, die es schon gibt.",
+  "filters.noValueMatchNoun":
+    "„{{query}}“ gibt es nicht als {{noun}}. Filter verwenden nur {{nouns}}, die es schon gibt.",
+  "filters.noOptions": "Noch nichts zur Auswahl.",
+  "filters.nobody": "Niemand",
+  "filters.yes": "Ja",
+  "filters.no": "Nein",
+  "filters.typeValue": "Wert eingeben",
+  "filters.enterNumber": "Zahl eingeben",
+  "filters.exactDate": "Genaues Datum",
+  "filters.relativeRange": "Relativer Zeitraum",
+  "filters.startDate": "Startdatum",
+  "filters.endDate": "Enddatum",
+  "filters.dateBetween": "{{start}} – {{end}}",
+  "filters.dateTimeFormat": "JJJJ-MM-TT oder JJJJ-MM-TT HH:MM",
+  "filters.op.is": "ist",
+  "filters.op.isNot": "ist nicht",
+  "filters.op.isAnyOf": "ist eines von",
+  "filters.op.isNoneOf": "ist keines von",
+  "filters.op.isEmpty": "ist leer",
+  "filters.op.isNotEmpty": "ist nicht leer",
+  "filters.op.hasAnyOf": "hat eines von",
+  "filters.op.hasNoneOf": "hat keines von",
+  "filters.op.hasNone": "hat keine",
+  "filters.op.hasSome": "hat welche",
+  "filters.op.contains": "enthält",
+  "filters.op.doesNotContain": "enthält nicht",
+  "filters.op.startsWith": "beginnt mit",
+  "filters.op.endsWith": "endet mit",
+  "filters.op.isOn": "ist am",
+  "filters.op.isNotOn": "ist nicht am",
+  "filters.op.isBefore": "ist vor",
+  "filters.op.isAfter": "ist nach",
+  "filters.op.isOnOrBefore": "ist am oder vor",
+  "filters.op.isOnOrAfter": "ist am oder nach",
+  "filters.op.isWithin": "liegt in",
+  "filters.op.isBetween": "liegt zwischen",
+  "filters.op.isMoreThan": "ist mehr als",
+  "filters.op.isLessThan": "ist weniger als",
+  "filters.op.isAtLeast": "ist mindestens",
+  "filters.op.isAtMost": "ist höchstens",
+  "filters.date.today": "Heute",
+  "filters.date.yesterday": "Gestern",
+  "filters.date.tomorrow": "Morgen",
+  "filters.date.this.day": "Heute",
+  "filters.date.this.week": "Diese Woche",
+  "filters.date.this.month": "Dieser Monat",
+  "filters.date.this.year": "Dieses Jahr",
+  "filters.date.past": "Letzte {{duration}}",
+  "filters.date.next": "Nächste {{duration}}",
+  "filters.date.direction.past": "Letzte",
+  "filters.date.direction.next": "Nächste",
+  "filters.views.notSaved": "Nicht gespeichert",
+  "filters.views.save": "Speichern",
+  "filters.views.saveForMe": "Für mich speichern",
+  "filters.views.saveForEveryone": "Für alle speichern",
+  "filters.views.onlyYou": "Nur du siehst diese Ansicht.",
+  "filters.views.everyoneSees": "Alle im Workspace sehen diese Ansicht.",
+  "filters.views.update": "Aktualisieren",
+  "filters.views.updateNamed": "„{{name}}“ aktualisieren",
+  "filters.views.shareWithEveryone": "Mit allen teilen",
+  "filters.views.rename": "Umbenennen",
+  "filters.views.delete": "Löschen",
+  "filters.views.deleteConfirm":
+    "„{{name}}“ löschen? Das lässt sich nicht rückgängig machen.",
+  "filters.views.cancel": "Abbrechen",
+  "filters.views.name": "Bezeichnung",
+  "filters.views.nameTaken": "Es gibt schon eine Ansicht namens „{{name}}“.",
+  "filters.views.nameRequired": "Gib der Ansicht einen Namen.",
+  "filters.views.byAuthor": "von {{name}}",
+  "filters.views.yours": "Deine Ansichten",
+  "filters.views.team": "Mit allen geteilt",
+  "filters.views.menu": "Optionen für {{name}}",
 };
 
 export default messages;

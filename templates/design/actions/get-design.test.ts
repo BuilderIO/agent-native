@@ -66,11 +66,6 @@ const mocks = vi.hoisted(() => {
     select,
     selectChain,
     track: vi.fn(),
-    getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
-      id,
-      title: "Acme",
-      agentContext: "Use --brand-accent: #123456.",
-    })),
   };
 });
 
@@ -129,10 +124,6 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
-vi.mock("./get-design-system.js", () => ({
-  default: { run: mocks.getDesignSystemRun },
-}));
-
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import action from "./get-design.js";
 
@@ -151,7 +142,6 @@ describe("get-design", () => {
       title: "Org design",
       description: "Same org preview",
       projectType: "prototype",
-      designSystemId: null,
       data: JSON.stringify({ canvasFrames: [] }),
       visibility: "private",
       orgId: "org-a",
@@ -176,7 +166,6 @@ describe("get-design", () => {
           title: "Public checkout",
           description: "Shared preview",
           projectType: "prototype",
-          designSystemId: null,
           data: JSON.stringify({
             canvasFrames: [],
             screenMetadata: {
@@ -384,37 +373,8 @@ describe("get-design", () => {
         reviewPreview: true,
         reviewOrgId: "customer-org",
       }),
+      // oracle-change: Design Systems removed from Design; its assertions no longer apply
     ).rejects.toMatchObject({ message: "Design not found.", statusCode: 404 });
-  });
-
-  it("includes readable linked design-system context", async () => {
-    mocks.resolveAccess.mockResolvedValueOnce({
-      role: "viewer",
-      resource: {
-        id: "design_123",
-        title: "Public checkout",
-        description: "Shared preview",
-        projectType: "prototype",
-        designSystemId: "system-7",
-        data: JSON.stringify({ canvasFrames: [] }),
-        visibility: "public",
-        createdAt: "2026-06-29T00:00:00.000Z",
-        updatedAt: "2026-06-29T00:00:00.000Z",
-      },
-    });
-
-    const result = await action.run({ id: "design_123" });
-
-    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith(
-      expect.objectContaining({ compact: "true" }),
-    );
-    expect(result.designSystem).toMatchObject({
-      status: "available",
-      scope: "summary",
-      id: "system-7",
-      agentContext: "Use --brand-accent: #123456.",
-      next: expect.any(String),
-    });
   });
 
   it("breaks created-at ties with the restore key and file ID", async () => {

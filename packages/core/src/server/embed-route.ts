@@ -20,9 +20,14 @@ import {
   isMcpEmbedTransplantOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { isWorkspaceAppChatScope } from "../shared/workspace-app-chat-capability.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import type { AuthSession } from "./auth.js";
 import { readCorsAllowedOrigins } from "./cors-origins.js";
+import {
+  EMBED_HANDOFF_QUERY_PARAM,
+  embedTicketFromHandoff,
+} from "./embed-handoff.js";
 import { resolveEmbedRequestOrigin } from "./embed-request-origin.js";
 import {
   consumeEmbedSessionTicket,
@@ -331,7 +336,12 @@ export function createEmbedStartRouteHandler(
 
     const query = getQuery(event) ?? {};
     const rawTicket = query.ticket;
-    const ticket = Array.isArray(rawTicket) ? rawTicket[0] : rawTicket;
+    let ticket = Array.isArray(rawTicket) ? rawTicket[0] : rawTicket;
+    const handoff = firstQueryValue(query[EMBED_HANDOFF_QUERY_PARAM]);
+    if (!ticket && handoff) {
+      ticket = (await embedTicketFromHandoff(event, handoff)) ?? undefined;
+      if (!ticket) return expiredEmbedSessionResponse(event);
+    }
     const existingSession = await options
       .getExistingSession?.(event)
       .catch(() => null);
@@ -352,6 +362,10 @@ export function createEmbedStartRouteHandler(
       return expiredEmbedSessionResponse(event);
     }
 
+    if (isWorkspaceAppChatScope(consumed.scope)) {
+      return expiredEmbedSessionResponse(event);
+    }
+
     const target = normalizeEmbedTargetPath(consumed.targetPath);
     if (!target) {
       if (consumeDiagnostic) {
@@ -368,6 +382,7 @@ export function createEmbedStartRouteHandler(
       scope: consumed.scope,
       ...(consumed.ticketCreatedAtMs != null &&
       (!isEmbedCapabilityScope(consumed.scope) ||
+        isWorkspaceAppChatScope(consumed.scope) ||
         isMcpDirectoryWidgetCapabilityScope(consumed.scope))
         ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
         : {}),

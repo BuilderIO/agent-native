@@ -72,6 +72,28 @@ export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "last_edited_by",
 ] as const satisfies readonly DocumentPropertyType[];
 
+export const FILES_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "person",
+  "place",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+] as const satisfies readonly DocumentPropertyType[];
+
+export function addablePropertyTypes(
+  systemRole: string | null | undefined,
+): readonly DocumentPropertyType[] {
+  if (!systemRole) return CREATABLE_DOCUMENT_PROPERTY_TYPES;
+  return systemRole === "files" ? FILES_PROPERTY_TYPES : [];
+}
+
 export type EditableDocumentPropertyType =
   (typeof EDITABLE_DOCUMENT_PROPERTY_TYPES)[number];
 
@@ -115,6 +137,8 @@ export interface DocumentPropertyOptions {
   };
   blocks?: {
     primary?: boolean;
+    /** A column rule: the tab can't change while the row has one of these values. */
+    freezeWhen?: BlocksFieldFreezeRule;
   };
   rollup?: {
     relationPropertyId?: string | null;
@@ -128,6 +152,16 @@ export interface DocumentPropertyOptions {
       | "min"
       | "max";
   };
+}
+
+/**
+ * Freezes a tab (a Blocks field other than the page body) while the row's
+ * status or select column holds one of these options. Options are named by ID,
+ * so renaming one keeps the rule.
+ */
+export interface BlocksFieldFreezeRule {
+  propertyId: string;
+  optionIds: string[];
 }
 
 export interface DocumentPropertyDateValue {
@@ -321,7 +355,7 @@ export function parsePropertyOptions(
           : undefined,
       blocks:
         parsed.blocks && typeof parsed.blocks === "object"
-          ? { primary: parsed.blocks.primary === true }
+          ? parseBlocksOptions(parsed.blocks)
           : undefined,
       rollup:
         parsed.rollup && typeof parsed.rollup === "object"
@@ -343,6 +377,27 @@ export function parsePropertyOptions(
   } catch {
     return {};
   }
+}
+
+function parseBlocksOptions(
+  blocks: NonNullable<DocumentPropertyOptions["blocks"]>,
+): NonNullable<DocumentPropertyOptions["blocks"]> {
+  const primary = blocks.primary === true;
+  const freezeWhen = primary ? null : parseFreezeRule(blocks.freezeWhen);
+  return freezeWhen ? { primary, freezeWhen } : { primary };
+}
+
+function parseFreezeRule(value: unknown): BlocksFieldFreezeRule | null {
+  if (!value || typeof value !== "object") return null;
+  const { propertyId, optionIds } = value as Partial<BlocksFieldFreezeRule>;
+  if (typeof propertyId !== "string" || !propertyId) return null;
+  if (!Array.isArray(optionIds)) return null;
+  const ids = [
+    ...new Set(
+      optionIds.filter((id): id is string => typeof id === "string" && !!id),
+    ),
+  ];
+  return ids.length ? { propertyId, optionIds: ids } : null;
 }
 
 export function normalizeRollupAggregation(
@@ -419,6 +474,14 @@ export function documentPropertyDatePart(
   if (part === "end") return "";
   if (typeof value === "string") return value.trim();
   return "";
+}
+
+export function documentPropertyDateTimestamp(start: string) {
+  const trimmed = start.trim();
+  const zoneless = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(
+    trimmed,
+  );
+  return new Date(zoneless ? `${trimmed}Z` : trimmed).getTime();
 }
 
 export function documentPropertyDateIncludesTime(value: unknown) {

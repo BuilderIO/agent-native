@@ -82,7 +82,7 @@ test("a newly drawn Screen takes immediate W and H commits without moving or rev
   const page = app.page;
   const before = await app.savedNodes(id);
 
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const start = await emptyBoardPoint(page);
   // The Home screen's iframe origin is world 0,0, so it maps page px to world px.
   const origin = await app.pagePoint(0, 0);

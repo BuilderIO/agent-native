@@ -19,6 +19,8 @@ function normalizeReturnPath(value: string | undefined): string | undefined {
 }
 
 export default defineAction({
+  mcpTool: false,
+  requiresSignedInBrowser: true,
   description:
     "Create a user-clickable Google Calendar OAuth link. Use this when the user asks to connect or reconnect Google Calendar. Do not fetch the returned URL as an API; the signed-in user must open it in their browser.",
   schema: z.object({

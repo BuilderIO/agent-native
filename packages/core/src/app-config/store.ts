@@ -1,3 +1,5 @@
+import type { z } from "zod";
+
 import { deriveAppIdentity } from "./app-identity.js";
 import { readEnvConfigLayer } from "./env-layer.js";
 import { assertRunLifecycleInvariants } from "./run-lifecycle-invariants.js";
@@ -6,6 +8,12 @@ import {
   type AppConfig,
   type AppConfigInput,
 } from "./schema.js";
+import {
+  appConfigSectionsVersion,
+  getAppConfigSchema,
+  registerAppConfigSection,
+  type AppConfigSectionSchema,
+} from "./sections.js";
 
 const LAYER_ORDER = ["env", "legacy", "app"] as const;
 
@@ -18,7 +26,7 @@ export type AppConfigLayer = (typeof LAYER_ORDER)[number];
 
 interface AppConfigState {
   layers: Partial<Record<AppConfigLayer, AppConfigInput>>;
-  resolved?: AppConfig;
+  resolved?: AppConfig | undefined;
   envSignature?: string;
 }
 
@@ -101,7 +109,7 @@ function resolve(
     const value = state.layers[layer];
     if (value) merged = mergeLayers(merged, value as Record<string, unknown>);
   }
-  const parsed = appConfigSchema.parse(merged);
+  const parsed = getAppConfigSchema().parse(merged) as AppConfig;
   if (
     questionIntakeEnvironment?.enabled !== undefined &&
     parsed.agent.questionIntake
@@ -137,6 +145,7 @@ export function readConfigEnvironment(
     AGENT_NATIVE_BUILD_ENGINE_PACKAGES:
       process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES,
     AGENT_NATIVE_BUILD_ID: process.env.AGENT_NATIVE_BUILD_ID,
+    AGENT_NATIVE_BUILD_SHA: process.env.AGENT_NATIVE_BUILD_SHA,
   },
 ): Record<string, string | undefined> {
   const env = { ...process.env };
@@ -157,7 +166,7 @@ export function setAppConfigLayer(
         config as Record<string, unknown>,
       ) as AppConfigInput)
     : config;
-  appConfigSchema.parse(next);
+  getAppConfigSchema().parse(next);
   state.layers[layer] = next;
   state.resolved = undefined;
 }
@@ -181,13 +190,64 @@ export function getAppConfig(): AppConfig {
   delete environmentWithoutQuestionIntakeSwitches.AGENT_QUESTION_INTAKE_EXPERIMENT_ENABLED;
   delete environmentWithoutQuestionIntakeSwitches.AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED;
   const envLayer = readEnvConfigLayer(
-    appConfigSchema,
+    getAppConfigSchema(),
     environmentWithoutQuestionIntakeSwitches,
   );
-  const signature = JSON.stringify({ envLayer, questionIntakeEnvironment });
+  const signature = JSON.stringify({
+    envLayer,
+    questionIntakeEnvironment,
+    sections: appConfigSectionsVersion(),
+  });
   if (state.resolved && state.envSignature === signature) return state.resolved;
   state.envSignature = signature;
   return (state.resolved = resolve(envLayer, questionIntakeEnvironment));
+}
+
+export interface AppConfigSection<
+  Key extends string,
+  Schema extends AppConfigSectionSchema,
+> {
+  key: Key;
+  schema: Schema;
+  /** The resolved section, equal to `getAppConfig()[key]`. */
+  read(): z.output<Schema>;
+}
+
+/**
+ * Registers an app-owned config section. Its fields resolve exactly like the
+ * framework's: declared default, then `.meta({ env })` aliases, then
+ * `defineAppConfig()`. Register it from a module the server loads before the
+ * first read, such as `server/plugins/config.ts`.
+ */
+export function defineAppConfigSection<
+  const Key extends string,
+  Schema extends AppConfigSectionSchema,
+>(key: Key, schema: Schema): AppConfigSection<Key, Schema> {
+  if (registerAppConfigSection(key, schema)) {
+    // Layers set before this registration were validated without the section;
+    // check them now so a bad value fails here, not on some unrelated read.
+    for (const layer of LAYER_ORDER) {
+      const value = state.layers[layer];
+      if (value && layer !== "env") getAppConfigSchema().parse(value);
+    }
+    state.resolved = undefined;
+  }
+  return {
+    key,
+    schema,
+    read: () => {
+      const value = (
+        getAppConfig() as unknown as Record<
+          string,
+          z.output<Schema> | undefined
+        >
+      )[key];
+      if (value === undefined) {
+        throw new Error(`App config section "${key}" is not registered.`);
+      }
+      return value;
+    },
+  };
 }
 
 export function resetAppConfigForTests(): void {

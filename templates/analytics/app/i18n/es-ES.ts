@@ -1216,6 +1216,7 @@ export default {
     monitoring: "Monitorización - Analytics",
     agents: "Agentes - Analytics",
     session: "Reproducción de sesión - Analytics",
+    sessionReport: "Informe de sesión - Analytics",
     tool: "Herramienta - Analytics",
     extensions: "Extensiones - Analytics",
     overview: "Descripción general - Analytics",
@@ -1396,6 +1397,8 @@ export default {
     resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
+    collapseDescription: "Contraer descripción",
+    expandDescription: "Ampliar descripción",
     drilldownChartPoints: "Puntos del gráfico",
     drilldownPreviousPage: "Página anterior de puntos del gráfico",
     drilldownNextPage: "Página siguiente de puntos del gráfico",
@@ -1415,6 +1418,8 @@ export default {
       "El gráfico muestra {{chart}}, pero coinciden {{total}} registros",
     drilldownAggregateOnly:
       "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
+    drilldownNoXValueAggregateOnly:
+      "Este panel no puede abrir registros de un punto sin valor, así que muestra filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
     drilldownNoRecords: "No hay registros coincidentes",
     drilldownNoRecordsIncomplete:
       "No se cargó ningún registro. El resultado está incompleto, así que puede haber registros coincidentes.",
@@ -1896,6 +1901,29 @@ export default {
     emptyStepVisit: "Visitar app",
     installSnippetTitle: "Añadir reproducción de sesión",
     backToSessions: "Volver a sesiones",
+    createReport: "Crear informe",
+    createReportTooltip:
+      "Pide al agente que escriba un informe sobre esta sesión: qué salió mal, sus momentos clave y cómo reproducirlo.",
+    createReportMessage: "Escribe un informe sobre esta sesión.",
+    reportCount: "Informes ({{count}})",
+    reportsUnavailable: "Informes no disponibles",
+    reportNeedsLab:
+      "Los informes de sesión forman parte del Lab de triaje de sesiones.",
+    reportNotFound: "Este informe no existe o no se ha compartido contigo.",
+    reportLoadFailed: "No se pudo cargar este informe: {{message}}",
+    reportBackToSession: "Volver a la sesión",
+    reportTitleLabel: "Título del informe",
+    reportSummaryLabel: "Resumen",
+    reportSummaryPlaceholder: "Qué salió mal y por qué",
+    reportKeyMoments: "Momentos clave",
+    reportReproSteps: "Pasos para reproducirlo",
+    reportErrorIssue: "Incidencia de error",
+    reportCommit: "Commit",
+    reportNoCommit: "La sesión no informó de ningún commit",
+    reportSaveFailed: "No se pudo guardar el informe: {{message}}",
+    reportDelete: "Eliminar informe",
+    reportDeleteTitle:
+      "¿Eliminar este informe? Sus enlaces para agentes dejarán de funcionar.",
     copyForAgent: "Copiar para agente",
     copyForAgentTooltip:
       "Copia un enlace privado temporal que un agente puede usar para inspeccionar esta reproducción.",
@@ -2164,6 +2192,10 @@ export default {
     flagsUnavailable: "Los indicadores de funciones no están disponibles",
     flagsUnreachable:
       "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
+    verifiedFlagChangeOrg:
+      "Verificado a las {{time}}: {{flag}} en {{app}} está configurado como {{availability}} para esta organización.",
+    verifiedFlagChangeGlobal:
+      "Verificado a las {{time}}: {{flag}} en {{app}} está configurado como {{availability}} para todas las organizaciones.",
     flagsEmpty: "Ninguna aplicación informó indicadores",
     flagsEmptyDetail:
       "Los indicadores registrados aparecerán aquí cuando las aplicaciones conectadas estén listas.",
@@ -2329,6 +2361,16 @@ export default {
     addedBy: "Añadido por {{email}}",
     more: "+{{count}} más",
     flagLabel: "Notas de datos",
+  },
+  citedIn: {
+    menu: "Citado en",
+    menuTooltip: "Páginas de Content con gráficos de este panel",
+    empty:
+      "Aún no hay páginas de Content que pueda abrir con gráficos de este panel",
+    unavailable:
+      "No se pudo conectar con Content. Inténtelo de nuevo en un minuto.",
+    untitledPage: "Sin título",
+    more: "Content solo revisó las páginas editadas más recientemente, así que puede haber más.",
   },
   annotations: {
     menu: "Anotaciones",

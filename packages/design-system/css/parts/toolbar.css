@@ -1,0 +1,136 @@
+/*
+ * Part: toolbar
+ *
+ *   <div class="toolbar" role="toolbar"                     Base UI Toolbar.Root
+ *        data-size="sm|md" data-orientation>
+ *     <div class="toolbar-group">                           Toolbar.Group
+ *       <button class="toolbar-button"                      Toolbar.Button
+ *               [data-pressed] [data-popup-open] [data-disabled]>
+ *       <a class="toolbar-link">                            Toolbar.Link
+ *     <div class="toolbar-separator">                       Toolbar.Separator
+ *
+ * A row of ghost gray controls a step apart, groups divided by hairlines.
+ * md and sm are the 24 and 20px control heights, and every button,
+ * link and toggle in the toolbar takes it. A button that renders as another
+ * part, such as a Toggle or a Button, keeps that part's colors: the
+ * toolbar's own colors sit in `:where()` so any part's rule wins over them,
+ * while its size rules outrank a part's own `data-size`. Pressed and open
+ * buttons take the nearest `data-color`'s soft tint.
+ */
+
+@layer components {
+  .toolbar {
+    --_toolbar-font-size: var(--control-font-size-3);
+    --_toolbar-line-height: var(--control-line-height-3);
+    --_toolbar-height: var(--control-height-3);
+    --_toolbar-padding-x: var(--space-2);
+    --_toolbar-radius: var(--radius-3);
+    --_toolbar-icon-size: var(--control-icon-size-3);
+  }
+
+  .toolbar[data-size="sm"] {
+    --_toolbar-font-size: var(--control-font-size-2);
+    --_toolbar-line-height: var(--control-line-height-2);
+    --_toolbar-height: var(--control-height-2);
+    --_toolbar-padding-x: var(--space-2);
+    --_toolbar-radius: var(--radius-2);
+    --_toolbar-icon-size: var(--control-icon-size-2);
+  }
+
+  .toolbar,
+  .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .toolbar[data-orientation="vertical"],
+  .toolbar[data-orientation="vertical"] .toolbar-group {
+    flex-direction: column;
+  }
+
+  :where(.toolbar-button, .toolbar-link) {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    box-sizing: border-box;
+    border: 0;
+    border-radius: max(
+      calc(var(--_toolbar-radius, var(--radius-3)) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
+    corner-shape: var(--corner-shape, round);
+    background-color: transparent;
+    color: var(--fg-muted);
+    font: inherit;
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    outline-style: none;
+    transition-property: color, background-color, box-shadow;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .toolbar[data-size] :is(.toolbar-button, .toolbar-link) {
+    --control-font-size: var(--_toolbar-font-size);
+    --control-line-height: var(--_toolbar-line-height);
+    min-width: var(--_toolbar-height);
+    height: var(--_toolbar-height);
+    padding: 0 var(--_toolbar-padding-x);
+  }
+
+  .toolbar[data-size] :is(.toolbar-button, .toolbar-link)[data-icon-only] {
+    padding: 0;
+  }
+
+  .toolbar[data-size] :is(.toolbar-button, .toolbar-link) svg {
+    flex-shrink: 0;
+    width: var(--_toolbar-icon-size);
+    height: var(--_toolbar-icon-size);
+  }
+
+  @media (hover: hover) {
+    :where(.toolbar-button, .toolbar-link):where(
+        :not(:disabled, [data-disabled])
+      ):hover {
+      background-color: var(--fill-hover);
+      color: var(--fg-default);
+    }
+  }
+
+  :where(.toolbar-button):where([data-pressed], [data-popup-open]) {
+    background-color: var(--accent-a3);
+    color: var(--accent-text);
+  }
+
+  :where(.toolbar-button, .toolbar-link):focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  :where(.toolbar-button):where(:disabled, [data-disabled]) {
+    cursor: not-allowed;
+    background-color: transparent;
+    color: var(--fg-disabled);
+  }
+
+  .toolbar-separator {
+    flex-shrink: 0;
+    align-self: stretch;
+    width: 1px;
+    margin-block: var(--space-1);
+    background-color: var(--line-subtle);
+  }
+
+  .toolbar[data-orientation="vertical"] .toolbar-separator {
+    width: auto;
+    height: 1px;
+    margin: 0 var(--space-1);
+  }
+}

@@ -10,6 +10,7 @@ export const MCP_LINK_HOSTS: Record<string, string[]> = {
   "builder-cms": ["builder.io"],
   sigma: ["sigmacomputing.com"],
   notion: ["notion.com", "notion.so", "notion.site"],
+  content: ["content.agent-native.com"],
   granola: ["granola.ai"],
   semgrep: ["semgrep.dev", "semgrep.com"],
   canva: ["canva.com", "canva.ai"],

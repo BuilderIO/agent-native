@@ -61,6 +61,10 @@ import {
 } from "react";
 
 import {
+  useDesktopChatPreferences,
+  writeDesktopChatPreferences,
+} from "../lib/desktop-chat-preferences.js";
+import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
   useDesktopTerminalPreferences,
   writeDesktopTerminalPreferences,
@@ -546,6 +550,7 @@ export default function AppSettings({
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const chatPreferences = useDesktopChatPreferences();
   const terminalPreferences = useDesktopTerminalPreferences();
   const closingTimerRef = useRef<number | null>(null);
   const visibleApps = useMemo(() => getDesktopVisibleApps(apps), [apps]);
@@ -1559,6 +1564,26 @@ export default function AppSettings({
                           }
                         />
                       ) : null}
+                    </SettingsGroup>
+                    <SettingsGroup
+                      title="Chat"
+                      description="Control how conversations behave when switching between apps."
+                    >
+                      <SettingsRow
+                        label="Reset chat when switching apps"
+                        description="Clear and start a new conversation when switching apps instead of keeping the current chat."
+                        control={
+                          <Switch
+                            checked={chatPreferences.resetChatOnAppSwitch}
+                            onCheckedChange={(resetChatOnAppSwitch) =>
+                              writeDesktopChatPreferences({
+                                resetChatOnAppSwitch,
+                              })
+                            }
+                            aria-label="Reset chat when switching apps"
+                          />
+                        }
+                      />
                     </SettingsGroup>
                     <SettingsGroup
                       title="Software updates"

@@ -73,7 +73,6 @@ import {
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
-  MotionKeyframeFieldContext,
   StyleChangeHandler,
   StyleChangeMeta,
   StylesChangeHandler,
@@ -494,7 +493,6 @@ function ShadowEffectRow({
   rowProps,
   handleProps,
   element,
-  motionKeyframeContext,
 }: {
   layer: ShadowLayer;
   index: number;
@@ -508,7 +506,6 @@ function ShadowEffectRow({
     ReturnType<typeof useRowDragReorder>["getHandleProps"]
   >;
   element?: ElementInfo;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
   const effectType = layer.inset
@@ -565,12 +562,7 @@ function ShadowEffectRow({
       }
       trailer={
         index === 0 && element ? (
-          <FieldTrailer
-            element={element}
-            motionCssProperty="box-shadow"
-            motionKeyframeContext={motionKeyframeContext}
-            hoverRevealClassName="opacity-0 group-hover:opacity-100"
-          />
+          <FieldTrailer element={element} overrideProperty="box-shadow" />
         ) : undefined
       }
     >
@@ -626,13 +618,11 @@ export function EffectsProperties({
   onStyleChange,
   onStylesChange,
   shaderContext,
-  motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   shaderContext?: ShaderEditorContext;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
   const [shaderPickerOpen, setShaderPickerOpen] = useState(false);
@@ -889,7 +879,6 @@ export function EffectsProperties({
                         )
                       }
                       element={element}
-                      motionKeyframeContext={motionKeyframeContext}
                     />
                   ))}
                 </div>

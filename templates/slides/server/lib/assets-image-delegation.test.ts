@@ -198,10 +198,11 @@ describe("delegateImageGenerationToAssets", () => {
     expect(first[1].idempotencyKey).not.toBe(second[1].idempotencyKey);
   });
 
-  it("prefers audience-bound signed tokens over the static override", async () => {
+  it("sends the static override last, after the signed tokens, to the configured URL", async () => {
     const previousA2ASecret = process.env.A2A_SECRET;
     delete process.env.A2A_SECRET;
     process.env.IMAGES_A2A_KEY = "static-override";
+    process.env.IMAGES_A2A_URL = "https://assets.example.com/_agent-native/a2a";
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
     try {
       await delegateImageGenerationToAssets({ prompt: "a hero" });
@@ -209,11 +210,11 @@ describe("delegateImageGenerationToAssets", () => {
         "example.com",
         "org-secret",
         undefined,
-        { audience: "https://assets.example.com" },
+        { audience: "https://assets.example.com/_agent-native/a2a" },
       );
       expect(signA2ATokenMock).not.toHaveBeenCalled();
       expect(A2AClientMock).toHaveBeenCalledWith(
-        "https://assets.example.com",
+        "https://assets.example.com/_agent-native/a2a",
         "signed-org-token",
         {
           fallbackApiKeys: [
@@ -223,6 +224,41 @@ describe("delegateImageGenerationToAssets", () => {
           ],
           allowedPrivateOrigins: [],
         },
+      );
+    } finally {
+      delete process.env.IMAGES_A2A_KEY;
+      delete process.env.IMAGES_A2A_URL;
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("does not send the static override to a discovered Assets agent", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    delete process.env.A2A_SECRET;
+    process.env.IMAGES_A2A_KEY = "static-override";
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    try {
+      await delegateImageGenerationToAssets({ prompt: "a hero" });
+      expect(A2AClientMock).toHaveBeenCalledWith(
+        "https://assets.example.com",
+        "signed-org-token",
+        {
+          fallbackApiKeys: ["resolved-key", "org-fallback-key"],
+          allowedPrivateOrigins: [],
+        },
+      );
+      expect(A2AClientMock).not.toHaveBeenCalledWith(
+        expect.anything(),
+        "static-override",
+        expect.anything(),
+      );
+      expect(A2AClientMock).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          fallbackApiKeys: expect.arrayContaining(["static-override"]),
+        }),
       );
     } finally {
       delete process.env.IMAGES_A2A_KEY;

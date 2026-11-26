@@ -123,6 +123,20 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
             "변경(mutating) action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다.",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "true이면(또는 predicate가 true를 반환하면) 이 action 자신의 쓰기 이후의 실패는 현재 턴의 나머지 동안 도구를 차단하는 대신 모델이 수정하고 재시도할 수 있는 알려진 실패가 됩니다. 어떤 오류 뒤에도 안전하게 다시 실행할 수 있는 action에만 사용하세요. 쓰기 이전의 거부에는 이 옵션이 필요 없습니다. 아래의 재시도 안전 쓰기를 참고하세요.",
+        },
+        {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            '사용자 동작 없이 앱이 스스로 하는 쓰기를 표시합니다: 로드 시, 마운트 시, 타이머, 또는 실험과 사용량 기록. 이 action의 action_started, action_completed, action_failed 이벤트는 action_kind가 "write" 대신 "automatic"이 되어 제품 사용 집계에서 빠집니다. predicate를 주면 true를 반환한 호출만 표시됩니다. 분석에만 영향을 줍니다: 쓰기를 숨기려고 readOnly를 설정하지 마세요.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -437,6 +451,41 @@ const reply = useActionMutation("reply-to-email", {
 그러니 상태는 장식이 아닙니다. `404`로 보낸 거부는 왕복 한 번이면 됩니다. 같은 거부를 `500`으로 보내거나 맨 throw로 던지면 왕복 네 번과 중복 오류 보고 네 건이 듭니다.
 
 에이전트 호출자는 상태를 보지 않습니다. 에이전트는 `run()`을 프로세스 안에서 실행하므로 타입과 무관하게 메시지를 `Error running <action>: <message>` 형태로 그대로 받습니다. 기본값 `action_failed`가 아닌 `errorCode`는 `(errorCode: not_found)`로 덧붙어, 모델이 문장을 파싱하지 않고 분기할 수 있습니다. `details`는 별도의 줄에 압축된 JSON으로 이어지며(예: `Error details: {"importId":"imp_1"}`), 모델이 다음 호출에 필요한 ID를 메시지에 적지 않아도 됩니다. MCP를 통한 외부 에이전트도 같은 텍스트를 받으며, `structuredContent.error`에도 같은 details가 담깁니다. 출력 스키마를 공개하는 도구(`mcpOutputSchema: true`)는 텍스트만 반환합니다. 클라이언트가 오류 결과도 그 스키마로 검증할 수 있기 때문입니다. details는 2,000자로 제한되며, 이를 넘으면 작은 최상위 항목은 유지하고 나머지는 생략된 항목으로 나열합니다. 메시지와 details 속 비밀 값은 먼저 가려지고, 반복 오류에 대한 에이전트 자체 차단기가 재시도 횟수를 제한합니다.
+
+## 재시도 안전 쓰기 {#retry-safe}
+
+프레임워크는 실패한 쓰기 action을 그 호출이 수행한 것으로 관찰한 쓰기를 기준으로 분류합니다. 텍스트상 쓰기일 수 있는 모든 SQL 문과 GET, HEAD, OPTIONS가 아닌 모든 `fetch`가 대상입니다. 그중 어느 것보다도 먼저 발생한 거부, 예를 들어 일치하는 항목이 없는 편집, 없는 대상, 422 검증 거부는 `fail()`, 일반 `Error`, 라이브러리 오류 중 어떤 방식으로 throw되든 알려진 실패입니다. 모델은 오류를 받고, 인자를 수정한 뒤 재시도합니다.
+
+호출이 자신이 수행한 쓰기 이후에 실패하면 agent 루프는 알 수 없는 결과로 기록하고 **현재 턴**의 나머지 동안 그 도구를 차단합니다. 모델은 오류를 볼 수 있지만, 이 턴에서는 인자를 고치기 위해 같은 action을 다시 호출할 수는 없습니다. 사용자의 다음 메시지는 그 도구를 정상적으로 실행합니다.
+
+- 디스크 쓰기, 자식 프로세스, `node:http` 요청, 벤더 SDK 호출, `SELECT`가 호출하는 앱 자체의 데이터베이스 함수처럼 프레임워크가 볼 수 없는 쓰기 전에는 `@agent-native/core/action`의 `noteExternalWrite(channel)`을 호출하세요(예: `noteExternalWrite("local-disk")`). 이 호출이 없으면 그 쓰기 이후에 실패한 호출은 아무것도 저장하지 않은 것처럼 보입니다.
+- `NoWriteError` 또는 `defineActionErrors`의 `noWrite()`는 필수가 아니라 재정의 수단입니다. 거부 이전의 유일한 쓰기가 재시도로 반복되어도 해가 없는 쓰기일 때, 예를 들어 서버가 아무것도 실행하기 전에 4xx로 거부한 요청이나 아직 아무것도 참조하지 않는 업로드일 때 사용하세요. 프레임워크는 중첩된 쓰기 action이 호출의 핸들러에 들어가지 않은 경우에만 이를 받아들입니다. 작성자 규칙은 `.agents/skills/actions/SKILL.md`의 `NoWriteError` 항목입니다. `noWrite()`는 [오류 코드 선언하기](#error-codes)를 참고하세요.
+
+어떤 오류 뒤에도 다시 실행해도 데이터가 중복되거나 손상되지 않는다면 `retrySafe: true`(또는 입력을 받는 predicate)를 설정하세요. action의 모든 쓰기가 id 기준 교체처럼 최종 상태를 설정해서, 이미 반영된 쓰기를 반복해도 아무것도 바뀌지 않는 경우입니다. 그러면 자신의 쓰기 이후에 실패한 호출도 알려진 실패로 남습니다. 모델은 오류를 받고, 인자를 수정한 뒤 재시도합니다.
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+검증 후에 추가, 전송, 결제를 하는 action에는 설정하지 **마세요**. 다만 action이 첫 결과로 응답하는 멱등 키를 입력이 가진 경우는 예외입니다. 거부되기 전에 이후 단계가 이미 반영되었을 수 있다면 먼저 검증하는 것만으로는 충분하지 않습니다. 그 밖의 제한 사항:
+
+- **이 action 자체의 쓰기**만 해당합니다. 호출한 중첩 action이 쓰기를 한 뒤에는 실패가 여전히 알 수 없는 결과로 기록됩니다.
+- MCP 승인은 `retrySafe`가 다루는 호출에 대해 「이미 실행됨」 경고를 건너뜁니다.
+- 충돌에서 복구한 실행이 중단된 재시도 안전 호출을 같은 입력으로 다시 보내면, 그 호출은 알 수 없는 상태로 남지 않고 다시 실행됩니다.
+- action이 호출된 뒤 발생한 deadline이나 abort는 현재 턴의 나머지 동안 여전히 도구를 차단합니다. action이 직접 반환한 오류만 알려진, 재시도 가능한 실패로 취급됩니다.
 
 ## Action 표면을 작게 유지하기 {#small-surface}
 

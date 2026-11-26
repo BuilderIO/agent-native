@@ -767,6 +767,7 @@ describe("Builder MDX conversion", () => {
         "\t[safe](https://example.com)",
         "\t[local](/docs)",
         "\t[next](chapter-2)",
+        "\t_soon_ [marked](https://example.com/_a_*b*`c`?d_e=1&f=2)",
         "</callout>",
       ].join("\n"),
       {},
@@ -788,6 +789,9 @@ describe("Builder MDX conversion", () => {
     expect(JSON.stringify(blocks)).toContain('<a href=\\"/docs\\">local</a>');
     expect(JSON.stringify(blocks)).toContain(
       '<a href=\\"chapter-2\\">next</a>',
+    );
+    expect(JSON.stringify(blocks)).toContain(
+      '<em>soon</em> <a href=\\"https://example.com/_a_*b*`c`?d_e=1&amp;f=2\\">marked</a>',
     );
   });
 

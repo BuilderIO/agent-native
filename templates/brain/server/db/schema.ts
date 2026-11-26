@@ -11,7 +11,18 @@ export const brainSources = table("brain_sources", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   provider: text("provider", {
-    enum: ["manual", "generic", "clips", "slack", "granola", "github", "zoom"],
+    enum: [
+      "manual",
+      "generic",
+      "clips",
+      "slack",
+      "granola",
+      "github",
+      "zoom",
+      "google_calendar",
+      "gmail",
+      "google_drive",
+    ],
   })
     .notNull()
     .default("manual"),
@@ -92,6 +103,8 @@ export const brainKnowledge = table("brain_knowledge", {
   tagsJson: text("tags_json").notNull().default("[]"),
   entitiesJson: text("entities_json").notNull().default("[]"),
   evidenceJson: text("evidence_json").notNull().default("[]"),
+  intelligenceKind: text("intelligence_kind"),
+  provenanceJson: text("provenance_json"),
   publishedResourcePath: text("published_resource_path"),
   supersedesId: text("supersedes_id"),
   supersededById: text("superseded_by_id"),
@@ -398,3 +411,32 @@ export const brainProjectSources = table("brain_project_sources", {
   sourceId: text("source_id").notNull(),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+export const brainKnowledgeIntelligence = table(
+  "brain_knowledge_intelligence",
+  {
+    knowledgeId: text("knowledge_id").primaryKey(),
+    kind: text("kind").notNull(),
+    owner: text("owner"),
+    dueDate: text("due_date"),
+    taskStatus: text("task_status").notNull().default("open"),
+    ownershipConfidence: text("ownership_confidence")
+      .notNull()
+      .default("ambiguous"),
+    knowledgeRevision: text("knowledge_revision").notNull(),
+    evidenceSnapshotsJson: text("evidence_snapshots_json").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+);
+
+export const brainKnowledgeVerifications = table(
+  "brain_knowledge_verifications",
+  {
+    knowledgeId: text("knowledge_id").primaryKey(),
+    knowledgeRevision: text("knowledge_revision").notNull(),
+    state: text("state").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    actedAt: text("acted_at").notNull(),
+    remindAt: text("remind_at"),
+  },
+);

@@ -227,8 +227,16 @@ function resolveInitialState(args: {
   supportedLocales: readonly LocaleCode[];
 }): { locale: LocaleCode; preference: LocalePreference } {
   const hydration = readHydrationPayload();
+  // An explicit locale is a request, not a hint: a surface that renders in a language
+  // other than the interface's (a published form, a shared page) passes initialLocale
+  // alone. Without pinning the preference too, the mount effect below re-resolves the
+  // locale from the stored/browser preference and silently replaces it.
+  const explicitLocale = args.initialLocale
+    ? normalizeLocaleCode(args.initialLocale, args.supportedLocales)
+    : null;
   const preference = normalizeLocalizationPreference(
     args.initialPreference ??
+      explicitLocale ??
       hydration.preference ??
       readStoredPreference(args.supportedLocales),
     args.supportedLocales,
@@ -336,6 +344,58 @@ function composeLocaleMessages(
   );
 }
 
+/**
+ * i18next's default delimiters are double braces, so a catalog string written as
+ * `Delete the {team} team?` reaches the page literally with its braces. Four app catalogs shipped
+ * that way (the team-delete dialog, the event-type note, the data-connections count, and the
+ * template-search empty line), which reads as broken copy to a user.
+ *
+ * This post-processor resolves a single-brace token only when the caller actually passed that
+ * value, so real literal braces stay untouched: `\frac{a}{b}` has no `a` in the options and is
+ * returned unchanged, and `{{name}}` has already been interpolated before this runs (the
+ * lookarounds keep the double-brace form out of reach). Nothing is invented for a missing value;
+ * an unmatched `{team}` stays visible exactly as it does today, so the fix cannot blank a label.
+ */
+export const SINGLE_BRACE_POST_PROCESSOR = "singleBracePlaceholders";
+
+/** i18next's own option keys, so a template `{key}` is never replaced by the translation key. */
+const I18NEXT_OPTION_KEYS = new Set([
+  "key",
+  "lng",
+  "ns",
+  "defaultValue",
+  "returnObjects",
+  "returnDetails",
+  "joinArrays",
+  "postProcess",
+  "interpolation",
+  "nest",
+  "replace",
+]);
+
+const singleBracePostProcessor = {
+  type: "postProcessor" as const,
+  name: SINGLE_BRACE_POST_PROCESSOR,
+  process(
+    value: string,
+    _key: string,
+    options: Record<string, unknown> | undefined,
+  ) {
+    if (!value || !options || value.indexOf("{") === -1) return value;
+    return value.replace(
+      /(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})/g,
+      (match, name: string) => {
+        if (I18NEXT_OPTION_KEYS.has(name)) return match;
+        const provided = options[name];
+        if (provided === undefined || provided === null) return match;
+        if (typeof provided !== "string" && typeof provided !== "number")
+          return match;
+        return String(provided);
+      },
+    );
+  },
+};
+
 function createI18nInstance(args: {
   namespace: string;
   sourceLocale: LocaleCode;
@@ -360,6 +420,7 @@ function createI18nInstance(args: {
       ),
     };
   }
+  instance.use(singleBracePostProcessor);
   void instance.use(initReactI18next).init({
     resources,
     lng: args.initialLocale,
@@ -367,6 +428,7 @@ function createI18nInstance(args: {
     defaultNS: args.namespace,
     ns: [args.namespace],
     interpolation: { escapeValue: false },
+    postProcess: [SINGLE_BRACE_POST_PROCESSOR],
     react: { useSuspense: false },
     returnNull: false,
     initAsync: false,

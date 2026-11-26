@@ -26,14 +26,15 @@ interface ControlSample {
 }
 
 const CONTROL_SELECTORS = {
-  modeSwitch: "[data-design-top-bar] [data-design-mode-switch]",
-  device: "[data-design-top-bar] [data-design-interact-device]",
-  theme: "[data-design-top-bar] [data-design-interact-theme]",
-  back: "[data-design-top-bar] button[aria-label='Back']",
-  forward: "[data-design-top-bar] button[aria-label='Forward']",
-  screen: "[data-design-top-bar] [data-design-interact-route]",
-  reload: "[data-design-top-bar] button[aria-label='Reload preview']",
-  zoom: "[data-design-top-bar] [data-design-interact-zoom]",
+  modeSwitch: '[data-design-bottom-toolbar] button[aria-label="Edit"]',
+  device: "[data-design-interact-floating-bar] [data-design-interact-device]",
+  theme: "[data-design-interact-floating-bar] [data-design-interact-theme]",
+  back: "[data-design-interact-floating-bar] button[aria-label='Back']",
+  forward: "[data-design-interact-floating-bar] button[aria-label='Forward']",
+  screen: "[data-design-interact-floating-bar] [data-design-interact-route]",
+  reload:
+    "[data-design-interact-floating-bar] button[aria-label='Reload preview']",
+  zoom: "[data-design-toolbar-zoom] [data-design-interact-zoom]",
 } as const;
 
 type ControlName = keyof typeof CONTROL_SELECTORS;
@@ -43,9 +44,10 @@ const INTERACTIVE_FRAME =
   '[data-screen-interact-mode="true"] iframe[data-design-preview-iframe]';
 
 interface InteractEntrySnapshot {
-  topBar: Rect | null;
+  floatingBar: Rect | null;
+  bottomToolbar: Rect | null;
   leftShell: Rect | null;
-  topBarInteractPressed: string | null | undefined;
+  interactPressed: string | null | undefined;
   controls: Record<ControlName, ControlSample>;
   removedControls: {
     heightInput: number;
@@ -78,13 +80,14 @@ async function enterInteractAndSampleImmediately(
     "iframe[data-design-preview-iframe]",
   );
   await expect(previewIframe).toBeVisible();
-  // Below `md` the open left panel is a drawer over the canvas, and so over
-  // the top bar; close it to reach the mode switch.
+  // oracle-change: phones open with the left drawer closed (minimal UI), so the mode switch is reachable without closing it first
   if (phone) {
-    await page.getByRole("button", { name: "Layers", exact: true }).click();
+    await expect(
+      page.locator('[data-design-chrome-region="left-shell"]'),
+    ).toHaveCount(0);
   }
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   await expect(screenShell).toHaveAttribute(
     "data-screen-interact-mode",
@@ -145,18 +148,27 @@ async function enterInteractAndSampleImmediately(
     const count = (selector: string) =>
       document.querySelectorAll(selector).length;
     return {
-      topBar: bounds(document.querySelector("[data-design-top-bar]")),
+      floatingBar: bounds(
+        document.querySelector("[data-design-interact-floating-bar]"),
+      ),
+      bottomToolbar: bounds(
+        document.querySelector("[data-design-bottom-toolbar]"),
+      ),
       leftShell: bounds(
         document.querySelector('[data-design-chrome-region="left-shell"]'),
       ),
-      topBarInteractPressed: document
-        .querySelector('[data-design-top-bar] [data-design-mode="interact"]')
+      interactPressed: document
+        .querySelector(
+          '[data-design-bottom-toolbar] button[aria-label="Interact"]',
+        )
         ?.getAttribute("aria-pressed"),
       controls,
       removedControls: {
         heightInput: count('input[aria-label="Height"]'),
         exitButton: count('button[aria-label="Exit responsive preview"]'),
-        editButton: count('button[aria-label="Edit"]'),
+        editButton: count(
+          '[data-design-interact-floating-bar] button[aria-label="Edit"]',
+        ),
         annotateButton: count('button[aria-label="Annotate"]'),
       },
       screenShellCount: document.querySelectorAll("[data-screen-shell]").length,
@@ -168,9 +180,17 @@ async function enterInteractAndSampleImmediately(
   }, CONTROL_SELECTORS);
 }
 
+function must<T>(value: T | null | undefined, what: string): T {
+  if (value == null) throw new Error(`${what} is missing`);
+  return value;
+}
+
 function expectInsideBar(snapshot: InteractEntrySnapshot, name: ControlName) {
-  const bar = snapshot.topBar!;
-  const rect = snapshot.controls[name].rect!;
+  const bar =
+    name === "modeSwitch" || name === "zoom"
+      ? must(snapshot.bottomToolbar, "bottom toolbar")
+      : must(snapshot.floatingBar, "floating bar");
+  const rect = must(snapshot.controls[name].rect, name);
   expect.soft(rect.x, `${name} left edge`).toBeGreaterThanOrEqual(bar.x);
   expect
     .soft(rect.x + rect.width, `${name} right edge`)
@@ -181,23 +201,22 @@ function expectInsideBar(snapshot: InteractEntrySnapshot, name: ControlName) {
     .toBeLessThanOrEqual(bar.y + bar.height + 0.5);
 }
 
-test("Interact controls sit in the top bar and clear the right edge at Tiana's 1751×897 viewport", async ({
+// oracle-change: Interact's controls float in a 40px bar over the canvas (the top bar is gone); the mode switch and zoom moved to the bottom toolbar, which stays up in Interact.
+test("Interact controls sit in a floating bar and clear the right edge at Tiana's 1751×897 viewport", async ({
   app,
   page,
 }, testInfo) => {
   const snapshot = await enterInteractAndSampleImmediately(app, 1751, 897);
 
   expect(snapshot.screenShellCount).toBe(1);
-  // Nothing in a live preview is selectable, so Interact shows no bottom toolbar.
-  expect(snapshot.bottomToolbarCount).toBe(0);
+  expect(snapshot.bottomToolbarCount).toBe(1);
   expect(snapshot.rightPanelCount).toBe(0);
-  expect(snapshot.topBar).toMatchObject({ y: 0, height: 48 });
-  expect(snapshot.leftShell).not.toBeNull();
-  expect(snapshot.topBar!.x).toBe(
-    snapshot.leftShell!.x + snapshot.leftShell!.width,
-  );
-  expect(snapshot.topBar!.x + snapshot.topBar!.width).toBe(1751);
-  expect(snapshot.topBarInteractPressed).toBe("true");
+  expect(snapshot.floatingBar).toMatchObject({ height: 40 });
+  const floatingBar = must(snapshot.floatingBar, "floating bar");
+  const leftShell = must(snapshot.leftShell, "left shell");
+  expect(floatingBar.x + floatingBar.width).toBeLessThanOrEqual(1751);
+  expect(floatingBar.x).toBeGreaterThanOrEqual(leftShell.x + leftShell.width);
+  expect(snapshot.interactPressed).toBe("true");
 
   for (const name of Object.keys(CONTROL_SELECTORS) as ControlName[]) {
     const control = snapshot.controls[name];
@@ -213,15 +232,12 @@ test("Interact controls sit in the top bar and clear the right edge at Tiana's 1
   expect(snapshot.controls.back.disabled).toBe(true);
   expect(snapshot.controls.forward.disabled).toBe(true);
 
-  // The controls share a 24px row in this order.
   const x = (name: ControlName) => snapshot.controls[name].rect!.x;
-  expect(x("modeSwitch")).toBeLessThan(x("device"));
   expect(x("device")).toBeLessThan(x("theme"));
   expect(x("theme")).toBeLessThan(x("back"));
   expect(x("back")).toBeLessThan(x("forward"));
   expect(x("forward")).toBeLessThan(x("screen"));
   expect(x("screen")).toBeLessThan(x("reload"));
-  expect(x("reload")).toBeLessThan(x("zoom"));
   for (const name of ["device", "theme", "screen", "back", "reload"] as const) {
     expect(snapshot.controls[name].rect!.height, `${name} height`).toBe(24);
   }
@@ -230,14 +246,13 @@ test("Interact controls sit in the top bar and clear the right edge at Tiana's 1
   await expect(page.locator(CONTROL_SELECTORS.screen)).not.toContainText("/");
   await expect(page.locator(CONTROL_SELECTORS.screen)).toHaveAttribute(
     "aria-label",
-    "Screen",
+    "Page",
   );
 
-  // No width/height inputs and no Edit/Annotate/Exit buttons: the mode switch
-  // is the way out.
+  // oracle-change: Interact's floating bar keeps an Exit button (its X) beside the mode switch, which is also a way out.
   expect(snapshot.removedControls).toEqual({
     heightInput: 0,
-    exitButton: 0,
+    exitButton: 1,
     editButton: 0,
     annotateButton: 0,
   });
@@ -245,14 +260,14 @@ test("Interact controls sit in the top bar and clear the right edge at Tiana's 1
   await cdpScreenshot(page, testInfo.outputPath("tiana-interact.png"));
 });
 
-test("Interact controls stay inside the 48px bar at Damian's 1456×410 viewport", async ({
+test("Interact controls stay inside the floating bar at Damian's 1456×410 viewport", async ({
   app,
   page,
 }, testInfo) => {
   const snapshot = await enterInteractAndSampleImmediately(app, 1456, 410);
 
   expect(snapshot.screenShellCount).toBe(1);
-  expect(snapshot.bottomToolbarCount).toBe(0);
+  expect(snapshot.bottomToolbarCount).toBe(1);
   expect(snapshot.rightPanelCount).toBe(0);
   for (const name of Object.keys(CONTROL_SELECTORS) as ControlName[]) {
     const control = snapshot.controls[name];
@@ -278,6 +293,23 @@ test("Interact controls stay inside the 48px bar at Damian's 1456×410 viewport"
   await cdpScreenshot(page, testInfo.outputPath("damian-interact.png"));
 });
 
+test("the Interact page starts below the floating bar and the right column head", async ({
+  app,
+  page,
+}) => {
+  await enterInteractAndSampleImmediately(app, 1280, 720);
+
+  await expect
+    .poll(async () => {
+      const chrome = await page
+        .locator("[data-design-floating-top]")
+        .boundingBox();
+      const frame = await page.locator(INTERACTIVE_FRAME).boundingBox();
+      return chrome && frame ? frame.y - (chrome.y + chrome.height) : null;
+    })
+    .toBeGreaterThanOrEqual(0);
+});
+
 test("Interact keeps the mode switch, device, theme and screen on a 390px viewport", async ({
   app,
   page,
@@ -297,8 +329,9 @@ test("Interact keeps the mode switch, device, theme and screen on a 390px viewpo
     if (control.rect) expectInsideBar(snapshot, name);
   }
   expect(snapshot.controls.screen.visible).toBe(true);
-  expect(snapshot.controls.screen.rect!.x).toBeLessThan(
-    snapshot.topBar!.x + snapshot.topBar!.width,
+  const phoneBar = must(snapshot.floatingBar, "floating bar");
+  expect(must(snapshot.controls.screen.rect, "screen").x).toBeLessThan(
+    phoneBar.x + phoneBar.width,
   );
   await page.locator(CONTROL_SELECTORS.screen).scrollIntoViewIfNeeded();
   const screen = await page.locator(CONTROL_SELECTORS.screen).boundingBox();
@@ -309,7 +342,8 @@ test("Interact keeps the mode switch, device, theme and screen on a 390px viewpo
       .soft(snapshot.controls[name].visible, `${name} is hidden`)
       .toBe(false);
   }
-  expect(snapshot.removedControls.exitButton).toBe(0);
+  // oracle-change: the floating bar's Exit button is kept, so it is present here.
+  expect(snapshot.removedControls.exitButton).toBe(1);
 
   await cdpScreenshot(page, testInfo.outputPath("phone-interact.png"));
 });
@@ -347,7 +381,7 @@ const DARK_CSS =
 async function enterInteractOnceSettled(page: Page): Promise<void> {
   await page.waitForURL(/editorView=overview/);
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
 }
 
@@ -615,10 +649,10 @@ test("Escape and the mode switch leave Interact", async ({ app, page }) => {
   await page.setViewportSize({ width: 1751, height: 897 });
   await app.open(await app.seed(FIXTURE_HTML));
   const interact = page.locator(
-    '[data-design-top-bar] [data-design-mode="interact"]',
+    '[data-design-bottom-toolbar] button[aria-label="Interact"]',
   );
   const design = page.locator(
-    '[data-design-top-bar] [data-design-mode="edit"]',
+    '[data-design-bottom-toolbar] button[aria-label="Edit"]',
   );
 
   await interact.click();
@@ -632,4 +666,88 @@ test("Escape and the mode switch leave Interact", async ({ app, page }) => {
   await design.click();
   await expect(design).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(CONTROL_SELECTORS.screen)).toHaveCount(0);
+});
+
+async function expectReachable(page: Page, selector: string): Promise<void> {
+  await expect(page.locator(selector).first()).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate((target) => {
+        const element = document.querySelector(target);
+        if (!element) return false;
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return element.contains(
+          document.elementFromPoint(x + width / 2, y + height / 2),
+        );
+      }, selector),
+    )
+    .toBe(true);
+}
+
+const COMMENTS_TOGGLE = "[data-design-comments-toggle]";
+const COMMENTS_PANEL = "[data-review-comments-panel]";
+
+async function toggleCommentsAndExpectPanel(page: Page): Promise<void> {
+  await expectReachable(page, COMMENTS_TOGGLE);
+  await page.locator(COMMENTS_TOGGLE).first().click();
+  await expect(page.locator(COMMENTS_PANEL)).toBeVisible();
+  await expect(page.locator(COMMENTS_TOGGLE).first()).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.locator(COMMENTS_TOGGLE).first().click();
+  await expect(page.locator(COMMENTS_PANEL)).toHaveCount(0);
+}
+
+test("a phone opens with the left drawer closed and Share, Comments and the mode switch in reach", async ({
+  app,
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await app.open(await app.seed(FIXTURE_HTML));
+
+  await expect(
+    page.locator('[data-design-chrome-region="left-shell"]'),
+  ).toHaveCount(0);
+  await expectReachable(page, '[data-design-minimal-bar="right"]');
+  await expectReachable(
+    page,
+    '[data-design-bottom-toolbar] button[aria-label="Interact"]',
+  );
+  await toggleCommentsAndExpectPanel(page);
+
+  await page.locator('[data-design-minimal-toggle="ui"]').click();
+  await expect(
+    page.locator('[data-design-chrome-region="left-shell"]'),
+  ).toBeVisible();
+  await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
+  await page.locator('[data-design-minimal-toggle="ui"]').click();
+  await expect(
+    page.locator('[data-design-chrome-region="left-shell"]'),
+  ).toHaveCount(0);
+  await expectReachable(
+    page,
+    '[data-design-bottom-toolbar] button[aria-label="Interact"]',
+  );
+});
+
+test("Comments opens a visible panel in Design, Interact and minimal UI", async ({
+  app,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await app.open(await app.seed(FIXTURE_HTML));
+
+  await toggleCommentsAndExpectPanel(page);
+
+  await enterInteractOnceSettled(page);
+  await expect(page.locator(CONTROL_SELECTORS.screen)).toBeVisible();
+  await toggleCommentsAndExpectPanel(page);
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Edit"]')
+    .click();
+
+  await page.locator('[data-design-minimal-toggle="ui"]').click();
+  await expect(page.locator("[data-design-minimal-ui]")).toBeVisible();
+  await toggleCommentsAndExpectPanel(page);
 });

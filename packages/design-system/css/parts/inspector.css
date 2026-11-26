@@ -1,0 +1,67 @@
+@layer components {
+  .inspector {
+    min-inline-size: 0;
+    container-type: inline-size;
+    color: var(--fg-default);
+    background: var(--surface-raised);
+  }
+  .inspector-header,
+  .inspector-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .inspector-header {
+    min-block-size: var(--inspector-header-height, var(--size-4));
+    padding-inline: var(--inspector-inset-start, var(--space-4))
+      var(--inspector-inset-end, var(--space-2));
+  }
+  .inspector-section {
+    box-shadow: inset 0 1px var(--line-subtle);
+    padding-inline: var(--inspector-inset-start, var(--space-4))
+      var(--inspector-inset-end, var(--space-2));
+    padding-block-end: var(--inspector-section-padding, var(--space-4));
+  }
+  .inspector-section-header {
+    min-block-size: var(--inspector-section-header-height, var(--size-5));
+  }
+  .inspector-content {
+    display: grid;
+    gap: var(--inspector-gap, var(--space-2));
+  }
+  .inspector-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) var(
+        --inspector-action-width,
+        var(--size-4)
+      );
+    align-items: end;
+    gap: var(--inspector-gap, var(--space-2));
+  }
+  .inspector-layout-flow {
+    align-items: start;
+  }
+  .inspector-layout-matrix {
+    grid-row: span 2;
+  }
+  .inspector-layout-flow > .inspector-field:last-child {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .inspector-layout-flow > .toggle {
+    align-self: end;
+  }
+  .inspector-field {
+    display: grid;
+    align-content: start;
+    min-inline-size: 0;
+  }
+  .inspector-field > :is(label, span):first-child {
+    font-size: var(--inspector-label-size, var(--font-size-1));
+    line-height: var(--inspector-label-line-height, var(--size-1));
+    color: var(--fg-muted);
+  }
+}

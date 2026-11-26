@@ -81,7 +81,7 @@ test("a drawn Screen keeps W/H geometry and exposes its auto-layout controls", a
   const initial = await readDesign(page, designId);
   const beforeIds = new Set(initial.files?.map((file) => file.id));
   const firstScreen = initial.files![0]!;
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const from = await emptyBoardPoint(page);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();

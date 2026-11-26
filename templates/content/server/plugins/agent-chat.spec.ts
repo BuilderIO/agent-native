@@ -60,6 +60,29 @@ describe("Content agent chat plugin", () => {
     );
   });
 
+  it("keeps quiet alt text and column fill chats out of the chat history", async () => {
+    await import("./agent-chat.js");
+
+    expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        historyHiddenScopeTypes: [
+          "content-image-alt-text",
+          "content-column-fill",
+        ],
+      }),
+    );
+  });
+
+  it("checks every reply links the Pages its turn created", async () => {
+    await import("./agent-chat.js");
+    const { requireCreatedPageLinks } =
+      await import("../lib/created-page-links.js");
+
+    expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({ finalResponseGuard: requireCreatedPageLinks }),
+    );
+  });
+
   it("tells the agent to reuse bounded screen context before rereading it", async () => {
     await import("./agent-chat.js");
 
@@ -75,6 +98,24 @@ describe("Content agent chat plugin", () => {
     );
   });
 
+  it("tells the agent to read the pages above before drafting on a page", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt?: string;
+    };
+
+    expect(options.systemPrompt).toContain(
+      "Before you draft or rewrite on a page, also call get-document on the pages above it",
+    );
+    expect(options.systemPrompt).toContain(
+      "Skip this for small fixes such as a typo.",
+    );
+    expect(options.systemPrompt).toContain(
+      "Where the person's message asks for something different, the message wins.",
+    );
+  });
+
   it("keeps Content-owned MCP membership on actions and explicitly allowlists writes", async () => {
     await import("./agent-chat.js");
 
@@ -82,9 +123,10 @@ describe("Content agent chat plugin", () => {
       expect.objectContaining({
         appId: "content",
         mcp: expect.objectContaining({
+          skills: ["content"],
           externalAgents: { writes: "allowlisted" },
           instructions: expect.stringContaining(
-            "delete-document moves pages and sub-pages to recoverable Trash",
+            "delete-document moves pages and sub-pages to Trash, where they become eligible for automatic deletion after 30 days",
           ),
         }),
       }),

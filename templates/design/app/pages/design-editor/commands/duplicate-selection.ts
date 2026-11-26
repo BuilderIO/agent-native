@@ -170,10 +170,6 @@ export interface DuplicateSelectionArgs {
   contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
   localContentUndoStackRef?: RefObject<ContentHistoryChange[]>;
   overviewSelectedScreenIds: string[];
-  remapMotionTracksForClone: (
-    nodeIdMap: Map<string, string>,
-    targetFileId: string,
-  ) => void;
   runtimeStructureInsertRevisionRef?: RefObject<number>;
   selectionBefore?: GeometryHistorySelection;
   selectedCanvasSelector: string;
@@ -241,7 +237,6 @@ export function runDuplicateSelection({
   contentUndoStackRef,
   localContentUndoStackRef,
   overviewSelectedScreenIds,
-  remapMotionTracksForClone,
   runtimeStructureInsertRevisionRef,
   selectionBefore,
   selectedCanvasSelector,
@@ -452,7 +447,6 @@ export function runDuplicateSelection({
               selectionNodeIds: plan.selectionNodeIds,
             },
             selectionBefore,
-            () => remapMotionTracksForClone(plan.nodeIdMap, file.id),
           );
           return;
         }
@@ -517,7 +511,6 @@ export function runDuplicateSelection({
             sourcePositionByInsertedRootId.set(rootNodeId, sourcePosition);
           }
         }
-        remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
       content = remapClonedNativeEffectBindings(content, clonedNodeIdMap);

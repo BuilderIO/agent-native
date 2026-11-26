@@ -1,5 +1,6 @@
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { getCurrentTurnEventsForThread } from "../agent/run-store.js";
+import { automationRunScopeContext } from "../automations/service.js";
 import { withDbExec, type DbExec } from "../db/client.js";
 import {
   ensureTable as ensureResourcesTable,
@@ -31,6 +32,7 @@ import {
   reservedIdentityMessage,
   runtimeFailureNextRun,
   TRANSIENT_PROBE_RESUME_PATCH,
+  transientPauseProbeAt,
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
@@ -222,6 +224,69 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   if (shouldThrowReleaseError) throw releaseErrorToThrow;
 }
 
+/**
+ * When this app's scheduled automations next need a sweep, for the Netlify
+ * idle marker: `now` when one is running, newly enabled, expired, or due;
+ * otherwise the earliest `nextRun`, end date, identity-failure retry, or
+ * transient-pause probe; `null` when none is scheduled. It mirrors the checks
+ * `processRecurringJobs` makes before running a job. Rechecks of a job paused
+ * for a missing credential wait for the idle cap.
+ */
+export async function nextRecurringJobWakeAt(
+  deps: Pick<SchedulerDeps, "appId" | "additionalJobAppIds">,
+  now: number = Date.now(),
+): Promise<number | null> {
+  const jobResources = await resourceListAllOwners("jobs/");
+  let earliest: number | null = null;
+  const wakeAt = (at: number) => {
+    earliest = earliest === null ? at : Math.min(earliest, at);
+  };
+  for (const resource of jobResources) {
+    if (!resource.path.endsWith(".md") || resource.path.endsWith(".keep")) {
+      continue;
+    }
+    const { meta, body } = parseJobFrontmatter(resource.content);
+    if (
+      !jobBelongsToApp(meta, deps.appId, deps.additionalJobAppIds) &&
+      !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
+    ) {
+      continue;
+    }
+    if (meta.lastStatus === "running" || hasStalePause(meta)) return now;
+    const isScheduleTrigger =
+      meta.triggerType === undefined || meta.triggerType === "schedule";
+    if (!isScheduleTrigger) continue;
+    if (isPausedByFramework(meta)) {
+      const probeAt = transientPauseProbeAt(meta);
+      if (probeAt === null) continue;
+      if (probeAt <= now) return now;
+      wakeAt(probeAt);
+      continue;
+    }
+    if (!meta.enabled || !meta.schedule || !isValidCron(meta.schedule)) {
+      continue;
+    }
+    const expiration = meta.expiresAt ? Date.parse(meta.expiresAt) : NaN;
+    if (Number.isFinite(expiration)) {
+      if (expiration <= now) return now;
+      wakeAt(expiration);
+    }
+    if (!meta.nextRun) return now;
+    const nextRun = Date.parse(meta.nextRun);
+    if (nextRun > now) {
+      wakeAt(nextRun);
+      continue;
+    }
+    if (!body.trim()) continue;
+    if (hasRecentIdentityFailure(meta, new Date(now))) {
+      wakeAt(Date.parse(meta.lastCheck ?? "") + IDENTITY_FAILURE_RETRY_MS);
+      continue;
+    }
+    return now;
+  }
+  return earliest;
+}
+
 async function processRecurringJobsWithLease(
   deps: SchedulerDeps,
   leaseSignal: AbortSignal,
@@ -338,7 +403,8 @@ async function processRecurringJobsWithLease(
                     }),
                 )
               : null;
-          if (recovery?.state === "active") continue;
+          if (recovery?.state === "active" || recovery?.state === "other-app")
+            continue;
           if (recovery?.state === "resume") {
             dueJobCandidates.push({
               key: `${resource.owner}:${resource.path}`,
@@ -449,6 +515,19 @@ async function processRecurringJobsWithLease(
       }
 
       if (!meta.enabled || !meta.schedule || !isValidCron(meta.schedule)) {
+        continue;
+      }
+
+      // An end date is a promise: once it passes the automation stops, and it
+      // stops on its own so the owner does not have to come back and pause it.
+      const expiration = meta.expiresAt ? Date.parse(meta.expiresAt) : NaN;
+      if (Number.isFinite(expiration) && expiration <= now.getTime()) {
+        meta.enabled = false;
+        delete meta.nextRun;
+        await updateResource(resource, meta, body, {
+          enabled: false,
+          nextRun: undefined,
+        });
         continue;
       }
 
@@ -982,16 +1061,7 @@ async function resumeRecoveredPauses(
         identity.ok &&
         (
           await checkBackgroundAutomationCredentials(
-            {
-              ownerEmail: identity.identity.userEmail,
-              orgId: identity.identity.orgId,
-              ...(identity.identity.orgScope === "personal"
-                ? { orgScope: "personal" as const }
-                : {}),
-              ...(identity.identity.defaultAgentEngineScope === "deployment"
-                ? { defaultAgentEngineScope: "deployment" as const }
-                : {}),
-            },
+            identity.identity,
             deps,
             meta.model,
           )
@@ -1363,12 +1433,7 @@ async function executeJob(
   }
 
   const requestContext = {
-    ...(identity.identity.orgScope === "personal"
-      ? { orgScope: "personal" as const }
-      : {}),
-    ...(identity.identity.defaultAgentEngineScope === "deployment"
-      ? { defaultAgentEngineScope: "deployment" as const }
-      : {}),
+    ...automationRunScopeContext(identity.identity),
     ...(meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
       ? {
           isIntegrationCaller: true as const,

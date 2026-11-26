@@ -1,0 +1,216 @@
+/*
+ * Part: segmented-control
+ *
+ *   <div class="segmented-control" role="group"         Base UI ToggleGroup
+ *        data-size="sm|md" data-variant="surface|soft"
+ *        [data-radius] [data-disabled] data-orientation>
+ *     <button class="segmented-control-item"              Toggle, one per choice
+ *             aria-pressed [data-pressed] [data-disabled]>
+ *
+ * Radix Themes' segmented control on the system's scale: one track, its
+ * items in equal columns, md and sm the 24 and 20px control heights.
+ * The selected item fills a segment inset 1px from the track: surface
+ * raises it in the panel color onto the gray track, soft tints it with the
+ * nearest `data-color` in its text step. Hairlines divide unselected
+ * neighbours. Each item draws its segment and its hairline as pseudo
+ * elements under its label, which is why the track isolates and an item
+ * must not start a stacking context.
+ */
+
+@layer components {
+  .segmented-control {
+    --control-font-size: var(--control-font-size-3);
+    --control-line-height: var(--control-line-height-3);
+    --_height: var(--control-height-3);
+    --_padding-x: var(--space-2);
+    --_icon-size: var(--control-icon-size-3);
+    --_radius: max(
+      calc(var(--radius-3) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
+    position: relative;
+    isolation: isolate;
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    align-items: stretch;
+    box-sizing: border-box;
+    min-width: max-content;
+    height: var(--_height);
+    border-radius: var(--_radius);
+    corner-shape: var(--corner-shape, round);
+    vertical-align: top;
+    background-color: var(--gray-3);
+  }
+
+  .segmented-control[data-size="sm"] {
+    --control-font-size: var(--control-font-size-2);
+    --control-line-height: var(--control-line-height-2);
+    --_height: var(--control-height-2);
+    --_padding-x: var(--space-2);
+    --_radius: max(
+      calc(var(--radius-2) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
+    --_icon-size: var(--control-icon-size-2);
+  }
+
+  .segmented-control[data-variant="soft"] {
+    background-color: var(--gray-a3);
+  }
+
+  .segmented-control[data-orientation="vertical"] {
+    grid-auto-flow: row;
+    grid-auto-rows: var(--_height);
+    height: auto;
+  }
+
+  .segmented-control-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--control-gap);
+    box-sizing: border-box;
+    min-width: 0;
+    margin: 0;
+    padding: 0 var(--_padding-x);
+    border: 0;
+    border-radius: var(--_radius);
+    corner-shape: var(--corner-shape, round);
+    background-color: transparent;
+    color: var(--fg-muted);
+    font: inherit;
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    outline-style: none;
+    transition: color var(--duration-1) var(--ease-standard);
+  }
+
+  .segmented-control-item svg {
+    flex-shrink: 0;
+    width: var(--_icon-size);
+    height: var(--_icon-size);
+  }
+
+  /* The segment: the selected fill, and the hover tint. */
+  .segmented-control-item::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: 1px;
+    border-radius: max(0px, calc(var(--_radius) - 1px));
+    corner-shape: var(--corner-shape, round);
+    transition-property: background-color, box-shadow;
+    transition-duration: var(--duration-1);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  /* The hairline between two items. */
+  .segmented-control-item::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset-block: var(--control-padding-x-1);
+    inset-inline-start: -0.5px;
+    width: 1px;
+    background-color: var(--gray-a4);
+    transition: opacity var(--duration-1) var(--ease-standard);
+  }
+
+  .segmented-control-item:first-child::before,
+  .segmented-control-item:where(
+      :is([data-pressed], [aria-selected="true"]),
+      :focus-visible
+    )::before,
+  .segmented-control-item:where(
+      :is([data-pressed], [aria-selected="true"]),
+      :focus-visible
+    )
+    + .segmented-control-item::before,
+  .segmented-control[data-orientation="vertical"]
+    .segmented-control-item::before {
+    opacity: 0;
+  }
+
+  @media (hover: hover) {
+    .segmented-control-item:not(
+        :is([data-pressed], [aria-selected="true"]),
+        [data-disabled],
+        :disabled
+      ):hover {
+      color: var(--fg-default);
+    }
+
+    .segmented-control-item:not(
+        :is([data-pressed], [aria-selected="true"]),
+        [data-disabled],
+        :disabled
+      ):hover::after {
+      background-color: var(--gray-a3);
+    }
+  }
+
+  .segmented-control-item:is([data-pressed], [aria-selected="true"]) {
+    color: var(--fg-default);
+  }
+
+  .segmented-control[data-variant="surface"]
+    .segmented-control-item:is([data-pressed], [aria-selected="true"])::after {
+    background-color: var(--base-panel);
+    box-shadow: var(--shadow-2);
+  }
+
+  .segmented-control[data-variant="soft"]
+    .segmented-control-item:is([data-pressed], [aria-selected="true"]) {
+    color: var(--accent-text);
+  }
+
+  .segmented-control[data-variant="soft"]
+    .segmented-control-item:is([data-pressed], [aria-selected="true"])::after {
+    background-color: var(--accent-a3);
+  }
+
+  .segmented-control-item:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- disabled ---- */
+
+  .segmented-control-item:is(:disabled, [data-disabled]) {
+    cursor: not-allowed;
+    color: var(--fg-disabled);
+  }
+
+  .segmented-control
+    .segmented-control-item:is(:disabled, [data-disabled]):is(
+      [data-pressed],
+      [aria-selected="true"]
+    ) {
+    color: var(--fg-disabled);
+  }
+
+  .segmented-control
+    .segmented-control-item:is(:disabled, [data-disabled]):is(
+      [data-pressed],
+      [aria-selected="true"]
+    )::after {
+    background-color: var(--gray-a3);
+    box-shadow: none;
+  }
+  @media (forced-colors: active) {
+    .segmented-control {
+      outline: 1px solid ButtonText;
+      outline-offset: -1px;
+    }
+    .segmented-control-item:is([data-pressed], [aria-selected="true"])::after {
+      border-block-end: 2px solid Highlight;
+    }
+  }
+}

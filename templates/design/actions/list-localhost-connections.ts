@@ -1,13 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { visualEditCapabilityConnectionClause } from "../server/lib/visual-edit-capability.js";
 import {
-  designConnectionIdFromData,
   type DesignBridgeCapability,
   type LocalhostDesignRouteManifest,
 } from "../shared/source-mode.js";
@@ -38,31 +36,19 @@ export default defineAction({
   http: { method: "GET" },
   capabilityScopes: ["visual-edit"],
   run: async ({ id, designId, status }) => {
-    let scopedId = id;
-    if (!getRequestUserEmail() && designId) {
-      const access = await resolveAccess("design", designId);
-      const linkedId = designConnectionIdFromData(access?.resource?.data);
-      if (!linkedId) {
-        throw new Error("The visual-edit design has no localhost connection.");
-      }
-      if (scopedId && scopedId !== linkedId) {
-        throw new Error(
-          "The connection is not linked to this visual-edit design.",
-        );
-      }
-      scopedId = linkedId;
-    }
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
       designId,
     });
+    const capabilityClause = await visualEditCapabilityConnectionClause();
     const clauses = [
       eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       orgId
         ? eq(schema.designLocalhostConnections.orgId, orgId)
         : isNull(schema.designLocalhostConnections.orgId),
     ];
-    if (scopedId) {
-      clauses.push(eq(schema.designLocalhostConnections.id, scopedId));
+    if (capabilityClause) clauses.push(capabilityClause);
+    if (id) {
+      clauses.push(eq(schema.designLocalhostConnections.id, id));
     }
     if (status) {
       clauses.push(eq(schema.designLocalhostConnections.status, status));

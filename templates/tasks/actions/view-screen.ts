@@ -9,7 +9,7 @@ import {
   type FieldDefinition,
 } from "../server/custom-fields/store.js";
 import {
-  listTaskFieldValues,
+  getTaskWithFields,
   type TaskFieldValue,
 } from "../server/custom-fields/task-fields.js";
 import { getInboxItem, listInboxItems } from "../server/inbox/store.js";
@@ -85,6 +85,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async (_args, ctx) => {
     const navigation = await readParsedAppState(
       "navigation",
@@ -133,12 +134,19 @@ export default defineAction({
       }
 
       if (navigation.taskId && "selectedItem" in screen) {
-        screen.selectedTaskFields = (
-          await listTaskFieldValues({
-            ownerEmail,
-            taskId: navigation.taskId,
-          })
-        ).map(toTaskFieldValueSummary);
+        const selected = await getTaskWithFields({
+          ownerEmail,
+          taskId: navigation.taskId,
+        });
+        screen.selectedItem = Object.assign(
+          {},
+          screen.selectedItem,
+          toTaskSummary(selected),
+        );
+        screen.selectedTaskFields = selected.fields.map(
+          toTaskFieldValueSummary,
+        );
+        screen.selectedTaskRevision = selected.revision;
       }
     }
 

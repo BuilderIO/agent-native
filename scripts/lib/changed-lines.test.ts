@@ -1,9 +1,22 @@
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // @ts-expect-error - .mjs helper without types
-import { parseRemovedLines, parseUnifiedDiff } from "./changed-lines.mjs";
+import {
+  diffBaseCommit,
+  parseRemovedLines,
+  parseUnifiedDiff,
+  resolveDiffBase,
+} from "./changed-lines.mjs";
+
+// Missing revisions are injected locally; a partial clone may otherwise try
+// to retrieve an unknown object from its remote during this unit test.
+vi.mock("node:child_process", () => ({
+  execFileSync: () => {
+    throw new Error("missing revision");
+  },
+}));
 
 const CWD = "/repo";
 
@@ -42,6 +55,27 @@ describe("parseUnifiedDiff", () => {
       "+++ b/prototypes/kit/ui.ts",
       "@@ -0,0 +1 @@",
       "+} catch {}",
+      "diff --git a/src/a.ts b/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +2 @@",
+      "+const x = 1;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect([...(result?.keys() ?? [])]).toEqual([
+      path.resolve(CWD, "src/a.ts"),
+    ]);
+  });
+
+  it("leaves symlinks out of the added lines", () => {
+    const diff = [
+      "diff --git a/.agents/skills/remix b/.agents/skills/remix",
+      "new file mode 120000",
+      "index 0000000000..1111111111",
+      "--- /dev/null",
+      "+++ b/.agents/skills/remix",
+      "@@ -0,0 +1 @@",
+      "+../../skills/remix",
       "diff --git a/src/a.ts b/src/a.ts",
       "+++ b/src/a.ts",
       "@@ -0,0 +2 @@",
@@ -162,6 +196,11 @@ describe("parseUnifiedDiff", () => {
         ?.get(path.resolve(CWD, "src/a.ts"))
         .lines.map((line: { text: string }) => line.text),
     ).toEqual(["--y", "---z", "const c = 3;"]);
+    expect(
+      removed
+        ?.get(path.resolve(CWD, "src/a.ts"))
+        .lines.map((line: { oldLine: number }) => line.oldLine),
+    ).toEqual([1, 2, 3]);
   });
 
   it("keeps line numbers across hunks and files in a normal diff", () => {
@@ -271,5 +310,35 @@ describe("git-quoted paths", () => {
   it("fails closed on a quoted binary file, whose extension cannot be read", () => {
     const diff = 'Binary files "a/q\\"x.ts" and "b/q\\"x.ts" differ';
     expect(parseUnifiedDiff(diff, CWD)).toBeNull();
+  });
+});
+
+describe("explicit guard diff bases", () => {
+  it("accepts an immutable commit without treating it as a remote branch", () => {
+    const commit = "a".repeat(40);
+    vi.stubEnv("GUARD_DIFF_BASE", commit);
+    try {
+      expect(resolveDiffBase(CWD)).toBe(commit);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it("preserves remote branch shorthand and explicit remote refs", () => {
+    try {
+      vi.stubEnv("GUARD_DIFF_BASE", "feature-branch");
+      expect(resolveDiffBase(CWD)).toBe("origin/feature-branch");
+      vi.stubEnv("GUARD_DIFF_BASE", "origin/main");
+      expect(resolveDiffBase(CWD)).toBe("origin/main");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it("still refuses a missing explicit commit", () => {
+    vi.stubEnv("GUARD_DIFF_BASE", "f".repeat(40));
+    try {
+      expect(diffBaseCommit(process.cwd())).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

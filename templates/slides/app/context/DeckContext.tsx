@@ -2059,6 +2059,9 @@ async function callDeckWriteAction<TResult>(
           }),
         )
       : await callAction<TResult>(actionName, body, {
+          // Unload sends its own budgeted keepalive copy of an active save; an
+          // ordinary save held as keepalive would take the budget that copy needs.
+          keepalive: false,
           ...(options?.method ? { method: options.method } : {}),
           ...(options?.signal ? { signal: options.signal } : {}),
         });

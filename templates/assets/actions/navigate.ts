@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -40,13 +43,16 @@ export default defineAction({
       .optional(),
     extensionId: z.string().optional(),
     path: z.string().optional(),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
-    if (!args.view && !args.path) {
+    const { intent: _intent, ...nav } = args;
+    if (!nav.view && !nav.path) {
       throw new Error("view or path is required.");
     }
-    await writeAppStateForCurrentTab("navigate", args);
-    return { navigating: true, ...args };
+    await writeAppStateForCurrentTab("navigate", nav);
+    return { navigating: true, ...nav };
   },
 });

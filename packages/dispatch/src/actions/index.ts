@@ -1,3 +1,4 @@
+import { getAppConfig } from "@agent-native/core/app-config";
 import type { ActionEntry } from "@agent-native/core/server";
 
 import applyDreamProposal from "./apply-dream-proposal.js";
@@ -6,6 +7,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import callAppAction from "./call_app_action.js";
 import claimWorkspaceAppOrganization from "./claim-workspace-app-organization.js";
 import connectExternalAgent from "./connect-external-agent.js";
 import createBrowserChatSession from "./create-browser-chat-session.js";
@@ -24,6 +26,7 @@ import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
 import denyVaultRequest from "./deny-vault-request.js";
 import ensureDreamJob from "./ensure-dream-job.js";
+import executeActionSuggestion from "./execute-action-suggestion.js";
 import getAgentThreadDebug from "./get-agent-thread-debug.js";
 import getAppCreationSettings from "./get-app-creation-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
@@ -70,26 +73,32 @@ import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
+import listAppActions from "./list_app_actions.js";
 import listApps from "./list_apps.js";
 import navigate from "./navigate.js";
 import openApp from "./open_app.js";
 import previewDreamProposal from "./preview-dream-proposal.js";
 import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
+import proposeActionSuggestions from "./propose-action-suggestions.js";
 import providerApiCatalog from "./provider-api-catalog.js";
 import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
 import queryStagedDataset from "./query-staged-dataset.js";
 import readSlackThreadContext from "./read-slack-thread-context.js";
+import readView from "./read_view.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
+import rememberPointer from "./remember-pointer.js";
 import remixWorkspaceTemplate from "./remix-workspace-template.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
 import resolveIntegrationSourceContext from "./resolve-integration-source-context.js";
+import resolvePointer from "./resolve-pointer.js";
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
+import routeAppIntent from "./route-app-intent.js";
 import scaffoldWorkspaceApp from "./scaffold-workspace-app.js";
 import searchAgentThreads from "./search-agent-threads.js";
 import sendCodeAgentRemoteCommand from "./send-code-agent-remote-command.js";
@@ -101,7 +110,6 @@ import setHostedAppsSettings from "./set-hosted-apps-settings.js";
 import setMcpAppAccess from "./set-mcp-app-access.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
-import syncVaultToApp from "./sync-vault-to-app.js";
 import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
 import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
@@ -185,6 +193,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   navigate: navigate,
   open_app: openApp,
   "apply-dream-proposal": applyDreamProposal,
+  "execute-action-suggestion": executeActionSuggestion,
+  "propose-action-suggestions": proposeActionSuggestions,
   "preview-dream-proposal": previewDreamProposal,
   "preview-workspace-resource-change": previewWorkspaceResourceChange,
   "provider-api-catalog": providerApiCatalog,
@@ -201,6 +211,9 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,
+  "remember-pointer": rememberPointer,
+  "resolve-pointer": resolvePointer,
+  "route-app-intent": routeAppIntent,
   "restore-starter-workspace-resources": restoreStarterWorkspaceResources,
   "scaffold-workspace-app": scaffoldWorkspaceApp,
   "search-agent-threads": searchAgentThreads,
@@ -213,7 +226,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "set-mcp-app-access": setMcpAppAccess,
   "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
-  "sync-vault-to-app": syncVaultToApp,
   "unarchive-workspace-app": unarchiveWorkspaceApp,
   "update-workspace-app-metadata": updateWorkspaceAppMetadata,
   "update-vault-secret": updateVaultSecret,
@@ -222,3 +234,33 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "verify-curated-community-app": verifyCuratedCommunityApp,
   "view-screen": viewScreen,
 };
+
+/** Opt-in tools that run a granted app's actions directly, without its agent. */
+export const dispatchDirectAppActions: Record<string, ActionEntry> = {
+  call_app_action: callAppAction,
+  list_app_actions: listAppActions,
+  read_view: readView,
+};
+
+const ASK_APP_DIRECT_ACTIONS_HINT =
+  " Runs the target app's agent (slower than invoking a single action directly via list_app_actions and call_app_action).";
+
+/**
+ * The actions Dispatch serves to its own agent and MCP callers. Direct app
+ * actions join only when `dispatch.directAppActions` is on; otherwise this is
+ * exactly `dispatchActions`.
+ */
+export function resolveDispatchActions(): Record<string, ActionEntry> {
+  if (!getAppConfig().dispatch.directAppActions) return dispatchActions;
+  return {
+    ...dispatchActions,
+    ask_app: {
+      ...askApp,
+      tool: {
+        ...askApp.tool,
+        description: `${askApp.tool.description}${ASK_APP_DIRECT_ACTIONS_HINT}`,
+      },
+    },
+    ...dispatchDirectAppActions,
+  };
+}

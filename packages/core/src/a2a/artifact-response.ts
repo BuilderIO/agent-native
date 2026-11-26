@@ -460,6 +460,33 @@ function contentDatabaseSubmissionArtifact(
   };
 }
 
+function contentDatabaseRowReceiptArtifact(
+  parsed: Record<string, unknown>,
+): CreatedDocumentArtifact | null {
+  const receipt = asRecord(parsed.receipt);
+  const receiptRow = asRecord(receipt?.row);
+  const receiptTarget = asRecord(receipt?.target);
+  const rowLink = asRecord(receipt?.rowLink);
+  const id =
+    stringValue(receiptRow?.documentId) ??
+    stringValue(receiptTarget?.rowDocumentId);
+  if (!id) return null;
+
+  const createdDocument = asRecord(asRecord(parsed.createdItem)?.document);
+  const title =
+    stringValue(createdDocument?.id) === id
+      ? stringValue(createdDocument?.title)
+      : undefined;
+  const url = [stringValue(receiptRow?.urlPath), stringValue(rowLink?.urlPath)]
+    .filter((value): value is string => !!value)
+    .find((candidate) => artifactUrlReferencesId(candidate, "document", id));
+  return {
+    id,
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {}),
+  };
+}
+
 function documentUrlForId(
   parsed: Record<string, unknown>,
   id: string,
@@ -920,7 +947,9 @@ function collectArtifacts(
       toolResult.tool === "submit-content-database-form" ||
       toolResult.tool === "add-database-item"
     ) {
-      const artifact = contentDatabaseSubmissionArtifact(parsed);
+      const artifact =
+        contentDatabaseSubmissionArtifact(parsed) ??
+        contentDatabaseRowReceiptArtifact(parsed);
       if (artifact) documents.set(artifact.id, artifact);
       continue;
     }
@@ -929,20 +958,8 @@ function collectArtifacts(
       toolResult.tool === "upsert-database-item-by-key" ||
       toolResult.tool === "mutate-content-database-block"
     ) {
-      const receipt = asRecord(parsed.receipt);
-      const receiptRow = asRecord(receipt?.row);
-      const receiptTarget = asRecord(receipt?.target);
-      const rowLink = asRecord(receipt?.rowLink);
-      const rowDocumentId =
-        stringValue(receiptRow?.documentId) ??
-        stringValue(receiptTarget?.rowDocumentId);
-      if (rowDocumentId) {
-        documents.set(rowDocumentId, {
-          id: rowDocumentId,
-          url:
-            stringValue(receiptRow?.urlPath) ?? stringValue(rowLink?.urlPath),
-        });
-      }
+      const artifact = contentDatabaseRowReceiptArtifact(parsed);
+      if (artifact) documents.set(artifact.id, artifact);
       continue;
     }
 

@@ -5,11 +5,13 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   classifyChangedPaths,
@@ -325,4 +327,265 @@ test("runs the guards when docs add or rename a page browsers load", () => {
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
   }
+});
+
+test("reads changed, deleted and added paths in a blobless clone without fetching blobs", () => {
+  const root = mkdtempSync(join(tmpdir(), "ci-change-scope-blobless-"));
+  const sourcePath = join(root, "source");
+  const clonePath = join(root, "clone");
+  const git = (cwd: string, ...args: string[]) => {
+    const result = spawnSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    mkdirSync(sourcePath);
+    git(sourcePath, "init", "--quiet");
+    git(sourcePath, "config", "user.name", "CI Change Scope Test");
+    git(sourcePath, "config", "user.email", "ci-change-scope@example.invalid");
+    const body = Array.from({ length: 40 }, (_, line) => `line ${line}\n`);
+    writeFileSync(join(sourcePath, "old.ts"), body.join(""));
+    writeFileSync(join(sourcePath, "gone.ts"), "export const gone = 1;\n");
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "base");
+    const baseSha = git(sourcePath, "rev-parse", "HEAD");
+    rmSync(join(sourcePath, "old.ts"));
+    rmSync(join(sourcePath, "gone.ts"));
+    writeFileSync(join(sourcePath, "new.ts"), [...body, "edited\n"].join(""));
+    git(sourcePath, "add", "--all");
+    git(sourcePath, "commit", "--quiet", "-m", "head");
+    const headSha = git(sourcePath, "rev-parse", "HEAD");
+
+    git(
+      root,
+      "-c",
+      "uploadpack.allowFilter=true",
+      "clone",
+      "--quiet",
+      "--no-checkout",
+      "--filter=blob:none",
+      "--upload-pack",
+      "git -c uploadpack.allowFilter=true upload-pack",
+      `file://${sourcePath}`,
+      clonePath,
+    );
+    git(
+      clonePath,
+      "remote",
+      "set-url",
+      "origin",
+      "https://invalid.example/none.git",
+    );
+
+    assert.deepEqual(readChangedPaths(baseSha, headSha, clonePath).sort(), [
+      "gone.ts",
+      "new.ts",
+      "old.ts",
+    ]);
+    assert.deepEqual(readDeletedPaths(baseSha, headSha, clonePath).sort(), [
+      "gone.ts",
+      "old.ts",
+    ]);
+    assert.deepEqual(readAddedPaths(baseSha, headSha, clonePath), ["new.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reads diffs that name more than a megabyte of paths", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "ci-change-scope-large-"));
+  const runGit = (...args: string[]) => {
+    const result = spawnSync("git", ["-C", repoPath, ...args], {
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    runGit("init", "--quiet");
+    runGit("config", "user.name", "CI Change Scope Test");
+    runGit("config", "user.email", "ci-change-scope@example.invalid");
+    writeFileSync(join(repoPath, "README.md"), "base\n");
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "base");
+    const baseSha = runGit("rev-parse", "HEAD");
+
+    const dir = `packages/${"nested-directory-name/".repeat(10)}`;
+    mkdirSync(join(repoPath, dir), { recursive: true });
+    const paths: string[] = [];
+    for (let index = 0; index < 4500; index++) {
+      const path = `${dir}${String(index).padStart(5, "0")}-${"x".repeat(20)}.ts`;
+      writeFileSync(join(repoPath, path), "");
+      paths.push(path);
+    }
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "many paths");
+    const headSha = runGit("rev-parse", "HEAD");
+
+    assert.ok(paths.join("\0").length > 1024 * 1024);
+    assert.equal(readChangedPaths(baseSha, headSha, repoPath).length, 4500);
+    assert.equal(readAddedPaths(baseSha, headSha, repoPath).length, 4500);
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("proves changelog-only Typecheck scope using both sides of the complete Git diff", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "ci-changelog-typecheck-"));
+  const classifier = fileURLToPath(
+    new URL("./ci-change-scope.ts", import.meta.url),
+  );
+  const changelog = "templates/brain/changelog/2026-11-26-eval-history.md";
+  const oldNote = "templates/brain/changelog/2026-11-25-eval-history.md";
+  const code = "templates/brain/app/eval.ts";
+  const workflow = ".github/workflows/ci.yml";
+  const git = (...args: string[]) => {
+    const result = spawnSync("git", args, { cwd: repoPath, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const write = (path: string, body: string) => {
+    mkdirSync(dirname(join(repoPath, path)), { recursive: true });
+    writeFileSync(join(repoPath, path), body);
+  };
+  const commit = () => {
+    git("add", "-A");
+    git("commit", "-qm", "Fixture");
+    return git("rev-parse", "HEAD");
+  };
+
+  try {
+    git("init", "-q");
+    git("config", "user.name", "Steve Sewell");
+    git("config", "user.email", "steve@builder.io");
+    write(oldNote, "# Previous entry\n");
+    write(code, "export const old = true;\n");
+    write(workflow, "name: Existing CI\n");
+    const base = commit();
+    const output = join(repoPath, "outputs");
+    const inspect = (head: string) => {
+      writeFileSync(output, "");
+      const result = spawnSync(
+        process.execPath,
+        ["--experimental-strip-types", classifier],
+        {
+          cwd: repoPath,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CI_BASE_SHA: base,
+            CI_HEAD_SHA: head,
+            GITHUB_OUTPUT: output,
+          },
+        },
+      );
+      const fields = readFileSync(output, "utf8");
+      rmSync(output);
+      return { status: result.status, stderr: result.stderr, fields };
+    };
+    const verify = (change: () => void, expected: boolean) => {
+      git("switch", "-q", "--detach", base);
+      change();
+      const result = inspect(commit());
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        result.fields,
+        new RegExp(`^changelog_only=${expected}$`, "m"),
+      );
+      if (expected) assert.match(result.fields, /^typecheck=false$/m);
+    };
+
+    verify(() => write(changelog, "# New entry\n"), true);
+    verify(() => git("mv", oldNote, changelog), true);
+    verify(() => git("mv", code, changelog), false);
+    verify(() => git("mv", workflow, changelog), false);
+    verify(() => {
+      write(changelog, "# New entry\n");
+      write(code, "export const old = false;\n");
+    }, false);
+    verify(() => {
+      write(changelog, "# New entry\n");
+      write(workflow, "name: Changed CI\n");
+    }, false);
+    verify(
+      () => symlinkSync("../../app/eval.ts", join(repoPath, changelog)),
+      false,
+    );
+    assert.match(inspect(base).fields, /^changelog_only=false$/m);
+    const malformed = inspect("not-a-commit");
+    assert.notEqual(malformed.status, 0);
+    assert.doesNotMatch(malformed.fields, /^changelog_only=true$/m);
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("Build requires Typecheck success for proven changelog-only scope", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
+  );
+  const gate = /^  build-gate:\n([\s\S]*?)(?=^  [a-z0-9-]+:\n)/m.exec(workflow);
+  assert.ok(gate);
+  const run = /^        run: \|\n((?:^ {10}[^\n]*\n|^\n)+)/m.exec(gate[1]);
+  assert.ok(run);
+  const script = run[1].replace(/^ {10}/gm, "");
+  const skipped = {
+    CHANGE_SCOPE_RESULT: "success",
+    DOCS_ONLY: "false",
+    BUILD_REQUIRED: "false",
+    BUILD_RESULT: "skipped",
+    TYPECHECK_REQUIRED: "false",
+    CHANGELOG_ONLY: "false",
+    TYPECHECK_RESULT: "skipped",
+    GUARDS_REQUIRED: "false",
+    GUARDS_RESULT: "skipped",
+  };
+  const runGate = (overrides: Record<string, string>, expected: number) => {
+    const result = spawnSync("bash", ["-c", script], {
+      encoding: "utf8",
+      env: { ...process.env, ...skipped, ...overrides },
+    });
+    assert.equal(result.status, expected, result.stderr + result.stdout);
+  };
+
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "success" }, 0);
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "skipped" }, 1);
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "failure" }, 1);
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "cancelled" }, 1);
+  runGate({ CHANGELOG_ONLY: "" }, 1);
+  runGate({ CHANGELOG_ONLY: "malformed", TYPECHECK_RESULT: "skipped" }, 1);
+  runGate({}, 0);
+  runGate({ TYPECHECK_RESULT: "success" }, 1);
+  runGate({ TYPECHECK_REQUIRED: "true", TYPECHECK_RESULT: "success" }, 0);
+  runGate({ TYPECHECK_REQUIRED: "true", TYPECHECK_RESULT: "skipped" }, 1);
+  runGate({ DOCS_ONLY: "true", BUILD_RESULT: "success" }, 0);
+  runGate({ DOCS_ONLY: "true", BUILD_RESULT: "failure" }, 1);
+  runGate(
+    {
+      CHANGELOG_ONLY: "true",
+      TYPECHECK_RESULT: "success",
+      GUARDS_REQUIRED: "true",
+      GUARDS_RESULT: "failure",
+    },
+    1,
+  );
+  runGate({ CHANGE_SCOPE_RESULT: "failure" }, 1);
+  assert.match(
+    gate[1],
+    /CHANGELOG_ONLY: \$\{\{ needs\.change-scope\.outputs\.changelog_only \}\}/,
+  );
 });

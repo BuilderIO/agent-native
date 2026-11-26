@@ -268,10 +268,9 @@ export function useShareOrgMemberSearch(
         .catch(() => {
           if (controller.signal.aborted || requestId !== requestIdRef.current)
             return;
+          // A later page that fails keeps the people found and its place, so
+          // loading more tries that page again. A first page started empty.
           setError(true);
-          setHasMore(false);
-          setNextOffset(null);
-          if (!append) setMembers([]);
         })
         .finally(() => {
           if (controller.signal.aborted || requestId !== requestIdRef.current)
@@ -304,6 +303,9 @@ export function useShareOrgMemberSearch(
     setHasMore(false);
     setError(false);
     setIsLoading(true);
+    // An aborted request never clears its own loading flag, so a page still
+    // loading for the old query would otherwise block loading more for this one.
+    setIsLoadingMore(false);
     const delay = search ? debounceMs : 0;
     if (delay === 0) {
       fetchPage(0, false);

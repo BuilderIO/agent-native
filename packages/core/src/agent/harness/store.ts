@@ -1666,6 +1666,46 @@ export async function listExpiredAgentHarnessFollowUps(
   return rows.map(rowToHarnessSession).filter(isStoredSession);
 }
 
+/**
+ * When the next follow-up or approval claim becomes recoverable, for the
+ * Netlify idle marker, or `null` when no session holds one.
+ */
+export async function nextAgentHarnessRecoveryDueAt(): Promise<number | null> {
+  await ensureAgentHarnessSessionTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT
+            MIN(CASE WHEN status = 'running' AND follow_up_claim_id IS NOT NULL
+              THEN GREATEST(
+                LEAST(
+                  COALESCE(follow_up_claim_expires_at, updated_at + ?),
+                  follow_up_deadline_at
+                ),
+                CASE WHEN approval_resolution_id IS NOT NULL
+                  THEN COALESCE(approval_resolution_claim_expires_at, updated_at + ?)
+                END
+              )
+            END) AS follow_up_due_at,
+            MIN(CASE WHEN approval_resolution_id IS NOT NULL
+                  AND follow_up_claim_id IS NULL AND expiry_cleanup_id IS NULL
+                  AND status NOT IN ('stopped', 'errored', 'destroyed')
+              THEN COALESCE(approval_resolution_claim_expires_at, updated_at + ?)
+            END) AS approval_due_at
+          FROM agent_harness_sessions
+          WHERE follow_up_claim_id IS NOT NULL
+            OR approval_resolution_id IS NOT NULL`,
+    args: [
+      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
+      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
+      LEGACY_FOLLOW_UP_CLAIM_GRACE_MS,
+    ],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  const dueTimes = [row?.follow_up_due_at, row?.approval_due_at]
+    .filter((dueAt) => dueAt !== null && dueAt !== undefined)
+    .map(Number);
+  return dueTimes.length > 0 ? Math.min(...dueTimes) : null;
+}
+
 async function hasAgentHarnessSessionEventType(
   tx: DbExec,
   sessionId: string,
@@ -2140,6 +2180,7 @@ export async function getAgentHarnessSessionByRunId(
 
 export async function listAgentHarnessSessions(
   options: {
+    sourceAppId?: string | null;
     status?: AgentHarnessSessionStatus;
     threadId?: string;
     ownerEmail?: string | null;
@@ -2147,9 +2188,38 @@ export async function listAgentHarnessSessions(
     limit?: number;
   } = {},
 ): Promise<StoredAgentHarnessSession[]> {
+  const sourceAppId = options.sourceAppId?.trim();
+  if ("sourceAppId" in options && !sourceAppId) return [];
   await ensureAgentHarnessSessionTables();
   const limit = Math.max(1, Math.min(200, options.limit ?? 50));
   const client = getDbExec();
+  if ("sourceAppId" in options) {
+    const clauses = ["t.id = s.thread_id", "t.source_app_id = ?"];
+    const args: Array<string | number | null> = [sourceAppId ?? null];
+    if (options.ownerEmail !== undefined) {
+      clauses.push("s.owner_email IS NOT DISTINCT FROM ?");
+      args.push(options.ownerEmail);
+    }
+    if (options.orgId !== undefined) {
+      clauses.push("s.org_id IS NOT DISTINCT FROM ?");
+      args.push(options.orgId);
+    }
+    if (options.threadId) {
+      clauses.push("s.thread_id = ?");
+      args.push(options.threadId);
+    }
+    if (options.status) {
+      clauses.push("s.status = ?");
+      args.push(options.status);
+    }
+    args.push(limit);
+    // raw-sql-ok: joins fixed clause strings; every value is a bound ? arg
+    const { rows } = await client.execute({
+      sql: `SELECT s.* FROM agent_harness_sessions s, chat_threads t WHERE ${clauses.join(" AND ")} ORDER BY s.updated_at DESC LIMIT ?`,
+      args,
+    });
+    return rows.map(rowToHarnessSession).filter(isStoredSession);
+  }
   if (options.ownerEmail) {
     const { rows } = await client.execute({
       sql: `SELECT * FROM agent_harness_sessions

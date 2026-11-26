@@ -25,6 +25,7 @@ export default defineAction({
   schema,
   needsApproval: true,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args) => {
     const job = await createJob({
       sourceId: args.sourceId,

@@ -36,6 +36,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpTool: "search",
   run: async (args) => {
     const context = await getCreativeContextItem(
       args.itemId,
@@ -159,12 +160,17 @@ async function publicNativeCode(
       byteLength,
       maxInlineBytes: MAX_PUBLIC_NATIVE_CODE_BYTES,
       retrieval: nativeCodeRetrieval(context, artifact),
-      instruction:
-        "Use the exact clone action for the complete artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment.",
+      instruction: nativeCloneAction(artifact)
+        ? "Use the exact clone action for the complete artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment."
+        : "No clone action is available for this artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment.",
     };
   } catch {
     return null;
   }
+}
+
+function nativeCloneAction(artifact: NativeCreativeArtifact) {
+  return artifact.app === "slides" ? "clone-context-slide" : null;
 }
 
 function nativeCodeRetrieval(
@@ -172,15 +178,16 @@ function nativeCodeRetrieval(
   artifact: NativeCreativeArtifact,
 ) {
   return {
-    mode: artifact.manifest ? "manifest-parts" : "exact-clone-only",
+    mode: artifact.manifest
+      ? "manifest-parts"
+      : nativeCloneAction(artifact)
+        ? "exact-clone-only"
+        : "unavailable",
     root: {
       itemId: context.item.id,
       itemVersionId: context.version.id,
     },
-    cloneAction:
-      artifact.app === "slides"
-        ? "clone-context-slide"
-        : "clone-creative-context-design",
+    cloneAction: nativeCloneAction(artifact),
     parts: (artifact.manifest?.children ?? []).map((child) => {
       const edge = context.edges.find(
         (candidate) =>

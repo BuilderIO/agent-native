@@ -21,6 +21,7 @@ export default defineAction({
     accessToken: z.string().max(2048).optional(),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ recordingId, accessToken }) => {
     // Must run before assertAccess: it answers 403 for a missing row too, and the
     // desktop needs 404 to trash footage for a permanently deleted Clip.

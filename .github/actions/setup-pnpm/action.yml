@@ -24,6 +24,12 @@ inputs:
       package build chain.
     required: false
     default: full
+  filter:
+    description: >-
+      A workspace project to install alone (`pnpm install --filter`), for jobs
+      that only run that project's own tools. Empty installs the workspace.
+    required: false
+    default: ""
   restore-dist-cache:
     description: >-
       Restore packages/*/dist and tsbuildinfo before installing. Must happen
@@ -36,10 +42,12 @@ inputs:
   native-canvas-deps:
     description: >-
       `true` installs the cairo/pango build libraries the `canvas` npm module
-      compiles against. Jobs that never load `canvas` can pass `false` and skip
-      the apt-get (~3 min on a slow mirror).
+      compiles against. Defaults to `false` because `canvas` ships prebuilt
+      Linux x64 binaries and CI jobs do not compile `canvas` from source; opt
+      in only for jobs that need the apt-get libraries (~3 min on a slow
+      mirror).
     required: false
-    default: "true"
+    default: "false"
 
 runs:
   using: composite
@@ -84,11 +92,25 @@ runs:
           libgif-dev \
           librsvg2-dev
 
+    - name: Skip native canvas prebuild when native canvas deps are disabled
+      if: runner.os == 'Linux' && inputs.install == 'full' && inputs.native-canvas-deps != 'true'
+      shell: bash
+      run: printf '{"version":true}\n' > "$HOME/.prebuild-installrc"
+
     - name: Install dependencies
       shell: bash
       run: |
-        if [ "${{ inputs.install }}" = "no-scripts" ]; then
-          pnpm install --frozen-lockfile --ignore-scripts
-        else
-          pnpm install --frozen-lockfile
+        filter=()
+        if [ -n "${{ inputs.filter }}" ]; then
+          filter=(--filter "${{ inputs.filter }}")
         fi
+        if [ "${{ inputs.install }}" = "no-scripts" ]; then
+          pnpm install --frozen-lockfile --ignore-scripts "${filter[@]}"
+        else
+          pnpm install --frozen-lockfile "${filter[@]}"
+        fi
+
+    - name: Clean up prebuild-install override
+      if: always() && runner.os == 'Linux' && inputs.install == 'full' && inputs.native-canvas-deps != 'true'
+      shell: bash
+      run: rm -f "$HOME/.prebuild-installrc"

@@ -76,7 +76,6 @@ it("composes a follow-up padding write from pending source when render content l
     t: (key: string) => key,
     undoManagerRef: ref(null),
     updateLiveScreenSnapshotContent: vi.fn(() => false),
-    upsertMotionKeyframesFromStyles: vi.fn(),
     viewModeRef: ref("single" as const),
     ydoc: null,
   };

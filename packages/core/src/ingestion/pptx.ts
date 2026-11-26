@@ -128,6 +128,7 @@ export interface ParsedPptxImage {
   data: Uint8Array;
   mimeType: string;
   name: string;
+  altText?: string;
   aspectRatio?: number;
   fullBleed?: boolean;
   crop?: {
@@ -1270,7 +1271,9 @@ async function parseShapeFragment(
       imageBudget: args.imageBudget,
     });
     if (!image) return [];
-    args.images.push(image.image);
+    const altText = stringValue(readNonVisualProperties(node)?.["@_descr"]);
+    const picture = altText ? { ...image.image, altText } : image.image;
+    args.images.push(picture);
     return [
       {
         id,
@@ -1280,7 +1283,7 @@ async function parseShapeFragment(
         shapeType,
         ...(shapeAdjustments ? { shapeAdjustments } : {}),
         ...(geometry ? { geometry } : {}),
-        image: image.image,
+        image: picture,
       },
     ];
   }

@@ -18,6 +18,7 @@ vi.mock("../settings/org-settings.js", () => ({
   mutateOrgSetting: mocks.mutateOrgSetting,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mocks.execute }),
 }));
 vi.mock("../org/context.js", () => ({
@@ -31,9 +32,15 @@ vi.mock("./request-context.js", () => ({
 }));
 
 import {
+  OLLAMA_BASE_URL_ENV_VAR,
+  OPENAI_BASE_URL_ENV_VAR,
+} from "../agent/engine/provider-env-vars.js";
+import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
   personalProviderKeyWriteDenial,
+  personalRunBuilderGatewayOrgId,
+  personalRunProviderKeyOrgId,
   readOrgMemberRole,
   readPersonalProviderKeyPolicy,
   resolvePersonalProviderKeySaveDenial,
@@ -80,6 +87,90 @@ describe("isPersonalProviderPolicyKey", () => {
     for (const key of ["NOTION_TOKEN", "RESEND_API_KEY", "S3_BUCKET"]) {
       expect(isPersonalProviderPolicyKey(key)).toBe(false);
     }
+  });
+});
+
+/** A personal automation run by member@example.com, whose org is org-a. */
+function personalRun(userEmail = "member@example.com") {
+  mocks.request.ctx = { providerKeyOrg: { orgId: "org-a", userEmail } };
+  mocks.request.email = "member@example.com";
+}
+
+describe("personalRunProviderKeyOrgId", () => {
+  it("names the creator's org for a model key in the creator's own personal run", () => {
+    personalRun(" Member@Example.com ");
+    mocks.request.email = " MEMBER@example.com";
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBe("org-a");
+    expect(personalRunProviderKeyOrgId("ANTHROPIC_API_KEY")).toBe("org-a");
+  });
+
+  it("names no org outside the creator's own personal run", () => {
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+    personalRun();
+    mocks.request.email = undefined;
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+    mocks.request.email = "someone@example.com";
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+    mocks.request.email = "member@example.com";
+    mocks.request.orgId = "org-b";
+    expect(personalRunProviderKeyOrgId("OPENAI_API_KEY")).toBeUndefined();
+  });
+
+  it("names no org for keys outside the policy or for the Builder.io key pair", () => {
+    personalRun();
+    expect(personalRunProviderKeyOrgId("NOTION_TOKEN")).toBeUndefined();
+    expect(personalRunProviderKeyOrgId("BUILDER_PRIVATE_KEY")).toBeUndefined();
+    expect(personalRunProviderKeyOrgId("BUILDER_PUBLIC_KEY")).toBeUndefined();
+  });
+
+  it("names the org for an endpoint only when the key sent with it is that org's", () => {
+    personalRun();
+    for (const key of [OPENAI_BASE_URL_ENV_VAR, OLLAMA_BASE_URL_ENV_VAR]) {
+      expect(personalRunProviderKeyOrgId(key)).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, {
+          scope: "user",
+          scopeId: "member@example.com",
+        }),
+      ).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, { scope: "org", scopeId: "org-b" }),
+      ).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, { scope: "user", scopeId: "org-a" }),
+      ).toBeUndefined();
+      expect(
+        personalRunProviderKeyOrgId(key, { scope: "org", scopeId: "org-a" }),
+      ).toBe("org-a");
+      expect(
+        personalRunProviderKeyOrgId(key, {
+          scope: "workspace",
+          scopeId: "org-a",
+        }),
+      ).toBe("org-a");
+    }
+  });
+});
+
+describe("personalRunBuilderGatewayOrgId", () => {
+  it("names the creator's org for the creator's own personal run", () => {
+    personalRun(" Member@Example.com ");
+    expect(personalRunBuilderGatewayOrgId(" MEMBER@example.com")).toBe("org-a");
+  });
+
+  it("names no org without a personal run, for another user, or on an org request", () => {
+    expect(
+      personalRunBuilderGatewayOrgId("member@example.com"),
+    ).toBeUndefined();
+    personalRun();
+    expect(personalRunBuilderGatewayOrgId(undefined)).toBeUndefined();
+    expect(personalRunBuilderGatewayOrgId(null)).toBeUndefined();
+    expect(personalRunBuilderGatewayOrgId("  ")).toBeUndefined();
+    expect(personalRunBuilderGatewayOrgId("other@example.com")).toBeUndefined();
+    mocks.request.orgId = "org-b";
+    expect(
+      personalRunBuilderGatewayOrgId("member@example.com"),
+    ).toBeUndefined();
   });
 });
 
@@ -260,6 +351,71 @@ describe("isPersonalProviderKeyUseRestricted", () => {
     await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
     await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
     expect(mocks.getOrgSetting).toHaveBeenCalledTimes(2);
+  });
+
+  it("fresh asks bypass the memo and replace the cached answer", async () => {
+    mocks.request.ctx = {};
+    restricted(false);
+    const input = { email: "member@example.com", orgId: "org-1" };
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(
+      false,
+    );
+
+    restricted(true);
+    await expect(
+      isPersonalProviderKeyUseRestricted({ ...input, fresh: true }),
+    ).resolves.toBe(true);
+    expect(mocks.getOrgSetting).toHaveBeenLastCalledWith(
+      "org-1",
+      "restrict-personal-provider-keys",
+      { bypassCache: true },
+    );
+
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
+    expect(mocks.getOrgSetting).toHaveBeenCalledTimes(2);
+  });
+
+  it("fresh bypasses a stale settings snapshot while default memo stays cached", async () => {
+    mocks.request.ctx = {};
+    restricted(false);
+    const input = { email: "member@example.com", orgId: "org-1" };
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(
+      false,
+    );
+
+    // A different request changed the policy. The default answer is still the
+    // old memoized promise; a fresh ask must read the native setting again.
+    restricted(true);
+    await expect(
+      isPersonalProviderKeyUseRestricted({ ...input, fresh: true }),
+    ).resolves.toBe(true);
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
+  });
+
+  it("an old rejected pending cannot delete a newer fresh cache entry", async () => {
+    mocks.request.ctx = {};
+    let rejectOld: ((error: Error) => void) | undefined;
+    mocks.getOrgSetting.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOld = reject;
+        }),
+    );
+    const input = { email: "member@example.com", orgId: "org-1" };
+    const old = isPersonalProviderKeyUseRestricted(input);
+    const oldSettled = old.catch(() => undefined);
+
+    restricted(true);
+    await expect(
+      isPersonalProviderKeyUseRestricted({ ...input, fresh: true }),
+    ).resolves.toBe(true);
+    mocks.getOrgSetting.mockClear();
+
+    rejectOld?.(new Error("old failed read"));
+    await oldSettled;
+
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
+    expect(mocks.getOrgSetting).not.toHaveBeenCalled();
   });
 });
 

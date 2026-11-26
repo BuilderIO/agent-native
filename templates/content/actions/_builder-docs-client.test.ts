@@ -96,9 +96,11 @@ const fakeDb = {
           ),
           {
             limit: async () => (documentResource ? [documentResource] : []),
-            // Only the body-write lock orders its read, and it reads the page.
+            // The body-write lock and the agent-level check order their
+            // reads, and both read the page.
             orderBy: () => ({
               for: async () => (documentResource ? [documentResource] : []),
+              limit: async () => (documentResource ? [documentResource] : []),
             }),
           },
         ),

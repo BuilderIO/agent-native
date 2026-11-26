@@ -34,6 +34,8 @@ import {
   documentEditorHasFreshAiResolution,
   documentEditorShowsInlineComments,
   documentPagePanelTab,
+  infoPropertyCommentStart,
+  pendingCommentHeld,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   collabDocHasText,
@@ -1416,6 +1418,60 @@ describe("document editor layout", () => {
     expect(printRoot).toContain("overflow: visible !important");
     expect(printRoot).toContain("height: auto !important");
     expect(printRoot).toContain("inset: 0 0 auto !important");
+  });
+
+  describe("infoPropertyCommentStart", () => {
+    it("starts one with none started, or over an empty one elsewhere", () => {
+      expect(infoPropertyCommentStart(null, "a")).toBe("start");
+      expect(
+        infoPropertyCommentStart({ propertyId: "b", written: false }, "a"),
+      ).toBe("start");
+      expect(infoPropertyCommentStart({ written: false }, "a")).toBe("start");
+    });
+
+    it("opens one already started on the Property as it was", () => {
+      expect(
+        infoPropertyCommentStart({ propertyId: "a", written: true }, "a"),
+      ).toBe("reopen");
+      expect(
+        infoPropertyCommentStart({ propertyId: "a", written: false }, "a"),
+      ).toBe("reopen");
+    });
+
+    it("goes back to words under another Property or beside the Page's text", () => {
+      expect(
+        infoPropertyCommentStart({ propertyId: "b", written: true }, "a"),
+      ).toBe("returnToProperty");
+      expect(infoPropertyCommentStart({ written: true }, "a")).toBe(
+        "returnToPage",
+      );
+    });
+  });
+
+  describe("pendingCommentHeld", () => {
+    const properties = [{ definition: { id: "a" } }];
+
+    it("holds words under a Property on the Page, or beside its text", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: true }, properties),
+      ).toBe(true);
+      expect(pendingCommentHeld({ written: true }, properties)).toBe(true);
+    });
+
+    it("lets go of one with no words, or whose Property was deleted", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: false }, properties),
+      ).toBe(false);
+      expect(
+        pendingCommentHeld({ propertyId: "b", written: true }, properties),
+      ).toBe(false);
+    });
+
+    it("holds one while the Properties aren't read yet", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: true }, undefined),
+      ).toBe(true);
+    });
   });
 
   describe("documentPagePanelTab", () => {
@@ -3796,20 +3852,7 @@ describe("document editor layout", () => {
     );
   });
 
-  it("does not steal reply focus when activating a suggestion", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const activation = source.slice(
-      source.indexOf("const activateSuggestion ="),
-      source.indexOf("const handleUtilityPanelChange ="),
-    );
-    expect(activation).not.toContain(".focus(");
-    expect(activation).toContain('block: "nearest"');
-    expect(activation).toContain("rect.top < viewport.top");
-  });
-
+  // oracle-change: suggestion activation scrolling without taking Reply focus is now checked by behavior in suggestion-page-view.test.ts
   it("freezes the suggestion editor while mode exit persists proposals", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -4037,6 +4080,34 @@ describe("document editor layout", () => {
         position: 0,
       }),
     ).toBe("Untitled collection");
+  });
+
+  it("shows a linked file's folders in its breadcrumb without linking to them", () => {
+    const notes = "local-source-directory:vault:notes";
+    const year = "local-source-directory:vault:notes%2F2026";
+    const path = [
+      { id: notes, parentId: null, title: "notes", icon: null },
+      { id: year, parentId: notes, title: "2026", icon: null },
+      { id: "today", parentId: year, title: "Today", icon: null },
+      { id: "child", parentId: "today", title: "Child", icon: null },
+    ];
+
+    expect(
+      documentEditorBreadcrumbItems(
+        { id: "today", parentId: null, title: "Today", icon: null },
+        path,
+      ),
+    ).toEqual([
+      { title: "notes", icon: null, iconKind: "folder" },
+      { title: "2026", icon: null, iconKind: "folder" },
+      { id: "today", title: "Today", icon: null },
+    ]);
+    expect(
+      documentEditorBreadcrumbItems(
+        { id: "child", parentId: "today", title: "Child", icon: null },
+        path,
+      ).map((item) => item.id ?? `[${item.title}]`),
+    ).toEqual(["[notes]", "[2026]", "today", "child"]);
   });
 
   it("starts page breadcrumbs with the containing database", () => {

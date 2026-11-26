@@ -34,6 +34,7 @@ const rawClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -143,7 +144,7 @@ beforeEach(async () => {
   nextId = 1;
   readDefaultAgentEngineSettingMock.mockReset();
   readDefaultAgentEngineSettingMock.mockResolvedValue(null);
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
   for (const [email, role] of [

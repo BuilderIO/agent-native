@@ -19,6 +19,10 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
+import {
+  createResourceWriteEntry,
+  RESOURCE_EXPECTED_REVISION_DESCRIPTION,
+} from "./resource-write-tool.js";
 
 type CliMain = (args: string[]) => Promise<void>;
 
@@ -369,16 +373,30 @@ export function shouldDefaultResourceWriteToShared(path: string): boolean {
   return path.replace(/^\/+/, "") === "LEARNINGS.md";
 }
 
+function isJobsResourcePath(path: unknown): boolean {
+  if (typeof path !== "string") return false;
+  const segments: string[] = [];
+  for (const segment of path.trim().replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") segments.pop();
+    else segments.push(segment);
+  }
+  return segments.length > 1 && segments[0] === "jobs";
+}
+
 function requiresSharedResourceApproval(
   args: Record<string, unknown>,
 ): boolean {
+  const action = String(args.action);
   return (
-    ["write", "promote", "delete"].includes(String(args.action)) &&
-    (args.scope === "shared" ||
-      (args.action === "write" &&
-        args.scope == null &&
-        typeof args.path === "string" &&
-        shouldDefaultResourceWriteToShared(args.path)))
+    (["write", "promote", "delete"].includes(action) &&
+      (args.scope === "shared" ||
+        (action === "write" &&
+          args.scope == null &&
+          typeof args.path === "string" &&
+          shouldDefaultResourceWriteToShared(args.path)))) ||
+    ((action === "write" || action === "delete") &&
+      isJobsResourcePath(args.path))
   );
 }
 
@@ -429,11 +447,11 @@ export async function createResourceScriptEntries(): Promise<
       del.default,
     );
 
-    return frameworkMcpTools({
+    const entries = frameworkMcpTools({
       resources: {
         tool: {
           description:
-            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval. For creating or replacing file content, prefer write-resource; load write-resource with tool-search if it is not available.',
           parameters: {
             type: "object",
             properties: {
@@ -480,6 +498,10 @@ export async function createResourceScriptEntries(): Promise<
               mime: {
                 type: "string",
                 description: "write: MIME type (default: from extension)",
+              },
+              expectedRevision: {
+                type: "string",
+                description: RESOURCE_EXPECTED_REVISION_DESCRIPTION,
               },
               format: {
                 type: "string",
@@ -532,6 +554,7 @@ export async function createResourceScriptEntries(): Promise<
             const result = await captureCliOutput(async () => {
               try {
                 await read.default(serializeCliArgs(rest), {
+                  withRevision: true,
                   ...(context?.maxResultChars !== undefined && {
                     maxResultChars: context.maxResultChars,
                   }),
@@ -679,6 +702,12 @@ export async function createResourceScriptEntries(): Promise<
         delMem.default,
       ),
     });
+    return {
+      ...entries,
+      ...frameworkMcpTools({
+        "write-resource": createResourceWriteEntry(entries.resources),
+      }),
+    };
   } catch {
     // Resources not available — skip silently
     return frameworkMcpTools({});

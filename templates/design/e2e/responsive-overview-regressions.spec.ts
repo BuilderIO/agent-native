@@ -825,7 +825,7 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
   await page.addInitScript(installCameraObserver);
   await page.evaluate(installCameraObserver);
 
-  await page.getByRole("button", { name: "Add screen" }).click();
+  await page.getByRole("button", { name: "Add page" }).click();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
   await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
   const selectedShell = page.locator("[data-screen-shell]").last();
@@ -1024,7 +1024,7 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
 
   beforeIds = await designFileIds(request, designId);
   resetCameraProbe();
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const empty = await findEmptyCanvasPoint();
   await page.mouse.move(empty.x, empty.y);
   await page.mouse.down();

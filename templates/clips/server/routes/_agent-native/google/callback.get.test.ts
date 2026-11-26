@@ -52,9 +52,11 @@ describe("persistGoogleProfileImage", () => {
       "https://lh3.googleusercontent.com/a/avatar.jpg",
     );
 
-    expect(putSetting).toHaveBeenCalledWith("avatar:vishwas@example.com", {
-      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
-    });
+    expect(putSetting).toHaveBeenCalledWith(
+      "avatar:vishwas@example.com",
+      { image: "https://lh3.googleusercontent.com/a/avatar.jpg" },
+      { owner: "vishwas@example.com" },
+    );
   });
 
   it.each([

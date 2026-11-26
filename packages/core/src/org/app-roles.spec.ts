@@ -33,6 +33,7 @@ import {
   setAppMemberRole,
   setAppMemberRoles,
   getRegisteredAppRoles,
+  listRegisteredAppRoles,
 } from "./app-roles.js";
 
 const CALLER = { userEmail: "ae@acme.com", orgId: "org1" };
@@ -549,10 +550,218 @@ describe("app roles", () => {
     it("allows re-declaring the exact same descriptor object", () => {
       const descriptor = {
         appId: uniqueAppId("same-object"),
-        roles: ["member"] as const,
+        roles: ["member"],
       };
       defineAppRoles(descriptor);
+      descriptor.roles.push("admin");
       expect(() => defineAppRoles(descriptor)).not.toThrow();
+      expect(getRegisteredAppRoles(descriptor.appId)).toBe(descriptor);
+    });
+
+    it("rejects different non-enumerable permission grants on reload", async () => {
+      const appId = uniqueAppId("hidden-grant");
+      const first = {
+        appId,
+        roles: ["editor", "reviewer"] as const,
+        permissions: Object.defineProperty({}, "edit", {
+          value: ["editor"],
+          enumerable: false,
+        }),
+      };
+      const changed = {
+        appId,
+        roles: ["editor", "reviewer"] as const,
+        permissions: Object.defineProperty({}, "edit", {
+          value: ["reviewer"],
+          enumerable: false,
+        }),
+      };
+
+      const access = defineAppRoles(first);
+      const guard = access.requirePermission("edit");
+      mockExecute
+        .mockResolvedValueOnce(joinRow("editor"))
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(joinRow("reviewer"))
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(
+        guard({}, { ...CALLER, caller: "tool" }),
+      ).resolves.toBeUndefined();
+      await expect(guard({}, { ...CALLER, caller: "tool" })).rejects.toThrow(
+        ForbiddenError,
+      );
+      expect(() => defineAppRoles(changed)).toThrow(
+        `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
+      );
+      expect(getRegisteredAppRoles(appId)).toBe(first);
+    });
+
+    it("rejects the same getter when its receiver changes permission grants", () => {
+      const appId = uniqueAppId("accessor-grant");
+      const grants = new WeakMap<object, readonly string[]>();
+      function getGrant(this: object) {
+        return grants.get(this);
+      }
+      const permissions = () =>
+        Object.defineProperty({}, "edit", { get: getGrant }) as Record<
+          string,
+          readonly string[]
+        >;
+      const firstPermissions = permissions();
+      const changedPermissions = permissions();
+      grants.set(firstPermissions, ["editor"]);
+      grants.set(changedPermissions, ["reviewer"]);
+      const first = {
+        appId,
+        roles: ["editor", "reviewer"] as const,
+        permissions: firstPermissions,
+      };
+      const changed = { ...first, permissions: changedPermissions };
+
+      expect(first.permissions.edit).toEqual(["editor"]);
+      expect(changed.permissions.edit).toEqual(["reviewer"]);
+      defineAppRoles(first);
+      expect(() => defineAppRoles(first)).not.toThrow();
+      expect(() => defineAppRoles(changed)).toThrow(
+        `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
+      );
+      expect(getRegisteredAppRoles(appId)).toBe(first);
+    });
+
+    it("compares hidden properties without rejecting the same object", () => {
+      const appId = uniqueAppId("hidden-equal");
+      const makeDescriptor = () => ({
+        appId,
+        roles: ["editor"] as const,
+        permissions: Object.defineProperty({}, "edit", {
+          value: ["editor"],
+          enumerable: false,
+        }),
+      });
+      const first = makeDescriptor();
+      defineAppRoles(first);
+      expect(() => defineAppRoles(first)).not.toThrow();
+      expect(() => defineAppRoles(makeDescriptor())).not.toThrow();
+
+      const missing = { appId, roles: ["editor"] as const, permissions: {} };
+      expect(() => defineAppRoles(missing)).toThrow(
+        "already declared with a different descriptor",
+      );
+    });
+
+    it("accepts an independently allocated equal descriptor on reload", () => {
+      const appId = uniqueAppId("reload");
+      const first = {
+        appId,
+        roles: ["editor", "reviewer"] as const,
+        defaultRole: "editor" as const,
+        roleLabels: { editor: "Editor", reviewer: "Reviewer" },
+        permissions: { edit: ["editor"], review: ["editor", "reviewer"] },
+        permissionLabels: { edit: "Edit", review: "Review" },
+        label: "Roles",
+      } as const;
+      const reloaded = {
+        label: "Roles",
+        permissionLabels: { review: "Review", edit: "Edit" },
+        permissions: { review: ["editor", "reviewer"], edit: ["editor"] },
+        roleLabels: { reviewer: "Reviewer", editor: "Editor" },
+        defaultRole: "editor" as const,
+        roles: ["editor", "reviewer"] as const,
+        appId,
+      } as const;
+
+      defineAppRoles(first);
+      expect(getRegisteredAppRoles(appId)).toBe(first);
+      expect(defineAppRoles(reloaded).descriptor).toBe(reloaded);
+      expect(getRegisteredAppRoles(appId)).toBe(reloaded);
+      expect(
+        listRegisteredAppRoles().filter((entry) => entry.appId === appId),
+      ).toEqual([reloaded]);
+    });
+
+    it.each([
+      ["role addition", { roles: ["editor", "reviewer", "admin"] }],
+      ["role order", { roles: ["reviewer", "editor"] }],
+      ["default role", { defaultRole: "reviewer" }],
+      [
+        "role label",
+        { roleLabels: { editor: "Writer", reviewer: "Reviewer" } },
+      ],
+      ["permission grant", { permissions: { review: ["reviewer"] } }],
+      [
+        "permission grant order",
+        { permissions: { review: ["reviewer", "editor"] } },
+      ],
+      ["permission name", { permissions: { edit: ["editor", "reviewer"] } }],
+      ["permission label", { permissionLabels: { review: "Read" } }],
+      ["descriptor label", { label: "Different roles" }],
+      ["undefined label", { label: undefined }],
+      ["additional field", { extra: "different" }],
+      ["appId whitespace", { appId: " APP_ID " }],
+    ])(
+      "rejects a changed %s without replacing the registry entry",
+      (_change, override) => {
+        const appId = uniqueAppId("changed");
+        const descriptor = {
+          appId,
+          roles: ["editor", "reviewer"],
+          defaultRole: "editor",
+          roleLabels: { editor: "Editor", reviewer: "Reviewer" },
+          permissions: { review: ["editor", "reviewer"] },
+          permissionLabels: { review: "Review" },
+          label: "Roles",
+        };
+        defineAppRoles(descriptor);
+        const changed = {
+          ...descriptor,
+          ...override,
+          appId: override.appId ? ` ${appId} ` : appId,
+        };
+
+        expect(() => defineAppRoles(changed)).toThrow(
+          `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
+        );
+        expect(getRegisteredAppRoles(appId)).toBe(descriptor);
+        expect(
+          listRegisteredAppRoles().filter((entry) => entry.appId === appId),
+        ).toEqual([descriptor]);
+      },
+    );
+
+    it("distinguishes an absent field from an explicitly undefined field", () => {
+      const descriptor = { appId: uniqueAppId("absent"), roles: ["editor"] };
+      defineAppRoles(descriptor);
+      expect(() => defineAppRoles({ ...descriptor, label: undefined })).toThrow(
+        "already declared with a different descriptor",
+      );
+      expect(getRegisteredAppRoles(descriptor.appId)).toBe(descriptor);
+    });
+
+    it("keeps permission policies local when equal descriptors are re-declared", async () => {
+      const descriptor = {
+        appId: uniqueAppId("policy-reload"),
+        roles: ["editor", "reviewer"],
+        permissions: { edit: ["editor"] },
+      };
+      const strict = defineAppRoles(descriptor);
+      const adminAccess = defineAppRoles(structuredClone(descriptor), {
+        allowOrgAdmins: true,
+      });
+      mockExecute
+        .mockResolvedValueOnce({
+          rows: [{ roles: ["reviewer"], orgRole: "admin" }],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ roles: ["reviewer"], orgRole: "admin" }],
+        });
+
+      await expect(strict.assertPermission(["edit"], CALLER)).rejects.toThrow(
+        ForbiddenError,
+      );
+      await expect(
+        adminAccess.assertPermission(["edit"], CALLER),
+      ).resolves.toBeUndefined();
     });
 
     it("registers the descriptor for the REST layer to look up", () => {

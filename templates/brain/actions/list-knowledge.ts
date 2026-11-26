@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  searchKnowledgeRows,
+  searchKnowledgePage,
   serializeKnowledge,
 } from "../server/lib/brain.js";
 
@@ -16,8 +16,13 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async (args) => {
-    const rows = await searchKnowledgeRows(args);
-    return { count: rows.length, knowledge: rows.map(serializeKnowledge) };
+    const { rows, scanLimited } = await searchKnowledgePage(args);
+    return {
+      count: rows.length,
+      scanLimited,
+      knowledge: rows.map(serializeKnowledge),
+    };
   },
 });

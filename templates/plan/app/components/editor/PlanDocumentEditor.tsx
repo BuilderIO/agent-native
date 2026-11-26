@@ -749,7 +749,7 @@ export function PlanDocumentEditor({
   >;
 }) {
   const t = useT();
-  const { uploadImage, storagePrompt } = usePlanImageUpload();
+  const { uploadImage, storagePrompt } = usePlanImageUpload(planId);
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
 
@@ -1591,7 +1591,7 @@ export function NestedPlanBlocksEditor({
   compactVisuals?: boolean;
 }) {
   const t = useT();
-  const { uploadImage, storagePrompt } = usePlanImageUpload();
+  const { uploadImage, storagePrompt } = usePlanImageUpload(planId);
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
   const rootRef = useRef<HTMLDivElement | null>(null);

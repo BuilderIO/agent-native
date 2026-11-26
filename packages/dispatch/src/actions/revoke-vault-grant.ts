@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revokeGrant } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description: "Revoke an app's access to a vault secret. Admin only.",
   schema: z.object({
     grantId: z.string().describe("Grant ID to revoke"),

@@ -118,7 +118,7 @@ Skills 位于 `.agents/skills/<name>/SKILL.md`，包含针对代理的详细指�
 
 ## 应用程序支持的 skills {#app-backed-skills}
 
-当前应用支持的 skills 包括 Plan 的 `visual-plan`、`visual-recap` 和 `visualize-repo`，Design 的 `visual-edit`，Assets 的 `assets`，以及用于仓库支持的 docs/blog/MDX 编辑的 `content`。
+当前应用支持的 skills 包括 Plan 的 `visual-plan`、`visual-recap` 和 `visualize-repo`，Design 的 `visual-edit` 和 `remix`，Assets 的 `assets`，以及用于仓库支持的 docs/blog/MDX 编辑的 `content`。
 
 <Callout tone="info">
 
@@ -339,11 +339,14 @@ scope: dev
 Hosted 是默认安装路径。本地启动是明确的定制，
 离线工作，或隐私敏感的使用。
 
+`remix` 也可直接在仓库中使用，无需 Design：`/remix add the stripe hero animation to ours but make it blue`。如需在画布上直观选择，请指定 Design。根据行为规格用原创代码重建效果。
+
 ```bash
 # 愉快的路径：导出的指令加上托管的 MCP 连接器。
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add remix
 npx @agent-native/core@latest skills add assets
 
 # 回购优先内容 docs/blog/MDX 编辑。

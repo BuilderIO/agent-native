@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { sql } from "drizzle-orm";
-import { QueryBuilder } from "drizzle-orm/pg-core";
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { is, sql, Subquery, WithSubquery } from "drizzle-orm";
+import { PgDatabase, PgDialect, QueryBuilder } from "drizzle-orm/pg-core";
+import type { PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
   annotateMissingTable,
@@ -14,6 +14,7 @@ import {
   isConnectionError,
   getPgliteClient,
   loadPgliteDrizzle,
+  markDrizzleTransactionExec,
   pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
@@ -38,6 +39,7 @@ import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
 } from "./pool-self-deadlock.js";
+import { getDbDependencies } from "./readiness.js";
 import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
@@ -670,7 +672,7 @@ function drizzleTransactionExec(
       });
   }
 
-  return exec;
+  return markDrizzleTransactionExec(exec);
 }
 
 function scopeDbExecToDrizzleTransactions<T extends object>(
@@ -1011,10 +1013,19 @@ export function isNeonUrl(url: string): boolean {
   return /\.neon\.tech([:/?]|$)/.test(url);
 }
 
+const lazyQueryChains = new WeakMap<
+  object,
+  Array<{ prop: string | symbol; args?: unknown[] }>
+>();
+// Chain steps are shared by derived proxies and by offline and connected replay.
+const callbackResults = new WeakMap<object, Map<number, { value: unknown }>>();
+
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
   let _dbGeneration = 0;
+  let dependenciesReady = 0;
+  let dependenciesPending: Promise<void> | undefined;
 
   // The Drizzle instance is bound to a shared pool, so a `closeDbExec()` (test
   // teardown, script cleanup) must invalidate it rather than leave this store
@@ -1027,6 +1038,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     _dbGeneration += 1;
     _db = undefined;
     _dbReady = undefined;
+    dependenciesReady = 0;
+    dependenciesPending = undefined;
   };
   function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;
@@ -1140,6 +1153,83 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     });
   }
 
+  function isSelectChain(
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
+  ): boolean {
+    const first = chain[0]?.prop;
+    const select = first === "with" ? chain[1]?.prop : first;
+    return (
+      select === "select" ||
+      select === "selectDistinct" ||
+      select === "selectDistinctOn"
+    );
+  }
+
+  function resolveOfflineQuery(query: unknown): unknown {
+    const lazyChain =
+      (typeof query === "function" || (typeof query === "object" && query)) &&
+      lazyQueryChains.get(query);
+    if (!lazyChain) return query;
+    const replayed = replayChainOffline(lazyChain);
+    if (replayed) return replayed;
+    throw new Error(
+      "getDb(): accessed an unresolved query chain synchronously. " +
+        "Only select-style query chains can be embedded as a subquery " +
+        "before the database is ready; await the database handle " +
+        "(await getDb()) before constructing the query.",
+    );
+  }
+
+  function resolveChainArgs(
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
+    step: { prop: string | symbol; args?: unknown[] },
+  ): unknown[] {
+    const args = step.args ?? [];
+    const select = isSelectChain(chain);
+    const cte = chain[0]?.prop === "$with" && step.prop === "as";
+    const setOperator =
+      select &&
+      (step.prop === "union" ||
+        step.prop === "unionAll" ||
+        step.prop === "intersect" ||
+        step.prop === "intersectAll" ||
+        step.prop === "except" ||
+        step.prop === "exceptAll");
+    const callbackIndex =
+      cte ||
+      setOperator ||
+      (select &&
+        (step.prop === "where" ||
+          step.prop === "having" ||
+          step.prop === "groupBy" ||
+          step.prop === "orderBy"))
+        ? 0
+        : select &&
+            typeof step.prop === "string" &&
+            /^(?:left|right|inner|full)Join(?:Lateral)?$/.test(step.prop)
+          ? 1
+          : -1;
+    return args.map((argument, index) => {
+      if (index !== callbackIndex) return argument;
+      const queryArgument = cte || setOperator;
+      const resolved = queryArgument ? resolveOfflineQuery(argument) : argument;
+      if (typeof resolved !== "function") return resolved;
+      return (...callbackArgs: unknown[]) => {
+        let results = callbackResults.get(step);
+        if (!results) {
+          results = new Map();
+          callbackResults.set(step, results);
+        }
+        const cached = results.get(index);
+        if (cached) return cached.value;
+        const value = resolved(...callbackArgs);
+        const result = queryArgument ? resolveOfflineQuery(value) : value;
+        results.set(index, { value: result });
+        return result;
+      };
+    });
+  }
+
   // A select chain embedded as a subquery only needs its SQL, which a
   // connection-less QueryBuilder of the same dialect can build. Anything else
   // (inserts, relational queries, ...) cannot be answered offline.
@@ -1148,29 +1238,33 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   ): Record<string | symbol, unknown> | undefined {
     const first = chain[0]?.prop;
     if (
-      first !== "select" &&
-      first !== "selectDistinct" &&
-      first !== "selectDistinctOn"
+      !isSelectChain(chain) &&
+      !(first === "$with" && chain.length === 2 && chain[1]?.prop === "as")
     ) {
       return undefined;
     }
-    let result: unknown = new QueryBuilder();
+    // QueryBuilder.with() drops the WITH list for distinct selects; PgDatabase's
+    // builders preserve it and remain connection-less until execution.
+    let result: unknown =
+      first === "with"
+        ? new PgDatabase(new PgDialect(), undefined as never, undefined)
+        : new QueryBuilder();
     for (const step of chain) {
       if (step.prop === "execute") return undefined;
       if (result == null || !(step.prop in Object(result))) return undefined;
       const target = result as Record<string | symbol, unknown>;
       const val = target[step.prop];
-      result =
-        typeof val === "function" ? val.apply(target, step.args ?? []) : val;
+      const args = resolveChainArgs(chain, step);
+      result = typeof val === "function" ? val.apply(target, args) : val;
     }
     return result as Record<string | symbol, unknown> | undefined;
   }
 
   function createLazyProxy(
     ready: Promise<any>,
-    chain: Array<{ prop: string | symbol; args?: any[] }>,
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
   ): any {
-    return new Proxy(function () {} as any, {
+    const proxy = new Proxy(function () {}, {
       get(_target, prop) {
         if (prop === "then" || prop === "catch" || prop === "finally") {
           const promise = ready.then((readyDb) => {
@@ -1178,14 +1272,20 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             for (const step of chain) {
               const val = result[step.prop];
               result =
-                typeof val === "function" ? val.apply(result, step.args) : val;
+                typeof val === "function"
+                  ? val.apply(result, resolveChainArgs(chain, step))
+                  : val;
             }
             return result;
           });
           promise.catch(() => {});
           return (promise as any)[prop].bind(promise);
         }
-        if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+        if (
+          prop === "getSQL" ||
+          prop === "getSelectedFields" ||
+          prop === "shouldOmitSQLParens"
+        ) {
           const replayed = replayChainOffline(chain);
           const member = replayed?.[prop];
           if (typeof member === "function") return member.bind(replayed);
@@ -1195,22 +1295,51 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             "getDb(): accessed an unresolved query chain synchronously " +
               `(reading '${String(prop)}'). Only select-style query chains ` +
               "can be embedded as a subquery before the database is ready; " +
-              "await this chain before using its result.",
+              "await the database handle (await getDb()) before constructing the query.",
           );
         }
         return createLazyProxy(ready, [...chain, { prop }]);
       },
       apply(_target, _thisArg, args) {
-        if (chain.length === 0) return createLazyProxy(ready, []);
-        const last = chain[chain.length - 1];
+        const last = chain.at(-1);
+        if (last === undefined) return createLazyProxy(ready, []);
         const newChain = chain.slice(0, -1);
         newChain.push({ prop: last.prop, args });
+        if (last.prop === "as") {
+          const replayed = replayChainOffline(newChain);
+          if (is(replayed, Subquery) || is(replayed, WithSubquery)) {
+            return replayed;
+          }
+        }
         return createLazyProxy(ready, newChain);
       },
     });
+    lazyQueryChains.set(proxy, chain);
+    return proxy;
   }
 
   function getDb(): PgDatabase<PgQueryResultHKT, T> {
+    const dependencies = getDbDependencies(getDb);
+    if (dependencies && dependenciesReady !== dependencies.size) {
+      if (!dependenciesPending) {
+        const count = dependencies.size;
+        const generation = _dbGeneration;
+        dependenciesPending = Promise.all(
+          [...dependencies].map((ready) => ready()),
+        )
+          .then(() => {
+            if (generation === _dbGeneration) dependenciesReady = count;
+          })
+          .finally(() => {
+            if (generation === _dbGeneration) dependenciesPending = undefined;
+          });
+        dependenciesPending.catch(() => {});
+      }
+      return createLazyProxy(
+        dependenciesPending.then(() => getDb()),
+        [],
+      ) as PgDatabase<PgQueryResultHKT, T>;
+    }
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
     const activePgliteClient = isPgliteUrl(url)
       ? getActivePgliteTransactionClient(url)

@@ -12,6 +12,11 @@ import {
   ACTION_BROWSER_PERSIST_HEADER,
 } from "@agent-native/core/shared";
 import {
+  composeAttachmentLink,
+  moveGmailAttachments,
+} from "@shared/compose-attachments.js";
+import { DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE } from "@shared/draft-mailbox.js";
+import {
   gmailReadState,
   GMAIL_QUOTA_COOLDOWN_ERROR_CODE,
 } from "@shared/gmail-freshness.js";
@@ -54,6 +59,12 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../lib/email-tracking.js";
+import {
+  createGmailDraft,
+  savedDraftAttachmentReader,
+  updateSavedGmailDraft,
+  withSavedGmailDraft,
+} from "../lib/gmail-drafts.js";
 import {
   filterInboxScopedThreadMessages,
   filterLabelMessages,
@@ -483,6 +494,16 @@ function gmailErrorStatus(error: unknown): {
   }
   const parsed = (error as any)?.message?.match(/\((\d+)\)/)?.[1];
   return { status: parsed ? Number(parsed) : 502 };
+}
+
+function isGmailOutage(error: unknown): boolean {
+  if (error instanceof GmailQuotaCooldownError) return true;
+  const { status, statusCode } = (error ?? {}) as {
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  const code = typeof status === "number" ? status : statusCode;
+  return typeof code === "number" && (code === 429 || code >= 500);
 }
 
 /** Error body for a failed Gmail call; a cooldown carries its typed fields. */
@@ -1552,18 +1573,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "Invalid recipient address" };
   }
 
-  let attachments;
-  try {
-    attachments = await resolveEmailComposeAttachments(
-      reqBody.attachments,
-      email,
-      accountEmail,
-    );
-  } catch {
-    setResponseStatus(event, 400);
-    return { error: "One or more attachments could not be read" };
-  }
-
   if (
     draftId !== undefined &&
     draftId !== null &&
@@ -1611,6 +1620,33 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     );
     if (!gmailAccess.ok) return gmailAccess.response;
     const { accountEmail: acct, accessToken } = gmailAccess;
+    const reader = savedDraftAttachmentReader(
+      { accountEmail: acct, accessToken },
+      savedDraftId,
+      reqBody.attachments,
+      (attachment) =>
+        readGmailComposeAttachment(email, accountEmail, attachment),
+    );
+    let attachments;
+    try {
+      attachments = moveGmailAttachments(
+        await resolveComposeAttachments(reqBody.attachments, email, {
+          readGmailAttachment: reader.readGmailAttachment,
+        }),
+        reader.moved,
+      );
+    } catch (error) {
+      if (!isGmailOutage(error)) {
+        setResponseStatus(event, 400);
+        return { error: "One or more attachments could not be read" };
+      }
+      const { status, retryAfterSeconds } = gmailErrorStatus(error);
+      setResponseStatus(event, status);
+      if (retryAfterSeconds !== undefined) {
+        setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+      }
+      return gmailErrorBody(error);
+    }
     try {
       const draftFrom = draftAccountEmail || "me";
       const raw = buildOutgoingRawEmail({
@@ -1623,50 +1659,59 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         attachments,
       });
 
-      if (savedDraftId) {
-        try {
-          const updated = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(savedDraftId)}`,
+      const updated = savedDraftId
+        ? await updateSavedGmailDraft(
             accessToken,
-            {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: { raw } }),
-            },
-          );
-          return {
-            draftId: updated.id,
-            backend: "gmail" as const,
-            accountEmail: acct,
-            updated: true,
-          };
-        } catch (error) {
-          if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
-            throw error;
-          }
-          // A deleted Gmail draft is safe to replace with a new one.
-        }
+            savedDraftId,
+            { raw },
+            attachments,
+            reader.moved,
+          )
+        : null;
+      const saved =
+        updated ??
+        (await createGmailDraft(
+          accessToken,
+          acct,
+          { raw },
+          savedDraftId ? { attachments, found: reader.moved } : undefined,
+        ));
+      if (saved.attachmentsError) {
+        setResponseStatus(event, 502);
+        return {
+          error: saved.attachmentsError.message,
+          errorCode: DRAFT_ATTACHMENTS_UNCONFIRMED_ERROR_CODE,
+          draftId: saved.draftId,
+          backend: "gmail" as const,
+          accountEmail: acct,
+        };
       }
-      const created = await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
-        accessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: { raw } }),
-        },
-      );
       return {
-        draftId: created.id,
+        draftId: saved.draftId,
         backend: "gmail" as const,
         accountEmail: acct,
-        created: true,
+        ...(updated ? { updated: true } : { created: true }),
+        ...(saved.movedAttachments.length
+          ? { movedAttachments: saved.movedAttachments }
+          : {}),
       };
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
       setResponseStatus(event, 500);
       return { error: error.message };
     }
+  }
+
+  let attachments;
+  try {
+    attachments = await resolveEmailComposeAttachments(
+      reqBody.attachments,
+      email,
+      accountEmail,
+    );
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "One or more attachments could not be read" };
   }
 
   return withLocalEmailMutationLock(email, async () => {
@@ -1729,7 +1774,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
               filename: att.originalName,
               mimeType: att.mimeType,
               size: att.size,
-              url: att.url,
+              url: composeAttachmentLink(att),
             })),
           }
         : {}),
@@ -1793,10 +1838,12 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
     if (!gmailAccess.ok) return gmailAccess.response;
     const { accessToken } = gmailAccess;
     try {
-      await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${id}`,
-        accessToken,
-        { method: "DELETE" },
+      await withSavedGmailDraft(accessToken, id, (draftId) =>
+        googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
+          accessToken,
+          { method: "DELETE" },
+        ),
       );
     } catch {
       // Draft may not exist in Gmail

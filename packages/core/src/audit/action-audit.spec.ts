@@ -30,6 +30,32 @@ describe("defineAction audit wrapper", () => {
     expect(call.result).toEqual({ deleted: "t1" });
   });
 
+  it("hands the audit to a run that defers it, and records nothing itself", async () => {
+    const deferred: unknown[] = [];
+    const action = defineAction({
+      description: "save a thing",
+      run: async (args: { id: string }) => ({ saved: args.id }),
+    });
+
+    await action.run(
+      { id: "t1" },
+      {
+        caller: "mcp",
+        actionName: "save-thing",
+        deferAudit: (audit) => deferred.push(audit),
+      },
+    );
+
+    expect(recordActionAudit).not.toHaveBeenCalled();
+    expect(deferred).toEqual([
+      expect.objectContaining({
+        status: "success",
+        result: { saved: "t1" },
+        ctx: expect.objectContaining({ actionName: "save-thing" }),
+      }),
+    ]);
+  });
+
   it("records errors as status:error and rethrows the original error", async () => {
     const action = defineAction({
       description: "explode",

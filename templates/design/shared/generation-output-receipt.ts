@@ -24,12 +24,9 @@ export const DESIGN_OUTPUT_ACTIONS = new Set([
   "add-builder-screens",
   "add-localhost-screens",
   "add-session-replay-screenshots-to-board",
-  "apply-a11y-fix",
   "apply-component-prop-edit",
-  "apply-motion-edit",
   "apply-source-edit",
   "apply-visual-edit",
-  "clone-creative-context-design",
   "create-component",
   "create-design-from-template",
   "create-file",
@@ -52,13 +49,16 @@ export const DESIGN_OUTPUT_ACTIONS = new Set([
   "move-design-element",
   "place-figma-frames",
   "present-design-variants",
-  "remove-motion-timeline",
   "rename-component",
   "rename-screen",
   "swap-component-instance",
   "update-file",
   "update-screen-source",
 ]);
+
+export function isAssetsImageTool(tool: string): boolean {
+  return /(?:^|[-_]{1,2})(?:generate|edit)[-_]asset$/i.test(tool.trim());
+}
 
 export function designOutputWriteReceipt(
   designId: string,
@@ -80,7 +80,6 @@ const SCREEN_CONTENT_ACTIONS = new Set([
   "add-builder-screens",
   "add-localhost-screens",
   "add-session-replay-screenshots-to-board",
-  "clone-creative-context-design",
   "create-component",
   "create-design-from-template",
   "create-file",
@@ -124,6 +123,9 @@ export function classifyDesignGenerationOutput(options: {
   for (const { event } of events) {
     if (!isRecord(event) || event.type !== "tool_done") continue;
     const tool = typeof event.tool === "string" ? event.tool : "";
+    if (isAssetsImageTool(tool) && event.completedSideEffect === true) {
+      return "has_output";
+    }
     if (!DESIGN_OUTPUT_ACTIONS.has(tool)) {
       if (event.completedSideEffect === true && tool !== "create-design") {
         const input = inputDesignId(event.input);

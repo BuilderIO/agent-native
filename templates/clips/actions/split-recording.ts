@@ -26,6 +26,7 @@ export default defineAction({
       .min(0)
       .describe("Split point in milliseconds (original time)"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

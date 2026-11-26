@@ -1,4 +1,4 @@
-import type { Extension, Node, Mark } from "@tiptap/core";
+import { Node, type Extension, type Mark } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Link from "@tiptap/extension-link";
@@ -47,6 +47,7 @@ import {
   repairCollabUndo,
   writeFollowUps,
 } from "./collabUndo.js";
+import { FocusWithoutScroll } from "./FocusWithoutScroll.js";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
 import { TaskListPasteNormalization } from "./TaskListPaste.js";
 
@@ -189,6 +190,37 @@ const DEFAULT_FEATURES: Required<SharedEditorFeatures> = {
   image: false,
 };
 
+const MarkdownText = Node.create({
+  name: "text",
+  group: "inline",
+  addStorage() {
+    return {
+      markdown: {
+        serialize(
+          state: {
+            text: (value: string, escape?: boolean) => void;
+            inAutolink?: boolean;
+          },
+          node: { text: string },
+        ) {
+          // A plain-URL autolink's text is its URL, which CommonMark reads
+          // literally: an escape or entity there would change the saved link.
+          if (state.inAutolink) {
+            state.text(node.text, false);
+            return;
+          }
+          state.text(
+            node.text
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;"),
+          );
+        },
+      },
+    };
+  },
+});
+
 export function createSharedEditorExtensions({
   dialect = "gfm",
   preset: _preset = "plan",
@@ -214,7 +246,10 @@ export function createSharedEditorExtensions({
       dropcursor: { color: "hsl(var(--ring))", width: 2 },
       ...(ydoc || disableHistory ? { undoRedo: false } : {}),
       ...(starterKit ?? {}),
+      text: false,
     }),
+    MarkdownText,
+    FocusWithoutScroll,
   ];
 
   if (feat.codeBlock) {

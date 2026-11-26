@@ -34,7 +34,6 @@ function makeArgs(
     setActiveFileId: vi.fn(),
     setActiveTool: vi.fn(),
     setCreatedOverviewLayerSelection: vi.fn(),
-    setDrawMode: vi.fn(),
     setHoveredElement: vi.fn(),
     setInteractDeviceName: vi.fn(),
     setInteractDeviceSize: vi.fn(),

@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 import { FeatureKeysGroup } from "./feature-keys-group";
 import { LoadFailedRow } from "./load-failed-row";
@@ -160,39 +161,44 @@ function YourDefaultsGroup() {
               </Select>
             }
           />
-          <SettingsRow
-            id="visibility"
-            label={visibilityLabel}
-            description={t("clipsSettings.visibilityDescription")}
-            control={
-              <VisibilitySelect<
-                ClipsDefaultVisibility | typeof FOLLOW_ORGANIZATION
-              >
-                value={
-                  query.data.defaultRecordingVisibility ?? FOLLOW_ORGANIZATION
-                }
-                label={visibilityLabel}
-                onChange={(next) =>
-                  save({
-                    defaultRecordingVisibility:
-                      next === FOLLOW_ORGANIZATION ? null : next,
-                  })
-                }
-                options={[
-                  {
-                    value: FOLLOW_ORGANIZATION,
-                    label: followOrganizationLabel(
-                      query.data.organizationDefaultVisibility ??
-                        DEFAULT_CLIPS_RECORDING_VISIBILITY,
-                    ),
-                  },
-                  { value: "private", label: t("settings.visibilityPrivate") },
-                  { value: "org", label: t("settings.visibilityOrg") },
-                  { value: "public", label: t("settings.visibilityPublic") },
-                ]}
-              />
-            }
-          />
+          {query.data.organizationVisibilityEnforced ? null : (
+            <SettingsRow
+              id="visibility"
+              label={visibilityLabel}
+              description={t("clipsSettings.visibilityDescription")}
+              control={
+                <VisibilitySelect<
+                  ClipsDefaultVisibility | typeof FOLLOW_ORGANIZATION
+                >
+                  value={
+                    query.data.defaultRecordingVisibility ?? FOLLOW_ORGANIZATION
+                  }
+                  label={visibilityLabel}
+                  onChange={(next) =>
+                    save({
+                      defaultRecordingVisibility:
+                        next === FOLLOW_ORGANIZATION ? null : next,
+                    })
+                  }
+                  options={[
+                    {
+                      value: FOLLOW_ORGANIZATION,
+                      label: followOrganizationLabel(
+                        query.data.organizationDefaultVisibility ??
+                          DEFAULT_CLIPS_RECORDING_VISIBILITY,
+                      ),
+                    },
+                    {
+                      value: "private",
+                      label: t("settings.visibilityPrivate"),
+                    },
+                    { value: "org", label: t("settings.visibilityOrg") },
+                    { value: "public", label: t("settings.visibilityPublic") },
+                  ]}
+                />
+              }
+            />
+          )}
         </>
       ) : query.isError ? (
         <LoadFailedRow onRetry={() => void query.refetch()} />
@@ -237,6 +243,19 @@ function OrganizationDefaultGroup() {
                 label: t("playerSettings.visibilityPrivate"),
               },
             ]}
+          />
+        }
+      />
+      <SettingsRow
+        id="organization-visibility-enforced"
+        label={t("clipsSettings.enforceOrgDefault")}
+        control={
+          <Switch
+            checked={organization.enforceDefaultVisibility === true}
+            onCheckedChange={(enforceDefaultVisibility) =>
+              save({ enforceDefaultVisibility })
+            }
+            aria-label={t("clipsSettings.enforceOrgDefault")}
           />
         }
       />

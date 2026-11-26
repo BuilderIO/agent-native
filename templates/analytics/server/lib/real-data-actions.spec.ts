@@ -2365,6 +2365,53 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
   });
 
+  it("does not read a ruled-out write as a dashboard build", () => {
+    for (const request of [
+      "Read-only. Don't create, edit or duplicate any dashboard. Which data sources are connected for this workspace right now?",
+      "Read-only follow-up to a failed task. Please run the SELECT below exactly once more. If jobComplete is false, poll that same job; do not submit a new job. Don't run any other query, and don't save or create any dashboard, analysis, panel or staged dataset.\n\n```sql\nSELECT source, COUNT(DISTINCT user_id) AS users FROM signups WHERE DATE(createdDate) >= '2026-09-21' GROUP BY source\n```",
+      "Do not save, create, edit or duplicate any dashboard, analysis, or panel. Return every result row verbatim.",
+      "Without saving or creating a dashboard, count signups by week for October.",
+      "Never edit DevRel Leaderboard v3 or any dashboard Jason or Steve own. Count signups by source.",
+      "You don't have to create a dashboard; just tell me which sources are connected.",
+      "Do not use a dashboard template; just list the connected sources.",
+      "You can't create a dashboard; just list the connected sources.",
+      "I don't want you to create or edit any dashboard. Which sources are connected?",
+      "You won't need to edit any dashboard. Count signups by week.",
+      "No dashboard template needed. Count signups by plan.",
+      "Don't create or edit any dashboard; just copy the numbers into your reply.",
+      "Don't create a dashboard; just refresh the numbers.",
+      "Don't create a dashboard; just copy it into your reply.",
+      "Don't create a dashboard; just make it a short table.",
+      "Don't create a dashboard; just make a copy of the revenue numbers into your reply.",
+      "Don't create a dashboard; just make one table with the numbers.",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
+    }
+  });
+
+  it("keeps a dashboard build stated beside a ruled-out write", () => {
+    for (const request of [
+      "Don't create a new dashboard, just update the Revenue dashboard to show signups by plan",
+      "Don't make a new dashboard; update the Revenue dashboard to show signups by plan",
+      "Don't edit the Growth dashboard and build a new Sales dashboard instead",
+      "Without changing the layout, build a copy of the Revenue dashboard for EMEA",
+      "Build a signups dashboard without editing the existing Growth dashboard",
+      "Create a dashboard for signups and don't include test accounts",
+      "Don't touch the existing one: build a new Sales dashboard for EMEA",
+      "Avoid duplicating the Revenue dashboard — create a new Sales dashboard",
+      "Avoid duplicating the Revenue dashboard - create a new Sales dashboard",
+      "Don't build it from scratch, use the Revenue dashboard as a template",
+      "Don't create a dashboard. Build one instead",
+      "Don't edit the Revenue dashboard but build one for Sales",
+      "Don't edit the Revenue dashboard; duplicate it for EMEA",
+      "Don't change the Revenue dashboard, make a copy for EMEA",
+      "Don't create a dashboard, I want you to build a new Sales dashboard",
+      "Don't edit the Growth dashboard, we'd like you to create one for Sales",
+    ]) {
+      expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
+    }
+  });
+
   it("does not treat an automation targeting a dashboard as dashboard construction", () => {
     const request =
       "Create an automation for the Revenue dashboard and run it every morning";

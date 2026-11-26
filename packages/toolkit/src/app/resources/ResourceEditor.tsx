@@ -29,10 +29,25 @@ import {
   getCustomAgentModelOptions,
   useCustomAgentModelEngine,
 } from "./custom-agent-model-options.js";
+import {
+  useResourceContentSave,
+  type SaveResourceContent,
+} from "./use-resource-content-save.js";
 
 export interface ResourceEditorProps {
   resource: Resource;
-  onSave: (content: string) => void;
+  /**
+   * Saves content over whatever is there now. Prefer `saveContent`, which
+   * can't lose someone else's save.
+   */
+  onSave?: (content: string) => void;
+  /**
+   * Saves content only over the revision it was edited from. With it, when
+   * another tab or the agent saved other content during an edit, the editor
+   * asks which version to keep, and newer saved content shows when there are
+   * no unsaved edits.
+   */
+  saveContent?: SaveResourceContent;
   view?: "visual" | "code";
   onViewChange?: (v: "visual" | "code") => void;
   hideToolbar?: boolean;
@@ -509,30 +524,35 @@ function serializeRemoteAgent(value: RemoteAgentFormValue): string {
 
 function RemoteAgentFormEditor({
   resource,
+  content,
   onChange,
   readOnly,
 }: {
   resource: Resource;
+  content: string;
   onChange: (content: string) => void;
   readOnly?: boolean;
 }) {
   const [value, setValue] = useState<RemoteAgentFormValue>(() =>
-    parseRemoteAgentContent(resource.content, resource.path),
+    parseRemoteAgentContent(content, resource.path),
   );
-  const prevIdRef = useRef(resource.id);
+  const emittedRef = useRef(content);
 
+  // Content that changed from outside, like a version picked after a save
+  // conflict, replaces the form. What the form itself sent doesn't.
   useEffect(() => {
-    if (prevIdRef.current !== resource.id) {
-      setValue(parseRemoteAgentContent(resource.content, resource.path));
-      prevIdRef.current = resource.id;
-    }
-  }, [resource.id, resource.content, resource.path]);
+    if (content === emittedRef.current) return;
+    emittedRef.current = content;
+    setValue(parseRemoteAgentContent(content, resource.path));
+  }, [content, resource.path]);
 
   const update = (patch: Partial<RemoteAgentFormValue>) => {
     if (readOnly) return;
     const next = { ...value, ...patch };
     setValue(next);
-    onChange(serializeRemoteAgent(next));
+    const serialized = serializeRemoteAgent(next);
+    emittedRef.current = serialized;
+    onChange(serialized);
   };
 
   const inputClass =
@@ -605,9 +625,16 @@ function RemoteAgentFormEditor({
   );
 }
 
-export function ResourceEditor({
+export function ResourceEditor(props: ResourceEditorProps) {
+  // One editor per resource, so an edit still saving goes to the resource it
+  // was made in.
+  return <OneResourceEditor key={props.resource.id} {...props} />;
+}
+
+function OneResourceEditor({
   resource,
   onSave,
+  saveContent,
   view: controlledView,
   onViewChange,
   hideToolbar,
@@ -615,32 +642,15 @@ export function ResourceEditor({
   modelEngine,
   builderFallbackLabel,
 }: ResourceEditorProps) {
-  const [content, setContent] = useState(resource.content);
+  const {
+    content,
+    editContent: handleChange,
+    conflictPrompt,
+  } = useResourceContentSave({ resource, readOnly, saveContent, onSave });
   const [internalView, setInternalView] = useState<"visual" | "code">(
     getViewPref,
   );
   const view = controlledView ?? internalView;
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevIdRef = useRef(resource.id);
-
-  useEffect(() => {
-    if (prevIdRef.current !== resource.id) {
-      setContent(resource.content);
-      prevIdRef.current = resource.id;
-    }
-  }, [resource.id, resource.content]);
-
-  const handleChange = useCallback(
-    (newContent: string) => {
-      if (readOnly) return;
-      setContent(newContent);
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        onSave(newContent);
-      }, 1000);
-    },
-    [onSave, readOnly],
-  );
 
   const switchView = useCallback(
     (v: "visual" | "code") => {
@@ -650,12 +660,6 @@ export function ResourceEditor({
     },
     [onViewChange],
   );
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
 
   const isMarkdown =
     resource.mimeType === "text/markdown" || resource.path.endsWith(".md");
@@ -667,9 +671,11 @@ export function ResourceEditor({
       <div className="flex h-full flex-col">
         <RemoteAgentFormEditor
           resource={resource}
+          content={content}
           onChange={handleChange}
           readOnly={readOnly}
         />
+        {conflictPrompt}
       </div>
     );
   }
@@ -750,6 +756,7 @@ export function ResourceEditor({
             spellCheck={false}
           />
         )}
+        {conflictPrompt}
       </div>
     );
   }
@@ -780,6 +787,7 @@ export function ResourceEditor({
           spellCheck={false}
         />
       )}
+      {conflictPrompt}
     </div>
   );
 }

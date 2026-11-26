@@ -12,5 +12,6 @@ export default defineAction({
     signal: z.enum(["helpful", "not-helpful", "incorrect", "outdated"]),
     note: z.string().max(5000).optional(),
   }),
+  mcpTool: "search",
   run: recordContextFeedback,
 });

@@ -314,7 +314,7 @@ test("position toggle persists for a child of a Screen body", async ({
   const initial = await readDesign(page, designId);
   const beforeIds = new Set(initial.files?.map((file) => file.id));
 
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const point = await emptyBoardPoint(page);
   await page.mouse.move(point.x, point.y);
   await page.mouse.down();

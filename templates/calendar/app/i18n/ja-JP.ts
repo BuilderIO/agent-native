@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google カレンダーのリクエストが制限されています。保存済みの予定は最新でない可能性があります。",
     connect: "接続",
     connected: "接続済み",
     connecting: "接続中...",
@@ -151,6 +153,10 @@ export default {
     googleCalendarSettings: "Google Calendar 設定",
     hideCalendar: "カレンダーを非表示",
     myCalendars: "マイカレンダー",
+    calendarDescription: "説明",
+    calendarDescriptionPlaceholder: "このカレンダーの用途は？",
+    calendarDescriptionHint:
+      "エージェントはこれを読んで適切なカレンダーを選びます。",
     feedsGroup: "フィード",
     managePeerAvailability: "共有の空き時間を管理",
     nextYear: "翌年",
@@ -554,11 +560,26 @@ export default {
     connectZoom: "Zoomを接続する",
     copyBookingLink: "予約リンクをコピーする",
     copyLink: "リンクをコピー",
+    copySingleUseLink: "1回限りのリンクをコピー",
+    singleUseLinkCopied:
+      "1回限りのリンクをコピーしました。予約は1件だけできます。",
+    singleUseLinkReady: "1回限りのリンクを作成しました",
+    singleUseLinkCreateFailed: "1回限りのリンクを作成できませんでした",
+    singleUseLinkUsed: "このリンクはすでに使用されています",
+    singleUseLinkInvalid: "このリンクは無効になりました",
+    singleUseLinkAskForNew:
+      "このリンクは1件の予約専用でした。送信者に新しいリンクを依頼してください。",
     createFirstLink: "最初のリンクを作成する",
     createLink: "リンクの作成",
     custom: "カスタム",
     customLink: "カスタムリンク",
     customLinkDescription: "会議 URL を貼り付けます",
+    reminderEmail: "リマインダーメール",
+    reminderEmailDescription:
+      "予約した人と、その人が追加したゲストに送信されます。",
+    reminderOff: "リマインダーなし",
+    reminderOneHour: "1時間前",
+    reminderOneDay: "1日前",
     date: "日付",
     dateAndTime: "日時",
     dateSelection: "日付選択",

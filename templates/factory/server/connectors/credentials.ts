@@ -1,5 +1,5 @@
 import { resolveCredential } from "@agent-native/core/credentials";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
+import { isOrgMember, resolveOrgIdForEmail } from "@agent-native/core/org";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
 
@@ -245,7 +245,13 @@ async function findConnectorSecret(
   const userSecret = await readVaultSecret(key, "user", userEmail);
   if (userSecret) return workspace(userSecret, "vault", "user");
 
-  const vaultOrgId = getVaultOrgId();
+  const configuredVaultOrgId = getVaultOrgId();
+  const vaultOrgId =
+    configuredVaultOrgId &&
+    configuredVaultOrgId !== requestedOrgId &&
+    !(await isOrgMember(configuredVaultOrgId, userEmail))
+      ? undefined
+      : configuredVaultOrgId;
   const orgIds = Array.from(
     new Set(
       [requestedOrgId, vaultOrgId].filter((id): id is string => Boolean(id)),

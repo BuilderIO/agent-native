@@ -116,8 +116,12 @@ export default defineAction({
                 }
               : null;
           },
-          connections: (providers) =>
-            readProviderConnections(providers, { userEmail, orgId }),
+          connections: (providers, ownerEmail) =>
+            readProviderConnections(providers, {
+              userEmail,
+              orgId,
+              ownerEmail,
+            }),
           jobHealth: async (workflow) =>
             summarizeWorkflowJob(
               workflow.automationId

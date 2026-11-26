@@ -1,0 +1,184 @@
+{
+  "switch": {
+    "height": {
+      "$type": "number",
+      "$value": 16,
+      "$description": "Track height in CSS pixels."
+    },
+    "width": {
+      "$type": "number",
+      "$value": 28,
+      "$description": "Track width in CSS pixels."
+    },
+    "inset": {
+      "$type": "number",
+      "$value": 2,
+      "$description": "Gap in CSS pixels between the thumb and the track edge."
+    },
+    "radius": {
+      "$type": "number",
+      "$value": 9999,
+      "$description": "Overrides the track corner radius, including when the radius prop is set. When this input is unset, an explicit radius prop uses var(--shape-control).",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--radius-full"
+        }
+      }
+    },
+    "surface-track-color": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0, 0, 0],
+        "alpha": 0.494118,
+        "hex": "#000000"
+      },
+      "$description": "Unchecked track in the surface variant.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--gray-a10"
+        }
+      }
+    },
+    "surface-track-color-checked": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.101961, 0.439216, 0.921569],
+        "alpha": 1,
+        "hex": "#1a70eb"
+      },
+      "$description": "Checked track in the surface variant.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--accent-track"
+        }
+      }
+    },
+    "soft-track-color": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0, 0, 0],
+        "alpha": 0.090196,
+        "hex": "#000000"
+      },
+      "$description": "Unchecked track in the soft variant.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--gray-a4"
+        }
+      }
+    },
+    "soft-track-color-checked": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.003922, 0.419608, 1],
+        "alpha": 0.290196,
+        "hex": "#016bff"
+      },
+      "$description": "Checked track in the soft variant.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--accent-a6"
+        }
+      }
+    },
+    "high-contrast-track-color-checked": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.05098, 0.192157, 0.4],
+        "alpha": 1,
+        "hex": "#0d3166"
+      },
+      "$description": "Checked track when high contrast is enabled.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--accent-12"
+        }
+      }
+    },
+    "thumb-color": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1, 1, 1],
+        "alpha": 1,
+        "hex": "#ffffff"
+      },
+      "$description": "Fill of the movable thumb.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--surface-raised"
+        }
+      }
+    },
+    "thumb-shadow": {
+      "$type": "string",
+      "$value": "var(--shadow-2)",
+      "$description": "CSS shadow or elevation variable for the thumb."
+    },
+    "invalid-ring-color": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.623529, 0.164706, 0.164706],
+        "alpha": 1,
+        "hex": "#9f2a2a"
+      },
+      "$description": "Ring around an invalid unchecked track.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--fill-danger"
+        }
+      }
+    },
+    "disabled-track-color": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0, 0, 0],
+        "alpha": 0.058824,
+        "hex": "#000000"
+      },
+      "$description": "Track fill while disabled.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--gray-a3"
+        }
+      }
+    },
+    "disabled-ring-color": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0, 0, 0],
+        "alpha": 0.14902,
+        "hex": "#000000"
+      },
+      "$description": "Ring around the disabled track and thumb.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--gray-a6"
+        }
+      }
+    },
+    "disabled-thumb-color": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.976471, 0.976471, 0.976471],
+        "alpha": 1,
+        "hex": "#f9f9f9"
+      },
+      "$description": "Thumb fill while disabled.",
+      "$extensions": {
+        "com.agent-native": {
+          "cssVariable": "--gray-2"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,81 @@
+/*
+ * Part: avatar
+ *
+ *   <span class="avatar" data-variant="solid|soft"
+ *         [data-color="accent|gray|danger|warning|success|info"]
+ *         [data-high-contrast] [data-radius]>     Base UI Avatar.Root
+ *     <img class="avatar-image">                  Avatar.Image, once loaded
+ *     <span class="avatar-fallback">              Avatar.Fallback, until then
+ *
+ * Radix Themes' avatar on the system's scale: xs, sm, md and lg are 16,
+ * 20, 24 and 32px boxes, round unless `radius` says otherwise. The fallback fills
+ * the box in the variant's way with the nearest `data-color`, and its text
+ * scales with the box.
+ */
+
+@layer components {
+  .avatar {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: var(--size-3);
+    height: var(--size-3);
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    corner-shape: var(--corner-shape, round);
+    vertical-align: middle;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .avatar[data-radius]:not([data-radius="full"]) {
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+  }
+
+  .avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+  }
+
+  .avatar-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    font-size: var(--font-size-1);
+    line-height: 1;
+    font-weight: var(--font-weight-medium);
+    text-transform: uppercase;
+  }
+
+  .avatar-fallback svg {
+    width: 62.5%;
+    height: 62.5%;
+  }
+
+  /* ---- variants ---- */
+
+  .avatar[data-variant="soft"] .avatar-fallback {
+    background-color: var(--accent-a3);
+    color: var(--accent-text);
+  }
+
+  .avatar[data-variant="soft"][data-high-contrast] .avatar-fallback {
+    color: var(--accent-12);
+  }
+
+  .avatar[data-variant="solid"] .avatar-fallback {
+    background-color: var(--accent-solid);
+    color: var(--accent-contrast);
+  }
+
+  .avatar[data-variant="solid"][data-high-contrast] .avatar-fallback {
+    background-color: var(--accent-12);
+    color: var(--accent-1);
+  }
+}

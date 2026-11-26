@@ -23,7 +23,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { MAX_FIG_FILE_BYTES } from "../lib/fig-file-limits.js";
+import { MAX_FIG_FILE_BYTES } from "../../shared/fig-file-limits.js";
 import {
   normalizeImportedHtmlDocument,
   saveImportedDesignFiles,

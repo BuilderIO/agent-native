@@ -8,6 +8,7 @@ import { isValidWorkspaceAppIdFormat } from "@agent-native/core/shared";
 import { z } from "zod";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Claim a fresh ownerless workspace app for the current organization. Returns whether the signed-in organization owner or admin may access it.",
   schema: z.object({

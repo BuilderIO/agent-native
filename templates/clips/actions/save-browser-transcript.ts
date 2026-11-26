@@ -1,6 +1,10 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -12,6 +16,7 @@ import {
   assertRecordingNotExpiredForEmail,
 } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { hasFinishedNativeTranscript } from "../server/lib/transcript-versions.js";
 import {
   speakerLabeledText,
   withoutEarlierAudio,
@@ -80,6 +85,11 @@ export default defineAction({
       .optional()
       .describe("Why native speech recognition could not save text"),
   }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (await resolveAccess("recording", args.recordingId)) !== null &&
+    (await hasFinishedNativeTranscript(args.recordingId)),
+  mcpTool: "search",
   run: async (args, context) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

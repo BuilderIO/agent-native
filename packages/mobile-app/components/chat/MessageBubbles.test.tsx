@@ -78,7 +78,10 @@ vi.mock("expo-clipboard", () => ({ setStringAsync: vi.fn() }));
 vi.mock("@/lib/mobile-colors", () => ({
   useMobileThemeColors: () => ({ mutedForeground: "#777" }),
 }));
-vi.mock("./MarkdownText", () => ({ MarkdownText: () => null }));
+vi.mock("./MarkdownText", () => ({
+  MarkdownText: () => null,
+  InlineText: () => null,
+}));
 vi.mock("./ShineText", () => ({ ShineText: () => null }));
 vi.mock("./StreamingFade", async () => {
   const React = await import("react");

@@ -1,13 +1,17 @@
+import type {
+  DashboardFilter,
+  FilterPreset,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
 import {
+  customRangeStartingBounds,
   editFilterPresets,
   isDateRangePresetFilter,
   normalizeMultiSelectValue,
 } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
-import type { DashboardFilter, FilterPreset } from "./types";
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -572,6 +576,77 @@ describe("resolveFilterVars", () => {
       { id: "q", label: "Query", type: "text", default: "30d" },
     ];
     expect(resolveFilterVars(filters, noParams).q).toBe("30d");
+  });
+});
+
+describe("customRangeStartingBounds", () => {
+  const timeRange: DashboardFilter = {
+    id: "timeRange",
+    label: "Time range",
+    type: "select",
+    default: "28d",
+    options: [
+      { value: "7d", label: "7 days" },
+      { value: "28d", label: "28 days" },
+      { value: "all", label: "All time" },
+    ],
+  };
+
+  it("starts a custom range at the period on screen", () => {
+    expect(
+      customRangeStartingBounds(timeRange, {
+        timeRange: "7d",
+        timeRangeStart: "2026-11-12",
+        timeRangeEnd: "2026-11-18",
+      }),
+    ).toEqual({ start: "2026-11-12", end: "2026-11-18" });
+  });
+
+  it("starts at the default period, not Jan 1, 1970, after all time", () => {
+    expect(
+      customRangeStartingBounds(
+        timeRange,
+        resolveFilterVars([timeRange], (key) =>
+          key === "timeRange" ? "all" : "",
+        ),
+      ),
+    ).toEqual({ start: daysAgo(28), end: daysAgo(0) });
+  });
+
+  it("never starts after it ends when the address keeps an older end", () => {
+    const bounds = customRangeStartingBounds(
+      timeRange,
+      resolveFilterVars([timeRange], (key) =>
+        key === "timeRange"
+          ? "all"
+          : key === "timeRangeEnd"
+            ? "2020-02-01"
+            : "",
+      ),
+    );
+
+    expect(bounds).toEqual({ start: daysAgo(28), end: daysAgo(0) });
+    expect(bounds.start <= bounds.end).toBe(true);
+  });
+
+  it("starts at the default period when the address holds a reversed range", () => {
+    const bounds = customRangeStartingBounds(timeRange, {
+      timeRange: "custom",
+      timeRangeStart: daysAgo(2),
+      timeRangeEnd: daysAgo(5),
+    });
+
+    expect(bounds).toEqual({ start: daysAgo(28), end: daysAgo(5) });
+    expect(bounds.start <= bounds.end).toBe(true);
+  });
+
+  it("starts at the last 30 days when nothing on screen has bounds", () => {
+    expect(
+      customRangeStartingBounds(
+        { ...timeRange, default: "all" },
+        { timeRange: "this", timeRangeStart: "", timeRangeEnd: "" },
+      ),
+    ).toEqual({ start: daysAgo(30), end: daysAgo(0) });
   });
 });
 

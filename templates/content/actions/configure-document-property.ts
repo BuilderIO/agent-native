@@ -9,6 +9,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
@@ -22,10 +24,16 @@ import {
   parsePropertyOptions,
   serializePropertyOptions,
   normalizePropertyVisibility,
+  type DocumentPropertyOption,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { contentDatabaseSourceWritebackPropertyIds } from "../shared/source-field-policy.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
-import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import {
+  assertKeepsRuledOptions,
+  assertNoColumnRuleOn,
+  columnRuleDefinitions,
+} from "./_column-rules.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   configureDocumentPropertyAgentSchema,
@@ -33,6 +41,7 @@ import {
   runConfigureDocumentProperty,
 } from "./_database-property-setup.js";
 import {
+  assertOrdinaryPropertySetupAllowed,
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
@@ -48,7 +57,87 @@ import {
   optionsForNewProperty,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
-import { assertRelationTargetDatabase } from "./_relation-values.js";
+import {
+  assertRelationTargetDatabase,
+  lockRelationCollections,
+} from "./_relation-values.js";
+
+type PropertyCollection = typeof schema.contentDatabases.$inferSelect;
+
+function optionListKey(options: DocumentPropertyOption[] | undefined) {
+  return (options ?? [])
+    .map((option) => `${option.id}\0${option.name}`)
+    .sort()
+    .join("\n");
+}
+
+async function propertySavesValueEditsToSource(
+  tx: ReturnType<typeof getDb>,
+  propertyId: string,
+) {
+  const fields = await tx
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+      mappingType: schema.contentDatabaseSourceFields.mappingType,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+      sourceType: schema.contentDatabaseSources.sourceType,
+      sourceTable: schema.contentDatabaseSources.sourceTable,
+      sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(eq(schema.contentDatabaseSourceFields.propertyId, propertyId));
+  return contentDatabaseSourceWritebackPropertyIds(fields).has(propertyId);
+}
+
+/**
+ * Lock the collection, and the one a relation links to, then check neither
+ * moved to another workspace since it was read: a Property written now would
+ * keep the old owner, or link across workspaces.
+ */
+async function lockPropertyCollection(
+  tx: ReturnType<typeof getDb>,
+  database: PropertyCollection,
+  relationTarget: PropertyCollection | null,
+): Promise<PropertyCollection> {
+  await lockRelationCollections(tx, [database.id, relationTarget?.id]);
+  const lockedDatabase = firstRow(
+    await tx
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, database.id)),
+  );
+  if (!lockedDatabase) {
+    throw new ActionContractError("Collection not found.", {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  if (
+    (lockedDatabase.spaceId ?? null) !== (database.spaceId ?? null) ||
+    (lockedDatabase.orgId ?? null) !== (database.orgId ?? null)
+  ) {
+    throw new ActionContractError(
+      "This collection moved to another workspace. Open it there and try again.",
+      { errorCode: "DATABASE_MOVED", statusCode: 409 },
+    );
+  }
+  if (relationTarget) {
+    await assertRelationTargetDatabase(tx, {
+      sourceDatabase: lockedDatabase,
+      targetDatabaseId: relationTarget.id,
+    });
+  }
+  return lockedDatabase;
+}
 
 const legacyConfigureDocumentPropertySchema = z
   .object({
@@ -151,6 +240,11 @@ export default defineAction({
     summary: (_args, result) =>
       setupAuditSummary(result, "Configured a Content database property"),
   },
+  // The app's own calls, whose documentId may be a row, name nothing.
+  changeResource: (input) =>
+    "operation" in input
+      ? documentChangeResource(input.target.databaseDocumentId)
+      : null,
   run: async (args, context) => {
     if (context?.caller === "mcp") {
       configureDocumentPropertyAgentSchema.parse(args);
@@ -178,6 +272,9 @@ export default defineAction({
         "Properties belong to databases. Create or open a database before adding properties.",
       );
     }
+    // Without an id this creates a property. Edits to one a system collection
+    // already has still go through, so it can be renamed or cleaned up.
+    if (!args.id) assertOrdinaryPropertySetupAllowed(database, type);
     if (args.icon !== undefined) {
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");
@@ -248,15 +345,11 @@ export default defineAction({
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
       await db.transaction(async (tx) => {
-        await lockContentDatabaseMutation(
+        const lockedDatabase = await lockPropertyCollection(
           tx as unknown as ReturnType<typeof getDb>,
-          database.id,
+          database,
+          relationTarget,
         );
-        const [lockedDatabase] = await tx
-          .select()
-          .from(schema.contentDatabases)
-          .where(eq(schema.contentDatabases.id, database.id));
-        if (!lockedDatabase) throw new Error("Database not found.");
         let [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -282,6 +375,9 @@ export default defineAction({
         }
         if (lockedDefinition.systemRole) {
           throw new Error("System properties cannot be changed.");
+        }
+        if (lockedDefinition.type !== type) {
+          assertOrdinaryPropertySetupAllowed(database, type);
         }
         if (
           isComputedPropertyType(
@@ -331,6 +427,44 @@ export default defineAction({
             database.id,
             context,
           );
+        const ruleDefinitions = await columnRuleDefinitions(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
+        if (lockedDefinition.type !== type) {
+          assertNoColumnRuleOn(ruleDefinitions, propertyId, "type");
+        } else {
+          assertKeepsRuledOptions(
+            ruleDefinitions,
+            propertyId,
+            parsePropertyOptions(optionsJson).options,
+          );
+        }
+        if (
+          lockedDefinition.type === type &&
+          optionListKey(lockedOptions.options) !==
+            optionListKey(parsePropertyOptions(optionsJson).options) &&
+          (await propertySavesValueEditsToSource(
+            tx as unknown as ReturnType<typeof getDb>,
+            propertyId,
+          ))
+        ) {
+          throw new ActionContractError(
+            `The options of "${lockedDefinition.name}" come from Builder. Add the option in Builder, then refresh the source.`,
+            { errorCode: "SOURCE_OPTIONS_LOCKED", statusCode: 400 },
+          );
+        }
+        // The rule isn't part of this action's options: a rename keeps it.
+        const keptFreezeRule =
+          lockedDefinition.type === type
+            ? lockedOptions.blocks?.freezeWhen
+            : undefined;
+        if (keptFreezeRule) {
+          optionsJson = serializePropertyOptions({
+            ...parsePropertyOptions(optionsJson),
+            blocks: { primary: false, freezeWhen: keptFreezeRule },
+          });
+        }
         if (lockedDefinition.type !== type) {
           const memberships = await tx
             .select({
@@ -469,15 +603,11 @@ export default defineAction({
         propertyDefinitionsPositionScope(database.id),
         async () => {
           await db.transaction(async (tx) => {
-            await lockContentDatabaseMutation(
+            const lockedDatabase = await lockPropertyCollection(
               tx as unknown as ReturnType<typeof getDb>,
-              database.id,
+              database,
+              relationTarget,
             );
-            const [lockedDatabase] = await tx
-              .select()
-              .from(schema.contentDatabases)
-              .where(eq(schema.contentDatabases.id, database.id));
-            if (!lockedDatabase) throw new Error("Database not found.");
             // A new Blocks field adds a tab to every row.
             if (isBlocksPropertyType(type))
               await lockRowsAndAssertAgentsMayEditTabs(

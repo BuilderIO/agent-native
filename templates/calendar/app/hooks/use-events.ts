@@ -3,6 +3,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import { addDaysToDateKey } from "@shared/timezone";
 import {
@@ -16,6 +17,10 @@ import { nanoid } from "nanoid";
 import { useMemo } from "react";
 
 import type { CalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
+import {
+  calendarReadRetryDelay,
+  shouldRetryCalendarRead,
+} from "@/lib/calendar-read-retry";
 import { isEventVisibleForDeclinedPreference } from "@/lib/calendar-view-preferences";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import {
@@ -59,8 +64,9 @@ type CreateEventInput = Omit<
   workingLocationLabel?: string;
 };
 
-type UpdateEventInput = Partial<CalendarEvent> & {
+export type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
+  expectedRevision?: string;
   cacheEventIdentity?: CalendarEventSourceIdentity;
   targetAccountEmail?: string;
   addGoogleMeet?: boolean;
@@ -86,7 +92,7 @@ type DeleteEventMutationContext = {
   removedByQuery?: Array<[QueryKey, CalendarEvent[]]>;
 };
 
-type UpdateEventResult = Partial<CalendarEvent> & {
+export type UpdateEventResult = Partial<CalendarEvent> & {
   id?: string;
   replacedId?: string;
   success?: boolean;
@@ -118,8 +124,10 @@ function buildEventsParams(
   to?: string,
   overlayEmails?: string[],
   calendarSourceKeys?: string[],
+  independentOnly = false,
 ): Record<string, string | string[]> {
-  const params: Record<string, string | string[]> = {};
+  const params: Record<string, string | string[]> = { incremental: "true" };
+  if (independentOnly) params.sources = ["bookings", "ics", "overlays"];
   if (from) params.from = from;
   if (to) params.to = to;
   if (overlayEmails && overlayEmails.length > 0) {
@@ -294,13 +302,35 @@ export function shouldShowEventsSkeleton({
 }
 
 export const EVENTS_OVERLAY_BATCH_SIZE = 10;
+const EVENT_WINDOW_STEP_MS = 12 * 7 * 24 * 60 * 60 * 1000;
+const EVENT_MAX_VIEW_MS = 45 * 24 * 60 * 60 * 1000;
+
+function eventWindow(from?: string, to?: string) {
+  const first = from ? Date.parse(from) : NaN;
+  const last = to ? Date.parse(to) : NaN;
+  if (!Number.isFinite(first) || !Number.isFinite(last) || first >= last) {
+    return { from, to };
+  }
+  const anchor =
+    Math.floor(first / EVENT_WINDOW_STEP_MS) * EVENT_WINDOW_STEP_MS;
+  return {
+    from: new Date(anchor - EVENT_WINDOW_STEP_MS).toISOString(),
+    to: new Date(
+      anchor + EVENT_WINDOW_STEP_MS + Math.max(EVENT_MAX_VIEW_MS, last - first),
+    ).toISOString(),
+  };
+}
 
 export function useEvents(
   from?: string,
   to?: string,
   overlayEmails?: string[],
   calendarSourceKeys?: string[],
+  enabled = true,
+  independentOnly = false,
 ) {
+  const queryClient = useQueryClient();
+  const window = eventWindow(from, to);
   const primaryOverlayEmails = overlayEmails?.slice(
     0,
     EVENTS_OVERLAY_BATCH_SIZE,
@@ -321,15 +351,17 @@ export function useEvents(
   }, [overlayEmails]);
 
   const params = buildEventsParams(
-    from,
-    to,
+    window.from,
+    window.to,
     primaryOverlayEmails,
     calendarSourceKeys,
+    independentOnly,
   );
   const demo = isSharedCalendarDemo();
   const live = useActionQuery<CalendarEvent[]>("list-events", params, {
-    enabled: !demo,
-    retry: false,
+    enabled: !demo && enabled,
+    retry: shouldRetryCalendarRead,
+    retryDelay: calendarReadRetryDelay,
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
@@ -337,7 +369,7 @@ export function useEvents(
   const extraOverlayQueries = useQueries({
     queries: extraOverlayBatches.map((batch) => {
       const batchParams = {
-        ...buildEventsParams(from, to, batch),
+        ...buildEventsParams(window.from, window.to, batch),
         sources: ["overlays"],
       };
       return {
@@ -346,8 +378,9 @@ export function useEvents(
           callAction<CalendarEvent[]>("list-events", batchParams, {
             method: "GET",
           }),
-        enabled: !demo,
-        retry: false,
+        enabled: !demo && enabled,
+        retry: shouldRetryCalendarRead,
+        retryDelay: calendarReadRetryDelay,
         staleTime: 30_000,
         gcTime: 30 * 60 * 1000,
         placeholderData: keepPreviousData,
@@ -367,31 +400,95 @@ export function useEvents(
     staleTime: Infinity,
   });
 
+  const adjacentParams = (direction: number) =>
+    buildEventsParams(
+      window.from
+        ? new Date(
+            Date.parse(window.from) + direction * EVENT_WINDOW_STEP_MS,
+          ).toISOString()
+        : undefined,
+      window.to
+        ? new Date(
+            Date.parse(window.to) + direction * EVENT_WINDOW_STEP_MS,
+          ).toISOString()
+        : undefined,
+      primaryOverlayEmails,
+      calendarSourceKeys,
+      independentOnly,
+    );
+  const previousParams = adjacentParams(-1);
+  const nextParams = adjacentParams(1);
+  const canPrefetch =
+    !demo &&
+    enabled &&
+    !independentOnly &&
+    Boolean(window.from && window.to) &&
+    live.isSuccess &&
+    !live.isFetching &&
+    !live.failureReason;
+  useActionQuery<CalendarEvent[]>("list-events", previousParams, {
+    enabled:
+      canPrefetch &&
+      !queryClient.getQueryData(["action", "list-events", previousParams]),
+    retry: false,
+    staleTime: 30_000,
+    gcTime: 30 * 60 * 1000,
+  });
+  useActionQuery<CalendarEvent[]>("list-events", nextParams, {
+    enabled:
+      canPrefetch &&
+      !queryClient.getQueryData(["action", "list-events", nextParams]),
+    retry: false,
+    staleTime: 30_000,
+    gcTime: 30 * 60 * 1000,
+  });
+
+  const partialEvents = (
+    (live.error ?? live.failureReason) as {
+      details?: { partialEvents?: unknown };
+    } | null
+  )?.details?.partialEvents;
   const mergedData = useMemo(() => {
-    if (!Array.isArray(live.data) || extraOverlayQueries.length === 0) {
-      return live.data;
+    const partial = Array.isArray(partialEvents)
+      ? (partialEvents as CalendarEvent[])
+      : [];
+    const base = partial.reduce<CalendarEvent[] | undefined>(
+      (events, event) => mergeCalendarEventIntoList(events, event),
+      live.data,
+    );
+    if (!Array.isArray(base) || extraOverlayQueries.length === 0) {
+      return base;
     }
     const extras = extraOverlayQueries.flatMap((query) =>
       Array.isArray(query.data) ? query.data : [],
     );
-    return extras.length > 0 ? [...live.data, ...extras] : live.data;
-  }, [live.data, extraOverlayQueries]);
+    return extras.length > 0 ? [...base, ...extras] : base;
+  }, [live.data, partialEvents, extraOverlayQueries]);
 
   if (demo) return fixture;
-  if (extraOverlayQueries.length === 0) return live;
+  if (extraOverlayQueries.length === 0)
+    return {
+      ...live,
+      data: mergedData,
+      isLoading: live.isLoading && !mergedData?.length,
+    };
 
   const overlayError = extraOverlayQueries.find((q) => q.error)?.error;
 
   return {
     ...live,
     data: mergedData,
-    isLoading: live.isLoading,
+    isLoading: live.isLoading && !mergedData?.length,
     isFetching:
       live.isFetching || extraOverlayQueries.some((q) => q.isFetching),
     isPlaceholderData:
       live.isPlaceholderData ||
       extraOverlayQueries.some((q) => q.isPlaceholderData),
     error: live.error ?? overlayError ?? null,
+    failureReason:
+      live.failureReason ??
+      extraOverlayQueries.find((q) => q.failureReason)?.failureReason ??
+      null,
     isError: live.isError || Boolean(overlayError),
   };
 }
@@ -454,32 +551,6 @@ export function useOverlayCalendarStatus(overlayEmails: string[]) {
     return map;
   }, [queries]);
   return statusByEmail;
-}
-
-export function prefetchEvents(
-  queryClient: ReturnType<typeof useQueryClient>,
-  from: string,
-  to: string,
-  overlayEmails?: string[],
-  calendarSourceKeys?: string[],
-) {
-  if (isSharedCalendarDemo()) return;
-  const primaryOverlayEmails = overlayEmails
-    ? overlayEmails.slice(0, EVENTS_OVERLAY_BATCH_SIZE)
-    : overlayEmails;
-  const params = buildEventsParams(
-    from,
-    to,
-    primaryOverlayEmails,
-    calendarSourceKeys,
-  );
-  return queryClient.prefetchQuery({
-    queryKey: ["action", "list-events", params],
-    queryFn: () =>
-      callAction<CalendarEvent[]>("list-events", params, { method: "GET" }),
-    staleTime: 30_000,
-    gcTime: 30 * 60 * 1000,
-  });
 }
 
 export function useEvent(id: string, calendarSourceKey?: string) {
@@ -554,7 +625,11 @@ export function useUpdateEvent() {
         const previous = queryClient.getQueriesData<CalendarEvent[]>({
           queryKey: ["action", "list-events"],
         });
-        const { cacheEventIdentity, ...eventInput } = newData;
+        const {
+          cacheEventIdentity,
+          expectedRevision: _expectedRevision,
+          ...eventInput
+        } = newData;
         const {
           addGoogleMeet,
           removeGoogleMeet,
@@ -645,13 +720,28 @@ export function useUpdateEvent() {
             ),
         );
       },
-      onError: (_err, _newData, context) => {
+      onError: (err, input, context) => {
         const previous = (context as EventListMutationContext | undefined)
           ?.previous;
         if (previous) {
           for (const [key, data] of previous) {
             queryClient.setQueryData(key, data);
           }
+        }
+        if (isSaveConflict(err)) {
+          const current = err.details.current as UpdateEventResult | null;
+          if (!current?.id) return;
+          queryClient.setQueriesData<CalendarEvent[]>(
+            { queryKey: ["action", "list-events"] },
+            (old) =>
+              reconcileUpdatedEventList(
+                old,
+                input.id,
+                current,
+                input.accountEmail,
+                input.cacheEventIdentity,
+              ),
+          );
         }
       },
       onSettled: () => {

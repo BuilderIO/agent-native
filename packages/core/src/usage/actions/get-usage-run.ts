@@ -14,6 +14,7 @@ export default defineAction({
     userEmail: z.string().trim().min(1).optional(),
     appId: z.string().trim().max(200).optional(),
   }),
+  mcpTool: false,
   run: async ({ runId, scope, userEmail, appId }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     return getUsageRun(

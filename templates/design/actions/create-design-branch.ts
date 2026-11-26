@@ -14,9 +14,6 @@
  * - **Persistence:** stores the returned branch metadata into the design's `data`
  *   JSON blob under a `branches` key, keyed by `branchName`.  This is additive —
  *   existing data is preserved.
- * - **Design version snapshot:** creates a `design_versions` row capturing the
- *   pre-branch HTML state so the branch can be diffed/rolled back via
- *   `get-design-branch-diff`.
  *
  * Per DESIGN-STUDIO-PLAN.md §3.3, the original inline design is never dropped;
  * migration is preview-only until the user approves cutover.
@@ -83,8 +80,8 @@ export default defineAction({
     "For inline/localhost designs without Builder, returns a ctaRequired response " +
     "with a 'Make it real' upgrade message — never fakes a branch call. " +
     "On success, persists branch metadata (branchName, url, status, projectId) " +
-    "into the design's data blob and creates a design_versions snapshot so the " +
-    "pre-branch state can be diffed/rolled back via get-design-branch-diff.",
+    "into the design's data blob and creates a design_versions snapshot of " +
+    "the pre-branch state.",
   schema: z.object({
     designId: z.string().describe("Design project ID to create a branch for"),
     branchName: z
@@ -220,8 +217,7 @@ export default defineAction({
       versionId,
       note:
         "The design source has been upgraded to 'fusion'. The pre-branch state " +
-        "is captured in the design version snapshot so you can diff/rollback via " +
-        "get-design-branch-diff.",
+        "is captured in the design version snapshot.",
     };
   },
 });

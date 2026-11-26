@@ -9,6 +9,7 @@ import {
   readCommentAiSource,
   serializeCommentAiRequest,
 } from "../server/lib/comment-ai.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
 import {
   documentRevisionToken,
@@ -125,4 +126,5 @@ export default defineAction({
       .where(eq(schema.commentAiRequests.id, request.id));
     return serializeCommentAiRequest(current ?? request);
   },
+  changeResource: commentAiChangeResource,
 });

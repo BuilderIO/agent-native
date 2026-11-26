@@ -681,6 +681,7 @@ function collectAssetRefs(blocks: PlanBlock[]): Map<string, PlanBlock> {
 }
 
 async function loadAssetDataForExport(
+  planId: string | undefined,
   assetIds: string[],
 ): Promise<
   Map<
@@ -688,15 +689,21 @@ async function loadAssetDataForExport(
     { filename: string; base64: string | null; cdnUrl: string | null }
   >
 > {
-  if (assetIds.length === 0) return new Map();
+  // Only the exported plan's own images: content can name any asset id.
+  if (!planId || assetIds.length === 0) return new Map();
   try {
     const { getDb, schema } = await import("./db/index.js");
-    const { eq, inArray } = await import("drizzle-orm");
+    const { and, eq, inArray } = await import("drizzle-orm");
     const db = getDb();
     const rows = await db
       .select()
       .from(schema.planAssets)
-      .where(inArray(schema.planAssets.id, assetIds));
+      .where(
+        and(
+          eq(schema.planAssets.planId, planId),
+          inArray(schema.planAssets.id, assetIds),
+        ),
+      );
 
     const result = new Map<
       string,
@@ -708,6 +715,14 @@ async function loadAssetDataForExport(
           filename: row.filename,
           base64: null,
           cdnUrl: row.data.slice(4),
+        });
+      } else if (row.data.startsWith("private:")) {
+        // A private image stays a link to the plan's image route, which
+        // checks the reader can open the plan; its bytes aren't copied out.
+        result.set(row.id, {
+          filename: row.filename,
+          base64: null,
+          cdnUrl: `${PLAN_ASSET_ROUTE_PREFIX}${encodeURIComponent(row.id)}/${encodeURIComponent(row.filename)}`,
         });
       } else {
         result.set(row.id, {
@@ -752,7 +767,9 @@ export async function exportPlanContentToMdxFolder(
   const visualUrl = visualUrlForMdx(input);
 
   const assetRefs = collectAssetRefs(content.blocks);
-  const assetData = await loadAssetDataForExport([...assetRefs.keys()]);
+  const assetData = await loadAssetDataForExport(input.planId, [
+    ...assetRefs.keys(),
+  ]);
 
   const assetsFolder: Record<string, string> = {};
   const assetIdToRelativePath = new Map<string, string>();

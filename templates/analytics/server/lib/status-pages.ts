@@ -28,6 +28,7 @@ import { recordChange } from "@agent-native/core/server";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { maskMonitorUrl } from "./monitor-redaction.js";
 import {
   getMonitorStats,
   type MonitorStats,
@@ -273,7 +274,7 @@ export function sanitizePublicMonitor(
     id: monitor.id,
     name: ref.displayName?.trim() || monitor.name,
     host: safeHost(monitor.url),
-    url: ref.showUrl ? monitor.url : null,
+    url: ref.showUrl ? maskMonitorUrl(monitor.url) : null,
     status: stats?.status ?? monitor.lastStatus ?? null,
     windows: stats?.windows ?? EMPTY_WINDOWS,
     timeline: stats?.timeline ?? [],

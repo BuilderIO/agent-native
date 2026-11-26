@@ -137,6 +137,7 @@ import {
 } from "./capture-error.js";
 
 const OWNER = "owner@example.com";
+const BACKGROUND_APP_ID = "background-app";
 const ORIGIN = "http://localhost:3000";
 const ENGINE_NAME = "background-session-test";
 const BROWSER_USER_AGENT =
@@ -253,6 +254,7 @@ beforeAll(async () => {
     }
   });
   createAgentChatPlugin({
+    appId: BACKGROUND_APP_ID,
     actions: () => ({}),
     a2aAgentDelegation: false,
     durableBackgroundRuns: true,
@@ -332,6 +334,48 @@ afterAll(async () => {
 });
 
 describe("background agent sessions through the agent-chat plugin", () => {
+  it("preserves a claimed run when a duplicate invocation fails before entering the agent handler", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const runId = "duplicate-worker-startup-error";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    await runStore.insertRun(runId, "duplicate-worker-thread", runId, {
+      dispatchMode: "background",
+    });
+    expect(await runStore.claimBackgroundRun(runId)).toBe(true);
+    const seedOwner = vi
+      .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
+      .mockRejectedValueOnce(
+        new Error("owner context temporarily unavailable"),
+      );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    try {
+      const response = await fetch(AGENT_CHAT_PROCESS_RUN_PATH, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${signInternalToken(runId)}`,
+        },
+        body: JSON.stringify({
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "process-run failed" });
+      expect(await runStore.getRunStatus(runId)).toBe("running");
+      expect(await runStore.getLastTerminalRunEvent(runId)).toBeNull();
+    } finally {
+      consoleError.mockRestore();
+      seedOwner.mockRestore();
+      await runStore.markRunAborted(runId, "user");
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("keeps the process-run error response when finalization also fails", async () => {
     const previousA2ASecret = process.env.A2A_SECRET;
     const runId = "process-run-finalization-failure";
@@ -340,7 +384,10 @@ describe("background agent sessions through the agent-chat plugin", () => {
     process.env.A2A_SECRET = "fixture-a2a-secret";
     const seedOwner = vi
       .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
-      .mockRejectedValue(workerError);
+      .mockResolvedValue(undefined);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockRejectedValueOnce(workerError);
     const finalizeFailure = vi
       .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
       .mockRejectedValue(finalizationError);
@@ -393,6 +440,7 @@ describe("background agent sessions through the agent-chat plugin", () => {
       unregisterCapture();
       consoleError.mockRestore();
       seedOwner.mockRestore();
+      isTurnAborted.mockRestore();
       finalizeFailure.mockRestore();
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previousA2ASecret;
@@ -631,7 +679,10 @@ describe("background agent sessions through the agent-chat plugin", () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";
     const threadId = "ownerless-saved-thread";
-    await createThread(OWNER, { id: threadId });
+    await createThread(OWNER, {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
     const engineMessageCount = engineMessages.length;
 
     try {
@@ -753,7 +804,10 @@ describe("background agent sessions through the agent-chat plugin", () => {
   it("still refuses a queued-message promotion that carries no live claim", async () => {
     const threadId = "queued-promotion-thread";
     const queuedId = "queued-message-1";
-    await createThread(OWNER, { id: threadId });
+    await createThread(OWNER, {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
     await mutateThreadQueuedMessages(threadId, {
       type: "append",
       message: { id: queuedId, text: "Queued follow-up", threadId },
@@ -783,9 +837,164 @@ describe("background agent sessions through the agent-chat plugin", () => {
     ]);
   });
 
+  it("records a claimed queued message refused for a missing credential in its thread", async () => {
+    const threadId = "refused-queued-promotion-thread";
+    const queuedId = "refused-queued-message";
+    const claimId = "refused-queued-claim";
+    const turnId = `queue-${queuedId}`;
+    const keylessEngine = "refused-queued-keyless";
+    registerAgentEngine({
+      name: keylessEngine,
+      label: "Keyless",
+      description: "An engine whose key is never set, so its turns are refused",
+      capabilities: scriptedEngine.capabilities,
+      defaultModel: scriptedEngine.defaultModel,
+      supportedModels: scriptedEngine.supportedModels,
+      requiredEnvVars: ["REFUSED_QUEUED_PROMOTION_TEST_API_KEY"],
+      // The credential check looks the engine up by its own name.
+      create: () => ({ ...scriptedEngine, name: keylessEngine }),
+    });
+    const reports: CaptureErrorContext[] = [];
+    const unregisterCapture = registerErrorCaptureProvider(
+      "refused-queued-promotion-spec",
+      (_error, context) => {
+        reports.push(context);
+      },
+    );
+    const engineCallsBefore = engineMessages.length;
+
+    try {
+      await createThread(OWNER, {
+        id: threadId,
+        source: { appId: BACKGROUND_APP_ID },
+      });
+      await mutateThreadQueuedMessages(threadId, {
+        type: "append",
+        message: {
+          id: queuedId,
+          text: "Queued while a reply ran",
+          threadId,
+          metadata: { engine: keylessEngine },
+        },
+      });
+      // The chat client claims a queued message before it sends it.
+      await mutateThreadQueuedMessages(threadId, {
+        type: "claim",
+        messageId: queuedId,
+        claimId,
+      });
+
+      const response = await fetch("/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "Queued while a reply ran",
+          queuedMessageId: queuedId,
+          queuedMessageClaimId: claimId,
+          threadId,
+          turnId,
+          history: [],
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain(
+        '"errorCode":"missing_credentials"',
+      );
+      // Recorded like a refused direct send: the prompt with its retry
+      // marker, and a failed run carrying the refusal.
+      expect(await userMessagesFor(threadId, queuedId)).toEqual([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            custom: expect.objectContaining({
+              submittedRunId: turnId,
+              agentNativeRunNotStarted: true,
+            }),
+          }),
+        }),
+      ]);
+      const repo = JSON.parse((await getThread(threadId))?.threadData || "{}");
+      expect(repo.agentKit?.runs).toEqual([
+        expect.objectContaining({
+          id: turnId,
+          status: "failed",
+          error: expect.objectContaining({ code: "missing_credentials" }),
+        }),
+      ]);
+      expect(repo.queuedMessages ?? []).not.toContainEqual(
+        expect.objectContaining({ id: queuedId }),
+      );
+      expect(
+        reports.filter(
+          (context) => context.tags?.failureClass === "unstarted-turn-persist",
+        ),
+      ).toEqual([]);
+      expect(engineMessages).toHaveLength(engineCallsBefore);
+    } finally {
+      unregisterCapture();
+      unregisterAgentEngine(keylessEngine);
+    }
+  });
+
+  it("keeps a queued message when a refused request carries its claim with different text", async () => {
+    const threadId = "unadmitted-queued-promotion-thread";
+    const queuedId = "unadmitted-queued-message";
+    const claimId = "unadmitted-queued-claim";
+    await createThread(OWNER, {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
+    await mutateThreadQueuedMessages(threadId, {
+      type: "append",
+      message: { id: queuedId, text: "The queued prompt", threadId },
+    });
+    await mutateThreadQueuedMessages(threadId, {
+      type: "claim",
+      messageId: queuedId,
+      claimId,
+    });
+    // The text doesn't match the queue entry, so the promotion isn't admitted
+    // and the request meets the setup gate like a direct send.
+    harness.requireAgentChatAiSetup.mockRejectedValueOnce(
+      Object.assign(new Error("Connect AI first"), {
+        statusCode: 403,
+        data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+      }),
+    );
+
+    const response = await fetch("/_agent-native/agent-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "Some other text",
+        queuedMessageId: queuedId,
+        queuedMessageClaimId: claimId,
+        threadId,
+        turnId: `queue-${queuedId}`,
+        history: [],
+        engine: ENGINE_NAME,
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(harness.requireAgentChatAiSetup).toHaveBeenCalled();
+    expect(await userMessagesFor(threadId, queuedId)).toHaveLength(0);
+    const repo = JSON.parse((await getThread(threadId))?.threadData || "{}");
+    expect(repo.queuedMessages).toEqual([
+      expect.objectContaining({
+        id: queuedId,
+        text: "The queued prompt",
+        promotionClaim: expect.objectContaining({ id: claimId }),
+      }),
+    ]);
+  });
+
   it("allows an anonymous read-only visitor to queue a prompt without a user AI identity", async () => {
     const threadId = "anonymous-queued-thread";
-    await createThread("anonymous-owner@example.com", { id: threadId });
+    await createThread("anonymous-owner@example.com", {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
 
     const response = await fetch(
       `/_agent-native/agent-chat/threads/${threadId}/queued`,

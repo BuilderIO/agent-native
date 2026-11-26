@@ -46,6 +46,11 @@ import {
   submitMobileMessageFeedback,
 } from "./message-actions";
 import { extractThreadId, navigateCommandDedupKey } from "./navigate-command";
+import {
+  mobileAppPanelUnavailable,
+  readMobileOpenAppEvent,
+  type MobileAppOpenEvent,
+} from "./open-app";
 import { applyWireEvent, cancelTurnState, nextLocalId } from "./reducer";
 import type {
   ChatAttachment,
@@ -311,7 +316,15 @@ function annotateAssistantMessage(
   return { ...state, messages: [...state.messages.slice(0, -1), updated] };
 }
 
-export function useAgentChat(settings: AgentChatSettings): AgentChatController {
+export function useAgentChat(
+  settings: AgentChatSettings,
+  options: {
+    onOpenApp?: ((event: MobileAppOpenEvent) => void) | undefined;
+  } = {},
+): AgentChatController {
+  const onOpenAppRef = useRef(options.onOpenApp);
+  onOpenAppRef.current = options.onOpenApp;
+  const panelRunRef = useRef<string | null>(null);
   const [threadId, setThreadId] = useState(() => newThreadId());
   const [state, setState] = useState<ChatTurnState>(() => ({
     messages: [],
@@ -553,6 +566,20 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       assistantIdsByRunRef.current.set(event.runId, active.assistantId);
       runIdsRef.current.set(active.assistantId, event.runId);
       if (liveTurnRef.current) liveTurnRef.current.runId = event.runId;
+      const panelEvent = readMobileOpenAppEvent(event);
+      if (panelEvent) {
+        if (panelEvent.kind === "open") panelRunRef.current = event.runId;
+        onOpenAppRef.current?.(panelEvent);
+      } else if (
+        event.type === "run.failed" &&
+        panelRunRef.current === event.runId
+      ) {
+        panelRunRef.current = null;
+        onOpenAppRef.current?.({
+          kind: "notice",
+          message: mobileAppPanelUnavailable(),
+        });
+      }
       const wireEvent = mobileAgentKitEventToWireEvent(event);
       if (!wireEvent) return;
       const scopeValue = mobileChatScope(event.metadata);

@@ -1,3 +1,4 @@
+import { ACTION_ERROR_MESSAGES } from "./action-error-messages.js";
 import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
@@ -114,6 +115,8 @@ export async function loadCoreMessagesForLocale(
     : supplementalCoreMessageLoaders[DEFAULT_LOCALE];
   const supplementalMessages = await supplementalLoader();
   return {
+    actionErrors:
+      ACTION_ERROR_MESSAGES[isLocaleCode(locale) ? locale : DEFAULT_LOCALE],
     agentResources: agentResourcePackMessagesForLocale(locale),
     consentBanner: consentBannerMessagesForLocale(locale),
     environmentBadge: environmentBadgeMessagesForLocale(locale),
@@ -128,6 +131,7 @@ export async function loadCoreMessagesForLocale(
 }
 
 const englishCoreMessages = {
+  actionErrors: ACTION_ERROR_MESSAGES[DEFAULT_LOCALE],
   agentResources: agentResourcePackMessagesForLocale(DEFAULT_LOCALE),
   consentBanner: consentBannerMessagesForLocale(DEFAULT_LOCALE),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,

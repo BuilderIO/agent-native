@@ -44,6 +44,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async (args, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
 

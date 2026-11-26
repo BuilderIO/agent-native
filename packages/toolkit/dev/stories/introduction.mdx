@@ -1,0 +1,56 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Introduction" />
+
+# Agent-Native design system
+
+The toolkit provides React components built on Base UI. The design-system package provides their tokens, themes and CSS.
+
+[Browse components](?path=/docs/components-overview--docs) to choose a control. Each guide includes a usage example, supported props and interaction details. For example, [Select](?path=/docs/components-select--docs) chooses a value, [Combobox](?path=/docs/components-combobox--docs) searches choices, and [Menu](?path=/docs/components-menu--docs) offers commands.
+
+## Use a component
+
+Load the tokens and component styles once at your app entry point. Import each component from its public toolkit module. The Controls table lists the sizes, variants and colors it supports.
+
+```tsx
+import "@agent-native/design-system/tokens.css";
+import "@agent-native/design-system/styles.css";
+import { Button } from "@agent-native/toolkit/ui/base-ui/button";
+
+<Button variant="soft" color="gray" size="sm">
+  Cancel
+</Button>;
+```
+
+For a screen that uses a few controls, replace `styles.css` with their component stylesheets. Button, Icon Button, Dialog, Autocomplete and Combobox have focused imports. Each includes its built-in parts. Keep the tokens and app theme imports.
+
+```css
+@import "@agent-native/design-system/components/dialog.css";
+@import "@agent-native/design-system/components/combobox.css";
+```
+
+## Theme a region
+
+[ThemeProvider](?path=/docs/components-theme-provider--docs) sets the appearance of an application or an individual surface. Load its theme stylesheet alongside the design-system styles. Menus and dialogs inherit the theme where they open.
+
+```tsx
+import "@agent-native/design-system/themes/design.css";
+import { ThemeProvider } from "@agent-native/toolkit/ui/base-ui/theme-provider";
+
+<ThemeProvider appTheme="design" appearance="dark" density="compact">
+  {children}
+</ThemeProvider>;
+```
+
+## Accessibility checks
+
+Storybook scans the state shown at the end of each interaction test. Its scan excludes Base UI’s focus guards, the elements that direct Tab through a portal. For a full overlay audit, scan the document with the popup open and check where Tab and Escape move focus.
+
+## Explore the system
+
+- **Foundations** show live token values for color, typography, spacing, sizing, shape, elevation and motion.
+- **Patterns** show components working together, including [announcements](?path=/docs/patterns-announcement--docs) and the [app shell](?path=/docs/patterns-app-shell--docs).
+- **Migration status** tracks adoption across apps.
+- The [component manifest](./manifests/components.json) contains the same usage guides, public imports, props and examples for agents. The [docs manifest](./manifests/docs.json) contains standalone reference pages.
+
+[Base UI behavior](https://base-ui.com/react/overview/quick-start) · [Radix Themes](https://www.radix-ui.com/themes/docs/overview/getting-started)

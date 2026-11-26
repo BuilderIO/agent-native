@@ -52,6 +52,12 @@ import {
 import { Separator } from "@agent-native/toolkit/ui/separator";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   IconArrowLeft,
   IconCheck,
   IconChevronDown,
@@ -259,19 +265,35 @@ function WebHostButton({ guide }: { guide: McpGuide }) {
   );
 }
 
+const LOOPBACK_MCP_URL =
+  /^https?:\/\/(?:localhost|127(?:\.\d+){3}|\[::1\])(?=[:/])/i;
+
 function CopyValueButton({ value, label }: { value: string; label: string }) {
   const t = useT();
   const { state, copy } = useCopy(value);
   return (
     <div className="flex shrink-0 flex-col items-start gap-1 text-foreground">
-      <Button variant="outline" size="sm" onClick={() => void copy()}>
-        {state === "copied" ? t("settings.mcpCopied") : label}
-        {state === "copied" ? (
-          <IconCheck aria-hidden="true" />
-        ) : (
-          <IconCopy aria-hidden="true" />
-        )}
-      </Button>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label={label}
+              onClick={() => void copy()}
+            >
+              {state === "copied" ? (
+                <IconCheck aria-hidden="true" />
+              ) : (
+                <IconCopy aria-hidden="true" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {state === "copied" ? t("settings.mcpCopied") : label}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <span
         role="status"
         className={state === "error" ? "text-xs text-destructive" : "sr-only"}
@@ -295,7 +317,7 @@ function ConnectionDetails({
 }) {
   const t = useT();
   return (
-    <Card className="border bg-muted shadow-none">
+    <Card className="rounded-xl border border-border/70 shadow-none">
       <CardContent className="px-4 py-0">
         <ItemGroup role="group" aria-label={t("settings.mcpStageDetails")}>
           {guide.nameStep !== undefined ? (
@@ -312,7 +334,7 @@ function ConnectionDetails({
                   <span className="text-sm font-medium">{values.appName}</span>
                 </ItemContent>
               </Item>
-              <ItemSeparator />
+              <ItemSeparator className="bg-border/60" />
             </>
           ) : null}
           <Item
@@ -337,7 +359,7 @@ function ConnectionDetails({
           </Item>
           {guide.id === "claude" || guide.id === "chatgpt" ? (
             <>
-              <ItemSeparator />
+              <ItemSeparator className="bg-border/60" />
               <Item className="rounded-none border-0 px-0 py-3.5">
                 <ItemContent className="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center sm:gap-4">
                   <span className="text-xs text-muted-foreground">
@@ -407,6 +429,14 @@ function GuideSteps({
   const visibleSteps = guide.steps
     ?.map((text, index) => ({ text, index }))
     .filter(({ index }) => !guide.install || index !== guide.urlStep);
+  const localAddressHint =
+    guide.hostedConnector && LOOPBACK_MCP_URL.test(values.mcpUrl) ? (
+      <p className="text-xs leading-5 text-muted-foreground">
+        {t("settings.mcpLocalAddressHint", { host: guide.label })}
+      </p>
+    ) : null;
+  // An install link takes the URL in step 1, so the hint goes there.
+  const hintStep = guide.install ? 0 : guide.urlStep;
   return (
     <NumberedSteps className="mt-0" aria-label={t("settings.mcpSetupSteps")}>
       {visibleSteps?.map(({ text, index }, position) => {
@@ -429,18 +459,9 @@ function GuideSteps({
               ) : null}
             </div>
             {guide.urlStep === index ? (
-              <>
-                <ConnectionDetails guide={guide} values={values} />
-                {guide.action?.kind === "link" &&
-                /^https?:\/\/(?:localhost|127(?:\.\d+){3}|\[::1\])(?=[:/])/i.test(
-                  values.mcpUrl,
-                ) ? (
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("settings.mcpLocalAddressHint", { host: guide.label })}
-                  </p>
-                ) : null}
-              </>
+              <ConnectionDetails guide={guide} values={values} />
             ) : null}
+            {hintStep === index ? localAddressHint : null}
             {index === 0 && guide.install && guide.urlStep !== undefined ? (
               <Collapsible>
                 <CollapsibleTrigger asChild>
@@ -468,6 +489,7 @@ function GuideSteps({
                     const link = buildMcpInstallLink(option.client, {
                       serverName: values.serverId,
                       mcpUrl: values.mcpUrl,
+                      displayName: values.appName,
                     });
                     return (
                       <Button
@@ -512,6 +534,7 @@ function HostConnectAction({
     const link = buildMcpInstallLink(install.client, {
       serverName: values.serverId,
       mcpUrl: values.mcpUrl,
+      displayName: values.appName,
     });
     return (
       <Button asChild size="sm">
@@ -565,9 +588,9 @@ function TestPrompt({ values }: { values: McpConnectTemplateValues }) {
   const t = useT();
   return (
     <Item
-      variant="muted"
+      variant="outline"
       size="sm"
-      className="flex-col items-start border-0 bg-muted text-foreground sm:flex-row sm:items-center"
+      className="flex-col items-start rounded-xl border-border/70 bg-card text-foreground sm:flex-row sm:items-center"
     >
       <ItemContent>
         <p className="text-sm leading-5 text-foreground">
@@ -663,11 +686,11 @@ function HostDetail({
                 <HostConnectAction guide={guide} values={values} />
               </div>
             </div>
-            <Card className="border bg-muted shadow-none">
+            <Card className="rounded-md bg-muted shadow-none">
               <CardContent className="p-4">
                 <pre
                   dir="ltr"
-                  className="overflow-x-auto whitespace-pre font-mono text-xs leading-5"
+                  className="whitespace-pre-wrap break-words font-mono text-xs leading-5"
                 >
                   <code>{interpolateMcpConnectTemplate(template, values)}</code>
                 </pre>

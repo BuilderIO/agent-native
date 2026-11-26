@@ -1,3 +1,9 @@
+import type { DbExec } from "../db/client.js";
+import {
+  assertIdentityColumnRows,
+  IDENTITY_SCHEMA_COLUMNS_QUERY,
+} from "../identity/rekey.js";
+
 function lazyFunction<TModule, TKey extends keyof TModule>(
   load: () => Promise<TModule>,
   name: TKey,
@@ -27,6 +33,7 @@ export type {
   OrgPendingRemoval,
   OrgInfo,
   OrgMember,
+  OrgDeactivatedMember,
   OrgPendingInvitation,
   RequiredAuthProvider,
   WorkspaceAppDefaultVisibility,
@@ -101,6 +108,15 @@ export type {
   IdentityOffboard,
   IdentityOrgScope,
 } from "../identity/rekey.js";
+
+/** Validate a migrated app database after its identity policies are registered. */
+export async function assertIdentityColumnsRegistered(
+  db: DbExec,
+): Promise<void> {
+  // raw-sql-ok: this imported fragment contains only the fixed schema query shared with rekey.
+  const { rows } = await db.execute(IDENTITY_SCHEMA_COLUMNS_QUERY);
+  assertIdentityColumnRows(rows);
+}
 export {
   checkWorkspaceAppAccess,
   claimWorkspaceAppForOrganization,
@@ -142,6 +158,10 @@ export {
   CROSS_APP_ORG_FEDERATION_SCOPE,
 } from "./feature-flags.js";
 
+export const withFederatedMembershipSnapshot = lazyFunction(
+  loadOrgFederation,
+  "withFederatedMembershipSnapshot",
+);
 export const addFederatedOrganizationMember = lazyFunction(
   loadOrgFederation,
   "addFederatedOrganizationMember",
@@ -270,9 +290,20 @@ export const listInvitationsHandler = lazyFunction(
 );
 export const createInvitationHandler: (typeof import("./handlers.js"))["createInvitationHandler"] =
   lazyFunction(loadOrgHandlers, "createInvitationHandler");
+export const inviteOrganizationAdmin: (typeof import("./invite-organization-admin.js"))["inviteOrganizationAdmin"] =
+  lazyFunction(
+    () => import("./invite-organization-admin.js"),
+    "inviteOrganizationAdmin",
+  );
+export const sendOrgInvitationEmail: (typeof import("./handlers.js"))["sendOrgInvitationEmail"] =
+  lazyFunction(loadOrgHandlers, "sendOrgInvitationEmail");
 export const acceptInvitationHandler = lazyFunction(
   loadOrgHandlers,
   "acceptInvitationHandler",
+);
+export const cancelInvitationHandler = lazyFunction(
+  loadOrgHandlers,
+  "cancelInvitationHandler",
 );
 export const setA2ASecretHandler = lazyFunction(
   loadOrgHandlers,

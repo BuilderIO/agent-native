@@ -26,7 +26,6 @@ export interface EnterSingleScreenArgs {
   setCreatedOverviewLayerSelection: Dispatch<
     SetStateAction<{ screenId: string; layerId: string } | null>
   >;
-  setDrawMode: Dispatch<SetStateAction<boolean>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setInteractDeviceName: Dispatch<SetStateAction<string>>;
   setInteractDeviceSize: Dispatch<
@@ -63,7 +62,6 @@ export function runEnterSingleScreen(
     setActiveFileId,
     setActiveTool,
     setCreatedOverviewLayerSelection,
-    setDrawMode,
     setHoveredElement,
     setInteractDeviceName,
     setInteractDeviceSize,
@@ -138,7 +136,6 @@ export function runEnterSingleScreen(
   );
   const enterScreen = () => {
     if (fileId) setActiveFileId(fileId);
-    setDrawMode(false);
     setPinMode(false);
     setMode(entryMode);
     setSelectedElement(null);

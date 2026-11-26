@@ -1,0 +1,98 @@
+@layer components {
+  .property-token-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: end;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .property-token-field > :first-child,
+  .property-token-field > .select-trigger {
+    grid-area: 1 / 1;
+  }
+  .property-token-field[data-picker]:not([data-bound]) .input {
+    padding-inline-end: var(--control-height-3);
+  }
+  .property-token-popup .select-item-text {
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .property-token-field > :first-child {
+    min-inline-size: 0;
+  }
+  .property-token-field > :only-child {
+    grid-column: 1 / -1;
+  }
+  .property-token-field[data-bound] > .select-trigger {
+    padding-inline: var(--space-1);
+  }
+  .property-token-field:not([data-bound]) > .select-trigger {
+    inline-size: var(--control-height-3);
+    justify-self: end;
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .property-token-field:not([data-bound]) > .select-trigger .select-icon {
+    display: none;
+  }
+  .property-token-prefix {
+    display: inline-flex;
+    color: var(--fg-muted);
+  }
+  .property-token-prefix > svg,
+  .property-token-icon {
+    inline-size: var(--control-icon-size-3);
+    block-size: var(--control-icon-size-3);
+  }
+  .property-token-field > label {
+    display: grid;
+    gap: var(--space-1);
+    font-size: var(--font-size-1);
+    color: var(--fg-muted);
+  }
+  .property-token-field .select-value,
+  .property-token-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .property-token-field .select-value > span:last-child {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .property-token-badge {
+    flex-shrink: 1;
+    min-inline-size: 0;
+    height: var(--control-height-1);
+    padding-inline: var(--space-1);
+  }
+  .property-token-badge > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .property-token-shortcut {
+    margin-inline-start: auto;
+    inline-size: var(--control-icon-size-2);
+    block-size: var(--control-icon-size-2);
+    color: var(--fg-muted);
+  }
+  .property-token-option {
+    column-gap: var(--space-2);
+  }
+  .property-token-option small {
+    margin-inline-start: auto;
+    color: var(--fg-muted);
+    font: inherit;
+  }
+  .property-token-swatch {
+    forced-color-adjust: none;
+    flex: none;
+    inline-size: var(--size-2);
+    block-size: var(--size-2);
+    border-radius: var(--radius-1);
+    box-shadow: inset 0 0 0 1px var(--line-subtle);
+  }
+}

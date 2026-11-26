@@ -356,7 +356,7 @@ export function useNavigationState() {
 }
 ```
 
-在 URL 查询参数中保留可共享过滤器。框架将它们公开为 `<current-url>` 代理，内置代理可以使用 `set-search-params` 更改它们； `navigation` 应保存语义 ID 和别名，而不是完整查询字符串的第二个副本。
+在 URL 查询参数中保留可共享过滤器。框架将你在 `AgentSidebar` 的 `urlQueryKeys` 中声明的键公开给代理，格式为 `<current-url>`（其他值显示为 `<redacted>`），内置代理可以使用 `set-search-params` 更改它们； `navigation` 应保存语义 ID 和别名，而不是完整查询字符串的第二个副本。
 
 对于应用导航，首选包含同源的 `navigate` 命令
 `path`（当 URL 已知时）。同一动作不要写为 `__set_url__`；

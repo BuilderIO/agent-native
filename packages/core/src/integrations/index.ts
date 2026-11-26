@@ -184,6 +184,39 @@ export {
   testSlackAuth,
   type SlackOAuthAccessResponse,
 } from "./slack-oauth.js";
+export {
+  SLACK_USER_READ_SCOPES,
+  buildSlackUserAuthorizeUrl,
+  mapSlackUserOAuthResponse,
+  type SlackUserAuthorizeUrlOptions,
+  type SlackUserOAuthIdentity,
+  type SlackUserTokenBundle,
+} from "./slack-user-oauth.js";
+export {
+  SLACK_USER_INSTALL_APP,
+  assertSlackUserInstallAllowed,
+  installSlackUserGrant,
+  parseSlackInternalTeamIds,
+  resolveSlackUserInstallGate,
+  slackUserInstallOperationId,
+  type SlackUserInstallGate,
+  type SlackUserInstallGateConfig,
+  type SlackUserInstallResult,
+} from "./slack-user-install.js";
+export {
+  beginUserIntegrationGrant,
+  completeUserIntegrationGrant,
+  getUserIntegrationGrant,
+  resolveUserIntegrationGrant,
+  revokeUserIntegrationGrant,
+  UserIntegrationGrantConflictError,
+  UserIntegrationGrantUnavailableError,
+  UserIntegrationGrantUnknownOutcomeError,
+  type BeginUserIntegrationGrantInput,
+  type UserIntegrationGrant,
+  type UserIntegrationGrantAttempt,
+  type UserIntegrationGrantBundle,
+} from "./user-grants-store.js";
 
 export {
   SLACK_AGENT_BOT_EVENTS,

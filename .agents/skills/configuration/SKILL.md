@@ -129,6 +129,44 @@ example: `credential-provider` had no `APP_ID` in its chain, so adding it there
 changed which id scopes a credential grant. That can be the right call, but it
 is a decision to make deliberately, not a tidy-up.
 
+## App-owned sections
+
+Core never names an app. A server value that only one app reads goes in a
+section that app registers, not in `packages/core/src/app-config/`:
+
+```ts
+// server/app-config.ts
+import { defineAppConfigSection } from "@agent-native/core/server";
+import { z } from "zod";
+
+export const locationsConfig = defineAppConfigSection(
+  "locations",
+  z.object({
+    suggestionsEnabled: z.boolean().default(true).meta({
+      env: "LOCATIONS_SUGGESTIONS_ENABLED",
+      doc: "Offer location suggestions while editing an event.",
+    }),
+  }),
+);
+
+declare module "@agent-native/core/server" {
+  interface AppConfigSections {
+    locations: typeof locationsConfig.schema;
+  }
+}
+```
+
+Read it with `locationsConfig.read()` or `getAppConfig().locations`, and set
+it from `defineAppConfig({ locations: { ... } })`. The section follows the same
+rules as a core domain (leaf-only `env`, typed parsers, the resolution order
+below). Import the module from `server/plugins/config.ts` so it registers
+before the first read; an unregistered section reads `undefined`.
+
+Registration is loud: a key the framework owns, a key already registered with
+a different shape, and an `env` name another field already reads all throw.
+Pick an app-specific key. A secret still belongs in the vault, not in a
+section's env alias.
+
 ## Resolution order
 
 Lowest opinion first: **declared default → env → deprecated `set*` setter →

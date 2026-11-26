@@ -8,6 +8,7 @@ const text = (description: string) =>
   z.string().max(2048).optional().describe(description);
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     'Save or clear the workspace\'s S3-compatible file storage (Amazon S3, Cloudflare R2, Supabase Storage, or another S3-compatible service). Owners and admins only. "save" writes the given values and keeps saved keys that are omitted; the first save needs endpoint, bucket, access key ID, secret access key, and a public URL unless get-file-storage reports publicUrlRequired: false. "clear" deletes every saved storage key, so new uploads go to Builder.io storage when it is connected and fail otherwise; existing files stay in the bucket. Call get-file-storage first to see what is saved.',
   schema: z.object({
@@ -46,6 +47,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async ({ operation, ...values }, ctx) =>
     operation === "clear"
       ? clearFileStorage(ctx)

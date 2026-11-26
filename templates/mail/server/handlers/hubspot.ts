@@ -1,4 +1,3 @@
-import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -8,21 +7,17 @@ import {
 } from "h3";
 
 import {
-  getHubSpotApiKey,
   HubSpotLookupError,
   lookupHubSpotContact,
   validateHubSpotKey,
 } from "../lib/hubspot.js";
-
-async function getSessionId(event: H3Event): Promise<string> {
-  const session = await getSession(event);
-  if (!session) return "local";
-  return session.email;
-}
+import {
+  integrationContextFor,
+  readIntegrationKey,
+} from "../lib/integration-keys.js";
 
 async function getHubSpotKey(event: H3Event): Promise<string | undefined> {
-  const sessionId = await getSessionId(event);
-  return getHubSpotApiKey(sessionId);
+  return readIntegrationKey("hubspot", await integrationContextFor(event));
 }
 
 export const hubspotValidate = defineEventHandler(async (event: H3Event) => {

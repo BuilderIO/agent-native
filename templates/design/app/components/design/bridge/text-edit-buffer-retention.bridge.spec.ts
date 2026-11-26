@@ -42,13 +42,32 @@ function mountTextNode(page: Page, nodeId: string) {
   }, nodeId);
 }
 
+// Keys typed before the bridge handles the posted message go nowhere, so wait,
+// as the host does, until the bridge says it is waiting for the node.
 function beginTextEdit(page: Page, nodeId: string) {
   return page.evaluate(
     (id) =>
-      window.postMessage(
-        { type: "begin-text-edit", nodeId: id, force: true },
-        "*",
-      ),
+      new Promise<void>((resolve) => {
+        window.addEventListener("message", function onPending(event) {
+          const data = event.data as {
+            type?: string;
+            nodeId?: string;
+            pending?: boolean;
+          } | null;
+          if (
+            data?.type === "text-edit-pending" &&
+            data.nodeId === id &&
+            data.pending
+          ) {
+            window.removeEventListener("message", onPending);
+            resolve();
+          }
+        });
+        window.postMessage(
+          { type: "begin-text-edit", nodeId: id, force: true },
+          "*",
+        );
+      }),
     nodeId,
   );
 }

@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import { describe, expect, it, vi } from "vitest";
 
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
@@ -12,7 +13,6 @@ function makeArgs(
   overrides: Partial<ApplyDesignEditorCommandArgs> = {},
 ): ApplyDesignEditorCommandArgs {
   return {
-    annotateLab: "on",
     canEditDesign: true,
     canvasFrameGeometryById: {},
     files: [],
@@ -21,7 +21,6 @@ function makeArgs(
     setActiveFileId: vi.fn(),
     setActiveLeftPanel: vi.fn(),
     setActiveTool: vi.fn(),
-    setDrawMode: vi.fn(),
     setInteractDeviceName: vi.fn(),
     setInteractDeviceSize: vi.fn(),
     setInteractTheme: vi.fn(),
@@ -475,93 +474,21 @@ describe("runApplyDesignEditorCommand: Interact device and theme", () => {
   });
 });
 
-describe("runApplyDesignEditorCommand: Annotate lab", () => {
-  const drawCommand = {
-    designId: "design-1",
-    issuedAt: 0,
-    tool: "draw",
-  } as const;
-  const annotateFocusCommand = {
-    designId: "design-1",
-    issuedAt: 0,
-    editorView: "single",
-    screen: "file-1",
-    mode: "annotate",
-  } as const;
-  const focusFiles = {
-    files: [screenFile],
-    overviewScreens: [overviewScreen],
-  };
-
-  it("starts the Draw tool when the lab is on", () => {
-    const args = makeArgs({ annotateLab: "on" });
-
-    expect(runApplyDesignEditorCommand(args, drawCommand)).toBe(true);
-
-    expect(args.setActiveTool).toHaveBeenCalledWith("draw");
-    expect(args.setMode).toHaveBeenCalledWith("annotate");
-    expect(args.setDrawMode).toHaveBeenCalledWith(true);
-    expect(args.setPinMode).toHaveBeenCalledWith(false);
-  });
-
-  it("lands a stale Draw request on Move and Design when the lab is off", () => {
-    const args = makeArgs({ annotateLab: "off" });
-
-    expect(runApplyDesignEditorCommand(args, drawCommand)).toBe(true);
-
-    expect(args.setActiveTool).toHaveBeenCalledWith("move");
-    expect(args.setMode).toHaveBeenCalledWith("edit");
-    expect(args.setDrawMode).toHaveBeenCalledWith(false);
-    expect(args.setActiveTool).not.toHaveBeenCalledWith("draw");
-    expect(args.setMode).not.toHaveBeenCalledWith("annotate");
-    expect(args.setDrawMode).not.toHaveBeenCalledWith(true);
-  });
-
-  it("lands a focused-screen Annotate request on the Overview in Design when the lab is on", () => {
-    const args = makeArgs({ annotateLab: "on", ...focusFiles });
-
-    expect(runApplyDesignEditorCommand(args, annotateFocusCommand)).toBe(true);
-
-    expect(args.setMode).toHaveBeenCalledWith("edit");
-    expect(args.setMode).not.toHaveBeenCalledWith("annotate");
-    expect(args.setViewMode).toHaveBeenCalledWith("overview");
-  });
-
-  it("lands a stale Annotate request on Design when the lab is off", () => {
-    const args = makeArgs({ annotateLab: "off", ...focusFiles });
-
-    expect(runApplyDesignEditorCommand(args, annotateFocusCommand)).toBe(true);
-
-    expect(args.setMode).toHaveBeenCalledWith("edit");
-    expect(args.setMode).not.toHaveBeenCalledWith("annotate");
-    expect(args.setViewMode).toHaveBeenCalledWith("overview");
-  });
-
-  it("waits for the Labs answer instead of refusing Draw or Annotate", () => {
-    for (const command of [drawCommand, annotateFocusCommand]) {
-      const args = makeArgs({ annotateLab: "loading", ...focusFiles });
-
-      expect(runApplyDesignEditorCommand(args, command)).toBe(false);
-
-      expect(args.setActiveTool).not.toHaveBeenCalled();
-      expect(args.setMode).not.toHaveBeenCalled();
-      expect(args.setDrawMode).not.toHaveBeenCalled();
-      expect(args.setViewMode).not.toHaveBeenCalled();
-    }
-  });
-
-  it("does not hold up a command that needs no lab while it loads", () => {
-    const args = makeArgs({ annotateLab: "loading" });
+describe("runApplyDesignEditorCommand: retired Draw tool", () => {
+  it("lands a stale tool=draw on Move and Design", () => {
+    const args = makeArgs();
 
     expect(
       runApplyDesignEditorCommand(args, {
         designId: "design-1",
         issuedAt: 0,
-        tool: "rect",
+        tool: "draw",
       }),
     ).toBe(true);
 
-    expect(args.setActiveTool).toHaveBeenCalledWith("rect");
+    expect(args.setActiveTool).toHaveBeenCalledExactlyOnceWith("move");
+    expect(args.setMode).toHaveBeenCalledWith("edit");
+    expect(args.setPinMode).toHaveBeenCalledWith(false);
   });
 });
 
@@ -580,7 +507,6 @@ describe("runApplyDesignEditorCommand: retired Agent tool and Comment tool", () 
     expect(args.setActiveTool).toHaveBeenCalledExactlyOnceWith("move");
     expect(args.setActiveLeftPanel).not.toHaveBeenCalled();
     expect(args.setMode).toHaveBeenCalledWith("edit");
-    expect(args.setDrawMode).toHaveBeenCalledWith(false);
     expect(args.setPinMode).toHaveBeenCalledWith(false);
   });
 
@@ -609,8 +535,7 @@ describe("runApplyDesignEditorCommand: retired Agent tool and Comment tool", () 
 
     expect(args.setActiveTool).toHaveBeenCalledWith("comment");
     expect(args.setPinMode).toHaveBeenCalledWith(true);
-    expect(args.setMode).toHaveBeenCalledWith("annotate");
-    expect(args.setDrawMode).toHaveBeenCalledWith(false);
+    expect(args.setMode).toHaveBeenCalledWith("comment");
     expect(args.setActiveLeftPanel).toHaveBeenCalledWith("threads");
   });
 });

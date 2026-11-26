@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
@@ -140,6 +140,10 @@ export default defineAction({
     comment: z.string().max(500).optional(),
     settings: settingsSchema.optional(),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (args.mode !== "settings" || Object.keys(args.settings ?? {}).length > 0),
+  mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

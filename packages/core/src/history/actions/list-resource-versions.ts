@@ -18,6 +18,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     await assertVersionedResourceAccess(

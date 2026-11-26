@@ -4,6 +4,7 @@ import type {
   ContentItemInput,
   ContentRunFailure,
   ContentRunOutcome,
+  ContentSearchQueryInput,
   ContentSnapshotInput,
 } from "./store.js";
 
@@ -11,6 +12,7 @@ export type ContentStepResult = {
   items?: ContentItemInput[];
   snapshots?: ContentSnapshotInput[];
   replaceSnapshots?: boolean;
+  searchQueries?: { weekStarts: string[]; rows: ContentSearchQueryInput[] };
   outcome: ContentRunOutcome;
 };
 

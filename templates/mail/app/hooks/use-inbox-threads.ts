@@ -141,7 +141,10 @@ export function isUnauthorizedError(error: unknown): boolean {
 }
 
 export function inboxThreadsRefetchInterval(query: {
-  state: { error: unknown; data?: { syncing?: boolean } };
+  state: {
+    error: unknown;
+    data?: { syncing?: boolean | undefined } | undefined;
+  };
 }): number | false {
   if (isUnauthorizedError(query.state.error)) return false;
   return IDLE_POLL_MS;
@@ -265,7 +268,7 @@ let nextInboxSnapshotId = PAGE_LOAD_INBOX_SNAPSHOT_ID;
 
 /** A restored page paints at once but is refetched on mount; this load's pages stay fresh. */
 export function inboxThreadsStaleTime(query: {
-  state: { data?: { clientSnapshotId?: number } };
+  state: { data?: { clientSnapshotId?: number | undefined } | undefined };
 }): number {
   return (query.state.data?.clientSnapshotId ?? 0) > PAGE_LOAD_INBOX_SNAPSHOT_ID
     ? INBOX_THREADS_STALE_TIME_MS
@@ -868,9 +871,20 @@ function currentInboxItem(
   qc: QueryClient,
   threadId: string,
 ): InboxThreadItem | undefined {
-  let item = snapshotInboxThreads(qc)
-    .flatMap(([, data]) => data?.items ?? [])
-    .find((candidate) => threadKeyOf(candidate) === threadId);
+  let item: InboxThreadItem | undefined;
+  let newestSnapshotId = -1;
+  for (const [, data] of snapshotInboxThreads(qc) as Array<
+    [QueryKey, InboxQueryResult | undefined]
+  >) {
+    const snapshotId = data?.clientSnapshotId ?? 0;
+    if (snapshotId <= newestSnapshotId) continue;
+    const candidate = (data?.items ?? []).find(
+      (value) => threadKeyOf(value) === threadId,
+    );
+    if (!candidate) continue;
+    item = candidate;
+    newestSnapshotId = snapshotId;
+  }
   for (const mutation of activeInboxMutations(qc)) {
     if (item) item = applyInboxMutationToItem(item, mutation);
     if (!item) return undefined;
@@ -1282,6 +1296,13 @@ export function markInboxThreadReadOptimistic(
   });
   notifyInboxQueries(qc);
   return mutation.id;
+}
+
+export function inboxThreadShowsRead(
+  qc: QueryClient,
+  threadId: string,
+): boolean {
+  return currentInboxItem(qc, threadId)?.unreadCount === 0;
 }
 
 export function adjustInboxThreadUnreadOptimistic(

@@ -14,10 +14,10 @@ export default defineAction({
     id: z.string().optional().describe("Alias for --documentId"),
   }),
   http: { method: "DELETE" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
     const owner = await getNotionDocumentOwner(documentId);
-    await unlinkDocumentFromNotion(owner, documentId);
+    await unlinkDocumentFromNotion(owner, documentId, ctx);
     return { success: true };
   },
 });

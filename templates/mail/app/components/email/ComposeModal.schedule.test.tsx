@@ -15,6 +15,7 @@ import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
 
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
+const mockAddOptimisticReply = vi.hoisted(() => vi.fn());
 const mockArchiveEmail = vi.hoisted(() => vi.fn());
 const mockReportWriteFailure = vi.hoisted(() => vi.fn());
 const mockSettings = vi.hoisted(() => ({ sendAndArchive: false }));
@@ -81,11 +82,14 @@ vi.mock("@/hooks/use-account-filter", () => ({
 vi.mock("@/hooks/use-aliases", () => ({
   useAliases: () => ({ data: [] }),
 }));
+vi.mock("@/hooks/use-can-manage-storage", () => ({
+  useCanManageStorage: () => true,
+}));
 vi.mock("@/hooks/use-draft-queue", () => ({
   useUpdateQueuedDraft: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("@/hooks/use-emails", () => ({
-  useAddOptimisticReply: () => vi.fn(),
+  useAddOptimisticReply: () => mockAddOptimisticReply,
   useSendEmail: () => ({
     isPending: false,
     mutateAsync: mockSendEmailAsync,
@@ -115,6 +119,9 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
+vi.mock("./AttachFromContentButton", () => ({
+  AttachFromContentButton: () => null,
+}));
 vi.mock("./ComposeEditor", () => ({
   ComposeEditor: ({ onSend }: { onSend: (markDone?: boolean) => void }) => (
     <div data-testid="compose-editor">
@@ -209,6 +216,7 @@ describe("ComposeModal scheduling", () => {
   beforeEach(() => {
     mockScheduleEmail.mockReset();
     mockSendEmailAsync.mockReset();
+    mockAddOptimisticReply.mockReset();
     mockArchiveEmail.mockReset();
     mockReportWriteFailure.mockReset();
     mockSettings.sendAndArchive = false;
@@ -1228,6 +1236,43 @@ describe("ComposeModal scheduling", () => {
       "mail.toasts.messageSent",
       expect.objectContaining({ duration: 3_000 }),
     );
+  });
+
+  it("takes back a reply shown as sent when the save before sending fails", async () => {
+    vi.useFakeTimers();
+    const undoOptimistic = vi.fn();
+    mockAddOptimisticReply.mockReturnValue(undoOptimistic);
+    const onRestoreAfterSend = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onSettleForSend={() =>
+          Promise.reject(new Error("Draft couldn't be saved"))
+        }
+        onRestoreAfterSend={onRestoreAfterSend}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    expect(mockAddOptimisticReply).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
+    expect(undoOptimistic).toHaveBeenCalledOnce();
+    expect(onRestoreAfterSend).toHaveBeenCalledWith(replyDraft.id);
+    expect(mockReportWriteFailure).toHaveBeenCalledOnce();
   });
 
   it("marks a reply thread Done only after the explicit send succeeds", async () => {

@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNotNull, isNull, like } from "drizzle-orm";
@@ -76,6 +80,8 @@ export default defineAction({
     openWorldHint: false,
   },
   outputSchema: removalResultSchema,
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ meetingId }): Promise<z.infer<typeof removalResultSchema>> => {
     await assertAccess("meeting", meetingId, "editor");
     const db = getDb();

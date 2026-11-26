@@ -11,6 +11,7 @@ features:
     "content.feature.move-without-starting-over",
     "content.feature.work-on-content-inside-another-application",
     "content.feature.keep-your-private-vault-private",
+    "content.feature.use-content-from-chatgpt",
   ]
 publicness: "public"
 last_reviewed: "2026-07-29"

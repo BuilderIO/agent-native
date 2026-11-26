@@ -52,7 +52,9 @@ describe("Builder signup client contract", () => {
     );
     fetch.mockResolvedValueOnce(response({ status: "eligible" }));
     expect(await startBuilderSignupActivation()).toBe("eligible");
-    for (const status of ["connected", "fallback", "disabled"]) {
+    fetch.mockResolvedValueOnce(response({ status: "connected" }));
+    expect(await startBuilderSignupActivation()).toBe("connected");
+    for (const status of ["fallback", "disabled"]) {
       fetch.mockResolvedValueOnce(response({ status }));
       expect(await startBuilderSignupActivation()).toBe("disabled");
     }

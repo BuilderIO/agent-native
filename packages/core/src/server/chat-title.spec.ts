@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const completeText = vi.hoisted(() => vi.fn());
 vi.mock("./complete-text.js", () => ({ completeText }));
 
+import { EngineError } from "../agent/engine/types.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 
 describe("chat titles", () => {
@@ -47,6 +48,15 @@ describe("chat titles", () => {
     await expect(generateChatTitle({ message: "hi" })).rejects.toThrow(
       "model_not_found",
     );
+  });
+
+  it("leaves a title absent when the provider explicitly refuses generation", async () => {
+    completeText.mockRejectedValue(
+      new EngineError("Provider refusal", { errorCode: "content_filtered" }),
+    );
+    await expect(
+      generateChatTitle({ message: "Example request" }),
+    ).resolves.toBeNull();
   });
 
   it("rejects a body without a message", () => {

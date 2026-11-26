@@ -10,10 +10,6 @@ import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
-import {
-  CreativeContextComposerChip,
-  useCreativeContextLab,
-} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
@@ -91,7 +87,6 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const { session } = useSession();
@@ -290,7 +285,6 @@ export function Layout({ children }: LayoutProps) {
         </div>
       )}
       <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
-        {/* Mobile-only top bar with hamburger */}
         {showMobileTopBar && (
           <div className="flex h-12 shrink-0 items-center border-b border-border bg-sidebar px-4 md:hidden">
             <button
@@ -361,9 +355,6 @@ export function Layout({ children }: LayoutProps) {
             onComposerTextChange={handleComposerTextChange}
             composerSlot={
               <>
-                {creativeContextEnabled ? (
-                  <CreativeContextComposerChip />
-                ) : null}
                 {detectedFigmaComposerLink ? (
                   <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
                 ) : null}

@@ -443,7 +443,7 @@ export function TimelineTrack({
                 duration: formatMs(piece.endMs - piece.startMs),
               })}
               className={cn(
-                "absolute top-0 flex h-full items-center justify-center",
+                "group/cut absolute top-0 flex h-full items-center justify-center",
                 capLeft && "rounded-l-[10px]",
                 capRight && "rounded-r-[10px]",
                 disabled
@@ -462,6 +462,18 @@ export function TimelineTrack({
                 beginRangeDrag(e, toMs(e.clientX), piece.cutId);
               }}
             >
+              <div
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute top-1 left-0 z-10 flex w-full justify-center opacity-0 transition-opacity group-hover/cut:opacity-100",
+                  selected && "opacity-100",
+                )}
+              >
+                <span className="whitespace-nowrap rounded-sm bg-destructive px-1.5 py-0.5 font-mono text-[10px] leading-none text-destructive-foreground shadow">
+                  {formatMs(piece.startMs)} – {formatMs(piece.endMs)} ·{" "}
+                  {formatMs(piece.endMs - piece.startMs)}
+                </span>
+              </div>
               {pieceWidth >= RESTORE_BUTTON_MIN_PX ? (
                 <button
                   type="button"
@@ -524,6 +536,22 @@ export function TimelineTrack({
             width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
           }}
         />
+      ) : null}
+
+      {selection?.kind === "range" ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1 z-10 flex justify-center"
+          style={{
+            left: toX(selection.startMs),
+            width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
+          }}
+        >
+          <span className="whitespace-nowrap rounded-sm bg-primary px-1.5 py-0.5 font-mono text-[10px] leading-none text-primary-foreground shadow">
+            {formatMs(selection.startMs)} – {formatMs(selection.endMs)} ·{" "}
+            {formatMs(selection.endMs - selection.startMs)}
+          </span>
+        </div>
       ) : null}
 
       {/*

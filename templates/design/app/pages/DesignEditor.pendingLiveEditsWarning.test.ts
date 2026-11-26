@@ -1,101 +1,19 @@
-import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
+import { discardPendingLiveEditCollections } from "./design-editor/pending-edits";
 
-import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+// oracle-change: removed DesignEditor source greps; the discardPendingLiveEditCollections case remains
 
 describe("DesignEditor pending live edits", () => {
   it("clears the pending state after Apply and explicit discard", () => {
-    const source = readDesignEditorSource();
-    const applyHandler = readFileSync(
-      new URL(
-        "./design-editor/commands/apply-pending-visual-styles-with-agent.ts",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    const discardHandler = source.slice(
-      source.indexOf("const handleAbortPendingVisualStyles"),
-      source.indexOf("const handleCopyPendingVisualStylePrompt"),
-    );
+    const stylesRef = { current: [{ id: "style-1" }, { id: "style-2" }] };
+    const liveRef = { current: [{ id: "live-1" }] };
+    const clearState = vi.fn();
 
-    expect(applyHandler).toContain("clearPendingLiveEditState()");
-    expect(discardHandler).toContain("clearPendingLiveEditState()");
-  });
+    discardPendingLiveEditCollections({ stylesRef, liveRef, clearState });
 
-  it("keeps visual-edit sessions on copy unless a host agent can receive the handoff", () => {
-    const source = readDesignEditorSource();
-    expect(source).toContain("data-design-public-agent-empty-state");
-    expect(source).toContain("canApplyPendingVisualEditsWithAgent");
-    expect(source).toContain(
-      "isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost()",
-    );
-    expect(source).toContain("handleCopyPendingVisualStylePrompt");
-    expect(source).toMatch(
-      /canApplyPendingVisualEditsFromToolbar =\s*canApplyPendingVisualEditsWithAgent &&\s*\(!isVisualEditSurface \|\| hostEmbeddedEditor\);/,
-    );
-  });
-
-  it("only publishes the durable handoff from an editor session", () => {
-    const source = readDesignEditorSource();
-    const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
-    expect(publishCallIndex).toBeGreaterThan(-1);
-    const depsStart = source.indexOf(".then(publish);", publishCallIndex);
-    expect(depsStart).toBeGreaterThan(publishCallIndex);
-    const depsEnd = source.indexOf("]);", depsStart);
-    const publishCall = source.slice(publishCallIndex, depsStart);
-    const deps = source.slice(depsStart, depsEnd);
-    expect(publishCall).toContain("canPublishDurableHandoff: canEditDesign,");
-    expect(deps).toContain("canEditDesign,");
-    expect(deps).not.toContain("isLiveCanvasShareLink,");
-  });
-
-  it("keeps screen focus in the All screens canvas", () => {
-    const source = readDesignEditorSource();
-    const handlerStart = source.indexOf(
-      "const handleOverviewFrameAction = useCallback(",
-    );
-    expect(handlerStart).toBeGreaterThan(-1);
-    const handler = source.slice(
-      handlerStart,
-      source.indexOf("  useEffect(() => {", handlerStart),
-    );
-    expect(handler).toContain("focusOverviewScreen(screenId)");
-    expect(handler).not.toContain('handleModeChange("interact"');
-
-    const modeChangeStart = source.indexOf(
-      "const handleModeChange = useCallback(",
-    );
-    const modeChangeEnd = source.indexOf("\n  );", modeChangeStart);
-    expect(modeChangeStart).toBeGreaterThan(-1);
-    expect(modeChangeEnd).toBeGreaterThan(modeChangeStart);
-    const modeChange = source.slice(modeChangeStart, modeChangeEnd);
-    expect(modeChange).toContain("hasPendingVisualEdits:");
-    expect(modeChange).toContain("pendingVisualStyleEdits.length > 0");
-    expect(modeChange).toContain("pendingLiveNonStyleEdits.length > 0");
-    expect(modeChange).toContain("remoteVisualEditPending");
-    expect(modeChange).not.toContain('designAccessRole !== "owner"');
-    expect(source).toContain("const showVisualEditApply =");
-    expect(source).toMatch(
-      /const showVisualEditApply =[\s\S]{0,180}pendingVisualEditRecoveryVisible;/,
-    );
-  });
-
-  it("shows the existing recovery toolbar whenever the Interact guard blocks", () => {
-    const source = readDesignEditorSource();
-    expect(source).toMatch(
-      /onPendingVisualEditsBlocked: \(\) =>\s+setPendingVisualEditRecoveryVisible\(true\)/,
-    );
-    expect(source).toMatch(
-      /const showVisualEditApply =[\s\S]{0,180}pendingVisualEditRecoveryVisible;/,
-    );
-    const toolbarStart = source.indexOf(
-      "data-design-pending-visual-style-toolbar",
-    );
-    const toolbarEnd = source.indexOf("{viewMode ===", toolbarStart);
-    const toolbar = source.slice(toolbarStart, toolbarEnd);
-    expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
-    expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
-    expect(toolbar).toContain("handleAbortPendingVisualStyles");
+    expect(stylesRef.current).toEqual([]);
+    expect(liveRef.current).toEqual([]);
+    expect(clearState).toHaveBeenCalledOnce();
   });
 });

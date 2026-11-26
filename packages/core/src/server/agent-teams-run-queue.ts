@@ -522,6 +522,33 @@ export async function listStaleActiveAgentTeamRuns(
   }));
 }
 
+/**
+ * When the next queued or running team run becomes due for reconciliation, for
+ * the Netlify idle marker, or `null` when none is active.
+ */
+export async function nextStaleAgentTeamRunDueAt(): Promise<number | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT MIN(CASE
+                   WHEN reconciliation_attempted_at + ? > updated_at + ?
+                   THEN reconciliation_attempted_at + ?
+                   ELSE updated_at + ?
+                 END) AS due_at
+          FROM agent_team_run_queue
+          WHERE owner_email IS NOT NULL
+            AND BTRIM(owner_email) <> ''
+            AND status IN ('queued', 'running')`,
+    args: [
+      RUN_RECONCILIATION_RETRY_AFTER_MS,
+      RUN_DISPATCH_STUCK_AFTER_MS,
+      RUN_RECONCILIATION_RETRY_AFTER_MS,
+      RUN_DISPATCH_STUCK_AFTER_MS,
+    ],
+  });
+  const dueAt = (rows[0] as Record<string, unknown> | undefined)?.due_at;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
+}
+
 export async function claimAgentTeamRunReconciliationAttempt(
   taskId: string,
   updatedBefore: number,

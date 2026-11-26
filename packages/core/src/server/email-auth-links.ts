@@ -199,6 +199,18 @@ const EMAIL_AUTH_LINK_LANDING_STYLES = `
     outline: 2px solid var(--auth-focus);
     outline-offset: 2px;
   }
+  .legal-note {
+    margin: 0.75rem 0 0;
+    color: var(--auth-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+  .legal-note a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .legal-note a:hover { color: var(--auth-foreground); }
   @media (max-width: 420px) {
     .auth-card { padding: 1.5rem; }
   }
@@ -207,6 +219,20 @@ const EMAIL_AUTH_LINK_LANDING_STYLES = `
   }
 `;
 
+export interface EmailAuthLinkBuilderDisclosure {
+  prefix: string;
+  termsLabel: string;
+  connector: string;
+  privacyLabel: string;
+  suffix: string;
+}
+
+export function renderBuilderSignupDisclosureHtml(
+  disclosure: EmailAuthLinkBuilderDisclosure,
+): string {
+  return `<p class="legal-note">${escapeHtml(disclosure.prefix)} <a href="https://www.builder.io/legal/terms" target="_blank" rel="noopener noreferrer">${escapeHtml(disclosure.termsLabel)}</a> ${escapeHtml(disclosure.connector)} <a href="https://www.builder.io/legal/privacy" target="_blank" rel="noopener noreferrer">${escapeHtml(disclosure.privacyLabel)}</a>${escapeHtml(disclosure.suffix)}</p>`;
+}
+
 export function emailAuthLinkLandingPage(
   actionUrl: string,
   fields: Record<string, string>,
@@ -214,6 +240,7 @@ export function emailAuthLinkLandingPage(
     title: string;
     message: string;
     action: string;
+    builderDisclosure?: EmailAuthLinkBuilderDisclosure;
   },
   locale: string,
   direction: "ltr" | "rtl",
@@ -224,6 +251,9 @@ export function emailAuthLinkLandingPage(
         `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`,
     )
     .join("");
+  const builderLegalHtml = copy.builderDisclosure
+    ? `\n        ${renderBuilderSignupDisclosureHtml(copy.builderDisclosure)}`
+    : "";
   // A nonce keeps the standalone page styled without allowing arbitrary inline CSS.
   const styleNonce = randomBytes(16).toString("base64");
   const html = `<!doctype html>
@@ -240,7 +270,7 @@ export function emailAuthLinkLandingPage(
       <p>${escapeHtml(copy.message)}</p>
       <form method="post" action="${escapeHtml(actionUrl)}" autocomplete="off">
         ${hiddenInputs}
-        <button type="submit">${escapeHtml(copy.action)}</button>
+        <button type="submit">${escapeHtml(copy.action)}</button>${builderLegalHtml}
       </form>
     </main>
   </body>

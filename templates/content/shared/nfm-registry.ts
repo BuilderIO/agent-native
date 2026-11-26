@@ -30,9 +30,12 @@ import {
   type SerializableBlock,
 } from "@agent-native/core/blocks/server";
 
+import { analyticsChartBlockConfig } from "./analytics-chart-block";
 import { builderDocsBlockConfigs } from "./builder-docs-blocks";
 import { clipEmbedBlockConfig } from "./clip-embed-block";
+import { designScreenBlockConfig } from "./design-screen-block";
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
+import { linkCardBlockConfig } from "./link-card-block";
 import { sourceComponentBlockConfig } from "./source-component-block";
 
 export function registerContentBlocks(registry: BlockRegistry): void {
@@ -45,6 +48,9 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   registry.register(sourceComponentBlockConfig);
   registry.register(inlineDatabaseBlockConfig);
   registry.register(clipEmbedBlockConfig);
+  registry.register(analyticsChartBlockConfig);
+  registry.register(linkCardBlockConfig);
+  registry.register(designScreenBlockConfig);
 }
 
 let cachedRegistry: BlockRegistry | null = null;

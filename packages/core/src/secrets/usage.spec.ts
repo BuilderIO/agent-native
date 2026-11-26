@@ -326,6 +326,42 @@ describe("secret usage", () => {
     expect(mockDetectEngineFromUserSecrets).not.toHaveBeenCalled();
   });
 
+  it("reports a key created through the Vault as the Vault key", async () => {
+    await registerSlides();
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "fake-org-value",
+      lookupFailed: false,
+      source: "org",
+      scopeId: "org-qa",
+    });
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: null,
+      createdBy: "admin@example.test",
+    });
+
+    const preview = await previewSecretRemoval({ key: "OPENAI_API_KEY" });
+
+    expect(preview.fallback).toEqual({ status: "shared", source: "vault" });
+  });
+
+  it("reports an app-registered organization key as a shared key, not the Vault's", async () => {
+    await registerSlides();
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "fake-org-value",
+      lookupFailed: false,
+      source: "org",
+      scopeId: "org-qa",
+    });
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: null,
+      createdBy: null,
+    });
+
+    const preview = await previewSecretRemoval({ key: "OPENAI_API_KEY" });
+
+    expect(preview.fallback).toEqual({ status: "shared", source: "org" });
+  });
+
   it("reports an unreadable credential store instead of no fallback", async () => {
     mockResolveSecretDetailed.mockResolvedValue({
       value: null,

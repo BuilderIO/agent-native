@@ -389,19 +389,25 @@ export function InteractFloatingBar({
     <div
       data-design-interact-floating-bar
       className={cn(
-        "pointer-events-auto flex h-10 w-full max-w-170 min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-2 shadow-xl",
+        "pointer-events-auto flex h-10 w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-2 shadow-xl md:grid md:w-max md:max-w-full md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
         className,
       )}
     >
-      {devicePicker}
-      {themePicker}
-      <div className="flex min-w-0 flex-1 justify-center">{screenControls}</div>
-      <TopBarIconAction
-        label={t("designEditor.responsiveInteract.exit")}
-        onClick={onExit}
-      >
-        <IconX className="size-4" />
-      </TopBarIconAction>
+      <div className="flex min-w-0 items-center gap-2">
+        {devicePicker}
+        {themePicker}
+      </div>
+      <div className="flex min-w-0 flex-1 justify-center md:flex-none">
+        {screenControls}
+      </div>
+      <div className="flex shrink-0 justify-end">
+        <TopBarIconAction
+          label={t("designEditor.responsiveInteract.exit")}
+          onClick={onExit}
+        >
+          <IconX className="size-4" />
+        </TopBarIconAction>
+      </div>
     </div>
   );
 }

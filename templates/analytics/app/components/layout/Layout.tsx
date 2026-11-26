@@ -20,6 +20,7 @@ import {
 import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
+import { AGENT_URL_QUERY_KEYS } from "@shared/agent-url-keys";
 import { analyticsAskThreadPath, isAnalyticsAskPath } from "@shared/ask-route";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -312,6 +313,7 @@ function InteractiveLayout({ children }: LayoutProps) {
               chatViewTransitionHandoff={chatHomeHandoffPending}
               storageKey={ANALYTICS_CHAT_STORAGE_KEY}
               browserTabId={TAB_ID}
+              urlQueryKeys={AGENT_URL_QUERY_KEYS}
               openOnChatRunning={chatHomeHandoffActive}
               onFullscreenRequest={openAskAgentFullscreen}
               emptyStateText={t("chat.emptyState")}

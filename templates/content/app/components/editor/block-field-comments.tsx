@@ -273,7 +273,6 @@ export function useBlockFieldComments({
   threads,
   suggestions,
   draftSuggestions,
-  anchoredSuggestionIds,
   selectedThreadId,
   selectedSuggestionId,
   focusSuggestionId,
@@ -291,8 +290,6 @@ export function useBlockFieldComments({
   /** Every tab's suggestions, the body's included. */
   suggestions: readonly ResourceSuggestion[];
   draftSuggestions: readonly DraftSuggestion[];
-  /** The body's suggestions its editor shows. */
-  anchoredSuggestionIds: readonly string[] | null | undefined;
   selectedThreadId: string | null;
   selectedSuggestionId: string | null;
   focusSuggestionId: string | null;
@@ -420,6 +417,10 @@ export function useBlockFieldComments({
     pendingFieldId === openFieldId;
   const bodyPendingHighlight =
     pendingComment && pendingFieldId === null ? (pendingRange ?? null) : null;
+  const showPendingField = useCallback(() => {
+    if (pendingFieldId === undefined || pendingFieldId === openFieldId) return;
+    if (tabs.hasField(pendingFieldId)) tabs.showField(pendingFieldId);
+  }, [openFieldId, pendingFieldId, tabs]);
 
   const counts = useMemo(
     () =>
@@ -427,9 +428,8 @@ export function useBlockFieldComments({
         threads,
         suggestions,
         draftSuggestions,
-        anchoredSuggestionIds,
       }),
-    [anchoredSuggestionIds, draftSuggestions, suggestions, threads],
+    [draftSuggestions, suggestions, threads],
   );
   const fieldPending = useMemo(
     () =>
@@ -472,6 +472,8 @@ export function useBlockFieldComments({
     tabSwitchPending,
     /** The pending comment is in the open tab (or on a Property). */
     pendingVisible,
+    /** Opens the tab the pending comment is in. */
+    showPendingField,
     bodyPendingHighlight,
     /** The open tab's threads, and Property threads, for the margin. */
     railThreads,

@@ -17,7 +17,7 @@ test("with nothing selected in overview, the inspector shows the Canvas section 
   await expect.poll(() => app.selectedLayers()).toEqual([]);
 
   await expect(app.page.locator(sectionTitle("Canvas"))).toBeVisible();
-  await expect(app.page.locator(sectionTitle("Screen"))).toHaveCount(0);
+  await expect(app.page.locator(sectionTitle("Page"))).toHaveCount(0);
 });
 
 test("Interact has no inspector, and its device picker and zoom sit fully right of the left panel and inside the viewport", async ({

@@ -46,6 +46,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  mcpTool: "search",
   run: async (args) =>
     args.operation === "preview-promotion"
       ? { promotionPreview: await previewBrandProfilePromotion(args.profileId) }

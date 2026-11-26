@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
-  FontSizeField,
+  FONT_SIZE_SCALE,
   VisualFontFamilyPicker,
 } from "@agent-native/toolkit/design-tweaks";
 import {
@@ -56,6 +56,7 @@ import { cn } from "@/lib/utils";
 
 import { ScrubInput } from "../inspector";
 import { IconLayoutSettings } from "../inspector/design-icons";
+import { TokenScrubInput } from "../inspector/TokenScrubInput";
 import type { ElementInfo } from "../types";
 import { DESIGN_FONT_SIZE_MIN } from "./font-size-scale";
 import { InspectorIconButton, InspectorSegment } from "./inspector-controls";
@@ -582,14 +583,46 @@ export function TypographyProperties({
   };
 
   return (
-    <PanelSection title={t("editPanel.sections.typography")}>
+    <PanelSection
+      title={t("editPanel.sections.typography")}
+      actions={
+        <TypographyDetailsPopover
+          resizeMode={resizeMode}
+          onResizeModeChange={setResizeMode}
+          underlineActive={underlineActive}
+          strikethroughActive={strikethroughActive}
+          onToggleUnderline={() => toggleTextDecorationLine("underline")}
+          onToggleStrikethrough={() => toggleTextDecorationLine("line-through")}
+          textCase={textCase}
+          textCaseIsMixed={textTransformIsMixed}
+          onTextCaseChange={setTextCase}
+          truncationEnabled={truncationEnabled}
+          truncationLineCount={truncationLineCount ?? 1}
+          truncationMixed={lineClampIsMixed}
+          truncationToggleDisabled={
+            lineClampIsMixed ||
+            !onStylesChange ||
+            (!truncationEnabled && resizeMode === "fixed")
+          }
+          truncationLineCountDisabled={
+            !onStylesChange || resizeMode === "fixed"
+          }
+          onTruncationEnabledChange={(enabled) =>
+            applyTextTruncation(enabled, truncationLineCount ?? 1)
+          }
+          onTruncationLineCountChange={(value, meta) =>
+            applyTextTruncation(true, value, meta)
+          }
+        />
+      }
+    >
       {/* Row 1: font family full-width.
           Wrapped in a height-constrained div so the SelectTrigger button's
           hit-target is exactly h-6 (24 px) and cannot visually or physically
           overlap the weight/size row below (bug: trigger extended ~12 px into
           the next row, causing clicks meant for the size input to open this
           dropdown instead). */}
-      <InspectorGrid layout="field-action">
+      <InspectorGrid>
         <InspectorGridCell span={28} className="h-6 overflow-hidden">
           <div className="flex min-w-0 items-center gap-1">
             <div className="min-w-0 flex-1">
@@ -666,8 +699,7 @@ export function TypographyProperties({
           : { status: "missing" as const })}
       />
 
-      {/* Row 2: weight + size side by side */}
-      <InspectorGrid className="items-center" layout="action-pair">
+      <InspectorGrid className="items-center" layout="pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <Select
             value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
@@ -700,37 +732,72 @@ export function TypographyProperties({
         </InspectorGridCell>
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-          <FontSizeField
+          <TokenScrubInput
             label={t("editPanel.labels.size")}
-            openLabel={t("editPanel.labels.fontSizes")}
+            ariaLabel={t("editPanel.labels.size")}
+            icon={IconTextSize}
             value={
               !fontSizeIsMixed && styles.fontSize
                 ? parseNumericValue(styles.fontSize)
                 : 16
             }
             mixed={fontSizeIsMixed}
-            mixedLabel={MIXED_VALUE}
             onChange={(value, meta) =>
               onStyleChange("fontSize", `${value}px`, meta)
             }
-            scrubIcon={IconTextSize}
-            allowRelativeExpressions
             unit="px"
             min={DESIGN_FONT_SIZE_MIN}
-            contentProps={{ "data-design-chrome-region": "right-panel" }}
-            className="w-full border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] has-[[data-slot=input-group-control]:focus-visible]:ring-[var(--design-editor-accent-color)]"
+            step={1}
+            precision={1}
+            className="w-full gap-0"
+            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+            inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            tokenBinding={{
+              accepts: ["font-size"],
+              authored: authoredStyleValue(element, "fontSize"),
+              onBind: (cssVar) => onStyleChange("fontSize", `var(${cssVar})`),
+              onDetach: (resolved) =>
+                onStyleChange(
+                  "fontSize",
+                  resolved ?? (styles.fontSize || "16px"),
+                ),
+              extraGroups: [
+                {
+                  key: "scale",
+                  label: t("editPanel.labels.fontSizes"),
+                  show: "empty",
+                  items: FONT_SIZE_SCALE.filter(
+                    (size) => size >= DESIGN_FONT_SIZE_MIN,
+                  ).map((size) => ({
+                    key: String(size),
+                    label: String(size),
+                    active:
+                      !fontSizeIsMixed &&
+                      parseNumericValue(styles.fontSize || "") === size,
+                    onSelect: () => onStyleChange("fontSize", `${size}px`),
+                  })),
+                },
+              ],
+            }}
           />
         </InspectorGridCell>
       </InspectorGrid>
 
-      {/* Row 3: labelled line-height + letter-spacing fields */}
-      <InspectorGrid className="items-center" layout="action-pair">
+      <InspectorGrid className="items-center" layout="pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-          <div className="flex flex-col gap-2">
-            <p className="design-sidebar-field-label text-muted-foreground">
-              {t("editPanel.labels.lineHeight")}
-            </p>
-            <ScrubInput
+          <div className="flex flex-col">
+            <TokenScrubInput
+              tokenBinding={{
+                accepts: ["line-height"],
+                authored: authoredStyleValue(element, "lineHeight"),
+                onBind: (cssVar) =>
+                  onStyleChange("lineHeight", `var(${cssVar})`),
+                onDetach: (resolved) =>
+                  onStyleChange(
+                    "lineHeight",
+                    resolved ?? (styles.lineHeight || "normal"),
+                  ),
+              }}
               label={t("editPanel.labels.lineHeight")}
               ariaLabel={t("editPanel.labels.lineHeight")}
               icon={IconLineHeight}
@@ -762,11 +829,19 @@ export function TypographyProperties({
         </InspectorGridCell>
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-          <div className="flex flex-col gap-2">
-            <p className="design-sidebar-field-label text-muted-foreground">
-              {t("editPanel.labels.tracking")}
-            </p>
-            <ScrubInput
+          <div className="flex flex-col">
+            <TokenScrubInput
+              tokenBinding={{
+                accepts: ["letter-spacing"],
+                authored: authoredStyleValue(element, "letterSpacing"),
+                onBind: (cssVar) =>
+                  onStyleChange("letterSpacing", `var(${cssVar})`),
+                onDetach: (resolved) =>
+                  onStyleChange(
+                    "letterSpacing",
+                    resolved ?? (styles.letterSpacing || "normal"),
+                  ),
+              }}
               label={t("editPanel.labels.tracking")}
               ariaLabel={t("editPanel.labels.tracking")}
               icon={IconLetterSpacing}
@@ -801,13 +876,8 @@ export function TypographyProperties({
         </InspectorGridCell>
       </InspectorGrid>
 
-      <div className="design-sidebar-field-label text-muted-foreground">
-        {t("editPanel.labels.align")}
-      </div>
-
-      {/* Row 4: horizontal + vertical text alignment */}
-      <InspectorGrid className="items-center">
-        <InspectorGridCell span={13}>
+      <InspectorGrid className="items-center" layout="pair">
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <InspectorSegment className="w-full">
             <InspectorIconButton
               label={t("editPanel.textAligns.left")}
@@ -832,8 +902,8 @@ export function TypographyProperties({
             </InspectorIconButton>
           </InspectorSegment>
         </InspectorGridCell>
-        <InspectorGridCell span={1} ariaHidden />
-        <InspectorGridCell span={10}>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <InspectorSegment className="w-full">
             <InspectorIconButton
               label={"Align top" /* i18n-ignore design vertical text align */}
@@ -861,38 +931,6 @@ export function TypographyProperties({
               <IconLayoutAlignBottom className="size-3.5" />
             </InspectorIconButton>
           </InspectorSegment>
-        </InspectorGridCell>
-        <InspectorGridCell span={4} className="flex justify-center">
-          <TypographyDetailsPopover
-            resizeMode={resizeMode}
-            onResizeModeChange={setResizeMode}
-            underlineActive={underlineActive}
-            strikethroughActive={strikethroughActive}
-            onToggleUnderline={() => toggleTextDecorationLine("underline")}
-            onToggleStrikethrough={() =>
-              toggleTextDecorationLine("line-through")
-            }
-            textCase={textCase}
-            textCaseIsMixed={textTransformIsMixed}
-            onTextCaseChange={setTextCase}
-            truncationEnabled={truncationEnabled}
-            truncationLineCount={truncationLineCount ?? 1}
-            truncationMixed={lineClampIsMixed}
-            truncationToggleDisabled={
-              lineClampIsMixed ||
-              !onStylesChange ||
-              (!truncationEnabled && resizeMode === "fixed")
-            }
-            truncationLineCountDisabled={
-              !onStylesChange || resizeMode === "fixed"
-            }
-            onTruncationEnabledChange={(enabled) =>
-              applyTextTruncation(enabled, truncationLineCount ?? 1)
-            }
-            onTruncationLineCountChange={(value, meta) =>
-              applyTextTruncation(true, value, meta)
-            }
-          />
         </InspectorGridCell>
       </InspectorGrid>
     </PanelSection>

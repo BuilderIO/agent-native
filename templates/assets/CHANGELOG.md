@@ -3,6 +3,24 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-25
+
+### Added
+
+- Agents connected to Assets through MCP can now find and use most of its tools, such as generating, editing and organizing images and videos in brand kits, and they ask you first before deleting anything, moving a template in or out of a brand kit, or saving a teammate's draft into one.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+## 2026-11-09
+
+### Improved
+
+- Share controls use a consistent compact layout.
+
 ## 2026-11-05
 
 ### Improved
@@ -13,6 +31,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Export CSV on the audit log downloads the file instead of showing a Not found error.
 - Folder counts reflect the selected tab's asset type.
 - The move menu only shows folders an asset can move into.
 

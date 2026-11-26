@@ -1,6 +1,18 @@
+import fs from "node:fs";
 import { createServer } from "node:net";
+import os from "node:os";
+import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import * as a2aClient from "../a2a/client.js";
@@ -12,8 +24,23 @@ import { verifyAuth } from "./build-server.js";
 import type { MCPConfig } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import * as orgDirectory from "./org-directory.js";
+import * as workspaceResolve from "./workspace-resolve.js";
 
 const ORIGINAL_ENV = { ...process.env };
+const INVALID_HANDLE =
+  /^Invalid or expired ask_app task handle\. To keep polling the same task, call ask_app_status with the app and taskId from the ask_app result and leave out taskHandle\. Do not resubmit ask_app; that can duplicate work\.$/;
+
+let isolatedCwd: string;
+
+beforeAll(() => {
+  isolatedCwd = fs.mkdtempSync(
+    path.join(os.tmpdir(), "builtin-cross-app-cwd-"),
+  );
+});
+
+afterAll(() => {
+  fs.rmSync(isolatedCwd, { recursive: true, force: true });
+});
 
 function resetEnv() {
   process.env = { ...ORIGINAL_ENV };
@@ -25,6 +52,7 @@ function resetEnv() {
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
   delete process.env.APP_BASE_PATH;
   delete process.env.VITE_APP_BASE_PATH;
+  vi.spyOn(process, "cwd").mockReturnValue(isolatedCwd);
 }
 
 beforeEach(resetEnv);
@@ -157,6 +185,38 @@ async function reserveUnusedPort(): Promise<number> {
 }
 
 describe("open_app — same-app / standalone keeps a relative deep link", () => {
+  it("rejects unknown cross-app targets rather than returning a same-app path", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(
+      tools.open_app.run({ app: "missing-app", path: "/record/1" }),
+    ).rejects.toThrow(/unknown|unavailable/i);
+  });
+
+  it("opens a caller-scoped directory app using its registered base URL", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "calendar",
+        name: "Calendar",
+        url: "https://calendar.example/base",
+        a2aUrl: "https://calendar.example/base/a2a",
+      },
+    ]);
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(
+      tools.open_app.run({ app: "calendar", path: "/event/1" }),
+    ).resolves.toMatchObject({
+      app: "calendar",
+      url: "https://calendar.example/base/event/1",
+    });
+  });
+
+  it("rejects unsafe paths rather than reporting a home-page success", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(
+      tools.open_app.run({ app: "mail", path: "https://outside.example/path" }),
+    ).rejects.toThrow(/path/i);
+  });
+
   it("returns a relative /_agent-native/open path for the current app", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
     const result: any = await tools.open_app.run({
@@ -262,6 +322,45 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       scope: "minimal",
     });
   });
+
+  it.each([
+    [undefined, "full-app"],
+    ["full", "full-app"],
+    ["minimal", "minimal"],
+  ] as const)(
+    "gives a same-app panel with %s chrome the %s scope",
+    async (chrome, scope) => {
+      const createTicket = vi
+        .spyOn(embedSession, "createEmbedSessionTicket")
+        .mockResolvedValue({
+          ticket: "ticket-123",
+          ticketHash: "hash-123",
+          expiresAt: 123456,
+        });
+      const tools = getBuiltinCrossAppTools(baseConfig(), {
+        origin: "https://mail.example.com",
+      });
+
+      await runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          orgId: "org-123",
+          requestOrigin: "https://mail.example.com",
+        },
+        () =>
+          tools.open_app.run({
+            app: "mail",
+            view: "inbox",
+            embed: true,
+            ...(chrome ? { chrome } : {}),
+          }),
+      );
+
+      expect(createTicket).toHaveBeenCalledWith(
+        expect.objectContaining({ scope }),
+      );
+    },
+  );
 
   it("requests the default app viewport for full-app MCP App embeds", () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
@@ -617,16 +716,16 @@ describe("ask_app — honest routing metadata", () => {
       }),
     );
   });
-  it("describes direct tools as preferred and ask_app as the fallback", () => {
+  it("describes ask_app factually alongside direct single-action tools", () => {
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "mail" }));
     expect(tools.ask_app.tool.description).toMatch(
-      /Prefer host page WebMCP or cataloged direct action tools for known, bounded current-app work/i,
-    );
-    expect(tools.ask_app.tool.description).toMatch(
-      /when direct tools are unavailable or the task needs the app agent's interpretation/i,
+      /unlike direct single-action tools/i,
     );
     expect(tools.ask_app.tool.description).toMatch(
       /full skills, instructions, tools, and context/i,
+    );
+    expect(tools.ask_app.tool.description).not.toMatch(
+      /prefer host page|call list_apps first|never resubmit/i,
     );
   });
 
@@ -1328,7 +1427,7 @@ describe("ask_app — org-directory routing", () => {
         id: "calendar",
         name: "Calendar",
         url: "https://calendar.acme.com",
-        a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
+        a2aUrl: "https://calendar.acme.com/agent/_agent-native/a2a",
       },
     ]);
     const auth = vi
@@ -1373,7 +1472,7 @@ describe("ask_app — org-directory routing", () => {
       },
     );
     expect(auth).toHaveBeenCalledWith({
-      audience: "https://calendar.acme.com",
+      audience: "https://calendar.acme.com/agent",
     });
     expect(send).toHaveBeenCalledOnce();
     expect(getTask).toHaveBeenCalledWith("peer-task");
@@ -1386,7 +1485,7 @@ describe("ask_app — org-directory routing", () => {
         id: "calendar",
         name: "Calendar",
         url: "https://calendar.acme.com",
-        a2aUrl: "https://calendar.acme.com/_agent-native/a2a",
+        a2aUrl: "https://calendar.acme.com/agent/_agent-native/a2a",
       },
     ]);
     const callAgentSpy = vi
@@ -1411,7 +1510,7 @@ describe("ask_app — org-directory routing", () => {
 
     expect(callAgentSpy).toHaveBeenCalledTimes(1);
     expect(callAgentSpy.mock.calls[0][0]).toBe(
-      "https://calendar.acme.com/_agent-native/a2a",
+      "https://calendar.acme.com/agent/_agent-native/a2a",
     );
     expect(callAgentSpy.mock.calls[0][2]).toMatchObject({
       apiKey: "signed-org-jwt",
@@ -1507,13 +1606,13 @@ describe("ask_app — org-directory routing", () => {
         { userEmail: "other@acme.com", orgId: "org-1" },
         () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     await expect(
       runWithRequestContext(
         { userEmail: "caller@acme.com", orgId: "org-2" },
         () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     const otherDeployment = getBuiltinCrossAppTools(
       baseConfig({ appId: "mail", askAgent: async () => "unused" }),
       { origin: "https://mail-preview.acme.com" },
@@ -1526,7 +1625,7 @@ describe("ask_app — org-directory routing", () => {
             taskHandle: submitted.taskHandle,
           }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     const otherConnector = getBuiltinCrossAppTools(
       baseConfig({ appId: "calendar", askAgent: async () => "unused" }),
       { origin: "https://calendar.acme.com" },
@@ -1539,7 +1638,7 @@ describe("ask_app — org-directory routing", () => {
             taskHandle: submitted.taskHandle,
           }),
       ),
-    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    ).rejects.toThrow(INVALID_HANDLE);
     expect(getTaskSpy).not.toHaveBeenCalled();
 
     const completed: any = await runWithRequestContext(
@@ -1564,4 +1663,403 @@ describe("ask_app — org-directory routing", () => {
     expect(sendSpy).toHaveBeenCalledTimes(1);
     expect(getTaskSpy).toHaveBeenCalledTimes(2);
   });
+
+  it("an expired handle points to polling by app and taskId, which reaches the same task", async () => {
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "content",
+        name: "Content",
+        url: "https://content.acme.com",
+        a2aUrl: "https://content.acme.com/_agent-native/a2a",
+      },
+    ]);
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const timestamp = new Date().toISOString();
+    const sendSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "send")
+      .mockResolvedValue({
+        id: "content-task-1",
+        status: { state: "working", timestamp },
+        history: [],
+        artifacts: [],
+      });
+    const getTaskSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockResolvedValue({
+        id: "content-task-1",
+        status: {
+          state: "completed",
+          timestamp,
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "content answer" }],
+          },
+        },
+        history: [],
+        artifacts: [],
+      });
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "local-answer" }),
+      { origin: "https://mail.acme.com" },
+    );
+    const submitted = await runWithRequestContext(
+      { userEmail: "caller@acme.com", orgId: "org-1" },
+      () =>
+        tools.ask_app.run({
+          app: "content",
+          message: "recover this document",
+          async: true,
+        }),
+    );
+    expect(submitted).toMatchObject({
+      app: "content",
+      taskId: "content-task-1",
+      taskHandle: expect.any(String),
+    });
+    await expect(
+      runWithRequestContext(
+        { userEmail: "caller@acme.com", orgId: "org-1" },
+        () =>
+          tools.ask_app_status.run({
+            taskHandle: submitted.taskHandle,
+            taskId: "content-task-2",
+          }),
+      ),
+    ).rejects.toThrow(INVALID_HANDLE);
+
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2 * 60 * 60 * 1000);
+    await expect(
+      runWithRequestContext(
+        { userEmail: "caller@acme.com", orgId: "org-1" },
+        () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
+      ),
+    ).rejects.toThrow(INVALID_HANDLE);
+    const completed = await runWithRequestContext(
+      { userEmail: "caller@acme.com", orgId: "org-1" },
+      () =>
+        tools.ask_app_status.run({
+          app: submitted.app,
+          taskId: submitted.taskId,
+        }),
+    );
+
+    expect(getTaskSpy).toHaveBeenCalledWith("content-task-1");
+    expect(completed).toMatchObject({
+      app: "content",
+      taskId: "content-task-1",
+      status: "completed",
+      response: "content answer",
+    });
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+  });
 });
+
+describe("open_app — sibling workspace apps on the same origin", () => {
+  beforeEach(() => {
+    process.env.APP_BASE_PATH = "/dispatch";
+  });
+  function mockWorkspace(mailUrl: string) {
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/ws",
+      isWorkspace: true,
+      apps: [
+        {
+          id: "dispatch",
+          url: "https://labs.test/dispatch",
+          port: 0,
+          running: true,
+        },
+        { id: "mail", url: mailUrl, port: 0, running: true },
+      ],
+    });
+  }
+  const dispatchContext = {
+    userEmail: "owner@example.com",
+    requestOrigin: "https://labs.test",
+  };
+  const dispatch = () =>
+    getBuiltinCrossAppTools(
+      baseConfig({ name: "Dispatch", appId: "dispatch" }),
+      { origin: "https://labs.test", inlineMcpApps: true },
+    );
+
+  it("embeds the sibling by default through a handoff to its start route", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+    const createTicket = vi.spyOn(embedSession, "createEmbedSessionTicket");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox" }),
+    );
+
+    expect(result.embed).toBe(true);
+    const start = new URL(result.embedStartUrl);
+    expect(`${start.origin}${start.pathname}`).toBe(
+      "https://labs.test/mail-2/_agent-native/embed/start",
+    );
+    expect(start.searchParams.get("handoff")).toBeTruthy();
+    expect(result.embedTargetPath).toContain("__an_mcp_chat_bridge=1");
+    expect(createTicket).not.toHaveBeenCalled();
+    expect(tools_link(dispatch(), result)).toBeNull();
+  });
+
+  it("falls back to a link for a sibling on another origin", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://mail.other.test");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox", embed: true }),
+    );
+
+    expect(result.embed).toBe(false);
+    expect(result.embedStartUrl).toBeUndefined();
+    expect(tools_link(dispatch(), result)?.url).toBe(result.url);
+  });
+
+  it("falls back to a link without the workspace secret", async () => {
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox" }),
+    );
+
+    expect(result.embed).toBe(false);
+    expect(result.embedStartUrl).toBeUndefined();
+  });
+
+  it("honors embed false for a sibling", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox", embed: false }),
+    );
+
+    expect(result.embed).toBe(false);
+    expect(result.embedStartUrl).toBeUndefined();
+  });
+
+  it("renews a sibling app URL through create_embed_session", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/mail-2/inbox?thread=1",
+      }),
+    );
+
+    const start = new URL(result.startUrl);
+    expect(`${start.origin}${start.pathname}`).toBe(
+      "https://labs.test/mail-2/_agent-native/embed/start",
+    );
+    expect(result.targetPath).toBe("/inbox?thread=1&__an_mcp_chat_bridge=1");
+  });
+
+  it("renews a sibling that only the org directory knows about", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/app",
+      isWorkspace: false,
+      apps: [],
+    });
+    vi.spyOn(orgDirectory, "fetchOrgAppsResult").mockResolvedValue({
+      status: "available",
+      apps: [
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://labs.test/mail-2",
+          a2aUrl: "https://labs.test/mail-2",
+        } as any,
+      ],
+    });
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/mail-2/inbox",
+      }),
+    );
+
+    expect(new URL(result.startUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+  });
+
+  it("links a sibling for a host that cannot render inline apps", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ name: "Dispatch", appId: "dispatch" }),
+      { origin: "https://labs.test" },
+    );
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      tools.open_app.run({ app: "mail", view: "inbox" }),
+    );
+
+    expect(result.embed).toBe(false);
+    expect(result.embedStartUrl).toBeUndefined();
+    expect(tools_link(tools, result)?.url).toBe(result.url);
+  });
+
+  it("reports a failed app lookup instead of a same-origin refusal", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/app",
+      isWorkspace: false,
+      apps: [],
+    });
+    vi.spyOn(orgDirectory, "fetchOrgAppsResult").mockResolvedValue({
+      status: "unavailable",
+      reason: "network",
+    });
+
+    await expect(
+      runWithRequestContext(dispatchContext, () =>
+        dispatch().create_embed_session.run({
+          url: "https://labs.test/mail-2/inbox",
+        }),
+      ),
+    ).rejects.toThrow(/could not look up the workspace apps/);
+  });
+
+  it("never mints a caller ticket for a sibling URL it cannot hand off", async () => {
+    delete process.env.APP_BASE_PATH;
+    mockWorkspace("https://labs.test/mail-2");
+    const createTicket = vi.spyOn(embedSession, "createEmbedSessionTicket");
+
+    await expect(
+      runWithRequestContext(dispatchContext, () =>
+        dispatch().create_embed_session.run({
+          url: "https://labs.test/mail-2/inbox",
+        }),
+      ),
+    ).rejects.toThrow(/cannot embed this workspace app/);
+
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockRejectedValue(
+      new Error("workspace unreadable"),
+    );
+    await expect(
+      runWithRequestContext(dispatchContext, () =>
+        dispatch().create_embed_session.run({
+          url: "https://labs.test/mail-2/inbox",
+        }),
+      ),
+    ).rejects.toThrow(/could not look up the workspace apps/);
+    expect(createTicket).not.toHaveBeenCalled();
+  });
+
+  it("keeps embedding the caller's own URL while the workspace lookup fails", async () => {
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockRejectedValue(
+      new Error("workspace unreadable"),
+    );
+    vi.spyOn(embedSession, "createEmbedSessionTicket").mockResolvedValue({
+      ticket: "own-ticket",
+      ticketHash: "hash",
+      expiresAt: 1,
+    });
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/dispatch/chat",
+      }),
+    );
+
+    expect(result.startUrl).toBe(
+      "https://labs.test/dispatch/_agent-native/embed/start?ticket=own-ticket",
+    );
+  });
+
+  it("matches the longest mounted app URL first", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/ws",
+      isWorkspace: true,
+      apps: [
+        { id: "home", url: "https://labs.test", port: 0, running: true },
+        { id: "mail", url: "https://labs.test/mail-2", port: 0, running: true },
+      ],
+    });
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/mail-2/inbox",
+      }),
+    );
+
+    expect(new URL(result.startUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+  });
+
+  it("matches a sibling URL written with an uppercase host and default port", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://LABS.test:443/mail-2/inbox",
+      }),
+    );
+
+    expect(new URL(result.startUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+    expect(result.targetPath).toBe("/inbox?__an_mcp_chat_bridge=1");
+  });
+
+  it("embeds a sibling that only the org directory knows about", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/app",
+      isWorkspace: false,
+      apps: [],
+    });
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "mail",
+        name: "Mail",
+        url: "https://labs.test/mail-2",
+        a2aUrl: "https://labs.test/mail-2",
+      } as any,
+    ]);
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox" }),
+    );
+
+    expect(result.embed).toBe(true);
+    expect(result.url.startsWith("https://labs.test/mail-2/")).toBe(true);
+    expect(new URL(result.embedStartUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+  });
+
+  it("still refuses a URL that belongs to no workspace app", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    await expect(
+      runWithRequestContext(dispatchContext, () =>
+        dispatch().create_embed_session.run({
+          url: "https://labs.test/mail-2x/inbox",
+        }),
+      ),
+    ).rejects.toThrow(/same-origin/);
+  });
+});
+
+function tools_link(
+  tools: ReturnType<typeof getBuiltinCrossAppTools>,
+  result: unknown,
+) {
+  return tools.open_app.link?.({ result } as any) ?? null;
+}

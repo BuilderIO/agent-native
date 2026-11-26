@@ -10,7 +10,49 @@ type Host = typeof import("./slide-object-transform.browser-host");
 declare global {
   interface Window {
     slideObjects: Host;
+    animationClock: ReturnType<typeof animationClock>;
   }
+}
+
+/**
+ * Runs in the page. A transition or animation read at whatever moment a test
+ * reaches it reads differently on a loaded runner, so tests put each one at a
+ * time they chose. The timeline moves them on again between tasks: read them
+ * in the task that put them there.
+ */
+function animationClock() {
+  return {
+    /**
+     * Lets a frame start the transitions a style change has set off on
+     * `element`, as it would for a user, then puts them `time` ms in.
+     */
+    async startTransitions(element: Element, time: number) {
+      const transitions = element
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition);
+      await Promise.all(transitions.map((transition) => transition.ready));
+      for (const transition of transitions) transition.currentTime = time;
+      return transitions.map(({ transitionProperty }) => transitionProperty);
+    },
+    /**
+     * Moves every running animation on the page `ms` on, as that much timeline
+     * time would, and lets the ones it finishes settle.
+     */
+    async advance(ms: number) {
+      const running = document
+        .getAnimations()
+        .filter(({ playState }) => playState === "running");
+      for (const animation of running) {
+        animation.currentTime =
+          Number(animation.currentTime) + ms * animation.playbackRate;
+      }
+      await Promise.all(
+        running
+          .filter(({ playState }) => playState === "finished")
+          .map(({ finished }) => finished),
+      );
+    },
+  };
 }
 
 const EDITOR_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -96,6 +138,9 @@ async function openPage(css: string, body: string): Promise<Page> {
   const page = await browser.newPage();
   await page.setContent(pageHtml(css, body));
   await page.addScriptTag({ content: hostScript });
+  await page.addScriptTag({
+    content: `window.animationClock = (${animationClock})();`,
+  });
   return page;
 }
 
@@ -106,6 +151,19 @@ const hullOf = (page: Page, selector: string) =>
       .getBoundingClientRect();
     return { left, top, width, height };
   }, selector);
+
+/** The hull of `selector` once every running animation has moved `ms` on. */
+const hullAfter = (page: Page, selector: string, ms: number) =>
+  page.evaluate(
+    async ([target, delta]) => {
+      await window.animationClock.advance(delta as number);
+      const { left, top, width, height } = document
+        .querySelector(target as string)!
+        .getBoundingClientRect();
+      return { left, top, width, height };
+    },
+    [selector, ms],
+  );
 
 function expectSameHull(
   actual: Awaited<ReturnType<typeof hullOf>>,
@@ -347,23 +405,34 @@ describe("the rotation of a slide object in Chromium", () => {
         const before = getComputedStyle(accepted).transform;
         const refusedBefore = getComputedStyle(refused).transform;
         accepted.style.transform = "rotate(90deg)";
-        await new Promise((resolve) => setTimeout(resolve, 120));
+        const transitioned = await window.animationClock.startTransitions(
+          accepted,
+          1000,
+        );
         const transitioning = getComputedStyle(accepted).transform;
         const refusedRotationApplied =
           window.slideObjects.setSlideObjectRotation(refused, 90);
         window.slideObjects.restoreSlideObjectTransformSnapshots(snapshots);
         return {
+          transitioned,
           before,
           transitioning,
           after: getComputedStyle(accepted).transform,
+          animations: accepted.getAnimations().length,
           refusedRotationApplied,
           refusedBefore,
           refusedAfter: getComputedStyle(refused).transform,
         };
       });
 
-      expect(result.transitioning).not.toBe(result.before);
+      expect(result.transitioned).toEqual(["transform"]);
+      // Halfway from rotate(0deg) to rotate(90deg).
+      expect(result.transitioning).toBe(
+        "matrix(0.707107, 0.707107, -0.707107, 0.707107, 0, 0)",
+      );
       expect(result.after).toBe(result.before);
+      // A restore that turned it back with a transition would still be running.
+      expect(result.animations).toBe(0);
       expect(result.refusedRotationApplied).toBe(false);
       expect(result.refusedAfter).toBe(result.refusedBefore);
     } finally {
@@ -377,17 +446,16 @@ describe("the rotation of a slide object in Chromium", () => {
       '<div id="object" class="object" style="transform: rotate(0deg)"></div>',
     );
     try {
-      const result = await page.evaluate(async () => {
+      const result = await page.evaluate(() => {
         const object = document.getElementById("object") as HTMLElement;
         const before = window.slideObjects.readSlideObjectRotation(object);
         const applied = window.slideObjects.setSlideObjectRotation(object, 90);
-        const immediate = window.slideObjects.readSlideObjectRotation(object);
-        await new Promise((resolve) => setTimeout(resolve, 100));
         return {
           before,
           applied,
-          immediate,
-          after: window.slideObjects.readSlideObjectRotation(object),
+          immediate: window.slideObjects.readSlideObjectRotation(object),
+          // A transition back from the refused 20deg would still be running.
+          animations: object.getAnimations().length,
         };
       });
 
@@ -395,7 +463,7 @@ describe("the rotation of a slide object in Chromium", () => {
         before: 0,
         applied: false,
         immediate: 0,
-        after: 0,
+        animations: 0,
       });
     } finally {
       await page.close();
@@ -741,35 +809,35 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     name: string;
     css: string;
     inline?: string;
-    settle: number;
+    played: number;
     frameAnimations: number;
     imageAnimations: number;
   }> = [
     {
       name: "an entrance that finished and holds its resting transform",
       css: `@keyframes enter { from { transform: translateY(40px); opacity: 0; } to { transform: rotate(10deg); opacity: 1; } } .ruled { animation: enter 300ms ease-out forwards; }`,
-      settle: 600,
+      played: 600,
       frameAnimations: 1,
       imageAnimations: 1,
     },
     {
       name: "an entrance that finished and holds a resting none",
       css: `@keyframes enter { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } } .ruled { animation: enter 300ms ease-out forwards; }`,
-      settle: 600,
+      played: 600,
       frameAnimations: 1,
       imageAnimations: 1,
     },
     {
       name: "an entrance still in flight",
       css: `@keyframes enter { from { transform: translateY(40px); opacity: 0; } to { transform: rotate(10deg); opacity: 1; } } .ruled { animation: enter 3s ease-out forwards; }`,
-      settle: 400,
+      played: 400,
       frameAnimations: 1,
       imageAnimations: 1,
     },
     {
       name: "an infinite animation on transform",
       css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
-      settle: 400,
+      played: 400,
       frameAnimations: 1,
       imageAnimations: 0,
     },
@@ -777,7 +845,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       name: "a spin around a non-center origin without a static transform",
       css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
       inline: "transform-origin: top left;",
-      settle: 400,
+      played: 400,
       frameAnimations: 1,
       imageAnimations: 0,
     },
@@ -785,28 +853,28 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       name: "an infinite animation over an inline transform",
       css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
       inline: "transform: translate(10px, 5px);",
-      settle: 400,
+      played: 400,
       frameAnimations: 1,
       imageAnimations: 0,
     },
     {
       name: "an animation on the rotate property only",
       css: "@keyframes turn { to { rotate: 360deg; } } .ruled { animation: turn 4s linear infinite; }",
-      settle: 400,
+      played: 400,
       frameAnimations: 1,
       imageAnimations: 0,
     },
     {
       name: "an animation the rule holds paused",
       css: "@keyframes held { to { transform: rotate(30deg); } } .ruled { animation: held 10s linear -5s paused; }",
-      settle: 0,
+      played: 0,
       frameAnimations: 1,
       imageAnimations: 0,
     },
     {
       name: "a fade running beside a spin",
       css: `${SPIN} @keyframes fade { from { opacity: 0.2; } to { opacity: 1; } } .ruled { animation: fade 1s linear infinite, spin 4s linear infinite; }`,
-      settle: 400,
+      played: 400,
       frameAnimations: 1,
       imageAnimations: 1,
     },
@@ -827,13 +895,12 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
 
   it.each(CASES)(
     "holds $name on the frame where it was, without a jump",
-    async ({ css, inline, settle, frameAnimations, imageAnimations }) => {
+    async ({ css, inline, played, frameAnimations, imageAnimations }) => {
       const page = await openPage(css, imageHtml(inline));
       try {
-        await page.waitForTimeout(settle);
         // One task, so no animation frame separates what the image painted
         // from what the frame paints.
-        const started = await page.evaluate(() => {
+        const started = await page.evaluate((time) => {
           const rect = (element: Element) => {
             const { left, top, width, height } =
               element.getBoundingClientRect();
@@ -844,6 +911,9 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
               .getAnimations()
               .map((animation) => (animation as CSSAnimation).animationName);
           const image = document.getElementById("pic") as HTMLImageElement;
+          for (const animation of image.getAnimations()) {
+            animation.currentTime = time;
+          }
           const painted = rect(image);
           const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
           wrapped.frame.id = "frame";
@@ -856,7 +926,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
             imageAnimationName: getComputedStyle(image).animationName,
             imageStyle: image.getAttribute("style") ?? "",
           };
-        });
+        }, played);
 
         expectSameHull(started.frame, started.painted);
         expectSameHull(started.image, started.painted);
@@ -878,8 +948,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
 
         // Held still while the crop is edited: its handles are placed from
         // where the frame paints.
-        await page.waitForTimeout(300);
-        expectSameHull(await hullOf(page, "#frame"), started.frame);
+        expectSameHull(await hullAfter(page, "#frame", 300), started.frame);
 
         // What is saved plays on the frame as it played on the image.
         const saved = await page.evaluate(
@@ -1660,23 +1729,29 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       ".ruled { transform: rotate(0deg); transition: transform 1s linear; } .moving { transform: rotate(90deg); }";
     const page = await openPage(css, imageHtml());
     try {
-      await page.evaluate(() =>
-        document.getElementById("pic")!.classList.add("moving"),
-      );
-      await page.waitForTimeout(300);
-      const imageStyle = await page.evaluate(() => {
+      const imageStyle = await page.evaluate(async () => {
         const rect = (element: Element) => {
           const { left, top, width, height } = element.getBoundingClientRect();
           return { left, top, width, height };
         };
         const image = document.getElementById("pic") as HTMLImageElement;
+        void getComputedStyle(image).transform;
+        image.classList.add("moving");
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          300,
+        );
         const painted = rect(image);
+        const paintedRotation =
+          window.slideObjects.readSlideObjectRotation(image);
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
         const transitionDuringCrop = getComputedStyle(image).transitionProperty;
         wrapped.restoreTransitions();
         return {
+          transitioned,
           painted,
+          paintedRotation,
           frame: rect(wrapped.frame),
           transform: getComputedStyle(image).transform,
           transitionDuringCrop,
@@ -1684,13 +1759,14 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         };
       });
 
+      expect(imageStyle.transitioned).toEqual(["transform"]);
+      expect(imageStyle.paintedRotation).toBeCloseTo(27, 3);
       expectSameHull(imageStyle.frame, imageStyle.painted);
       expect(imageStyle.transform).toBe("none");
       expect(imageStyle.transitionDuringCrop).toBe("none");
       expect(imageStyle.restoredTransition).toMatch(/transform 1s linear/);
       const held = await hullOf(page, "#frame");
-      await page.waitForTimeout(300);
-      expectSameHull(await hullOf(page, "#frame"), held);
+      expectSameHull(await hullAfter(page, "#frame", 300), held);
       expect(
         await page.evaluate(
           () => getComputedStyle(document.getElementById("pic")!).transform,
@@ -1709,54 +1785,20 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml().replace('class="ruled"', 'class="bare"'),
     );
     try {
-      await page.evaluate(() => {
-        const image = document.getElementById("pic")!;
+      const { wrapped, after, settled } = await page.evaluate(async () => {
+        const image = document.getElementById("pic") as HTMLImageElement;
         image.style.setProperty("opacity", "0.2", "important");
         void getComputedStyle(image).opacity;
         image.classList.add("ruled");
         void getComputedStyle(image).opacity;
         image.classList.add("moving");
         image.style.setProperty("opacity", "0.8", "important");
-      });
-      await page.waitForTimeout(600);
-      const wrapped = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
-        const before = Number(getComputedStyle(image).opacity);
-        const result = window.slideObjects.wrapImageInCropFrame(image)!;
-        result.frame.id = "frame";
-        return {
-          before,
-          transitionProperty: getComputedStyle(image).transitionProperty,
-          inlinePriority: image.style.getPropertyPriority("opacity"),
-          runningOpacityEffect: image
-            .getAnimations()
-            .some(
-              (animation) =>
-                animation.effect instanceof KeyframeEffect &&
-                animation.effect
-                  .getKeyframes()
-                  .some((keyframe) => "opacity" in keyframe),
-            ),
-        };
-      });
-      await page.waitForTimeout(200);
-      const after = await page.evaluate(() =>
-        Number(getComputedStyle(document.getElementById("pic")!).opacity),
-      );
-
-      expect(wrapped.transitionProperty).toBe("none");
-      expect(wrapped.inlinePriority).toBe("");
-      expect(wrapped.runningOpacityEffect).toBe(true);
-      expect(after).toBeGreaterThan(wrapped.before + 0.04);
-      expect(after).toBeLessThan(0.8);
-
-      await page.waitForTimeout(1400);
-      const settled = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
-        return {
-          opacity: Number(getComputedStyle(image).opacity),
-          inlinePriority: image.style.getPropertyPriority("opacity"),
-          runningOpacityEffects: image
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          600,
+        );
+        const opacityEffects = () =>
+          image
             .getAnimations()
             .filter(
               (animation) =>
@@ -1764,9 +1806,40 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
                 animation.effect
                   .getKeyframes()
                   .some((keyframe) => "opacity" in keyframe),
-            ).length,
+            ).length;
+        const before = Number(getComputedStyle(image).opacity);
+        const result = window.slideObjects.wrapImageInCropFrame(image)!;
+        result.frame.id = "frame";
+        const cropped = {
+          transitioned,
+          before,
+          transitionProperty: getComputedStyle(image).transitionProperty,
+          inlinePriority: image.style.getPropertyPriority("opacity"),
+          runningOpacityEffect: opacityEffects() > 0,
+        };
+        await window.animationClock.advance(200);
+        const opacityAfter = Number(getComputedStyle(image).opacity);
+        await window.animationClock.advance(1400);
+        return {
+          wrapped: cropped,
+          after: opacityAfter,
+          settled: {
+            opacity: Number(getComputedStyle(image).opacity),
+            inlinePriority: image.style.getPropertyPriority("opacity"),
+            runningOpacityEffects: opacityEffects(),
+          },
         };
       });
+
+      expect(wrapped.transitioned.sort()).toEqual(["opacity", "transform"]);
+      // 600 ms into 2 s from 0.2 to 0.8.
+      expect(wrapped.before).toBeCloseTo(0.38, 3);
+      expect(wrapped.transitionProperty).toBe("none");
+      expect(wrapped.inlinePriority).toBe("");
+      expect(wrapped.runningOpacityEffect).toBe(true);
+      expect(after).toBeGreaterThan(wrapped.before + 0.04);
+      expect(after).toBeLessThan(0.8);
+
       expect(settled.opacity).toBeCloseTo(0.8, 2);
       expect(settled.inlinePriority).toBe("important");
       expect(settled.runningOpacityEffects).toBe(0);
@@ -1783,42 +1856,59 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml().replace('class="ruled"', 'class="base"'),
     );
     try {
-      await page.evaluate(() =>
-        document.getElementById("pic")!.classList.add("moving"),
-      );
-      await page.waitForTimeout(600);
-      const wrapped = await page.evaluate(() => {
+      const { wrapped, after, settled } = await page.evaluate(async () => {
         const image = document.getElementById("pic") as HTMLImageElement;
+        void getComputedStyle(image).opacity;
+        image.classList.add("moving");
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          600,
+        );
         const before = Number(getComputedStyle(image).opacity);
         const result = window.slideObjects.wrapImageInCropFrame(image)!;
         result.frame.id = "frame";
+        const frameOpacityEffects = () =>
+          result.frame
+            .getAnimations()
+            .filter(
+              (animation) =>
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect
+                  .getKeyframes()
+                  .some((keyframe) => "opacity" in keyframe),
+            ).length;
         const serializedStyle =
           result.serializeWithoutCopiedTransitionOverrides(() =>
             image.getAttribute("style"),
           ) ?? "";
-        return {
+        const cropped = {
+          transitioned,
           before,
           serializedStyle,
           imageOpacity: getComputedStyle(image).opacity,
           imageInlineOpacity: image.style.getPropertyValue("opacity"),
           imagePriority: image.style.getPropertyPriority("opacity"),
           frameOpacity: getComputedStyle(result.frame).opacity,
-          runningFrameOpacityEffect: result.frame
-            .getAnimations()
-            .some(
-              (animation) =>
-                animation.effect instanceof KeyframeEffect &&
-                animation.effect
-                  .getKeyframes()
-                  .some((keyframe) => "opacity" in keyframe),
-            ),
+          runningFrameOpacityEffect: frameOpacityEffects() > 0,
+        };
+        await window.animationClock.advance(200);
+        const opacityAfter = Number(getComputedStyle(result.frame).opacity);
+        await window.animationClock.advance(1400);
+        return {
+          wrapped: cropped,
+          after: opacityAfter,
+          settled: {
+            opacity: Number(getComputedStyle(image).opacity),
+            inlinePriority: image.style.getPropertyPriority("opacity"),
+            frameOpacity: Number(getComputedStyle(result.frame).opacity),
+            runningFrameOpacityEffects: frameOpacityEffects(),
+          },
         };
       });
-      await page.waitForTimeout(200);
-      const after = await page.evaluate(() =>
-        Number(getComputedStyle(document.getElementById("frame")!).opacity),
-      );
 
+      expect(wrapped.transitioned.sort()).toEqual(["opacity", "transform"]);
+      // 600 ms into 2 s from 0.2 to 0.8.
+      expect(wrapped.before).toBeCloseTo(0.38, 3);
       expect(wrapped.imageOpacity).toBe("1");
       expect(wrapped.serializedStyle).not.toMatch(/opacity:\s*1\b/i);
       expect(wrapped.imageInlineOpacity).toBe("1");
@@ -1827,25 +1917,6 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       expect(after).toBeGreaterThan(wrapped.before + 0.04);
       expect(after).toBeLessThan(0.8);
 
-      await page.waitForTimeout(1400);
-      const settled = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
-        const frame = document.getElementById("frame")!;
-        return {
-          opacity: Number(getComputedStyle(image).opacity),
-          inlinePriority: image.style.getPropertyPriority("opacity"),
-          frameOpacity: Number(getComputedStyle(frame).opacity),
-          runningFrameOpacityEffects: frame
-            .getAnimations()
-            .filter(
-              (animation) =>
-                animation.effect instanceof KeyframeEffect &&
-                animation.effect
-                  .getKeyframes()
-                  .some((keyframe) => "opacity" in keyframe),
-            ).length,
-        };
-      });
       expect(settled.opacity).toBeCloseTo(0.8, 2);
       expect(settled.inlinePriority).toBe("");
       expect(settled.frameOpacity).toBeCloseTo(1, 2);
@@ -1863,15 +1934,18 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml().replace('class="ruled"', 'class="base"'),
     );
     try {
-      await page.evaluate(() =>
-        document.getElementById("pic")!.classList.add("moving"),
-      );
-      await page.waitForTimeout(600);
-      const wrapped = await page.evaluate(() => {
+      const { wrapped, nextFilter } = await page.evaluate(async () => {
         const image = document.getElementById("pic") as HTMLImageElement;
+        void getComputedStyle(image).filter;
+        image.classList.add("moving");
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          600,
+        );
         const result = window.slideObjects.wrapImageInCropFrame(image)!;
         result.frame.id = "frame";
-        return {
+        const cropped = {
+          transitioned,
           imageFilter: getComputedStyle(image).filter,
           frameFilter: getComputedStyle(result.frame).filter,
           copiedFilterTransition: result.frame
@@ -1884,12 +1958,14 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
                   .some((keyframe) => "filter" in keyframe),
             ),
         };
+        await window.animationClock.advance(160);
+        return {
+          wrapped: cropped,
+          nextFilter: getComputedStyle(result.frame).filter,
+        };
       });
-      await page.waitForTimeout(160);
-      const nextFilter = await page.evaluate(
-        () => getComputedStyle(document.getElementById("frame")!).filter,
-      );
 
+      expect(wrapped.transitioned.sort()).toEqual(["filter", "transform"]);
       expect(wrapped.imageFilter).toBe("none");
       expect(wrapped.frameFilter).not.toBe("none");
       expect(wrapped.copiedFilterTransition).toBe(true);
@@ -1907,85 +1983,94 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml().replace('class="ruled"', 'class="base"'),
     );
     try {
-      await page.evaluate(() =>
-        document.getElementById("pic")!.classList.add("moving"),
-      );
-      await page.waitForTimeout(600);
-      const transferred = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
-        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
-        wrapped.restoreTransitions();
-        const frame = wrapped.frame;
-        const frameId = frame.getAttribute("data-slide-object-id")!;
-        const before = Number(getComputedStyle(frame).opacity);
-        const serialized =
-          wrapped.serializeWithoutCopiedTransitionOverrides(
-            () => frame.outerHTML,
-          ) ?? "";
-        const stage = document.querySelector(".stage") as HTMLElement;
-        const transitions =
-          window.slideObjects.captureCropTransitionAnimations(stage);
-        stage.innerHTML = serialized;
-        const replacementFrame = Array.from(
-          stage.querySelectorAll<HTMLElement>(
-            ".fmd-pptx-image[data-slide-object-id]",
-          ),
-        ).find(
-          (candidate) =>
-            candidate.getAttribute("data-slide-object-id") === frameId,
-        )!;
-        window.slideObjects.restoreCropTransitionAnimations(stage, transitions);
-        const replacementImage = replacementFrame.querySelector("img")!;
-        return {
-          before,
-          immediate: Number(getComputedStyle(replacementFrame).opacity),
-          imagePriority: replacementImage.style.getPropertyPriority("opacity"),
-          activeFrameOpacity: replacementFrame
-            .getAnimations()
-            .some(
-              (animation) =>
-                animation.effect instanceof KeyframeEffect &&
-                animation.effect
-                  .getKeyframes()
-                  .some((keyframe) => "opacity" in keyframe),
+      const { transferred, continued, settled } = await page.evaluate(
+        async () => {
+          const image = document.getElementById("pic") as HTMLImageElement;
+          void getComputedStyle(image).opacity;
+          image.classList.add("moving");
+          const transitioned = await window.animationClock.startTransitions(
+            image,
+            600,
+          );
+          const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+          wrapped.restoreTransitions();
+          const frame = wrapped.frame;
+          const frameId = frame.getAttribute("data-slide-object-id")!;
+          const before = Number(getComputedStyle(frame).opacity);
+          const serialized =
+            wrapped.serializeWithoutCopiedTransitionOverrides(
+              () => frame.outerHTML,
+            ) ?? "";
+          const stage = document.querySelector(".stage") as HTMLElement;
+          const transitions =
+            window.slideObjects.captureCropTransitionAnimations(stage);
+          stage.innerHTML = serialized;
+          const replacementFrame = Array.from(
+            stage.querySelectorAll<HTMLElement>(
+              ".fmd-pptx-image[data-slide-object-id]",
             ),
-        };
-      });
-      await page.waitForTimeout(200);
-      const continued = await page.evaluate(() => {
-        const frame = document.querySelector(
-          ".fmd-pptx-image[data-slide-object-id]",
-        );
-        return frame ? Number(getComputedStyle(frame).opacity) : null;
-      });
+          ).find(
+            (candidate) =>
+              candidate.getAttribute("data-slide-object-id") === frameId,
+          )!;
+          window.slideObjects.restoreCropTransitionAnimations(
+            stage,
+            transitions,
+          );
+          const replacementImage = replacementFrame.querySelector("img")!;
+          const activeFrameOpacity = (element: Element) =>
+            element
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.effect instanceof KeyframeEffect &&
+                  animation.effect
+                    .getKeyframes()
+                    .some((keyframe) => "opacity" in keyframe),
+              );
+          const replaced = {
+            transitioned,
+            before,
+            immediate: Number(getComputedStyle(replacementFrame).opacity),
+            imagePriority:
+              replacementImage.style.getPropertyPriority("opacity"),
+            activeFrameOpacity: activeFrameOpacity(replacementFrame),
+          };
+          await window.animationClock.advance(200);
+          const current = () =>
+            document.querySelector<HTMLElement>(
+              ".fmd-pptx-image[data-slide-object-id]",
+            );
+          const continuedFrame = current();
+          const opacityAfter = continuedFrame
+            ? Number(getComputedStyle(continuedFrame).opacity)
+            : null;
+          await window.animationClock.advance(1400);
+          const settledFrame = current()!;
+          const settledImage =
+            settledFrame.querySelector<HTMLImageElement>("img")!;
+          return {
+            transferred: replaced,
+            continued: opacityAfter,
+            settled: {
+              frameOpacity: Number(getComputedStyle(settledFrame).opacity),
+              imageOpacity: Number(getComputedStyle(settledImage).opacity),
+              imagePriority: settledImage.style.getPropertyPriority("opacity"),
+              activeFrameOpacity: activeFrameOpacity(settledFrame),
+            },
+          };
+        },
+      );
 
+      expect(transferred.transitioned.sort()).toEqual(["opacity", "transform"]);
+      // 600 ms into 2 s from 0.2 to 0.8.
+      expect(transferred.before).toBeCloseTo(0.38, 3);
       expect(transferred.activeFrameOpacity).toBe(true);
       expect(transferred.imagePriority).toBe("important");
       expect(transferred.immediate).toBeCloseTo(transferred.before, 1);
       expect(continued).not.toBeNull();
       expect(continued!).toBeGreaterThan(transferred.immediate + 0.04);
 
-      await page.waitForTimeout(1400);
-      const settled = await page.evaluate(() => {
-        const frame = document.querySelector<HTMLElement>(
-          ".fmd-pptx-image[data-slide-object-id]",
-        )!;
-        const image = frame.querySelector<HTMLImageElement>("img")!;
-        return {
-          frameOpacity: Number(getComputedStyle(frame).opacity),
-          imageOpacity: Number(getComputedStyle(image).opacity),
-          imagePriority: image.style.getPropertyPriority("opacity"),
-          activeFrameOpacity: frame
-            .getAnimations()
-            .some(
-              (animation) =>
-                animation.effect instanceof KeyframeEffect &&
-                animation.effect
-                  .getKeyframes()
-                  .some((keyframe) => "opacity" in keyframe),
-            ),
-        };
-      });
       expect(settled.frameOpacity).toBeCloseTo(1, 2);
       expect(settled.imageOpacity).toBeCloseTo(0.8, 2);
       expect(settled.imagePriority).toBe("");
@@ -2003,76 +2088,88 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml().replace('class="ruled"', 'class="base"'),
     );
     try {
-      await page.evaluate(() =>
-        document.getElementById("pic")!.classList.add("moving"),
-      );
-      await page.waitForTimeout(600);
-      const transferred = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
-        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
-        wrapped.restoreTransitions();
-        const frame = wrapped.frame;
-        const frameId = frame.getAttribute("data-slide-object-id")!;
-        const before = getComputedStyle(frame).filter;
-        const serialized =
-          wrapped.serializeWithoutCopiedTransitionOverrides(
-            () => frame.outerHTML,
-          ) ?? "";
-        const stage = document.querySelector(".stage") as HTMLElement;
-        const transitions =
-          window.slideObjects.captureCropTransitionAnimations(stage);
-        stage.innerHTML = serialized;
-        const replacementFrame = Array.from(
-          stage.querySelectorAll<HTMLElement>(
-            ".fmd-pptx-image[data-slide-object-id]",
-          ),
-        ).find(
-          (candidate) =>
-            candidate.getAttribute("data-slide-object-id") === frameId,
-        )!;
-        window.slideObjects.restoreCropTransitionAnimations(stage, transitions);
-        const replacementImage = replacementFrame.querySelector("img")!;
-        return {
-          before,
-          immediateFrameFilter: getComputedStyle(replacementFrame).filter,
-          imageFilter: getComputedStyle(replacementImage).filter,
-          imageFilterPriority:
-            replacementImage.style.getPropertyPriority("filter"),
-          activeFrameFilter: replacementFrame
-            .getAnimations()
-            .some(
-              (animation) =>
-                animation.effect instanceof KeyframeEffect &&
-                animation.effect
-                  .getKeyframes()
-                  .some((keyframe) => "filter" in keyframe),
+      const { transferred, nextFilter, settled } = await page.evaluate(
+        async () => {
+          const image = document.getElementById("pic") as HTMLImageElement;
+          void getComputedStyle(image).filter;
+          image.classList.add("moving");
+          const transitioned = await window.animationClock.startTransitions(
+            image,
+            600,
+          );
+          const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+          wrapped.restoreTransitions();
+          const frame = wrapped.frame;
+          const frameId = frame.getAttribute("data-slide-object-id")!;
+          const before = getComputedStyle(frame).filter;
+          const serialized =
+            wrapped.serializeWithoutCopiedTransitionOverrides(
+              () => frame.outerHTML,
+            ) ?? "";
+          const stage = document.querySelector(".stage") as HTMLElement;
+          const transitions =
+            window.slideObjects.captureCropTransitionAnimations(stage);
+          stage.innerHTML = serialized;
+          const replacementFrame = Array.from(
+            stage.querySelectorAll<HTMLElement>(
+              ".fmd-pptx-image[data-slide-object-id]",
             ),
-        };
-      });
-      await page.waitForTimeout(160);
-      const nextFilter = await page.evaluate(
-        () =>
-          getComputedStyle(document.querySelector(".fmd-pptx-image")!).filter,
+          ).find(
+            (candidate) =>
+              candidate.getAttribute("data-slide-object-id") === frameId,
+          )!;
+          window.slideObjects.restoreCropTransitionAnimations(
+            stage,
+            transitions,
+          );
+          const replacementImage = replacementFrame.querySelector("img")!;
+          const replaced = {
+            transitioned,
+            before,
+            immediateFrameFilter: getComputedStyle(replacementFrame).filter,
+            imageFilter: getComputedStyle(replacementImage).filter,
+            imageFilterPriority:
+              replacementImage.style.getPropertyPriority("filter"),
+            activeFrameFilter: replacementFrame
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.effect instanceof KeyframeEffect &&
+                  animation.effect
+                    .getKeyframes()
+                    .some((keyframe) => "filter" in keyframe),
+              ),
+          };
+          const current = () =>
+            document.querySelector<HTMLElement>(
+              ".fmd-pptx-image[data-slide-object-id]",
+            )!;
+          await window.animationClock.advance(160);
+          const filterAfter = getComputedStyle(current()).filter;
+          await window.animationClock.advance(1400);
+          const settledFrame = current();
+          const settledImage =
+            settledFrame.querySelector<HTMLImageElement>("img")!;
+          return {
+            transferred: replaced,
+            nextFilter: filterAfter,
+            settled: {
+              frameFilter: getComputedStyle(settledFrame).filter,
+              imageFilter: getComputedStyle(settledImage).filter,
+              imageFilterPriority:
+                settledImage.style.getPropertyPriority("filter"),
+            },
+          };
+        },
       );
 
+      expect(transferred.transitioned.sort()).toEqual(["filter", "transform"]);
       expect(transferred.imageFilter).toBe("none");
       expect(transferred.imageFilterPriority).toBe("important");
       expect(transferred.immediateFrameFilter).toBe(transferred.before);
       expect(transferred.activeFrameFilter).toBe(true);
       expect(nextFilter).not.toBe(transferred.immediateFrameFilter);
 
-      await page.waitForTimeout(1400);
-      const settled = await page.evaluate(() => {
-        const frame = document.querySelector<HTMLElement>(
-          ".fmd-pptx-image[data-slide-object-id]",
-        )!;
-        const image = frame.querySelector<HTMLImageElement>("img")!;
-        return {
-          frameFilter: getComputedStyle(frame).filter,
-          imageFilter: getComputedStyle(image).filter,
-          imageFilterPriority: image.style.getPropertyPriority("filter"),
-        };
-      });
       expect(settled.frameFilter).toBe("none");
       expect(settled.imageFilter).toBe("blur(8px)");
       expect(settled.imageFilterPriority).toBe("");
@@ -2089,12 +2186,14 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml().replace('class="ruled"', 'class="base"'),
     );
     try {
-      await page.evaluate(() =>
-        document.getElementById("pic")!.classList.add("moving"),
-      );
-      await page.waitForTimeout(600);
-      const result = await page.evaluate(() => {
+      const result = await page.evaluate(async () => {
         const image = document.getElementById("pic") as HTMLImageElement;
+        void getComputedStyle(image).opacity;
+        image.classList.add("moving");
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          600,
+        );
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.restoreTransitions();
         const frameId = wrapped.frame.getAttribute("data-slide-object-id")!;
@@ -2125,12 +2224,14 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
             replacementImage.getAttribute("style"),
           ) ?? "";
         return {
+          transitioned,
           serializedStyle,
           liveOpacity: replacementImage.style.getPropertyValue("opacity"),
           livePriority: replacementImage.style.getPropertyPriority("opacity"),
         };
       });
 
+      expect(result.transitioned.sort()).toEqual(["opacity", "transform"]);
       expect(result.serializedStyle).not.toMatch(/opacity\s*:/i);
       expect(result.liveOpacity).toBe("1");
       expect(result.livePriority).toBe("important");
@@ -2193,8 +2294,8 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       expect(before.imageTimeAfter).toBeCloseTo(before.imageTime, 0);
       expect(before.imageStateAfter).toBe("running");
 
-      await page.waitForTimeout(200);
-      const after = await page.evaluate(() => {
+      const after = await page.evaluate(async () => {
+        await window.animationClock.advance(200);
         const frame = document.querySelector<HTMLElement>(
           ".fmd-pptx-image[data-slide-object-id]",
         )!;
@@ -2225,15 +2326,15 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       ".ruled { opacity: 0.2; transition: opacity 2s linear; } .moving { opacity: 0.8; }";
     const page = await openPage(css, imageHtml());
     try {
-      await page.evaluate(() => {
-        const image = document.getElementById("pic")!;
+      const result = await page.evaluate(async () => {
+        const image = document.getElementById("pic") as HTMLImageElement;
         image.classList.add("ruled");
         void getComputedStyle(image).opacity;
         image.classList.add("moving");
-      });
-      await page.waitForTimeout(300);
-      const result = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          300,
+        );
         const before = Number(getComputedStyle(image).opacity);
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         const runningBefore = image
@@ -2249,27 +2350,30 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         wrapped.frame.replaceWith(image);
         wrapped.restoreTransitions();
         wrapped.resumeCopiedTransitionOverrides(image);
+        const runningAfter = image
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.effect instanceof KeyframeEffect &&
+              animation.effect
+                .getKeyframes()
+                .some((keyframe) => "opacity" in keyframe),
+          ).length;
+        await window.animationClock.advance(200);
         return {
+          transitioned,
           before,
           runningBefore,
-          runningAfter: image
-            .getAnimations()
-            .filter(
-              (animation) =>
-                animation.effect instanceof KeyframeEffect &&
-                animation.effect
-                  .getKeyframes()
-                  .some((keyframe) => "opacity" in keyframe),
-            ).length,
+          runningAfter,
+          after: Number(getComputedStyle(image).opacity),
         };
       });
-      await page.waitForTimeout(200);
-      const after = await page.evaluate(() =>
-        Number(getComputedStyle(document.getElementById("pic")!).opacity),
-      );
+      expect(result.transitioned).toEqual(["opacity"]);
+      // 300 ms into 2 s from 0.2 to 0.8.
+      expect(result.before).toBeCloseTo(0.29, 3);
       expect(result.runningBefore).toBe(1);
       expect(result.runningAfter).toBe(1);
-      expect(after).toBeGreaterThan(result.before + 0.04);
+      expect(result.after).toBeGreaterThan(result.before + 0.04);
     } finally {
       await page.close();
     }
@@ -2278,7 +2382,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
   it("serializes important inline opacity during a crop transition", async () => {
     const page = await openPage("", imageHtml());
     try {
-      await page.evaluate(() => {
+      const result = await page.evaluate(async () => {
         const image = document.getElementById("pic") as HTMLImageElement;
         image.style.setProperty(
           "transition",
@@ -2289,31 +2393,30 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         void getComputedStyle(image).opacity;
         image.style.setProperty("transform", "rotate(90deg)");
         image.style.setProperty("opacity", "0.8", "important");
-      });
-      await page.waitForTimeout(300);
-      const result = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          300,
+        );
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.restoreTransitions();
         const serializedStyle =
           wrapped.serializeWithoutCopiedTransitionOverrides(() =>
             image.getAttribute("style"),
           ) ?? "";
+        const livePriority = image.style.getPropertyPriority("opacity");
+        await window.animationClock.advance(1800);
         return {
+          transitioned,
           serializedStyle,
-          livePriority: image.style.getPropertyPriority("opacity"),
+          livePriority,
+          settledPriority: image.style.getPropertyPriority("opacity"),
         };
       });
 
+      expect(result.transitioned.sort()).toEqual(["opacity", "transform"]);
       expect(result.serializedStyle).toMatch(/opacity:\s*0\.8\s*!important/i);
       expect(result.livePriority).toBe("");
-      await page.waitForTimeout(1800);
-      const settledPriority = await page.evaluate(() =>
-        (
-          document.getElementById("pic") as HTMLImageElement
-        ).style.getPropertyPriority("opacity"),
-      );
-      expect(settledPriority).toBe("important");
+      expect(result.settledPriority).toBe("important");
     } finally {
       await page.close();
     }
@@ -2325,30 +2428,37 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml(),
     );
     try {
-      await page.evaluate(() => {
+      const result = await page.evaluate(async () => {
         const image = document.getElementById("pic") as HTMLImageElement;
         image.classList.add("ruled");
+        void getComputedStyle(image).transform;
         image.style.transform = "rotate(90deg)";
-      });
-      await page.waitForTimeout(300);
-      const result = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          300,
+        );
         const rect = (element: Element) => {
           const { left, top, width, height } = element.getBoundingClientRect();
           return { left, top, width, height };
         };
         const painted = rect(image);
         const paintedTransform = getComputedStyle(image).transform;
+        const paintedRotation =
+          window.slideObjects.readSlideObjectRotation(image);
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
         return {
+          transitioned,
           painted,
           paintedTransform,
+          paintedRotation,
           frame: rect(wrapped.frame),
           frameTransform: getComputedStyle(wrapped.frame).transform,
         };
       });
 
+      expect(result.transitioned).toEqual(["transform"]);
+      expect(result.paintedRotation).toBeCloseTo(27, 3);
       expectSameHull(result.frame, result.painted, 1);
       expect(result.frameTransform).toBe(result.paintedTransform);
     } finally {
@@ -2361,27 +2471,30 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { --angle: 0deg; --turn: VAR(--angle); transform: rotate(VAR(--turn)); transition: --angle 1s linear; } .moving { --angle: 90deg; }';
     const page = await openPage(css, imageHtml());
     try {
-      await page.evaluate(() => {
-        const image = document.getElementById("pic")!;
+      const result = await page.evaluate(async () => {
+        const image = document.getElementById("pic") as HTMLImageElement;
         image.classList.add("ruled");
         void getComputedStyle(image).getPropertyValue("--angle");
         image.classList.add("moving");
-      });
-      await page.waitForTimeout(300);
-      const result = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          300,
+        );
         const rect = (element: Element) => {
           const { left, top, width, height } = element.getBoundingClientRect();
           return { left, top, width, height };
         };
+        const angle = () =>
+          Number.parseFloat(
+            getComputedStyle(image).getPropertyValue("--angle"),
+          );
         const painted = rect(image);
         const paintedTransform = getComputedStyle(image).transform;
-        const paintedAngle = Number.parseFloat(
-          getComputedStyle(image).getPropertyValue("--angle"),
-        );
+        const paintedAngle = angle();
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
-        return {
+        const cropped = {
+          transitioned,
           painted,
           paintedTransform,
           paintedAngle,
@@ -2397,18 +2510,15 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
                   .some((keyframe) => "--angle" in keyframe),
             ),
         };
+        await window.animationClock.advance(100);
+        return { ...cropped, angleAfter: angle() };
       });
-      await page.waitForTimeout(100);
-      const angleAfter = await page.evaluate(() =>
-        Number.parseFloat(
-          getComputedStyle(document.getElementById("pic")!).getPropertyValue(
-            "--angle",
-          ),
-        ),
-      );
 
+      expect(result.transitioned).toEqual(["--angle"]);
+      // 300 ms into 1 s from 0deg to 90deg.
+      expect(result.paintedAngle).toBeCloseTo(27, 3);
       expect(result.customPropertyEffectRunning).toBe(true);
-      expect(angleAfter).toBeGreaterThan(result.paintedAngle);
+      expect(result.angleAfter).toBeGreaterThan(result.paintedAngle);
       expectSameHull(result.frame, result.painted, 1);
       expect(result.frameTransform).toBe(result.paintedTransform);
     } finally {
@@ -2496,18 +2606,19 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageHtml("transform: translate(-50%, -50%) rotate(20deg);"),
     );
     try {
-      await page.evaluate(() => {
-        const image = document.getElementById("pic")!;
+      const result = await page.evaluate(async () => {
+        const image = document.getElementById("pic") as HTMLImageElement;
         void getComputedStyle(image).getPropertyValue("--angle");
         image.classList.add("moving");
-      });
-      await page.waitForTimeout(200);
-      const result = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          200,
+        );
         const authoredTransform = image.style.getPropertyValue("transform");
         const paintedTransform = getComputedStyle(image).transform;
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         return {
+          transitioned,
           authoredTransform,
           paintedTransform,
           frameTransform: getComputedStyle(wrapped.frame).transform,
@@ -2516,6 +2627,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         };
       });
 
+      expect(result.transitioned).toEqual(["--angle"]);
       expect(result.frameInlineTransform).toBe(result.authoredTransform);
       expect(result.frameTransform).toBe(result.paintedTransform);
     } finally {
@@ -2863,8 +2975,12 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     try {
       const result = await page.evaluate(async () => {
         const image = document.getElementById("pic") as HTMLImageElement;
+        void getComputedStyle(image).transform;
         image.classList.add("ruled", "moving");
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        const transitioned = await window.animationClock.startTransitions(
+          image,
+          250,
+        );
         const attributes = Array.from(
           image.attributes,
           ({ name, value }) => [name, value] as const,
@@ -2881,14 +2997,20 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         window.getComputedStyle(image).getPropertyValue("transform");
         wrapped.restoreTransitions();
         const immediate = window.slideObjects.readSlideObjectRotation(image);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        const animations = image.getAnimations().length;
+        await window.animationClock.advance(100);
         return {
+          transitioned,
           immediate,
+          animations,
           after: window.slideObjects.readSlideObjectRotation(image),
         };
       });
 
+      expect(result.transitioned).toEqual(["transform"]);
       expect(result.immediate).toBeCloseTo(90, 2);
+      // A transition the restored declarations started would still be running.
+      expect(result.animations).toBe(0);
       expect(result.after).toBeCloseTo(90, 2);
     } finally {
       await page.close();
@@ -2995,7 +3117,6 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           const image = document.getElementById("pic") as HTMLImageElement;
           image.classList.add("animated");
         });
-        await reference.waitForTimeout(1000);
         for (const time of [0, 1000, 2000, 3000]) {
           expectSameHull(
             await hullAt(reopened, "#frame", time),
@@ -3052,7 +3173,6 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     async ({ css, inline }) => {
       const page = await openPage(css, imageHtml(inline));
       try {
-        await page.waitForTimeout(300);
         const started = await page.evaluate(() => {
           const rect = (element: Element) => {
             const { left, top, width, height } =
@@ -3060,6 +3180,9 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
             return { left, top, width, height };
           };
           const image = document.getElementById("pic") as HTMLImageElement;
+          for (const animation of image.getAnimations()) {
+            animation.currentTime = 300;
+          }
           const painted = rect(image);
           const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
           wrapped.frame.id = "frame";
@@ -3077,8 +3200,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         expect(started.imageAnimations).toBe(1);
         expect(started.imageStyle).not.toContain("animation-name");
 
-        await page.waitForTimeout(300);
-        expectSameHull(await hullOf(page, "#frame"), started.frame);
+        expectSameHull(await hullAfter(page, "#frame", 300), started.frame);
       } finally {
         await page.close();
       }
@@ -3259,6 +3381,7 @@ describe("a transform a stylesheet or an animation keeps over an inline one in C
         inline: element.getAttribute("style") ?? "",
         painted: getComputedStyle(element).transform,
         rotation: window.slideObjects.readSlideObjectRotation(element),
+        animations: element.getAnimations().length,
       };
     });
   const setRotation = (page: Page, degrees: number) =>
@@ -3391,14 +3514,27 @@ describe("a transform a stylesheet or an animation keeps over an inline one in C
     try {
       const before = await state(page);
 
-      expect(await setRotation(page, 90)).toBe(false);
+      // Counted in the task that probed: by the next one, a transition a probe
+      // started has moved on, and after its second it is gone.
       expect(
-        await page.evaluate(() =>
-          window.slideObjects.readEditableSlideObjectRotation(
-            document.querySelector<HTMLElement>(".object")!,
-          ),
-        ),
-      ).toBeNull();
+        await page.evaluate(() => {
+          const element = document.querySelector<HTMLElement>(".object")!;
+          return {
+            written: window.slideObjects.setSlideObjectRotation(element, 90),
+            animations: element.getAnimations().length,
+          };
+        }),
+      ).toEqual({ written: false, animations: 0 });
+      expect(
+        await page.evaluate(() => {
+          const element = document.querySelector<HTMLElement>(".object")!;
+          return {
+            rotation:
+              window.slideObjects.readEditableSlideObjectRotation(element),
+            animations: element.getAnimations().length,
+          };
+        }),
+      ).toEqual({ rotation: null, animations: 0 });
       expect(await state(page)).toEqual(before);
     } finally {
       await page.close();
@@ -3454,6 +3590,7 @@ describe("a transform a stylesheet or an animation keeps over an inline one in C
             kept:
               element.style.transition === transition &&
               element.style.transitionDuration === transitionDuration,
+            animations: element.getAnimations().length,
           };
         });
 
@@ -3465,8 +3602,7 @@ describe("a transform a stylesheet or an animation keeps over an inline one in C
         );
         expect(result.kept).toBe(true);
         // No transition left running from the old rotation to the new one.
-        await page.waitForTimeout(200);
-        expect((await state(page)).rotation).toBeCloseTo(90, 3);
+        expect(result.animations).toBe(0);
       } finally {
         await page.close();
       }

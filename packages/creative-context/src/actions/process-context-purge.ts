@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { serializePublicJob } from "../server/public-serialization.js";
@@ -12,6 +12,8 @@ export default defineAction({
   description:
     "Process an already-approved source purge job: remove private blobs, derived search indexes, corpus children, and deprecate promoted derivatives.",
   schema: z.object({ jobId: z.string().min(1) }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ jobId }) => {
     const job = await getJob(jobId);
     if (!job || job.kind !== "purge" || !job.sourceId) {

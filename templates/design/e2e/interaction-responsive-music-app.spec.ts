@@ -805,7 +805,7 @@ test("a drawn empty Frame refreshes its inspector after auto layout", async ({
     (await readDesign(page, designId)).files?.map((file) => file.id),
   );
 
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const start = await emptyBoardPoint(page);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();

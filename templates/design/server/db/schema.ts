@@ -120,6 +120,36 @@ export const designVersions = table("design_versions", {
   createdAt: text("created_at").default(now()),
 });
 
+export const designContents = table(
+  "design_contents",
+  {
+    designId: text("design_id").notNull(),
+    hash: text("hash").notNull(),
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (t) => [primaryKey({ columns: [t.designId, t.hash] })],
+);
+
+export const designVersionFiles = table(
+  "design_version_files",
+  {
+    versionId: text("version_id").notNull(),
+    designId: text("design_id").notNull(),
+    entryKind: text("entry_kind").notNull(),
+    fileId: text("file_id").notNull(),
+    filename: text("filename").notNull(),
+    fileType: text("file_type").notNull(),
+    fileCreatedAt: text("file_created_at"),
+    contentHash: text("content_hash").notNull(),
+    source: text("source").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.versionId, t.entryKind, t.fileId] }),
+    index("design_version_files_design_hash_idx").on(t.designId, t.contentHash),
+  ],
+);
+
 export const designLocalhostConnections = table(
   "design_localhost_connections",
   {
@@ -174,10 +204,8 @@ export const designMotionBridgeRelayChains = table(
   },
 );
 
-// ---------------------------------------------------------------------------
 // New tables — additive only; never alter existing tables.
 // All ownable tables are read/written through accessFilter / assertAccess.
-// ---------------------------------------------------------------------------
 
 /**
  * Real-app component metadata indexed from TS prop types, cva/tailwind-variants
@@ -290,12 +318,15 @@ export const designReviewSnapshot = table("design_review_snapshot", {
 export const designVisualEditPending = table("design_visual_edit_pending", {
   designId: text("design_id").primaryKey(),
   pendingEditCount: integer("pending_edit_count").notNull().default(0),
-  status: text("status", { enum: ["ready", "empty"] })
+  status: text("status", { enum: ["ready", "suggested", "empty"] })
     .notNull()
     .default("empty"),
   prompt: text("prompt").notNull().default(""),
+  handoffRecords: text("handoff_records").notNull().default("[]"),
+  authorEmail: text("author_email"),
   revision: bigint("revision", { mode: "number" }).notNull().default(0),
   publisherId: text("publisher_id").notNull().default(""),
+  publisherSessionHash: text("publisher_session_hash"),
   clientRevision: bigint("client_revision", { mode: "number" })
     .notNull()
     .default(0),

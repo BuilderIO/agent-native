@@ -151,10 +151,14 @@ de conexión completa. Use **Settings → MCP server** como punto de partida o a
 
 ### Claude y ChatGPT OAuth {#oauth}
 
-Escritorio Claude / Claude: agregue un conector personalizado, pegue el MCP URL, haga clic
-**Conéctese**, inicie sesión con su cuenta Agent-Native, apruebe los alcances MCP,
-y habilitar el conector en un chat. El código Claude usa el mismo URL: agréguelo como
-servidor remoto HTTP MCP, ejecute `/mcp` y luego elija **Autenticar**.
+Claude / Claude Desktop: **Añadir a Claude** abre **Customize → Connectors** con
+el cuadro de diálogo **Add custom connector** ya rellenado con el nombre de la
+aplicación y la URL de MCP. Seleccione **Add**, inicie sesión con su cuenta de
+Agent-Native, apruebe los ámbitos de MCP y active el conector en un chat. Claude
+Code usa la misma URL: ejecute
+`claude mcp add --transport http --scope user <server-name> <mcp-url>` para que
+el servidor esté disponible en todos los proyectos y, después, ejecute `/mcp` y
+elija **Authenticate**.
 
 ChatGPT: las aplicaciones MCP personalizadas requieren un espacio de trabajo web
 de ChatGPT compatible. Si tiene acceso, abra **Settings → Apps → Advanced
@@ -179,14 +183,16 @@ que se explican más abajo en
 
 ### Cursor, VS Code y Codex {#install-links}
 
-Las pestañas **Cursor** y **VS Code** de **Settings → MCP server** y de
-`/mcp/connect` tienen botones de instalación. **Añadir a Cursor** abre el aviso
-**Install MCP server?** de Cursor. **Añadir a VS Code** y **Añadir a VS Code
-Insiders** abren una página del servidor con un botón **Install**. Un enlace
-solo lleva el nombre del servidor, el transporte y la URL de MCP; nunca lleva un
-token, una cabecera ni datos de la cuenta. El cliente hace su propio inicio de
-sesión OAuth la primera vez que se conecta. En VS Code, las herramientas
-aparecen después en la vista Chat en modo Agent.
+Las guías **Claude**, **Cursor** y **VS Code** de **Settings → MCP server** y de
+`/mcp/connect` tienen botones de instalación. **Añadir a Claude** abre el cuadro
+de diálogo para añadir conectores de Claude con el nombre y la URL ya
+rellenados. **Añadir a Cursor** abre el aviso **Install MCP server?** de Cursor.
+**Añadir a VS Code** y **Añadir a VS Code Insiders** abren una página del
+servidor con un botón **Install**. Un enlace solo lleva un nombre y la URL de MCP, además del transporte en VS Code; nunca lleva un token, una cabecera ni datos de la
+cuenta. El cliente hace su propio inicio de sesión OAuth la primera vez que se
+conecta. En VS Code, las herramientas aparecen después en la vista Chat en modo
+Agent. Sin el botón, ejecuta **Chat: Open Customizations**, abre **MCP
+Servers**, selecciona **+**, elige **HTTP** y pega la URL de MCP.
 
 Para Codex, ejecuta `codex mcp add <server-name> --url <mcp-url>` y después
 `codex mcp login <server-name>` para iniciar sesión con OAuth. La pestaña
@@ -703,7 +709,7 @@ Cuando el usuario hace clic en el enlace en cualquier navegador o vista web en l
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -735,7 +741,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Resuelve la sesión del **navegador** a través de `getSession` (el guardia de autenticación omite la ruta exacta `/_agent-native/open`).
 2. Si no está autenticado, sirve el inicio de sesión configurado HTML **en el mismo URL**; el controlador de éxito del formulario recarga `window.location` y vuelve a ingresar la ruta autenticada, sin plomería `?next=`.
 3. Escribe el comando de estado de aplicación `navigate` existente (carga útil = cada parámetro de consulta no reservado + `view`) con alcance en el correo electrónico de la sesión del navegador con `requestSource: "deep-link"` y decodifica un borrador de URL base64 de `compose` en una clave `compose-<id>`.
-4. 302-redirecciones a una ruta relativa segura del mismo origen (`to=`, si no, `/<view>`, si no, un `resolveOpenPath` por plantilla), reenviando los parámetros de filtro `f_*` para que las listas/paneles se abran prefiltrados incluso antes de que se agote el comando `navigate`.
+4. 302-redirecciones a una ruta relativa segura del mismo origen (`to=`, si no, un `resolveOpenPath` por plantilla, si no, `/<view>`), reenviando los parámetros de filtro `f_*` para que las listas/paneles se abran prefiltrados incluso antes de que se agote el comando `navigate`.
 
 Se rechazan las redirecciones de origen cruzado, `//host` relativas al esquema y caracteres de control (protección de redireccionamiento abierto). La ruta se puede desactivar por aplicación a través de `disableOpenRoute`.
 

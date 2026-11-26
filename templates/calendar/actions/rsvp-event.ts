@@ -87,6 +87,7 @@ export async function runRsvpEvent(args: z.input<typeof rsvpEventSchema>) {
 }
 
 export default defineAction({
+  mcpTool: false,
   description:
     "RSVP to a Google Calendar event as accepted, declined, or tentative, optionally with a response note. Use this when the user asks to accept, decline, or maybe a meeting invitation.",
   schema: rsvpEventSchema,

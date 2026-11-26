@@ -1,16 +1,39 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { describe, expect, it } from "vitest";
 
 import { DESIGN_EDITOR_TOOLS } from "@/pages/design-editor/tool-state";
 
 import {
+  commandPathFromNavigation,
   designEditorCommandKeysForTab,
   designSelectionCleanupKeysForTab,
   designSelectionStateKeysForTab,
   editorCommandFromNavigate,
   editorPathFromCommand,
+  homeSearchFromSearchParams,
 } from "./use-navigation-state";
 
 describe("design navigation state", () => {
+  it("sends a list navigation with a search to Design home filtered by it", () => {
+    expect(
+      commandPathFromNavigation({ view: "list", search: "checkout" }),
+    ).toBe("/home?search=checkout");
+    expect(commandPathFromNavigation({ view: "list", search: "a b&c" })).toBe(
+      "/home?search=a+b%26c",
+    );
+    expect(commandPathFromNavigation({ view: "list", search: "  " })).toBe(
+      "/home",
+    );
+    expect(commandPathFromNavigation({ view: "list" })).toBe("/home");
+  });
+
+  it("reports the home search back in the navigation state", () => {
+    expect(
+      homeSearchFromSearchParams(new URLSearchParams("search=checkout")),
+    ).toBe("checkout");
+    expect(homeSearchFromSearchParams(new URLSearchParams(""))).toBeUndefined();
+  });
+
   it("defaults focused screen navigation to a readable zoom", () => {
     const command = {
       view: "editor",
@@ -131,23 +154,25 @@ describe("design navigation state", () => {
     });
   });
 
-  it("ignores the Motion inspector tab: the Motion dock owns that surface", () => {
+  // oracle-change: the Tokens panel id became `library`; the round trip now uses the new id and the old id is pinned as an alias below
+  it("round-trips an enabled left rail panel through editor navigation", () => {
     const command = {
       view: "editor",
       designId: "design_123",
-      inspectorTab: "motion",
+      leftPanel: "library" as const,
     };
 
     const path = editorPathFromCommand(command);
 
-    expect(path).toBe("/design/design_123");
-    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
-      inspectorTab: expect.anything(),
-      leftPanel: expect.anything(),
+    expect(path).toBe("/design/design_123?panel=library");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      leftPanel: "library",
+      path,
     });
   });
 
-  it("round-trips an enabled left rail panel through editor navigation", () => {
+  it("opens the Library tab for the legacy tokens panel id", () => {
     const command = {
       view: "editor",
       designId: "design_123",
@@ -156,11 +181,10 @@ describe("design navigation state", () => {
 
     const path = editorPathFromCommand(command);
 
-    expect(path).toBe("/design/design_123?panel=tokens");
-    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
-      designId: "design_123",
-      leftPanel: "tokens",
-      path,
+    expect(path).toBe("/design/design_123?panel=library");
+    if (!path) throw new Error("expected an editor path");
+    expect(editorCommandFromNavigate(command, path)).toMatchObject({
+      leftPanel: "library",
     });
   });
 

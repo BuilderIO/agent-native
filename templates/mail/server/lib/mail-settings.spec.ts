@@ -91,6 +91,22 @@ describe("normalizeMailSettings", () => {
     ).toBe(false);
   });
 
+  it("keeps the reading pane on unless it was turned off", () => {
+    expect(normalizeMailSettings(null, "owner@example.com").previewPane).toBe(
+      "right",
+    );
+    expect(
+      normalizeMailSettings(
+        { previewPane: "bottom" } as unknown as Record<string, unknown>,
+        "owner@example.com",
+      ).previewPane,
+    ).toBe("right");
+    expect(
+      normalizeMailSettings({ previewPane: "off" }, "owner@example.com")
+        .previewPane,
+    ).toBe("off");
+  });
+
   it("defaults autocomplete off and rejects non-boolean stored values", () => {
     expect(
       normalizeMailSettings(null, "owner@example.com").autocompleteEnabled,

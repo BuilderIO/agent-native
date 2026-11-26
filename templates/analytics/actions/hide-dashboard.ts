@@ -5,7 +5,16 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { hideDashboard, unhideDashboard } from "../server/lib/dashboards-store";
+import {
+  hideDashboard,
+  requireDashboardAccess,
+  unhideDashboard,
+} from "../server/lib/dashboards-store";
+import {
+  expectedUpdatedAtArg,
+  guardWrite,
+  idempotencyKeyArg,
+} from "../server/lib/guarded-writes";
 import { cliBoolean } from "./schema-helpers";
 
 function resolveScope() {
@@ -27,12 +36,32 @@ export default defineAction({
       .optional()
       .default(true)
       .describe("true = hide (default), false = unhide"),
+    expectedUpdatedAt: expectedUpdatedAtArg("dashboard"),
+    idempotencyKey: idempotencyKeyArg,
   }),
-  run: async (args) => {
+  mcpTool: true,
+  run: async (args, actionContext) => {
     const ctx = resolveScope();
-    const dash = args.hidden
-      ? await hideDashboard(args.id, ctx)
-      : await unhideDashboard(args.id, ctx);
+    const guard = guardWrite({
+      action: "hide-dashboard",
+      target: { kind: "dashboard", id: args.id },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: { hidden: args.hidden },
+    });
+    guard.requireKey();
+    guard.requireFence();
+    const write = args.hidden ? hideDashboard : unhideDashboard;
+    const outcome = await guard.run(
+      () =>
+        requireDashboardAccess(args.id, ctx, args.hidden ? "editor" : "viewer"),
+      () =>
+        guard.active ? write(args.id, ctx, guard.store) : write(args.id, ctx),
+    );
+    if ("replayed" in outcome) return { id: args.id, ...outcome.replayed };
+    const dash = outcome.written;
     if (!dash) {
       throw new Error(
         `Dashboard "${args.id}" not found (or you don't have access).`,
@@ -44,6 +73,7 @@ export default defineAction({
       hiddenAt: dash.hiddenAt,
       hiddenBy: dash.hiddenBy,
       ownerEmail: dash.ownerEmail,
+      ...guard.resultFields(dash),
       message: args.hidden
         ? `Dashboard "${dash.title}" hidden from regular lists.`
         : `Dashboard "${dash.title}" is visible in regular lists.`,

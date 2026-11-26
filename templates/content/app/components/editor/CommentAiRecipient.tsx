@@ -1,3 +1,4 @@
+import { upgradeModelForProvider } from "@agent-native/core/agent/model-version";
 import type { EngineModelGroup } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentMark } from "@agent-native/toolkit/app/shared";
@@ -52,6 +53,27 @@ export function commentAiSelections(
     }
   }
   return [...byName.values()];
+}
+
+export function connectedCommentAiModel(
+  groups: readonly Pick<
+    EngineModelGroup,
+    "engine" | "models" | "preserveCustomModels"
+  >[],
+  selection: { model: string; engine: string },
+): string | null {
+  for (const group of groups) {
+    if (group.engine !== selection.engine) continue;
+    if (group.preserveCustomModels || group.models.includes(selection.model))
+      return selection.model;
+    const upgraded = upgradeModelForProvider(
+      selection.model,
+      group.models,
+      group.engine,
+    );
+    if (upgraded) return upgraded;
+  }
+  return null;
 }
 
 /** Words a person might type after `@` to find a model, e.g. "Sonnet". */

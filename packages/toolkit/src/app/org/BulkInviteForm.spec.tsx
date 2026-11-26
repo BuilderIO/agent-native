@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const ENGLISH: Record<string, string> = {
+  "agentChat.common.cancel": "Cancel",
+  "agentChat.settingsOrg.invite.pasteMany": "Paste many",
   "agentChat.settingsOrg.invite.note":
     "Each person signs in with this exact email to accept.",
   "agentChat.settingsOrg.invite.noteNoEmail":
@@ -107,6 +109,33 @@ describe("BulkInviteForm", () => {
       container.querySelectorAll<HTMLInputElement>('input[type="email"]'),
     );
   }
+
+  it("shows one Cancel with the paste panel open and clears pasted text on collapse", () => {
+    render(true);
+    const buttons = () => Array.from(container.querySelectorAll("button"));
+    const toggle = buttons().find((b) => b.textContent === "Paste many");
+    if (!toggle) throw new Error("Paste many button not rendered");
+    const textarea = () => container.querySelector("textarea");
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(buttons().filter((b) => b.textContent === "Cancel")).toHaveLength(1);
+
+    const pasted = textarea();
+    if (!pasted) throw new Error("paste textarea not rendered");
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set?.call(pasted, "a@example.test");
+      pasted.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(textarea()?.value).toBe("a@example.test");
+
+    act(() => toggle.click());
+    expect(textarea()).toBeNull();
+    act(() => toggle.click());
+    expect(textarea()?.value).toBe("");
+  });
 
   it("sends the valid rows and keeps a malformed one with its error", async () => {
     mocks.bulkInvite.mutateAsync.mockResolvedValue({

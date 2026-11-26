@@ -20,6 +20,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const days = args["older-than"] ?? 30;
     if (isNaN(days) || days < 1)

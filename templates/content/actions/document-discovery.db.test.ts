@@ -621,6 +621,71 @@ describe("bounded document discovery", () => {
     );
   });
 
+  it("finds only the documents a person last edited, by their email in any case", async () => {
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "search-edited-by-teammate",
+          ownerEmail: OWNER,
+          title: "Quarterly zephyr marigold plan",
+          content: "zephyr marker",
+          updatedBy: "Teammate@Example.com",
+        },
+        {
+          id: "search-edited-by-owner",
+          ownerEmail: OWNER,
+          title: "Quarterly zephyr review",
+          content: "zephyr marker",
+          updatedBy: OWNER,
+        },
+        {
+          id: "search-edited-by-unknown",
+          ownerEmail: OWNER,
+          title: "Quarterly zephyr notes",
+          content: "zephyr marker",
+          updatedBy: null,
+        },
+      ]);
+    const search = (query: string, updatedBy?: string) =>
+      asUser(OWNER, () =>
+        searchDocuments.run({
+          query,
+          ...(updatedBy ? { updatedBy } : {}),
+          limit: 20,
+          offset: 0,
+        }),
+      );
+    const ids = (result: Awaited<ReturnType<typeof search>>) =>
+      result.documents.map((doc) => doc.id).sort();
+
+    expect(ids(await search("zephyr"))).toEqual([
+      "search-edited-by-owner",
+      "search-edited-by-teammate",
+      "search-edited-by-unknown",
+    ]);
+    expect(ids(await search("zephyr", "teammate@EXAMPLE.com"))).toEqual([
+      "search-edited-by-teammate",
+    ]);
+    expect(ids(await search("zephyr", OWNER))).toEqual([
+      "search-edited-by-owner",
+    ]);
+    expect(
+      (await search("zephyr", "nobody@example.com")).pagination.totalItems,
+    ).toBe(0);
+    // A misspelled word is corrected only from what the filter lets through:
+    // only the teammate's title holds "marigold".
+    expect(ids(await search("marigld"))).toEqual(["search-edited-by-teammate"]);
+    const corrected = await search("marigld", "teammate@example.com");
+    expect(ids(corrected)).toEqual(["search-edited-by-teammate"]);
+    expect(corrected.spellingCorrections).toEqual([
+      { term: "marigld", replacements: ["marigold"] },
+    ]);
+    const uncorrected = await search("marigld", OWNER);
+    expect(uncorrected.pagination.totalItems).toBe(0);
+    expect(uncorrected.spellingCorrections).toBeUndefined();
+  });
+
   it("filters title and modified date before pagination and returns authorized parent context", async () => {
     const first = await asUser(OWNER, () =>
       searchDocuments.run({
@@ -778,6 +843,62 @@ describe("bounded document discovery", () => {
       nextOffset: null,
     });
     expect(terminal.documents.at(-1)?.description).toBe("last page marker");
+  });
+
+  it("lists the most recently edited documents first in one page", async () => {
+    const newest = await asUser(OWNER, () =>
+      listDocuments.run({
+        parentId: PARENT_ID,
+        sort: "newest",
+        limit: 3,
+        offset: 0,
+      }),
+    );
+
+    expect(newest.documents.map((document) => document.id)).toEqual([
+      "bounded-discovery-document-204",
+      "bounded-discovery-document-203",
+      "bounded-discovery-document-202",
+    ]);
+    expect(newest.pagination).toEqual({
+      offset: 0,
+      limit: 3,
+      totalItems: 205,
+      returnedItems: 3,
+      hasMore: true,
+      nextOffset: 3,
+    });
+  });
+
+  it("sorts newest documents by timestamp, not stored text", async () => {
+    const title = "Recently edited timestamp probe";
+    // As text, the ISO time sorts after the later Postgres-format one.
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: "list-recent-late-postgres-text",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01 23:00:00+00",
+        },
+        {
+          id: "list-recent-early-iso",
+          ownerEmail: OWNER,
+          title,
+          content: "",
+          updatedAt: "2030-01-01T01:00:00.000Z",
+        },
+      ]);
+
+    const newest = await asUser(OWNER, () =>
+      listDocuments.run({ exactTitle: title, sort: "newest" }),
+    );
+    expect(newest.documents.map((document) => document.id)).toEqual([
+      "list-recent-late-postgres-text",
+      "list-recent-early-iso",
+    ]);
   });
 
   it("keeps a parent listed on another page and hides one the caller cannot list", async () => {

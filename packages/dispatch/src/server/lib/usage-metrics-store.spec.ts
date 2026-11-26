@@ -72,6 +72,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/usage", () => ({
   builderCreditsFromCostCents: (cents: number) => cents / 4,
+  deploymentUsageBilling: (billing: unknown) => billing,
   getUsageSummary: (...args: any[]) => mocks.getUsageSummary(...args),
   usageBillingForEngine: (engineName?: string | null) =>
     engineName === "builder"

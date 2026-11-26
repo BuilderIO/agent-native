@@ -28,6 +28,7 @@ import {
   getAuthSecret,
   normalizeBetterAuthInternalAdapter,
   resetBetterAuth,
+  trackAuthEmailDeliveries,
   withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
@@ -350,6 +351,45 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       updateUser,
     };
   }
+
+  it("rejects an existing Google account outside the deployment email domain", async () => {
+    const previous = process.env.AUTH_ALLOWED_EMAIL_DOMAINS;
+    process.env.AUTH_ALLOWED_EMAIL_DOMAINS = "builder.io";
+    resetAppConfigForTests();
+    const { adapter, linkAccount } = adapterFor();
+    try {
+      await expect(
+        ensureGoogleAuthIdentityWithAdapter(adapter, {
+          email: "outside@example.test",
+          accountId: "google-sub-qa",
+        }),
+      ).rejects.toThrow("Account domain is not allowed");
+      expect(adapter.findUserByEmail).not.toHaveBeenCalled();
+      expect(linkAccount).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.AUTH_ALLOWED_EMAIL_DOMAINS;
+      else process.env.AUTH_ALLOWED_EMAIL_DOMAINS = previous;
+      resetAppConfigForTests();
+    }
+  });
+
+  it("refreshes verification for an already-linked Google account", async () => {
+    const { adapter, updateUser } = adapterFor({
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [{ providerId: "google", accountId: "google-sub-1" }],
+    });
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(updateUser).toHaveBeenCalledWith("existing-user", {
+      emailVerified: true,
+    });
+  });
 
   it("creates a verified canonical user and Google account", async () => {
     const { adapter, createOAuthUser } = adapterFor();
@@ -955,4 +995,235 @@ describe("buildDatabaseConfig hosted-runtime local database guard", () => {
       HostedRuntimeLocalDatabaseError,
     );
   });
+});
+
+describe("trackAuthEmailDeliveries", () => {
+  type Options = Record<string, any>;
+  const setup = (options: Options) => {
+    const runner = vi.fn((task: unknown) => task);
+    const ctx = { options, runInBackgroundOrAwait: runner };
+    const result = trackAuthEmailDeliveries(ctx as any) as any;
+    return { runner, result };
+  };
+
+  it("hands back tracked verification, change-email and existing-user deliveries instead of the swallowing runner", async () => {
+    const sendVerificationEmail = vi.fn(async () => undefined);
+    const sendChangeEmailConfirmation = vi.fn(async () => undefined);
+    const onExistingUserSignUp = vi.fn(async () => undefined);
+    const options: Options = {
+      emailVerification: { sendVerificationEmail },
+      user: { changeEmail: { sendChangeEmailConfirmation } },
+      emailAndPassword: { onExistingUserSignUp },
+    };
+    const { runner, result } = setup(options);
+    const run = result.context.runInBackgroundOrAwait;
+
+    const verification = options.emailVerification.sendVerificationEmail(
+      { id: "u" },
+      "a",
+    );
+    const change = options.user.changeEmail.sendChangeEmailConfirmation({
+      newEmail: "n",
+    });
+    const existing = options.emailAndPassword.onExistingUserSignUp({ id: "x" });
+    expect(sendVerificationEmail).toHaveBeenCalledWith({ id: "u" }, "a");
+    expect(sendChangeEmailConfirmation).toHaveBeenCalledWith({ newEmail: "n" });
+    expect(onExistingUserSignUp).toHaveBeenCalledWith({ id: "x" });
+    expect(verification).toBeInstanceOf(Promise);
+    expect(change).toBeInstanceOf(Promise);
+    expect(existing).toBeInstanceOf(Promise);
+
+    expect(run(verification)).toBe(verification);
+    expect(run(change)).toBe(change);
+    expect(run(existing)).toBe(existing);
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("passes a failed delivery's rejection through to the caller", async () => {
+    const options: Options = {
+      user: {
+        changeEmail: {
+          sendChangeEmailConfirmation: async () => {
+            throw new Error("provider down");
+          },
+        },
+      },
+    };
+    const { result } = setup(options);
+    const delivery = options.user.changeEmail.sendChangeEmailConfirmation({});
+    await expect(
+      result.context.runInBackgroundOrAwait(delivery),
+    ).rejects.toThrow("provider down");
+  });
+
+  it("delegates untracked tasks to Better Auth's runner", () => {
+    const { runner, result } = setup({
+      user: { changeEmail: { sendChangeEmailConfirmation: async () => {} } },
+    });
+    const other = Promise.resolve();
+    expect(result.context.runInBackgroundOrAwait(other)).toBe(other);
+    expect(runner).toHaveBeenCalledWith(other);
+    result.context.runInBackgroundOrAwait("not a promise");
+    expect(runner).toHaveBeenLastCalledWith("not a promise");
+  });
+
+  it("returns a synchronous delivery result unchanged and does not track it", () => {
+    const options: Options = {
+      emailVerification: { sendVerificationEmail: () => "sync" },
+      user: { changeEmail: { sendChangeEmailConfirmation: () => "sync" } },
+    };
+    const { result } = setup(options);
+    expect(options.emailVerification.sendVerificationEmail()).toBe("sync");
+    expect(options.user.changeEmail.sendChangeEmailConfirmation({})).toBe(
+      "sync",
+    );
+    expect(result.context.runInBackgroundOrAwait("sync")).toBe("sync");
+  });
+
+  it("wraps only the sender that is configured", () => {
+    const verificationOnly: Options = {
+      emailVerification: { sendVerificationEmail: async () => {} },
+      user: { changeEmail: {} },
+      emailAndPassword: {},
+    };
+    expect(setup(verificationOnly).result).toBeDefined();
+    expect(
+      verificationOnly.emailAndPassword.onExistingUserSignUp,
+    ).toBeUndefined();
+    expect(
+      verificationOnly.user.changeEmail.sendChangeEmailConfirmation,
+    ).toBeUndefined();
+
+    const changeOnly: Options = {
+      emailVerification: {},
+      user: { changeEmail: { sendChangeEmailConfirmation: async () => {} } },
+    };
+    expect(setup(changeOnly).result).toBeDefined();
+    expect(changeOnly.emailVerification.sendVerificationEmail).toBeUndefined();
+  });
+
+  it("installs nothing when neither sender is configured", () => {
+    const onExistingUserSignUp = async () => {};
+    const options: Options = {
+      emailVerification: {},
+      user: { changeEmail: {} },
+      emailAndPassword: { onExistingUserSignUp },
+    };
+    const { result } = setup(options);
+    expect(result).toBeUndefined();
+    expect(options.emailAndPassword.onExistingUserSignUp).toBe(
+      onExistingUserSignUp,
+    );
+    expect(setup({}).result).toBeUndefined();
+  });
+});
+
+describe("organization SSO user resolution", () => {
+  it("links only addresses the provider's verified domain or org covers", async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "better-auth-sso-"));
+    const previousCwd = process.cwd();
+    let resolveUser:
+      | ((input: unknown, context: { database: unknown }) => Promise<unknown>)
+      | undefined;
+    mockLoadOptionalPeer.mockImplementation(
+      async (packageName: string, load: () => Promise<unknown>) => {
+        const mod = await load();
+        if (packageName !== "@better-auth/sso") return mod;
+        const ssoModule = mod as {
+          sso: (options: { resolveUser?: typeof resolveUser }) => unknown;
+        };
+        return {
+          ...ssoModule,
+          sso: (options: { resolveUser?: typeof resolveUser }) => {
+            resolveUser = options.resolveUser;
+            return ssoModule.sso(options);
+          },
+        };
+      },
+    );
+
+    try {
+      process.chdir(appRoot);
+      vi.stubEnv("DATABASE_URL", `pglite:${path.join(appRoot, "pglite")}`);
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-".repeat(5));
+      vi.stubEnv("AUTH_SSO", "1");
+      resetAppConfigForTests();
+      await resetBetterAuth();
+      const auth = await getBetterAuth();
+      const { adapter } = await (
+        auth as unknown as { $context: Promise<{ adapter: unknown }> }
+      ).$context;
+      const { getDbExec } = await import("../db/client.js");
+      const { runBetterAuthMigrations } =
+        await import("./better-auth-migrations.js");
+      await runBetterAuthMigrations();
+      const db = getDbExec();
+      await db.execute(`CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
+        role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+        federation_removal_pending_at BIGINT)`);
+      const now = new Date().toISOString();
+      for (const [id, email] of [
+        ["user-1", "owner@example.com"],
+        ["user-2", "other@second.example"],
+        ["user-3", "member@third.example"],
+      ]) {
+        await db.execute({
+          sql: `INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, TRUE, ?, ?)`,
+          args: [id, id, email, now, now],
+        });
+      }
+      await db.execute({
+        sql: `INSERT INTO sso_provider (id, issuer, provider_id, organization_id, domain, domain_verified) VALUES (?, ?, ?, ?, ?, TRUE)`,
+        args: [
+          "p-1",
+          "https://idp.example.com",
+          "example-sso",
+          "org-1",
+          "example.com",
+        ],
+      });
+      await db.execute({
+        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+        args: ["m-1", "org-1", "member@third.example", "member", Date.now()],
+      });
+
+      const captured = resolveUser;
+      if (!captured) throw new Error("The SSO plugin was not configured.");
+      const resolve = (email: string) =>
+        captured(
+          { providerId: "example-sso", providerUser: { email } },
+          { database: adapter },
+        );
+
+      await expect(resolve("owner@example.com")).resolves.toEqual({
+        action: "link",
+        userId: "user-1",
+        profile: "preserve",
+      });
+      await expect(resolve("member@third.example")).resolves.toEqual({
+        action: "link",
+        userId: "user-3",
+        profile: "preserve",
+      });
+      await expect(resolve("other@second.example")).resolves.toMatchObject({
+        action: "reject",
+      });
+      await expect(resolve("new@second.example")).resolves.toMatchObject({
+        action: "reject",
+      });
+    } finally {
+      await closeDbExec();
+      resumePgliteClientAccess();
+      await resetBetterAuth();
+      resetAppConfigForTests();
+      mockLoadOptionalPeer.mockReset();
+      mockLoadOptionalPeer.mockImplementation(
+        (_packageName: string, load: () => Promise<unknown>) => load(),
+      );
+      vi.unstubAllEnvs();
+      process.chdir(previousCwd);
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

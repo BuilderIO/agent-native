@@ -5,6 +5,8 @@ import {
   type FileCreationHistoryEntry,
 } from "./design-editor/history";
 
+// oracle-change: removed the no-skip case; 'removes multiple matching entries' already proves default pruning
+
 function entry(filename: string): FileCreationHistoryEntry {
   return { filename, content: "<div></div>", fileType: "html" };
 }
@@ -43,13 +45,5 @@ describe("pruneFileCreationHistoryStack (Item 1 — redo survives undo)", () => 
     expect(result.stack).toBe(redoStack);
     expect(result.stack.map((e) => e.filename)).toEqual(["screen-2.html"]);
     expect(result.removed).toBe(0);
-  });
-
-  it("without skip, the same redo entry would be destroyed (documents the bug)", () => {
-    const redoStack = [entry("screen-2.html")];
-    const deleted = new Set(["screen-2.html"]);
-    const result = pruneFileCreationHistoryStack(redoStack, deleted);
-    expect(result.stack).toHaveLength(0);
-    expect(result.removed).toBe(1);
   });
 });

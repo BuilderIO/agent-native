@@ -19,10 +19,13 @@ export const IMPORT_NOTE_SEVERITY = {
   "inline-image-moved-to-own-line": "converted",
   "ordered-task-list-unnumbered": "converted",
   "title-formatting-removed": "converted",
+  "callout-icon-replaced": "converted",
+  "expiring-link-rehosted": "converted",
   "frontmatter-not-shown": "kept",
   "frontmatter-unreadable": "kept",
   "asset-missing": "lost",
   "link-target-not-imported": "lost",
+  "expiring-link-not-rehosted": "lost",
   "link-removed": "lost",
   "image-title-dropped": "lost",
   "link-title-dropped": "lost",
@@ -70,11 +73,17 @@ export type ImportAssetRequest =
       path: string;
       /** The reference as written in the source. */
       reference: string;
+      use: "image" | "link";
     }
   | {
       kind: "data-url";
       mediaType: string;
       dataUrl: string;
+      reference: string;
+    }
+  | {
+      kind: "remote";
+      url: string;
       reference: string;
     };
 
@@ -88,6 +97,7 @@ export interface ImportResolvers {
   asset?: (request: ImportAssetRequest) => ImportAssetResolution;
   /** Maps a relative link to another imported file onto its new page URL. */
   link?: (path: string) => string | null;
+  unhostedUrl?: (url: string) => string;
 }
 
 export type ImportFinalizeMode = "preview" | "apply";

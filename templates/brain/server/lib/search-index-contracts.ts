@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
 
-const zoomPassageQuarantineSchema = z.object({
+const passageQuarantineSchema = z.object({
   version: z.literal(1),
   withheldPassages: z.number().int().positive().nullable(),
 });
@@ -25,24 +25,65 @@ export function parseCaptureMetadata(
 }
 
 /** `undefined`: no receipt; `null`: a receipt whose count is unknown. */
-export function readWithheldZoomPassages(
+export function readWithheldPassages(
   metadata: Record<string, unknown>,
 ): number | null | undefined {
-  if (metadata.zoomPassageQuarantine === undefined) return undefined;
-  const receipt = zoomPassageQuarantineSchema.safeParse(
-    metadata.zoomPassageQuarantine,
-  );
+  const value =
+    metadata.passageQuarantine !== undefined
+      ? metadata.passageQuarantine
+      : metadata.zoomPassageQuarantine;
+  if (value === undefined) return undefined;
+  const receipt = passageQuarantineSchema.safeParse(value);
   return receipt.success ? receipt.data.withheldPassages : null;
 }
 
-export function withheldZoomPassageCount(
+const OMISSION_MARKER_LINE = /(?:^|\n)[ \t]*\[…\][ \t]*(?:\r?\n|$)/;
+
+export function withOmissionReceipt(
+  metadataJson: string | null,
+  content: string | null | undefined,
+  kind: string,
+): string | null {
+  if (kind !== "transcript" || !content || !OMISSION_MARKER_LINE.test(content))
+    return metadataJson;
+  const metadata = parseCaptureMetadata(metadataJson);
+  if (metadata === null || readWithheldPassages(metadata) !== undefined)
+    return metadataJson;
+  return JSON.stringify({
+    ...metadata,
+    passageQuarantine: { version: 1, withheldPassages: null },
+  });
+}
+
+export function withheldPassageCount(
   metadata: Record<string, unknown> | null,
   provider: string,
+  kind: string,
 ): number | null {
-  if (provider !== "zoom") return 0;
+  if (provider !== "zoom" && kind !== "transcript") return 0;
   if (metadata === null) return null;
-  const withheld = readWithheldZoomPassages(metadata);
+  const withheld = readWithheldPassages(metadata);
   return withheld === undefined ? 0 : withheld;
+}
+
+export function publicCaptureMetadata(
+  metadata: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (metadata === null) return {};
+  const withheld = readWithheldPassages(metadata);
+  if (withheld === undefined) return metadata;
+  return {
+    passageQuarantine: { version: 1, withheldPassages: withheld },
+  };
+}
+
+export function publicCaptureExternalId(
+  externalId: string | null,
+  metadata: Record<string, unknown> | null,
+  kind: string,
+): string | null {
+  if (metadata === null) return kind === "transcript" ? null : externalId;
+  return readWithheldPassages(metadata) === undefined ? externalId : null;
 }
 
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";

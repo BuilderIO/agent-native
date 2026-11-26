@@ -119,6 +119,7 @@ import {
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
 const SCRUB_CLASS = "w-24 shrink-0";
 const DIMENSION_CLASS = "w-[76px] shrink-0";
+const DIMENSION_INPUT_CLASS = "px-1.5";
 // Every control in the toolbar row is one 24px box with a 16px icon and a
 // 12px chevron, so the row's icons and text share one center line.
 const FONT_SIZE_FIELD_CLASS = "h-6 w-16 shrink-0";
@@ -355,7 +356,7 @@ export function SlideContextToolbar({
   canComment?: boolean;
   onComment?: () => void;
   /** False when the patch was refused: the object paints what it did before. */
-  onChange: (patch: SlideStylePatch) => boolean | void;
+  onChange: (patch: SlideStylePatch, fontSizeStep?: number) => boolean | void;
   onEnablePositioning?: () => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: SlideObjectZOrderTarget) => void;
@@ -561,8 +562,10 @@ export function SlideContextToolbar({
         value={snapshot.width}
         min={0}
         unit="px"
+        displayUnit=""
         precision={0}
         className={DIMENSION_CLASS}
+        inputClassName={DIMENSION_INPUT_CLASS}
         onChange={(width) =>
           onChange({
             width: `${formatValue(width)}px`,
@@ -593,8 +596,10 @@ export function SlideContextToolbar({
         value={snapshot.height}
         min={0}
         unit="px"
+        displayUnit=""
         precision={0}
         className={DIMENSION_CLASS}
+        inputClassName={DIMENSION_INPUT_CLASS}
         onChange={(height) =>
           onChange({
             height: `${formatValue(height)}px`,
@@ -741,13 +746,17 @@ export function SlideContextToolbar({
       >
         {snapshot.isText && (
           <>
-            <div className="grid grid-cols-2 gap-2">{sizeControls}</div>
-            {rotationControl}
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 [&>div]:w-full">
+              {sizeControls}
+            </div>
+            {rotationControl && (
+              <div className="[&>div]:w-full">{rotationControl}</div>
+            )}
           </>
         )}
 
         {snapshot.isAbsolute && (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 [&>div]:w-full">
             <VisualScrubInput
               label={t("styleInspector.x")}
               icon={null}
@@ -771,7 +780,7 @@ export function SlideContextToolbar({
 
         {(snapshot.isText || snapshot.isImage) && (
           <>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 [&>div]:w-full">
               {snapshot.isText && opacityControl}
               {radiusControl}
             </div>
@@ -893,11 +902,14 @@ export function SlideContextToolbar({
         unit="px"
         mixed={mixedTextStyles.includes("fontSize")}
         mixedLabel={t("styleInspector.mixed")}
+        allowRelativeArrowSteps
         className={FONT_SIZE_FIELD_CLASS}
         inputClassName="!text-xs"
         contentProps={surfaceProps}
-        onChange={(fontSize) =>
-          onChange({ fontSize: `${formatValue(fontSize)}px` })
+        onChange={(fontSize, meta) =>
+          meta.relativeStep !== undefined
+            ? onChange({}, meta.relativeStep)
+            : onChange({ fontSize: `${formatValue(fontSize)}px` })
         }
       />
       <Divider />

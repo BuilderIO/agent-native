@@ -8,71 +8,15 @@ import "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Import a design system from an existing design project. If a project already " +
+    "Extract design tokens from an existing design project. If a project already " +
     "has good styling (CSS custom properties, fonts, colors), this extracts those " +
-    "into reusable design tokens. Alternatively, import from an existing design system " +
-    "for cloning/forking. Returns extracted tokens plus raw CSS for agent refinement.",
-  schema: z
-    .object({
-      designId: z
-        .string()
-        .optional()
-        .describe("Design project ID to extract tokens from"),
-      designSystemId: z
-        .string()
-        .optional()
-        .describe(
-          "If provided, import from this existing design system instead of extracting from the design project",
-        ),
-    })
-    .superRefine((args, ctx) => {
-      if (!args.designId && !args.designSystemId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["designId"],
-          message: "designId or designSystemId is required",
-        });
-      }
-    }),
+    "into reusable design tokens. Returns extracted tokens plus raw CSS for agent refinement.",
+  schema: z.object({
+    designId: z.string().describe("Design project ID to extract tokens from"),
+  }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ designId, designSystemId }) => {
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
-
-      const access = await resolveAccess("design-system", designSystemId);
-      if (!access) {
-        throw new Error("Design system not found");
-      }
-
-      const row = access.resource;
-      return {
-        source: "design-system" as const,
-        sourceId: row.id,
-        sourceTitle: row.title,
-        extractedTokens: {
-          cssCustomProperties: {},
-          colors: [],
-          fonts: [],
-          googleFontsLinks: [],
-          borderRadius: [],
-          spacing: [],
-        },
-        existingDesignSystem: {
-          id: row.id,
-          title: row.title,
-          data: row.data ? JSON.parse(row.data) : null,
-          assets: row.assets ? JSON.parse(row.assets) : null,
-        },
-      };
-    }
-
-    if (!designId) {
-      throw new Error(
-        "designId is required when designSystemId is not provided",
-      );
-    }
-
+  run: async ({ designId }) => {
     await assertAccess("design", designId, "viewer");
 
     const access = await resolveAccess("design", designId);
@@ -210,28 +154,6 @@ export default defineAction({
       rawCSSParts.push(cssFile.content);
     }
 
-    let existingDesignSystem: {
-      id: string;
-      title: string;
-      data: unknown;
-      assets: unknown;
-    } | null = null;
-    if (design.designSystemId) {
-      const dsAccess = await resolveAccess(
-        "design-system",
-        design.designSystemId,
-      );
-      if (dsAccess) {
-        const ds = dsAccess.resource;
-        existingDesignSystem = {
-          id: ds.id,
-          title: ds.title,
-          data: ds.data ? JSON.parse(ds.data) : null,
-          assets: ds.assets ? JSON.parse(ds.assets) : null,
-        };
-      }
-    }
-
     return {
       source: "design-project" as const,
       sourceId: design.id,
@@ -244,7 +166,6 @@ export default defineAction({
         borderRadius: [...borderRadiusSet],
         spacing: [...spacingSet].slice(0, 30),
       },
-      existingDesignSystem,
       rawCSS: rawCSSParts.join("\n\n") || undefined,
     };
   },

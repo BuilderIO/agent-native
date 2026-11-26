@@ -6,7 +6,7 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { mockEvent, type H3Event } from "h3";
 import {
   afterAll,
-  afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -287,6 +287,7 @@ const { contentClipStorageFor, pairedContentOrigin } =
   await import("./content-clip-uploads.js");
 const { contentPageUrls, refuseContentUploadChunk } =
   await import("./content-uploads.js");
+const { recordingMadeBy } = await import("./recording-made-by.js");
 const { default: uploadStartRoute } =
   await import("../routes/api/content-clips/uploads.post.js");
 const { default: uploadStatusRoute } =
@@ -531,34 +532,9 @@ async function asEditor<T>(editor: string, run: () => Promise<T>): Promise<T> {
   );
 }
 
-beforeEach(async () => {
+beforeAll(async () => {
   client = await PGlite.create("memory://");
   state.db = drizzle(client);
-  // A local development Clips: chunks are buffered in SQL.
-  state.storageStatus = {
-    mode: "none",
-    configured: false,
-    activeProvider: null,
-    localSqlChunkScratchAvailable: true,
-    hostedRemaining: 0,
-    hostedLimit: 0,
-    maxClipBytes: 250 * 1024 * 1024,
-    denyReason: "disabled",
-  };
-  state.created = [];
-  state.chunks = [];
-  state.aborts = [];
-  state.finalizedFirst = null;
-  state.beforeClaimRead = null;
-  state.afterPhaseRead = null;
-  state.duringStorageCheck = null;
-  state.duringCreate = null;
-  state.rowStorageMode = null;
-  state.duringFinalChunk = null;
-  state.finalChunkOutcome = null;
-  state.realAbort = false;
-  state.beforeReaperFails = null;
-  state.released = [];
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -588,11 +564,41 @@ beforeEach(async () => {
   `);
 });
 
-afterEach(async () => {
-  await client.close();
+beforeEach(async () => {
+  const { rows } = await client.query(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+  );
+  await client.exec(
+    `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+  );
+  state.storageStatus = {
+    mode: "none",
+    configured: false,
+    activeProvider: null,
+    localSqlChunkScratchAvailable: true,
+    hostedRemaining: 0,
+    hostedLimit: 0,
+    maxClipBytes: 250 * 1024 * 1024,
+    denyReason: "disabled",
+  };
+  state.created = [];
+  state.chunks = [];
+  state.aborts = [];
+  state.finalizedFirst = null;
+  state.beforeClaimRead = null;
+  state.afterPhaseRead = null;
+  state.duringStorageCheck = null;
+  state.duringCreate = null;
+  state.rowStorageMode = null;
+  state.duringFinalChunk = null;
+  state.finalChunkOutcome = null;
+  state.realAbort = false;
+  state.beforeReaperFails = null;
+  state.released = [];
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await client.close();
   vi.unstubAllEnvs();
 });
 
@@ -628,6 +634,10 @@ describe("an editor's upload from a Content page", () => {
       }),
     ]);
     expect(createdOrgId()).toMatch(/^org-/);
+    expect(recordingMadeBy(firstCreated().caller)).toEqual({
+      madeBy: "person",
+      madeByAgent: null,
+    });
     expect(await rows("recording_shares")).toEqual([]);
     expect(await rows("recording_content_bindings")).toEqual([
       expect.objectContaining({

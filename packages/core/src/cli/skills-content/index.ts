@@ -5,6 +5,7 @@ export * from "./content-skill.js";
 export * from "./rewind-skill.js";
 export * from "./design-exploration-skill.js";
 export * from "./design-visual-edit-skill.js";
+export * from "./design-remix-skill.js";
 export * from "./plan-setup-auth.js";
 export * from "./wireframe.js";
 export * from "./canvas.js";

@@ -23,6 +23,7 @@ const rawClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
@@ -31,6 +32,7 @@ vi.mock("../db/client.js", () => ({
 const {
   ensureAuditTables,
   insertAuditEvent,
+  insertAuditEventOnce,
   queryAuditEvents,
   queryAuditEventPage,
   queryAuditApps,
@@ -65,7 +67,7 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   await ensureAuditTables();
@@ -169,6 +171,16 @@ describe("audit store scoping", () => {
     expect(asBob?.id).toBe("x1");
     const asAlice = await getAuditEventById("x1", { userEmail: "alice@x.com" });
     expect(asAlice).toBeNull();
+  });
+
+  it("writes an event delivered twice once, keeping the first copy", async () => {
+    await insertAuditEventOnce(makeEvent({ id: "once", summary: "first" }));
+    await insertAuditEventOnce(makeEvent({ id: "once", summary: "second" }));
+    await expect(insertAuditEvent(makeEvent({ id: "once" }))).rejects.toThrow();
+    const rows = await queryAuditEvents({ userEmail: "alice@x.com" });
+    expect(rows.filter((row) => row.id === "once")).toEqual([
+      expect.objectContaining({ summary: "first" }),
+    ]);
   });
 });
 

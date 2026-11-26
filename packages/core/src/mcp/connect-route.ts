@@ -21,6 +21,11 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  assertLocalDevCredentialIssuable,
+  LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
+  refusesLocalDevCredential,
+} from "../server/local-dev-identity.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   buildMcpInstallLink,
@@ -345,6 +350,7 @@ export async function mintOrgServiceToken(params: {
   serviceEmail: string;
   ttlDays: number;
 }> {
+  assertLocalDevCredentialIssuable(params.createdBy, "request-context");
   const serviceName = normalizeServiceName(params.serviceName);
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
@@ -450,12 +456,19 @@ function renderConnectGuide(
   activeGuideId: McpConnectGuideId,
   values: Parameters<typeof interpolateMcpConnectTemplate>[1],
   copyLabel: string,
+  manualSetupLabel: string,
 ): string {
   const guideId = escapeHtml(guide.id);
+  // With an install link, the step that enters the URL by hand is the
+  // fallback, not a step after the link, so it sits behind a disclosure.
+  const manualStep = guide.install?.length ? guide.urlStep : undefined;
+  const fill = (template: string) =>
+    escapeHtml(interpolateMcpConnectTemplate(template, values));
   const installLinks = (guide.install ?? []).map((option) => {
     const link = buildMcpInstallLink(option.client, {
       serverName: values.serverId,
       mcpUrl: values.mcpUrl,
+      displayName: values.appName,
     });
     const target = link.opensWebPage
       ? ` target="_blank" rel="noopener noreferrer"`
@@ -468,11 +481,15 @@ function renderConnectGuide(
       : "",
     guide.steps?.length
       ? `<ol>${guide.steps
-          .map(
-            (step) =>
-              `<li>${escapeHtml(interpolateMcpConnectTemplate(step, values))}</li>`,
-          )
+          .filter((_, index) => index !== manualStep)
+          .map((step) => `<li>${fill(step)}</li>`)
           .join("")}</ol>`
+      : "",
+    manualStep !== undefined && guide.steps?.[manualStep]
+      ? `<details class="advanced">
+          <summary>${escapeHtml(manualSetupLabel)}<span class="chev" aria-hidden="true"></span></summary>
+          <div class="advanced-body"><p>${fill(guide.steps[manualStep])}</p></div>
+        </details>`
       : "",
     guide.intro
       ? `<p>${escapeHtml(interpolateMcpConnectTemplate(guide.intro, values))}</p>`
@@ -553,6 +570,7 @@ function renderConnectPage(params: {
         activeGuideId,
         connectTemplateValues,
         messages.mcpCopy,
+        messages.mcpManualSetup,
       ),
     )
     .join("\n");
@@ -1525,6 +1543,9 @@ export async function handleMcpConnect(
     const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
+    if (refusesLocalDevCredential(session.email, event)) {
+      return json({ error: LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE }, 403);
+    }
     if (
       !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
       canUseDevOpenConnect(event)
@@ -1646,6 +1667,9 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
+    if (refusesLocalDevCredential(session.email, event)) {
+      return json({ error: LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE }, 403);
+    }
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       user_code?: unknown;
       org_id?: unknown;
@@ -1723,6 +1747,12 @@ export async function handleMcpConnect(
       !row.ownerEmail
     ) {
       return json({ status: "pending" });
+    }
+    if (refusesLocalDevCredential(row.ownerEmail, event)) {
+      return json(
+        { status: "error", error: LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE },
+        403,
+      );
     }
     try {
       const devOpen =

@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
+import { scrubUrl } from "@agent-native/core/client/url-scrub";
 import {
   FREE_EMAIL_PROVIDER_DOMAINS,
   organizations,
@@ -36,6 +37,7 @@ import {
   isNotNull,
   lt,
   lte,
+  ne,
   not,
   or,
   sql,
@@ -411,6 +413,12 @@ function replayString(value: unknown): string | null {
     return String(value);
   }
   return null;
+}
+
+// Replay keeps the real path so its storyboard can open the page; only the
+// query and hash, where credentials ride, are scrubbed.
+function replayUrl(value: string | null): string | null {
+  return value ? (scrubUrl(value) ?? null) : null;
 }
 
 function replayEmail(value: unknown): string | null {
@@ -1192,10 +1200,11 @@ export function parseSessionReplayIngestPayload(
   };
   assertReplayMetadataCap(metadata);
   const context: Record<string, unknown> = replayRecord(body.context);
-  const url =
+  const url = replayUrl(
     replayString(body.url) ||
-    replayString(properties.url) ||
-    replayString(context.url);
+      replayString(properties.url) ||
+      replayString(context.url),
+  );
   const parts = normalizeReplayUrl(url);
   const signals = deriveReplaySignals({
     body,
@@ -1264,10 +1273,11 @@ export function parseSessionReplayIngestPayload(
     path:
       parts.path || replayString(body.path) || replayString(properties.path),
     hostname,
-    referrer:
+    referrer: replayUrl(
       replayString(body.referrer) ||
-      replayString(properties.referrer) ||
-      replayString(context.referrer),
+        replayString(properties.referrer) ||
+        replayString(context.referrer),
+    ),
     app,
     template,
     pageCount: signals.pageCount,
@@ -2912,6 +2922,78 @@ export async function listSessionRecordingsPage(
       })),
     ...(frictionApplied ? { frictionCoverageStartedAt } : {}),
   };
+}
+
+// Recordings the caller can open in their active organization, as Sessions
+// lists them. `getSessionReplaySummary` is wider: it also opens an org-visible
+// recording through membership in an organization that isn't active. Reads
+// that must agree between a list and a single row use this one condition.
+function openableSessionRecordingCondition(scope: SessionReplayScope) {
+  return and(
+    accessFilter(
+      schema.sessionRecordings,
+      schema.sessionRecordingShares,
+      scope.orgId
+        ? { userEmail: scope.userEmail, orgId: scope.orgId }
+        : { userEmail: scope.userEmail },
+    ),
+    visibleSessionRecordingCondition(),
+  );
+}
+
+function visibleSessionRecordingCondition() {
+  return and(
+    or(replayVisibleIdentityCondition(), replayAnonymousCondition()),
+    replayPlayableEventsCondition(),
+  );
+}
+
+/** Whether every member of `orgId` can open this recording, as Sessions lists it. */
+export async function isSessionRecordingOpenToOrg(
+  recordingId: string,
+  orgId: string,
+): Promise<boolean> {
+  // guard:allow-unscoped — answers one yes/no about org-wide visibility for a sharing change the framework already authorized; no row data is returned.
+  const rows = await getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.id, recordingId),
+        eq(schema.sessionRecordings.orgId, orgId),
+        ne(schema.sessionRecordings.visibility, "private"),
+        visibleSessionRecordingCondition(),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Ids of the recordings the caller can open, as a subquery. */
+export function openableSessionRecordingIds(scope: SessionReplayScope) {
+  // guard:allow-unscoped — openableSessionRecordingCondition applies accessFilter.
+  return getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(openableSessionRecordingCondition(scope));
+}
+
+export async function canOpenSessionRecording(
+  recordingId: string,
+  scope: SessionReplayScope,
+): Promise<boolean> {
+  // guard:allow-unscoped — openableSessionRecordingCondition applies accessFilter.
+  const rows = await getDb()
+    .select({ id: schema.sessionRecordings.id })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.id, recordingId),
+        openableSessionRecordingCondition(scope),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function getSessionReplaySummary(

@@ -7,6 +7,7 @@ import { requireOrgMember } from "../actions.js";
 import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Remove a member from the active organization, transfer their owned rows to an active successor, revoke sessions and app access, and record the offboarding event.",
   schema: z.object({

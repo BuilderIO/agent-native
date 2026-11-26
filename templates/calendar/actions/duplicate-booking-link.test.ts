@@ -14,7 +14,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn(() => ({ kind: "access-filter" })),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: vi.fn((...values) => ({ kind: "and", values })),
   eq: vi.fn((left, right) => ({ kind: "eq", left, right })),
 }));

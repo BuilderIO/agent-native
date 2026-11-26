@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clipSuggestionPresentation,
   suggestionAnchorText,
+  suggestionLinkDestinations,
   suggestionTextForDisplay,
   type SuggestionPresentationNode,
   suggestionTextPresentation,
@@ -115,7 +117,22 @@ describe("suggestion structural text", () => {
     ]);
   });
 
-  it("makes contextual newlines visible inside marked text runs", () => {
+  it("breaks the line between contextual code runs", () => {
+    const source = "`Ec`<br>`ho`";
+    expect(
+      suggestionTextPresentationForSource(source, {
+        source,
+        from: 0,
+        to: source.length,
+      }),
+    ).toEqual([
+      { type: "code", children: [{ type: "text", value: "Ec" }] },
+      { type: "lineBreak" },
+      { type: "code", children: [{ type: "text", value: "ho" }] },
+    ]);
+  });
+
+  it("keeps a contextual tag between backticks as text", () => {
     const source = "`Ec<br>ho`";
     expect(
       suggestionTextPresentationForSource(source, {
@@ -126,7 +143,7 @@ describe("suggestion structural text", () => {
     ).toEqual([
       {
         type: "code",
-        children: [{ type: "text", value: "Ec↵ho" }],
+        children: [{ type: "text", value: "Ec<br>ho" }],
       },
     ]);
   });
@@ -191,5 +208,79 @@ describe("suggestion structural text", () => {
     expect(presentationText(suggestionTextPresentation(content))).toBe(
       expected,
     );
+  });
+});
+
+describe("clipped suggestion text", () => {
+  it("names a clipped link's destination once", () => {
+    const label = "a".repeat(120);
+    const clipped = clipSuggestionPresentation(
+      suggestionTextPresentation(`[${label}](https://example.test)`),
+      { head: 72, tail: 24 },
+    );
+    expect(presentationText(clipped)).toBe(
+      `${"a".repeat(72)}…${"a".repeat(24)}`,
+    );
+    expect(suggestionLinkDestinations(clipped)).toEqual([
+      "https://example.test",
+    ]);
+  });
+
+  it("keeps the destination of a link that ends inside the clipped middle", () => {
+    const clipped = clipSuggestionPresentation(
+      suggestionTextPresentation(
+        `[${"a".repeat(100)}](https://example.test) ${"b".repeat(100)}`,
+      ),
+      { head: 72, tail: 24 },
+    );
+    expect(presentationText(clipped)).toBe(
+      `${"a".repeat(72)}…${"b".repeat(24)}`,
+    );
+    expect(suggestionLinkDestinations(clipped)).toEqual([
+      "https://example.test",
+    ]);
+  });
+
+  it("shortens a long link destination in a clipped card", () => {
+    const url = `https://example.test/${"a".repeat(200)}`;
+    const nodes = suggestionTextPresentation(`[docs](${url})`);
+    const clipped = clipSuggestionPresentation(nodes, { head: 72, tail: 24 });
+    expect(clipped).not.toBe(nodes);
+    expect(presentationText(clipped)).toBe("docs");
+    expect(suggestionLinkDestinations(clipped)).toEqual([
+      `${url.slice(0, 40)}…`,
+    ]);
+
+    const emojiUrl = `https://example.test/${"a".repeat(18)}😀${"a".repeat(200)}`;
+    expect(
+      suggestionLinkDestinations(
+        clipSuggestionPresentation(
+          suggestionTextPresentation(`[docs](${emojiUrl})`),
+          { head: 72, tail: 24 },
+        ),
+      ),
+    ).toEqual([`${emojiUrl.slice(0, 39)}…`]);
+  });
+
+  it.each([
+    [
+      "a surrogate pair",
+      `${"a".repeat(71)}😀${"b".repeat(100)}😀${"c".repeat(23)}`,
+      `${"a".repeat(71)}…${"c".repeat(23)}`,
+    ],
+    [
+      "a joined emoji or an accent",
+      `${"a".repeat(70)}👩‍💻${"b".repeat(100)}é${"c".repeat(23)}`,
+      `${"a".repeat(70)}…${"c".repeat(23)}`,
+    ],
+  ])("never splits %s between the head and the tail", (_, text, expected) => {
+    expect(
+      presentationText(
+        clipSuggestionPresentation(suggestionTextPresentation(text), {
+          head: 72,
+          tail: 24,
+        }),
+      ),
+    ).toBe(expected);
   });
 });

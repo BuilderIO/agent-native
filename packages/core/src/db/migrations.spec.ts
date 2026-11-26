@@ -24,6 +24,17 @@ import {
   withMigrationRuntime,
 } from "./migrations.js";
 
+// `vi.clearAllMocks()` clears calls but keeps an earlier case's
+// `mockReturnValue`, so a database URL set by one case leaks into the next
+// describe's "never touches the database" cases. Reset implementations to the
+// factory defaults after every case.
+afterEach(() => {
+  vi.mocked(getMigrationDatabaseUrl).mockReset();
+  vi.mocked(getMigrationDatabaseUrl).mockReturnValue("");
+  vi.mocked(getDbExec).mockReset();
+  vi.mocked(createDbExec).mockReset();
+});
+
 describe("splitSqlStatements", () => {
   it("keeps PostgreSQL function bodies and quoted identifiers intact", () => {
     const sql = `CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $body$
@@ -106,6 +117,57 @@ function makeNamedExec(options: {
   };
   return exec;
 }
+
+describe("runMigrations – declaration order", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("applies steps in version order even when the file lists them newest-first", async () => {
+    // content-app declared its widenings above an older narrowing step, so the old step ran last and
+    // re-narrowed a CHECK. A store must apply in version order whatever order its file uses.
+    // Mutant that fails this: iterating the source array as given, which runs v9 before v2.
+    const exec = makeNamedExec({ version: 0 });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    vi.mocked(createDbExec).mockResolvedValue(exec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 9,
+          name: "newest",
+          sql: "CREATE TABLE newest (id INTEGER);",
+        },
+        {
+          version: 2,
+          name: "middle",
+          sql: "CREATE TABLE middle (id INTEGER);",
+        },
+        {
+          version: 1,
+          name: "oldest",
+          sql: "CREATE TABLE oldest (id INTEGER);",
+        },
+      ],
+      { table: "order_migrations" },
+    );
+    await plugin(null);
+
+    const statements = exec.execute.mock.calls.map(([statement]) =>
+      typeof statement === "string" ? statement : statement.sql,
+    );
+    const created = statements.filter((sql) =>
+      /CREATE TABLE (oldest|middle|newest)/.test(sql),
+    );
+    // splitSqlStatements drops the trailing semicolon.
+    expect(created).toEqual([
+      "CREATE TABLE oldest (id INTEGER)",
+      "CREATE TABLE middle (id INTEGER)",
+      "CREATE TABLE newest (id INTEGER)",
+    ]);
+  });
+});
 
 describe("runMigrations – serverless request runtime", () => {
   const ENV_KEYS = [
@@ -688,6 +750,66 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(createDbExec).not.toHaveBeenCalled();
     expect(run).toHaveBeenCalledTimes(1);
     expect(pooledExec.insertedNames).toContain("run-only-backfill");
+  });
+
+  it("uses the direct exec for a pending run-only migration that changes schema", async () => {
+    const pooledExec = makeNamedExec({ version: 131, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+    const directExec = makeNamedExec({ version: 131, appliedNames: [] });
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
+
+    const run = vi.fn(async () => {});
+    const plugin = runMigrations(
+      [
+        {
+          version: 132,
+          name: "vector-tables",
+          sql: {},
+          changesSchema: true,
+          run,
+        },
+      ],
+      { table: "schema_run_migrations" },
+    );
+    await plugin(null);
+
+    expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(directExec.insertedNames).toContain("vector-tables");
+    expect(pooledExec.insertedNames).toEqual([]);
+  });
+
+  it("names a run-only migration whose callback fails", async () => {
+    const exec = makeNamedExec({ version: 131, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+    vi.mocked(createDbExec).mockResolvedValue(exec);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 132,
+          name: "vector-tables",
+          sql: {},
+          changesSchema: true,
+          run: async () => {
+            throw new Error("permission denied for schema public");
+          },
+        },
+      ],
+      { table: "failing_run_migrations" },
+    );
+    await expect(withMigrationRuntime(() => plugin(null))).rejects.toThrow(
+      "permission denied for schema public",
+    );
+
+    expect(error).toHaveBeenCalledWith(
+      '[db] Migration "vector-tables" (v132) FAILED:',
+      "permission denied for schema public",
+    );
+    expect(exec.insertedNames).toEqual([]);
   });
 
   it("closes the direct exec after migrations complete", async () => {

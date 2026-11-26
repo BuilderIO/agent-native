@@ -22,6 +22,7 @@ const hexColor = z
 let updateQueue = Promise.resolve();
 
 export default defineAction({
+  mcpTool: false,
   description:
     "Update the Calendar app's local visual preferences, including calendar colors, visible days, and the all-day section height. This changes the app display only; it does not call Google Calendar or use Google Calendar colorId values.",
   schema: z

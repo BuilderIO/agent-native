@@ -702,6 +702,114 @@ describe("MCP server routes", () => {
     });
   });
 
+  describe("org server URLs", () => {
+    const orgSecret = "ExampleFakeSegment1234";
+    const orgUrl = `https://mcp.example.test/s/${orgSecret}/mcp?api_key=example-fake-key`;
+    const maskedOrgUrl = "https://mcp.example.test/s/[hidden]/mcp?[hidden]";
+
+    function arrange(role: string) {
+      getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+      getOrgContextMock.mockResolvedValue({
+        email: "alice@example.com",
+        orgId: "acme",
+        role,
+      });
+      mockedSettings.all["o:acme:mcp-servers-remote"] = {
+        servers: [{ id: "demo", name: "demo", url: orgUrl, createdAt: 1 }],
+      };
+      mockedSettings.all["u:alice@example.com:mcp-servers-remote"] = {
+        servers: [
+          {
+            id: "mine",
+            name: "mine",
+            url: "https://mcp.example.test/hooks/Qw8rT5yU1iO3pA7sD2fG6h",
+            createdAt: 2,
+          },
+        ],
+      };
+      const manager = {
+        getStatus: () => ({
+          connectedServers: [],
+          configuredServers: [],
+          errors: {},
+          tools: [],
+        }),
+        reconfigure: vi.fn(async () => reconfigured({})),
+        refreshTools: vi.fn(),
+      };
+      const nitroApp = createNitroApp();
+      mountMcpServersRoutes(nitroApp, manager as any);
+      return nitroApp;
+    }
+
+    it.each(["member", null])(
+      "hides the key in an org URL from a %s on list and reconnect",
+      async (role) => {
+        const nitroApp = arrange(role as string);
+
+        const list = await dispatchMountedRoute(
+          nitroApp,
+          "/_agent-native/mcp/servers",
+          "GET",
+        );
+        const reconnect = await dispatchMountedRoute(
+          nitroApp,
+          "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+          "POST",
+        );
+
+        expect((list.body as any).org[0].url).toBe(maskedOrgUrl);
+        expect((reconnect.body as any).server.url).toBe(maskedOrgUrl);
+        expect(JSON.stringify([list.body, reconnect.body])).not.toContain(
+          orgSecret,
+        );
+        expect(JSON.stringify([list.body, reconnect.body])).not.toContain(
+          "example-fake-key",
+        );
+      },
+    );
+
+    it.each(["admin", "owner"])(
+      "shows an org URL whole to an %s",
+      async (role) => {
+        const nitroApp = arrange(role);
+
+        const list = await dispatchMountedRoute(
+          nitroApp,
+          "/_agent-native/mcp/servers",
+          "GET",
+        );
+        const reconnect = await dispatchMountedRoute(
+          nitroApp,
+          "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+          "POST",
+        );
+
+        expect((list.body as any).org[0].url).toBe(orgUrl);
+        expect((reconnect.body as any).server.url).toBe(orgUrl);
+      },
+    );
+
+    it("shows a member the URL of their own user-scope server", async () => {
+      const nitroApp = arrange("member");
+
+      const list = await dispatchMountedRoute(
+        nitroApp,
+        "/_agent-native/mcp/servers",
+        "GET",
+      );
+      const reconnect = await dispatchMountedRoute(
+        nitroApp,
+        "/_agent-native/mcp/servers/mine/reconnect?scope=user",
+        "POST",
+      );
+
+      const mine = "https://mcp.example.test/hooks/Qw8rT5yU1iO3pA7sD2fG6h";
+      expect((list.body as any).user[0].url).toBe(mine);
+      expect((reconnect.body as any).server.url).toBe(mine);
+    });
+  });
+
   it("returns the formatted connection cause when reconnect still fails", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
     getOrgContextMock.mockResolvedValue({

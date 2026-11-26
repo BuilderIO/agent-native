@@ -45,7 +45,11 @@ export interface McpConnectIdentity {
   connect: boolean;
 }
 
-export type McpInstallClient = "cursor" | "vscode" | "vscode-insiders";
+export type McpInstallClient =
+  | "claude"
+  | "cursor"
+  | "vscode"
+  | "vscode-insiders";
 
 export interface McpConnectInstallOption {
   client: McpInstallClient;
@@ -76,6 +80,8 @@ export interface McpConnectGuide {
   };
   note?: string;
   docsHref?: string;
+  /** The host connects from its own servers, so a local URL can't work. */
+  hostedConnector?: boolean;
 }
 
 export const MCP_CONNECT_MCP_URL_TEMPLATE = "{appUrl}/mcp";
@@ -83,26 +89,24 @@ export const MCP_CONNECT_MCP_URL_TEMPLATE = "{appUrl}/mcp";
 export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
   {
     id: "claude",
+    hostedConnector: true,
     docsHref:
       "https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp",
     label: "Claude",
+    install: [{ client: "claude", label: "Add to Claude" }],
     urlStep: 1,
     stepKinds: ["open", "add", "authorize"],
     nameStep: 1,
     steps: [
-      "In Claude, go to Customize → Connectors.",
-      "Choose + Add → Add custom connector. Enter these details, then select Add.",
+      "Click Add to Claude. Claude opens with {appName} and the MCP URL filled in. Select Add.",
+      "For manual setup, go to Customize → Connectors in Claude and choose + Add → Add custom connector. Enter these details, then select Add.",
       "Sign in to Agent-Native and approve access. In a new Claude conversation, enable {appName} and send:",
     ],
-    action: {
-      kind: "link",
-      label: "Open Claude → Connectors",
-      href: "https://claude.ai/customize/connectors",
-    },
     note: "For Team and Enterprise, an owner must first add the connector in Organization settings → Connectors.",
   },
   {
     id: "chatgpt",
+    hostedConnector: true,
     docsHref: "https://developers.openai.com/plugins/deploy/connect-chatgpt",
     label: "ChatGPT",
     urlStep: 1,
@@ -147,7 +151,7 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
     stepKinds: ["open", "configure", "authorize"],
     steps: [
       "Click Add to VS Code, then Install on the server page VS Code opens.",
-      "Without the button, run MCP: Add Server from the Command Palette, choose HTTP, and paste the MCP URL.",
+      "Without the button, run Chat: Open Customizations from the Command Palette, open MCP Servers, select +, choose HTTP, and paste the MCP URL.",
       "When VS Code asks, allow the sign-in and approve the MCP scopes on the Agent-Native consent page.",
     ],
     note: "The tools appear in the Chat view in Agent mode.",
@@ -157,9 +161,10 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
     docsHref: "https://code.claude.com/docs/en/mcp",
     label: "Claude Code",
     intro: "In your terminal, run:",
-    commandTemplate: "claude mcp add --transport http {serverId} {mcpUrl}",
+    commandTemplate:
+      "claude mcp add --transport http --scope user {serverId} {mcpUrl}",
     action: { kind: "copy", label: "Copy command" },
-    note: "Then inside Claude Code type /mcp, choose {serverId}, and click Authenticate. Claude completes the OAuth flow itself — no static token needed.",
+    note: "Then type /mcp in Claude Code, choose {serverId}, and select Authenticate. Claude Code signs in with OAuth, so you don't need a static token.",
   },
   {
     id: "codex",
@@ -172,6 +177,7 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
   },
   {
     id: "grok",
+    hostedConnector: true,
     docsHref: "https://docs.x.ai/grok/connectors",
     label: "Grok",
     urlStep: 1,
@@ -385,11 +391,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "es-ES": {
     claude: {
       steps: [
-        "En Claude, ve a Customize → Connectors.",
-        "Elige + Add → Add custom connector. Introduce estos datos y selecciona Add.",
+        "Haz clic en Añadir a Claude. Claude se abre con {appName} y la URL de MCP ya rellenados. Selecciona Add.",
+        "Para la configuración manual, ve a Customize → Connectors en Claude y elige + Add → Add custom connector. Introduce estos datos y selecciona Add.",
         "Inicia sesión en Agent-Native y aprueba el acceso. En una nueva conversación de Claude, activa {appName} y envía:",
       ],
-      actionLabel: "Abrir Claude → Connectors",
+      installLabels: { claude: "Añadir a Claude" },
       note: "En Team y Enterprise, un propietario debe añadir primero el conector en Organization settings → Connectors.",
     },
     chatgpt: {
@@ -413,7 +419,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "Haz clic en Añadir a VS Code y luego en Install en la página del servidor que abre VS Code.",
-        "Sin el botón, ejecuta MCP: Add Server desde la paleta de comandos, elige HTTP y pega la URL de MCP.",
+        "Sin el botón, ejecuta Chat: Open Customizations desde la paleta de comandos, abre MCP Servers, selecciona +, elige HTTP y pega la URL de MCP.",
         "Cuando VS Code lo pida, permite el inicio de sesión y aprueba los ámbitos de MCP en la página de consentimiento de Agent-Native.",
       ],
       installLabels: {
@@ -425,7 +431,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "En tu terminal, ejecuta:",
       actionLabel: "Copiar comando",
-      note: "Después, dentro de Claude Code, escribe /mcp, elige {serverId} y haz clic en Authenticate. Claude completa el flujo OAuth automáticamente; no necesitas un token estático.",
+      note: "Después, escribe /mcp en Claude Code, elige {serverId} y selecciona Authenticate. Claude Code inicia sesión con OAuth, así que no necesitas un token estático.",
     },
     codex: {
       intro: "En tu terminal, ejecuta:",
@@ -450,11 +456,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "fr-FR": {
     claude: {
       steps: [
-        "Dans Claude, allez dans Customize → Connectors.",
-        "Choisissez + Add → Add custom connector. Saisissez ces informations, puis sélectionnez Add.",
+        "Cliquez sur Ajouter à Claude. Claude s’ouvre avec {appName} et l’URL MCP déjà renseignés. Sélectionnez Add.",
+        "Pour une configuration manuelle, allez dans Customize → Connectors dans Claude et choisissez + Add → Add custom connector. Saisissez ces informations, puis sélectionnez Add.",
         "Connectez-vous à Agent-Native et autorisez l’accès. Dans une nouvelle conversation Claude, activez {appName} et envoyez :",
       ],
-      actionLabel: "Ouvrir Claude → Connectors",
+      installLabels: { claude: "Ajouter à Claude" },
       note: "Pour Team et Enterprise, un propriétaire doit d’abord ajouter le connecteur dans Organization settings → Connectors.",
     },
     chatgpt: {
@@ -478,7 +484,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "Cliquez sur Ajouter à VS Code, puis sur Install dans la page du serveur ouverte par VS Code.",
-        "Sans le bouton, exécutez MCP: Add Server depuis la palette de commandes, choisissez HTTP et collez l’URL MCP.",
+        "Sans le bouton, exécutez Chat: Open Customizations depuis la palette de commandes, ouvrez MCP Servers, sélectionnez +, choisissez HTTP et collez l’URL MCP.",
         "Lorsque VS Code le demande, autorisez la connexion et approuvez les champs d’application MCP sur la page de consentement Agent-Native.",
       ],
       installLabels: {
@@ -490,7 +496,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "Dans votre terminal, exécutez :",
       actionLabel: "Copier la commande",
-      note: "Ensuite, dans Claude Code, saisissez /mcp, choisissez {serverId}, puis cliquez sur Authenticate. Claude effectue automatiquement le flux OAuth ; aucun jeton statique n’est nécessaire.",
+      note: "Ensuite, saisissez /mcp dans Claude Code, choisissez {serverId}, puis sélectionnez Authenticate. Claude Code se connecte avec OAuth ; aucun jeton statique n’est donc nécessaire.",
     },
     codex: {
       intro: "Dans votre terminal, exécutez :",
@@ -515,11 +521,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "de-DE": {
     claude: {
       steps: [
-        "Gehe in Claude zu Customize → Connectors.",
-        "Wähle + Add → Add custom connector. Gib diese Daten ein und wähle Add.",
+        "Klicke auf Zu Claude hinzufügen. Claude öffnet sich, {appName} und die MCP-URL sind bereits eingetragen. Wähle Add.",
+        "Gehe für die manuelle Einrichtung in Claude zu Customize → Connectors und wähle + Add → Add custom connector. Gib diese Daten ein und wähle Add.",
         "Melde dich bei Agent-Native an und erlaube den Zugriff. Aktiviere {appName} in einer neuen Claude-Unterhaltung und sende:",
       ],
-      actionLabel: "Claude → Connectors öffnen",
+      installLabels: { claude: "Zu Claude hinzufügen" },
       note: "Bei Team und Enterprise muss ein Inhaber den Connector zuerst unter Organization settings → Connectors hinzufügen.",
     },
     chatgpt: {
@@ -543,7 +549,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "Klicke auf Zu VS Code hinzufügen und dann auf der Serverseite, die VS Code öffnet, auf Install.",
-        "Ohne die Schaltfläche führst du MCP: Add Server in der Befehlspalette aus, wählst HTTP und fügst die MCP-URL ein.",
+        "Ohne die Schaltfläche führst du Chat: Open Customizations in der Befehlspalette aus, öffnest MCP Servers, wählst +, wählst HTTP und fügst die MCP-URL ein.",
         "Wenn VS Code nachfragt, erlaube die Anmeldung und genehmige die MCP-Bereiche auf der Agent-Native-Zustimmungsseite.",
       ],
       installLabels: {
@@ -555,7 +561,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "Führe in deinem Terminal Folgendes aus:",
       actionLabel: "Befehl kopieren",
-      note: "Gib anschließend in Claude Code /mcp ein, wähle {serverId} und klicke auf Authenticate. Claude führt den OAuth-Ablauf selbstständig durch; ein statisches Token ist nicht erforderlich.",
+      note: "Gib anschließend in Claude Code /mcp ein, wähle {serverId} und wähle Authenticate. Claude Code meldet sich per OAuth an, daher brauchst du kein statisches Token.",
     },
     codex: {
       intro: "Führe in deinem Terminal Folgendes aus:",
@@ -580,11 +586,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "pt-BR": {
     claude: {
       steps: [
-        "No Claude, acesse Customize → Connectors.",
-        "Escolha + Add → Add custom connector. Insira estes dados e selecione Add.",
+        "Clique em Adicionar ao Claude. O Claude abre com {appName} e a URL MCP já preenchidos. Selecione Add.",
+        "Para configurar manualmente, acesse Customize → Connectors no Claude e escolha + Add → Add custom connector. Insira estes dados e selecione Add.",
         "Entre no Agent-Native e autorize o acesso. Em uma nova conversa no Claude, ative {appName} e envie:",
       ],
-      actionLabel: "Abrir Claude → Connectors",
+      installLabels: { claude: "Adicionar ao Claude" },
       note: "Em Team e Enterprise, um proprietário deve adicionar o conector primeiro em Organization settings → Connectors.",
     },
     chatgpt: {
@@ -608,7 +614,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "Clique em Adicionar ao VS Code e depois em Install na página do servidor que o VS Code abrir.",
-        "Sem o botão, execute MCP: Add Server na paleta de comandos, escolha HTTP e cole a URL MCP.",
+        "Sem o botão, execute Chat: Open Customizations na paleta de comandos, abra MCP Servers, selecione +, escolha HTTP e cole a URL MCP.",
         "Quando o VS Code pedir, permita o login e aprove os escopos MCP na página de consentimento do Agent-Native.",
       ],
       installLabels: {
@@ -620,7 +626,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "No terminal, execute:",
       actionLabel: "Copiar comando",
-      note: "Depois, no Claude Code, digite /mcp, escolha {serverId} e clique em Authenticate. O Claude conclui o fluxo OAuth automaticamente; nenhum token estático é necessário.",
+      note: "Depois, digite /mcp no Claude Code, escolha {serverId} e selecione Authenticate. O Claude Code entra com OAuth, então você não precisa de um token estático.",
     },
     codex: {
       intro: "No terminal, execute:",
@@ -645,11 +651,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "zh-CN": {
     claude: {
       steps: [
-        "在 Claude 中，前往 Customize → Connectors。",
-        "选择 + Add → Add custom connector。输入以下信息，然后选择 Add。",
+        "点击“添加到 Claude”。Claude 会打开，并已填好 {appName} 和 MCP URL。选择 Add。",
+        "手动设置时，在 Claude 中前往 Customize → Connectors，然后选择 + Add → Add custom connector。输入以下信息，然后选择 Add。",
         "登录 Agent-Native 并批准访问。在新的 Claude 对话中启用 {appName}，然后发送：",
       ],
-      actionLabel: "打开 Claude → Connectors",
+      installLabels: { claude: "添加到 Claude" },
       note: "Team 和 Enterprise 的所有者须先在 Organization settings → Connectors 中添加连接器。",
     },
     chatgpt: {
@@ -673,7 +679,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "点击“添加到 VS Code”，然后在 VS Code 打开的服务器页面上点击 Install。",
-        "如果没有该按钮，请在命令面板中运行 MCP: Add Server，选择 HTTP，然后粘贴MCP URL。",
+        "如果没有该按钮，请在命令面板中运行 Chat: Open Customizations，打开 MCP Servers，选择 +，选择 HTTP，然后粘贴 MCP URL。",
         "VS Code 询问时，允许登录，并在 Agent-Native 授权页面上批准 MCP 权限范围。",
       ],
       installLabels: {
@@ -685,7 +691,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "在终端中运行：",
       actionLabel: "复制命令",
-      note: "然后在 Claude Code 中输入 /mcp，选择 {serverId}，再点击 Authenticate。Claude 会自动完成 OAuth 流程，无需静态令牌。",
+      note: "然后在 Claude Code 中输入 /mcp，选择 {serverId}，再选择 Authenticate。Claude Code 会通过 OAuth 登录，因此无需静态令牌。",
     },
     codex: {
       intro: "在终端中运行：",
@@ -710,11 +716,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "zh-TW": {
     claude: {
       steps: [
-        "在 Claude 中，前往 Customize → Connectors。",
-        "選取 + Add → Add custom connector。輸入以下資訊，然後選取 Add。",
+        "按一下「新增至 Claude」。Claude 會開啟，並已填入 {appName} 和 MCP URL。選取 Add。",
+        "手動設定時，在 Claude 中前往 Customize → Connectors，然後選取 + Add → Add custom connector。輸入以下資訊，然後選取 Add。",
         "登入 Agent-Native 並核准存取。在新的 Claude 對話中啟用 {appName}，然後傳送：",
       ],
-      actionLabel: "開啟 Claude → Connectors",
+      installLabels: { claude: "新增至 Claude" },
       note: "Team 和 Enterprise 的擁有者須先在 Organization settings → Connectors 中新增連接器。",
     },
     chatgpt: {
@@ -738,7 +744,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "按一下「新增至 VS Code」，然後在 VS Code 開啟的伺服器頁面上按一下 Install。",
-        "如果沒有這個按鈕，請在命令選擇區執行 MCP: Add Server，選擇 HTTP，然後貼上MCP URL。",
+        "如果沒有這個按鈕，請在命令選擇區執行 Chat: Open Customizations，開啟 MCP Servers，選取 +，選擇 HTTP，然後貼上 MCP URL。",
         "VS Code 詢問時，允許登入，並在 Agent-Native 同意頁面上核准 MCP 權限範圍。",
       ],
       installLabels: {
@@ -750,7 +756,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "在終端機中執行：",
       actionLabel: "複製指令",
-      note: "接著在 Claude Code 中輸入 /mcp，選擇 {serverId}，再按一下 Authenticate。Claude 會自動完成 OAuth 流程，不需要靜態權杖。",
+      note: "接著在 Claude Code 中輸入 /mcp，選擇 {serverId}，再選取 Authenticate。Claude Code 會透過 OAuth 登入，因此不需要靜態權杖。",
     },
     codex: {
       intro: "在終端機中執行：",
@@ -775,11 +781,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "ja-JP": {
     claude: {
       steps: [
-        "ClaudeでCustomize → Connectorsを開きます。",
-        "+ Add → Add custom connectorを選びます。以下の情報を入力し、Addを選択します。",
+        "「Claude に追加」をクリックします。{appName} と MCP URL が入力された状態で Claude が開くので、Add を選択します。",
+        "手動で設定する場合は、Claude で Customize → Connectors を開き、+ Add → Add custom connector を選びます。以下の情報を入力し、Add を選択します。",
         "Agent-Nativeにサインインしてアクセスを許可します。Claudeの新しい会話で{appName}を有効にし、次を送信します：",
       ],
-      actionLabel: "Claude → Connectors を開く",
+      installLabels: { claude: "Claude に追加" },
       note: "Team と Enterprise では、所有者が先に Organization settings → Connectors で接続を追加する必要があります。",
     },
     chatgpt: {
@@ -803,7 +809,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "「VS Code に追加」をクリックし、VS Code が開くサーバー ページで Install をクリックします。",
-        "ボタンを使わない場合は、コマンド パレットで MCP: Add Server を実行し、HTTP を選んでMCP URL を貼り付けます。",
+        "ボタンを使わない場合は、コマンド パレットで Chat: Open Customizations を実行し、MCP Servers を開いて + を選択し、HTTP を選んで MCP URL を貼り付けます。",
         "VS Code で確認されたらサインインを許可し、Agent-Native の同意ページで MCP スコープを承認します。",
       ],
       installLabels: {
@@ -815,7 +821,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "ターミナルで次を実行します：",
       actionLabel: "コマンドをコピー",
-      note: "次に Claude Code で /mcp と入力し、{serverId} を選んで Authenticate をクリックします。Claude が OAuth フローを自動的に完了するため、静的トークンは不要です。",
+      note: "次に Claude Code で /mcp と入力し、{serverId} を選んで Authenticate を選択します。Claude Code は OAuth でサインインするため、静的トークンは不要です。",
     },
     codex: {
       intro: "ターミナルで次を実行します：",
@@ -840,11 +846,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "ko-KR": {
     claude: {
       steps: [
-        "Claude에서 Customize → Connectors로 이동하세요.",
-        "+ Add → Add custom connector를 선택하세요. 아래 정보를 입력하고 Add를 선택하세요.",
+        "Claude에 추가를 클릭하세요. {appName}과 MCP URL이 입력된 상태로 Claude가 열립니다. Add를 선택하세요.",
+        "수동으로 설정하려면 Claude에서 Customize → Connectors로 이동한 뒤 + Add → Add custom connector를 선택하세요. 아래 정보를 입력하고 Add를 선택하세요.",
         "Agent-Native에 로그인하고 접근을 승인하세요. 새 Claude 대화에서 {appName}을 활성화하고 다음을 보내세요:",
       ],
-      actionLabel: "Claude → Connectors 열기",
+      installLabels: { claude: "Claude에 추가" },
       note: "Team 및 Enterprise에서는 소유자가 먼저 Organization settings → Connectors에서 커넥터를 추가해야 합니다.",
     },
     chatgpt: {
@@ -868,7 +874,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "VS Code에 추가를 클릭한 다음 VS Code가 여는 서버 페이지에서 Install을 클릭합니다.",
-        "버튼이 없다면 명령 팔레트에서 MCP: Add Server를 실행하고 HTTP를 선택한 다음 MCP URL을 붙여 넣습니다.",
+        "버튼이 없다면 명령 팔레트에서 Chat: Open Customizations를 실행하고 MCP Servers를 연 다음 +를 선택하고 HTTP를 선택한 뒤 MCP URL을 붙여 넣습니다.",
         "VS Code에서 묻는 경우 로그인을 허용하고 Agent-Native 동의 페이지에서 MCP 범위를 승인합니다.",
       ],
       installLabels: {
@@ -880,7 +886,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "터미널에서 다음을 실행합니다:",
       actionLabel: "명령 복사",
-      note: "그런 다음 Claude Code에서 /mcp를 입력하고 {serverId}를 선택한 뒤 Authenticate를 클릭합니다. Claude가 OAuth 흐름을 자동으로 완료하므로 정적 토큰이 필요하지 않습니다.",
+      note: "그런 다음 Claude Code에서 /mcp를 입력하고 {serverId}를 선택한 뒤 Authenticate를 선택합니다. Claude Code가 OAuth로 로그인하므로 정적 토큰이 필요하지 않습니다.",
     },
     codex: {
       intro: "터미널에서 다음을 실행합니다:",
@@ -905,11 +911,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "hi-IN": {
     claude: {
       steps: [
-        "Claude में Customize → Connectors पर जाएँ।",
-        "+ Add → Add custom connector चुनें। यह विवरण दर्ज करें, फिर Add चुनें।",
+        "Claude में जोड़ें पर क्लिक करें। Claude खुलता है और उसमें {appName} व MCP URL पहले से भरे होते हैं। Add चुनें।",
+        "मैन्युअल सेटअप के लिए Claude में Customize → Connectors पर जाएँ और + Add → Add custom connector चुनें। यह विवरण दर्ज करें, फिर Add चुनें।",
         "Agent-Native में साइन इन करें और पहुँच की अनुमति दें। नई Claude बातचीत में {appName} चालू करें और भेजें:",
       ],
-      actionLabel: "Claude → Connectors खोलें",
+      installLabels: { claude: "Claude में जोड़ें" },
       note: "Team और Enterprise में पहले मालिक को Organization settings → Connectors में कनेक्टर जोड़ना होगा।",
     },
     chatgpt: {
@@ -933,7 +939,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "VS Code में जोड़ें पर क्लिक करें, फिर VS Code के खोले गए सर्वर पेज पर Install पर क्लिक करें।",
-        "बटन के बिना, Command Palette से MCP: Add Server चलाएँ, HTTP चुनें और MCP URL पेस्ट करें।",
+        "बटन के बिना, Command Palette से Chat: Open Customizations चलाएँ, MCP Servers खोलें, + चुनें, HTTP चुनें और MCP URL पेस्ट करें।",
         "VS Code के पूछने पर साइन-इन की अनुमति दें और Agent-Native सहमति पेज पर MCP scopes को मंज़ूरी दें।",
       ],
       installLabels: {
@@ -945,7 +951,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "अपने terminal में चलाएँ:",
       actionLabel: "कमांड कॉपी करें",
-      note: "फिर Claude Code में /mcp टाइप करें, {serverId} चुनें और Authenticate पर क्लिक करें। Claude OAuth flow अपने आप पूरा करता है; static token की ज़रूरत नहीं है।",
+      note: "फिर Claude Code में /mcp टाइप करें, {serverId} चुनें और Authenticate चुनें। Claude Code OAuth से साइन इन करता है, इसलिए static token की ज़रूरत नहीं है।",
     },
     codex: {
       intro: "अपने terminal में चलाएँ:",
@@ -970,11 +976,11 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
   "ar-SA": {
     claude: {
       steps: [
-        "في Claude، انتقل إلى Customize → Connectors.",
-        "اختر + Add → Add custom connector. أدخل هذه التفاصيل ثم اختر Add.",
+        "انقر على إضافة إلى Claude. يفتح Claude وقد عُبّئ {appName} وعنوان MCP مسبقاً. اختر Add.",
+        "للإعداد اليدوي، انتقل إلى Customize → Connectors في Claude واختر + Add → Add custom connector. أدخل هذه التفاصيل ثم اختر Add.",
         "سجّل الدخول إلى Agent-Native ووافق على الوصول. في محادثة Claude جديدة، فعّل {appName} وأرسل:",
       ],
-      actionLabel: "فتح Claude → Connectors",
+      installLabels: { claude: "إضافة إلى Claude" },
       note: "في Team وEnterprise، يجب أن يضيف المالك الموصل أولاً من Organization settings → Connectors.",
     },
     chatgpt: {
@@ -998,7 +1004,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     vscode: {
       steps: [
         "انقر على إضافة إلى VS Code، ثم على Install في صفحة الخادم التي يفتحها VS Code.",
-        "من دون الزر، شغّل MCP: Add Server من لوحة الأوامر، واختر HTTP، والصق عنوان MCP.",
+        "من دون الزر، شغّل Chat: Open Customizations من لوحة الأوامر، وافتح MCP Servers، واختر +، واختر HTTP، والصق عنوان MCP.",
         "عندما يطلب VS Code ذلك، اسمح بتسجيل الدخول ووافق على نطاقات MCP في صفحة الموافقة في Agent-Native.",
       ],
       installLabels: {
@@ -1010,7 +1016,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     "claude-code": {
       intro: "شغّل الأمر التالي في الطرفية:",
       actionLabel: "نسخ الأمر",
-      note: "بعد ذلك اكتب /mcp داخل Claude Code، واختر {serverId}، ثم انقر على Authenticate. يكمل Claude تدفق OAuth تلقائيًا، ولا تحتاج إلى رمز ثابت.",
+      note: "بعد ذلك اكتب /mcp في Claude Code، واختر {serverId}، ثم اختر Authenticate. يسجّل Claude Code الدخول باستخدام OAuth، لذا لا تحتاج إلى رمز ثابت.",
     },
     codex: {
       intro: "شغّل الأمر التالي في الطرفية:",
@@ -1275,13 +1281,16 @@ export function mcpConnectServerName(
 export interface McpInstallLinkTarget {
   serverName: string;
   mcpUrl: string;
+  /** The name a client shows people, when it differs from the config key. */
+  displayName?: string;
 }
 
 export interface McpInstallLink {
   href: string;
   /**
-   * Cursor's link is a web page that launches Cursor and shows the config to
-   * paste when Cursor is missing, so it opens in a new tab. VS Code's web
+   * Claude's link opens its add-connector dialog on the web, and Cursor's is
+   * a web page that launches Cursor and shows the config to paste when Cursor
+   * is missing, so both open in a new tab. VS Code's web
    * redirect is a bare 302 to its scheme, so the scheme is used directly.
    */
   opensWebPage: boolean;
@@ -1300,6 +1309,17 @@ export function buildMcpInstallLink(
   target: McpInstallLinkTarget,
 ): McpInstallLink {
   const { serverName, mcpUrl } = target;
+  if (client === "claude") {
+    const params = new URLSearchParams({
+      modal: "add-custom-connector",
+      connectorName: target.displayName?.trim() || serverName,
+      connectorUrl: mcpUrl,
+    });
+    return {
+      href: `https://claude.ai/customize/connectors?${params.toString()}`,
+      opensWebPage: true,
+    };
+  }
   if (client === "cursor") {
     const params = new URLSearchParams({
       name: serverName,

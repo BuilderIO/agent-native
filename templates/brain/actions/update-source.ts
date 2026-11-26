@@ -1,4 +1,10 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import { isDeepStrictEqual } from "node:util";
+
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -11,6 +17,12 @@ import {
   serializeSource,
   stableJson,
 } from "../server/lib/brain.js";
+import { invalidateGoogleSourceAudiences } from "../server/lib/google-source-access.js";
+import {
+  requirePersonalGoogleConnection,
+  requirePersonalGoogleSourceOwner,
+} from "../server/lib/google-source-connection.js";
+import { withGoogleSourceLock } from "../server/lib/google-source-lock.js";
 import {
   assertSourceCredentialAvailable,
   assertSourceWorkspaceConnectionAvailable,
@@ -21,6 +33,7 @@ import {
   recordZoomAuditEvent,
   zoomAllowlistChange,
 } from "../server/lib/zoom-governance.js";
+import { isGoogleSourceProvider } from "../shared/google-source-config.js";
 import { normalizeSlackChannelConfig } from "../shared/slack-source-config.js";
 import { COMPANY_CONTEXT_INTAKE_KEY } from "../shared/types.js";
 import {
@@ -31,6 +44,7 @@ import {
   assertValidSourceConfig,
   mergeSourceConfigJson,
   sourceConfigJsonSchema,
+  sourceConfigUnchanged,
 } from "./_source-config.js";
 
 function objectRecord(value: unknown): Record<string, unknown> {
@@ -57,146 +71,270 @@ export default defineAction({
         "Merge trust, answer eligibility, authority, freshness, review, or conflict behavior into the source answer policy",
       ),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (args.config !== undefined ||
+      args.configJson !== undefined ||
+      args.cursor !== undefined ||
+      args.policy !== undefined ||
+      (args.status !== undefined &&
+        args.status !== "active" &&
+        args.status !== "paused")),
+  mcpTool: "search",
   run: async (args) => {
     const access = await assertAccess("brain-source", args.id, "editor");
-    const existing = access.resource;
-    const mergedConfig = mergeSourceConfigJson(args.config, args.configJson);
-    const config =
-      mergedConfig && Object.keys(mergedConfig).length
-        ? mergedConfig
-        : undefined;
-    if (
-      args.title === undefined &&
-      args.status === undefined &&
-      config === undefined &&
-      args.cursor === undefined &&
-      args.policy === undefined
-    ) {
-      fail(
-        "update-source received no changes. Pass title, status, policy, or the config keys to change in configJson.",
-        { errorCode: "no_source_changes" },
-      );
-    }
-    const zoomAdmin =
-      existing.provider === "zoom" &&
-      (config !== undefined || args.cursor !== undefined)
-        ? await assertBrainAdmin(existing.orgId)
-        : undefined;
-    if (config !== undefined) {
-      assertValidSourceConfig(existing.provider, config);
+    const applyUpdate = async (existing: typeof access.resource) => {
+      const mergedConfig = mergeSourceConfigJson(args.config, args.configJson);
       if (
-        Object.prototype.hasOwnProperty.call(
-          config,
-          COMPANY_CONTEXT_INTAKE_KEY,
-        ) &&
-        config[COMPANY_CONTEXT_INTAKE_KEY] !==
-          parseJson<Record<string, unknown>>(existing.configJson, {})[
-            COMPANY_CONTEXT_INTAKE_KEY
-          ]
+        [args.config, mergedConfig].some(
+          (submitted) =>
+            submitted !== undefined &&
+            ["sourceKey", "ingestTokenHash"].some((key) =>
+              Object.prototype.hasOwnProperty.call(submitted, key),
+            ),
+        )
       ) {
-        fail("The Company Context intake marker cannot be changed.", {
-          errorCode: "company_context_intake_reserved",
-        });
+        await assertAccess("brain-source", args.id, "admin");
+        const storedConfig = parseJson<Record<string, unknown>>(
+          existing.configJson,
+          {},
+        );
+        const legacy =
+          existing.sourceKey === null && existing.ingestTokenHash === null;
+        for (const key of ["sourceKey", "ingestTokenHash"] as const) {
+          const submitted =
+            mergedConfig &&
+            Object.prototype.hasOwnProperty.call(mergedConfig, key);
+          if (
+            submitted &&
+            mergedConfig[key] !== null &&
+            typeof mergedConfig[key] !== "string"
+          ) {
+            fail("Source credentials must be strings or null.", {
+              errorCode: "invalid_source_config",
+            });
+          }
+          if (
+            !submitted &&
+            !legacy &&
+            (storedConfig[key] ?? null) !== existing[key]
+          ) {
+            fail(
+              "Source credentials are inconsistent. Submit both credential fields to update them.",
+              {
+                errorCode: "source_config_conflict",
+                statusCode: 409,
+              },
+            );
+          }
+        }
       }
-    }
-    const updates: Record<string, unknown> = { updatedAt: nowIso() };
-    if (args.title !== undefined) updates.title = args.title;
-    if (args.status !== undefined) updates.status = args.status;
-    if (config !== undefined || args.policy !== undefined) {
-      let nextConfig: Record<string, unknown> = {
-        ...parseJson<Record<string, unknown>>(existing.configJson, {}),
-        ...config,
-      };
+      let config =
+        mergedConfig && Object.keys(mergedConfig).length
+          ? mergedConfig
+          : undefined;
+      if (isGoogleSourceProvider(existing.provider) && config !== undefined) {
+        const previousConfig = parseJson<Record<string, unknown>>(
+          existing.configJson,
+          {},
+        );
+        if (isDeepStrictEqual({ ...previousConfig, ...config }, previousConfig))
+          config = undefined;
+      }
       if (
-        args.policy !== undefined ||
-        (config && Object.prototype.hasOwnProperty.call(config, "answerPolicy"))
+        args.title === undefined &&
+        args.status === undefined &&
+        config === undefined &&
+        args.cursor === undefined &&
+        args.policy === undefined
       ) {
-        nextConfig = withSourceAnswerPolicy(
-          nextConfig,
-          args.policy ?? nextConfig.answerPolicy,
+        fail(
+          "update-source received no changes. Pass title, status, policy, or the config keys to change in configJson.",
+          { errorCode: "no_source_changes" },
         );
       }
-      if (existing.provider === "slack") {
-        nextConfig = normalizeSlackChannelConfig(nextConfig, config ?? {});
-      }
-      const workspaceConnectionId =
-        typeof nextConfig.workspaceConnectionId === "string"
-          ? nextConfig.workspaceConnectionId.trim()
-          : "";
-      if (workspaceConnectionId) {
-        nextConfig.workspaceConnectionId = workspaceConnectionId;
-        await assertSourceWorkspaceConnectionAvailable({
-          provider: existing.provider,
-          workspaceConnectionId,
-        });
-        await assertSourceCredentialAvailable({
-          provider: existing.provider,
-          workspaceConnectionId,
-          ctx: getCredentialContext(),
-        });
-      } else {
-        delete nextConfig.workspaceConnectionId;
-      }
-      updates.configJson = stableJson(nextConfig);
-      if (typeof nextConfig.sourceKey === "string") {
-        updates.sourceKey = nextConfig.sourceKey;
-      }
-      if (typeof nextConfig.ingestTokenHash === "string") {
-        updates.ingestTokenHash = nextConfig.ingestTokenHash;
-      }
-    }
-    if (args.cursor !== undefined) {
-      updates.cursorJson = stableJson({
-        ...parseJson(existing.cursorJson, {}),
-        ...args.cursor,
-      });
-    }
-    const zoomChange =
-      zoomAdmin &&
-      config &&
-      Object.prototype.hasOwnProperty.call(config, "zoom")
-        ? zoomAllowlistChange(
-            objectRecord(
-              parseJson<Record<string, unknown>>(existing.configJson, {}).zoom,
-            ),
-            objectRecord(config.zoom),
+      if (isGoogleSourceProvider(existing.provider)) {
+        requirePersonalGoogleSourceOwner(existing.ownerEmail);
+        if (args.cursor !== undefined) {
+          const previousCursor = parseJson<Record<string, unknown>>(
+            existing.cursorJson,
+            {},
+          );
+          if (
+            !isDeepStrictEqual(
+              { ...previousCursor, ...args.cursor },
+              previousCursor,
+            )
           )
-        : undefined;
-    if (
-      zoomAdmin &&
-      zoomChange &&
-      (zoomChange.added.length ||
-        zoomChange.removed.length ||
-        zoomChange.changedSettings.length)
-    ) {
-      await getDb().transaction(async (tx) => {
-        const db = tx as unknown as ReturnType<typeof getDb>;
-        await db
+            await invalidateGoogleSourceAudiences(existing.id);
+        }
+        if (config !== undefined) {
+          const nextConfig = {
+            ...parseJson<Record<string, unknown>>(existing.configJson, {}),
+            ...config,
+          };
+          assertValidSourceConfig(existing.provider, nextConfig);
+          await requirePersonalGoogleConnection(
+            existing.provider,
+            nextConfig,
+            existing.ownerEmail,
+          );
+        }
+      }
+      const zoomAdmin =
+        existing.provider === "zoom" &&
+        (config !== undefined || args.cursor !== undefined)
+          ? await assertBrainAdmin(existing.orgId)
+          : undefined;
+      if (config !== undefined) {
+        if (!isGoogleSourceProvider(existing.provider))
+          assertValidSourceConfig(existing.provider, config);
+        if (
+          Object.prototype.hasOwnProperty.call(
+            config,
+            COMPANY_CONTEXT_INTAKE_KEY,
+          ) &&
+          config[COMPANY_CONTEXT_INTAKE_KEY] !==
+            parseJson<Record<string, unknown>>(existing.configJson, {})[
+              COMPANY_CONTEXT_INTAKE_KEY
+            ]
+        ) {
+          fail("The Company Context intake marker cannot be changed.", {
+            errorCode: "company_context_intake_reserved",
+          });
+        }
+      }
+      const updates: Record<string, unknown> = { updatedAt: nowIso() };
+      if (args.title !== undefined) updates.title = args.title;
+      if (args.status !== undefined) updates.status = args.status;
+      if (config !== undefined || args.policy !== undefined) {
+        let nextConfig: Record<string, unknown> = {
+          ...parseJson<Record<string, unknown>>(existing.configJson, {}),
+          ...config,
+        };
+        if (
+          args.policy !== undefined ||
+          (config &&
+            Object.prototype.hasOwnProperty.call(config, "answerPolicy"))
+        ) {
+          nextConfig = withSourceAnswerPolicy(
+            nextConfig,
+            args.policy ?? nextConfig.answerPolicy,
+          );
+        }
+        if (existing.provider === "slack") {
+          nextConfig = normalizeSlackChannelConfig(nextConfig, config ?? {});
+        }
+        const workspaceConnectionId =
+          typeof nextConfig.workspaceConnectionId === "string"
+            ? nextConfig.workspaceConnectionId.trim()
+            : "";
+        if (workspaceConnectionId) {
+          nextConfig.workspaceConnectionId = workspaceConnectionId;
+          await assertSourceWorkspaceConnectionAvailable({
+            provider: existing.provider,
+            workspaceConnectionId,
+          });
+          await assertSourceCredentialAvailable({
+            provider: existing.provider,
+            workspaceConnectionId,
+            ctx: getCredentialContext(),
+          });
+        } else {
+          delete nextConfig.workspaceConnectionId;
+        }
+        if (
+          config &&
+          ["sourceKey", "ingestTokenHash"].some((key) =>
+            Object.prototype.hasOwnProperty.call(config, key),
+          )
+        ) {
+          const legacy =
+            existing.sourceKey === null && existing.ingestTokenHash === null;
+          for (const key of ["sourceKey", "ingestTokenHash"] as const) {
+            if (Object.prototype.hasOwnProperty.call(config, key)) {
+              updates[key] = config[key];
+            } else if (legacy && typeof nextConfig[key] === "string") {
+              updates[key] = nextConfig[key];
+            }
+          }
+        }
+        const nextConfigJson = stableJson(nextConfig);
+        if (
+          isGoogleSourceProvider(existing.provider) &&
+          nextConfigJson !== existing.configJson
+        )
+          await invalidateGoogleSourceAudiences(existing.id);
+        updates.configJson = nextConfigJson;
+      }
+      if (args.cursor !== undefined) {
+        updates.cursorJson = stableJson({
+          ...parseJson(existing.cursorJson, {}),
+          ...args.cursor,
+        });
+      }
+      const zoomChange =
+        zoomAdmin &&
+        config &&
+        Object.prototype.hasOwnProperty.call(config, "zoom")
+          ? zoomAllowlistChange(
+              objectRecord(
+                parseJson<Record<string, unknown>>(existing.configJson, {})
+                  .zoom,
+              ),
+              objectRecord(config.zoom),
+            )
+          : undefined;
+      const save = async (db: ReturnType<typeof getDb>) => {
+        const saved = await db
           .update(schema.brainSources)
           .set(updates)
-          .where(eq(schema.brainSources.id, args.id));
-        await recordZoomAuditEvent(
-          {
-            orgId: existing.orgId,
-            sourceId: existing.id,
-            actorEmail: zoomAdmin.email,
-            event: "allowlist-changed",
-            detail: zoomChange,
-          },
-          db,
-        );
+          .where(
+            updates.configJson === undefined
+              ? eq(schema.brainSources.id, args.id)
+              : sourceConfigUnchanged(existing),
+          )
+          .returning();
+        const source = saved.find((row) => row.id === args.id);
+        if (!source)
+          fail("The source changed. Reload it and retry the update.", {
+            errorCode: "source_config_conflict",
+            statusCode: 409,
+          });
+        return source;
+      };
+      const source =
+        zoomAdmin &&
+        zoomChange &&
+        (zoomChange.added.length ||
+          zoomChange.removed.length ||
+          zoomChange.changedSettings.length)
+          ? await getDb().transaction(async (tx) => {
+              const db = tx as unknown as ReturnType<typeof getDb>;
+              const saved = await save(db);
+              await recordZoomAuditEvent(
+                {
+                  orgId: existing.orgId,
+                  sourceId: existing.id,
+                  actorEmail: zoomAdmin.email,
+                  event: "allowlist-changed",
+                  detail: zoomChange,
+                },
+                db,
+              );
+              return saved;
+            })
+          : await save(getDb());
+      return { source: serializeSource(source) };
+    };
+    if (isGoogleSourceProvider(access.resource.provider)) {
+      requirePersonalGoogleSourceOwner(access.resource.ownerEmail);
+      return withGoogleSourceLock(args.id, async (current) => {
+        if (!current || !isGoogleSourceProvider(current.provider))
+          fail("Source is unavailable.", { errorCode: "source_unavailable" });
+        return applyUpdate(current);
       });
-    } else {
-      await getDb()
-        .update(schema.brainSources)
-        .set(updates)
-        .where(eq(schema.brainSources.id, args.id));
     }
-    const [source] = await getDb()
-      .select()
-      .from(schema.brainSources)
-      .where(eq(schema.brainSources.id, args.id))
-      .limit(1);
-    return { source: serializeSource(source) };
+    return applyUpdate(access.resource);
   },
 });

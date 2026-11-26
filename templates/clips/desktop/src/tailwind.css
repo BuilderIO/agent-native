@@ -13,16 +13,190 @@
    bare element rules like `button { font-size: inherit }`, which would quietly
    defeat every `text-sm` on a shadcn Button. Pulling it into `legacy` puts it
    below `utilities` so Tailwind can do its job, while keeping the tray's own
-   cascade intact for the surfaces still using it. */
-@layer legacy, theme, utilities;
+   cascade intact for the surfaces still using it.
+   `agentkit-base` and `components` hold the meeting pill's shared AgentKit chat
+   (see "AgentKit chat" below); declaring `components` here keeps it under
+   `utilities`, where Tailwind expects it. */
+@layer legacy, theme, agentkit-base, components, utilities;
 
 @import "./styles.css" layer(legacy);
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "tw-animate-css";
+/* Scoped to `.agentkit-chat`, inside its own `@layer components`. */
+@import "@agent-native/toolkit/app/agentkit/react/styles.css";
 
 @source "./**/*.{ts,tsx}";
 @source "../../shared/screen-history-scrubber.tsx";
+/* The pill renders the toolkit's chat, whose Tailwind classes live only in the
+   toolkit's compiled code. Scanning it only adds classes; it restyles nothing
+   the tray already renders, because the tray's own sources are scanned above. */
+@source "../node_modules/@agent-native/toolkit/dist";
+
+/**
+ * AgentKit chat: the meeting pill's ask sheet renders the toolkit's shared
+ * chat (`AgentKitAssistantChat`), which is built for apps that load the
+ * toolkit stylesheet and Tailwind's preflight. The tray loads neither globally
+ * (see the top of this file), so the chat gets the two things it needs here,
+ * scoped to itself:
+ *   - the agent-kit tokens, mapped onto the tray's own `--ui-` palette rather
+ *     than the toolkit's (which reads bare `--background`-style triplets that
+ *     legacy `styles.css` defines as full colors);
+ *   - a preflight-style reset for the chat's subtree only, so its buttons and
+ *     textarea lose the browser's default borders and fonts.
+ */
+:root {
+  --agent-kit-recessed-surface: hsl(var(--ui-background));
+  --agent-kit-nav-surface: hsl(var(--ui-background));
+  --agent-kit-raised-surface: hsl(var(--ui-card));
+  --agent-kit-subtle-surface: hsl(var(--ui-muted));
+  --agent-kit-popover-surface: hsl(var(--ui-popover));
+  --agent-kit-text: hsl(var(--ui-foreground));
+  --agent-kit-muted-text: hsl(var(--ui-muted-foreground));
+  --agent-kit-popover-text: hsl(var(--ui-popover-foreground));
+  --agent-kit-border: hsl(var(--ui-border));
+  --agent-kit-accent: hsl(var(--ui-primary));
+  --agent-kit-accent-text: hsl(var(--ui-primary-foreground));
+  --agent-kit-danger: hsl(var(--ui-destructive));
+  --agent-kit-danger-text: color-mix(
+    in srgb,
+    hsl(var(--ui-destructive)) 60%,
+    hsl(var(--ui-foreground))
+  );
+  --agent-kit-success: hsl(var(--ui-success));
+  --agent-kit-focus: hsl(var(--ui-ring));
+}
+
+/* The ask sheet is a popover surface, so the chat sits on it, not on the
+   window background. */
+.pill-agentkit-chat {
+  --agentkit-chat-background: hsl(var(--ui-popover));
+  --agentkit-composer-background: hsl(var(--ui-card));
+}
+
+/* Collapsed, the ask sheet is only the composer, as the pill's one-line ask
+   bar was: the answer list and its jump-to-latest button wait for the sheet to
+   open, instead of taking transcript space while empty. */
+.pill-ask-sheet[data-state="closed"]
+  .pill-agentkit-chat
+  > :is(.agentkit-transcript, .agentkit-scroll-to-bottom-control) {
+  display: none;
+}
+
+/* The pill's composer is one row, as its old ask bar was: the field, then the
+   mic and send button. Every pill question is about the live meeting, so the
+   meeting's context chip stays attached but hidden. That leaves the open sheet
+   room for the answer without growing the meeting window. */
+.pill-agentkit-chat .agentkit-chat-footer {
+  padding-block-end: 8px;
+}
+
+.pill-agentkit-composer [data-agent-composer-slot="area"] {
+  padding-block: 4px;
+}
+
+.pill-agentkit-composer [data-agent-composer-slot="root"] {
+  flex-direction: row;
+  align-items: flex-end;
+}
+
+.pill-agentkit-composer
+  :is(
+    [data-agent-composer-slot="context-row"],
+    [data-agent-composer-slot="toolbar-spacer"]
+  ) {
+  display: none;
+}
+
+.pill-agentkit-composer [data-agent-composer-slot="editor-wrap"] {
+  flex: 1;
+  min-width: 0;
+  padding-block: 6px;
+}
+
+.pill-agentkit-composer [data-agent-composer-slot="toolbar"] {
+  flex-shrink: 0;
+  padding-block: 3px;
+  padding-inline-start: 0;
+}
+
+/* The answer list keeps the chat's spacing at the pill's scale, so a short
+   answer and its actions fit the sheet as it opens. */
+.pill-agentkit-chat {
+  --agentkit-transcript-top-inset: 8px;
+  --agentkit-transcript-message-gap: 12px;
+}
+
+.pill-agentkit-chat .agentkit-transcript-content {
+  padding-block-end: 4px;
+}
+
+.pill-agentkit-chat
+  .agentkit-transcript-content
+  > .agentkit-message[data-role="assistant"]:last-of-type {
+  margin-block-end: 0;
+}
+
+@layer agentkit-base {
+  :where(.pill-agentkit-chat, .agentkit-tokens)
+    :where(*, ::before, ::after, ::backdrop, ::file-selector-button) {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens)
+    :where(button, input, select, optgroup, textarea, ::file-selector-button) {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    border-radius: 0;
+    background-color: transparent;
+    opacity: 1;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens) :where(ol, ul, menu) {
+    list-style: none;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens)
+    :where(img, svg, video, canvas, audio, iframe, embed, object) {
+    display: block;
+    vertical-align: middle;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens) :where(img, video) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens) :where(h1, h2, h3, h4, h5, h6) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens) :where(a) {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens) :where(textarea) {
+    resize: vertical;
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens) ::placeholder {
+    opacity: 1;
+    color: color-mix(in oklab, currentcolor 50%, transparent);
+  }
+
+  :where(.pill-agentkit-chat, .agentkit-tokens)
+    :where([hidden]:not([hidden="until-found"])) {
+    display: none !important;
+  }
+}
 
 .recording-recovery-entry {
   padding: 0 14px 7px;

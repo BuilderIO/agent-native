@@ -8,7 +8,6 @@ import {
   getRegistryBlockSlashSearchText,
 } from "@agent-native/toolkit/editor";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
-import { IconComponents } from "@tabler/icons-react";
 
 import { createContentBlockId } from "./extensions/registryBlocks";
 
@@ -16,7 +15,6 @@ export interface RegistrySlashItem {
   title: string;
   description: string;
   searchText?: string;
-  icon: React.ElementType;
   action: (editor: RegistrySlashEditor) => void;
 }
 
@@ -35,6 +33,9 @@ const ALWAYS_HIDDEN_BLOCK_TYPES = new Set([
   "visual-questions",
   "inline-database",
   "clip-embed",
+  "analytics-chart",
+  "link-card",
+  "design-screen",
   "callout",
   "source-component",
   "builder-text",
@@ -107,7 +108,6 @@ export function buildRegistrySlashItems(
       title: spec.label,
       description: getRegistryBlockSlashDescription(spec),
       searchText: getRegistryBlockSlashSearchText(spec),
-      icon: (spec.icon ?? IconComponents) as React.ElementType,
       action: insert,
     }),
     insertBlock: (editor, spec) => {

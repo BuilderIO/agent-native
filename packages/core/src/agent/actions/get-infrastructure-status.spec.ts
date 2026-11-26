@@ -435,3 +435,8 @@ describe("get-infrastructure-status", () => {
     expect(mocks.getInfrastructureStatus).not.toHaveBeenCalled();
   });
 });
+
+it("keeps get-infrastructure-status in the app, off MCP", async () => {
+  const { default: action } = await import("./get-infrastructure-status.js");
+  expect(action.mcpTool).toBe(false);
+});

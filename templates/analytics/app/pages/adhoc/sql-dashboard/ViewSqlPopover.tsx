@@ -1,5 +1,9 @@
 import { useReconciledState } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DataSourceType,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -27,8 +31,6 @@ import {
 } from "@/components/ui/tooltip";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 
-import type { DataSourceType, SqlPanel } from "./types";
-
 const SOURCE_LABELS: Record<DataSourceType, string> = {
   bigquery: "BigQuery",
   ga4: "Google Analytics",
@@ -37,6 +39,7 @@ const SOURCE_LABELS: Record<DataSourceType, string> = {
   demo: "Demo Prometheus",
   prometheus: "Prometheus",
   program: "Data program",
+  postgres: "PostgreSQL",
 };
 
 interface ViewSqlPopoverProps {

@@ -352,6 +352,105 @@ name. Core supplies this resolver from its integration catalog and logo library.
 Hosts can supply their own accessible badge node or return `undefined` to retain
 the default activity icon.
 
+Build custom activity, tool, and task renderers from the same Trace parts the
+default transcript uses, so they share its icon column, running shimmer,
+reduced-motion handling, and find-in-page behavior:
+
+```tsx
+import {
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from "@agent-native/toolkit/app/agentkit/react";
+
+function DeploymentActivity({ value }: AgentKitRenderProps<AgentActivity>) {
+  const running = value.status === "running";
+  return (
+    <TraceCollapsible defaultOpen={running}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={running ? "running" : undefined}>
+          <TraceIcon>
+            <IconRocket />
+          </TraceIcon>
+          <TraceTitle>{running ? "Deploying" : "Deployed"}</TraceTitle>
+          <TraceDescription>{value.detail}</TraceDescription>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent keepMounted>
+        <DeploymentLog activityId={value.id} />
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+```
+
+`TraceLine` takes `running`, `error`, or `pending`; omit it for finished work.
+Status shows only as color and motion, so the title must say it too. Content
+unmounts while closed unless `keepMounted`, which keeps it in the DOM as
+`hidden="until-found"` so find-in-page opens the step. Outside `AgentChat`,
+wrap Trace in an `agentkit-tokens` element so it resolves the AgentKit tokens.
+
+Code uses the same approach. `CodeBlock` is what fenced Markdown, tool input,
+and tool results render through. `CodeBlockContent` highlights a string child
+for its `language` with the bundled grammars, and renders any other language as
+plain text. While code streams it re-highlights at most every 80 ms, and a
+finished line keeps its colors. `lineNumbers`, `wrap`, and `CodeBlockLine`
+variants (`added`, `removed`, `highlighted`) cover logs and diffs. Line numbers
+and diff markers stay out of copied text and the accessibility tree:
+
+```tsx
+<CodeBlock size="sm">
+  <CodeBlockHeader>
+    <CodeBlockTitle>pnpm build</CodeBlockTitle>
+    <CodeBlockActions>
+      <CodeBlockCopyButton value={output} />
+    </CodeBlockActions>
+  </CodeBlockHeader>
+  <CodeBlockContent wrap language="ansi">
+    {output}
+  </CodeBlockContent>
+</CodeBlock>
+```
+
+`StackTrace` renders a V8 or Python stack trace found in text: the error is the
+title, the caller's frames come first, and each run of framework frames
+(`node_modules`, `node:internal`, the Python standard library) folds into one
+line. A tool result that contains a stack shows it this way above the raw
+result, and replaces the raw result when the stack is all the result holds.
+`parseStackTrace` returns the parsed error and frames, and `onFilePathClick`
+turns the caller's frames into buttons:
+
+```tsx
+<StackTrace trace={stderr} defaultOpen onFilePathClick={openInEditor} />
+```
+
+`Terminal` renders a command with its output streaming in underneath. The
+command is the title; a nonzero exit or a timeout marks the step failed and
+adds the exit code beside the duration. The step opens once when output starts
+while running, the view follows new output until the reader scrolls up, the
+newest 500 lines show with the earlier ones a click away, and copy drops ANSI
+color codes. Tool calls whose metadata is `{ toolKind: "bash", command,
+exitCode, durationMs, timedOut }`, as core's coding tools attach, render as a
+terminal by default:
+
+```tsx
+<Terminal
+  command="pnpm test"
+  output={output}
+  running={status === "running"}
+  exitCode={exitCode}
+  durationMs={durationMs}
+/>
+```
+
+Message `citation` parts render as one Sources step: "Used 3 sources", which
+expands to the deduped links. A host `slots.citation` or a
+`registry.messageParts.citation` renderer keeps the inline run instead.
+
 The `react/headless` entry excludes the reference transcript and rich composer,
 so a custom client bundle loads only the regions it renders. `AgentKitProvider`
 is the lower-level context boundary it exports: it accepts a controller, thread
@@ -603,6 +702,11 @@ Agent-Native thread, queue, approval, and streaming runtime, and
   performed in the thread, workspace, or an external app, using a shared
   semantic kind taxonomy for status, reasoning, search, reads, writes, commands,
   checks, MCP calls, connections, navigation, delegation, approvals, and tools.
+  The React transcript folds each delegated agent's interactions, activities,
+  own tool calls, and assigned task into one collapsible Subagent step that
+  shows its status, task, and duration, with its calls and reply inside.
+  `formatAgentInteractionDetail` on the provider supplies an interaction's
+  detail text, such as a localized failure reason from its metadata.
 - Namespaced `x-*` message parts let a host add rich domain UI without forking
   the base union, and `data` parts carry opaque structured content for
   host-owned renderers. The host owns validation and rendering for both.

@@ -1,11 +1,12 @@
 import { createRequire } from "node:module";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   buildPanel,
   getFirstPartyDrilldown,
 } from "./first-party-metric-catalog.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -30,13 +31,16 @@ describe("first-party panel drilldowns", () => {
   let day = "";
   let nextId = 0;
 
-  afterEach(async () => {
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
     await client?.close();
-    client = undefined;
   });
 
   async function setup() {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     day = (
       (await client!.query(
         "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",

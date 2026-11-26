@@ -146,6 +146,45 @@ export async function reapStaleWork(
   return { automationRuns, a2aTasks, failed };
 }
 
+/**
+ * When the next in-flight row crosses its reap threshold, for the Netlify idle
+ * marker, or `null` when nothing is in flight. Never earlier than this
+ * instance's throttle allows, so a sweep it wakes can reap. The A2A answer is
+ * left out on an app that never created the A2A tables.
+ */
+export async function nextStaleWorkDueAt(): Promise<number | null> {
+  await ensureAutomationRunsTable();
+  const dueTimes: number[] = [];
+  const { rows: runs } = await getDbExec().execute({
+    sql: `SELECT MIN(started_at) AS started_at FROM automation_runs
+          WHERE status = 'running'`,
+    args: [],
+  });
+  const startedAt = (runs[0] as Record<string, unknown> | undefined)
+    ?.started_at;
+  if (startedAt !== null && startedAt !== undefined) {
+    dueTimes.push(Number(startedAt) + STALE_AUTOMATION_RUN_AFTER_MS);
+  }
+  try {
+    const { rows: tasks } = await getDbExec().execute({
+      sql: `SELECT MIN(CASE WHEN updated_at > created_at THEN updated_at
+                   ELSE created_at END) AS last_activity_at
+            FROM a2a_tasks
+            WHERE status_state IN ('submitted', 'working', 'processing')`,
+      args: [],
+    });
+    const lastActivityAt = (tasks[0] as Record<string, unknown> | undefined)
+      ?.last_activity_at;
+    if (lastActivityAt !== null && lastActivityAt !== undefined) {
+      dueTimes.push(Number(lastActivityAt) + STALE_A2A_TASK_AFTER_MS);
+    }
+  } catch (error) {
+    if (!isUndefinedTableError(error)) throw error;
+  }
+  if (dueTimes.length === 0) return null;
+  return Math.max(Math.min(...dueTimes), lastReapAt + REAP_INTERVAL_MS);
+}
+
 export function resetStaleWorkReapThrottle(): void {
   lastReapAt = 0;
 }

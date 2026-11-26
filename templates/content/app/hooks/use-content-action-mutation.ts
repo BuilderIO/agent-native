@@ -1,6 +1,12 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { ContentDatabaseNavigationPageResponse } from "@shared/api";
 import {
+  isLocalSourceDirectoryId,
+  localSourceDirectoryId,
+  parentLocalSourceDirectory,
+  parseLocalSourceDirectoryId,
+} from "@shared/local-source-directory";
+import {
   matchQuery,
   useQueryClient,
   type Query,
@@ -42,7 +48,7 @@ export type ContentMutationInvalidation<TData, TVariables> =
  * already refetching cancels that request and starts it again.
  */
 export function invalidateContentQueries(
-  queryClient: Pick<QueryClient, "invalidateQueries">,
+  queryClient: Pick<QueryClient, "getQueryCache" | "invalidateQueries">,
   targets: readonly ContentQueryTarget[],
 ) {
   if (targets.length === 0) return;
@@ -51,9 +57,18 @@ export function invalidateContentQueries(
       ? { queryKey: target as QueryKey }
       : (target as QueryFilters),
   );
-  void queryClient.invalidateQueries({
-    predicate: (query) => filters.some((filter) => matchQuery(filter, query)),
-  });
+  const predicate = (query: Query) =>
+    filters.some((filter) => matchQuery(filter, query));
+  for (const query of queryClient.getQueryCache().findAll({ predicate })) {
+    if (
+      query.state.data === undefined &&
+      query.state.fetchStatus === "fetching" &&
+      query.isActive()
+    ) {
+      void query.cancel({ silent: true });
+    }
+  }
+  void queryClient.invalidateQueries({ predicate });
 }
 
 /**
@@ -140,7 +155,24 @@ function navigationBranchListsAny(
   const data = query.state.data as
     | ContentDatabaseNavigationPageResponse
     | undefined;
+  if (
+    data?.groups?.some((group) =>
+      group.page.items.some((item) => documentIds.has(item.documentId)),
+    ) === true
+  ) {
+    return true;
+  }
   return data?.items?.some((item) => documentIds.has(item.documentId)) === true;
+}
+
+function navigationReadIsGrouped(query: Pick<Query, "queryKey" | "state">) {
+  const navigation = queryParams(query)?.navigation as
+    | { group?: unknown }
+    | undefined;
+  const data = query.state.data as
+    | ContentDatabaseNavigationPageResponse
+    | undefined;
+  return navigation?.group !== undefined || data?.groups !== undefined;
 }
 
 /** The cached sidebar branches (parent and collection) that list any of `documentIds`. */
@@ -200,6 +232,13 @@ export function contentNavigationBranchFilter({
       ) {
         return true;
       }
+      if (
+        parents.size > 0 &&
+        navigationReadIsGrouped(query) &&
+        (!databaseId || branch.databaseId === databaseId)
+      ) {
+        return true;
+      }
       return listed.size > 0 && navigationBranchListsAny(query, listed);
     },
   };
@@ -253,6 +292,40 @@ export function contentNavigationContextInDatabaseFilter(
  * the Files page and its table views. Their Parent column follows every page's
  * placement, which the sidebar's paged branches do not cover.
  */
+export function contentLocalFolderBranchesFilter(
+  databaseId: string,
+): QueryFilters {
+  return {
+    queryKey: navigationQueryKey,
+    predicate: (query) => {
+      const branch = navigationBranch(query);
+      return (
+        branch?.databaseId === databaseId &&
+        typeof branch.parentId === "string" &&
+        isLocalSourceDirectoryId(branch.parentId)
+      );
+    },
+  };
+}
+
+function contentTopAndLocalFolderBranchesFilter(
+  databaseId: string | null | undefined,
+): QueryFilters {
+  return {
+    queryKey: navigationQueryKey,
+    predicate: (query) => {
+      const branch = navigationBranch(query);
+      return (
+        !!branch &&
+        (!databaseId || branch.databaseId === databaseId) &&
+        (branch.parentId === null ||
+          (typeof branch.parentId === "string" &&
+            isLocalSourceDirectoryId(branch.parentId)))
+      );
+    },
+  };
+}
+
 export function contentFilesCollectionFilter(): QueryFilters {
   return {
     queryKey: ["action"],
@@ -318,13 +391,36 @@ export function contentRowTargets(
   documentIds: readonly string[],
 ): ContentQueryTarget[] {
   const branches = branchesListing(queryClient, documentIds);
+  const parents = cachedParents(queryClient, documentIds, branches);
+  const folders = withFolderAncestors(parents.filter(isLocalSourceDirectoryId));
+  const unplaced = branches.length === 0 && parents.length === 0;
   return [
-    contentNavigationBranchFilter({ documentIds, branches }),
-    contentNavigationContextFilter([
-      ...documentIds,
-      ...cachedParents(queryClient, documentIds, branches),
-    ]),
+    contentNavigationBranchFilter({
+      documentIds: [...documentIds, ...folders],
+      parentIds: folders.length > 0 ? [...folders, null] : [],
+      databaseId:
+        branches
+          .map((branch) => branch.databaseId)
+          .find((id): id is string => typeof id === "string") ?? null,
+      branches,
+    }),
+    contentNavigationContextFilter([...documentIds, ...parents]),
+    ...(unplaced ? [contentTopAndLocalFolderBranchesFilter(null)] : []),
   ];
+}
+
+function withFolderAncestors(ids: readonly string[]): string[] {
+  const all = new Set(ids);
+  for (const id of ids) {
+    for (
+      let folder = parseLocalSourceDirectoryId(id);
+      folder;
+      folder = parentLocalSourceDirectory(folder)
+    ) {
+      all.add(localSourceDirectoryId(folder));
+    }
+  }
+  return [...all];
 }
 
 /**
@@ -351,10 +447,12 @@ export function contentPlacementTargets(
   const currentDatabaseId = current.find(
     (branch) => typeof branch.databaseId === "string",
   )?.databaseId as string | undefined;
-  const parents = [
+  const parents = withFolderAncestors([
     ...cachedParents(queryClient, documentIds, current),
     ...parentIds.filter((id): id is string => id !== null),
-  ];
+  ]);
+  const unplaced =
+    current.length === 0 && parents.length === 0 && parentIds.length === 0;
   return [
     contentNavigationBranchFilter({
       documentIds: [...documentIds, ...parents],
@@ -363,5 +461,6 @@ export function contentPlacementTargets(
       branches: current,
     }),
     contentNavigationContextFilter([...documentIds, ...parents]),
+    ...(unplaced ? [contentTopAndLocalFolderBranchesFilter(databaseId)] : []),
   ];
 }

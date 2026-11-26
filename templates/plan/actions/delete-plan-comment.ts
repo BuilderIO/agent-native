@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
@@ -7,7 +8,6 @@ import {
   resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -17,39 +17,15 @@ import {
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import {
+  deletePlanCommentThread,
+  listPlanCommentRows,
+} from "../server/lib/plan-comments.js";
 import { nowIso, writeEvent } from "../server/plans.js";
-
-type CommentRow = {
-  id: string;
-  parentCommentId: string | null;
-  authorEmail: string | null;
-};
 
 function normalizeEmail(email: string | null | undefined) {
   const normalized = email?.trim().toLowerCase();
   return normalized || null;
-}
-
-function commentAndDescendantIds(comments: CommentRow[], commentId: string) {
-  const childrenByParent = new Map<string, string[]>();
-  for (const comment of comments) {
-    if (!comment.parentCommentId) continue;
-    const children = childrenByParent.get(comment.parentCommentId) ?? [];
-    children.push(comment.id);
-    childrenByParent.set(comment.parentCommentId, children);
-  }
-
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  const stack = [commentId];
-  while (stack.length > 0) {
-    const id = stack.pop();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-    stack.push(...(childrenByParent.get(id) ?? []));
-  }
-  return ids;
 }
 
 export default defineAction({
@@ -110,19 +86,8 @@ export default defineAction({
 
     const db = getDb();
     const now = nowIso();
-    const comments = await db
-      .select({
-        id: schema.planComments.id,
-        parentCommentId: schema.planComments.parentCommentId,
-        authorEmail: schema.planComments.authorEmail,
-      })
-      .from(schema.planComments)
-      .where(
-        and(
-          eq(schema.planComments.planId, args.planId),
-          isNull(schema.planComments.deletedAt),
-        ),
-      );
+    await ensureReviewTables();
+    const comments = await listPlanCommentRows(args.planId);
 
     const existing = comments.find((comment) => comment.id === args.commentId);
     if (!existing) {
@@ -157,20 +122,15 @@ export default defineAction({
       }
     }
 
-    const deletedCommentIds = commentAndDescendantIds(comments, args.commentId);
-    await db
-      .update(schema.planComments)
-      .set({
-        deletedAt: now,
-        deletedBy: commentRequestEmail,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.planComments.planId, args.planId),
-          inArray(schema.planComments.id, deletedCommentIds),
-        ),
-      );
+    const deletedCommentIds = await db.transaction((tx) =>
+      deletePlanCommentThread(
+        tx,
+        args.planId,
+        args.commentId,
+        commentRequestEmail,
+        now,
+      ),
+    );
 
     await writeEvent({
       planId: args.planId,

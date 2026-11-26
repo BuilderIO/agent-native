@@ -10,6 +10,9 @@ import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
 const EXECUTION_LEASE_MODEL_PREFIX = "verification/execution-lease/";
 const EXECUTION_LEASE_MANIFEST = `${EXECUTION_LEASE_MODEL_PREFIX}manifest.json`;
 const EXECUTION_LEASE_CHECK_SCRIPT = "scripts/verify-execution-lease.ts";
+// execFileSync throws ENOBUFS past 1 MB of output; a branch that adds or removes a
+// few tens of thousands of paths names more than that.
+export const GIT_DIFF_MAX_BUFFER = 64 * 1024 * 1024;
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -55,12 +58,42 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
-const RELATED_SCRIPT_TESTS = new Map([
+const HOSTED_BUILDER_SIGNUP_TEST =
+  "scripts/hosted-builder-signup-config.test.ts";
+
+const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
+  ["scripts/netlify-production-sites.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ["scripts/netlify-site-hosts.json", HOSTED_BUILDER_SIGNUP_TEST],
+  ...[
+    "analytics",
+    "assets",
+    "brain",
+    "calendar",
+    "clips",
+    "content",
+    "crm",
+    "design",
+    "dispatch",
+    "factory",
+    "forms",
+    "mail",
+    "plan",
+    "slides",
+  ].flatMap((app) =>
+    [
+      `templates/${app}/server/plugins/config.ts`,
+      `templates/${app}/shared/builder-signup.ts`,
+    ].map((path) => [path, HOSTED_BUILDER_SIGNUP_TEST] as const),
+  ),
   [".github/workflows/ci.yml", "scripts/feedback-fix-proof.test.ts"],
   ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
   ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
+  ["scripts/ci-run-script-tests.ts", "scripts/ci-run-script-tests.test.ts"],
   ["scripts/ci-wait.ts", "scripts/ci-wait.test.ts"],
-  ["scripts/chat-health.mjs", "scripts/chat-health.test.ts"],
+  [
+    "scripts/chat-health.mjs",
+    ["scripts/chat-health.test.ts", "scripts/chat-health-terminal.test.ts"],
+  ],
   ["scripts/prune-worktrees.ts", "scripts/prune-worktrees.test.ts"],
   [
     "scripts/design-e2e-regression-pins.ts",
@@ -157,10 +190,6 @@ const DESIGN_BROAD_WORKFLOW_SHARDS = new Map([
     "music-app-workflow",
   ],
   [
-    "templates/design/e2e/home-system-selection.spec.ts",
-    "home-system-selection",
-  ],
-  [
     "templates/design/e2e/interaction-landing-page-build.spec.ts",
     "landing-page-build",
   ],
@@ -226,6 +255,11 @@ const CONTENT_DB_CORE_FILES = new Set([
   "packages/core/src/server/release-migrations.ts",
   "packages/core/src/server/release-schema.ts",
   "packages/core/src/server/request-context.ts",
+  "packages/core/src/settings/store.ts",
+  "packages/core/src/settings/index.ts",
+  "packages/core/src/org/federation.ts",
+  "packages/core/src/org/membership.ts",
+  "packages/core/src/org/index.ts",
   "packages/core/src/sharing/indexes.ts",
 ]);
 
@@ -491,6 +525,11 @@ const CONTENT_DB_ACTION_RUNTIME_FILES = new Set([
   "templates/content/actions/_comment-write-pool.test-fixture.ts",
   "templates/content/actions/_blocks-field-identity.ts",
   "templates/content/actions/_content-database-mutation-lock.ts",
+  "templates/content/actions/_content-database-personal-view.ts",
+  "templates/content/actions/_content-space-access.ts",
+  "templates/content/actions/_database-navigation.ts",
+  "templates/content/actions/_database-utils.ts",
+  "templates/content/actions/query-content-database-items.ts",
   "templates/content/actions/_content-favorites.ts",
   "templates/content/actions/_content-files.ts",
   "templates/content/actions/_database-membership-lock.ts",
@@ -591,6 +630,7 @@ const CHECK_NAMES = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
   "changeset",
   "verify_execution_lease",
   "core_mutation",
@@ -620,6 +660,7 @@ const SLOW_APP_CHECKS = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
 ] as const;
 
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
@@ -695,10 +736,18 @@ const BRAIN_EVAL_RUNTIME_PATHS = [
   "templates/brain/package.json",
   "templates/brain/server/db/index.ts",
   "templates/brain/server/db/schema.ts",
+  "templates/brain/server/lib/audiences.ts",
   "templates/brain/server/lib/brain-health.ts",
   "templates/brain/server/lib/brain.ts",
   "templates/brain/server/lib/demo.ts",
+  "templates/brain/server/lib/intelligence.ts",
+  "templates/brain/server/lib/knowledge-access.integration.test.ts",
+  "templates/brain/server/lib/knowledge-access.ts",
+  "templates/brain/server/lib/knowledge-provenance.integration.test.ts",
+  "templates/brain/server/lib/knowledge-provenance.ts",
+  "templates/brain/server/lib/knowledge-write.postgres.integration.test.ts",
   "templates/brain/server/lib/search.ts",
+  "templates/brain/server/plugins/db.ts",
   "templates/brain/shared/types.ts",
   "templates/brain/vitest.config.ts",
 ] as const;
@@ -739,21 +788,28 @@ const CORE_AGENTKIT_ACCEPTANCE_PATHS = [
 ] as const;
 
 const CORE_INTEGRATION_PATH_PREFIXES = [
+  "packages/core/src/provider-api/",
   "packages/core/src/agent/",
   "packages/core/src/db/",
   "packages/core/src/scripts/db/",
 ] as const;
 
 const CORE_INTEGRATION_RUNTIME_FILES = new Set([
+  "packages/core/src/client/route-chunk-recovery.ts",
   "packages/core/src/client/session-replay-iframe.e2e-host.tsx",
   "packages/core/src/extensions/session-replay-iframe.ts",
+  "packages/core/src/mcp/script-ledger.ts",
+  "packages/core/src/mcp/script-writes.ts",
   "packages/core/src/secrets/crypto.ts",
   "packages/core/src/server/action-routes.ts",
   "packages/core/src/server/core-routes-plugin.ts",
   "packages/core/src/server/embedded.ts",
   "packages/core/src/server/framework-request-handler.ts",
   "packages/core/src/server/request-context.ts",
+  "packages/core/src/server/ssr-handler.ts",
   "packages/core/src/session-replay-iframe-protocol.ts",
+  "packages/core/src/shared/cache-control.ts",
+  "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
   "templates/analytics/scripts/journey-capture-iframe-audit.ts",
   "templates/design/app/components/templates/TemplatePreview.tsx",
   "templates/design/shared/design-template-presets/social-story.ts",
@@ -761,10 +817,13 @@ const CORE_INTEGRATION_RUNTIME_FILES = new Set([
 ]);
 
 const CORE_INTEGRATION_TEST_FILES = new Set([
+  "packages/core/src/provider-api/write-queue.postgres.integration.test.ts",
   "packages/core/src/agent/engine/translate-ai-sdk.integration.spec.ts",
   "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
+  "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
   "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+  "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
   "packages/core/src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts",
   "packages/core/src/scripts/db/scope-isolation.e2e.spec.ts",
   "packages/core/src/server/csrf-plugin-ordering.integration.spec.ts",
@@ -936,6 +995,48 @@ export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
+export function isStandaloneE2eRunner(
+  path: string,
+  repositoryRoot = process.cwd(),
+): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    !/^(?:templates|packages|community-templates)\/[^/]+\/e2e\//u.test(
+      normalized,
+    ) ||
+    !/\.[cm]?[jt]sx?$/u.test(normalized) ||
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  )
+    return false;
+  try {
+    const source = readFileSync(join(repositoryRoot, normalized), "utf8");
+    if (/\bexport\b/u.test(source)) return false;
+    const { tokens } = tokenizeE2eSource(source);
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (
+        (token.kind === "string" && token.uncertain) ||
+        (token.kind === "punctuation" && token.value === "/")
+      )
+        return false;
+      if (
+        token.kind === "identifier" &&
+        token.value === "process" &&
+        tokens[index + 1]?.value === "." &&
+        tokens[index + 2]?.kind === "identifier" &&
+        tokens[index + 2]?.value === "argv"
+      )
+        return true;
+    }
+    return false;
+  } catch {
+    console.error(
+      `Cannot read E2E entry ${normalized}; keeping production tests selected.`,
+    );
+    return false;
+  }
+}
+
 export function runtimeSourceChangesInTestTitledPr(
   title: string,
   paths: readonly string[],
@@ -1043,8 +1144,12 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
-    const relatedTest = RELATED_SCRIPT_TESTS.get(path);
-    if (relatedTest && fileExists(relatedTest)) tests.add(relatedTest);
+    const relatedTests = RELATED_SCRIPT_TESTS.get(path);
+    for (const relatedTest of typeof relatedTests === "string"
+      ? [relatedTests]
+      : (relatedTests ?? [])) {
+      if (fileExists(relatedTest)) tests.add(relatedTest);
+    }
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
       continue;
@@ -1061,6 +1166,33 @@ export function scriptTestsForPaths(
     }
   }
   return [...tests].sort();
+}
+
+const STORYBOOK_TEST_PREFIXES = [
+  "packages/design-system/",
+  "packages/toolkit/src/",
+  "packages/toolkit/dev/",
+  "packages/toolkit/.storybook/",
+] as const;
+
+const STORYBOOK_TEST_FILES = new Set([
+  "packages/toolkit/vitest.storybook.config.ts",
+  "packages/toolkit/package.json",
+  ".github/workflows/storybook-tests.yml",
+]);
+
+export function isStorybookTestPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    STORYBOOK_TEST_FILES.has(normalized) ||
+    GLOBAL_RUNTIME_INPUTS.has(normalized)
+  ) {
+    return true;
+  }
+  return (
+    STORYBOOK_TEST_PREFIXES.some((prefix) => normalized.startsWith(prefix)) &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  );
 }
 
 // The paths that can change which tests Vitest collects and how it modes them.
@@ -2365,6 +2497,10 @@ function buildChecks(
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const fastTestsChanged = changedPaths.some(
+    (path) =>
+      isWorkspacePath(path) && !isStandaloneE2eRunner(path, repositoryRoot),
+  );
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const readmeChanged = changedPaths.some(isReadmePath);
@@ -2389,9 +2525,6 @@ function buildChecks(
     isTemplateRuntimePath(path, "dispatch"),
   );
   const templateChanged = hasPath(changedPaths, "templates/");
-  const planChanged = hasPath(changedPaths, "templates/plan/");
-  const clipsChanged = hasPath(changedPaths, "templates/clips/");
-  const assetsChanged = hasPath(changedPaths, "templates/assets/");
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
     changedPaths.some(isCreativeContextQueryBudgetRuntimePath) ||
@@ -2428,7 +2561,7 @@ function buildChecks(
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged || instructionsChanged,
+    fast_tests: fastTestsChanged || instructionsChanged,
     content:
       contentChanged ||
       schedulingChanged ||
@@ -2502,6 +2635,7 @@ function buildChecks(
     slides_text_surface_e2e: slidesTextSurfaceE2eChanged,
     slides_authoring_e2e: changedPaths.some(isSlidesAuthoringPath),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
+    storybook_tests: changedPaths.some(isStorybookTestPath),
     changeset: changedPaths.some(isChangesetPath),
     verify_execution_lease: changedPaths.some((path) =>
       isExecutionLeasePath(path, executionLeaseCovered),
@@ -2660,10 +2794,17 @@ export function readChangedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2676,10 +2817,18 @@ export function readDeletedPaths(
 ): string[] {
   const output = execFileSync(
     "git",
-    ["diff", "--name-only", "--diff-filter=D", "-z", `${baseSha}...${headSha}`],
+    [
+      "diff",
+      "--name-only",
+      "--find-renames=100%",
+      "--diff-filter=D",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2696,7 +2845,7 @@ export function readAddedPaths(
     [
       "diff",
       "--name-only",
-      "--find-renames",
+      "--find-renames=100%",
       "--diff-filter=ACR",
       "-z",
       `${baseSha}...${headSha}`,
@@ -2704,6 +2853,7 @@ export function readAddedPaths(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   return output.split("\0").filter(Boolean);
@@ -2727,6 +2877,7 @@ export function readSameDirectoryPureDesignSpecRenames(
     {
       encoding: "utf8",
       cwd,
+      maxBuffer: GIT_DIFF_MAX_BUFFER,
     },
   );
   const fields = output.split("\0");
@@ -2778,11 +2929,76 @@ export function readSameDirectoryPureDesignSpecRenames(
   return renamedSpecs.sort();
 }
 
-function writeOutputs(scope: ChangeScope): void {
+const CHANGELOG_ENTRY =
+  /^templates\/[a-z0-9][a-z0-9-]*\/changelog\/\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$/u;
+const COMMIT_OID = /^[a-f0-9]{40}$/u;
+const MISSING_BLOB = "0".repeat(40);
+const CHANGELOG_DIFF_MODES = {
+  A: "000000 100644",
+  D: "100644 000000",
+  M: "100644 100644",
+} as const;
+
+function readChangelogOnly(baseSha: string, headSha: string): boolean {
+  if (!COMMIT_OID.test(baseSha) || !COMMIT_OID.test(headSha)) return false;
+  const mergeBase = execFileSync(
+    "git",
+    ["merge-base", "--all", baseSha, headSha],
+    {
+      encoding: "utf8",
+    },
+  ).trimEnd();
+  if (!COMMIT_OID.test(mergeBase)) return false;
+
+  const fields = execFileSync(
+    "git",
+    [
+      "diff",
+      "--raw",
+      "--no-abbrev",
+      "--no-renames",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-relative",
+      "--ignore-submodules=none",
+      "-z",
+      mergeBase,
+      headSha,
+      "--",
+    ],
+    { encoding: "utf8", maxBuffer: GIT_DIFF_MAX_BUFFER },
+  ).split("\0");
+  if (fields.pop() !== "" || fields.length === 0 || fields.length % 2 !== 0)
+    return false;
+
+  const paths = new Set<string>();
+  for (let i = 0; i < fields.length; i += 2) {
+    const path = fields[i + 1];
+    const entry =
+      /^:([0-9]{6} [0-9]{6}) ([a-f0-9]{40}) ([a-f0-9]{40}) ([AMD])$/u.exec(
+        fields[i],
+      );
+    if (!entry || !CHANGELOG_ENTRY.test(path) || paths.has(path)) return false;
+    const [, modes, before, after, status] = entry;
+    if (
+      modes !==
+        CHANGELOG_DIFF_MODES[status as keyof typeof CHANGELOG_DIFF_MODES] ||
+      (before === MISSING_BLOB) !== (status === "A") ||
+      (after === MISSING_BLOB) !== (status === "D") ||
+      before === after
+    )
+      return false;
+    paths.add(path);
+  }
+  return true;
+}
+
+function writeOutputs(scope: ChangeScope, changelogOnly: boolean): void {
   const outputPath = process.env.GITHUB_OUTPUT;
   if (outputPath) {
     const lines = [
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
+      `changelog_only=${changelogOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
@@ -2872,7 +3088,12 @@ function main(): void {
     addedPaths,
   );
   console.log(JSON.stringify(scope, null, 2));
-  writeOutputs(scope);
+  const changelogOnly =
+    scope.checks.typecheck === false &&
+    changedPaths.length > 0 &&
+    changedPaths.every((path) => CHANGELOG_ENTRY.test(path)) &&
+    readChangelogOnly(baseSha, headSha);
+  writeOutputs(scope, changelogOnly);
 }
 
 if (

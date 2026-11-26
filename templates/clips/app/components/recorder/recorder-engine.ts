@@ -14,6 +14,7 @@ import {
   isLikelyPhoneMicLabel,
   type AudioInputFallback,
 } from "@shared/media-device-selection";
+import type { RecorderStage } from "@shared/recorder-stage";
 import {
   SCREEN_CAPTURE_FRAME_RATE,
   screenCaptureDisplayOptions,
@@ -101,17 +102,7 @@ type ExtendedDisplayMediaOptions = DisplayMediaStreamOptions & {
   systemAudio?: "include" | "exclude";
 };
 
-export type RecorderState =
-  | "idle"
-  | "pickingSources"
-  | "countdown"
-  | "recording"
-  | "paused"
-  | "stopping"
-  | "compressing"
-  | "uploading"
-  | "complete"
-  | "error";
+export type RecorderState = RecorderStage;
 
 /** Waits before retrying a failed local-copy write; a full disk never retries. */
 const BACKUP_WRITE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
@@ -700,7 +691,7 @@ export class RecorderEngine {
       !!requestedDeviceId &&
       !!actualDeviceId &&
       actualDeviceId !== requestedDeviceId;
-    const phoneLike = isLikelyPhoneMicLabel(track.label);
+    const phoneLike = !requestedDeviceId && isLikelyPhoneMicLabel(track.label);
     if (!mismatched && !phoneLike) return stream;
 
     const replacement = await this.tryExplicitMicFallback(
@@ -910,7 +901,7 @@ export class RecorderEngine {
       const displaySurface = normalizeDisplaySurfaceForRuntime(
         this.opts.displaySurface ?? "window",
       );
-      const displayOptions: ExtendedDisplayMediaOptions =
+      let displayOptions: ExtendedDisplayMediaOptions =
         screenCaptureDisplayOptions(displaySurface, wantsMic);
 
       if (wantsMic || wantsDisplay) {
@@ -920,6 +911,42 @@ export class RecorderEngine {
 
       if (wantsDisplay) {
         try {
+          const nativeCapture = (
+            globalThis as typeof globalThis & {
+              agentNativeDisplayCapture?: {
+                prepare: (
+                  surface: "monitor" | "window",
+                ) => Promise<{ width?: number; height?: number }>;
+              };
+            }
+          ).agentNativeDisplayCapture;
+          if (
+            nativeCapture &&
+            (displaySurface === "monitor" || displaySurface === "window")
+          ) {
+            const prepared = await nativeCapture.prepare(displaySurface);
+            if (this.discarded) {
+              const cancelled = new Error("Recording cancelled");
+              cancelled.name = "AbortError";
+              throw cancelled;
+            }
+            if (displaySurface === "monitor") {
+              const { width, height } = prepared;
+              if (
+                typeof width !== "number" ||
+                typeof height !== "number" ||
+                !Number.isFinite(width) ||
+                !Number.isFinite(height)
+              ) {
+                throw new Error("Could not determine the display resolution.");
+              }
+              displayOptions = screenCaptureDisplayOptions(
+                displaySurface,
+                wantsMic,
+                { width, height },
+              );
+            }
+          }
           this.displayStream =
             await navigator.mediaDevices.getDisplayMedia(displayOptions);
         } catch (err) {
@@ -1067,6 +1094,9 @@ export class RecorderEngine {
       };
     } catch (err) {
       this.cleanupTracks();
+      if (this.discarded) {
+        throw err instanceof Error ? err : this.friendlyError(err);
+      }
       this.transition("error", { reason: errorMessage(err) });
       throw err instanceof Error ? err : this.friendlyError(err);
     }
@@ -1794,6 +1824,7 @@ export class RecorderEngine {
   }
 
   async cancel(failureCode = "recording_interrupted"): Promise<void> {
+    const recorderStage = this.state;
     // Before the recorder stops: its final chunk arrives afterwards and must
     // not write a new copy behind the delete.
     this.discarded = true;
@@ -1853,6 +1884,7 @@ export class RecorderEngine {
                     ? "Video storage is not connected yet"
                     : "Recording upload failed",
             failureCode,
+            recorderStage,
             ...(uploadAttemptId ? { attemptId: uploadAttemptId } : {}),
             ...(uploadGenerationId ? { uploadGenerationId } : {}),
           }),

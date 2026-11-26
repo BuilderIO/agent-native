@@ -166,7 +166,7 @@ function main() {
     }
   }
   console.error(
-    "\nRead `.agents/skills/frontend-design` → Default Surface Density.\n" +
+    "\nRead `.agents/skills/frontend-design` → Keep the starting view focused.\n" +
       "For a deliberate exception, put the matching pragma on the line above:\n" +
       RULES.map((rule) => `  ${rule.pragma} - short reason`).join("\n") +
       "\n",

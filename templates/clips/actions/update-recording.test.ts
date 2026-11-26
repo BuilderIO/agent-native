@@ -260,8 +260,9 @@ it.each([
     const row = recording({ expiresAt });
     state.selectRows = [[row], [row]];
     mockAssertAccess.mockResolvedValue({ role, resource: row });
+    const { sharePasswordVersion, ...readable } = row;
     await expect(run({ id: row.id })).resolves.toMatchObject({
-      recording: row,
+      recording: { ...readable, hasPassword: false },
     });
     expect(state.patches).toHaveLength(1);
   },
@@ -279,11 +280,45 @@ it.each(["owner", "editor"])(
     state.selectRows = [[before], [after]];
     mockAssertAccess.mockResolvedValue({ role, resource: before });
     const result = await run({ id: before.id, expiresAt: after.expiresAt });
+    const { sharePasswordVersion, ...readable } = after;
     expect(state.patches).toHaveLength(1);
     expect(result).toEqual(
       role === "owner"
-        ? { id: before.id, recording: after }
+        ? { id: before.id, recording: { ...readable, hasPassword: false } }
         : { id: before.id, recording: null, reason: "unavailable" },
     );
   },
 );
+
+describe("update-recording result", () => {
+  it.each([
+    ["an encrypted password", "fake-encrypted-share-password"],
+    ["a legacy plaintext password", "fake-legacy-plaintext-password"],
+  ])("omits %s and reports hasPassword", async (_label, stored) => {
+    const row = recording({ password: stored, title: "Fake title" });
+    state.selectRows = [[row], [row]];
+    mockAssertAccess.mockResolvedValue({ role: "owner", resource: row });
+
+    const result = await run({ id: row.id, title: "Fake title" });
+
+    expect(result.recording).toMatchObject({
+      id: row.id,
+      title: "Fake title",
+      hasPassword: true,
+    });
+    expect(result.recording).not.toHaveProperty("password");
+    expect(result.recording).not.toHaveProperty("sharePasswordVersion");
+    expect(JSON.stringify(result)).not.toContain(stored);
+  });
+
+  it.each([null, ""])("reports hasPassword false for %j", async (stored) => {
+    const row = recording({ password: stored });
+    state.selectRows = [[row], [row]];
+    mockAssertAccess.mockResolvedValue({ role: "owner", resource: row });
+
+    const result = await run({ id: row.id, password: null });
+
+    expect(result.recording).toMatchObject({ hasPassword: false });
+    expect(result.recording).not.toHaveProperty("password");
+  });
+});

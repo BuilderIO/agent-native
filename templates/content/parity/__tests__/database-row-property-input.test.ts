@@ -41,7 +41,8 @@ describe("database row property inputs", () => {
       expect(propertyEntries.description).toContain(
         "Do not invent or clear unmentioned properties",
       );
-      expect(properties.target.properties).not.toHaveProperty("authorityScope");
+      expect(properties.target.properties).toHaveProperty("authorityScope");
+      expect(properties.target.required).not.toContain("authorityScope");
     },
   );
 

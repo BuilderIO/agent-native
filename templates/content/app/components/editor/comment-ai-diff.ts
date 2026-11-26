@@ -5,8 +5,7 @@ export interface WordDiffSegment {
   text: string;
 }
 
-// A word with its trailing space, so spaces never match on their own.
-const TOKEN = /\S+\s*|\s+/g;
+const TOKEN = /[\p{L}\p{M}\p{N}](?:\S*[\p{L}\p{M}\p{N}])?\s*|\S\s*|\s+/gu;
 /** Above this many token pairs, show the middle as one replacement. */
 const MAX_TABLE_CELLS = 40_000;
 
@@ -95,7 +94,7 @@ export function wordDiff(before: string, after: string): WordDiffSegment[] {
     push(segments, "added", midB.slice(j).join(""));
   }
   pushSame(segments, a.slice(endA), b.slice(endB));
-  return consolidateBusyChanges(joinRewrittenLines(segments));
+  return consolidateBusyChanges(joinRewrittenLines(keepMovedSpace(segments)));
 }
 
 function textOf(segments: WordDiffSegment[], side: "removed" | "added") {
@@ -104,6 +103,37 @@ function textOf(segments: WordDiffSegment[], side: "removed" | "added") {
     .filter((segment) => segment.kind !== other)
     .map((segment) => segment.text)
     .join("");
+}
+
+function keepMovedSpace(segments: WordDiffSegment[]): WordDiffSegment[] {
+  const out: WordDiffSegment[] = [];
+  let change: WordDiffSegment[] = [];
+  const moved = (space: string, text: string) =>
+    space !== "" && !space.trim() && text.trim() !== "" && text.endsWith(space);
+  const close = () => {
+    const removed = textOf(change, "removed");
+    const added = textOf(change, "added");
+    if (moved(removed, added)) {
+      push(out, "added", added.slice(0, -removed.length));
+      push(out, "same", removed);
+    } else if (moved(added, removed)) {
+      push(out, "removed", removed.slice(0, -added.length));
+      push(out, "same", added);
+    } else {
+      for (const segment of change) push(out, segment.kind, segment.text);
+    }
+    change = [];
+  };
+  for (const segment of segments) {
+    if (segment.kind !== "same") {
+      change.push(segment);
+      continue;
+    }
+    close();
+    push(out, "same", segment.text);
+  }
+  close();
+  return out;
 }
 
 /**
@@ -214,24 +244,50 @@ function consolidateBusyChanges(
   return out;
 }
 
+const MAX_PARAGRAPH_OPENING_WORDS = 3;
+const SENTENCE_END = /[.!?:;]["'’”)\]]*$/u;
+
+function leadIn(text: string, maxContext: number): string {
+  const paragraph = text.slice(text.lastIndexOf("\n") + 1);
+  if (paragraph.length <= maxContext) return paragraph;
+  const words = paragraph.match(/\S+\s*/g) ?? [];
+  let opening = "";
+  let openingWords = 0;
+  for (const word of words.slice(0, MAX_PARAGRAPH_OPENING_WORDS)) {
+    if ((opening + word).trimEnd().length > maxContext / 2) break;
+    opening += word;
+    openingWords++;
+    if (SENTENCE_END.test(word.trimEnd())) break;
+  }
+  let tail = "";
+  let tailWords = 0;
+  for (const word of words.slice(openingWords).reverse()) {
+    if (opening.length + tail.length + word.length > maxContext) break;
+    tail = word + tail;
+    tailWords++;
+  }
+  return openingWords + tailWords < words.length
+    ? `${opening}…${tail}`
+    : opening + tail;
+}
+
 /** Shorten unchanged text at either end so the change itself stays in view. */
 export function trimDiffContext(
   segments: WordDiffSegment[],
   maxContext = 48,
 ): WordDiffSegment[] {
-  return segments.map((segment, index) => {
+  return segments.flatMap((segment, index) => {
     if (segment.kind !== "same" || segment.text.length <= maxContext) {
-      return segment;
+      return [segment];
     }
-    // Cut on a word boundary so no half-word is left at the edge.
     if (index === 0 && segments.length > 1) {
-      const tail = segment.text.slice(-maxContext).replace(/^\S*\s/, "");
-      return { ...segment, text: `…${tail}` };
+      const text = leadIn(segment.text, maxContext);
+      return text ? [{ ...segment, text }] : [];
     }
     if (index === segments.length - 1 && segments.length > 1) {
       const head = segment.text.slice(0, maxContext).replace(/\s\S*$/, "");
-      return { ...segment, text: `${head}…` };
+      return [{ ...segment, text: `${head}…` }];
     }
-    return segment;
+    return [segment];
   });
 }

@@ -46,6 +46,10 @@ export const UNUSED_ON_PURPOSE: Readonly<Record<string, string>> =
         "no story wires it yet, run by issue-writes.scenario.spec.ts",
       ],
     ),
+    [
+      "content.upsertRow",
+      "no story wires it yet, run by content-row.scenario.spec.ts",
+    ],
   ]);
 
 /**

@@ -277,7 +277,7 @@ Dispatch では、組織のオーナーと管理者は 設定 › 組織 › ア
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-ランタイム アプリの資格情報については、`.env` ファイルを手動で編集するよりも、Dispatch ボールトを使用することをお勧めします。ボールトはデフォルトですべてのアプリにアクセスするため、保存されたすべてのボールト キーはすべてのワークスペース アプリで使用でき、`sync-vault-to-app` でプッシュできます。アプリがキーごとの明示的な許可を必要とする場合にのみ、ボールトを手動モードに切り替えます。
+ランタイム アプリの資格情報については、`.env` ファイルを手動で編集するよりも、Dispatch ボールトを使用することをお勧めします。ボールトはデフォルトですべてのアプリにアクセスするため、保存されたすべてのボールト キーは同じデータベースを共有するすべてのワークスペース アプリで使用できます。アプリがキーごとの明示的な許可を必要とする場合にのみ、ボールトを手動モードに切り替えます。
 
 ```text
 my-company-platform/

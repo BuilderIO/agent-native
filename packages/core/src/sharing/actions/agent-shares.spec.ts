@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../../db/client.js", () => {
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => sharedClient,
     getScopedDbExec: () => undefined,
     isProductionServerlessFunctionRuntime: () => false,
@@ -164,7 +165,7 @@ beforeEach(async () => {
   state.profilesIncomplete = false;
   state.sendEmail.mockClear();
 
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE agent_docs (
       id TEXT PRIMARY KEY,

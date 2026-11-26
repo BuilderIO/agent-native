@@ -21,6 +21,7 @@
  */
 import { randomUUID } from "node:crypto";
 
+import type { ActionCaller } from "@agent-native/core/action";
 import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrl,
@@ -43,6 +44,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { maskMonitorUrl, UNREADABLE_URL } from "./monitor-redaction.js";
 
 declare global {
   var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
@@ -77,7 +79,7 @@ export type AssertionType =
 export interface Assertion {
   type: AssertionType;
   value: string | number;
-  header?: string;
+  header?: string | undefined;
 }
 
 export type StatusMatcher =
@@ -86,24 +88,24 @@ export type StatusMatcher =
   | { mode: "range"; min: number; max: number };
 
 export interface MonitorInput {
-  id?: string;
+  id?: string | undefined;
   name: string;
   url: string;
-  method?: MonitorMethod;
-  requestHeaders?: Record<string, string>;
-  requestBody?: string | null;
-  intervalSeconds?: number;
-  timeoutMs?: number;
-  expectedStatus?: StatusMatcher;
-  assertions?: Assertion[];
-  followRedirects?: boolean;
-  severity?: MonitorSeverity;
-  channels?: string[];
-  emailRecipients?: string[];
-  slackWebhookUrl?: string | null;
-  webhookUrl?: string | null;
-  cooldownMinutes?: number;
-  enabled?: boolean;
+  method?: MonitorMethod | undefined;
+  requestHeaders?: Record<string, string> | undefined;
+  requestBody?: string | null | undefined;
+  intervalSeconds?: number | undefined;
+  timeoutMs?: number | undefined;
+  expectedStatus?: StatusMatcher | undefined;
+  assertions?: Assertion[] | undefined;
+  followRedirects?: boolean | undefined;
+  severity?: MonitorSeverity | undefined;
+  channels?: string[] | undefined;
+  emailRecipients?: string[] | undefined;
+  slackWebhookUrl?: string | null | undefined;
+  webhookUrl?: string | null | undefined;
+  cooldownMinutes?: number | undefined;
+  enabled?: boolean | undefined;
 }
 
 export interface Monitor {
@@ -504,6 +506,11 @@ function normalizeUrl(url: string): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw badRequest("Monitor URL must use http or https");
   }
+  if (parsed.username || parsed.password) {
+    throw badRequest(
+      "Monitor URL must not include a username or password; send credentials in a request header instead",
+    );
+  }
   return normalized;
 }
 
@@ -867,6 +874,12 @@ function getSharedSsrfDispatcher(): Promise<unknown> {
   return sharedSsrfDispatcherPromise;
 }
 
+// The text of a failed check is stored and shown to agent, MCP and A2A callers,
+// so a monitor URL that carries an `?api_key=` style parameter must not reach it.
+function urlForErrorText(url: string): string {
+  return maskMonitorUrl(url) ?? UNREADABLE_URL;
+}
+
 async function prepareMonitorFetch(
   url: string,
   opts: { allowPrivateHosts: boolean },
@@ -877,7 +890,7 @@ async function prepareMonitorFetch(
 
   if (!opts.allowPrivateHosts && (await isBlockedExtensionUrlWithDns(url))) {
     throw new Error(
-      `SSRF blocked: refusing to fetch private/internal address (${url})`,
+      `SSRF blocked: refusing to fetch private/internal address (${urlForErrorText(url)})`,
     );
   }
 
@@ -913,7 +926,7 @@ async function safeMonitorFetch(
       (await isBlockedExtensionUrlWithDns(currentUrl))
     ) {
       throw new Error(
-        `SSRF blocked: refusing to fetch private/internal address (${currentUrl})`,
+        `SSRF blocked: refusing to fetch private/internal address (${urlForErrorText(currentUrl)})`,
       );
     }
     const fetchOpts: RequestInit & { dispatcher?: unknown } = {
@@ -934,7 +947,7 @@ async function safeMonitorFetch(
     return response;
   }
   throw new Error(
-    `SSRF blocked: too many redirects (>${opts.maxRedirects}) while fetching ${url}`,
+    `SSRF blocked: too many redirects (>${opts.maxRedirects}) while fetching ${urlForErrorText(url)}`,
   );
 }
 
@@ -1097,7 +1110,7 @@ export async function runMonitorCheck(
         headers: {},
         matcher,
         assertions,
-        fetchError: `SSRF blocked: ${monitor.url} is a private, internal, or non-http(s) address`,
+        fetchError: `SSRF blocked: ${urlForErrorText(monitor.url)} is a private, internal, or non-http(s) address`,
         errorKind: "config",
       }),
       error: "SSRF blocked: private/internal or non-http(s) address",
@@ -1499,17 +1512,47 @@ async function computeUptime(
 
 export async function saveMonitor(
   input: MonitorInput,
-  ctx: AccessCtx,
+  ctx: AccessCtx & { caller?: ActionCaller | undefined },
 ): Promise<Monitor> {
   const db = getDb() as any;
   const updatedAt = nowIso();
   const id = input.id || randomUUID();
 
+  const existing = input.id ? await getMonitor(input.id, ctx) : null;
+  if (input.id && !existing) {
+    throw Object.assign(new Error("Monitor not found"), { statusCode: 404 });
+  }
+  // Callers other than the app UI never see headers, bodies or webhook URLs,
+  // so leaving one out of an update keeps the stored value; null or {} clears.
+  // Headers and body are sent to the monitored URL, so they are kept only while
+  // that URL is unchanged: a monitor pointed elsewhere must not carry them along.
+  const stored = existing?.monitor;
+
   const name = normalizeName(input.name);
-  const url = normalizeUrl(input.url);
+  // A URL saved before credentials were refused stays editable as long as the
+  // URL itself is unchanged. Callers that read masked monitors send the masked
+  // URL back, which is not a change either; the app UI reads the stored URL, so
+  // for it a masked-looking URL, or one with the userinfo removed, is an edit.
+  const submittedUrl = input.url.trim();
+  const readsMaskedMonitors =
+    ctx.caller !== undefined && ctx.caller !== "frontend";
+  const urlUnchanged =
+    stored !== undefined &&
+    (submittedUrl === stored.url ||
+      (readsMaskedMonitors &&
+        submittedUrl === (maskMonitorUrl(stored.url) ?? UNREADABLE_URL)));
+  const url = urlUnchanged ? stored.url : normalizeUrl(input.url);
   const method = normalizeMethod(input.method);
-  const requestHeaders = normalizeHeaders(input.requestHeaders);
-  const requestBody = input.requestBody?.trim() ? input.requestBody : null;
+  const requestHeaders =
+    urlUnchanged && input.requestHeaders === undefined
+      ? stored.requestHeaders
+      : normalizeHeaders(input.requestHeaders);
+  const requestBody =
+    urlUnchanged && input.requestBody === undefined
+      ? stored.requestBody
+      : input.requestBody?.trim()
+        ? input.requestBody
+        : null;
   if (requestBody && byteLength(requestBody) > MAX_REQUEST_BODY_BYTES) {
     throw badRequest(
       `Monitor request bodies are limited to ${MAX_REQUEST_BODY_BYTES} bytes`,
@@ -1533,11 +1576,14 @@ export async function saveMonitor(
   const severity = input.severity === "warning" ? "warning" : "critical";
   const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
   const channels = normalizeChannels(input.channels, emailRecipients);
-  const slackWebhookUrl = normalizeOptionalHttpUrl(
-    input.slackWebhookUrl,
-    "Slack webhook URL",
-  );
-  const webhookUrl = normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
+  const slackWebhookUrl =
+    stored && input.slackWebhookUrl === undefined
+      ? stored.slackWebhookUrl
+      : normalizeOptionalHttpUrl(input.slackWebhookUrl, "Slack webhook URL");
+  const webhookUrl =
+    stored && input.webhookUrl === undefined
+      ? stored.webhookUrl
+      : normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
   const cooldownMinutes = clampInt(input.cooldownMinutes ?? 15, 0, 24 * 60, 15);
   const enabled = input.enabled ?? true;
 
@@ -1562,10 +1608,6 @@ export async function saveMonitor(
   };
 
   if (input.id) {
-    const existing = await getMonitor(input.id, ctx);
-    if (!existing) {
-      throw Object.assign(new Error("Monitor not found"), { statusCode: 404 });
-    }
     await db
       .update(schema.monitors)
       .set({ ...shared, updatedAt })

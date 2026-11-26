@@ -47,7 +47,8 @@ vi.mock("../server/credential-provider.js", () => ({
     lookupFailed: false,
   }),
 }));
-vi.mock("../server/secret-key-aliases.js", () => ({
+vi.mock("../server/secret-key-aliases.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/secret-key-aliases.js")>()),
   secretKeyNames: (key: string) => [key],
   resolveSecretWithAliasesDetailed: async () => ({
     value: null,

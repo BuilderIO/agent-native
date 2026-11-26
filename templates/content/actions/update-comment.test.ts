@@ -184,9 +184,12 @@ beforeEach(() => {
 
 describe("update-comment (action) — reopen permission", () => {
   it("rejects an update without a mutation", async () => {
-    await expect(run({ id: "c-1" })).rejects.toThrow(
-      "Provide content, mentions, or resolved to update a comment",
-    );
+    await expect(run({ id: "c-1" })).rejects.toMatchObject({
+      message:
+        "Provide content, mentions, attachments, or resolved to update a comment",
+      statusCode: 400,
+      errorCode: "comment_update_empty",
+    });
     expect(mockAssertAccess).not.toHaveBeenCalled();
   });
 

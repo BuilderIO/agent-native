@@ -1,9 +1,24 @@
+import {
+  checkSaveRevision,
+  countSaveOutcome,
+  isSameRecord,
+} from "@agent-native/core/save-conflict/server";
+
+import {
+  TASK_RECORD,
+  taskRecordOf,
+  type TaskRecord,
+} from "../../shared/task-record.js";
+import {
+  getTaskWithFields,
+  type TaskWithFields,
+} from "../custom-fields/task-fields.js";
 import type { FieldValueInput } from "../custom-fields/types.js";
 import {
   applyCustomFieldValuePatches,
   deleteCustomFieldValuesByTaskIds,
   prepareCustomFieldValuePatches,
-  updateCustomFieldValuesByTaskId,
+  type PreparedFieldValuePatch,
 } from "../custom-fields/values/store.js";
 import { getDb } from "../db/index.js";
 import type { StoredItem } from "../db/schema.js";
@@ -16,6 +31,8 @@ import {
   getStoredItem,
   hasCompletedStoredItems,
   listStoredItems,
+  lockStoredItem,
+  lockStoredItems,
   reorderStoredItems,
   requireUserEmail,
   updateStoredItems,
@@ -129,94 +146,104 @@ export async function updateTask(
   input: {
     ownerEmail: string;
     id: string;
-    title?: string;
-    done?: boolean;
-    fieldValues?: Array<{ fieldId: string; value: FieldValueInput }>;
+    title?: string | undefined;
+    done?: boolean | undefined;
+    fieldValues?:
+      | Array<{ fieldId: string; value: FieldValueInput }>
+      | undefined;
+    expectedRevision?: string | undefined;
     now?: string;
   },
   db: DbHandle = getDb(),
-): Promise<Task> {
-  const hasTaskPatch = input.title !== undefined || input.done !== undefined;
-  const hasFieldPatch = input.fieldValues !== undefined;
-
-  if (!hasTaskPatch && !hasFieldPatch) {
+): Promise<TaskWithFields> {
+  if (
+    input.title === undefined &&
+    input.done === undefined &&
+    input.fieldValues === undefined
+  ) {
     throw new UserInputError(
       "Provide at least one of title, done, or fieldValues.",
     );
   }
 
-  if (!hasFieldPatch) {
-    const [task] = await updateTasks({ ...input, ids: [input.id] }, db);
-    if (!task) throw new NotFoundError(NOT_FOUND);
-    return task;
-  }
-
-  if (!hasTaskPatch) {
-    const task = await getTask(
-      { ownerEmail: input.ownerEmail, id: input.id },
-      db,
+  return db.transaction(async (tx) => {
+    const locked = await lockStoredItem(
+      { ownerEmail: input.ownerEmail, id: input.id, promotedToTask: true },
+      tx,
     );
-    if (!task) throw new NotFoundError(NOT_FOUND);
+    if (!locked) throw new NotFoundError(NOT_FOUND);
 
-    await updateCustomFieldValuesByTaskId(
+    const patches = await prepareCustomFieldValuePatches(
       {
         ownerEmail: input.ownerEmail,
         taskId: input.id,
-        values: input.fieldValues!,
-        now: input.now,
-      },
-      db,
-    );
-    return task;
-  }
-
-  await assertStoredItemsExist(
-    {
-      ownerEmail: input.ownerEmail,
-      ids: [input.id],
-      promotedToTask: true,
-      notFoundMessage: NOT_FOUND,
-    },
-    db,
-  );
-
-  const patches = await prepareCustomFieldValuePatches(
-    {
-      ownerEmail: input.ownerEmail,
-      taskId: input.id,
-      values: input.fieldValues!,
-    },
-    db,
-  );
-  const timestamp = input.now ?? new Date().toISOString();
-
-  const task = await db.transaction(async (tx) => {
-    const [item] = await updateStoredItems(
-      {
-        ownerEmail: input.ownerEmail,
-        ids: [input.id],
-        promotedToTask: true,
-        title: input.title,
-        done: input.done,
-        now: timestamp,
-        notFoundMessage: NOT_FOUND,
+        values: input.fieldValues ?? [],
       },
       tx,
     );
+    const current = await getTaskWithFields(
+      { ownerEmail: input.ownerEmail, taskId: input.id },
+      tx,
+    );
+    const decision = checkSaveRevision({
+      record: TASK_RECORD,
+      expectedRevision: input.expectedRevision,
+      current: {
+        value: taskRecordOf(current, current.fields),
+        revision: current.revision,
+      },
+      isSameSave: (record) =>
+        isSameRecord(withUpdate(record, input, patches), record),
+    });
+    if (decision === "already_applied") return current;
+
+    const updatedAt = input.now ?? new Date().toISOString();
+    if (input.title !== undefined || input.done !== undefined) {
+      await updateStoredItems(
+        {
+          ownerEmail: input.ownerEmail,
+          ids: [input.id],
+          promotedToTask: true,
+          title: input.title,
+          done: input.done,
+          now: updatedAt,
+          notFoundMessage: NOT_FOUND,
+        },
+        tx,
+      );
+    }
     await applyCustomFieldValuePatches(
       {
         ownerEmail: input.ownerEmail,
         taskId: input.id,
         patches,
-        updatedAt: timestamp,
+        updatedAt,
       },
       tx,
     );
-    return item ? toTask(item) : null;
+    countSaveOutcome(TASK_RECORD, "written");
+    return getTaskWithFields(
+      { ownerEmail: input.ownerEmail, taskId: input.id },
+      tx,
+    );
   });
+}
 
-  if (!task) throw new NotFoundError(NOT_FOUND);
-  return task;
+function withUpdate(
+  record: TaskRecord,
+  update: { title?: string | undefined; done?: boolean | undefined },
+  patches: Map<string, PreparedFieldValuePatch>,
+): TaskRecord {
+  const fields = { ...record.fields };
+  for (const [fieldId, patch] of patches) {
+    if (patch.value === null) delete fields[fieldId];
+    else fields[fieldId] = patch.value;
+  }
+  return {
+    title: update.title?.trim() ?? record.title,
+    done: update.done ?? record.done,
+    fields,
+  };
 }
 
 export async function deleteTasks(
@@ -238,6 +265,10 @@ export async function deleteTasks(
   );
 
   await db.transaction(async (tx) => {
+    await lockStoredItems(
+      { ownerEmail: input.ownerEmail, ids, promotedToTask: true },
+      tx,
+    );
     await deleteCustomFieldValuesByTaskIds(
       { ownerEmail: input.ownerEmail, taskIds: ids },
       tx,

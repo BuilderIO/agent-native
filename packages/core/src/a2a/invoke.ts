@@ -21,6 +21,10 @@ import {
   type AnthropicManagedAgentContinuation,
 } from "./anthropic-managed-agents.js";
 import {
+  hasA2AActionCallHooks,
+  type A2AActionCallTarget,
+} from "./call-hooks.js";
+import {
   callAction as defaultCallAction,
   callAgent as defaultCallAgent,
 } from "./client.js";
@@ -85,6 +89,10 @@ const invocationAuthByTarget = new WeakMap<
 const invocationProviderKindByTarget = new WeakMap<
   ResolvedAgentInvocationTarget,
   RemoteAgentKind
+>();
+const invocationSourceByTarget = new WeakMap<
+  ResolvedAgentInvocationTarget,
+  string
 >();
 
 export interface AgentInvocationResult {
@@ -248,6 +256,7 @@ export async function resolveAgentInvocationTarget(
   if (agent.auth) invocationAuthByTarget.set(resolvedTarget, agent.auth);
   if (agent.kind)
     invocationProviderKindByTarget.set(resolvedTarget, agent.kind);
+  if (agent.source) invocationSourceByTarget.set(resolvedTarget, agent.source);
   return resolvedTarget;
 }
 
@@ -379,6 +388,18 @@ export async function invokeAgent(
   };
 }
 
+function actionCallTarget(
+  target: ResolvedAgentInvocationTarget,
+): A2AActionCallTarget {
+  const source = invocationSourceByTarget.get(target);
+  return {
+    kind: target.kind,
+    ...(target.id !== undefined ? { id: target.id } : {}),
+    url: target.url,
+    ...(source ? { source } : {}),
+  };
+}
+
 export async function invokeAgentAction(
   options: InvokeAgentActionOptions,
 ): Promise<AgentActionInvocationResult> {
@@ -430,10 +451,14 @@ export async function invokeAgentAction(
           orgDomain: options.orgDomain,
           orgSecret: options.orgSecret,
         }),
+    ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
     requestTimeoutMs: options.requestTimeoutMs,
     correlation: options.correlation,
     ...((options.cardUrl ?? target.cardUrl)
       ? { cardUrl: options.cardUrl ?? target.cardUrl }
+      : {}),
+    ...(hasA2AActionCallHooks()
+      ? { invocationTarget: actionCallTarget(target) }
       : {}),
   });
 

@@ -131,7 +131,6 @@ function StateRow({
           : "text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
       )}
     >
-      {/* Active indicator */}
       <div
         className={cn(
           "size-1.5 shrink-0 rounded-full",
@@ -139,15 +138,12 @@ function StateRow({
         )}
       />
 
-      {/* Name */}
       <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">
         {row.name}
       </span>
 
-      {/* Kind badge */}
       <KindBadge kind={row.kind} />
 
-      {/* Overflow menu */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -172,7 +168,7 @@ function StateRow({
               e.stopPropagation();
               onDelete();
             }}
-            className="text-destructive focus:text-destructive"
+            variant="destructive"
           >
             <IconTrash className="mr-2 size-3.5" />
             Delete
@@ -248,7 +244,6 @@ export function StatesPanel({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* ── Responsive breakpoints ── */}
       <section aria-label="Breakpoints">
         <div className="mb-1 flex items-center justify-between">
           <span className="!text-[11px] font-medium text-muted-foreground">
@@ -273,9 +268,7 @@ export function StatesPanel({
           )}
         </div>
 
-        {/* Segmented control */}
         <div className="flex h-7 min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
-          {/* Auto = single-frame, all breakpoints */}
           <BreakpointButton
             id="auto"
             label="Auto"
@@ -294,7 +287,6 @@ export function StatesPanel({
             />
           ))}
 
-          {/* Default device shortcuts when no custom breakpoints are configured */}
           {breakpoints.length === 0 && (
             <>
               <BreakpointButton
@@ -323,7 +315,6 @@ export function StatesPanel({
         </div>
       </section>
 
-      {/* ── Design states ── */}
       <section aria-label="Design states">
         <div className="mb-1 flex items-center justify-between">
           <span className="!text-[11px] font-medium text-muted-foreground">
@@ -383,7 +374,6 @@ export function StatesPanel({
           </div>
         </div>
 
-        {/* Default row (always present) */}
         <div
           role="button"
           tabIndex={0}
@@ -412,7 +402,6 @@ export function StatesPanel({
           </span>
         </div>
 
-        {/* Named states */}
         {states.length > 0 && (
           <div className="mt-0.5 flex flex-col gap-0.5">
             {states.map((row) => (
@@ -427,7 +416,6 @@ export function StatesPanel({
           </div>
         )}
 
-        {/* Loading placeholder */}
         {isLoading && states.length === 0 && (
           <div className="mt-2 space-y-1">
             {[1, 2].map((i) => (
@@ -439,14 +427,12 @@ export function StatesPanel({
           </div>
         )}
 
-        {/* Empty state (no user-created states yet) */}
         {!isLoading && states.length === 0 && !isAdding && (
           <div className="mt-1 flex h-7 items-center rounded-[5px] px-2 !text-[11px] text-muted-foreground/55">
             No saved states
           </div>
         )}
 
-        {/* Inline add-state form */}
         {isAdding && (
           <form
             className="mt-1 flex items-center gap-1"

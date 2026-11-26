@@ -2,6 +2,8 @@ import { generateKeyPairSync } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithProviderDispatchTracking } from "./provider-dispatch.js";
+
 const resolveCredential = vi.fn();
 const resolveCredentialDetailed = vi.fn();
 const assertCredentialCanReachEndpoint = vi.fn(
@@ -150,7 +152,11 @@ const {
 } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
   await import("./actions/github-repo-files.js");
+const { createProviderApiRequestAction } =
+  await import("./actions/provider-api.js");
 const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
+const { flushProviderCallCensus, resetProviderCallCensusForTests } =
+  await import("./call-census.js");
 
 const credentialContext = {
   userEmail: "ada@example.com",
@@ -289,6 +295,413 @@ describe("provider API runtime", () => {
     );
   });
 
+  describe("WebDAV request transport", () => {
+    const runtime = () =>
+      createProviderApiRuntime({
+        appId: "test-app",
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: async () => [
+          {
+            id: "dav-test",
+            scope: "org",
+            scopeId: "org-1",
+            label: "DAV test",
+            baseUrl: "https://dav.example.test",
+            auth: {
+              type: "basic",
+              usernameKey: "DAV_USER",
+              passwordKey: "DAV_PASSWORD",
+            },
+            docsUrls: [],
+            allowedHostSuffixes: [],
+            defaultHeaders: {},
+            notes: "",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      });
+
+    beforeEach(() => {
+      resolveCredential.mockImplementation(async (key: string) =>
+        key === "DAV_USER" ? "synthetic-user" : "synthetic-password",
+      );
+    });
+
+    it.each([
+      [
+        "PROPFIND",
+        '<D:propfind xmlns:D="DAV:"><D:prop><D:current-user-principal/></D:prop></D:propfind>',
+      ],
+      [
+        "REPORT",
+        '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/></D:prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="20261101T000000Z" end="20261102T000000Z"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>',
+      ],
+    ] as const)(
+      "sends %s XML and returns a bounded multistatus response",
+      async (method, body) => {
+        const xml = '<D:multistatus xmlns:D="DAV:"/>';
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockResolvedValueOnce(
+          new Response(xml, {
+            status: 207,
+            headers: { "content-type": "application/xml" },
+          }),
+        );
+        const result = await runtime().executeRequest({
+          provider: "dav-test",
+          method,
+          path: "/calendar",
+          body,
+          headers: { Depth: "1", "Content-Type": "application/xml" },
+          maxBytes: 1000,
+        });
+        expect(result).toMatchObject({
+          response: { status: 207, ok: true, text: xml, truncated: false },
+        });
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+          method,
+          body,
+          redirect: "manual",
+          headers: {
+            Depth: "1",
+            "Content-Type": "application/xml",
+            Authorization: `Basic ${Buffer.from("synthetic-user:synthetic-password").toString("base64")}`,
+          },
+        });
+      },
+    );
+
+    it.each(["PROPFIND", "REPORT"] as const)(
+      "does not forward %s credentials across a redirect or unapproved host",
+      async (method) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockResolvedValueOnce(
+          new Response(null, {
+            status: 302,
+            headers: { location: "https://attacker.example.test/" },
+          }),
+        );
+        const result = await runtime().executeRequest({
+          provider: "dav-test",
+          method,
+          path: "/",
+        });
+        expect(result).toMatchObject({ response: { status: 302, ok: false } });
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
+        await expect(
+          runtime().executeRequest({
+            provider: "dav-test",
+            method,
+            path: "https://attacker.example.test/",
+          }),
+        ).rejects.toThrow(/configured provider host/);
+        expect(fetchMock).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("caps and redacts DAV responses", async () => {
+      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+        new Response(`synthetic-password${"x".repeat(2000)}`, { status: 207 }),
+      );
+      const result = await runtime().executeRequest({
+        provider: "dav-test",
+        method: "REPORT",
+        path: "/",
+        maxBytes: 1000,
+      });
+      expect(result).toMatchObject({
+        response: {
+          status: 207,
+          truncated: true,
+          text: expect.not.stringContaining("synthetic-password"),
+        },
+      });
+    });
+
+    it("refuses credentials from a different owner before dispatch", async () => {
+      resolveCredentialDetailed.mockImplementation(async (key: string) => ({
+        value: await resolveCredential(key),
+        scope: "org",
+        scopeId: "other-org",
+      }));
+      const fetchMock = vi.mocked(globalThis.fetch);
+      await expect(
+        runtime().executeRequest({
+          provider: "dav-test",
+          method: "PROPFIND",
+          path: "/",
+        }),
+      ).rejects.toThrow(/same organization or workspace/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("still rejects unsupported methods before dispatch", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      await expect(
+        runtime().executeRequest({
+          provider: "dav-test",
+          method: "CONNECT" as never,
+          path: "/",
+        }),
+      ).rejects.toThrow("Unsupported HTTP method: CONNECT");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("single-attempt unsafe requests", () => {
+    const customProviders = async () => [
+      {
+        id: "test-api",
+        scope: "org" as const,
+        scopeId: "org-1",
+        label: "Test",
+        baseUrl: "https://api.example.test",
+        auth: { type: "bearer" as const, credentialKey: "TEST_TOKEN" },
+        docsUrls: [],
+        allowedHostSuffixes: [],
+        defaultHeaders: {},
+        notes: "",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    const runtime = (unsafeRequestPolicy?: "single-attempt") =>
+      createProviderApiRuntime({
+        appId: "test-app",
+        providerIds: ["github"],
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: customProviders,
+        ...(unsafeRequestPolicy ? { unsafeRequestPolicy } : {}),
+      });
+    const request = {
+      provider: "github" as const,
+      method: "POST" as const,
+      path: "/repos/example-owner/example-repo/issues",
+      auth: "none" as const,
+      body: { title: "synthetic" },
+    };
+    const customRequest = {
+      provider: "test-api",
+      method: "POST" as const,
+      path: "/messages",
+      auth: "none" as const,
+    };
+    const limited = () =>
+      vi
+        .mocked(globalThis.fetch)
+        .mockReset()
+        .mockImplementation(
+          async () =>
+            new Response('{"error":"limited"}', {
+              status: 429,
+              headers: {
+                "retry-after": "0",
+                "content-type": "application/json",
+              },
+            }),
+        );
+
+    beforeEach(() => {
+      vi.stubEnv("AGENT_NATIVE_PROVIDER_API_MAX_ATTEMPTS", "9");
+    });
+
+    it("advertises the constructor policy as a runtime capability", () => {
+      expect(runtime().requestCapabilities?.singleAttemptUnsafeRequests).toBe(
+        false,
+      );
+      expect(
+        runtime("single-attempt").requestCapabilities
+          ?.singleAttemptUnsafeRequests,
+      ).toBe(true);
+    });
+
+    it("returns the upstream 429 after one dispatch even with a larger environment limit", async () => {
+      const fetchMock = limited();
+      expect(
+        await runtime("single-attempt").executeRequest(request),
+      ).toMatchObject({
+        response: { status: 429, json: { error: "limited" } },
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["POST", "PUT", "PATCH", "DELETE", "PROPFIND", "REPORT"] as const)(
+      "caps %s at one attempt",
+      async (method) => {
+        const fetchMock = limited();
+        expect(
+          await runtime("single-attempt").executeRequest({
+            ...request,
+            method,
+          }),
+        ).toMatchObject({ response: { status: 429 } });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("keeps default unsafe retries and ignores a request-level policy property", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock
+        .mockReset()
+        .mockResolvedValueOnce(
+          new Response("{}", { status: 429, headers: { "retry-after": "0" } }),
+        )
+        .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
+      expect(
+        await runtime().executeRequest(
+          Object.assign({}, request, { unsafeRequestPolicy: "single-attempt" }),
+        ),
+      ).toMatchObject({ response: { status: 200 } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not allow request fields to relax the constructor policy", async () => {
+      const fetchMock = limited();
+      expect(
+        await runtime("single-attempt").executeRequest(
+          Object.assign({}, request, { unsafeRequestPolicy: "default" }),
+        ),
+      ).toMatchObject({ response: { status: 429 } });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps GET retries under an opted-in runtime", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock
+        .mockReset()
+        .mockResolvedValueOnce(
+          new Response("{}", { status: 429, headers: { "retry-after": "0" } }),
+        )
+        .mockResolvedValueOnce(new Response("[]", { status: 200 }));
+      expect(
+        await runtime("single-attempt").executeRequest({
+          ...request,
+          method: "GET",
+          body: undefined,
+        }),
+      ).toMatchObject({ response: { status: 200 } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not replay a transport failure", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset().mockRejectedValue(new TypeError("socket reset"));
+      await expect(
+        runtime("single-attempt").executeRequest(request),
+      ).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("applies the policy to custom providers", async () => {
+      const fetchMock = limited();
+      expect(
+        await runtime("single-attempt").executeRequest(customRequest),
+      ).toMatchObject({ response: { status: 429 } });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["built-in", request],
+      ["custom", customRequest],
+    ] as const)(
+      "rejects unsafe pagination on a %s provider without a request",
+      async (_kind, base) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockClear();
+        await expect(
+          runtime("single-attempt").executeRequest({
+            ...base,
+            fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+          }),
+        ).rejects.toThrow(
+          "Unsafe pagination is unavailable under the single-attempt policy.",
+        );
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe("provider call census", () => {
+    const runtime = () =>
+      createProviderApiRuntime({
+        appId: "census-app",
+        providerIds: ["github"],
+        getCredentialContext: () => credentialContext,
+      });
+    const censusLines = (log: ReturnType<typeof vi.spyOn>) =>
+      log.mock.calls
+        .map(([entry]) => JSON.parse(String(entry)) as Record<string, unknown>)
+        .filter((entry) => entry.event === "provider.api.calls");
+
+    beforeEach(() => resetProviderCallCensusForTests());
+
+    it("counts calls per app and method without recording paths, queries or full connection ids", async () => {
+      const log = vi.spyOn(console, "info").mockImplementation(() => {});
+      vi.mocked(globalThis.fetch)
+        .mockReset()
+        .mockImplementation(
+          async () =>
+            new Response("[]", {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        );
+      const args = {
+        provider: "github" as const,
+        auth: "none" as const,
+        connectionId: "conn-9f2c1d7a5e6b4c3d8a1f",
+        path: "/orgs/example-member/repos",
+        query: { q: "sensitive query" },
+      };
+      await runtime().executeRequest(args);
+      await runtime().executeRequest(args);
+      expect(flushProviderCallCensus()).toBe(1);
+      const census = censusLines(log);
+      expect(census).toMatchObject([
+        {
+          app: "census-app",
+          provider: "github",
+          operation: "get",
+          connection: "conn-9f2",
+          count: 2,
+          failures: 0,
+          statuses: { "200": 2 },
+        },
+      ]);
+      expect(JSON.stringify(census)).not.toMatch(
+        /example-member|sensitive|github\.com|ada@|c1d7a5e6/,
+      );
+    });
+
+    it("records a network failure as a status-0 call", async () => {
+      const log = vi.spyOn(console, "info").mockImplementation(() => {});
+      vi.mocked(globalThis.fetch)
+        .mockReset()
+        .mockRejectedValue(new TypeError("fetch failed"));
+      await expect(
+        runtime().executeRequest({
+          provider: "github",
+          auth: "none",
+          method: "DELETE",
+          path: "/repos/example-owner/example-repo",
+        }),
+      ).rejects.toThrow();
+      flushProviderCallCensus();
+      expect(censusLines(log)).toMatchObject([
+        {
+          app: "census-app",
+          operation: "delete",
+          count: 1,
+          failures: 1,
+          statuses: { "0": 1 },
+        },
+      ]);
+    });
+  });
+
   it("advertises only an exposed runtime and preserves scoped custom credential failures", async () => {
     const appId = "workspace-registry-test";
     const resolve = vi.fn(
@@ -369,6 +782,34 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("refuses named tracked writes before transport when no admission gate owns the request", async () => {
+    resolveCredential.mockResolvedValue("fixture-provider-token");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ id: "fixture-created" }));
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+    const tracking = { writes: 0 };
+    await expect(
+      runWithProviderDispatchTracking(
+        tracking,
+        () =>
+          runtime.executeRequest({
+            provider: "hubspot",
+            path: "/crm/v3/objects/contacts",
+            method: "POST",
+            body: { properties: {} },
+          }),
+        { requireAdmission: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "provider_budget_unavailable" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tracking.writes).toBe(0);
+  });
+
   it("uses a per-request workspace connection for Sigma client-credentials auth", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -434,11 +875,15 @@ describe("provider API runtime", () => {
       credentialKeys: string[];
       auth: string;
     }>;
-    const result = await runtime.executeRequest({
-      provider: "sigma",
-      path: "/v2/workbooks",
-      connectionId: "sigma-connection",
-    });
+    const dispatch = { writes: 0 };
+    const result = await runWithProviderDispatchTracking(dispatch, () =>
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        connectionId: "sigma-connection",
+      }),
+    );
+    expect(dispatch.writes).toBe(0);
 
     expect(catalog[0]).toMatchObject({
       defaultBaseUrl: "https://aws-api.sigmacomputing.com",
@@ -1462,6 +1907,46 @@ describe("provider API runtime", () => {
         }),
       }),
     );
+  });
+
+  it("never falls back to another connection's GitHub token when the selected connection has none", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: { id: "conn-a", label: "A", scopes: [] },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const lookups: Array<string | null | undefined> = [];
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      // Models the real resolver: only the unselected connection holds a key.
+      resolveCredential: async (lookup) => {
+        lookups.push(lookup.connectionId);
+        return lookup.connectionId === "conn-a"
+          ? null
+          : {
+              key: lookup.key,
+              value: "other-connection-token",
+              source: "workspace_connection",
+              provider: lookup.provider,
+            };
+      },
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "github",
+        path: "/user",
+        connectionId: "conn-a",
+      }),
+    ).rejects.toThrow();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lookups.length).toBeGreaterThan(0);
+    expect(lookups.every((id) => id === "conn-a")).toBe(true);
   });
 
   it("prefers a shared GitHub OAuth connection over Analytics' legacy token resolver", async () => {
@@ -4159,8 +4644,8 @@ describe("provider API runtime", () => {
   it("explains an out-of-scope credential instead of reporting it missing", async () => {
     resolveCredential.mockResolvedValue(null);
     describeCredentialScopeGap.mockResolvedValue(
-      'A "HUBSPOT_ACCESS_TOKEN" key is saved in this workspace with Personal scope. ' +
-        "It needs Workspace or Organization scope instead.",
+      "Ask an organization owner or admin to save it with Workspace or " +
+        "Organization scope. This workspace has it only as a Personal key.",
     );
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -4175,13 +4660,90 @@ describe("provider API runtime", () => {
         (err: Error) => err,
       );
 
-    expect(error?.message).toContain("hubspot credential not configured");
-    expect(error?.message).toContain("with Personal scope");
-    expect(error?.message).toContain("Workspace or Organization scope");
+    expect(error?.message).toMatch(
+      /^hubspot credential not configured\. Ask an organization owner or admin to save it .* Personal key\. Tried: \S/,
+    );
     expect(describeCredentialScopeGap).toHaveBeenCalledWith(
       expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),
       credentialContext,
     );
+  });
+
+  it("puts a single required key after the explanation, as the any-key error does", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(
+      "Save it in this organization, or switch your active organization " +
+        'to "Builder.io", where it\'s saved.',
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["apollo"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "apollo", path: "/v1/auth/health" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toBe(
+      "apollo credential not configured. Save it in this organization, or " +
+        'switch your active organization to "Builder.io", where it\'s saved. ' +
+        "Tried: APOLLO_API_KEY",
+    );
+  });
+
+  it("names a single required key alone when there's nothing to explain", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["apollo"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "apollo", path: "/v1/auth/health" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toBe("APOLLO_API_KEY not configured");
+  });
+
+  it("gives no shared-key advice when the selected connection lacks the key", async () => {
+    describeCredentialScopeGap.mockResolvedValue("SAVE A SHARED KEY");
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: { id: "conn-a", label: "A", scopes: [] },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async () => null,
+    });
+    const request = (connectionId?: string) =>
+      runtime
+        .executeRequest({ provider: "github", path: "/user", connectionId })
+        .then(
+          () => null,
+          (err: Error) => err,
+        );
+
+    expect((await request())?.message).toContain("SAVE A SHARED KEY");
+    describeCredentialScopeGap.mockClear();
+
+    const error = await request("conn-a");
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error?.message).not.toContain("SAVE A SHARED KEY");
+    expect(describeCredentialScopeGap).not.toHaveBeenCalled();
   });
 
   it("requests a workspace connection when no credential or scope gap exists", async () => {
@@ -5777,6 +6339,840 @@ describe("provider API runtime", () => {
       timeoutMs: undefined,
       maxBytes: undefined,
     });
+  });
+
+  describe("provider response saves", () => {
+    const runtime = (maxResponseBytes?: number) =>
+      createProviderApiRuntime({
+        appId: "test-app",
+        maxResponseBytes,
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: async () => [
+          {
+            id: "test-api",
+            scope: "org",
+            scopeId: "org-1",
+            label: "Test API",
+            baseUrl: "https://api.example.test",
+            auth: { type: "none" },
+            docsUrls: [],
+            allowedHostSuffixes: [],
+            defaultHeaders: {},
+            notes: "",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      });
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) => [
+          {
+            provider,
+            paginated,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            paginated,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+        ]),
+      ),
+    )(
+      "records a cooldown for rejected $contentType 429 $provider saves (paginated: $paginated)",
+      async ({ provider, paginated, contentType, body }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock
+          .mockResolvedValueOnce(
+            new Response(body, {
+              status: 429,
+              headers: {
+                "content-type": contentType,
+                "retry-after": "120",
+                "x-private-header": "private-header-secret",
+              },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response("{}", {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        const api = runtime();
+        const request = { provider, path: "/records", auth: "none" as const };
+        const result = createProviderApiRequestAction(api).run({
+          ...request,
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toThrow(/binary|UTF-8/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(error).toMatchObject({
+          name: "ActionContractError",
+          statusCode: 429,
+          errorCode: "provider_response_invalid",
+          details: { retryAfterSeconds: 120 },
+        });
+        expect(String(error)).toMatch(/HTTP 429/i);
+        expect(String(error)).toMatch(/retry after 120 seconds/i);
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(String(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+
+        const next = await api.executeRequest(request);
+        expect(next).toMatchObject({
+          response: {
+            status: 429,
+            quota: {
+              exhausted: true,
+              providerId: provider,
+              reason: "cooldown",
+            },
+          },
+        });
+        expect(JSON.stringify(next)).not.toContain("private-");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("records a binary 429 cooldown without waiting for the first body byte", async () => {
+      let streamController:
+        | ReadableStreamDefaultController<Uint8Array>
+        | undefined;
+      let finishCancel: () => void = () => {};
+      const cancelFinished = new Promise<void>((resolve) => {
+        finishCancel = resolve;
+      });
+      const cancel = vi.fn(() => cancelFinished);
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          streamController = controller;
+        },
+        cancel,
+      });
+      let fetched: () => void = () => {};
+      const fetchStarted = new Promise<void>((resolve) => {
+        fetched = resolve;
+      });
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockImplementationOnce(async () => {
+        fetched();
+        return new Response(body, {
+          status: 429,
+          headers: {
+            "content-type": "application/zip",
+            "retry-after": "120",
+            "x-private-header": "private-header-secret",
+          },
+        });
+      });
+      const api = runtime();
+      const request = {
+        provider: "hubspot",
+        path: "/records",
+        auth: "none" as const,
+      };
+      const result = createProviderApiRequestAction(api).run({
+        ...request,
+        saveToFile: "scratch/response.txt",
+      });
+      const settled = result.then(
+        () => ({ kind: "resolved" as const }),
+        (error: unknown) => ({ kind: "rejected" as const, error }),
+      );
+      await fetchStarted;
+      const outcome = await Promise.race([
+        settled,
+        new Promise<{ kind: "stalled" }>((resolve) =>
+          setImmediate(() => resolve({ kind: "stalled" })),
+        ),
+      ]);
+      if (outcome.kind === "stalled" && !cancel.mock.calls.length) {
+        streamController?.close();
+      }
+      finishCancel();
+      if (outcome.kind === "stalled") await settled;
+      expect(outcome.kind).toBe("rejected");
+      if (outcome.kind !== "rejected") throw new Error("Expected a rejection");
+      expect(outcome.error).toMatchObject({
+        name: "ActionContractError",
+        statusCode: 429,
+        errorCode: "provider_response_invalid",
+        details: { retryAfterSeconds: 120 },
+      });
+      expect(String(outcome.error)).not.toContain("private-");
+      expect(JSON.stringify(outcome.error)).not.toContain("private-");
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+
+      const next = await api.executeRequest(request);
+      expect(next).toMatchObject({
+        response: {
+          status: 429,
+          quota: { exhausted: true, reason: "cooldown" },
+        },
+      });
+      expect(JSON.stringify(next)).not.toContain("private-");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["text/plain", "application/zip"])(
+      "retries a rejected %s 429 body and saves the subsequent valid response",
+      async (contentType) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock
+          .mockResolvedValueOnce(
+            new Response(new Uint8Array([255]), {
+              status: 429,
+              headers: { "content-type": contentType, "retry-after": "0" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response("name,value\nexample,1\n", {
+              headers: { "content-type": "text/csv" },
+            }),
+          );
+        await expect(
+          runtime().executeRequest({
+            provider: "hubspot",
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.csv",
+          }),
+        ).resolves.toMatchObject({ savedToFile: true, ok: true });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.csv",
+          "name,value\nexample,1\n",
+          "text/csv",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+
+    it("rejects every concurrent save sharing an invalid 429 response", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(
+        new Response("private-binary-payload", {
+          status: 429,
+          headers: { "content-type": "application/zip", "retry-after": "120" },
+        }),
+      );
+      const api = runtime();
+      const request = {
+        provider: "hubspot",
+        path: "/records",
+        auth: "none" as const,
+        saveToFile: "scratch/response.txt",
+      };
+      const results = await Promise.allSettled([
+        api.executeRequest(request),
+        api.executeRequest(request),
+      ]);
+      expect(results).toHaveLength(2);
+      for (const result of results) {
+        expect(result.status).toBe("rejected");
+        if (result.status === "rejected") {
+          expect(String(result.reason)).toMatch(/binary/i);
+          expect(String(result.reason)).not.toContain("private-");
+        }
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    });
+
+    it.each(["120", "private-header-secret"])(
+      "safely reports invalid 429 bodies with the quota governor disabled (Retry-After: %s)",
+      async (retryAfter) => {
+        vi.stubEnv("AGENT_NATIVE_PROVIDER_API_QUOTA_GOVERNOR", "0");
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response("private-binary-payload", {
+            status: 429,
+            headers: {
+              "content-type": "application/zip",
+              "retry-after": retryAfter,
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider: "hubspot",
+          path: "/records",
+          query: { token: "private-query-secret" },
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        });
+        await expect(result).rejects.toThrow(/binary/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(error).toMatchObject({
+          name: "ActionContractError",
+          statusCode: 429,
+          errorCode: "provider_response_invalid",
+          ...(retryAfter === "120"
+            ? { details: { retryAfterSeconds: 120 } }
+            : {}),
+        });
+        expect(String(error)).toMatch(/HTTP 429/i);
+        if (retryAfter === "120") {
+          expect(String(error)).toMatch(/retry after 120 seconds/i);
+        } else {
+          expect(error).not.toHaveProperty("details.retryAfterSeconds");
+        }
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) => [
+        { provider, method: "HEAD" as const, body: null, length: "999999999" },
+        { provider, method: "GET" as const, body: null, length: "0" },
+        { provider, method: "GET" as const, body: "", length: "999999999" },
+      ]),
+    )(
+      "saves empty $method $provider responses with a binary content type",
+      async ({ provider, method, body, length }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockResolvedValueOnce(
+          new Response(body, {
+            headers: {
+              "content-type": "application/zip",
+              "content-length": length,
+            },
+          }),
+        );
+        await expect(
+          createProviderApiRequestAction(runtime()).run({
+            provider,
+            method,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.txt",
+          }),
+        ).resolves.toMatchObject({ savedToFile: true, ok: true, bytes: 0 });
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ method }),
+        );
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.txt",
+          "",
+          "application/zip",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) => [
+        {
+          provider,
+          contentType: "Application/Zip; charset=utf-8",
+          body: new TextEncoder().encode("private-binary-payload"),
+        },
+        {
+          provider,
+          contentType: "application/octet-stream",
+          body: new TextEncoder().encode("private-binary-payload"),
+        },
+        {
+          provider,
+          contentType: "application/zip",
+          body: new TextEncoder().encode("private-binary-payload"),
+          contentLength: "0",
+        },
+        {
+          provider,
+          contentType: "text/plain",
+          body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+        },
+        {
+          provider,
+          contentType: "application/json",
+          body: new TextEncoder().encode("private-binary-payload\u0000"),
+        },
+        {
+          provider,
+          contentType: "application/vnd.ms-excel",
+          body: new TextEncoder().encode("private-binary-payload\u0000"),
+        },
+        {
+          provider,
+          contentType: "",
+          body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+        },
+      ]),
+    )(
+      "rejects binary $provider responses declared $contentType without saving or exposing their body",
+      async ({ provider, contentType, body, contentLength }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, {
+            headers: {
+              "content-type": contentType,
+              ...(contentLength === undefined
+                ? {}
+                : { "content-length": contentLength }),
+            },
+          }),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        const result = action.run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        });
+        await expect(result).rejects.toThrow(/binary|UTF-8|NUL/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).toContain(
+          contentType ? contentType.split(";")[0].toLowerCase() : "unknown",
+        );
+        expect(String(error)).not.toContain("private-binary-payload");
+        expect(String(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [200, 500].flatMap((status) => [
+          {
+            provider,
+            status,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            status,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+          {
+            provider,
+            status,
+            contentType: "application/json",
+            body: new TextEncoder().encode("private-binary-payload\u0000"),
+          },
+          {
+            provider,
+            status,
+            contentType: "text/plain",
+            body: new TextEncoder().encode("private-binary-payload\u0001"),
+          },
+        ]),
+      ),
+    )(
+      "rejects binary paginated $provider saves before exposing page bodies (HTTP $status, $contentType)",
+      async ({ provider, status, contentType, body }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [{ id: "first" }],
+              next: "second",
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        );
+        fetchMock.mockResolvedValueOnce(
+          new Response(body, {
+            status,
+            headers: { "content-type": contentType },
+          }),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        const result = action.run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+        });
+        await expect(result).rejects.toThrow(/binary|UTF-8|NUL|control/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-");
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) => [
+          {
+            provider,
+            paginated,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            paginated,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+        ]),
+      ),
+    )(
+      "preserves HTTP 500 for invalid $contentType $provider saves (paginated: $paginated)",
+      async ({ provider, paginated, contentType, body }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, {
+            status: 500,
+            headers: {
+              "content-type": contentType,
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toMatchObject({
+          name: "ActionContractError",
+          statusCode: 500,
+          errorCode: "provider_response_invalid",
+        });
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).toMatch(/HTTP 500/);
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) =>
+          [302, 307, 404].map((status) => ({ provider, paginated, status })),
+        ),
+      ),
+    )(
+      "reports invalid HTTP $status $provider saves as errors (paginated: $paginated)",
+      async ({ provider, paginated, status }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response("private-binary-payload", {
+            status,
+            headers: {
+              "content-type": "application/zip",
+              location: "https://example.test/private-location",
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toMatchObject({
+          name: "ActionContractError",
+          statusCode: status < 400 ? 502 : status,
+          errorCode: "provider_response_invalid",
+          message: expect.stringContaining(`HTTP ${status}`),
+        });
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "preserves text HTTP errors in a paginated %s save",
+      async (provider) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify({ message: "provider failed" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+        await expect(
+          createProviderApiRequestAction(runtime()).run({
+            provider,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.txt",
+            fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+          }),
+        ).rejects.toThrow(/HTTP 500.*provider failed/);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "rejects valid UTF-8 binary controls in a single %s response save",
+      async (provider) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(
+            new TextEncoder().encode("private-binary-payload\u0001"),
+            { headers: { "content-type": "text/plain" } },
+          ),
+        );
+        await expect(
+          createProviderApiRequestAction(runtime()).run({
+            provider,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.txt",
+          }),
+        ).rejects.toThrow(/binary control/i);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "does not expose a truncated binary HTTP error in a paginated %s save",
+      async (provider) => {
+        const body = new Uint8Array(20 * 1024 * 1024 + 1).fill(120);
+        body.set(new TextEncoder().encode("private-binary-payload\u0000"));
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, {
+            status: 500,
+            headers: { "content-type": "text/plain" },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+        });
+        await expect(result).rejects.toThrow(/HTTP 500/);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-binary-payload");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "saves valid paginated %s JSON, including escaped control characters",
+      async (provider) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [{ message: "café\u0001" }],
+              next: "second",
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        );
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [{ message: "second" }],
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        await expect(
+          action.run({
+            provider,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.json",
+            fetchAllPages: {
+              cursorPath: "next",
+              cursorParam: "cursor",
+              itemsPath: "results",
+            },
+          }),
+        ).resolves.toMatchObject({
+          savedToFile: true,
+          pagesRead: 2,
+          totalItems: 2,
+        });
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.json",
+          JSON.stringify(
+            [{ message: "café\u0001" }, { message: "second" }],
+            null,
+            2,
+          ),
+          "application/json",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "keeps concurrent paginated %s inline reads independent of save validation",
+      async (provider) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockImplementation(
+          async () =>
+            new Response("private-binary-payload", {
+              headers: { "content-type": "application/zip" },
+            }),
+        );
+        const api = runtime(20 * 1024 * 1024);
+        const request = {
+          provider,
+          path: "/records",
+          auth: "none" as const,
+          fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+        };
+        const [saved, inline] = await Promise.allSettled([
+          api.executeRequest({
+            ...request,
+            saveToFile: "scratch/response.txt",
+          }),
+          api.executeRequest({ ...request, maxBytes: 20 * 1024 * 1024 }),
+        ]);
+        expect(saved.status).toBe("rejected");
+        expect(inline).toMatchObject({
+          status: "fulfilled",
+          value: { items: ["private-binary-payload"] },
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      [
+        "hubspot",
+        "application/json; charset=utf-8",
+        '{"message":"hello"}',
+        '{"message":"hello"}',
+        "application/json",
+      ],
+      [
+        "test-api",
+        "text/plain; charset=utf-8",
+        "Hello, café",
+        "Hello, café",
+        "text/plain",
+      ],
+      [
+        "hubspot",
+        "application/vnd.example+json",
+        '{"message":"hello"}',
+        '{"message":"hello"}',
+        "application/vnd.example+json",
+      ],
+      ["test-api", "image/svg+xml", "<svg/>", "<svg/>", "image/svg+xml"],
+      [
+        "hubspot",
+        "application/vnd.ms-excel; charset=utf-8",
+        "name,value\r\ncafé,1\r\n",
+        "name,value\r\ncafé,1\r\n",
+        "application/vnd.ms-excel",
+      ],
+    ])(
+      "saves valid %s text responses",
+      async (provider, contentType, body, expected, mimeType) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, { headers: { "content-type": contentType } }),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        const result = await action.run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        });
+        expect(result).toMatchObject({
+          savedToFile: true,
+          contentType: mimeType,
+          ok: true,
+        });
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.txt",
+          expected,
+          mimeType,
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+    it("stops an unbounded save stream at the byte cap without writing", async () => {
+      const cancel = vi.fn();
+      let chunks = 0;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          chunks++;
+          controller.enqueue(new Uint8Array(1024 * 1024).fill(120));
+        },
+        cancel,
+      });
+      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+        new Response(stream, { headers: { "content-type": "text/plain" } }),
+      );
+      const action = createProviderApiRequestAction(runtime());
+      await expect(
+        action.run({
+          provider: "hubspot",
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        }),
+      ).rejects.toThrow(/would persist an incomplete file/);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(chunks).toBeLessThanOrEqual(22);
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    });
+
+    it.each(["hubspot", "test-api"])(
+      "keeps concurrent %s inline reads independent of save validation",
+      async (provider) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockImplementation(
+          async () =>
+            new Response("private-binary-payload", {
+              headers: { "content-type": "application/zip" },
+            }),
+        );
+        const api = runtime(20 * 1024 * 1024);
+        const action = createProviderApiRequestAction(api);
+        const request = { provider, path: "/records", auth: "none" as const };
+        const [saved, inline] = await Promise.allSettled([
+          action.run({ ...request, saveToFile: "scratch/response.txt" }),
+          api.executeRequest({ ...request, maxBytes: 20 * 1024 * 1024 }),
+        ]);
+        expect(saved.status).toBe("rejected");
+        if (inline.status === "rejected") throw inline.reason;
+        expect(inline).toMatchObject({
+          status: "fulfilled",
+          value: {
+            response: { text: "private-binary-payload", truncated: false },
+          },
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe("provider response byte caps", () => {

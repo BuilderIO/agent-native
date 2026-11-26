@@ -6,9 +6,16 @@ import type {
 import { inlineDatabaseBlockConfig } from "@shared/inline-database-block";
 import type { InlineDatabaseData } from "@shared/inline-database-block";
 import { IconDatabase } from "@tabler/icons-react";
-import { lazy, Suspense } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useState } from "react";
 
+import {
+  contentDatabaseConstrainedQueryFilter,
+  contentDatabaseQueryFilter,
+} from "@/hooks/use-content-database";
 import { useDocument } from "@/hooks/use-documents";
+
+const MISSING_COLLECTION_RECHECK_DELAYS_MS = [1000, 2000, 4000];
 
 const InlineDatabaseView = lazy(async () => {
   const module = await import("@/components/editor/database/DatabaseView");
@@ -24,22 +31,59 @@ export function InlineDatabaseRead({
   data,
   ctx,
 }: BlockReadProps<InlineDatabaseData>) {
+  const contentCtx = ctx as ContentBlockRenderContext;
+  const canEdit = contentCtx.canEdit ?? true;
   const documentQuery = useDocument(data.databaseDocumentId || null);
   const document = documentQuery.data;
+  const { isError, refetch } = documentQuery;
+  const [readFailed, setReadFailed] = useState(false);
+  const queryClient = useQueryClient();
+  const databaseDocumentId = data.databaseDocumentId;
+
+  useEffect(() => {
+    if (isError) {
+      setReadFailed(true);
+      return;
+    }
+    if (!document || !readFailed) return;
+    void queryClient.invalidateQueries(
+      contentDatabaseQueryFilter(databaseDocumentId),
+    );
+    void queryClient.invalidateQueries(
+      contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+    );
+    setReadFailed(false);
+  }, [databaseDocumentId, document, isError, queryClient, readFailed]);
+
+  const recheck = readFailed && canEdit;
+  useEffect(() => {
+    if (!recheck) return;
+    let attempt = 0;
+    let timer: number | undefined;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        void refetch({ cancelRefetch: false });
+        attempt += 1;
+        if (attempt < MISSING_COLLECTION_RECHECK_DELAYS_MS.length) schedule();
+      }, MISSING_COLLECTION_RECHECK_DELAYS_MS[attempt]);
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [recheck, refetch]);
 
   if (!data.databaseId || !data.databaseDocumentId) {
     return <InlineDatabaseUnavailable />;
   }
 
   if (
-    documentQuery.isError ||
+    isError ||
+    (readFailed && !document) ||
     (document &&
       (!document.database || document.database.id !== data.databaseId))
   ) {
     return <InlineDatabaseUnavailable />;
   }
 
-  const contentCtx = ctx as ContentBlockRenderContext;
   const hostDocumentId = contentCtx.documentId ?? data.databaseDocumentId;
 
   return (
@@ -49,7 +93,7 @@ export function InlineDatabaseRead({
         databaseDocumentId={data.databaseDocumentId}
         hostDocumentId={hostDocumentId}
         renderMode="inline"
-        canEdit={contentCtx.canEdit ?? true}
+        canEdit={canEdit}
         isActive={false}
       />
     </Suspense>

@@ -35,6 +35,7 @@ export default defineAction({
     turnId: z.string().optional(),
     runId: z.string().optional(),
   }),
+  mcpTool: false,
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "editor");
     const statusKey = `${STATUS_KEY_PREFIX}${args.recordingId}`;

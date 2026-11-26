@@ -13,6 +13,7 @@ import { QUICK_PROMPT_ACCELERATOR } from "@shared/quick-prompt";
 import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 
 import * as AppStore from "./app-store";
+export { desktopIdentityOwnerKey as quickPromptIdentityKey } from "./desktop-identity";
 
 const QUICK_PROMPT_SURFACE = "quick-prompt";
 const QUICK_PROMPT_COMPACT_SIZE = { width: 460, height: 108 } as const;
@@ -21,6 +22,8 @@ const QUICK_PROMPT_PICKER_SIZE = { width: 760, height: 360 } as const;
 type QuickPromptWindowSize = Readonly<{ width: number; height: number }>;
 
 interface QuickPromptDependencies {
+  // Synchronous: the owner is read before and after every await.
+  getIdentityKey: () => string | null;
   createCodeAgentRun: (input: unknown) => Promise<CodeAgentCreateRunResult>;
   sendOpenRequestToRenderer: (
     request: DesktopOpenRequest,
@@ -36,6 +39,7 @@ let quickPromptPreviousFocusedWindow: BrowserWindow | null = null;
 let quickPromptShouldBeVisible = false;
 let quickPromptPickerOpen = false;
 let quickPromptSetupRequired = false;
+let quickPromptWindowIdentity: string | null = null;
 
 export function isQuickPromptActive(): boolean {
   return Boolean(
@@ -153,6 +157,7 @@ function createQuickPromptWindow(): BrowserWindow {
     return quickPromptWindow;
   }
 
+  const identityKey = quickPromptDependencies?.getIdentityKey() ?? null;
   const window = new BrowserWindow({
     width: QUICK_PROMPT_COMPACT_SIZE.width,
     height: QUICK_PROMPT_COMPACT_SIZE.height,
@@ -213,6 +218,7 @@ function createQuickPromptWindow(): BrowserWindow {
   window.on("closed", () => {
     if (quickPromptWindow !== window) return;
     quickPromptWindow = null;
+    quickPromptWindowIdentity = null;
     quickPromptShouldBeVisible = false;
     quickPromptPickerOpen = false;
     quickPromptSetupRequired = false;
@@ -225,12 +231,40 @@ function createQuickPromptWindow(): BrowserWindow {
     search: `?surface=${QUICK_PROMPT_SURFACE}`,
   });
   quickPromptWindow = window;
+  quickPromptWindowIdentity = identityKey;
   return window;
+}
+
+function destroyQuickPromptWindow(): void {
+  const window = quickPromptWindow;
+  quickPromptWindow = null;
+  quickPromptWindowIdentity = null;
+  quickPromptShouldBeVisible = false;
+  quickPromptPickerOpen = false;
+  quickPromptSetupRequired = false;
+  quickPromptPreviousFocusedWindow = null;
+  if (window && !window.isDestroyed()) window.destroy();
+}
+
+// The hidden or visible window keeps its editor mounted, so it must not
+// outlive the account that typed into it.
+export function noteQuickPromptIdentity(identity: string | null): void {
+  if (!quickPromptWindow) return;
+  if (identity === null || identity !== quickPromptWindowIdentity) {
+    destroyQuickPromptWindow();
+  }
 }
 
 function showQuickPrompt(): void {
   if (!app.isReady()) return;
 
+  const currentIdentity = quickPromptDependencies?.getIdentityKey() ?? null;
+  if (
+    quickPromptWindow &&
+    (currentIdentity === null || currentIdentity !== quickPromptWindowIdentity)
+  ) {
+    destroyQuickPromptWindow();
+  }
   const window = createQuickPromptWindow();
   if (quickPromptShouldBeVisible) {
     hideQuickPrompt();
@@ -305,6 +339,21 @@ async function submitQuickPrompt(
     };
   }
 
+  const submittingWindow = quickPromptWindow;
+  const submittingIdentity = quickPromptDependencies.getIdentityKey();
+  if (
+    !submittingWindow ||
+    submittingIdentity === null ||
+    submittingIdentity !== quickPromptWindowIdentity
+  ) {
+    destroyQuickPromptWindow();
+    return {
+      ok: false,
+      message: "Quick Prompt closed because the account changed.",
+      error: "Quick Prompt owner changed before submission.",
+    };
+  }
+
   const result = await quickPromptDependencies.createCodeAgentRun({
     prompt: request?.prompt,
     ...(request?.cwd ? { cwd: request.cwd } : {}),
@@ -315,6 +364,12 @@ async function submitQuickPrompt(
     metadata: { source: "quick-prompt" },
   });
   if (!result.ok || !result.run) return result;
+
+  // The run already exists and stays; only its handoff to this shell is dropped.
+  if (quickPromptDependencies.getIdentityKey() !== submittingIdentity) {
+    if (quickPromptWindow === submittingWindow) destroyQuickPromptWindow();
+    return result;
+  }
 
   hideQuickPrompt();
   quickPromptDependencies.sendOpenRequestToRenderer(

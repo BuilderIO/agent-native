@@ -401,9 +401,27 @@ function runtimeBackoffMs(consecutiveFailures: number): number {
 }
 
 /**
- * A transient pause is probed on the same widening backoff (capped at 6h)
- * that spaced the failures before it, counted from when it paused.
+ * When a transient pause is next probed, as epoch ms: on the same widening
+ * backoff (capped at 6h) that spaced the failures before it, counted from when
+ * it paused. `0` when the pause time is unreadable, and `null` for a pause that
+ * isn't transient.
  */
+export function transientPauseProbeAt(
+  meta: Pick<
+    JobFrontmatter,
+    "pausedReason" | "pausedAt" | "consecutiveFailures"
+  >,
+): number | null {
+  if (!isTransientAutomationFailureCode(meta.pausedReason)) return null;
+  const pausedAtMs = meta.pausedAt ? Date.parse(meta.pausedAt) : Number.NaN;
+  if (!Number.isFinite(pausedAtMs)) return 0;
+  return (
+    pausedAtMs +
+    runtimeBackoffMs(meta.consecutiveFailures ?? RUNTIME_PAUSE_AFTER)
+  );
+}
+
+/** Whether a transient pause's probe is due (see `transientPauseProbeAt`). */
 export function isTransientPauseProbeDue(
   meta: Pick<
     JobFrontmatter,
@@ -411,13 +429,8 @@ export function isTransientPauseProbeDue(
   >,
   now: Date,
 ): boolean {
-  if (!isTransientAutomationFailureCode(meta.pausedReason)) return false;
-  const pausedAtMs = meta.pausedAt ? Date.parse(meta.pausedAt) : Number.NaN;
-  return (
-    !Number.isFinite(pausedAtMs) ||
-    now.getTime() - pausedAtMs >=
-      runtimeBackoffMs(meta.consecutiveFailures ?? RUNTIME_PAUSE_AFTER)
-  );
+  const probeAt = transientPauseProbeAt(meta);
+  return probeAt !== null && now.getTime() >= probeAt;
 }
 
 /**

@@ -59,6 +59,14 @@ vi.mock("@shared/review-summary", () => ({
 
 vi.mock("@tabler/icons-react", () => ({
   IconMessageCircle: () => null,
+  // The review kit's comment box loads its formatting bar's icons.
+  IconBold: () => null,
+  IconCheck: () => null,
+  IconCode: () => null,
+  IconItalic: () => null,
+  IconLink: () => null,
+  IconStrikethrough: () => null,
+  IconUnlink: () => null,
 }));
 
 vi.mock("react-router", () => ({

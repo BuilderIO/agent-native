@@ -7,6 +7,9 @@
     }
   },
   "doctor": {
+    "dbToolScopingDenylist": {
+      "calendar:booking_link_single_use_tokens": "Single-use booking URL codes, read and changed only through the single-use link actions, which check editor access on the parent booking link."
+    },
     "failOnBuild": false
   }
 }

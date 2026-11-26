@@ -357,6 +357,33 @@ describe("legacy settings links", () => {
     });
   });
 
+  it("keeps a deep path on a page that routes its own nested paths", () => {
+    const automations = CORE_SETTINGS_PAGES.find(
+      (page) => page.id === "automations",
+    )!;
+    const pages = [
+      ...CORE_SETTINGS_PAGES.filter((page) => page.id !== "automations"),
+      { ...automations, nestedRoutes: true },
+    ];
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/automations/setup/abc/edit", hash: "" },
+        pages,
+      ),
+    ).toEqual({
+      page: "automations",
+      sub: "setup/abc/edit",
+      anchor: null,
+      legacy: false,
+    });
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/automations/setup/abc/edit", hash: "" },
+        CORE_SETTINGS_PAGES,
+      ),
+    ).toMatchObject({ page: "automations", sub: "setup", legacy: true });
+  });
+
   it("prefers the agent panel's section over the hash it navigated to", () => {
     // The panel sends `secrets` to #integrations for today's Settings.
     expect(

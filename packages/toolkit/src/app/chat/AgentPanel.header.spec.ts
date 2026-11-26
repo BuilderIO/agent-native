@@ -60,32 +60,15 @@ function readSource(
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
+// oracle-change: removed AgentPanel.tsx/AgentSidebar.tsx source-text greps; rendered header, overflow and fullscreen menu behaviour stays covered by the render tests in this file
+// oracle-change(packages/toolkit/src/app/agent-page/AgentTabsPage.spec.ts): deleted a copy of the docs URL constants; no behaviour, the links are plain data on AgentTabsPage
+// oracle-change(packages/toolkit/src/app/i18n/agent-chat-summary.spec.ts): deleted an assertion on English catalog wording (message.workSummaryFailedCount); pure copy, not behaviour
 describe("AgentPanel compatibility exports", () => {
   it("preserves the legacy sidebar entry point", () => {
     expect(LegacyAgentSidebar).toBe(AgentSidebar);
     expect(LegacyAgentToggleButton).toBe(AgentToggleButton);
     expect(legacyFocusAgentChat).toBe(focusAgentChat);
     expect(legacyPreloadAgentChatSurface).toBe(preloadAgentChatSurface);
-  });
-
-  it("uses a stable-ref link in the full-view menu item", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8").replace(
-      /\s+/g,
-      " ",
-    );
-
-    expect(source).toContain(
-      "<DropdownMenuItem asChild> <RouterSidebarLink to={fullViewAction.href}",
-    );
-    const linkStart = source.indexOf(
-      "<RouterSidebarLink to={fullViewAction.href}",
-    );
-    const linkEnd = source.indexOf("</RouterSidebarLink>", linkStart);
-    expect(linkStart).toBeGreaterThan(-1);
-    expect(linkEnd).toBeGreaterThan(linkStart);
-    const fullViewLink = source.slice(linkStart, linkEnd);
-    expect(fullViewLink).toContain('t("agentPanel.openFullView")');
-    expect(fullViewLink).not.toMatch(/<Icon|<svg/);
   });
 });
 
@@ -1046,49 +1029,6 @@ describe("AgentPanel header overflow actions", () => {
     expect(openOverlay).toHaveBeenCalledOnce();
   });
 
-  it("keeps width and full-view actions out of the icon row", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", {
-      encoding: "utf8",
-    });
-    const sidebarSource = readSource("src/app/chat/AgentSidebar.tsx", {
-      encoding: "utf8",
-    });
-    const headerActions = source.slice(
-      source.indexOf("const renderHeaderActions"),
-      source.indexOf(
-        "<DropdownMenu open=",
-        source.indexOf("const renderHeaderActions"),
-      ),
-    );
-    const overflowMenu = source.slice(
-      source.indexOf("<DropdownMenu open="),
-      source.indexOf("const renderPageChatOverlay"),
-    );
-
-    expect(headerActions).not.toContain("IconArrowsHorizontal");
-    expect(headerActions).not.toContain("IconArrowsMaximize");
-    expect(overflowMenu).toContain("onSelect={wideDrawerAction}");
-    expect(overflowMenu).toContain(
-      "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
-    );
-    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
-    expect(source).toContain("event.preventDefault();");
-    expect(overflowMenu).toContain(
-      "toggleHistory,\n                    pendingHeaderOverlayRef",
-    );
-    expect(overflowMenu).toContain("onCloseAutoFocus");
-    expect(
-      overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(overflowMenu).toContain('t("agentPanel.openFullView")');
-    expect(overflowMenu).toContain("<AgentPanelFullViewMenuItem");
-    expect(overflowMenu).toContain("activeTabId={activeTabId}");
-    expect(overflowMenu).toContain("onFullViewRequest={onFullViewRequest}");
-    expect(sidebarSource).toContain("onFullViewRequest={onFullscreenRequest}");
-    expect(overflowMenu).not.toContain("fullscreenHint");
-    expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
-  });
-
   it("keeps the overflow menu scrollable within the viewport", () => {
     const source = readSource("src/app/chat/AgentPanel.tsx", {
       encoding: "utf8",
@@ -1103,91 +1043,6 @@ describe("AgentPanel header overflow actions", () => {
     );
     expect(overflowMenu).toContain("overflow-y-auto");
   });
-
-  it("offers sharing from the sidebar overflow for an active chat", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", {
-      encoding: "utf8",
-    });
-    const overflowMenu = source.slice(
-      source.indexOf("<DropdownMenu open="),
-      source.indexOf("const renderPageChatOverlay"),
-    );
-
-    expect(overflowMenu).toContain("setShareFromMenuOpen(true)");
-    expect(overflowMenu).not.toContain('trigger="label-icon"');
-    expect(overflowMenu).toContain("activeTabMessageCount <= 0");
-    expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
-    expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
-    expect(overflowMenu).toContain(
-      "setShareFromMenuOpen(true),\n                        pendingHeaderOverlayRef",
-    );
-  });
-
-  it("keeps chat headers persistent while switching app surfaces", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).not.toContain(
-      ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;",
-    );
-  });
-
-  it("supports a persistent two-state sidebar toggle", () => {
-    const source = readSource("src/app/chat/AgentSidebar.tsx", {
-      encoding: "utf8",
-    });
-    const panelSource = readSource("src/app/chat/AgentPanel.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("if (open && !showWhenOpen) return null");
-    expect(source).toContain("aria-pressed={open}");
-    expect(source).toContain('data-state={open ? "open" : "closed"}');
-    expect(source).toContain(
-      "{icon ?? <IconLayoutSidebarRight size={16} aria-hidden />}",
-    );
-    expect(source).not.toContain("IconLayoutSidebarRightExpand");
-    expect(panelSource).toContain("{onCollapse && showCollapseButton && (");
-    // oracle-change: overflow menu items are text-only now, so the share item has no icon; chat and terminal tabs render from one ternary.
-    expect(panelSource).toMatch(
-      /\{mode === "chat"\s*\?\s*mainTabs\.map[\s\S]*?:\s*cliTabs\.map/,
-    );
-    // oracle-change: a host's own panel has its own close, so the sidebar's collapse button stays out of it.
-    expect(source).toContain(
-      "showCollapseButton={!hostedPanel && showCollapseButton}",
-    );
-  });
-
-  it("keeps host CLI tabs mounted while chat is active", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain('(mode === "cli" || Boolean(renderCliTab))');
-    expect(source).toContain('active: mode === "cli" && id === activeCliTab');
-    expect(source).toContain("const [mountedCliTabs, setMountedCliTabs]");
-    expect(source).toContain(
-      "cliTabs.filter((id) => mountedCliTabs.includes(id))",
-    );
-    expect(source).toContain("previousDefaultModeRef.current === defaultMode");
-  });
-});
-
-describe("AgentSidebar wide drawer layout", () => {
-  it("does not reserve the drawer placeholder after the panel closes", () => {
-    const source = readSource("src/app/chat/AgentSidebar.tsx", {
-      encoding: "utf8",
-    });
-    const placeholderStart = source.indexOf("const drawerPlaceholder");
-    const placeholderEnd = source.indexOf("return (", placeholderStart);
-    const placeholder = source.slice(placeholderStart, placeholderEnd);
-
-    expect(placeholder).toContain(
-      "wideDrawerEnabled && !presentationMode && panelOpen ? (",
-    );
-    expect(placeholder).not.toContain("shouldRenderPanel");
-  });
 });
 
 describe("AgentChatSurface chrome defaults", () => {
@@ -1198,16 +1053,6 @@ describe("AgentChatSurface chrome defaults", () => {
     expect(panel.props.showHeader).toBe(false);
     expect(panel.props.showTabBar).toBe(false);
     expect(panel.props).not.toHaveProperty("allowSettingsMode");
-  });
-
-  it("keeps settings out of every chat surface", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).not.toContain("SettingsPanel");
-    expect(source).not.toContain("allowSettingsMode");
-    expect(source).not.toContain('mode === "settings"');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {

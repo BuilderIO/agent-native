@@ -44,11 +44,13 @@ import {
   parseDatabaseViewConfig,
 } from "./_property-utils.js";
 
+export const PRIMARY_BODY_FIELD_ID = "primary-body";
+
 export interface CollectionExportRequest {
   scope:
     | { kind: "all_members" }
     | {
-        kind: "current_view";
+        kind: "current_view" | "view_query";
         viewId: string;
         query: ContentDatabaseTableQuery;
       };
@@ -423,6 +425,22 @@ export async function buildCollectionExportProjection(
   let personalQuery: ContentDatabaseTableQuery | null = null;
   let transientQuery: ContentDatabaseTableQuery | null = null;
   let effectiveSorts: ContentDatabaseTableQuery["sorts"] = [];
+  if (request.scope.kind === "view_query") {
+    const viewQueryScope = request.scope;
+    if (
+      !parseDatabaseViewConfig(database.viewConfigJson).views.some(
+        (view) => view.id === viewQueryScope.viewId,
+      )
+    ) {
+      fail(`Database view "${viewQueryScope.viewId}" not found.`, {
+        errorCode: "collection_export_view_not_found",
+        statusCode: 404,
+      });
+    }
+    transientQuery = viewQueryScope.query;
+    assertValidQuery(transientQuery, new Set(propertyById.keys()));
+    effectiveSorts = transientQuery.sorts;
+  }
   if (request.scope.kind === "current_view") {
     const currentViewScope = request.scope;
     const savedView = parseDatabaseViewConfig(
@@ -849,7 +867,7 @@ export async function buildCollectionExportProjection(
     }
   }
 
-  if (request.scope.kind === "current_view" && effectiveSorts.length > 0) {
+  if (request.scope.kind !== "all_members" && effectiveSorts.length > 0) {
     const sortQuery: ContentDatabaseTableQuery = {
       search: "",
       filters: [],
@@ -878,7 +896,7 @@ export async function buildCollectionExportProjection(
     ...(includePrimaryBody
       ? [
           {
-            id: "primary-body",
+            id: PRIMARY_BODY_FIELD_ID,
             name: primaryBlocks?.definition.name ?? "Content",
           },
         ]
@@ -906,7 +924,7 @@ export async function buildCollectionExportProjection(
       ),
       bodyValues: new Map([
         ...(includePrimaryBody
-          ? [["primary-body", item.document.content] as const]
+          ? [[PRIMARY_BODY_FIELD_ID, item.document.content] as const]
           : []),
         ...selectedBlocks.map(
           (property) =>

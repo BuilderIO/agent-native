@@ -11,6 +11,7 @@ vi.mock("../use-session.js", () => sessionMocks);
 const analyticsMocks = vi.hoisted(() => ({ trackEvent: vi.fn() }));
 vi.mock("../analytics.js", () => analyticsMocks);
 
+import { useFeatureFlags } from "../feature-flags/use-feature-flag.js";
 import { useLab, useLabState, useLabStates, useLabs } from "./use-lab.js";
 
 function jsonResponse(body: unknown): Response {
@@ -47,6 +48,55 @@ describe("useLabState / useLab / useLabs session gating", () => {
       ),
     );
   }
+
+  it("shares the initial request for lab states and feature flags", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    const labStates = {
+      "beta-editor": { enabled: true, source: "choice", mixed: false },
+    };
+    const flags = { composer: true };
+    const fetchMock = vi.fn(
+      async (_url: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return jsonResponse(
+            String(_url).endsWith("get-lab-states") ? labStates : flags,
+          );
+        }
+        const { requests } = JSON.parse(String(init.body)) as {
+          requests: Array<{ action: string }>;
+        };
+        return jsonResponse({
+          results: requests.map(({ action }) => ({
+            status: 200,
+            body: action === "get-lab-states" ? labStates : flags,
+          })),
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let observedLabs: unknown;
+    let observedFlags: unknown;
+    function Probe() {
+      observedLabs = useLabStates();
+      observedFlags = useFeatureFlags();
+      return null;
+    }
+    await mountProbe(Probe);
+    await act(() =>
+      vi.waitFor(() => {
+        expect(observedLabs).toEqual(labStates);
+        expect(observedFlags).toEqual(flags);
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("get-actions-batch");
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).requests,
+    ).toEqual([
+      { action: "get-lab-states", query: "" },
+      { action: "get-feature-flags", query: "" },
+    ]);
+  });
 
   it("never fires get-labs for a signed-out visitor, and keeps today's not-yet-known default", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "unauthenticated" });
@@ -217,6 +267,50 @@ describe("useLabState / useLab / useLabs session gating", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(state).toMatchObject({ isError: false, enabled: true });
+  });
+
+  it("reads a bare-key lab as off once its state can't be read, and a definition as its default", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const results: Record<string, boolean> = {};
+    function Probe() {
+      results.bareKey = useLab("voice");
+      results.definition = useLab({ key: "voice", defaultEnabled: true });
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(results).toEqual({ bareKey: false, definition: true });
+  });
+
+  it("reads a bare-key lab as on while a signed-in answer is on its way", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+
+    let lab: boolean | undefined;
+    function Probe() {
+      lab = useLab("voice");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(lab).toBe(true);
   });
 
   it("reports isLoading while the session itself is still resolving", async () => {

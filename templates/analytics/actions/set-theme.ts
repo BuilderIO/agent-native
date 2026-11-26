@@ -1,14 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
+import { putUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import {
-  putScopedSettingRecord,
-  resolveRequestScope,
-} from "../server/lib/scoped-settings";
+import { resolveRequestScope } from "../server/lib/scoped-settings";
 
 export default defineAction({
   agentTool: false,
-  description: "Save the Analytics UI theme for the current scope.",
+  description: "Save the Analytics UI theme for the current user.",
   schema: z.object({
     theme: z.unknown().optional().describe("'light' or 'dark'"),
   }),
@@ -16,7 +14,7 @@ export default defineAction({
   run: async (args) => {
     const theme = args.theme === "light" ? "light" : "dark";
     const scope = resolveRequestScope();
-    await putScopedSettingRecord(scope, "analytics-theme", { theme });
+    await putUserSetting(scope.email, "analytics-theme", { theme });
     return { theme };
   },
 });

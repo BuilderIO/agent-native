@@ -10,9 +10,7 @@ import {
   withMigrationRuntime,
   type DbExec,
 } from "@agent-native/core/db";
-import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 
 import { runDesignMigrations } from "../plugins/db.js";
 
@@ -45,7 +43,6 @@ export function agentToolContext(
  * a production statement does.
  */
 export async function bootDesignDatabase(): Promise<DbExec> {
-  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
   await withMigrationRuntime(async () => {
     await runDesignMigrations({});
   });

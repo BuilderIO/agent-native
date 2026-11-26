@@ -18,5 +18,6 @@ export default defineAction({
     evidenceItemIds: z.array(z.string().min(1)).max(500).optional(),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: (args) => saveBrandDnaCandidate({ ...args, status: "draft" }),
 });

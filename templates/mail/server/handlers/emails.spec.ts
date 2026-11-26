@@ -65,7 +65,7 @@ describe("emails handler saved-draft metadata", () => {
     expect(source).toContain("resolveExistingSavedDraftOwnership({");
     expect(source).toContain("SavedDraftOwnershipError");
     expect(source).toContain("setResponseStatus(event, 409)");
-    expect(source).toContain("encodeURIComponent(savedDraftId)");
+    expect(source).toContain("updateSavedGmailDraft(");
   });
 
   it("does not mint a new local ID when an existing saved draft is missing", () => {

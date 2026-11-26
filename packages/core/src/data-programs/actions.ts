@@ -16,15 +16,13 @@ import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import { frameworkMcpTools } from "../mcp/framework-tools.js";
-import { hashDataProgramParams, runDataProgram } from "./execute.js";
+import { runDataProgram } from "./execute.js";
+import { getDataProgramDetails, listDataProgramSummaries } from "./read.js";
 import {
   archiveDataProgram,
-  getDataProgram,
-  getLatestFinishedRun,
-  getLatestSuccessfulRun,
-  listDataPrograms,
   upsertDataProgram,
   MIN_REFRESH_TTL_MS,
+  MIN_SCHEDULED_REFRESH_MS,
 } from "./store.js";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
@@ -85,6 +83,12 @@ export function createDataProgramActions(
         .optional()
         .describe(`Minimum ${MIN_REFRESH_TTL_MS}ms.`),
       background: z.boolean().optional(),
+      scheduledRefresh: z
+        .boolean()
+        .optional()
+        .describe(
+          `Rerun the program on the server every refreshTtlMs with its defaultParams and the org's own credentials, so the org's shared run stays fresh with no one viewing it. Needs an organization, refreshMode "ttl", a refreshTtlMs of at least ${MIN_SCHEDULED_REFRESH_MS / 60_000} minutes, and not background. Left out, an existing program keeps its setting.`,
+        ),
     }),
     toolCallable: false,
     run: async (args, ctx) => {
@@ -121,6 +125,7 @@ export function createDataProgramActions(
         refreshMode: args.refreshMode,
         refreshTtlMs: args.refreshTtlMs,
         background: args.background,
+        scheduledRefresh: args.scheduledRefresh,
         ownerEmail: userEmail,
         orgId: ctx?.orgId ?? null,
       });
@@ -224,27 +229,12 @@ export function createDataProgramActions(
     }),
     http: { method: "GET" },
     readOnly: true,
-    run: async (args, ctx) => {
-      const programs = await listDataPrograms(
+    run: async (args, ctx) =>
+      listDataProgramSummaries(
         appId,
-        { userEmail: ctx?.userEmail, orgId: ctx?.orgId ?? undefined },
+        { userEmail: ctx?.userEmail, orgId: ctx?.orgId },
         { includeArchived: args.includeArchived },
-      );
-      return {
-        programs: programs.map((p) => ({
-          id: p.id,
-          name: p.name,
-          title: p.title,
-          description: p.description,
-          refreshMode: p.refreshMode,
-          refreshTtlMs: p.refreshTtlMs,
-          background: p.background,
-          archivedAt: p.archivedAt,
-          updatedAt: p.updatedAt,
-          columns: p.outputColumns ? JSON.parse(p.outputColumns) : [],
-        })),
-      };
-    },
+      ),
   });
 
   const getDataProgramAction = defineAction({
@@ -256,79 +246,13 @@ export function createDataProgramActions(
     }),
     http: { method: "GET" },
     readOnly: true,
-    run: async (args, ctx) => {
-      const program = await getDataProgram(args.programId, appId, {
-        userEmail: ctx?.userEmail,
-        orgId: ctx?.orgId ?? undefined,
-      });
-      if (!program) throw new Error("Data program not found.");
-
-      const { resolveAccess } = await import("../sharing/access.js");
-      const access = await resolveAccess("data_program", args.programId, {
-        userEmail: ctx?.userEmail,
-        orgId: ctx?.orgId ?? undefined,
-      });
-      if (!access) throw new Error("Access denied to this data program.");
-
-      const defaultParams = program.defaultParams
-        ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
-        : {};
-      const hash = hashDataProgramParams(
-        defaultParams,
-        ctx?.userEmail,
-        ctx?.orgId ?? null,
-      );
-      // A background program records its next run as soon as it queues it,
-      // so read the newest finished run, plus the newest success when that
-      // run failed, rather than an empty queued row.
-      const lastRun = await getLatestFinishedRun(program.id, hash);
-      const lastGoodRun =
-        lastRun && lastRun.status !== "succeeded"
-          ? await getLatestSuccessfulRun(program.id, hash)
-          : null;
-
-      return {
-        id: program.id,
-        name: program.name,
-        title: program.title,
-        description: program.description,
-        code: program.code,
-        paramsSchema: program.paramsSchema
-          ? JSON.parse(program.paramsSchema)
-          : null,
-        defaultParams,
-        refreshMode: program.refreshMode,
-        refreshTtlMs: program.refreshTtlMs,
-        background: program.background,
-        archivedAt: program.archivedAt,
-        columns: program.outputColumns ? JSON.parse(program.outputColumns) : [],
-        lastRun: lastRun
-          ? {
-              status: lastRun.status,
-              rowCount: lastRun.rowCount,
-              truncated: lastRun.truncated,
-              errorCode: lastRun.errorCode,
-              errorMessage: lastRun.errorMessage,
-              finishedAt: lastRun.finishedAt,
-              ...(args.includeRows && lastRun.rowsJson
-                ? { rows: JSON.parse(lastRun.rowsJson) }
-                : {}),
-            }
-          : null,
-        ...(lastGoodRun
-          ? {
-              lastGoodRun: {
-                rowCount: lastGoodRun.rowCount,
-                truncated: lastGoodRun.truncated,
-                finishedAt: lastGoodRun.finishedAt,
-                ...(args.includeRows && lastGoodRun.rowsJson
-                  ? { rows: JSON.parse(lastGoodRun.rowsJson) }
-                  : {}),
-              },
-            }
-          : {}),
-      };
-    },
+    run: async (args, ctx) =>
+      getDataProgramDetails(
+        args.programId,
+        appId,
+        { userEmail: ctx?.userEmail, orgId: ctx?.orgId },
+        { includeRows: args.includeRows },
+      ),
   });
 
   const deleteDataProgramAction = defineAction({

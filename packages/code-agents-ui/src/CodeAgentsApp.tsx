@@ -5689,17 +5689,6 @@ function TranscriptPanel({
     () => createHostCodeAgentChatController(host, goal.id, permissionModeRef),
     [goal.id, host],
   );
-  const transport = useMemo(
-    () =>
-      createAgentKitProtocolAdapter(
-        createCodeAgentAgentKitRuntime({
-          controller,
-          isChatBlocked: () => chatBlockedRef.current,
-          hideCredentialMessages,
-        }),
-      ),
-    [controller, hideCredentialMessages],
-  );
   const chatContextValue = useMemo<CodeAgentChatContextValue>(
     () => ({
       permissionMode,
@@ -5746,17 +5735,12 @@ function TranscriptPanel({
         <>
           <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
           <CodeAgentChatContext.Provider value={chatContextValue}>
-            <AgentKitRoot
+            <CodeAgentTranscriptRoot
               key={run.id}
-              threadId={run.id}
-              transport={transport}
-              clientOptions={{
-                transportOwnership: "owned",
-                retainActiveRunsOnThreadRelease: true,
-                // CodeAgentAgentKitRuntime checks this host's provider gate before dispatch.
-                aiSetupReadiness: "not-applicable",
-              }}
-              slots={CODE_AGENTKIT_CHAT_SLOTS}
+              runId={run.id}
+              controller={controller}
+              chatBlockedRef={chatBlockedRef}
+              hideCredentialMessages={hideCredentialMessages}
             >
               <CodeAgentExternalTranscriptBridge runIsActive={runIsActive} />
               <AgentKitChat
@@ -5769,11 +5753,53 @@ function TranscriptPanel({
                   ) : undefined
                 }
               />
-            </AgentKitRoot>
+            </CodeAgentTranscriptRoot>
           </CodeAgentChatContext.Provider>
         </>
       )}
     </div>
+  );
+}
+
+function CodeAgentTranscriptRoot({
+  runId,
+  controller,
+  chatBlockedRef,
+  hideCredentialMessages,
+  children,
+}: {
+  runId: string;
+  controller: Parameters<
+    typeof createCodeAgentAgentKitRuntime
+  >[0]["controller"];
+  chatBlockedRef: { readonly current: boolean };
+  hideCredentialMessages: boolean;
+  children: ReactNode;
+}) {
+  const transport = useMemo(
+    () =>
+      createAgentKitProtocolAdapter(
+        createCodeAgentAgentKitRuntime({
+          controller,
+          isChatBlocked: () => chatBlockedRef.current,
+          hideCredentialMessages,
+        }),
+      ),
+    [chatBlockedRef, controller, hideCredentialMessages],
+  );
+  return (
+    <AgentKitRoot
+      threadId={runId}
+      transport={transport}
+      clientOptions={{
+        transportOwnership: "owned",
+        retainActiveRunsOnThreadRelease: true,
+        aiSetupReadiness: "not-applicable",
+      }}
+      slots={CODE_AGENTKIT_CHAT_SLOTS}
+    >
+      {children}
+    </AgentKitRoot>
   );
 }
 

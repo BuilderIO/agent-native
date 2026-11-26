@@ -1,0 +1,132 @@
+/*
+ * Part: text-area
+ *
+ *   <textarea class="text-area"                   Base UI Field.Control
+ *             data-size="sm|md" data-variant="surface|soft"
+ *             data-resize="none|vertical|horizontal|both"
+ *             [data-color="accent|gray|danger|warning|success|info"] [data-radius]
+ *             [data-focused] [data-invalid] [data-disabled] [aria-invalid]>
+ *
+ * Radix Themes' text area on the system's scale: a multi-line field with
+ * the input's edge, fill and focus ring at the same size. Its vertical
+ * padding is (height - line) / 2, so a single line sits where an Input of
+ * the same size puts it, and it is at least three lines tall. Surface keeps
+ * neutral edges in every color, and soft is a tint of the color, as for the
+ * input.
+ */
+
+@layer components {
+  .text-area {
+    --control-font-size: var(--control-font-size-3);
+    --control-line-height: var(--control-line-height-3);
+    --_height: var(--control-height-3);
+    --_padding: var(--space-2);
+    --_radius: var(--radius-3);
+    --_padding-y: calc((var(--_height) - var(--control-line-height)) / 2);
+
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: calc(3 * var(--control-line-height) + 2 * var(--_padding-y));
+    margin: 0;
+    padding: var(--_padding-y) var(--_padding);
+    border: 0;
+    border-radius: max(
+      calc(var(--_radius) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
+    corner-shape: var(--corner-shape, round);
+    font: inherit;
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    resize: vertical;
+    outline-style: none;
+    transition-property: background-color, box-shadow;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  /* ---- sizes ---- */
+
+  .text-area[data-size="sm"] {
+    --control-font-size: var(--control-font-size-2);
+    --control-line-height: var(--control-line-height-2);
+    --_height: var(--control-height-2);
+    --_padding-y: var(--space-1);
+    --_radius: var(--radius-2);
+  }
+
+  .text-area[data-resize="none"] {
+    resize: none;
+  }
+
+  .text-area[data-resize="horizontal"] {
+    resize: horizontal;
+  }
+
+  .text-area[data-resize="both"] {
+    resize: both;
+  }
+
+  /* ---- variants ---- */
+
+  .text-area[data-variant="surface"] {
+    background-color: var(--fill-field);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    color: var(--fg-default);
+  }
+
+  .text-area[data-variant="soft"] {
+    background-color: var(--accent-a3);
+    color: var(--accent-12);
+  }
+
+  .text-area::placeholder {
+    color: var(--fg-subtle);
+    opacity: 1;
+  }
+
+  .text-area[data-variant="soft"]::placeholder {
+    color: var(--accent-text);
+  }
+
+  @media (hover: hover) {
+    .text-area[data-variant="surface"]:hover {
+      box-shadow: inset 0 0 0 1px var(--gray-a8);
+    }
+  }
+
+  .text-area:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- invalid and disabled ---- */
+
+  .text-area:is([data-invalid], [aria-invalid="true"]) {
+    box-shadow: inset 0 0 0 1px var(--fill-danger);
+  }
+
+  .text-area:is([data-invalid], [aria-invalid="true"]):focus-visible {
+    outline-color: var(--fill-danger);
+  }
+
+  .text-area:disabled {
+    cursor: not-allowed;
+    color: var(--fg-disabled);
+  }
+
+  .text-area:disabled::placeholder {
+    color: var(--fg-disabled);
+  }
+
+  .text-area[data-variant="surface"]:disabled {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+
+  .text-area[data-variant="soft"]:disabled {
+    background-color: var(--gray-a3);
+  }
+}

@@ -154,3 +154,7 @@ describe("check-provider-key action: saved keys stay put", () => {
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 });
+
+it("keeps check-provider-key in the app, off MCP", () => {
+  expect(action.mcpTool).toBe(false);
+});

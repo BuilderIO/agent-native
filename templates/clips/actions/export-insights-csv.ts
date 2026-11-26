@@ -4,6 +4,10 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  liveRecordingComments,
+  reviewComments,
+} from "../server/lib/recording-comments.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
@@ -32,6 +36,7 @@ export default defineAction({
       .describe("Organization id — defaults to active organization"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
 
@@ -99,12 +104,17 @@ export default defineAction({
     if (recordingIds.length) {
       const comments = await db
         .select({
-          recordingId: schema.recordingComments.recordingId,
+          recordingId: reviewComments.resourceId,
           count: sql<number>`COUNT(1)`,
         })
-        .from(schema.recordingComments)
-        .where(inArray(schema.recordingComments.recordingId, recordingIds))
-        .groupBy(schema.recordingComments.recordingId);
+        .from(reviewComments)
+        .where(
+          and(
+            liveRecordingComments(),
+            inArray(reviewComments.resourceId, recordingIds),
+          ),
+        )
+        .groupBy(reviewComments.resourceId);
       for (const c of comments) {
         commentsByRec[c.recordingId] = Number(c.count ?? 0);
       }

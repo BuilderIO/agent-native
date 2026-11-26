@@ -186,10 +186,13 @@ and static-token fallback.
 
 ### Claude and ChatGPT OAuth {#oauth}
 
-Claude / Claude Desktop: add a custom connector, paste the MCP URL, click
-**Connect**, sign in with your Agent-Native account, approve the MCP scopes,
-and enable the connector in a chat. Claude Code uses the same URL: add it as a
-remote HTTP MCP server, run `/mcp`, then choose **Authenticate**.
+Claude / Claude Desktop: **Add to Claude** opens **Customize → Connectors**
+with the add-custom-connector dialog already filled in with the app name and
+MCP URL. Select **Add**, sign in with your Agent-Native account, approve the MCP
+scopes, and enable the connector in a chat. Claude Code uses the same URL: run
+`claude mcp add --transport http --scope user <server-name> <mcp-url>` so the
+server is available in every project, then run `/mcp` and choose
+**Authenticate**.
 
 ChatGPT: custom MCP apps require a supported ChatGPT web workspace. If you have
 access, open **Settings → Apps → Advanced settings**, enable developer mode when
@@ -212,13 +215,15 @@ covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
 ### Cursor, VS Code, and Codex {#install-links}
 
-The **Cursor** and **VS Code** tabs in **Settings → MCP server** and on
-`/mcp/connect` have install buttons. **Add to Cursor** opens Cursor's
-**Install MCP server?** prompt. **Add to VS Code** and **Add to VS Code
-Insiders** open a server page with an **Install** button. A link carries only
-the server name, the transport, and the MCP URL; it never carries a token,
+The **Claude**, **Cursor**, and **VS Code** guides in **Settings → MCP server**
+and on `/mcp/connect` have install buttons. **Add to Claude** opens Claude's
+add-connector dialog with the name and URL filled in. **Add to Cursor** opens
+Cursor's **Install MCP server?** prompt. **Add to VS Code** and **Add to VS Code
+Insiders** open a server page with an **Install** button. A link carries only a name and the MCP URL, plus the transport for VS Code; it never carries a token,
 header, or account detail. The client runs its own OAuth sign-in the first time
 it connects. In VS Code, the tools then appear in the Chat view in Agent mode.
+Without the button, run **Chat: Open Customizations**, open **MCP Servers**,
+select **+**, choose **HTTP**, and paste the MCP URL.
 
 For Codex, run `codex mcp add <server-name> --url <mcp-url>`, then
 `codex mcp login <server-name>` to sign in with OAuth. The **Codex** tab fills

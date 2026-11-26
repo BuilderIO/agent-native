@@ -10,12 +10,15 @@ import { runWithRequestContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
+  closestToolMatches,
   createToolSearchEntry,
   extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
   isTargetedToolSearch,
+  namesUnservedTools,
   readLoadedToolNames,
   searchToolRegistry,
+  searchToolRegistryForRequest,
   TOOL_SEARCH_ACTION_NAME,
   withLoadedToolNames,
 } from "./tool-search.js";
@@ -41,8 +44,327 @@ function action(
 }
 
 describe("tool-search", () => {
+  it("ranks task candidates through the server boundary and keeps lexical fallback labelled", async () => {
+    const registry = {
+      "list-events": action("List calendar events"),
+      "send-email": action("Send email"),
+    };
+    const rank = vi.fn(async () => ({
+      status: "selected" as const,
+      ids: ["send-email"],
+    }));
+    const selected = await searchToolRegistryForRequest(
+      registry,
+      { task: "calendar" },
+      { taskRank: rank },
+    );
+    expect(selected).toMatchObject({
+      ranking: "jev",
+      status: "selected",
+      recommendations: [
+        { name: "send-email", kind: "tool", use: { type: "tools/call" } },
+      ],
+    });
+    expect(rank).toHaveBeenCalledOnce();
+    const fallback = await searchToolRegistryForRequest(
+      registry,
+      { task: "calendar" },
+      { taskRank: async () => ({ status: "unavailable", ids: [] }) },
+    );
+    expect(fallback).toMatchObject({
+      ranking: "bm25",
+      status: "unavailable",
+      recommendations: [{ name: "list-events" }],
+    });
+  });
+
+  it("does not poison a later lexical search with task baseline cache", async () => {
+    const registry = { "list-events": action("List calendar events") };
+    await runWithRequestContext(
+      { userEmail: "agent@example.com", run: {} },
+      async () => {
+        await searchToolRegistryForRequest(registry, { task: "calendar" });
+        const result = searchToolRegistry(registry, { query: "calendar" });
+        expect(result.repeated).toBeUndefined();
+        expect(result.results[0]?.description).toBe("List calendar events");
+      },
+    );
+  });
+
+  it("orders task fallback by BM25 score rather than registry insertion", async () => {
+    const registry = {
+      "other-calendar": action("Calendar archive"),
+      "calendar-events": action("Calendar events and availability"),
+    };
+    const result = await searchToolRegistryForRequest(registry, {
+      task: "calendar events",
+    });
+    expect(result.recommendations?.[0]?.name).toBe("calendar-events");
+  });
+
+  it("bounds a stalled candidate provider and never returns unfiltered data", async () => {
+    const registry = { "list-events": action("List calendar events") };
+    const result = await searchToolRegistryForRequest(
+      registry,
+      { task: "calendar" },
+      {
+        taskDeadline: Date.now() + 20,
+        taskCandidateProvider: async () => new Promise(() => {}),
+      },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "timed_out",
+      recommendations: [],
+    });
+  });
+
+  it("includes tool parameter descriptions in task BM25 fallback", async () => {
+    const registry = {
+      send: action("Dispatch a message", {
+        to: { type: "string", description: "recipient address" },
+      }),
+    };
+    const result = await searchToolRegistryForRequest(registry, {
+      task: "recipient address",
+    });
+    expect(result.recommendations?.map((item) => item.name)).toEqual(["send"]);
+  });
+
+  it("does not start ranking after the caller cancels candidate discovery", async () => {
+    const controller = new AbortController();
+    const rank = vi.fn(async () => ({
+      status: "selected" as const,
+      ids: ["list-events"],
+    }));
+    const result = await searchToolRegistryForRequest(
+      { "list-events": action("List calendar events") },
+      { task: "calendar" },
+      {
+        taskRank: rank,
+        taskCandidateProvider: async () => {
+          controller.abort();
+          return [];
+        },
+      },
+      { caller: "mcp", signal: controller.signal },
+    );
+    expect(result.status).toBe("failed");
+    expect(rank).not.toHaveBeenCalled();
+  });
+
+  it("honors the result limit for ranked recommendations", async () => {
+    const result = await searchToolRegistryForRequest(
+      { one: action("calendar one"), two: action("calendar two") },
+      { task: "calendar", limit: 1 },
+      { taskRank: async () => ({ status: "selected", ids: ["one", "two"] }) },
+    );
+    expect(result.recommendations?.map((item) => item.name)).toEqual(["one"]);
+    expect(result.results).toHaveLength(1);
+  });
+
+  it("rejects an oversized task without calling the provider", async () => {
+    const rank = vi.fn();
+    const result = await searchToolRegistryForRequest(
+      { one: action("calendar") },
+      { task: "x".repeat(5000) },
+      { taskRank: rank },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "failed",
+      recommendations: [],
+    });
+    expect(rank).not.toHaveBeenCalled();
+  });
+
+  it("marks an advertised action callable for MCP independently of plan-mode policy", async () => {
+    const registry = {
+      write: { ...action("write changes"), allowInPlanMode: false },
+    };
+    const result = await searchToolRegistryForRequest(
+      registry,
+      { task: "write" },
+      {},
+      { caller: "mcp" },
+    );
+    expect(result.recommendations?.[0]?.callable).toBe(true);
+  });
+
+  it("does not rank provider-supplied tools outside the authorized registry", async () => {
+    const rank = vi.fn(async (_task, candidates) => ({
+      status: "selected" as const,
+      ids: candidates.map((item) => item.id),
+    }));
+    const result = await searchToolRegistryForRequest(
+      { allowed: action("allowed action") },
+      { task: "action" },
+      {
+        taskRank: rank,
+        taskCandidates: [
+          {
+            id: "denied",
+            name: "denied",
+            kind: "tool",
+            description: "action",
+            use: { type: "tools/call" },
+            callable: true,
+            reason: "test",
+          },
+        ],
+      },
+    );
+    expect(result.recommendations?.map((item) => item.name)).not.toContain(
+      "denied",
+    );
+    expect(rank.mock.calls[0]?.[1].map((item) => item.id)).not.toContain(
+      "denied",
+    );
+  });
+
+  it("reports when task mode cannot load explicit names in the same call", async () => {
+    const result = await searchToolRegistryForRequest(
+      { one: action("one") },
+      { task: "find one", names: ["one"] },
+    );
+    expect(result.message).toContain("names");
+  });
+
+  it("does not expose app recommendations when read-only filtering removes open_app", async () => {
+    const provider = vi.fn(async () => [
+      {
+        id: "app:alpha",
+        name: "Alpha",
+        kind: "app" as const,
+        description: "alpha",
+        use: { type: "open_app" as const, app: "alpha", path: "/" },
+        callable: true,
+        reason: "test",
+      },
+    ]);
+    const result = await searchToolRegistryForRequest(
+      { open_app: { ...action("open alpha"), readOnly: false } },
+      { task: "alpha", readOnlyOnly: true },
+      { taskCandidateProvider: provider },
+    );
+    expect(result.recommendations).toEqual([]);
+    expect(provider.mock.calls[0]?.[0].callableActionNames).not.toContain(
+      "open_app",
+    );
+  });
+
+  it("fails closed on malformed app invocation metadata", async () => {
+    const rank = vi.fn();
+    const result = await searchToolRegistryForRequest(
+      { open_app: action("open an app") },
+      { task: "open app" },
+      {
+        taskRank: rank,
+        taskCandidateProvider: async () => [
+          {
+            id: "app:broken",
+            kind: "app",
+            name: "Broken",
+            description: "app",
+            callable: true,
+            reason: "test",
+            use: { type: "open_app" },
+          } as any,
+        ],
+      },
+    );
+    expect(result).toMatchObject({ status: "failed", recommendations: [] });
+    expect(rank).not.toHaveBeenCalled();
+  });
+
+  it("loads authorized BM25 matches when the ranker fails", async () => {
+    const result = await searchToolRegistryForRequest(
+      { "list-events": action("calendar events") },
+      { task: "calendar" },
+      { taskRank: async () => ({ status: "failed", ids: [] }) },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "failed",
+      recommendations: [{ name: "list-events" }],
+    });
+    expect(extractToolSearchResultNames(result)).toEqual(["list-events"]);
+  });
+
+  it("keeps authorized tool fallback when supplemental candidate discovery fails", async () => {
+    const result = await searchToolRegistryForRequest(
+      { "list-events": action("calendar events") },
+      { task: "calendar" },
+      {
+        taskCandidateProvider: async () => {
+          throw new Error("supplemental source unavailable");
+        },
+      },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "failed",
+      recommendations: [{ name: "list-events" }],
+    });
+    expect(result.message).toMatch(/supplemental/i);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("loads exactly the named tools when the whole query is known action names", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "get-project": action("Get one project by id"),
+      "list-project-members": action("List project members"),
+      "archive-project": action("Archive a project"),
+    };
+    for (const query of [
+      "list-projects, get-project",
+      "list-projects get-project",
+      "LIST-PROJECTS,get-project",
+    ]) {
+      const result = searchToolRegistry(registry, { query });
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "get-project",
+        "list-projects",
+      ]);
+    }
+    const viaQueries = searchToolRegistry(registry, {
+      queries: ["list-projects", "get-project"],
+    });
+    expect(viaQueries.results.map((r) => r.name).sort()).toEqual([
+      "get-project",
+      "list-projects",
+    ]);
+  });
+
+  it("falls back to fuzzy search when any word is not a known action name", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "get-project": action("Get one project by id"),
+      "archive-project": action("Archive a project"),
+    };
+    const result = searchToolRegistry(registry, {
+      query: "list-projects, project",
+    });
+    expect(result.results.map((r) => r.name)).toContain("archive-project");
+  });
+
+  it("still applies the read-only filter to an exact-name query", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "delete-project": {
+        ...action("Delete a project"),
+        readOnly: false,
+      } as ActionEntry,
+    };
+    const result = searchToolRegistry(registry, {
+      query: "list-projects, delete-project",
+      readOnlyOnly: true,
+    });
+    expect(result.results.map((r) => r.name)).toEqual(["list-projects"]);
   });
 
   it("searches action names, descriptions, and parameter metadata", () => {
@@ -1335,5 +1657,124 @@ describe("tool-search zero-hit fallback", () => {
 
     expect(result.suggestions).toBeUndefined();
     expect(result.message).not.toContain("No tool matched");
+  });
+});
+
+describe("closestToolMatches", () => {
+  const registry = (): Record<string, ActionEntry> => ({
+    "send-report-now": action("Email a saved report to its subscribers now."),
+    "list-reports": action("List the saved reports."),
+    "archive-report": action("Archive a saved report."),
+    "list-events": action("List calendar events"),
+  });
+  const names = (matches: Array<{ name: string }>) =>
+    matches.map((match) => match.name);
+
+  it("ranks a query's matches best first, up to the limit", () => {
+    const matches = closestToolMatches(
+      registry(),
+      { query: "email report subscribers" },
+      2,
+    );
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toEqual({
+      name: "send-report-now",
+      description: "Email a saved report to its subscribers now.",
+    });
+    expect(names(matches)).not.toContain("list-events");
+  });
+
+  it("ranks every query and the task, keeping each tool once at its best score", () => {
+    const matches = closestToolMatches(
+      registry(),
+      {
+        queries: ["archive report", "calendar events"],
+        task: "  email the subscribers  ",
+      },
+      10,
+    );
+    expect(names(matches)).toEqual(
+      expect.arrayContaining([
+        "archive-report",
+        "list-events",
+        "send-report-now",
+      ]),
+    );
+    expect(new Set(names(matches)).size).toBe(matches.length);
+  });
+
+  it("puts a tool asked for by name first, whatever its case", () => {
+    const matches = closestToolMatches(
+      registry(),
+      { names: ["List-Reports"], query: "email report subscribers" },
+      3,
+    );
+    expect(names(matches)[0]).toBe("list-reports");
+  });
+
+  it("names nothing for a menu search or a blank task", () => {
+    expect(closestToolMatches(registry(), {}, 3)).toEqual([]);
+    expect(closestToolMatches(registry(), { task: "   " }, 3)).toEqual([]);
+  });
+
+  it("leaves out tool-search, tools hidden from every agent and other servers' tools", () => {
+    const matches = closestToolMatches(
+      {
+        ...registry(),
+        [TOOL_SEARCH_ACTION_NAME]: action("Find a report tool by email"),
+        "export-report-pdf": {
+          ...action("Email a report as a PDF"),
+          uiOnly: true,
+        },
+        mcp__mailer__send_report: action("Email a report to subscribers"),
+      },
+      { query: "email report" },
+      10,
+    );
+    expect(names(matches)).toContain("send-report-now");
+    expect(names(matches)).not.toContain(TOOL_SEARCH_ACTION_NAME);
+    expect(names(matches)).not.toContain("export-report-pdf");
+    expect(names(matches)).not.toContain("mcp__mailer__send_report");
+  });
+
+  it("describes each tool in one short line", () => {
+    const [match] = closestToolMatches(
+      {
+        "send-report-now": action(
+          `Email a saved report
+
+  to its subscribers ${"now ".repeat(60)}`,
+        ),
+      },
+      { query: "email report" },
+      1,
+    );
+    expect(match.description).toMatch(
+      /^Email a saved report to its subscribers now/,
+    );
+    expect(match.description).not.toMatch(/\s{2}|\n/);
+    expect(match.description.length).toBeLessThanOrEqual(120);
+    expect(match.description.endsWith("…")).toBe(true);
+  });
+});
+
+describe("namesUnservedTools", () => {
+  it("is true for a targeted search", () => {
+    expect(namesUnservedTools({ query: "email report" })).toBe(true);
+    expect(namesUnservedTools({ names: ["send-report-now"] })).toBe(true);
+    expect(namesUnservedTools({ task: "send the report now" })).toBe(true);
+  });
+
+  it("is false for a menu search or one for read-only tools", () => {
+    expect(namesUnservedTools({})).toBe(false);
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: true })).toBe(
+      false,
+    );
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: "yes" })).toBe(
+      false,
+    );
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: false })).toBe(
+      true,
+    );
   });
 });

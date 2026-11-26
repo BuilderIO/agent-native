@@ -112,7 +112,7 @@ async function seedApps(count: number) {
 
 beforeEach(async () => {
   statements = [];
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE qa_batch_apps (
       id TEXT PRIMARY KEY,

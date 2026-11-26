@@ -6,9 +6,10 @@ import {
   getQuery,
   sendRedirect,
 } from "h3";
-import { getRequestHeader } from "h3";
+import { createError, getRequestHeader, isError } from "h3";
 import type { EventHandler } from "h3";
 
+import { isTrustedLocalRequest } from "../a2a/auth-policy.js";
 import {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
@@ -23,6 +24,9 @@ import {
   hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
 } from "../org/context.js";
+import { isOrgMember } from "../org/membership.js";
+import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
+import { canManageOrg } from "../org/permissions.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
@@ -49,6 +53,7 @@ import {
   startIntervalJob,
   type IntervalJobHandle,
 } from "../server/interval-job.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { sessionResolutionFailure } from "../server/session-resolution-errors.js";
@@ -216,6 +221,16 @@ import {
   slackOAuthResponseToInstallation,
   testSlackAuth,
 } from "./slack-oauth.js";
+import {
+  SLACK_USER_INSTALL_APP,
+  installSlackUserGrant,
+  resolveSlackUserInstallGate,
+  slackUserInstallOperationId,
+} from "./slack-user-install.js";
+import {
+  SLACK_USER_READ_SCOPES,
+  buildSlackUserAuthorizeUrl,
+} from "./slack-user-oauth.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import type {
   PlatformAdapter,
@@ -466,6 +481,7 @@ type IntegrationCredentialContext = {
   orgScope?: "personal";
   defaultAgentEngineScope?: "deployment";
   isIntegrationCaller?: boolean;
+  skipUserScopeSecrets?: boolean;
 };
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
@@ -931,10 +947,62 @@ export function createIntegrationsPlugin(
       };
     };
 
+    async function integrationOwnerOrgId(
+      ownerEmail: string | undefined,
+    ): Promise<string | null> {
+      const owner = ownerEmail?.trim();
+      if (!owner) return null;
+      const scope = await resolveIntegrationRequestScope({
+        ownerEmail: owner,
+        principalType: "user",
+      });
+      return scope.orgId ?? null;
+    }
+
+    function storedIntegrationOwnerOrgId(
+      config: Awaited<ReturnType<typeof getIntegrationConfig>>,
+    ): string | null | undefined {
+      const stored = config?.configData.ownerOrgId;
+      return typeof stored === "string" || stored === null ? stored : undefined;
+    }
+
+    async function assertCanReplaceIntegrationOwner(
+      platform: string,
+      actorEmail: string | undefined,
+    ): Promise<string | null | undefined> {
+      const existing = await getIntegrationConfig(platform);
+      const existingOwner = existing?.owner?.trim();
+      if (!existingOwner) return undefined;
+      const actor = actorEmail?.trim().toLowerCase() ?? "";
+      const storedOrgId = storedIntegrationOwnerOrgId(existing);
+      if (actor) {
+        if (typeof storedOrgId === "string") {
+          if (canManageOrg(await readOrgMemberRole(storedOrgId, actor))) {
+            return storedOrgId;
+          }
+        } else if (actor === existingOwner.toLowerCase()) {
+          return storedOrgId;
+        }
+        if (canManageDeploymentWithoutOrg(actor)) return undefined;
+      }
+      throw createError({
+        statusCode: 403,
+        message: `${platform} is managed by another organization on this deployment.`,
+      });
+    }
+
     const channels: MountedChannels = {
       adapters,
       webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
       async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        const recordedOrgId = await assertCanReplaceIntegrationOwner(
+          platform,
+          actorEmail,
+        );
+        const ownerOrgId =
+          recordedOrgId === undefined
+            ? await integrationOwnerOrgId(actorEmail)
+            : recordedOrgId;
         if (platform === "google-docs") {
           if (enabled) {
             const ownerEmail = actorEmail?.trim();
@@ -945,7 +1013,7 @@ export function createIntegrationsPlugin(
             }
             await saveIntegrationConfig(
               platform,
-              { enabled },
+              { enabled, ownerOrgId },
               "default",
               ownerEmail,
             );
@@ -957,7 +1025,7 @@ export function createIntegrationsPlugin(
           } else {
             await saveIntegrationConfig(
               platform,
-              { enabled },
+              { enabled, ownerOrgId },
               "default",
               actorEmail,
             );
@@ -967,7 +1035,7 @@ export function createIntegrationsPlugin(
         }
         await saveIntegrationConfig(
           platform,
-          { enabled },
+          { enabled, ownerOrgId },
           "default",
           actorEmail,
         );
@@ -1151,13 +1219,16 @@ export function createIntegrationsPlugin(
       const ownerEmail =
         typeof config?.owner === "string" ? config.owner.trim() : "";
       if (!ownerEmail) return null;
+      const storedOrgId = storedIntegrationOwnerOrgId(config);
       return {
         userEmail: ownerEmail,
         ...integrationRequestContext(
-          await resolveIntegrationRequestScope({
-            ownerEmail,
-            principalType: "user",
-          }),
+          storedOrgId === undefined
+            ? await resolveIntegrationRequestScope({
+                ownerEmail,
+                principalType: "user",
+              })
+            : verifiedRequestScope(storedOrgId),
         ),
         isIntegrationCaller: true,
       };
@@ -1200,8 +1271,11 @@ export function createIntegrationsPlugin(
         return { ok: false, error: "unauthorized" };
       }
       const ctx = await getIntegrationOrgContext(event);
-      if (!ctx?.orgId) return { ok: true };
-      if (ctx.role === "owner" || ctx.role === "admin") return { ok: true };
+      if (!ctx.orgId) {
+        if (canManageDeploymentWithoutOrg(session.email)) return { ok: true };
+      } else if (ctx.role === "owner" || ctx.role === "admin") {
+        return { ok: true };
+      }
       setResponseStatus(event, 403);
       return {
         ok: false,
@@ -2074,18 +2148,14 @@ export function createIntegrationsPlugin(
         // by guessing or sniffing its id (C3 in the webhook security audit).
         // The atomic SQL claim only prevents *double*-processing, not the
         // first attacker-driven processing.
-        //
-        // In dev we keep the loose posture so contributors don't have to
-        // configure A2A_SECRET to play with the integration locally.
         if (!process.env.A2A_SECRET) {
-          if (process.env.NODE_ENV === "production") {
+          if (!isTrustedLocalRequest(event)) {
             setResponseStatus(event, 503);
             return {
               error:
-                "A2A_SECRET not configured — internal token signing is required to process integration tasks in production.",
+                "A2A_SECRET not configured — internal token signing is required to process integration tasks outside local development.",
             };
           }
-          // Dev: fall through unsigned (the atomic claim still gates double-processing).
         } else {
           const tok = extractBearerToken(
             getRequestHeader(event, "authorization"),
@@ -2700,11 +2770,11 @@ export function createIntegrationsPlugin(
         }
 
         if (!process.env.A2A_SECRET) {
-          if (process.env.NODE_ENV === "production") {
+          if (!isTrustedLocalRequest(event)) {
             setResponseStatus(event, 503);
             return {
               error:
-                "A2A_SECRET not configured — internal token signing is required to process A2A continuations in production.",
+                "A2A_SECRET not configured — internal token signing is required to process A2A continuations outside local development.",
             };
           }
         } else {
@@ -3104,12 +3174,17 @@ export function createIntegrationsPlugin(
           return { error: "Sign in before connecting Slack." };
         }
         const org = await getIntegrationOrgContext(event);
+        const userOnlyRequest = getQuery(event).mode === "user";
         try {
-          assertSlackInstallAccess({
-            email: session.email,
-            orgId: org.orgId ?? null,
-            orgRole: org?.role ?? null,
-          });
+          // A personal grant belongs to the signed-in member, so only bot
+          // installs need an org owner or admin.
+          if (!userOnlyRequest) {
+            assertSlackInstallAccess({
+              email: session.email,
+              orgId: org.orgId ?? null,
+              orgRole: org.role ?? null,
+            });
+          }
         } catch (err) {
           setResponseStatus(event, 403);
           return {
@@ -3125,12 +3200,17 @@ export function createIntegrationsPlugin(
           async () => {
             const clientId = await resolveSecret("SLACK_CLIENT_ID");
             const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
-            const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
+            // Only a bot install registers event and interactivity webhooks,
+            // which is what the signing secret verifies.
+            const signingSecret = userOnlyRequest
+              ? true
+              : await resolveSecret("SLACK_SIGNING_SECRET");
             if (!clientId || !clientSecret || !signingSecret) {
               setResponseStatus(event, 503);
               return {
-                error:
-                  "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
+                error: userOnlyRequest
+                  ? "Slack OAuth is not configured. Add the Slack client id and client secret first."
+                  : "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
               };
             }
             const redirectUri = resolveOAuthRedirectUri(
@@ -3142,15 +3222,55 @@ export function createIntegrationsPlugin(
               return { error: "Slack OAuth redirect URL is not allowed." };
             }
             const query = getQuery(event);
+            const userOnly = userOnlyRequest;
+            // Fail closed: user-only installs exist only for workspaces the
+            // deployment explicitly allows.
+            const gate = userOnly ? resolveSlackUserInstallGate() : null;
+            if (gate && gate.allowlist.length === 0 && !gate.bootstrap) {
+              setResponseStatus(event, 403);
+              return {
+                error:
+                  "Slack user authorization is not enabled for this deployment.",
+              };
+            }
+            if (userOnly && session.authUserId === undefined) {
+              setResponseStatus(event, 403);
+              return {
+                error:
+                  "Slack user authorization needs a signed-in account identity.",
+              };
+            }
             const state = encodeOAuthState({
               redirectUri,
               owner: session.email,
               orgId: org.orgId ?? undefined,
-              app: "agent-native:slack",
+              app: userOnly ? SLACK_USER_INSTALL_APP : "agent-native:slack",
               addAccount: true,
+              // Bind a personal grant to the initiating auth principal, not
+              // only its email, which another principal could later reuse.
+              ...(userOnly
+                ? { flowId: `principal:${session.authUserId}` }
+                : {}),
               returnUrl:
                 typeof query.return === "string" ? query.return : "/messaging",
             });
+            if (gate) {
+              return sendRedirect(
+                event,
+                buildSlackUserAuthorizeUrl({
+                  clientId,
+                  redirectUri,
+                  state,
+                  userScopes: SLACK_USER_READ_SCOPES,
+                  // A single pinned workspace skips the workspace picker; with
+                  // several (or none yet) the provider decides.
+                  ...(gate.allowlist.length === 1
+                    ? { teamId: gate.allowlist[0] }
+                    : {}),
+                }),
+                302,
+              );
+            }
             return sendRedirect(
               event,
               buildSlackAuthorizeUrl({ clientId, redirectUri, state }),
@@ -3192,8 +3312,9 @@ export function createIntegrationsPlugin(
         }
         const session = await getSession(event);
         const org = await getIntegrationOrgContext(event);
+        const userOnlyInstall = state.app === SLACK_USER_INSTALL_APP;
         if (
-          state.app !== "agent-native:slack" ||
+          (state.app !== "agent-native:slack" && !userOnlyInstall) ||
           !session?.email ||
           !state.owner ||
           session.email.toLowerCase() !== state.owner.toLowerCase() ||
@@ -3205,19 +3326,57 @@ export function createIntegrationsPlugin(
         }
         const code = typeof query.code === "string" ? query.code : null;
         if (!code) return oauthErrorPage("Slack did not return an OAuth code.");
+        if (
+          userOnlyInstall &&
+          (session.authUserId === undefined ||
+            state.flowId !== `principal:${session.authUserId}`)
+        ) {
+          return oauthErrorPage(
+            "Your Slack install session expired or changed. Sign in and start again.",
+          );
+        }
         try {
-          const access = assertSlackInstallAccess({
-            email: session.email,
-            orgId: org.orgId ?? null,
-            orgRole: org?.role ?? null,
-          });
+          const access = userOnlyInstall
+            ? userOnlyAccess(session.email, org.orgId)
+            : assertSlackInstallAccess({
+                email: session.email,
+                orgId: org.orgId ?? null,
+                orgRole: org.role ?? null,
+              });
           const requestScope = verifiedRequestScope(access.orgId);
           return await runWithRequestContext(
             {
               userEmail: access.ownerEmail,
+              ...(userOnlyInstall && session.authUserId
+                ? { authUserId: session.authUserId }
+                : {}),
               ...integrationRequestContext(requestScope),
             },
             async () => {
+              const installOwnerOrgId = access.orgId ?? null;
+              if (!userOnlyInstall) {
+                try {
+                  const recordedOrgId = await assertCanReplaceIntegrationOwner(
+                    "slack",
+                    access.ownerEmail,
+                  );
+                  if (
+                    recordedOrgId !== undefined &&
+                    recordedOrgId !== installOwnerOrgId
+                  ) {
+                    setResponseStatus(event, 409);
+                    return oauthErrorPage(
+                      "Switch to the organization that manages Slack, then install again.",
+                    );
+                  }
+                } catch (err) {
+                  if (!isError(err) || err.statusCode !== 403) throw err;
+                  setResponseStatus(event, 403);
+                  return oauthErrorPage(
+                    "Slack is managed by another organization on this deployment.",
+                  );
+                }
+              }
               const clientId = await resolveSecret("SLACK_CLIENT_ID");
               const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
               if (!clientId || !clientSecret) {
@@ -3229,6 +3388,51 @@ export function createIntegrationsPlugin(
                 clientSecret,
                 redirectUri: state.redirectUri,
               });
+              if (userOnlyInstall) {
+                // User-only installs store a personal grant and never a bot
+                // installation. The gate is re-checked here because the team
+                // id is only known after the exchange.
+                const gate = resolveSlackUserInstallGate();
+                if (gate.allowlist.length === 0 && !gate.bootstrap) {
+                  return oauthErrorPage(
+                    "Slack user authorization is not enabled for this deployment.",
+                  );
+                }
+                const userToken = oauth.authed_user?.access_token;
+                if (!userToken) {
+                  return oauthErrorPage(
+                    "Slack returned no user authorization. Please retry.",
+                  );
+                }
+                const userHealth = await testSlackAuth(userToken);
+                if (!userHealth.ok) {
+                  return oauthErrorPage(
+                    "Slack connected, but the user token could not be verified. Please retry.",
+                  );
+                }
+                if (
+                  oauth.team?.id &&
+                  userHealth.teamId &&
+                  oauth.team.id !== userHealth.teamId
+                ) {
+                  return oauthErrorPage(
+                    "Slack returned inconsistent workspace details. Please retry.",
+                  );
+                }
+                await installSlackUserGrant({
+                  response: oauth,
+                  allowlist: gate.allowlist,
+                  bootstrap: gate.bootstrap,
+                  operationId: slackUserInstallOperationId(
+                    `${oauth.team?.id ?? ""}:${oauth.authed_user?.id ?? ""}:${code}`,
+                  ),
+                });
+                return oauthCallbackResponse(event, "Slack", {
+                  addAccount: true,
+                  appName: "Agent-Native",
+                  returnUrl: state.returnUrl || "/messaging",
+                });
+              }
               const health = await testSlackAuth(oauth.access_token || "");
               if (!health.ok) {
                 return oauthErrorPage(
@@ -3253,7 +3457,11 @@ export function createIntegrationsPlugin(
               });
               await saveIntegrationConfig(
                 "slack",
-                { enabled: true, managedOAuth: true },
+                {
+                  enabled: true,
+                  managedOAuth: true,
+                  ownerOrgId: installOwnerOrgId,
+                },
                 "default",
                 access.ownerEmail,
               );
@@ -3365,12 +3573,57 @@ export function createIntegrationsPlugin(
             return "ok";
           }
 
-          const config = await getIntegrationConfig(platform);
+          const loadedConfig = await getIntegrationConfig(platform);
+          let config = loadedConfig;
+          let channelOrgId = storedIntegrationOwnerOrgId(loadedConfig);
+          let lookupFailed = false;
+          if (channelOrgId === undefined) {
+            try {
+              channelOrgId = await integrationOwnerOrgId(
+                loadedConfig?.owner ?? undefined,
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] ${platform} channel organization lookup failed:`,
+                err,
+              );
+              lookupFailed = true;
+            }
+            if (!lookupFailed && loadedConfig?.owner?.trim()) {
+              config = {
+                ...loadedConfig,
+                configData: {
+                  ...loadedConfig.configData,
+                  ownerOrgId: channelOrgId,
+                },
+              };
+              try {
+                await saveIntegrationConfig(
+                  platform,
+                  config.configData,
+                  "default",
+                  loadedConfig.owner,
+                );
+              } catch (err) {
+                console.error(
+                  `[integrations] ${platform} channel organization could not be recorded:`,
+                  err,
+                );
+              }
+            }
+          }
+          if (lookupFailed) {
+            setResponseStatus(event, 503);
+            return "unavailable";
+          }
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
+          const verificationContext = credentialContext
+            ? { ...credentialContext, skipUserScopeSecrets: true }
+            : null;
 
           const verification = await withCredentialContext(
-            credentialContext,
+            verificationContext,
             () => adapter.handleVerification(event),
           );
 
@@ -3383,7 +3636,7 @@ export function createIntegrationsPlugin(
             return { error: "Invalid webhook verification challenge" };
           }
 
-          const isValid = await withCredentialContext(credentialContext, () =>
+          const isValid = await withCredentialContext(verificationContext, () =>
             adapter.verifyWebhook(event),
           );
           if (!isValid) {
@@ -3569,6 +3822,51 @@ export function createIntegrationsPlugin(
               console.error(
                 `[integrations] default execution identity denied message:`,
                 err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
+            }
+          }
+          if (channelOrgId) {
+            let permitted = true;
+            const runOwner = executionContext.ownerEmail.trim().toLowerCase();
+            const isUserRun =
+              executionContext.principalType === "user" ||
+              !runOwner.startsWith("integration@");
+            try {
+              let runOrgId = executionContext.orgId;
+              if (!runOrgId && executionContext.principalType === "user") {
+                runOrgId = (
+                  await resolveIntegrationRequestScope({
+                    ownerEmail: executionContext.ownerEmail,
+                    principalType: "user",
+                  })
+                ).orgId;
+              }
+              if (runOrgId && runOrgId !== channelOrgId) {
+                permitted = false;
+              } else if (
+                !runOrgId &&
+                executionContext.principalType === "user"
+              ) {
+                permitted = false;
+              } else if (isUserRun) {
+                permitted = await isOrgMember(channelOrgId, runOwner);
+              }
+            } catch (err) {
+              console.error(
+                `[integrations] ${platform} channel organization check failed:`,
+                err,
+              );
+              lookupFailed = true;
+            }
+            if (lookupFailed) {
+              setResponseStatus(event, 503);
+              return "unavailable";
+            }
+            if (!permitted) {
+              console.warn(
+                `[integrations] ${platform} message ignored: sender is outside the channel's organization`,
               );
               setResponseStatus(event, 200);
               return "ok";
@@ -3861,4 +4159,23 @@ function stringifyValue(value: unknown): string {
   )
     return String(value);
   return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
+/** A personal grant needs the signed-in member, not an org owner or admin. */
+function userOnlyAccess(email: string, orgId: string | null | undefined) {
+  const ownerEmail = email.trim().toLowerCase();
+  const org = orgId?.trim() || null;
+  return org
+    ? {
+        ownerEmail,
+        orgId: org,
+        secretScope: "org" as const,
+        secretScopeId: org,
+      }
+    : {
+        ownerEmail,
+        orgId: null,
+        secretScope: "user" as const,
+        secretScopeId: ownerEmail,
+      };
 }

@@ -26,7 +26,6 @@ import {
   IconLayoutGrid,
   IconMessageCircle,
   IconPhoto,
-  IconPlayerPlay,
   IconPuzzle,
   IconSearch,
 } from "@tabler/icons-react";
@@ -113,7 +112,6 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
 
 interface DesignExtensionsPanelProps {
   context: DesignExtensionSlotContext;
-  motionLabEnabled: boolean;
   className?: string;
   hideAssetLibrary?: boolean;
   title?: string;
@@ -122,13 +120,10 @@ interface DesignExtensionsPanelProps {
 
 type CreateExtensionSubmitHandler = (text: string) => void;
 
-type FirstPartyExtId =
-  | "design.asset-library"
-  | "design.token-auditor"
-  | "design.motion-presets";
+type FirstPartyExtId = "design.asset-library" | "design.token-auditor";
 
 type ToolSourceFilter = "all" | "built-in" | "extensions";
-type ToolCategoryFilter = "all" | "shader" | "tokens" | "motion" | "plugins";
+type ToolCategoryFilter = "all" | "shader" | "tokens" | "plugins";
 
 type FirstPartyRow = {
   id: FirstPartyExtId;
@@ -1097,63 +1092,8 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
   );
 }
 
-interface MotionPresetsPanelProps {
-  context: DesignExtensionSlotContext;
-}
-
-function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
-  const t = useT();
-
-  const handleAskAgent = () => {
-    sendToDesignAgentChat({
-      message:
-        "Apply a motion preset to the selected element. Inspect existing motion first with get-motion-timeline, preview the selected frame, then save the timeline with apply-motion-edit. For inline HTML or React JSX, adopt supported static CSS animations into the timeline when present.",
-      context: [
-        `Design id: ${context.designId}`,
-        context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
-        context.selectedElement
-          ? `Selected element: ${JSON.stringify({ selector: context.selectedElement.selector, sourceId: context.selectedElement.sourceId }, null, 2)}`
-          : "No element selected — ask the user to click an element first.",
-        "Inline HTML <style> and React JSX <style> CSS import supports one static animation per uniquely resolved simple selector, using top-level @keyframes, fixed longhand timing, a supported easing, and static keyframe values for supported properties. React requires one lossless static JSX text or string/template literal with no substitutions. On save, adopted animation declarations and @keyframes move into managed Motion CSS; unrelated CSS remains. Removing the Motion timeline removes adopted animation CSS. This does not import JSX style-prop animations/transitions, JavaScript runtime animations, GSAP, Web Animations API calls, external stylesheets, or Alpine x-transition directives. Unsupported or ambiguous CSS must remain unchanged.",
-        "React/JSX source writeback uses verified managed Motion CSS; it does not import unmarked CSS. Call get-motion-timeline, then preview-motion-frame, then apply-motion-edit.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      submit: true,
-      openSidebar: true,
-    });
-  };
-
-  return (
-    <div className="p-2.5">
-      <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
-        One-click animation presets — fade-in, slide-up, pulse, bounce, spin —
-        applied to the selected element via the motion timeline.
-      </p>
-      {!context.selectedElement && (
-        <p className="mb-1.5 text-[10px] text-muted-foreground">
-          Select an element on the canvas first, then ask the agent to apply a
-          motion preset.
-        </p>
-      )}
-      <div className="flex flex-wrap gap-1.5">
-        <Button
-          type="button"
-          size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
-          onClick={handleAskAgent}
-        >
-          <IconMessageCircle className="size-3" />
-          {t("designEditor.askAgent") || "Ask agent"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function DesignExtensionsPanel({
   context,
-  motionLabEnabled,
   className,
   hideAssetLibrary = false,
   title,
@@ -1247,31 +1187,17 @@ export function DesignExtensionsPanel({
       icon: <IconAssembly className="size-3.5" />,
       panel: <TokenAuditorPanel context={context} />,
     },
-    ...(motionLabEnabled
-      ? [
-          {
-            id: "design.motion-presets" as const,
-            label: "Motion Presets",
-            description: "One-click animation presets for elements",
-            category: "motion" as const,
-            icon: <IconPlayerPlay className="size-3.5" />,
-            panel: <MotionPresetsPanel context={context} />,
-          },
-        ]
-      : []),
   ];
   const firstPartyRows = allFirstPartyRows.filter(
     (row) => !hideAssetLibrary || row.id !== "design.asset-library",
   );
   const normalizedSearch = searchQuery.trim().toLowerCase();
-  const visibleCategoryFilter =
-    !motionLabEnabled && categoryFilter === "motion" ? "all" : categoryFilter;
   const sourceMatches = (source: ToolSourceFilter) =>
     !enableExtensionDiscovery ||
     sourceFilter === "all" ||
     sourceFilter === source;
   const categoryMatches = (category: ToolCategoryFilter) =>
-    visibleCategoryFilter === "all" || visibleCategoryFilter === category;
+    categoryFilter === "all" || categoryFilter === category;
   const textMatches = (name: string, description?: string | null) => {
     if (!normalizedSearch) return true;
     return `${name} ${description ?? ""}`
@@ -1353,15 +1279,12 @@ export function DesignExtensionsPanel({
           ) : null}
           <ToolFilterMenu
             label="Category"
-            value={visibleCategoryFilter}
+            value={categoryFilter}
             onChange={setCategoryFilter}
             options={[
               { value: "all", label: "Category" },
               { value: "shader", label: "Shaders" },
               { value: "tokens", label: "Tokens" },
-              ...(motionLabEnabled
-                ? [{ value: "motion" as const, label: "Motion" }]
-                : []),
               ...(enableExtensionDiscovery
                 ? [{ value: "plugins" as const, label: "Plugins" }]
                 : []),

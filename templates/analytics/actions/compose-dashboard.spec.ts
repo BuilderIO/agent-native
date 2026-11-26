@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { sameJsonValue } from "./dashboard-mutation-api";
 
@@ -137,6 +145,14 @@ const CONTENT_OR_CHAT_RETENTION_METRICS = [
   "one-day-retention-by-template",
   "seven-day-retention-by-template",
 ];
+
+beforeAll(() => {
+  vi.stubEnv("DATABASE_URL", "pglite:memory");
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 beforeEach(() => {
   store.clear();

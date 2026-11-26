@@ -4,6 +4,21 @@ import type { ShareRole } from "../sharing/schema.js";
 import { getRun } from "./run-manager.js";
 import { getRunById } from "./run-store.js";
 
+export interface RunAppScope {
+  sourceAppId: string | null;
+}
+
+export async function threadMatchesRunApp(
+  threadId: string | null | undefined,
+  scope?: RunAppScope,
+): Promise<boolean> {
+  if (scope === undefined) return true;
+  const appId = scope.sourceAppId?.trim();
+  if (!appId || !threadId) return false;
+  const thread = await getThread(threadId);
+  return thread?.source?.appId === appId;
+}
+
 export async function resolveRunThreadId(
   runId: string,
 ): Promise<string | null> {
@@ -27,8 +42,10 @@ export async function callerHasThreadAccess(
   threadId: string | null | undefined,
   role: ShareRole | "owner" = "viewer",
   ctx: Omit<AccessContext, "userEmail"> = {},
+  appScope?: RunAppScope,
 ): Promise<boolean> {
   if (!threadId) return false;
+  if (!(await threadMatchesRunApp(threadId, appScope))) return false;
   return hasThreadAccess(owner, threadId, role, ctx);
 }
 
@@ -44,11 +61,13 @@ export async function callerHasRunAccess(
   runId: string,
   role: ShareRole | "owner" = "viewer",
   ctx: Omit<AccessContext, "userEmail"> = {},
+  appScope?: RunAppScope,
 ): Promise<boolean> {
   return callerHasThreadAccess(
     owner,
     await resolveRunThreadId(runId),
     role,
     ctx,
+    appScope,
   );
 }

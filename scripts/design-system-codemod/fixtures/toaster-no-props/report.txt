@@ -1,0 +1,20 @@
+Changed files:
+
+Sites transformed:
+  button     0
+  badge      0
+  input      0
+  text-area  0
+  skeleton   0
+  spinner    0
+  toast      0
+
+Shims:
+
+Not transformed (1 sites), by reason:
+  [toast] the new Toaster needs its localized labels: pass --toaster-props (1)
+    root.tsx:4
+
+Transformed, needs a look (0 sites), by reason:
+
+Test mocks of a legacy module (0):

@@ -32,6 +32,7 @@ import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkelet
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useDocumentPropertyUndoShortcuts } from "@/hooks/document-property-undo";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { startPageOpenDocumentReads } from "@/hooks/use-documents";
@@ -133,6 +134,7 @@ export function Layout({ children }: LayoutProps) {
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
+  useDocumentPropertyUndoShortcuts();
   const creativeContextEnabled = useCreativeContextLab();
   const fullWidthSettings = isContentSettingsRoute(chromePathname);
   const currentDocumentId = documentPageIdFromPathname(location.pathname);
@@ -293,7 +295,11 @@ export function Layout({ children }: LayoutProps) {
     sidebar: { collapsed: userSidebarCollapsed, width: sidebarWidth },
   });
   const isCompactLayout = shellLayout.sidebar === "drawer";
-  const { host: agentPanelHost, panelHost } = useAgentPanelHost();
+  const {
+    host: agentPanelHost,
+    panelHost,
+    panelHeadHost,
+  } = useAgentPanelHost();
   const sidebarCollapsed = shellLayout.sidebar === "rail";
 
   const handleSidebarResize = useCallback(
@@ -479,6 +485,7 @@ export function Layout({ children }: LayoutProps) {
               position="right"
               forceOverlay={shellLayout.agentPanel === "overlay"}
               panelHost={panelHost}
+              panelHeadHost={panelHeadHost}
               defaultOpen={false}
               agentPageHref="/settings/agent"
               emptyStateText={t("chat.emptyState")}

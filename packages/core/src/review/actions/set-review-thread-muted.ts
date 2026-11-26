@@ -18,6 +18,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,

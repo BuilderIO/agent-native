@@ -5,6 +5,7 @@ import {
   readDefaultAgentEngineSettingDetailed,
   resolveDefaultAgentEngineAuthority,
 } from "../../agent/default-agent-engine.js";
+import { resolveDefaultAgentEngineModel } from "../../agent/engine-status.js";
 import { listChatGPTSubscriptionModels } from "../../agent/engine/chatgpt-subscription-engine.js";
 import {
   listAgentEngines,
@@ -14,7 +15,6 @@ import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
-  normalizeModelForEngine,
   resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
@@ -22,6 +22,7 @@ import {
   applyProviderModelSelection,
   providerForEngineName,
   resolveEffectiveProviderModelSelection,
+  resolveUncheckedDefaultModelReplacement,
   type EffectiveProviderModelSelection,
   type ProviderModelSelectionProvider,
 } from "../../agent/provider-model-selection.js";
@@ -150,11 +151,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     ProviderModelSelectionProvider,
     Promise<EffectiveProviderModelSelection>
   >();
-  const selectionFor = (
-    engineName: string,
-  ): Promise<EffectiveProviderModelSelection> | null => {
-    const provider = providerForEngineName(engineName);
-    if (!provider) return null;
+  const selectionFor = (provider: ProviderModelSelectionProvider) => {
     let pending = selections.get(provider);
     if (!pending) {
       pending = resolveEffectiveProviderModelSelection(provider);
@@ -220,7 +217,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         detectedFromUser ??
         detectedFromEnv ??
         getAgentEngineEntry("anthropic"));
-    const configuredModel = getAppConfig().agent.model;
+    const configuredModel = getAppConfig().agent.model?.trim();
     const currentModelCandidate =
       configuredModel && configuredModel !== "auto"
         ? configuredModel
@@ -229,38 +226,17 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           : storedUsable && currentEntry?.name === current?.engine
             ? current?.model
             : undefined;
-    const acceptsCustomModels = currentEntry
-      ? await resolveEngineAcceptsCustomModels(currentEntry)
-      : false;
-    const preserveCustomModels = currentEntry
-      ? await resolveEnginePreservesCustomModels(currentEntry)
-      : false;
-    // Mirrors the runtime: an engine default nobody picked yields to the first
-    // checked model once it's unchecked.
-    const currentSelection =
-      currentEntry && !currentModelCandidate
-        ? await selectionFor(currentEntry.name)
-        : null;
-    const checkedDefault =
-      currentSelection?.state === "selected" &&
-      currentEntry &&
-      !currentSelection.models.includes(currentEntry.defaultModel)
-        ? currentSelection.models[0]
-        : undefined;
-    const currentModel =
-      currentEntry && !envUnavailable
-        ? normalizeModelForEngine(
+    currentEngine = currentEntry
+      ? {
+          engine: currentEntry.name,
+          model: await resolveDefaultAgentEngineModel(
             currentEntry,
-            currentModelCandidate ??
-              checkedDefault ??
-              currentEntry.defaultModel,
-            { acceptsCustomModels, preserveCustomModels },
-          )
-        : undefined;
-    currentEngine =
-      !currentEntry || envUnavailable
-        ? null
-        : { engine: currentEntry.name, model: currentModel };
+            currentModelCandidate,
+            (entry) =>
+              resolveUncheckedDefaultModelReplacement(entry, selectionFor),
+          ),
+        }
+      : null;
   } catch (error) {
     if (!(error instanceof CredentialStoreUnavailableError)) throw error;
     currentError = error.message;
@@ -297,9 +273,11 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           ? []
           : e.requiredEnvVars.map((key) => keyRejections.get(key));
       const rejection = rejectionStates.find((state) => !!state);
-      const modelSelection = isAgentEnginePackageInstalled(e)
-        ? await selectionFor(e.name)
-        : null;
+      const provider = providerForEngineName(e.name);
+      const modelSelection =
+        provider && isAgentEnginePackageInstalled(e)
+          ? await selectionFor(provider)
+          : null;
       const credentialRejected = rejection
         ? true
         : rejectionStates.includes(undefined)

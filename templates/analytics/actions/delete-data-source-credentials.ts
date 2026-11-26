@@ -8,6 +8,7 @@ import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "UI-only: delete Analytics data-source credentials. Secret values are not returned.",
   schema: z.object({

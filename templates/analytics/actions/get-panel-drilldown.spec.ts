@@ -49,6 +49,8 @@ describe("get-panel-drilldown", () => {
     "SELECT '\\\\{{drillX}}'",
     "SELECT '''{{drillX}}''' WHERE b = '''a {{drillX}} b'''",
     "SELECT '{{drillX}}{{drillSeries}}'",
+    "SELECT visitor FROM events WHERE (country = '{{drillX}}' OR ('{{drillXIsNull}}' = 'true' AND country IS NULL))",
+    "SELECT visitor FROM events WHERE (day = CAST(NULLIF('{{drillX}}', '') AS DATE) OR ('{{drillXIsNull}}' = 'true' AND day IS NULL))",
   ])(
     "preserves ordinary placeholders and static raw literals: %s",
     async (sql) => {
@@ -171,6 +173,8 @@ describe("get-panel-drilldown", () => {
     "SELECT visitor FROM events WHERE note = 'o''brien {{drillX}}' AND day >= DATE '2026-10-01'",
     "SELECT visitor FROM events WHERE path = '\\{{drillX}}' -- {{ not a slot\n LIMIT 500",
     "SELECT visitor FROM events WHERE page = '{{drillX}}{{drillSeries}}' /* note */",
+    "SELECT visitor FROM events WHERE (country = '{{drillX}}' OR ('{{drillXIsNull}}' = 'true' AND country IS NULL))",
+    "SELECT visitor FROM events WHERE (day = CAST(NULLIF('{{drillX}}', '') AS DATE) OR ('{{drillXIsNull}}' = 'true' AND day IS NULL))",
   ])("accepts quoted first-party record template slots: %s", async (sql) => {
     await expect(
       getPanelDrilldown.run({

@@ -3,7 +3,6 @@ import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconArrowRight,
-  IconBrush,
   IconDevices,
   IconFrame,
   IconHandClick,
@@ -15,7 +14,6 @@ import {
   IconPhotoVideo,
   IconPointer,
   IconScale,
-  IconScribble,
   IconSquare,
   IconStar,
   IconTransformPoint,
@@ -141,7 +139,6 @@ function buildToolVariantGroup<Tool extends string>({
 export function DesignBottomToolbar({
   mode,
   activeTool,
-  drawMode,
   pinMode,
   hasActiveFile,
   frameToolDraws,
@@ -154,16 +151,14 @@ export function DesignBottomToolbar({
   onShape,
   onMediaFiles,
   onPen,
-  onDraw,
   onCommentPin,
   canComment,
   onModeChange,
   showModeTabs,
-  annotateEnabled,
+  zoomControl,
 }: {
   mode: EditorMode;
   activeTool: DesignTool;
-  drawMode: boolean;
   pinMode: boolean;
   hasActiveFile: boolean;
   frameToolDraws: FrameGroupTool;
@@ -176,25 +171,15 @@ export function DesignBottomToolbar({
   onShape: (tool: ShapeTool) => void;
   onMediaFiles: (files: File[]) => void;
   onPen: () => void;
-  onDraw: () => void;
   /** Toggles the comment pin tool, which also opens the Threads panel. */
   onCommentPin: () => void;
-  /** Comments and annotation drawing need a signed-in commenter; a widget's write ticket covers neither. */
+  /** Comments need a signed-in commenter; a widget's write ticket does not cover them. */
   canComment: boolean;
   onModeChange: (mode: EditorMode) => void;
-  /**
-   * The Interact / Design / Annotate switch lives in the editor top bar, and in
-   * Interact's own floating bar where that bar is absent. Shells with neither
-   * (minimal UI, embedded chrome, the visual-edit route, hidden UI) still render
-   * this toolbar, so it carries the switch there. In Interact no tool applies,
-   * so the switch is all it shows.
-   */
   showModeTabs: boolean;
-  /** The Annotate lab: without it the Draw tool and the Annotate mode tab do not exist. */
-  annotateEnabled: boolean;
+  zoomControl?: ReactNode;
 }) {
   const t = useT();
-  const annotateAvailable = annotateEnabled && canComment;
   const fileUploadStatus = useFileUploadStatus();
   const canUploadMedia =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
@@ -208,12 +193,7 @@ export function DesignBottomToolbar({
   // another Rectangle rather than going back to a Frame.
   const activeFrameTool = getActiveFrameGroupTool(activeTool, frameToolDraws);
   const activeShapeTool = getActiveShapeGroupTool(activeTool);
-  const activePenTool = getActivePenGroupTool({
-    activeTool,
-    mode,
-    drawMode,
-    annotateAvailable,
-  });
+  const activePenTool = getActivePenGroupTool(activeTool);
   const lastFrameTool = useLastUsedTool<FrameGroupTool>(
     activeFrameTool,
     frameToolDraws,
@@ -407,24 +387,12 @@ export function DesignBottomToolbar({
         icon: (className) => <DesignPenToolIcon className={className} />,
         select: onPen,
       },
-      ...(annotateAvailable
-        ? [
-            {
-              key: "draw" as const,
-              label: t("designEditor.modes.draw"),
-              shortcut: shortcut("shift+y"),
-              disabled: !hasActiveFile,
-              icon: (className: string) => <IconBrush className={className} />,
-              select: onDraw,
-            },
-          ]
-        : []),
     ],
   });
 
   const commentGroup: ToolbarGroup = {
     id: "comment",
-    active: activeTool === "comment" && mode === "annotate" && pinMode,
+    active: activeTool === "comment" && mode === "comment" && pinMode,
     label: t("designEditor.pinComment"),
     groupLabel: t("designEditor.pinComment"),
     icon: <IconMessage className="size-4" />,
@@ -452,20 +420,9 @@ export function DesignBottomToolbar({
     icon: ReactNode;
     onClick: () => void;
   }> = [
-    ...(annotateAvailable
-      ? [
-          {
-            key: "annotate" as const,
-            active: mode === "annotate",
-            label: t("designEditor.modes.annotate"),
-            icon: <IconScribble className="size-[18px]" />,
-            onClick: () => onModeChange("annotate"),
-          },
-        ]
-      : []),
     {
       key: "edit",
-      active: mode === "edit",
+      active: mode === "edit" || mode === "comment",
       label: t("designEditor.modes.edit"),
       icon: <IconTransformPoint className="size-[18px]" />,
       onClick: () => onModeChange("edit"),
@@ -478,7 +435,7 @@ export function DesignBottomToolbar({
       onClick: () => onModeChange("interact"),
     },
   ];
-  if (groups.length === 0 && !showModeTabs) return null;
+  if (groups.length === 0 && !showModeTabs && !zoomControl) return null;
   return (
     <div
       data-design-bottom-toolbar
@@ -546,6 +503,15 @@ export function DesignBottomToolbar({
             ))}
           </div>
         </>
+      ) : null}
+
+      {zoomControl ? (
+        <div
+          data-design-toolbar-zoom
+          className="dark ms-1 flex shrink-0 items-center text-foreground"
+        >
+          {zoomControl}
+        </div>
       ) : null}
     </div>
   );

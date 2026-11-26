@@ -164,7 +164,53 @@ Quarterly Launch Plan
         title: "Only Title",
         content: "# Only Title",
       }),
-    ).toBe("Read this public document in Agent-Native Content.");
+    ).toBe("A page in Agent-Native Content.");
+  });
+
+  it("says a database is one when it has nothing else to say", () => {
+    const description = buildPublicDocumentDescription({
+      title: "Article ideas",
+      content: "",
+      kind: "database",
+    });
+
+    expect(description).toBe("A database in Agent-Native Content.");
+    expect(description.toLowerCase()).not.toContain("public");
+  });
+
+  it("prefers the page's own description to its body", () => {
+    expect(
+      buildPublicDocumentDescription({
+        title: "Article ideas",
+        description:
+          "  37 article ideas from videos,\n  coverage gaps and alternatives.  ",
+        content: "The first paragraph of the body.",
+        kind: "database",
+      }),
+    ).toBe("37 article ideas from videos, coverage gaps and alternatives.");
+  });
+
+  it("reads the body when the description only repeats the title", () => {
+    expect(
+      buildPublicDocumentDescription({
+        title: "Launch Notes",
+        description: "Launch notes",
+        content: "Partner interviews start in May.",
+      }),
+    ).toBe("Partner interviews start in May.");
+  });
+
+  it("shortens a long description at a word boundary", () => {
+    const description = buildPublicDocumentDescription({
+      title: "Launch Notes",
+      maxLength: 48,
+      description:
+        "Positioning, release timing, enablement and customer follow-up for the launch.",
+    });
+
+    expect(description.length).toBeLessThanOrEqual(48);
+    expect(description.endsWith("...")).toBe(true);
+    expect(description.startsWith("Positioning, release timing")).toBe(true);
   });
 
   it("truncates descriptions at a word boundary", () => {

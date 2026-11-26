@@ -13,6 +13,7 @@ import {
   gotoEditor,
   pickFrameMode,
   openAppMenuSubmenu,
+  openPageOverview,
 } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
@@ -357,7 +358,7 @@ test("preset screen dimensions and direct size edits survive reload", async ({
     height: 900,
   });
 
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   await frameToolButton(page).click();
   await expect
     .poll(() => page.getByRole("button", { name: /Desktop.*1440/ }).count())
@@ -534,153 +535,7 @@ test("editing a screen fill changes its body without changing child fills", asyn
     screenFrame.locator('[data-agent-native-node-id="child"]'),
   ).toHaveCSS("background-color", "rgb(218, 218, 218)");
 });
-
-test("keeps hidden Code source reads quiet during canvas commits", async ({
-  app,
-  page,
-  request,
-}) => {
-  // CI boots the editor and Monaco in about 15 s, twice per test.
-  test.setTimeout(240_000);
-  const designId = await createDesign(app, "Hidden Code source reads");
-  const fileId = await createScreen(request, designId, {
-    content: FILL_HTML,
-    metadata: { sourceType: "inline", width: 1280, height: 900 },
-    geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
-  });
-  const screenShell = page.locator(
-    `[data-screen-shell][data-frame-id="${fileId}"]`,
-  );
-
-  let sourceReads = 0;
-  const sourceEditActions: string[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (
-      url.pathname.endsWith("/_agent-native/actions/read-source-file") &&
-      url.searchParams.has("path")
-    ) {
-      sourceReads += 1;
-    }
-    if (
-      url.pathname.endsWith("/_agent-native/actions/preview-source-edit") ||
-      url.pathname.endsWith("/_agent-native/actions/apply-source-edit")
-    ) {
-      sourceEditActions.push(url.pathname);
-    }
-  });
-  const codeWorkbench = page.getByTestId("design-code-workbench");
-  const openCodeWorkbench = async () => {
-    // Re-navigating during Vite's first optimization cancels the workbench load.
-    await page.goto(appPath(`/design/${designId}?panel=code`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect(codeWorkbench).toBeVisible({ timeout: 60_000 });
-  };
-  const openCodeFile = async () => {
-    await page.evaluate(async (id) => {
-      const workbench = (window as any).__designCodeWorkbench;
-      const providerKey = "inline:" + id;
-      if (!workbench) throw new Error("Code workbench handle is missing");
-      await workbench.api.openFile(providerKey, "screen.html", {
-        preview: false,
-      });
-    }, designId);
-  };
-  await openCodeWorkbench();
-  await expect(screenShell).toBeVisible();
-  await openCodeFile();
-  await expect.poll(() => sourceReads).toBeGreaterThan(0);
-
-  const readCodeBufferState = () =>
-    page.evaluate(() => {
-      const workbench = (window as any).__designCodeWorkbench;
-      const buffers = Object.values(
-        workbench?.api.getState().buffers ?? {},
-      ) as Array<{
-        uri: string;
-        dirty: boolean;
-        saving: boolean;
-        lastSavedAt?: number;
-      }>;
-      const buffer = buffers.find((entry) => entry.uri.endsWith("screen.html"));
-      return buffer
-        ? {
-            dirty: buffer.dirty,
-            saving: buffer.saving,
-            lastSavedAt: buffer.lastSavedAt,
-          }
-        : null;
-    });
-  // Inline HTML is formatted and saved on first open; wait for that write before tracking close behavior.
-  await expect.poll(readCodeBufferState).toMatchObject({
-    dirty: false,
-    saving: false,
-    lastSavedAt: expect.any(Number),
-  });
-  const sourceReadsBeforeEdits = sourceReads;
-  const sourceEditActionsBeforeCodeCloses = sourceEditActions.length;
-
-  await page.getByRole("button", { name: "Layers", exact: true }).click();
-  await expect(page.getByTestId("design-code-workbench")).toBeHidden();
-  const frameLabel = screenShell.locator("[data-frame-label]");
-  await expect(frameLabel).toBeVisible();
-  await frameLabel.click();
-  await expect(
-    page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("treeitem", { selected: true }),
-  ).toHaveCount(1);
-
-  const readFrameX = async () =>
-    designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
-  const initialX = await readFrameX();
-  expect(initialX).toBe(0);
-  // Retry only readiness: each key press is a non-idempotent mutation.
-  for (let index = 0; index < 20; index += 1) {
-    const writeResponse = page.waitForResponse((response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        pathname.endsWith("/_agent-native/actions/update-design") &&
-        response.request().method() === "POST"
-      );
-    });
-    await page.keyboard.press("ArrowRight");
-    const response = await writeResponse;
-    expect(
-      response.ok(),
-      `canvas commit failed: ${response.status()} ${await response.text()}`,
-    ).toBe(true);
-    await expect.poll(readFrameX).toBe(initialX + index + 1);
-  }
-  const sourceReadsAfterCommits = sourceReads;
-  const sourceEditActionsAfterCommits = sourceEditActions.length;
-  let observedSourceRequests = `${sourceReads}:${sourceEditActions.length}`;
-  let sourceRequestsQuietSince = Date.now();
-  await expect
-    .poll(
-      () => {
-        const currentSourceRequests = `${sourceReads}:${sourceEditActions.length}`;
-        if (currentSourceRequests !== observedSourceRequests) {
-          observedSourceRequests = currentSourceRequests;
-          sourceRequestsQuietSince = Date.now();
-        }
-        return Date.now() - sourceRequestsQuietSince;
-      },
-      { timeout: 5_000, intervals: [100, 250, 500] },
-    )
-    .toBeGreaterThanOrEqual(1_000);
-  expect(sourceReads).toBe(sourceReadsAfterCommits);
-  expect(sourceEditActions).toHaveLength(sourceEditActionsAfterCommits);
-  expect(sourceReads).toBe(sourceReadsBeforeEdits);
-  expect(sourceEditActions.slice(sourceEditActionsBeforeCodeCloses)).toEqual(
-    [],
-  );
-
-  await openCodeWorkbench();
-  await openCodeFile();
-  await expect.poll(() => sourceReads).toBeGreaterThan(sourceReadsBeforeEdits);
-});
+// oracle-change: the Monaco Code panel test was removed with the editor
 
 test("a screen's east-edge resize keeps its explicit height in the rendered card", async ({
   app,
@@ -705,9 +560,8 @@ test("a screen's east-edge resize keeps its explicit height in the rendered card
     `[data-screen-shell][data-frame-id="${fileId}"]`,
   );
   await expect(screenShell).toBeVisible();
-  const allScreensButton = page.getByRole("button", { name: "All screens" });
-  await allScreensButton.click();
-  await expect(allScreensButton).toHaveAttribute("aria-current", "page");
+  // oracle-change: the All screens row is gone, so the overview is entered from the View menu, which asserts the switch itself.
+  await openPageOverview(page);
   await page.keyboard.press("Shift+1");
   await expect(screenShell.locator("[data-frame-label]")).toBeVisible();
   await screenShell.locator("[data-frame-label]").click();
@@ -789,8 +643,7 @@ test("a Hug screen keeps Hug on width resize and becomes Fixed on height resize"
   const screenShell = page.locator(
     `[data-screen-shell][data-frame-id="${fileId}"]`,
   );
-  const allScreensButton = page.getByRole("button", { name: "All screens" });
-  await allScreensButton.click();
+  await openPageOverview(page);
   await page.keyboard.press("Shift+1");
   await screenShell.locator("[data-frame-label]").click();
   await page.getByRole("button", { name: "H sizing mode — Auto" }).click();
@@ -1357,7 +1210,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
       await openAppMenuSubmenu(page, "File");
       await page.getByRole("menuitem", { name: "Export" }).hover();
       await page
-        .getByRole("menuitem", { name: "Download PDF (all screens)" })
+        .getByRole("menuitem", { name: "Download PDF (all pages)" })
         .click();
     })(),
   ]);
@@ -1433,7 +1286,7 @@ test("all-screens PDF reports a broken image and can retry after it recovers", a
     await openAppMenuSubmenu(page, "File");
     await page.getByRole("menuitem", { name: "Export" }).hover();
     await page
-      .getByRole("menuitem", { name: "Download PDF (all screens)" })
+      .getByRole("menuitem", { name: "Download PDF (all pages)" })
       .click();
   };
   await expect(imageShell.locator("iframe")).toHaveCount(0);
@@ -1451,7 +1304,7 @@ test("all-screens PDF reports a broken image and can retry after it recovers", a
   ]);
   expect(download.suggestedFilename()).toMatch(/\.pdf$/);
   await expect(
-    page.getByText("PDF downloaded (all screens)", { exact: true }),
+    page.getByText("PDF downloaded (all pages)", { exact: true }),
   ).toBeVisible();
   await expect(imageShell.locator("iframe")).toHaveCount(0);
   expect(downloads).toHaveLength(1);
@@ -1635,7 +1488,7 @@ test("K scales Screen contents and history as one root Frame edit", async ({
     },
   });
   await gotoEditor(page, designId);
-  await page.getByRole("button", { name: "All screens" }).click();
+  await openPageOverview(page);
   await page.keyboard.press("Shift+1");
   const shell = page.locator(`[data-screen-shell][data-frame-id="${fileId}"]`);
   const card = shell.locator("[data-screen-card]");
@@ -2229,7 +2082,7 @@ test("Screen K rolls back when the scale collector disappears mid-gesture", asyn
     geometry: { x: 0, y: 0, width: 400, height: 400, z: 0 },
   });
   await gotoEditor(page, designId);
-  await page.getByRole("button", { name: "All screens" }).click();
+  await openPageOverview(page);
   const shell = page.locator(`[data-screen-shell][data-frame-id="${fileId}"]`);
   const frame = page.frameLocator(`[data-screen-iframe-id="${fileId}"]`);
   await expect(frame.locator("#layout")).toBeVisible();

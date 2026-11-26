@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { workspaceRoot } from "../../vitest.workspace-root.js";
 import { isActionDefinitionError } from "../action.js";
 import {
   filterFrameworkToolGroups,
@@ -27,7 +28,82 @@ afterEach(() => {
   }
 });
 
+const plainAction = (msg: string) =>
+  [
+    "export default {",
+    '  tool: { description: "x", parameters: { type: "object", properties: {} } },',
+    "  readOnly: true,",
+    `  run: async () => ({ message: "${msg}" }),`,
+    "};",
+  ].join("\n");
+
+describe("action discovery in subfolders", () => {
+  const makeDir = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-nested-"));
+    tmpDirs.push(dir);
+    const actionsDir = path.join(dir, "actions");
+    fs.mkdirSync(path.join(actionsDir, "billing"), { recursive: true });
+    fs.mkdirSync(path.join(actionsDir, "_shared"), { recursive: true });
+    return { dir, actionsDir };
+  };
+
+  it("registers subfolder actions under a hyphen-joined name", async () => {
+    const { dir, actionsDir } = makeDir();
+    fs.writeFileSync(path.join(actionsDir, "ping.ts"), plainAction("ping"));
+    fs.writeFileSync(
+      path.join(actionsDir, "billing", "create-invoice.ts"),
+      plainAction("invoice"),
+    );
+    fs.writeFileSync(
+      path.join(actionsDir, "_shared", "hidden.ts"),
+      plainAction("hidden"),
+    );
+    const registry = await autoDiscoverActions(actionsDir);
+    expect(Object.keys(registry)).toEqual(
+      expect.arrayContaining(["ping", "billing-create-invoice"]),
+    );
+    expect(registry["_shared-hidden"]).toBeUndefined();
+    expect(registry["hidden"]).toBeUndefined();
+    const files = await listDevActionFiles(dir);
+    expect(files.map((f) => path.relative(actionsDir, f)).sort()).toEqual([
+      path.join("billing", "create-invoice.ts"),
+      "ping.ts",
+    ]);
+  });
+
+  it("fails boot when two files resolve to the same action name", async () => {
+    const { actionsDir } = makeDir();
+    fs.writeFileSync(
+      path.join(actionsDir, "billing-create-invoice.ts"),
+      plainAction("flat"),
+    );
+    fs.writeFileSync(
+      path.join(actionsDir, "billing", "create-invoice.ts"),
+      plainAction("nested"),
+    );
+    await expect(autoDiscoverActions(actionsDir)).rejects.toSatisfy(
+      (err: unknown) =>
+        isActionDefinitionError(err) &&
+        String((err as Error).message).includes("billing-create-invoice"),
+    );
+  });
+});
+
 describe("action discovery", () => {
+  it("excludes the Design test fixture from dev action discovery", async () => {
+    const files = await listDevActionFiles(
+      path.join(workspaceRoot, "templates/design"),
+    );
+    expect(
+      files.some((file) => path.basename(file) === "generate-design.ts"),
+    ).toBe(true);
+    expect(
+      files.some((file) =>
+        path.basename(file).includes("generate-design.test-fixtures"),
+      ),
+    ).toBe(false);
+  });
+
   it(
     "loads TypeScript action files from plain source directories",
     async () => {
@@ -289,6 +365,22 @@ describe("action discovery", () => {
         expect(disabled[name]).toBeUndefined();
         expect(registry[name]).toBeDefined();
       }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
+    "keeps the visibility action's approval question when an app mounts the core sharing actions",
+    async () => {
+      const registry = loadActionsFromStaticRegistry({});
+      await mergeCoreSharingActions(registry);
+      const { default: setResourceVisibility } =
+        await import("../sharing/actions/set-resource-visibility.js");
+
+      expect(setResourceVisibility.approvalLabel).toBeTypeOf("function");
+      expect(registry["set-resource-visibility"]?.approvalLabel).toBe(
+        setResourceVisibility.approvalLabel,
+      );
     },
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );

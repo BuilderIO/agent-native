@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { assertVisualEditCapabilityConnections } from "../server/lib/visual-edit-capability.js";
 import { putLocalhostConsentRequest } from "./localhost-consent-request-state.js";
 
 export default defineAction({
@@ -37,6 +38,7 @@ export default defineAction({
   capabilityScopes: ["visual-edit"],
   run: async ({ designId, connectionId, files, resumeAfterSignIn }) => {
     await assertAccess("design", designId, "editor");
+    await assertVisualEditCapabilityConnections([connectionId]);
 
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
       designId,

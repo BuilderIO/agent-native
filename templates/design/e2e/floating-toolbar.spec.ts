@@ -41,7 +41,11 @@ async function agentContext(page: Page) {
     appPath("/_agent-native/application-state/design-selection"),
   );
   expect(response.ok()).toBe(true);
-  return (await response.json()) as { mode?: string; activeTool?: string };
+  return (await response.json()) as {
+    mode?: string;
+    activeTool?: string;
+    leftPanel?: string;
+  };
 }
 
 test.describe("floating toolbar", () => {
@@ -72,7 +76,7 @@ test.describe("floating toolbar", () => {
       "star",
       "image-video",
     ]);
-    // Text, Pen (with the Annotate lab off) and Comment are one item each, so
+    // Text, Pen and Comment are one item each, so
     // they are plain buttons with no menu to open.
     for (const group of ["Text", "Pen", "Comment"]) {
       await expect(
@@ -139,11 +143,11 @@ test.describe("floating toolbar", () => {
     await expect(move).toHaveAttribute("aria-pressed", "false");
 
     // Frame is its own group: arming it leaves Shapes unarmed.
-    await selectTool(page, "Screen");
+    await selectTool(page, "Page");
     const frameButton = toolbar
       .locator('[data-design-toolbar-group="frame"] button')
       .first();
-    await expect(frameButton).toHaveAttribute("aria-label", "Screen");
+    await expect(frameButton).toHaveAttribute("aria-label", "Page");
     await expect(frameButton).toHaveAttribute("aria-pressed", "true");
     await expect(shapesButton).toHaveAttribute("aria-pressed", "false");
   });
@@ -164,9 +168,10 @@ test.describe("floating toolbar", () => {
 
     await expect(comment).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
+    // oracle-change: Comments opens in the right column and leaves the left tab alone, so the published left panel stays File.
     await expect
       .poll(() => agentContext(page))
-      .toMatchObject({ activeTool: "comment", leftPanel: "threads" });
+      .toMatchObject({ activeTool: "comment", leftPanel: "file" });
 
     await page.keyboard.press("c");
     await expect(comment).toHaveAttribute("aria-pressed", "false");
@@ -182,30 +187,38 @@ test.describe("floating toolbar", () => {
     ]) {
       await expect(dialog.locator(`[data-shortcut-id="${id}"]`)).toBeVisible();
     }
-    // Draw is part of the Annotate lab, which is off by default.
     await expect(dialog.locator('[data-shortcut-id="draw-tool"]')).toHaveCount(
       0,
     );
   });
 
-  test("Interact has no bottom toolbar, and tool shortcuts arm nothing there", async ({
+  test("Interact keeps only the mode switch and zoom in the bottom toolbar, and tool shortcuts arm nothing there", async ({
     page,
   }) => {
     await gotoEditor(page, await readSeedDesignId());
     const interact = page.locator(
-      '[data-design-top-bar] [data-design-mode="interact"]',
+      '[data-design-bottom-toolbar] button[aria-label="Interact"]',
     );
-    await expect(page.locator(TOOLBAR)).toBeVisible();
+    const toolbar = page.locator(TOOLBAR);
+    await expect(toolbar).toBeVisible();
 
     await interact.click();
 
     await expect(interact).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    // oracle-change: the bottom toolbar stays in Interact for the mode switch and zoom; only the tool buttons leave.
+    await expect(
+      toolbar.getByRole("button", { name: "Move", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      toolbar.getByRole("button", { name: "Pin comment", exact: true }),
+    ).toHaveCount(0);
     for (const key of ["r", "t", "p", "h", "k", "f"]) {
       await page.keyboard.press(key);
     }
     await expect(interact).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+    await expect(
+      toolbar.getByRole("button", { name: "Move", exact: true }),
+    ).toHaveCount(0);
     await expect
       .poll(() => agentContext(page))
       .toMatchObject({ mode: "interact", activeTool: "move" });

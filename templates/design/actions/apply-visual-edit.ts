@@ -34,11 +34,16 @@ import { linkedComponentRootForNode } from "../shared/component-links.js";
 import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
+  ensureGoogleFontLinkInHtmlString,
+  type GoogleFontLinkStatus,
+} from "../shared/google-font-link.js";
+import {
   planLocalJsxVisualEdit,
   type LocalJsxLeafIntent,
 } from "../shared/local-jsx-visual-edit.js";
 import {
   breakpointUpperBoundPx,
+  normalizeCssPropertyName,
   planBreakpointStyleWrite,
   utilityStem,
   widthToPrefix,
@@ -210,25 +215,38 @@ function scopeIntentToFramerBound(
   return intent;
 }
 
+// An absent set, or one whose list is missing or empty, means "no
+// breakpoints". A set or entry of any other shape is damaged data: reading
+// around it would let a delete remove the layer at every width.
+function readBreakpointWidths(rawSet: unknown): number[] | "damaged" {
+  if (rawSet == null) return [];
+  if (typeof rawSet !== "object" || Array.isArray(rawSet)) return "damaged";
+  const list = (rawSet as { breakpoints?: unknown }).breakpoints;
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) return "damaged";
+  const widths: number[] = [];
+  for (const entry of list) {
+    const width = (entry as { widthPx?: unknown } | null)?.widthPx;
+    if (typeof width !== "number" || !Number.isFinite(width)) return "damaged";
+    widths.push(width);
+  }
+  return widths;
+}
+
 function resolveFramerBoundFromDesignData(
   designData: string | null,
   fileId: string,
   activeFrameWidthPx: number,
-): { kind: "bound"; boundPx: number } | { kind: "base" } | { kind: "unknown" } {
+):
+  | { kind: "bound"; boundPx: number }
+  | { kind: "base" }
+  | { kind: "unknown" }
+  | { kind: "unreadable" } {
   if (!designData) return { kind: "unknown" };
   try {
     const parsed = JSON.parse(designData) as Record<string, unknown>;
-    const rawSet = parsed.breakpointSet as
-      | { breakpoints?: Array<{ widthPx?: unknown }> }
-      | undefined;
-    const widths = Array.isArray(rawSet?.breakpoints)
-      ? rawSet.breakpoints
-          .map((bp) => bp?.widthPx)
-          .filter(
-            (width): width is number =>
-              typeof width === "number" && Number.isFinite(width),
-          )
-      : [];
+    const widths = readBreakpointWidths(parsed.breakpointSet);
+    if (widths === "damaged") return { kind: "unreadable" };
     if (widths.length === 0) return { kind: "unknown" };
 
     const metadataByFileId = parsed.screenMetadata as
@@ -247,7 +265,7 @@ function resolveFramerBoundFromDesignData(
     );
     return boundPx === null ? { kind: "base" } : { kind: "bound", boundPx };
   } catch {
-    return { kind: "unknown" };
+    return { kind: "unreadable" };
   }
 }
 
@@ -730,16 +748,42 @@ async function persistDesignFileEdit(file: {
   }
 }
 
+type ScopeOptions = {
+  activeBreakpoint?: TailwindBreakpointPrefix | null;
+  activeFrameWidthPx?: number | null;
+  maxWidthPx?: number | null;
+  designData?: string | null;
+  fileId?: string;
+};
+
+// Mirrors the editor's Delete (commands/delete-selection.ts): on a frame
+// narrower than the base, the layer is hidden at that width, not removed at
+// every width. The base frame, or a design with no breakpoint set, deletes.
+function deleteHideBoundPx(
+  source: VisualEditActionSource,
+  options: ScopeOptions,
+): number | null {
+  const { activeBreakpoint, activeFrameWidthPx, maxWidthPx } = options;
+  if (maxWidthPx != null) return maxWidthPx;
+  if (
+    source.kind !== "design-file" ||
+    activeBreakpoint != null ||
+    activeFrameWidthPx == null
+  ) {
+    return null;
+  }
+  const bound = resolveFramerBoundFromDesignData(
+    options.designData ?? null,
+    options.fileId ?? "",
+    activeFrameWidthPx,
+  );
+  return bound.kind === "bound" ? bound.boundPx : null;
+}
+
 function scopeIntentForSource(
   intent: EditIntent,
   source: VisualEditActionSource,
-  options: {
-    activeBreakpoint?: TailwindBreakpointPrefix | null;
-    activeFrameWidthPx?: number | null;
-    maxWidthPx?: number | null;
-    designData?: string | null;
-    fileId?: string;
-  },
+  options: ScopeOptions,
 ): EditIntent {
   let scoped = intent;
   const {
@@ -749,6 +793,21 @@ function scopeIntentForSource(
     designData,
     fileId,
   } = options;
+
+  if (scoped.kind === "deleteNode") {
+    const hideBoundPx = deleteHideBoundPx(source, options);
+    return hideBoundPx == null
+      ? scoped
+      : scopeIntentToFramerBound(
+          {
+            kind: "style",
+            target: scoped.target,
+            property: "display",
+            value: "none",
+          },
+          hideBoundPx,
+        );
+  }
 
   if (
     maxWidthPx != null &&
@@ -782,7 +841,10 @@ function scopeIntentForSource(
   );
   if (bound.kind === "bound") {
     scoped = scopeIntentToFramerBound(scoped, bound.boundPx);
-  } else if (bound.kind === "unknown" && scoped.kind === "class") {
+  } else if (
+    (bound.kind === "unknown" || bound.kind === "unreadable") &&
+    scoped.kind === "class"
+  ) {
     const activePrefix = resolveActivePrefix(null, activeFrameWidthPx);
     if (activePrefix !== null) {
       scoped = scopeClassIntentToBreakpoint(scoped, activePrefix);
@@ -792,6 +854,25 @@ function scopeIntentForSource(
 }
 
 type VisualEditPatchResult = ReturnType<typeof applyVisualEdit>;
+
+// A deleteNode that was scoped into a breakpoint hide would otherwise report a
+// generic style edit; say which one happened.
+function describeScopedDelete(
+  intent: EditIntent,
+  scoped: EditIntent,
+  result: VisualEditPatchResult["result"],
+): VisualEditPatchResult["result"] {
+  if (intent.kind !== "deleteNode" || scoped.kind !== "breakpoint-style") {
+    return result;
+  }
+  return {
+    ...result,
+    message:
+      result.status === "applied"
+        ? `Hidden at viewport widths <= ${scoped.maxWidthPx}px (display: none scoped to that breakpoint). The layer was not deleted and still renders on wider frames; delete it from the base frame to remove it at every width.`
+        : `Could not hide the layer at viewport widths <= ${scoped.maxWidthPx}px, and it was not deleted: ${result.message ?? result.status}`,
+  };
+}
 
 function applyIntentBatch(
   html: string,
@@ -813,7 +894,7 @@ function applyIntentBatch(
     const scoped = scope(intent);
     const patch = applyVisualEdit(content, scoped, { source });
     scopedIntents.push(scoped);
-    results.push(patch.result);
+    results.push(describeScopedDelete(intent, scoped, patch.result));
     projection = patch.projection;
     if (patch.result.status !== "applied") {
       return {
@@ -886,6 +967,83 @@ function responsiveStyleRemovalResult() {
   };
 }
 
+// Legacy min-width prefixes have no non-destructive form of Delete, and an
+// unreadable breakpoint set cannot say whether the frame is the base. Refuse
+// rather than remove the layer at every width.
+function unscopableDeleteResult(reason: "legacy-prefix" | "unreadable") {
+  return {
+    status: "needsAgent" as const,
+    changed: false,
+    message:
+      reason === "legacy-prefix"
+        ? "deleteNode cannot be scoped to a legacy min-width activeBreakpoint; no source was changed. Pass activeFrameWidthPx or maxWidthPx to hide the layer at that width, or omit the scope to delete it at every width."
+        : "The design's breakpoint data could not be read, so a scoped delete cannot tell whether this frame is the base; no source was changed.",
+  };
+}
+
+type FontLinkReport = {
+  fontFamily: string;
+  status: GoogleFontLinkStatus;
+  family?: string;
+};
+
+function fontFamilyValuesFrom(editIntents: EditIntent[]): string[] {
+  const values: string[] = [];
+  for (const editIntent of editIntents) {
+    if (editIntent.kind !== "style" && editIntent.kind !== "breakpoint-style") {
+      continue;
+    }
+    if (
+      editIntent.operation === "remove" ||
+      editIntent.value === undefined ||
+      normalizeCssPropertyName(editIntent.property) !== "font-family" ||
+      values.includes(editIntent.value)
+    ) {
+      continue;
+    }
+    values.push(editIntent.value);
+  }
+  return values;
+}
+
+// The editor links a font whenever it commits a font-family
+// (commit-visual-styles); the action must leave the screen loading it too.
+function ensureFontLinks(
+  html: string,
+  fontFamilies: string[],
+): { html: string; reports: FontLinkReport[] } {
+  let next = html;
+  const reports: FontLinkReport[] = [];
+  for (const fontFamily of fontFamilies) {
+    const outcome = ensureGoogleFontLinkInHtmlString(next, fontFamily);
+    next = outcome.html;
+    reports.push({
+      fontFamily,
+      status: outcome.status,
+      ...(outcome.family ? { family: outcome.family } : {}),
+    });
+  }
+  return { html: next, reports };
+}
+
+function describeFontLinks(
+  result: VisualEditPatchResult["result"],
+  reports: FontLinkReport[],
+  linksAdded: boolean,
+): VisualEditPatchResult["result"] {
+  const notes = reports.flatMap((report) =>
+    report.status === "added"
+      ? [`Added the Google Fonts link for ${report.family}.`]
+      : [],
+  );
+  if (notes.length === 0) return result;
+  return {
+    ...result,
+    changed: result.changed || linksAdded,
+    message: [result.message, ...notes].filter(Boolean).join(" "),
+  };
+}
+
 export default defineAction({
   description:
     "Apply one deterministic visual edit to a code-backed HTML design layer. " +
@@ -893,6 +1051,8 @@ export default defineAction({
     "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files, plus diff-first literal leaf JSX edits on consented localhost files; escalates ambiguous, dynamic, repeated, shared, or structural JSX edits without writing. " +
     "Intent kinds (intent.kind, exact literal required): style, class, breakpoint-style, textContent (leaf text — there is no 'set-text' kind), attribute, deleteNode, moveNode, wrapNodes, booleanSubtract, unwrap, autoLayout. booleanSubtract creates an editable SVG mask from at least two consecutive sibling rectangles/ellipses; operands must be positioned with pixel geometry and solid fills. " +
     "Responsive editing (§6.4): pass activeFrameWidthPx (the active breakpoint frame width, matching the UI's breakpoint bar) to scope class AND style edits Framer-style — overrides apply below the next-wider frame and cascade down; the widest frame is the base. " +
+    "deleteNode follows the editor's Delete: on a narrower frame it HIDES the layer at that width (scoped display:none) and says so in the result; on the base frame or with no scope it removes the layer at every width. " +
+    "Setting font-family on a design-file also links the family's Google Fonts stylesheet in the screen's <head>, like the editor, but only for fonts in the toolkit's built-in list; any other family (system fonts, or a Google font the list lacks) is not linked and the result's fontLinks reports it as unlisted. " +
     "Raw CSS values persist as managed @media rules (<style data-agent-native-breakpoints>); Tailwind-utility values become max-[<bound>px]: classes. " +
     "Pass activeBreakpoint to force legacy min-width prefix scoping for class edits, or maxWidthPx for an explicit desktop-down bound. Omit all three for base (global) behaviour.",
   schema: z.object({
@@ -926,7 +1086,7 @@ export default defineAction({
       .positive()
       .optional()
       .describe(
-        "Active breakpoint frame width in pixels — matches the UI's breakpoint bar. For design-file sources whose design has a breakpoint set, 'class' AND 'style' intents are scoped Framer-style: overrides apply below the next-wider frame (max-[<bound>px]: classes, or managed @media rules for raw CSS values); the widest frame is the base and writes unscoped. When the design has no breakpoint set (or for inline-html sources) class edits fall back to the legacy min-width Tailwind prefix via widthToPrefix. Ignored when activeBreakpoint is provided.",
+        "Active breakpoint frame width in pixels — matches the UI's breakpoint bar. For design-file sources whose design has a breakpoint set, 'class' AND 'style' intents are scoped Framer-style: overrides apply below the next-wider frame (max-[<bound>px]: classes, or managed @media rules for raw CSS values); the widest frame is the base and writes unscoped (a 'deleteNode' there removes the layer; on a narrower frame it hides it). When the design has no breakpoint set (or for inline-html sources) class edits fall back to the legacy min-width Tailwind prefix via widthToPrefix. Ignored when activeBreakpoint is provided.",
       ),
     maxWidthPx: z
       .number()
@@ -934,7 +1094,7 @@ export default defineAction({
       .positive()
       .optional()
       .describe(
-        "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
+        "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents; a 'deleteNode' hides the layer at or below this width instead of removing it.",
       ),
   }),
   retrySafe: visualEditIsRetrySafe,
@@ -961,6 +1121,23 @@ export default defineAction({
 
     if (hasStyleRemoval && maxWidthPx != null) {
       const result = responsiveStyleRemovalResult();
+      return {
+        result,
+        results: editIntents.map(() => result),
+        persisted: false,
+      };
+    }
+
+    const hasDelete = editIntents.some(
+      (editIntent) => editIntent.kind === "deleteNode",
+    );
+    if (
+      hasDelete &&
+      maxWidthPx == null &&
+      activeBreakpoint != null &&
+      activeBreakpoint !== "base"
+    ) {
+      const result = unscopableDeleteResult("legacy-prefix");
       return {
         result,
         results: editIntents.map(() => result),
@@ -1203,20 +1380,24 @@ export default defineAction({
     }
 
     const file = await resolveEditableDesignFile(actionSource);
-    if (
-      hasStyleRemoval &&
-      activeBreakpoint == null &&
-      activeFrameWidthPx != null &&
-      resolveFramerBoundFromDesignData(
-        file.designData,
-        file.id,
-        activeFrameWidthPx,
-      ).kind === "bound"
-    ) {
-      const result = responsiveStyleRemovalResult();
+    const frameBound =
+      activeBreakpoint == null && activeFrameWidthPx != null
+        ? resolveFramerBoundFromDesignData(
+            file.designData,
+            file.id,
+            activeFrameWidthPx,
+          )
+        : null;
+    const refusal =
+      hasStyleRemoval && frameBound?.kind === "bound"
+        ? responsiveStyleRemovalResult()
+        : hasDelete && maxWidthPx == null && frameBound?.kind === "unreadable"
+          ? unscopableDeleteResult("unreadable")
+          : null;
+    if (refusal) {
       return {
-        result,
-        results: editIntents.map(() => result),
+        result: refusal,
+        results: editIntents.map(() => refusal),
         projection: buildCodeLayerProjection(file.content, {
           source: file.codeLayerSource,
         }),
@@ -1553,6 +1734,18 @@ export default defineAction({
       };
     }
 
+    const fontFamilies = allApplied ? fontFamilyValuesFrom(editIntents) : [];
+    const fontLinks =
+      fontFamilies.length > 0
+        ? ensureFontLinks(batch.content, fontFamilies)
+        : null;
+    const nextContent = fontLinks?.html ?? batch.content;
+    const linksAdded = nextContent !== batch.content;
+    const nextProjection = linksAdded
+      ? buildCodeLayerProjection(nextContent, { source: file.codeLayerSource })
+      : batch.projection;
+    const persistChange = changed || linksAdded;
+
     const lastResult = batch.results[batch.results.length - 1];
     if (lastResult?.target) {
       agentUpdateSelection(file.id, {
@@ -1566,34 +1759,38 @@ export default defineAction({
       });
     }
 
-    if (changed) {
+    if (persistChange) {
       await snapshotDesignBeforeAgentEdit(file.designId, context);
       await persistDesignFileEdit({
         id: file.id,
         designId: file.designId,
         filename: file.filename,
         fileType: file.fileType,
-        content: batch.content,
+        content: nextContent,
         expectedVersionHash: file.versionHash,
       });
     }
 
+    const batched = batchResult(batch.results, persistChange);
     return {
-      result: batchResult(batch.results, changed),
-      _receipt: designOutputWriteReceipt(file.designId, changed ? 1 : 0),
+      result: fontLinks
+        ? describeFontLinks(batched, fontLinks.reports, linksAdded)
+        : batched,
+      _receipt: designOutputWriteReceipt(file.designId, persistChange ? 1 : 0),
       results: batch.results,
-      projection: batch.projection,
+      projection: nextProjection,
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
-      persisted: changed,
+      persisted: persistChange,
+      ...(fontLinks ? { fontLinks: fontLinks.reports } : {}),
       patchedContent: includeContent
         ? allApplied
-          ? batch.content
+          ? nextContent
           : file.content
         : undefined,
       bytesBefore: file.content.length,
-      bytesAfter: allApplied ? batch.content.length : file.content.length,
+      bytesAfter: allApplied ? nextContent.length : file.content.length,
     };
   },
 });

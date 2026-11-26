@@ -21,7 +21,9 @@ import {
   ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
   ANALYTICS_ANALYSIS_AGENT_RESOURCE_KIND,
   ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND,
+  ANALYTICS_SESSION_REPORT_AGENT_CONTEXT_ENDPOINT,
 } from "../../shared/resource-agent-access.js";
+import { sessionReportPath } from "../../shared/session-reports.js";
 import {
   buildSessionReplayAgentContext,
   safeJsonForHtml,
@@ -51,6 +53,18 @@ function stripAppBasePath(pathname: string): string {
 
 function sessionRecordingIdFromPath(pathname: string): string | null {
   const match = stripAppBasePath(pathname).match(/^\/sessions\/([^/]+)\/?$/);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function sessionReportIdFromPath(pathname: string): string | null {
+  const match = stripAppBasePath(pathname).match(
+    /^\/sessions\/reports\/([^/]+)\/?$/,
+  );
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -109,6 +123,28 @@ async function buildAgentDiscoveryScript(
         context,
       )}</script>`,
       privateResponse: true,
+    };
+  }
+
+  const reportId = sessionReportIdFromPath(requestUrl.pathname);
+  if (reportId) {
+    // The same for every visitor, so the cached shell can carry it: the link's
+    // token stays in the URL the agent already has, never in the HTML.
+    return {
+      script: renderAgentReadableResourceDiscoveryScript(
+        buildAgentReadableResourceDiscovery({
+          resourceType: "session-report",
+          resourceId: reportId,
+          path: sessionReportPath(reportId),
+          contextEndpoint: ANALYTICS_SESSION_REPORT_AGENT_CONTEXT_ENDPOINT,
+          origin: getForwardedRequestOrigin(event),
+          basePath: configuredAppBasePath(),
+          token: "",
+          instructions: `Read this session report as JSON at contextUrl. Add the ${AGENT_ACCESS_PARAM} parameter from the link you were given; without it, ask the report's owner for its link from Share > Send to > Copy agent link.`,
+        }),
+        { id: "analytics-session-report-agent-context" },
+      ),
+      privateResponse: false,
     };
   }
 

@@ -141,6 +141,7 @@ const mockDb = createMockDb();
 const executeDdlMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
 }));
 
@@ -421,6 +422,34 @@ describe("task-store (SQL)", () => {
         task: { id: "concurrent-winner" },
       });
       expect(retry.task.id).not.toBe(first.task.id);
+    });
+  });
+
+  describe("getIdempotentTask", () => {
+    it("finds a task by its owner, scope and key", async () => {
+      const { createOrReuseTask, getIdempotentTask } = await loadStore();
+      const personal = await createOrReuseTask(
+        makeMessage("Make a deck"),
+        undefined,
+        undefined,
+        "alice@example.test",
+        "__personal__",
+        "v1:deck",
+      );
+
+      await expect(
+        getIdempotentTask("Alice@Example.test", "__personal__", "v1:deck"),
+      ).resolves.toMatchObject({ id: personal.task.id });
+      await expect(
+        getIdempotentTask(
+          "alice@example.test",
+          "__a2a_org_id__:org-slides",
+          "v1:deck",
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        getIdempotentTask("bob@example.test", "__personal__", "v1:deck"),
+      ).resolves.toBeNull();
     });
   });
 

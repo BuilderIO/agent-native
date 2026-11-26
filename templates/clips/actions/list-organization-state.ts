@@ -58,6 +58,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const db = await Promise.resolve(getDb());
     const ownerEmail = getCurrentOwnerEmail();
@@ -99,6 +100,8 @@ export default defineAction({
           brandColor: schema.organizationSettings.brandColor,
           brandLogoUrl: schema.organizationSettings.brandLogoUrl,
           defaultVisibility: schema.organizationSettings.defaultVisibility,
+          enforceDefaultVisibility:
+            schema.organizationSettings.enforceDefaultVisibility,
         })
         .from(organizations)
         .leftJoin(
@@ -229,6 +232,7 @@ export default defineAction({
         brandColor: org.brandColor ?? "#18181B",
         brandLogoUrl: org.brandLogoUrl ?? null,
         defaultVisibility: org.defaultVisibility ?? "public",
+        enforceDefaultVisibility: org.enforceDefaultVisibility ?? false,
         createdAt: Number(org.createdAt),
       },
       members: membersWithProfiles,

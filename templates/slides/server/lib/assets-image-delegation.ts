@@ -99,11 +99,14 @@ function buildDelegationMessage(request: AssetsImageRequest): string {
  * Mirrors `callAgent`: audience-bound user identity first, then an
  * organization principal when only the org secret is available. The configured
  * static override goes last because it authenticates transport without user
- * identity, which Assets needs for owner-scoped reads.
+ * identity, which Assets needs for owner-scoped reads. `A2AClient` retries the
+ * next token after any 401 or 403, so the override is added only when the
+ * target is the operator-configured URL, never for a discovered agent.
  */
 async function buildCallerTokens(
   targetUrl: string,
   auth: A2ACallerAuth,
+  includeStaticOverride: boolean,
 ): Promise<string[]> {
   const audience = canonicalA2AAudience(targetUrl);
   const tokens: string[] = [];
@@ -137,7 +140,7 @@ async function buildCallerTokens(
 
   add(auth.apiKey);
   for (const fallback of auth.apiKeyFallbacks ?? []) add(fallback);
-  add(resolveAssetsKeyOverride());
+  if (includeStaticOverride) add(resolveAssetsKeyOverride());
   return tokens;
 }
 
@@ -176,11 +179,13 @@ export async function delegateImageGenerationToAssets(
 
   let targetUrl: string;
   let allowedPrivateOrigins: string[];
+  let isConfiguredUrl: boolean;
   try {
     const resolved = await resolveAgentInvocationTarget(requestedTarget, {
       selfAppId: SELF_APP_ID,
     });
     targetUrl = resolved.url;
+    isConfiguredUrl = resolved.kind === "url";
     // Only the operator-set override URL may reach a private origin; a
     // discovered agent URL can be user-registered. A public hostname must
     // stay subject to the resolved-IP check, or DNS rebinding could reach a
@@ -202,7 +207,7 @@ export async function delegateImageGenerationToAssets(
     const auth = await resolveA2ACallerAuth({
       audience: canonicalA2AAudience(targetUrl),
     });
-    const tokens = await buildCallerTokens(targetUrl, auth);
+    const tokens = await buildCallerTokens(targetUrl, auth, isConfiguredUrl);
     const client = new A2AClient(targetUrl, tokens[0], {
       fallbackApiKeys: tokens.slice(1),
       allowedPrivateOrigins,

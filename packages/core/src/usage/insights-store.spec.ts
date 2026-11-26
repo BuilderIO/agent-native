@@ -21,6 +21,7 @@ const rawClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -98,7 +99,7 @@ async function seedSpan(
 beforeAll(async () => {
   resetAppConfigForTests();
   vi.stubEnv("AGENT_NATIVE_APP_ID", "design");
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`CREATE TABLE token_usage (
     id BIGINT PRIMARY KEY, owner_email TEXT NOT NULL,
     input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0,
@@ -476,6 +477,31 @@ describe("getUsageRun", () => {
     const run = await getUsageRun({ runId: "run-mixed-credits" }, ACCESS);
 
     expect(run!.billing.builderCreditsSource).toBe("mixed");
+  });
+
+  it("reports provider cost but no Builder credits where commercial surfaces are hidden", async () => {
+    await pglite.exec(`INSERT INTO token_usage
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens,
+       cache_write_tokens, cost_cents_x100, cost_source, builder_credits_used,
+       engine_name, model, app, run_id, thread_id, created_at)
+      VALUES
+      (28, '${OWNER}', 1000, 10, 0, 0, 100, 'reported', 2, 'builder', '${MODEL}',
+       'design', 'run-hidden-credits', 'thread-hidden-credits', ${Date.now()}),
+      (29, '${OWNER}', 1000, 10, 0, 0, 300, 'reported', NULL, 'anthropic', '${MODEL}',
+       'design', 'run-hidden-credits', 'thread-hidden-credits', ${Date.now()})`);
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      const run = await getUsageRun({ runId: "run-hidden-credits" }, ACCESS);
+      expect(run!.billing).toMatchObject({
+        providerCostUsd: 0.03,
+        builderCredits: null,
+        builderCreditsSource: null,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("prices calls with no recorded cost from their tokens instead of as free", async () => {

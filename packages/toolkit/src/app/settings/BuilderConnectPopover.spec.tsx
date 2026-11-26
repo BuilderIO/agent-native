@@ -551,6 +551,56 @@ describe("BuilderConnectPopover", () => {
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("offers account creation without credit copy where commercial surfaces are hidden", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+    };
+    const props = {
+      flow,
+      onConnect: vi.fn(),
+      appId: "calendar",
+      contentTestId: "consent",
+      primaryTestId: "create",
+      secondaryTestId: "sign-in",
+    };
+
+    render(React.createElement(BuilderConnectPopover, props, trigger()));
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.querySelector("h2")?.textContent).toBe(
+      "Connect Builder.io",
+    );
+    expect(consent?.textContent).not.toMatch(/credit|included free/i);
+    expect(
+      consent?.querySelector("[data-testid='builder-included-services']"),
+    ).toBeNull();
+    const create = consent?.querySelector("[data-testid='create']");
+    expect(create?.textContent).toBe("Create and activate");
+    expect(create?.hasAttribute("aria-describedby")).toBe(false);
+    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { ...props, flow: { ...flow, connecting: true } },
+        trigger(),
+      ),
+    );
+    const connecting = document.querySelector("[data-testid='consent']");
+    expect(connecting?.textContent).not.toMatch(/credit/i);
+    const status = connecting?.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toBe("Setting up Builder.io…");
+  });
+
   it("prefers the assigned workspace profile over the template profile", () => {
     appIdentity.templateId = "calendar";
     vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "assets");

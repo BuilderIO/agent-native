@@ -1,0 +1,126 @@
+@layer components {
+  .image-card {
+    display: grid;
+    gap: var(--space-3);
+    isolation: isolate;
+  }
+
+  :where(.image-card-media) {
+    aspect-ratio: 2 / 1;
+  }
+
+  .image-card-media {
+    overflow: hidden;
+    background: var(--surface-sunken);
+  }
+
+  :is(img, video, picture).image-card-media {
+    display: block;
+    inline-size: 100%;
+    block-size: auto;
+    object-fit: cover;
+  }
+
+  .image-card-media > :is(img, video, picture),
+  .image-card-media > picture > img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+  }
+
+  video.image-card-media,
+  .image-card-media > video {
+    object-fit: contain;
+  }
+
+  .image-card > .image-card-media {
+    border-radius: max(0px, calc(var(--_card-radius) - var(--_card-padding)));
+    corner-shape: inherit;
+  }
+
+  .image-card-body {
+    display: grid;
+    min-inline-size: 0;
+    gap: var(--space-2);
+    overflow-wrap: anywhere;
+  }
+
+  .image-card > .image-card-body {
+    padding: 0 var(--space-1) var(--space-1);
+  }
+
+  .image-card-target {
+    appearance: none;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: pointer;
+  }
+
+  /* Keep the card as the hit area's containing block throughout a button press. */
+  .image-card-target:is(.button, .icon-button):not([data-loading]) {
+    position: static;
+    scale: none;
+  }
+
+  .image-card-target::after {
+    position: absolute;
+    inset: 0;
+    content: "";
+  }
+
+  .image-card:has(.image-card-target:focus-visible) {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  .image-card-target:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
+
+  .image-card-actions {
+    display: flex;
+    min-inline-size: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-block-start: var(--space-3);
+  }
+
+  video.image-card-media[controls],
+  .image-card-media video[controls],
+  .image-card .image-card-actions {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Let gaps between nested action controls reach the stretched card target. */
+  .image-card:has(.image-card-target) .image-card-actions {
+    pointer-events: none;
+  }
+
+  .image-card:has(.image-card-target)
+    :is(.image-card-actions, .image-card-actions *):where(
+      a,
+      button,
+      input,
+      select,
+      textarea,
+      label,
+      summary,
+      [tabindex],
+      [contenteditable]:not([contenteditable="false"]),
+      iframe,
+      [role="button"],
+      [role="link"],
+      audio[controls],
+      video[controls]
+    ) {
+    pointer-events: auto;
+  }
+}

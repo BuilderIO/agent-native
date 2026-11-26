@@ -3,11 +3,17 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
+import {
+  assertReviewCommentHasContent,
+  MAX_REVIEW_IMAGE_ATTACHMENTS,
+  sanitizeReviewCommentAttachmentEdit,
+} from "../attachments.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
   assertPersonReviewAnchorKind,
   canCommentOnReviewableResource,
   resolveReviewableResourceAccess,
+  reviewWriteRefusal,
 } from "../registry.js";
 import { getReviewCommentById, updateReviewComment } from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
@@ -18,12 +24,31 @@ const mentionSchema = z.object({
   id: z.string().nullable().optional(),
 });
 
+const attachmentSchema = z.object({
+  url: z.string().min(1),
+  name: z.string().optional(),
+  contentType: z.string().optional(),
+  provider: z.string().optional(),
+});
+
 const schema = z
   .object({
     resourceType: z.string().min(1),
     resourceId: z.string().min(1),
     commentId: z.string().min(1),
-    body: z.string().min(1).optional(),
+    body: z
+      .string()
+      .optional()
+      .describe("Inline Markdown; may be empty when the comment has an image"),
+    // As many as a comment keeps, so a longer list is refused before any of
+    // its URLs are checked, rather than cut short.
+    attachments: z
+      .array(attachmentSchema)
+      .max(MAX_REVIEW_IMAGE_ATTACHMENTS)
+      .optional()
+      .describe(
+        `The comment's images, in place of the ones it has; at most ${MAX_REVIEW_IMAGE_ATTACHMENTS}`,
+      ),
     anchor: z.unknown().optional(),
     anchorKind: z.string().min(1).nullable().optional(),
     anchorVersion: z.number().int().positive().nullable().optional(),
@@ -37,18 +62,24 @@ const schema = z
         "The comment's revision when read; a newer one refuses the edit with revision_conflict",
       ),
   })
-  .refine((args) => args.body !== undefined || args.anchor !== undefined, {
-    message: "Provide a body or anchor to update",
-  });
+  .refine(
+    (args) =>
+      args.body !== undefined ||
+      args.attachments !== undefined ||
+      args.anchor !== undefined,
+    { message: "Provide a body, attachments or anchor to update" },
+  );
 
 export default defineAction({
-  description: "Update an authored review comment body or canvas anchor.",
+  description:
+    "Update an authored review comment's body or images, or its canvas anchor.",
   schema,
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const scope = {
@@ -75,7 +106,9 @@ export default defineAction({
       normalizeEmail(comment.authorEmail) ===
         normalizeEmail(actionCtx?.userEmail);
     const changesContent =
-      args.body !== undefined || args.mentions !== undefined;
+      args.body !== undefined ||
+      args.mentions !== undefined ||
+      args.attachments !== undefined;
     if (
       !access ||
       !canCommentOnReviewableResource(args.resourceType, access) ||
@@ -83,7 +116,13 @@ export default defineAction({
         ? !isAuthor
         : !isAuthor && !roleSatisfies(access.role, "editor"))
     ) {
-      throw new ForbiddenError("Not allowed to update this review comment");
+      throw new ForbiddenError(
+        reviewWriteRefusal(
+          args.resourceType,
+          access,
+          "Not allowed to update this review comment",
+        ),
+      );
     }
     if (args.anchor !== undefined) {
       // The kind the moved anchor ends up with, worked out as the store does.
@@ -93,6 +132,23 @@ export default defineAction({
           : args.anchor === null
             ? null
             : comment.anchorKind,
+      );
+    }
+    // New images that fail a new comment's checks are dropped here too; the
+    // ones the comment already keeps stay as they are.
+    const attachments =
+      args.attachments === undefined
+        ? undefined
+        : await sanitizeReviewCommentAttachmentEdit(
+            args.attachments,
+            comment.metadata,
+          );
+    // Checked here for a quick answer, and again by the store against the
+    // locked row, so a change made meanwhile can't empty the comment.
+    if (changesContent) {
+      assertReviewCommentHasContent(
+        args.body ?? comment.body,
+        attachments === undefined ? comment.metadata : { attachments },
       );
     }
     const mentions =
@@ -106,6 +162,7 @@ export default defineAction({
       args.commentId,
       {
         ...(args.body !== undefined ? { body: args.body } : {}),
+        ...(attachments !== undefined ? { attachments } : {}),
         ...(args.anchor !== undefined ? { anchor: args.anchor } : {}),
         ...(args.anchor !== undefined && args.anchorKind !== undefined
           ? { anchorKind: args.anchorKind }
@@ -117,7 +174,13 @@ export default defineAction({
       },
       { resourceType: args.resourceType, resourceId: args.resourceId },
       {
-        expectedRevision: args.expectedRevision,
+        // An image edit is worked out from the comment as read above, so
+        // with no revision given it saves only over that one: an image
+        // change made since is refused as a conflict rather than undone.
+        expectedRevision:
+          args.expectedRevision ??
+          (attachments !== undefined ? comment.revision : undefined),
+        requireContent: changesContent,
         actorEmail: actionCtx?.userEmail ?? null,
       },
     );

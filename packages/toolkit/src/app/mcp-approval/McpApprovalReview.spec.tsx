@@ -237,6 +237,20 @@ describe("a pending review", () => {
     ]);
   });
 
+  it("states the notice the app computed for the call, line by line", async () => {
+    const notice =
+      "Allow up to $5.00 of BigQuery today?\nThe approval expires at 00:00 UTC.";
+    serve(() => respond(200, pendingView({ notice })));
+
+    await renderPage();
+
+    const shown = [...container.querySelectorAll("p")].find((p) =>
+      p.textContent.startsWith("Allow up to $5.00"),
+    );
+    expect(shown?.textContent).toBe(notice);
+    expect(shown?.className).toContain("whitespace-pre-line");
+  });
+
   it("says plainly when the arguments weren't kept", async () => {
     serve(() =>
       respond(

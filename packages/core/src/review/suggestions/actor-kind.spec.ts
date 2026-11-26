@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  suggestionActorKind,
   suggestionAuthorClient,
   suggestionAuthorSource,
 } from "./actor-kind.js";
@@ -52,5 +53,26 @@ describe("suggestion authors", () => {
         mcpClient: { name: "claude-code" },
       }),
     ).toBeNull();
+  });
+});
+
+describe("suggestion actor kind", () => {
+  it.each(["agent", "tool", "mcp", "webmcp", "a2a"])(
+    "counts a %s call as the agent's",
+    (caller) => {
+      expect(
+        suggestionActorKind({ caller, userEmail: "person@example.com" }),
+      ).toBe("agent");
+    },
+  );
+
+  it("counts a UI call as the person's and a call with no one as the system's", () => {
+    expect(
+      suggestionActorKind({
+        caller: "frontend",
+        userEmail: "person@example.com",
+      }),
+    ).toBe("human");
+    expect(suggestionActorKind({ caller: "cli" })).toBe("system");
   });
 });

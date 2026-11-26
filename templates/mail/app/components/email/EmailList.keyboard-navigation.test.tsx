@@ -10,7 +10,12 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { isValidElement, useState } from "react";
+import {
+  isValidElement,
+  useCallback,
+  useState,
+  type ReactElement,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   virtualWindowSize: Number.POSITIVE_INFINITY,
   freezeVirtualStart: false,
   view: "all",
+  threadId: undefined as string | undefined,
   headerActions: null as unknown,
   priorityToast: vi.fn(),
   priorityRequest: vi.fn(),
@@ -38,7 +44,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (date: number) => new Date(date).toISOString(),
+  }),
+  useT: () => (key: string, params?: { time?: string }) =>
+    params?.time === undefined ? key : `${key} ${params.time}`,
 }));
 
 vi.mock("sonner", () => ({
@@ -90,7 +100,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => children,
   useNavigate: () => mocks.navigate,
-  useParams: () => ({ view: mocks.view }),
+  useParams: () => ({ view: mocks.view, threadId: mocks.threadId }),
   useSearchParams: () => [
     new URLSearchParams(
       mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
@@ -201,6 +211,7 @@ vi.mock("@/hooks/use-emails", () => {
   return {
     EMPTY_LABELS: [],
     MoveEmailPartialFailure: class MoveEmailPartialFailure extends Error {},
+    LabelEmailPartialFailure: class LabelEmailPartialFailure extends Error {},
     releaseSuppressionClaims: vi.fn(),
     useEmails: () => ({ data: [] }),
     useLabels: () => ({ data: [] }),
@@ -221,6 +232,8 @@ vi.mock("@/hooks/use-emails", () => {
     useBulkToggleStar: mutation,
     useBulkMarkRead: mutation,
     useMoveEmail: mutation,
+    useLabelEmail: mutation,
+    useCreateLabel: mutation,
   };
 });
 
@@ -282,8 +295,12 @@ function Harness({
   jevConfigured = showPrioritySort,
   jevAvailabilityError,
   priorityProviderIdentity,
+  onJevConnected,
   onJevRetry,
   sortMode,
+  readingPane,
+  keyboardEnabled,
+  onThreadOrderChange,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
@@ -300,8 +317,12 @@ function Harness({
   jevConfigured?: boolean;
   jevAvailabilityError?: boolean;
   priorityProviderIdentity?: string;
+  onJevConnected?: React.ComponentProps<typeof EmailList>["onJevConnected"];
   onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
+  readingPane?: boolean;
+  keyboardEnabled?: boolean;
+  onThreadOrderChange?: (threadIds: string[]) => void;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -329,8 +350,12 @@ function Harness({
         jevConfigured={jevConfigured}
         jevAvailabilityError={jevAvailabilityError}
         priorityProviderIdentity={priorityProviderIdentity}
+        onJevConnected={onJevConnected}
         onJevRetry={onJevRetry}
         sortMode={sortMode}
+        readingPane={readingPane}
+        keyboardEnabled={keyboardEnabled}
+        onThreadOrderChange={onThreadOrderChange}
       />
     </>
   );
@@ -366,34 +391,29 @@ function hasText(node: unknown, text: string): boolean {
   return hasText((node.props as { children?: unknown }).children, text);
 }
 
-function hasJevConnectionPrompt(node: unknown): boolean {
-  if (Array.isArray(node)) return node.some(hasJevConnectionPrompt);
-  if (!isValidElement(node)) return false;
-  if (
-    typeof node.type === "function" &&
-    node.type.name === "JevConnectionPrompt"
-  ) {
-    return true;
-  }
-  return hasJevConnectionPrompt(
-    (node.props as { children?: unknown }).children,
-  );
+interface HeaderElementProps {
+  children?: unknown;
+  open?: boolean;
+  onSelect?: () => void;
+  onConnected?: () => void;
 }
 
-function jevConnectionPromptVariant(node: unknown): unknown {
+function findElement(
+  node: unknown,
+  typeName: string,
+): ReactElement<HeaderElementProps> | undefined {
   if (Array.isArray(node)) {
-    return node.map(jevConnectionPromptVariant).find((variant) => variant);
+    for (const child of node) {
+      const found = findElement(child, typeName);
+      if (found) return found;
+    }
+    return undefined;
   }
-  if (!isValidElement(node)) return undefined;
-  if (
-    typeof node.type === "function" &&
-    node.type.name === "JevConnectionPrompt"
-  ) {
-    return (node.props as { variant?: unknown }).variant;
+  if (!isValidElement<HeaderElementProps>(node)) return undefined;
+  if (typeof node.type === "function" && node.type.name === typeName) {
+    return node;
   }
-  return jevConnectionPromptVariant(
-    (node.props as { children?: unknown }).children,
-  );
+  return findElement(node.props.children, typeName);
 }
 
 describe("EmailList keyboard navigation interactions", () => {
@@ -406,6 +426,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.freezeVirtualStart = false;
     mocks.view = "all";
+    mocks.threadId = undefined;
     mocks.headerActions = null;
     mocks.automations = [];
     mocks.priorityToast.mockReset();
@@ -460,12 +481,13 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.view = "inbox";
     const refetchEmails = vi.fn();
     const cooldownUntil = Date.now() + 20_000;
+    const staleSince = Date.now() - 60_000;
 
     render(
       <Harness
         read={{
           freshness: "cached",
-          staleSince: Date.now() - 60_000,
+          staleSince,
           cooldownUntil,
           retryAfterMs: 20_000,
         }}
@@ -475,7 +497,9 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(rows().length).toBeGreaterThan(0);
     const notice = screen
-      .getByText("mail.error.rateLimitDescription")
+      .getByText(
+        `mail.error.limitedListFrom ${new Date(staleSince).toISOString()}`,
+      )
       .closest('[role="status"]');
     expect(notice?.textContent).toContain("mail.error.tryAgainIn");
     expect(
@@ -494,12 +518,28 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(refetchEmails).toHaveBeenCalledOnce();
   });
 
+  it("says mail may be missing when no update time is known", () => {
+    mocks.view = "inbox";
+
+    render(
+      <Harness
+        read={{
+          freshness: "stale",
+          cooldownUntil: Date.now() + 20_000,
+          retryAfterMs: 20_000,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.limitedList")).toBeTruthy();
+  });
+
   it("shows no notice for live rows", () => {
     mocks.view = "inbox";
 
     render(<Harness read={{ freshness: "live" }} />);
 
-    expect(screen.queryByText("mail.error.rateLimitDescription")).toBeNull();
+    expect(screen.queryByText(/mail\.error\.limitedList/)).toBeNull();
     expect(rows().length).toBeGreaterThan(0);
   });
 
@@ -569,8 +609,73 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort={false} />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(true);
-    expect(jevConnectionPromptVariant(mocks.headerActions)).toBe("menu-item");
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeTruthy();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog"),
+    ).toBeUndefined();
+  });
+
+  it("keeps the AI provider dialog mounted when the sort menu goes away", () => {
+    mocks.view = "inbox";
+    const { rerender } = render(<Harness showPrioritySort={false} />);
+
+    act(() =>
+      findElement(
+        mocks.headerActions,
+        "JevConnectionMenuItem",
+      )?.props.onSelect?.(),
+    );
+    const sortMenu = findElement(mocks.headerActions, "PassThrough");
+    expect(findElement(sortMenu, "JevConnectionMenuItem")).toBeTruthy();
+    expect(findElement(sortMenu, "JevConnectionDialog")).toBeUndefined();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog")?.props.open,
+    ).toBe(true);
+
+    rerender(<Harness showPrioritySort={false} emails={[]} isLoading />);
+    expect(findElement(mocks.headerActions, "PassThrough")).toBeUndefined();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog")?.props.open,
+    ).toBe(true);
+  });
+
+  it("keeps the AI provider dialog open until Priority can run", () => {
+    mocks.view = "inbox";
+    const onJevConnected = vi.fn();
+    const { rerender } = render(
+      <Harness showPrioritySort={false} onJevConnected={onJevConnected} />,
+    );
+    act(() =>
+      findElement(
+        mocks.headerActions,
+        "JevConnectionMenuItem",
+      )?.props.onSelect?.(),
+    );
+
+    act(() =>
+      findElement(
+        mocks.headerActions,
+        "JevConnectionDialog",
+      )?.props.onConnected?.(),
+    );
+    expect(onJevConnected).toHaveBeenCalledOnce();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog")?.props.open,
+    ).toBe(true);
+
+    rerender(<Harness showPrioritySort onJevConnected={onJevConnected} />);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog"),
+    ).toBeUndefined();
+
+    rerender(
+      <Harness showPrioritySort={false} onJevConnected={onJevConnected} />,
+    );
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog"),
+    ).toBeUndefined();
   });
 
   it("shows a retry menu item when Jev availability lookup fails", () => {
@@ -584,7 +689,9 @@ describe("EmailList keyboard navigation interactions", () => {
     );
 
     expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(true);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeUndefined();
   });
 
   it("keeps the active Priority option visible when availability lookup fails", () => {
@@ -600,7 +707,9 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
     expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(false);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeUndefined();
   });
 
   it("shows Priority sort when Jev is configured", () => {
@@ -608,7 +717,9 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeUndefined();
   });
 
   it("shows the localized provider setup message when Priority cannot run", async () => {
@@ -694,6 +805,63 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(
       screen.queryByRole("button", { name: "mail.sort.priority 0.90" }),
     ).toBeNull();
+  });
+
+  it("reports threads in the ranked order it shows them", async () => {
+    mocks.view = "inbox";
+    const onThreadOrderChange = vi.fn();
+    mocks.priorityRequest.mockImplementationOnce(
+      async ({
+        emails,
+      }: {
+        emails: Array<{ id: string; accountEmail: string }>;
+      }) => ({
+        scores: emails.map(({ id, accountEmail }) => ({
+          emailId: id,
+          accountEmail,
+          score: id === "last" ? 0.9 : 0.4,
+        })),
+        failures: [],
+      }),
+    );
+
+    render(
+      <Harness
+        emails={messages.map((email) => ({ ...email, labelIds: ["inbox"] }))}
+        showPrioritySort
+        sortMode="priority"
+        onThreadOrderChange={onThreadOrderChange}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onThreadOrderChange).toHaveBeenLastCalledWith([
+        "thread-last",
+        "thread-first",
+        "thread-middle",
+      ]),
+    );
+  });
+
+  it("reports an unchanged order once while the page re-renders the list with fresh rows", () => {
+    const reports: string[][] = [];
+    function Page() {
+      const [, setOrder] = useState<string[] | null>(null);
+      const report = useCallback((threadIds: string[]) => {
+        reports.push(threadIds);
+        if (reports.length <= 5) setOrder(threadIds);
+      }, []);
+      return (
+        <Harness
+          emails={messages.map((email) => ({ ...email }))}
+          onThreadOrderChange={report}
+        />
+      );
+    }
+
+    render(<Page />);
+
+    expect(reports).toHaveLength(1);
   });
 
   it("ranks a newly scored message that enters the priority window", async () => {
@@ -1375,6 +1543,53 @@ describe("EmailList keyboard navigation interactions", () => {
     ]);
   });
 
+  it("keeps the current row where it is when the pointer passes over others", () => {
+    render(<Harness />);
+    const lastRow = rows()[2] as HTMLElement | undefined;
+    if (!lastRow) throw new Error("missing row");
+    fireEvent.mouseEnter(lastRow);
+    fireEvent.mouseMove(lastRow);
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    press("j");
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+  });
+
+  it("quiets hover while j and k drive the list, until the pointer moves", () => {
+    render(<Harness />);
+    const keyboardDriven = () => document.querySelector("[data-keyboard-nav]");
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    press("j");
+    expect(keyboardDriven()).not.toBeNull();
+
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    expect(keyboardDriven()).not.toBeNull();
+    fireEvent.mouseMove(document, { clientX: 14, clientY: 10 });
+    expect(keyboardDriven()).toBeNull();
+  });
+
+  it("makes a row the current row when it takes keyboard focus", () => {
+    render(<Harness />);
+    const lastRow = rows()[2] as HTMLElement | undefined;
+    if (!lastRow) throw new Error("missing row");
+    fireEvent.focus(lastRow);
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("last");
+    expect(lastRow.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("brings keyboard focus along to the current row only when a row holds it", () => {
+    render(<Harness />);
+    press("j");
+    expect(document.activeElement).toBe(document.body);
+
+    rows()[1]?.focus();
+    press("j");
+    expect(document.activeElement).toBe(rows()[2]);
+    press("k");
+    expect(document.activeElement).toBe(rows()[1]);
+  });
+
   it("extends selected rows with Shift+j and Shift+ArrowDown; plain j clears selection", () => {
     render(<Harness />);
 
@@ -1519,7 +1734,118 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(mocks.navigate).toHaveBeenCalledWith(
       "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: false },
     );
+  });
+
+  it("opens the top row on the first j beside an empty reading pane, then steps", () => {
+    const { rerender } = render(<Harness readingPane />);
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-first?accountEmail=synthetic%40example.test",
+      { replace: false },
+    );
+
+    mocks.threadId = "thread-first";
+    rerender(<Harness readingPane />);
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("steps on from an email you close instead of reopening it", () => {
+    mocks.threadId = "thread-middle";
+    const { rerender } = render(<Harness readingPane />);
+    mocks.threadId = undefined;
+    rerender(<Harness readingPane />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-last?accountEmail=synthetic%40example.test",
+      { replace: false },
+    );
+  });
+
+  it("continues from the email the reading pane shows, replacing history", () => {
+    mocks.threadId = "thread-middle";
+    render(<Harness readingPane />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-last?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("makes a thread opened from outside the list the current row, once", () => {
+    const { rerender } = render(<Harness />);
+    mocks.threadId = "thread-last";
+    rerender(<Harness />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("last");
+
+    press("k");
+    rerender(<Harness emails={[...messages]} />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+  });
+
+  it("keeps the open email's row current when a new message arrives in it", () => {
+    const { rerender } = render(<Harness />);
+    mocks.threadId = "thread-middle";
+    rerender(<Harness />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+
+    const reply = {
+      id: "middle-reply",
+      threadId: "thread-middle",
+      from: { name: "Sender reply", email: "reply@example.test" },
+      to: [{ name: "Synthetic User", email: "user@example.test" }],
+      subject: "Subject middle",
+      snippet: "Snippet reply",
+      body: "Body reply",
+      date: new Date(Date.UTC(2026, 0, 2, 12)).toISOString(),
+      isRead: true,
+      isStarred: false,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: [],
+      accountEmail: "synthetic@example.test",
+    };
+    rerender(<Harness emails={[...messages, reply]} />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe(
+      "middle-reply",
+    );
+  });
+
+  it("replaces history for clicks and Enter once the route shows an email", () => {
+    const { rerender } = render(<Harness readingPane />);
+    mocks.threadId = "thread-first";
+    rerender(<Harness readingPane />);
+
+    press("Enter");
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-first?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+
+    fireEvent.click(screen.getByText("Subject middle"));
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("leaves j and k to the open email when it owns the keyboard", () => {
+    render(<Harness readingPane keyboardEnabled={false} />);
+    press("j");
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it.each([

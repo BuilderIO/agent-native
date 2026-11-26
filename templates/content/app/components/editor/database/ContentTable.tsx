@@ -16,8 +16,10 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ChangeEvent as ReactChangeEvent,
   type ComponentProps,
   type FocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -28,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
+import { keepEscapeFromPagePanel } from "../document-page-panel-state";
 import {
   DatabaseTableColumnOrder,
   DatabaseTableLayout,
@@ -193,7 +196,7 @@ export function ContentTableSurface<Row>({
 }: DataGridProps<Row> & {
   columnOrder: readonly string[];
   frozenThroughColumnId?: string | null;
-  viewportWidth?: number;
+  viewportWidth?: number | undefined;
   gutterWidth?: number;
   onViewportWidthChange?: (width: number) => void;
 }) {
@@ -274,7 +277,7 @@ export const ContentTableToolbarButton = forwardRef<
   Omit<ComponentProps<typeof Button>, "children"> & {
     label: string;
     active?: boolean;
-    count?: number;
+    count?: number | undefined;
     children: ReactNode;
   }
 >(function ContentTableToolbarButton(
@@ -316,6 +319,9 @@ export function ContentTableSearch({
   closeLabel,
   onOpenChange,
   onValueChange,
+  variant = "toolbar",
+  className,
+  buttonClassName,
 }: {
   open: boolean;
   value: string;
@@ -324,23 +330,67 @@ export function ContentTableSearch({
   closeLabel: string;
   onOpenChange: (open: boolean) => void;
   onValueChange: (value: string) => void;
+  /**
+   * "toolbar" fits a row of 28 px buttons; "field" is the app's own 32 px text
+   * field, for a search with a row to itself.
+   */
+  variant?: "toolbar" | "field" | undefined;
+  /** The open field's box. */
+  className?: string | undefined;
+  /** The closed search button. */
+  buttonClassName?: string | undefined;
 }) {
   const close = () => {
     onValueChange("");
     onOpenChange(false);
   };
+  const input = {
+    autoFocus: true,
+    value,
+    placeholder,
+    "aria-label": label,
+    onChange: (event: ReactChangeEvent<HTMLInputElement>) =>
+      onValueChange(event.target.value),
+    onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== "Escape") return;
+      // Mark the key used: once the search closes the field is gone, so a
+      // page panel listening for Escape can't tell it came from here, and
+      // would close too, even inside a row preview that left the key to it.
+      keepEscapeFromPagePanel(event.nativeEvent);
+      close();
+    },
+  };
+  if (open && variant === "field") {
+    return (
+      <div className={cn("flex w-52 items-center gap-1", className)}>
+        <div className="relative min-w-0 flex-1">
+          <IconSearch
+            aria-hidden="true"
+            className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input {...input} size="sm" className="ps-8" />
+        </div>
+        {/* Beside the field, at its height, so it never sits on the text. */}
+        <ContentTableToolbarButton
+          label={closeLabel}
+          className="h-8 w-8"
+          onClick={close}
+        >
+          <IconX className="size-3.5" />
+        </ContentTableToolbarButton>
+      </div>
+    );
+  }
   return open ? (
-    <div className="flex h-7 w-52 items-center gap-1 rounded border border-border bg-background px-2">
+    <div
+      className={cn(
+        "flex h-7 w-52 items-center gap-1 rounded border border-border bg-background px-2",
+        className,
+      )}
+    >
       <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
       <Input
-        autoFocus
-        value={value}
-        placeholder={placeholder}
-        aria-label={label}
-        onChange={(event) => onValueChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") close();
-        }}
+        {...input}
         className="h-6 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
       />
       <button
@@ -356,6 +406,7 @@ export function ContentTableSearch({
     <ContentTableToolbarButton
       label={label}
       active={Boolean(value)}
+      className={buttonClassName}
       onClick={() => onOpenChange(true)}
     >
       <IconSearch className="size-3.5" />

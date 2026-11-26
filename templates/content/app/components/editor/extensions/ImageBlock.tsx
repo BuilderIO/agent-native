@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
@@ -6,19 +5,15 @@ import {
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
-  IconArrowsMinimize,
   IconCopy,
   IconDownload,
   IconDots,
   IconHierarchy2,
   IconLoader2,
   IconMessageCircle,
-  IconMinus,
   IconPhoto,
-  IconPlus,
   IconRefresh,
   IconTrash,
   IconX,
@@ -27,6 +22,7 @@ import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -35,13 +31,7 @@ import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -63,9 +53,12 @@ import {
   useFinishedImageUpload,
   useImageUploadPreview,
 } from "../image-upload-previews";
+import { downloadImage, ImageLightbox, usePageImage } from "../ImageLightbox";
 import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
+import { useEditorEditable } from "../useEditorEditable";
 import type { ContentImageOptions } from "./ImageNode";
+import { useQuietAltText } from "./use-quiet-alt-text";
 
 type ImageSourceTab = "upload" | "assets" | "link";
 type ResizeDirection = "left" | "right";
@@ -222,55 +215,6 @@ function normalizedImageWidth(value: unknown): number | null {
 
 function clampImageWidth(width: number, maxWidth: number): number {
   return Math.round(Math.min(Math.max(width, MIN_IMAGE_WIDTH), maxWidth));
-}
-
-function imageDownloadName(src: string, alt: string): string {
-  const cleanAlt = alt.trim().replace(/[^a-z0-9._-]+/gi, "-");
-  if (cleanAlt) return cleanAlt.toLowerCase();
-
-  try {
-    const pathname = new URL(src).pathname;
-    const name = pathname.split("/").filter(Boolean).pop();
-    if (name) return decodeURIComponent(name);
-  } catch {}
-
-  return "image";
-}
-
-async function downloadImage(
-  src: string,
-  alt: string,
-  copy: {
-    started: string;
-    opened: string;
-  },
-) {
-  const filename = imageDownloadName(src, alt);
-
-  try {
-    const response = await fetch(src);
-    if (!response.ok) throw new Error("Download failed");
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    toast.success(copy.started);
-  } catch {
-    const anchor = document.createElement("a");
-    anchor.href = src;
-    anchor.download = filename;
-    anchor.target = "_blank";
-    anchor.rel = "noopener noreferrer";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    toast.info(copy.opened);
-  }
 }
 
 async function blobToPng(blob: Blob): Promise<Blob> {
@@ -549,12 +493,24 @@ export function ImageBlock({
   const [altDraft, setAltDraft] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxZoomed, setLightboxZoomed] = useState(false);
+  const focusImage = useCallback(
+    (image: HTMLImageElement) => {
+      const position = typeof getPos === "function" ? getPos() : undefined;
+      if (editor.isEditable && typeof position === "number") {
+        editor.commands.setNodeSelection(position);
+        editor.view.focus();
+      } else {
+        image.focus({ preventScroll: true });
+      }
+      image.scrollIntoView({ block: "nearest" });
+    },
+    [editor, getPos],
+  );
+  const [pageImage, setPageImage] = usePageImage(focusImage);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
-  const lightboxImageRef = useRef<HTMLImageElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<ImageResizeState | null>(null);
   const assetsPickerRef = useRef<EmbeddedAppRef | null>(null);
@@ -564,10 +520,13 @@ export function ImageBlock({
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
   const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
-  const isEditable = canMutateMediaNow();
+  const editorEditable = useEditorEditable(editor);
+  const isEditable = editorEditable && (options.canMutateMedia?.() ?? true);
   const src = node.attrs.src as string;
   const displaySrc = imageDisplaySrc(src);
   const alt = (node.attrs.alt as string) || "";
+  const quietAlt = useQuietAltText({ currentAlt: alt });
+  const altRunBusy = isGeneratingAlt || quietAlt.state.phase === "running";
   const isUploading = String(node.attrs.uploadId ?? "").startsWith(
     "image-upload-",
   );
@@ -684,98 +643,131 @@ export function ImageBlock({
     setSourcePanelDismissed(true);
   }
 
-  function handleLightboxOpenChange(open: boolean) {
-    setLightboxOpen(open);
-    if (!open) {
-      setLightboxZoomed(false);
-    }
-  }
-
   function openLightbox() {
     setSourcePanelOpen(false);
-    setLightboxZoomed(false);
     setLightboxOpen(true);
-  }
-
-  function handleLightboxViewportPointerDown(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
-    const image = lightboxImageRef.current;
-    if (!image) return;
-
-    const imageRect = image.getBoundingClientRect();
-    const rootFontSize = Number.parseFloat(
-      window.getComputedStyle(document.documentElement).fontSize,
-    );
-    const closeBuffer = 4 * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
-    const isFarOutsideImage =
-      event.clientX < imageRect.left - closeBuffer ||
-      event.clientX > imageRect.right + closeBuffer || // i18n-ignore non-copy geometry expression
-      event.clientY < imageRect.top - closeBuffer ||
-      event.clientY > imageRect.bottom + closeBuffer;
-
-    if (isFarOutsideImage) {
-      handleLightboxOpenChange(false);
-    }
   }
 
   function updateAltText(nextAlt: string) {
     if (!canMutateMediaNow()) return;
+    if (quietAlt.state.phase === "running") quietAlt.keepTypedAlt();
     setAltDraft(nextAlt);
     updateAttributes({ alt: nextAlt });
   }
 
   async function handleGenerateAltText() {
-    if (!canMutateMediaNow()) return;
+    if (!canMutateMediaNow() || altRunBusy) return;
     const documentId = options.documentId;
     if (!documentId) {
       toast.error(t("editor.media.currentDocumentMissing"));
       return;
     }
 
-    const toastId = toast.loading(t("editor.media.generatingAltText"));
     setIsGeneratingAlt(true);
-
+    let imageDataUrl: string | null;
     try {
-      const imageDataUrl = await imageDataUrlForAgent(displaySrc);
-      if (editor.isDestroyed || !canMutateMediaNow()) {
-        toast.error(t("empty.genericError"), { id: toastId });
-        return;
-      }
-      const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
-      const articleContext = buildAltTextArticleContext({
-        editor,
-        getPos,
-        src,
-      });
-      sendToAgentChat({
-        message: t("editor.media.generateAltTextPrompt"),
-        context: [
-          "The user clicked the alt text generator for an image block in Content.",
-          `Document ID: ${documentId}`,
-          `Image URL: ${src}`,
-          `Image occurrence for this URL: ${imageOccurrence}`,
-          `Current alt text: ${alt.trim() || "(empty)"}`,
-          articleContext
-            ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
-            : "Article context could not be serialized from the editor.",
-          imageDataUrl
-            ? "The image contents are attached to this message."
-            : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
-          "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, altText, and imageOccurrence so the generated text is applied to this exact image. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
-          "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
-        ].join("\n"),
-        images: imageDataUrl ? [imageDataUrl] : undefined,
-        submit: true,
-      });
-      toast.success(t("editor.media.generatingAltText"), { id: toastId });
-    } catch {
-      toast.error(t("editor.media.altTextGenerationFailed"), {
-        id: toastId,
-      });
+      imageDataUrl = await imageDataUrlForAgent(displaySrc);
     } finally {
       setIsGeneratingAlt(false);
     }
+    if (editor.isDestroyed || !canMutateMediaNow()) return;
+    const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
+    const articleContext = buildAltTextArticleContext({
+      editor,
+      getPos,
+      src,
+    });
+    await quietAlt.start({
+      documentId,
+      message: t("editor.media.generateAltTextPrompt"),
+      instructions: [
+        "The user clicked the alt text generator for an image block in Content. This runs quietly: the user is not watching this chat, so do the work without asking questions.",
+        `Document ID: ${documentId}`,
+        `Image URL: ${src}`,
+        `Image occurrence for this URL: ${imageOccurrence}`,
+        `Current alt text, as a JSON string: ${JSON.stringify(alt)}`,
+        articleContext
+          ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
+          : "Article context could not be serialized from the editor.",
+        imageDataUrl
+          ? "The image contents are attached to this message."
+          : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
+        "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, altText, imageOccurrence, and expectedAltText set to the current alt text above, so the generated text is applied to this exact image and alt text the user typed in the meantime is kept. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
+        "If the user asks for changes later in this chat, call set-image-alt-text again for the same image, without expectedAltText.",
+        "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
+      ].join("\n"),
+      imageDataUrl,
+      imageUrl: src,
+      imageOccurrence,
+      altAtStart: alt,
+    });
+  }
+
+  function renderAltTextStatus() {
+    const { state } = quietAlt;
+    const message = altRunBusy
+      ? t("editor.media.generatingAltText")
+      : state.phase === "done"
+        ? t("editor.media.altTextAdded")
+        : state.phase === "kept"
+          ? t("editor.media.keptYourAltText")
+          : state.phase === "failed"
+            ? state.reason === "setup"
+              ? t("editor.media.altTextNeedsAiSetup")
+              : t("editor.media.altTextGenerationFailed")
+            : "";
+    const actionButton = (label: string, onClick: () => void) => (
+      <button
+        type="button"
+        className="media-block__alt-status-action"
+        onClick={onClick}
+      >
+        {label}
+      </button>
+    );
+    return (
+      <>
+        <span className="sr-only" role="status">
+          {message}
+        </span>
+        {message ? (
+          <div className="media-block__alt-status" data-phase={state.phase}>
+            {altRunBusy ? (
+              <IconLoader2 size={14} className="animate-spin" aria-hidden />
+            ) : null}
+            <span className="media-block__alt-status-text" aria-hidden>
+              {message}
+            </span>
+            {state.phase === "done"
+              ? actionButton(t("editor.media.editAltTextInChat"), () =>
+                  quietAlt.openChat(),
+                )
+              : null}
+            {state.phase === "failed" ? (
+              <>
+                {actionButton(
+                  t("editor.media.tryAgain"),
+                  () => void handleGenerateAltText(),
+                )}
+                {actionButton(t("editor.media.openChat"), () =>
+                  quietAlt.openChat(),
+                )}
+              </>
+            ) : null}
+            {altRunBusy ? null : (
+              <button
+                type="button"
+                className="media-block__alt-status-dismiss"
+                aria-label={t("editor.media.dismissAltTextStatus")}
+                onClick={() => quietAlt.dismiss()}
+              >
+                <IconX size={14} />
+              </button>
+            )}
+          </div>
+        ) : null}
+      </>
+    );
   }
 
   // A block that goes away mid-copy drops the copy without an error.
@@ -1396,9 +1388,11 @@ export function ImageBlock({
           </div>
         ) : (
           <img
+            ref={setPageImage}
             src={displaySrc}
             alt={alt || ""}
             className="media-block__content"
+            tabIndex={editorEditable ? undefined : -1}
             draggable={false}
             onLoad={() => setFailure(null)}
             onError={() => setFailure({ src, ownLoad: true })}
@@ -1470,11 +1464,19 @@ export function ImageBlock({
                       type="button"
                       className="media-block__alt-generate"
                       aria-label={t("editor.media.generateAltText")}
-                      aria-busy={isGeneratingAlt}
-                      disabled={isGeneratingAlt}
+                      aria-busy={altRunBusy}
+                      aria-disabled={altRunBusy}
                       onClick={() => void handleGenerateAltText()}
                     >
-                      <IconHierarchy2 size={18} />
+                      {altRunBusy ? (
+                        <IconLoader2
+                          size={18}
+                          className="animate-spin"
+                          aria-hidden
+                        />
+                      ) : (
+                        <IconHierarchy2 size={18} />
+                      )}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -1485,6 +1487,8 @@ export function ImageBlock({
             </PopoverContent>
           </Popover>
         ) : null}
+
+        {isEditable ? renderAltTextStatus() : null}
 
         {isEditable && (
           <>
@@ -1689,7 +1693,7 @@ export function ImageBlock({
             data-visible={isHovered ? "true" : undefined}
             aria-hidden={!isHovered}
           >
-            {editor.isEditable && options.onImageComment ? (
+            {editorEditable && options.onImageComment ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -1742,95 +1746,13 @@ export function ImageBlock({
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}
         {renderAssetsPickerDialog()}
 
-        <Dialog open={lightboxOpen} onOpenChange={handleLightboxOpenChange}>
-          <DialogPortal>
-            <DialogOverlay className="media-lightbox__overlay" />
-            <DialogPrimitive.Content
-              className="media-lightbox"
-              aria-describedby={undefined}
-              onOpenAutoFocus={(event) => event.preventDefault()}
-            >
-              <DialogTitle className="sr-only">
-                {t("editor.media.imagePreview")}
-              </DialogTitle>
-              <div
-                className="media-lightbox__viewport"
-                onPointerDown={handleLightboxViewportPointerDown}
-              >
-                <button
-                  type="button"
-                  className="media-lightbox__image-button"
-                  data-zoomed={lightboxZoomed ? "true" : undefined}
-                  aria-label={
-                    lightboxZoomed
-                      ? t("editor.media.zoomImageOut")
-                      : t("editor.media.zoomImageIn")
-                  }
-                  aria-pressed={lightboxZoomed}
-                  onClick={() => setLightboxZoomed((zoomed) => !zoomed)}
-                >
-                  <img
-                    ref={lightboxImageRef}
-                    src={displaySrc}
-                    alt={alt || ""}
-                    className="media-lightbox__image"
-                    draggable={false}
-                  />
-                </button>
-              </div>
-
-              <div
-                className="media-lightbox__toolbar"
-                aria-label={t("editor.media.imageView")}
-              >
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.zoomOut")}
-                  disabled={!lightboxZoomed}
-                  onClick={() => setLightboxZoomed(false)}
-                >
-                  <IconMinus size={17} />
-                </button>
-                <span className="media-lightbox__zoom-value">
-                  {lightboxZoomed ? "150%" : "100%"}
-                </span>
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.zoomIn")}
-                  disabled={lightboxZoomed}
-                  onClick={() => setLightboxZoomed(true)}
-                >
-                  <IconPlus size={17} />
-                </button>
-                <span className="media-lightbox__separator" aria-hidden />
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.downloadImage")}
-                  onClick={() =>
-                    void downloadImage(displaySrc, alt, {
-                      started: t("editor.media.imageDownloadStarted"),
-                      opened: t("editor.media.openedImageInNewTab"),
-                    })
-                  }
-                >
-                  <IconDownload size={17} />
-                </button>
-                <span className="media-lightbox__separator" aria-hidden />
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label={t("editor.media.closeImagePreview")}
-                  onClick={() => handleLightboxOpenChange(false)}
-                >
-                  <IconArrowsMinimize size={17} />
-                </button>
-              </div>
-            </DialogPrimitive.Content>
-          </DialogPortal>
-        </Dialog>
+        <ImageLightbox
+          open={lightboxOpen}
+          onOpenChange={setLightboxOpen}
+          src={displaySrc}
+          alt={alt || ""}
+          origin={pageImage}
+        />
       </div>
     </NodeViewWrapper>
   );

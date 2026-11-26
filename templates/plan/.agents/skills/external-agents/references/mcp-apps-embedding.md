@@ -120,6 +120,17 @@ resource CSP should include the exact origins of apps granted through Dispatch,
 not broad sources like `https:`. This lets Claude's transplant path fetch the
 signed target app HTML while keeping the connector's resource surface narrow.
 
+Side panel and app tools: every `embedApp()` resource sets
+`_meta.ui.preferredDisplayMode: "fullscreen"`, so Claude opens the app in its
+side panel beside the chat (other hosts ignore the field). The shell declares
+`availableDisplayModes` and `tools` in `ui/initialize` and answers the host's
+`tools/list` / `tools/call` on the open view: `read_view` returns the page's
+path, title, selection and visible text, `navigate_view` moves the open app to
+another same-origin path in place, and any page tools the app registered through
+WebMCP are passed through. Prefer these over a new `open_app` call when the user
+asks to change what the open panel shows, since each new UI tool call opens a
+new view.
+
 Host sizing rule: the MCP resource shell owns a bounded inline height and the
 embedded route should scroll internally. `embedApp({ height })` defaults to a
 `560px` shell, clamps to `320-900px`, and subtracts `44px` for the wrapper bar

@@ -1,8 +1,10 @@
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  backgroundRunInitiatorMarker,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import {
+  getTurnInitiatorByRun,
   listUnclaimedBackgroundRunRows,
   reapUnclaimedBackgroundRun,
   shouldRedispatchUnclaimedBackgroundRun,
@@ -53,6 +55,7 @@ export async function sweepUnclaimedBackgroundRuns(options?: {
         );
       }
       try {
+        const initiator = await getTurnInitiatorByRun(row.id);
         await fireInternalDispatch({
           path: resolveAgentChatProcessRunDispatchPath(),
           taskId: row.id,
@@ -61,6 +64,7 @@ export async function sweepUnclaimedBackgroundRuns(options?: {
             [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
               runId: row.id,
               payloadRef: true,
+              ...backgroundRunInitiatorMarker(row.id, initiator),
             },
           },
           awaitResponse: true,

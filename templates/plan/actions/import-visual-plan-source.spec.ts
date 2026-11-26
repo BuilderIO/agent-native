@@ -63,6 +63,8 @@ vi.mock("../server/lib/local-plan-files.js", () => ({
 vi.mock("../server/lib/plan-assets.js", () => ({
   applyImportedAssets: (content: unknown) => content,
   importPlanAssets: vi.fn(),
+  skippedPlanAssetsWarning: (skipped: unknown[]) =>
+    skipped.length > 0 ? "Some images weren't added." : null,
 }));
 
 vi.mock("../server/lib/plan-versions.js", () => ({

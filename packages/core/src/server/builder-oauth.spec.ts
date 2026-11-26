@@ -9,6 +9,7 @@ const readMock = vi.hoisted(() => vi.fn());
 const saveMock = vi.hoisted(() => vi.fn());
 const revokeMock = vi.hoisted(() => vi.fn());
 const getAccessTokenMock = vi.hoisted(() => vi.fn());
+const getConnectionStateMock = vi.hoisted(() => vi.fn());
 const resolveAccessStateMock = vi.hoisted(() => vi.fn());
 const markReconnectMock = vi.hoisted(() => vi.fn());
 const validateIssuerMock = vi.hoisted(() => vi.fn());
@@ -30,6 +31,7 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
   saveMcpOAuthCredentials: saveMock,
   revokeMcpOAuthCredentials: revokeMock,
   getMcpOAuthAccessToken: getAccessTokenMock,
+  getMcpOAuthConnectionState: getConnectionStateMock,
   resolveMcpOAuthCredentialAccess: resolveAccessStateMock,
   McpOAuthReauthorizationRequiredError:
     MockMcpOAuthReauthorizationRequiredError,
@@ -78,6 +80,7 @@ import {
   getBuilderOAuthStoredScope,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasOwnStoredBuilderOAuthGrantForUse,
   hasStoredBuilderOAuthGrant,
   hasStoredBuilderOAuthGrantForUse,
   listUsersWithStoredBuilderOAuthGrant,
@@ -131,8 +134,15 @@ function credentials(overrides: Record<string, unknown> = {}) {
 
 // Every save stamps when the grant was connected, so status can tell a fresh
 // reconnect from the grant that was already there.
-function savedCredentials(finished: ReturnType<typeof credentials>) {
-  return { ...finished, connectedAt: expect.any(Number) };
+function savedCredentials(
+  finished: ReturnType<typeof credentials>,
+  connectedBy?: string,
+) {
+  return {
+    ...finished,
+    connectedAt: expect.any(Number),
+    ...(connectedBy ? { connectedBy } : {}),
+  };
 }
 
 beforeEach(() => {
@@ -142,6 +152,8 @@ beforeEach(() => {
   saveMock.mockReset();
   revokeMock.mockReset();
   getAccessTokenMock.mockReset();
+  getConnectionStateMock.mockReset();
+  getConnectionStateMock.mockResolvedValue({ kind: "missing" });
   resolveAccessStateMock.mockReset();
   resolveAccessStateMock.mockResolvedValue({
     state: { kind: "missing" },
@@ -158,6 +170,96 @@ beforeEach(() => {
   isRestrictedMock.mockResolvedValue(false);
   readRoleMock.mockReset();
   readRoleMock.mockResolvedValue("member");
+});
+
+describe("own stored Builder OAuth grants", () => {
+  it("recognizes a newly saved organization grant only for its signer", async () => {
+    await saveBuilderOAuthCredentials({
+      ownerEmail: "Alice@Example.com",
+      orgId: DEFAULT_ORG,
+      scope: "org",
+      credentials: credentials(),
+    });
+    const saved = saveMock.mock.lastCall?.[0];
+    getConnectionStateMock.mockImplementation(async ({ key }) =>
+      key === saved?.key
+        ? { kind: "connected", credential: saved.credentials }
+        : { kind: "missing" },
+    );
+
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, DEFAULT_ORG),
+    ).resolves.toBe(true);
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse("bob@example.com", DEFAULT_ORG),
+    ).resolves.toBe(false);
+  });
+
+  it("recognizes a connected personal grant only while it is allowed in the organization", async () => {
+    getConnectionStateMock.mockImplementation(async ({ key }) =>
+      key === perUserKey(ownerEmail)
+        ? { kind: "connected", credential: credentials() }
+        : { kind: "missing" },
+    );
+
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, DEFAULT_ORG),
+    ).resolves.toBe(true);
+    isRestrictedMock.mockResolvedValue(true);
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, DEFAULT_ORG),
+    ).resolves.toBe(false);
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("counts an expired grant only when it refreshes", async () => {
+    getConnectionStateMock.mockImplementation(async ({ key }) =>
+      key === perUserKey(ownerEmail)
+        ? { kind: "expired", credential: credentials({ tokenExpiresAt: 1 }) }
+        : { kind: "missing" },
+    );
+
+    getAccessTokenMock.mockResolvedValueOnce("refreshed-token");
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, DEFAULT_ORG),
+    ).resolves.toBe(true);
+    getAccessTokenMock.mockResolvedValueOnce(null);
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, DEFAULT_ORG),
+    ).resolves.toBe(false);
+    getAccessTokenMock.mockRejectedValueOnce(
+      new McpOAuthRefreshUnavailableError(),
+    );
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, DEFAULT_ORG),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+  });
+
+  it("does not count a grant that needs reconnecting", async () => {
+    getConnectionStateMock.mockImplementation(async ({ key }) =>
+      key === perUserKey(ownerEmail)
+        ? { kind: "reconnect_required", credential: credentials() }
+        : { kind: "missing" },
+    );
+
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, DEFAULT_ORG),
+    ).resolves.toBe(false);
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes an unreadable grant from an absent grant", async () => {
+    getConnectionStateMock.mockResolvedValueOnce({
+      kind: "malformed",
+      reason: "unreadable",
+    });
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, null),
+    ).rejects.toThrow("The stored Builder OAuth grant could not be read.");
+    await expect(
+      hasOwnStoredBuilderOAuthGrantForUse(ownerEmail, null),
+    ).resolves.toBe(false);
+  });
 });
 
 describe("Builder hosted user OAuth", () => {
@@ -248,8 +350,28 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: savedCredentials(finished),
+      credentials: savedCredentials(finished, ownerEmail),
     });
+  });
+
+  it("replaces an expired stored grant with a new OAuth result without authorizing the old grant", async () => {
+    const previous = credentials({ expiresAt: 1, reconnectRequired: true });
+    readMock.mockResolvedValue(previous);
+    getAccessTokenMock.mockRejectedValue(new Error("Previous grant expired"));
+    const fresh = credentials();
+    await saveBuilderOAuthCredentials({
+      ownerEmail: "qa@example.com",
+      orgId: DEFAULT_ORG,
+      role: "owner",
+      credentials: fresh,
+    });
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: savedCredentials(fresh, "qa@example.com"),
+      }),
+    );
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+    expect(readMock).not.toHaveBeenCalled();
   });
 
   it("stores a completed grant in the explicit normalized user custody slot", async () => {
@@ -479,7 +601,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: "org-acme",
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: savedCredentials(finished),
+      credentials: savedCredentials(finished, ownerEmail),
     });
   });
 
@@ -534,7 +656,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: "org-started",
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: savedCredentials(finished),
+      credentials: savedCredentials(finished, ownerEmail),
     });
     expect(resolveOrgMock).not.toHaveBeenCalled();
   });
@@ -720,6 +842,75 @@ describe("Builder hosted user OAuth", () => {
     expect(resolveAccessStateMock).toHaveBeenCalledWith(
       expect.objectContaining({ forceRefresh: true }),
     );
+  });
+
+  it("marks a dispatch grant for reconnect only when Builder rejects the refresh, not on a transient failure", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "connected", credential: credentials() },
+      accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+    });
+
+    await resolveBuilderOAuthRequestAccessState({
+      ownerEmail,
+      requiredScope: BUILDER_OAUTH_SCOPE,
+      orgId: null,
+    });
+
+    const refreshFailurePolicy =
+      resolveAccessStateMock.mock.calls[0]?.[0]
+        ?.shouldMarkReconnectRequiredOnRefreshFailure;
+    expect(refreshFailurePolicy?.(new TypeError("fetch failed"))).toBe(false);
+    expect(
+      refreshFailurePolicy?.(
+        new OAuthError(OAuthErrorCode.ServerError, "token endpoint failed"),
+      ),
+    ).toBe(false);
+    expect(
+      refreshFailurePolicy?.(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "refresh token revoked"),
+      ),
+    ).toBe(true);
+  });
+
+  it("reports a transient dispatch refresh failure as retryable, not as an unusable grant", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "expired", credential: credentials() },
+      accessToken: null,
+      refreshFailure: "transient",
+    });
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+  });
+
+  it("runs on the org grant when the personal grant refresh is temporarily unavailable", async () => {
+    resolveAccessStateMock.mockImplementation(async (options) =>
+      options.scope === "user"
+        ? {
+            state: { kind: "expired", credential: credentials() },
+            accessToken: null,
+            refreshFailure: "transient",
+          }
+        : {
+            state: { kind: "connected", credential: credentials() },
+            accessToken: "<ORG_ACCESS_TOKEN_EXAMPLE>",
+          },
+    );
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+      }),
+    ).resolves.toMatchObject({
+      kind: "available",
+      access: { accessToken: "<ORG_ACCESS_TOKEN_EXAMPLE>", scope: "org" },
+    });
   });
 
   it("force-refreshes only the Builder grant selected for the request", async () => {

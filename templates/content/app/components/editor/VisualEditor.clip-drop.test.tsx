@@ -66,7 +66,7 @@ function filesEvent(type: "drop" | "paste", files: File[]) {
   const event = new Event(type, { cancelable: true });
   Object.defineProperties(event, {
     dataTransfer: { value: { files, items: [] } },
-    clipboardData: { value: { files } },
+    clipboardData: { value: { files, getData: () => "" } },
     clientX: { value: 0 },
     clientY: { value: 0 },
   });

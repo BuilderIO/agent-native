@@ -16,6 +16,7 @@ import {
 
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
+import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   base64ByteLength,
@@ -109,11 +110,18 @@ export interface BuilderRelayRequestBody {
   credentials: BuilderRelayCredentials;
 }
 
+/** The request never produced an HTTP answer, or the answer was unusable. */
+export type BuilderProvisioningTransportFailure =
+  | "timeout"
+  | "unreachable"
+  | "invalid_response";
+
 export class BuilderAccountProvisioningError extends Error {
   readonly code: string | null;
   readonly upstreamStatus: number | null;
   readonly upstreamErrorBody: string | null;
   readonly upstreamBodyReadErrorType: string | null;
+  readonly transport: BuilderProvisioningTransportFailure | null;
 
   constructor(
     message: string,
@@ -121,6 +129,7 @@ export class BuilderAccountProvisioningError extends Error {
     upstreamStatus: number | null = null,
     upstreamErrorBody: string | null = null,
     upstreamBodyReadErrorType: string | null = null,
+    transport: BuilderProvisioningTransportFailure | null = null,
   ) {
     super(message);
     this.name = "BuilderAccountProvisioningError";
@@ -128,7 +137,84 @@ export class BuilderAccountProvisioningError extends Error {
     this.upstreamStatus = upstreamStatus;
     this.upstreamErrorBody = upstreamErrorBody;
     this.upstreamBodyReadErrorType = upstreamBodyReadErrorType;
+    this.transport = transport;
   }
+}
+
+export type BuilderProvisioningFailureCode =
+  | "provision_timeout"
+  | "provision_unreachable"
+  | "provision_invalid_response"
+  | "provision_rejected"
+  | "provision_rate_limited"
+  | "provision_invalid_request"
+  | "provision_upstream_error"
+  | "provision_failed";
+
+/** Each failure mode names itself; only a status we have no reading for is `provision_failed`. */
+export function classifyBuilderProvisioningFailure(
+  error: BuilderAccountProvisioningError | null,
+): { code: BuilderProvisioningFailureCode; message: string } {
+  if (!error) {
+    return {
+      code: "provision_failed",
+      message:
+        "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
+    };
+  }
+  if (error.transport === "timeout") {
+    return {
+      code: "provision_timeout",
+      message: "Builder.io took too long to respond. Try again in a moment.",
+    };
+  }
+  if (error.transport === "unreachable") {
+    return {
+      code: "provision_unreachable",
+      message:
+        "Couldn't reach Builder.io from this app. Check the connection and try again.",
+    };
+  }
+  if (error.transport === "invalid_response") {
+    return {
+      code: "provision_invalid_response",
+      message:
+        "Builder.io answered with an unexpected response while creating your account. Try again or sign in with an existing account.",
+    };
+  }
+  const status = error.upstreamStatus;
+  if (status === 401 || status === 403) {
+    return {
+      code: "provision_rejected",
+      message:
+        "Builder.io rejected account creation from this app. Sign in with an existing Builder.io account instead.",
+    };
+  }
+  if (status === 429) {
+    return {
+      code: "provision_rate_limited",
+      message:
+        "Builder.io is limiting account creation right now. Wait a minute and try again.",
+    };
+  }
+  if (status === 400 || status === 422) {
+    return {
+      code: "provision_invalid_request",
+      message:
+        "Builder.io couldn't accept the account details for this email. Sign in with an existing Builder.io account instead.",
+    };
+  }
+  if (status !== null && status >= 500) {
+    return {
+      code: "provision_upstream_error",
+      message: "Builder.io is having trouble right now. Try again shortly.",
+    };
+  }
+  return {
+    code: "provision_failed",
+    message:
+      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
+  };
 }
 
 export function isBuilderAccountAlreadyExistsError(error: unknown): boolean {
@@ -1628,6 +1714,11 @@ function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
   return isConfiguredAppOrigin(origin) ? origin : null;
 }
 
+function requestProtocol(event: H3Event): "http" | "https" {
+  const socket = event.node?.req.socket as { encrypted?: boolean } | undefined;
+  return socket?.encrypted ? "https" : "http";
+}
+
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
   if (signedPreviewOrigin) return signedPreviewOrigin;
@@ -1650,9 +1741,11 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const proto =
     rawProto === "http" || rawProto === "https"
       ? rawProto
-      : process.env.NODE_ENV === "production"
-        ? "https"
-        : "http";
+      : isLoopbackBuilderRequestHost(headerHost)
+        ? requestProtocol(event)
+        : process.env.NODE_ENV === "production"
+          ? "https"
+          : "http";
   return `${proto}://${headerHost}`;
 }
 
@@ -1835,7 +1928,16 @@ export function resolveBuilderCallbackReturnUrl(options: {
 const BUILDER_CALLBACK_THEME_SCRIPT = `<script>
 (function () {
   try {
-    var stored = window.localStorage && window.localStorage.getItem("theme");
+    var stored = null;
+    if (window.localStorage) {
+      for (var i = 0; i < window.localStorage.length; i++) {
+        var key = window.localStorage.key(i);
+        if (key === "theme" || (key && key.slice(-6) === ":theme")) {
+          var value = window.localStorage.getItem(key);
+          if (value === "light" || value === "dark") { stored = value; if (key === "theme") break; }
+        }
+      }
+    }
     var resolved;
     if (stored === "light" || stored === "dark") {
       resolved = stored;
@@ -1976,11 +2078,11 @@ export function createBuilderBrowserCallbackPage(
   previewUrl: string,
   opts: { parentOrigin?: string; attemptId?: string } = {},
 ): string {
-  const escapedUrl = JSON.stringify(previewUrl);
-  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
+  const escapedUrl = safeJsonForHtml(previewUrl);
+  const escapedAttemptId = safeJsonForHtml(opts.attemptId ?? null);
   const parentOrigin =
     safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
-  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
+  const escapedTargetOrigin = safeJsonForHtml(parentOrigin ?? "*");
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -2001,7 +2103,7 @@ export function createBuilderBrowserCallbackPage(
       <h1>Builder connected</h1>
       <p>Browser access is now available to your app.</p>
       <p class="muted">You can close this tab and return to the workspace.</p>
-      <a class="btn" href=${escapedUrl}>Open the workspace</a>
+      <a class="btn" href="${escapeHtml(previewUrl)}">Open the workspace</a>
     </main>
     <script>
       // Tell the opener tab the connect succeeded. The parent has two ways
@@ -2055,11 +2157,11 @@ export function createBuilderBrowserCallbackErrorPage(
     attemptId?: string;
   } = {},
 ): string {
-  const escapedMessage = JSON.stringify(message);
-  const escapedCode = JSON.stringify(opts.code ?? null);
-  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
+  const escapedMessage = safeJsonForHtml(message);
+  const escapedCode = safeJsonForHtml(opts.code ?? null);
+  const escapedAttemptId = safeJsonForHtml(opts.attemptId ?? null);
   const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
-  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
+  const escapedTargetOrigin = safeJsonForHtml(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
   const body =
     opts.body ??
@@ -2428,7 +2530,7 @@ async function fetchBuilderApi(
   } catch (error) {
     const errorName = error instanceof Error ? error.name : "";
     if (errorName === "AbortError" || errorName === "TimeoutError") {
-      throw new Error(
+      throw new BuilderApiTimeoutError(
         `Builder ${operation} timed out after ${BUILDER_API_REQUEST_TIMEOUT_MS}ms`,
         { cause: error },
       );
@@ -2436,6 +2538,8 @@ async function fetchBuilderApi(
     throw error;
   }
 }
+
+class BuilderApiTimeoutError extends Error {}
 
 async function readBuilderApiObject(
   response: Response,
@@ -2604,27 +2708,41 @@ export async function provisionBuilderAccount(input: {
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
     .digest("base64url");
-  const response = await fetchBuilderApi(
-    new URL("/api/v1/accounts/agent-native", getBuilderApiHost()),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-agent-native-account-version": version,
-        "x-agent-native-account-timestamp": timestamp,
-        "x-agent-native-account-request-id": requestId,
-        "x-agent-native-account-signature": signature,
+  let response: Response;
+  try {
+    response = await fetchBuilderApi(
+      new URL("/api/v1/accounts/agent-native", getBuilderApiHost()),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-agent-native-account-version": version,
+          "x-agent-native-account-timestamp": timestamp,
+          "x-agent-native-account-request-id": requestId,
+          "x-agent-native-account-signature": signature,
+        },
+        body: JSON.stringify({
+          email,
+          name,
+          ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
+          ...(agentNativeApp ? { agentNativeApp } : {}),
+          ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
+        }),
       },
-      body: JSON.stringify({
-        email,
-        name,
-        ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
-        ...(agentNativeApp ? { agentNativeApp } : {}),
-        ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
-      }),
-    },
-    "account provisioning",
-  );
+      "account provisioning",
+    );
+  } catch (error) {
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      null,
+      null,
+      null,
+      error instanceof BuilderApiTimeoutError ? "timeout" : "unreachable",
+    );
+  }
   const bodyRead = await response
     .clone()
     .text()
@@ -2645,7 +2763,18 @@ export async function provisionBuilderAccount(input: {
   try {
     parsed = await readBuilderApiObject(response, "account provisioning");
   } catch (error) {
-    if (response.ok) throw error;
+    if (response.ok) {
+      throw new BuilderAccountProvisioningError(
+        error instanceof Error
+          ? error.message
+          : "Builder account provisioning failed",
+        undefined,
+        response.status,
+        builderProvisioningErrorBody(null, rawErrorBody),
+        bodyReadErrorType,
+        "invalid_response",
+      );
+    }
     throw new BuilderAccountProvisioningError(
       error instanceof Error
         ? error.message
@@ -2679,6 +2808,7 @@ export async function provisionBuilderAccount(input: {
       response.status,
       builderProvisioningErrorBody(parsed, rawErrorBody),
       bodyReadErrorType,
+      "invalid_response",
     );
   }
 }
@@ -2996,20 +3126,36 @@ export async function runBuilderAgent(
     userId: builderUserId,
   });
 
-  if (
+  const unknownEmail = () =>
     !response.ok &&
-    (response.status === 403 || response.status === 404) &&
-    builderUserEmail &&
-    fallbackUserId
-  ) {
+    Boolean(builderUserEmail) &&
+    (response.status === 403 ||
+      response.status === 404 ||
+      /user not found/i.test(builderApiErrorMessage(parsed, "")));
+
+  let attemptedFallback = false;
+  if (unknownEmail() && fallbackUserId) {
+    attemptedFallback = true;
     ({ response, parsed } = await postRun({ userId: fallbackUserId }));
   }
 
   if (!response.ok) {
-    const msg =
-      typeof parsed.error === "string"
-        ? parsed.error
-        : `Builder agent run failed (${response.status})`;
+    const msg = builderApiErrorMessage(
+      parsed,
+      `Builder agent run failed (${response.status})`,
+    );
+    if (!attemptedFallback && unknownEmail() && /user not found/i.test(msg)) {
+      throw Object.assign(
+        new ActionContractError(
+          `Builder could not find ${builderUserEmail} as a member of this Builder space (${msg}).`,
+          {
+            errorCode: "builder_space_membership_required",
+            statusCode: 400,
+          },
+        ),
+        { builderStatus: response.status },
+      );
+    }
     throw builderApiFailure(response.status, msg);
   }
 

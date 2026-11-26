@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { measureCpuMs } from "../testing/cpu-time";
 import {
   captureException,
   captureMessage,
@@ -58,6 +59,58 @@ function fireRejection(
     listener({ reason, ...event });
   }
 }
+
+describe("exception message redaction", () => {
+  afterEach(() => {
+    delete (globalThis as any)[errorCaptureStateKey];
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("redacts a credential-named assignment in a message", () => {
+    installBrowser();
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send });
+
+    captureMessage("request failed: api_key=abc123 token: def");
+
+    expect(send.mock.calls[0][0].message).toBe(
+      "request failed: api_key=<redacted> token: <redacted>",
+    );
+    dispose();
+  });
+
+  it("redacts JSON keys, query values and bare keys in an exception's message, stack and extras", () => {
+    installBrowser();
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send });
+    const error = new Error(
+      'failed {"apiKey":"CANARYJSON"} GET https://x.example.com/?key=CANARYQUERY code=CANARYCODE&state=CANARYSTATE ' +
+        ["sk-ant-api03-", "CANARYBARE0123456789"].join(""),
+    );
+
+    captureException(error, { extra: { apiKey: "CANARYEXTRA" } });
+
+    const event = send.mock.calls[0][0];
+    expect(JSON.stringify(event)).not.toMatch(/CANARY/);
+    expect(event.extra).toEqual({ apiKey: "<redacted>" });
+    dispose();
+  });
+
+  it("redacts 8 KB of repeated key-looking text in well under a second", () => {
+    installBrowser();
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send });
+    const run = "token_".repeat(1400);
+
+    const cpuMs = measureCpuMs(() => captureMessage(run));
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0].message).toBe(run.slice(0, 1000));
+    expect(cpuMs).toBeLessThan(250);
+    dispose();
+  });
+});
 
 describe("installErrorCapture auto-capture filtering", () => {
   afterEach(() => {

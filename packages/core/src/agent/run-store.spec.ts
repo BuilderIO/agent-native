@@ -355,6 +355,7 @@ mockTxDb.execute = mockDb.execute;
 const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,
@@ -413,6 +414,7 @@ const {
   getCurrentTurnEventsForThread,
   getCurrentTurnRunIdsForThread,
   __resetNoRunningRunsProbeForTests,
+  hasRunningRuns,
   describeStaleReap,
   staleWindowMsForRow,
   BACKGROUND_PROCESSING_RUN_STALE_MS,
@@ -516,6 +518,14 @@ describe("run store", () => {
       () => reconcileTerminalRunFromEvents(runId),
     );
   }
+
+  it("re-probes for running runs when a caller asks for a fresh answer", async () => {
+    await expect(hasRunningRuns()).resolves.toBe(false);
+    staleSelectRows = [{ id: "run-started-since" }];
+
+    await expect(hasRunningRuns()).resolves.toBe(false);
+    await expect(hasRunningRuns({ fresh: true })).resolves.toBe(true);
+  });
 
   it("does not mark replayed provider auth failures recoverable", () => {
     const resolved = resolveErroredRunTerminalEvent({
@@ -952,6 +962,44 @@ describe("run store", () => {
     });
   });
 
+  it("replays a background task's name, and omits it with the description in private history", async () => {
+    const task = {
+      type: "agent_task",
+      taskId: "task-1",
+      threadId: "child-1",
+      name: "Pricing research",
+      description: "Research the private pricing page",
+      status: "running",
+    };
+    await insertRunEvent("run-task-name", 1, JSON.stringify(task));
+    await insertRunEvent(
+      "run-task-name",
+      2,
+      JSON.stringify({
+        ...task,
+        taskId: "task-2",
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const stored = execCalls
+      .filter((call) => /INSERT INTO agent_run_events/i.test(call.sql))
+      .map((call) => call.args[3]);
+    currentTurnEventRows = stored.map((eventData, index) => ({
+      run_id: "run-task-name",
+      seq: index + 1,
+      event_data: eventData as string,
+    }));
+
+    const recovered = await getCurrentTurnEventsForThread(
+      "thread-test",
+      "turn-test",
+    );
+
+    expect(recovered[0]).toMatchObject({ name: "Pricing research" });
+    expect(recovered[1]).toMatchObject({ taskId: "task-2", description: "" });
+    expect(recovered[1]).not.toHaveProperty("name");
+  });
+
   it("keeps a paused request pending after the run's terminal done event", async () => {
     latestEventRows = [
       {
@@ -1139,6 +1187,38 @@ describe("run store", () => {
       "[Private approval unavailable]",
     );
     expect(stored).not.toContain("synthetic-private-body");
+  });
+
+  it("keeps a paused peer call's approval in private history", async () => {
+    const approval = {
+      id: "approval-1",
+      tool: "delete-deck",
+      url: "https://slides.example.test/_agent-native/a2a/approvals/approval-1",
+    };
+    await insertRunEvent(
+      "run-private-peer-approval",
+      2,
+      JSON.stringify({
+        type: "agent_call",
+        agent: "Slides",
+        status: "pending",
+        agentCallId: "call-1",
+        taskId: "task-1",
+        approval: { ...approval, note: "synthetic-private-note" },
+        omitFromPersistedHistory: true,
+      }),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    expect(JSON.parse(stored)).toMatchObject({
+      type: "agent_call",
+      status: "pending",
+      taskId: "task-1",
+      approval,
+    });
+    expect(stored).not.toContain("synthetic-private-note");
   });
 
   it("never lets an older progress write move the stored timestamp backward", async () => {

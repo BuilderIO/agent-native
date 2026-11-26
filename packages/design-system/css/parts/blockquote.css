@@ -1,0 +1,23 @@
+/*
+ * Part: blockquote
+ *
+ *   <blockquote class="blockquote"
+ *               [data-weight="light|regular|medium|semibold|bold"]
+ *               [data-truncate]
+ *               [data-wrap="wrap|nowrap|pretty|balance"]
+ *               [data-color="accent|gray|danger|warning|success|info"]
+ *               [data-high-contrast]>
+ *
+ * Radix Themes' blockquote: a quoted block set as text, with a rule down
+ * its start edge in the scale's a6 step that grows with the text. Its size,
+ * weight, truncation, wrapping and color are in text.css.
+ */
+
+@layer components {
+  .blockquote {
+    box-sizing: border-box;
+    margin: 0;
+    border-inline-start: max(var(--space-1), 0.25em) solid var(--accent-a6);
+    padding-inline-start: min(var(--space-5), max(var(--space-3), 0.5em));
+  }
+}

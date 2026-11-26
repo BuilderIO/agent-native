@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   openMcpAppHostLink,
@@ -8,6 +9,10 @@ import {
   useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import {
+  isWiderVisibility,
+  type EmbedVisibility,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -18,6 +23,11 @@ import {
   ShareTrigger,
   type AgentShareDestination,
 } from "@agent-native/toolkit/sharing";
+import {
+  ANALYTICS_CHART_TAG,
+  type AnalyticsChartData,
+} from "@shared/analytics-chart-block";
+import { analyticsChartsInBody } from "@shared/analytics-charts-in-body";
 import type {
   ContentDatabaseNavigationPageResponse,
   Document,
@@ -48,6 +58,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -58,6 +69,24 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import {
+  analyticsShareAsks,
+  analyticsShareCheck,
+  subPageChartsNeedReading,
+  subPageChartsRead,
+  type ChartsGoingWider,
+  type ChartsRead,
+} from "./analytics-chart/analytics-chart-share";
+import {
+  designShareAsks,
+  designShareDetail,
+} from "./design-screen/design-screen-share";
+import { useDesignScreenShareCheck } from "./design-screen/use-design-screen-share";
+
+const NO_CHARTS: AnalyticsChartData[] = [];
+// A widget can't make a page public when that would carry sub-pages: core
+// refuses the change and sends the person to the app.
+const WIDGET_SUB_PAGES: ChartsRead = { charts: NO_CHARTS, unread: false };
 
 const AgentsShareTab = lazy(() =>
   import("./AgentsShareTab").then((m) => ({ default: m.AgentsShareTab })),
@@ -136,7 +165,8 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
-import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { AutoSyncToggle } from "./AutoSyncToggle";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -858,7 +888,7 @@ interface DocumentToolbarProps {
   canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
-  agentTextLocked?: boolean;
+  agentLevel?: AgentLevel;
   canManageAgentTextLock?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -867,6 +897,8 @@ interface DocumentToolbarProps {
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: DocumentPagePanelTab | null;
+  pageChecksCount?: ReactNode;
+  checksToLookAt?: number;
   /** Open comment threads on the Page, the count its Collection row shows. */
   openCommentCount?: number;
   onUtilityPanelChange: (panel: DocumentPagePanelTab | null) => void;
@@ -963,7 +995,7 @@ export function DocumentToolbar({
   canShare = true,
   readOnly = false,
   hideFromSearch = false,
-  agentTextLocked = false,
+  agentLevel: savedAgentLevel = "edit",
   canManageAgentTextLock = false,
   source,
   canDelete = false,
@@ -972,6 +1004,8 @@ export function DocumentToolbar({
   isFavorite = false,
   onToggleFavorite,
   utilityPanel,
+  pageChecksCount,
+  checksToLookAt = 0,
   openCommentCount = 0,
   onUtilityPanelChange,
   showAgentTab = false,
@@ -1066,9 +1100,165 @@ export function DocumentToolbar({
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
+  const shareMounted = shareRequested || openShareOnLoad;
+  const [chartScan, setChartScan] = useState<{
+    content: string | undefined;
+    charts: AnalyticsChartData[];
+    unreadable: number;
+  } | null>(null);
+  // Read only while Share is open: the body is parsed to find the charts.
+  useEffect(() => {
+    if (!shareMounted) return;
+    let cancelled = false;
+    analyticsChartsInBody(documentContent).then(
+      ({ charts, unreadable }) => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts, unreadable });
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts: [], unreadable: 1 });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [documentContent, shareMounted]);
+  const scanned =
+    chartScan !== null && chartScan.content === documentContent
+      ? chartScan
+      : null;
+  const analyticsCharts = scanned ? scanned.charts : NO_CHARTS;
+  // Until the body has been read, or while a chart in it can't be, any
+  // wider share asks first.
+  const chartsUnread =
+    Boolean(documentContent?.includes(`<${ANALYTICS_CHART_TAG}`)) &&
+    (!scanned || scanned.unreadable > 0);
+  // Making the page public carries its sub-pages that aren't public yet, so
+  // their charts are read from the server too. A widget may call only the
+  // share actions and can't carry sub-pages, so it doesn't read them.
+  const subPageCharts = useActionQuery(
+    "list-sub-page-analytics-charts",
+    { documentId },
+    {
+      enabled: shareMounted && !inWidget && Boolean(documentId),
+      retry: false,
+      // Read when Share opens, when a page changes, and on the click that
+      // makes the page public (below); not on a timer.
+      refetchOnWindowFocus: false,
+    },
+  );
+  const subPageRead = useMemo(
+    () =>
+      inWidget
+        ? WIDGET_SUB_PAGES
+        : subPageChartsRead({
+            data: subPageCharts.data,
+            isError: subPageCharts.isError,
+            isFetching: subPageCharts.isFetching,
+          }),
+    [
+      inWidget,
+      subPageCharts.data,
+      subPageCharts.isError,
+      subPageCharts.isFetching,
+    ],
+  );
+  // Sharing a page wider than a chart's dashboard asks first; a table that
+  // would go wider is refused by the server when the change is saved, a
+  // sub-page's as well as the page's. Narrowing who can open the page never
+  // asks.
+  const shareCheck = useCallback(
+    (to: EmbedVisibility) =>
+      analyticsShareCheck(
+        to,
+        { charts: analyticsCharts, unread: chartsUnread },
+        subPageRead,
+      ),
+    [analyticsCharts, chartsUnread, subPageRead],
+  );
+  const { dataUpdatedAt: subPagesReadAt, refetch: readSubPagesAgain } =
+    subPageCharts;
+  const designScreenShare = useDesignScreenShareCheck({
+    documentId,
+    documentContent,
+    shareMounted,
+    inWidget,
+  });
+  const confirmChartAudience = useCallback(
+    (from: EmbedVisibility, to: EmbedVisibility) => {
+      if (!isWiderVisibility(to, from)) return false;
+      // Going public on an older answer reads the sub-pages again and asks
+      // while that read is out; the question's text follows the read. Tables
+      // are refused when the change is saved, whatever this read says.
+      const now = Date.now();
+      const chartsStale = subPageChartsNeedReading(subPagesReadAt, now);
+      const screensStale = subPageChartsNeedReading(
+        designScreenShare.subPagesReadAt,
+        now,
+      );
+      if (to === "public" && !inWidget && (chartsStale || screensStale)) {
+        if (chartsStale) void readSubPagesAgain();
+        if (screensStale) void designScreenShare.readSubPagesAgain();
+        return true;
+      }
+      return (
+        analyticsShareAsks(shareCheck(to)) ||
+        designShareAsks(designScreenShare.check(to))
+      );
+    },
+    [
+      designScreenShare,
+      inWidget,
+      readSubPagesAgain,
+      shareCheck,
+      subPagesReadAt,
+    ],
+  );
+  const chartShareDetail = useCallback(
+    (to: EmbedVisibility) => {
+      const check = shareCheck(to);
+      const describe = (
+        part: ChartsGoingWider,
+        keys: { unread: string; one: string; many: string },
+      ) => {
+        if (part.unread) return t(keys.unread);
+        const wider = [...part.warn, ...part.block];
+        if (wider.length === 0) return null;
+        const dashboards = [
+          ...new Set(wider.map((chart) => chart.dashboard.title)),
+        ].join(", ");
+        return wider.length === 1
+          ? t(keys.one, { dashboards })
+          : t(keys.many, { count: wider.length, dashboards });
+      };
+      const parts = [
+        describe(check.page, {
+          unread: "analyticsChart.shareDetailUnread",
+          one: "analyticsChart.shareDetailOne",
+          many: "analyticsChart.shareDetail",
+        }),
+        check.subPages &&
+          describe(check.subPages, {
+            unread: "analyticsChart.shareDetailSubPagesUnread",
+            one: "analyticsChart.shareDetailSubPagesOne",
+            many: "analyticsChart.shareDetailSubPages",
+          }),
+      ].filter((part): part is string => Boolean(part));
+      const blocked =
+        check.page.block.length > 0 || (check.subPages?.block.length ?? 0) > 0;
+      if (blocked) parts.push(t("analyticsChart.blockedTable"));
+      const screens = designShareDetail(designScreenShare.check(to), t);
+      if (screens) parts.push(screens);
+      return parts.length > 0 ? parts.join(" ") : null;
+    },
+    [designScreenShare, shareCheck, t],
+  );
   const [shareInitialTab, setShareInitialTab] = useState("share");
   const shareActionRef = useRef<ShareButtonActionHandle>(null);
-  const agentLevel = useAgentLevel(documentId, agentTextLocked);
+  const agentLevel = useAgentLevel(documentId, savedAgentLevel);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -1732,12 +1922,14 @@ export function DocumentToolbar({
             </div>
           ) : null}
 
+          {phoneBar ? null : pageChecksCount}
           {panelTabs.length ? (
             <>
               <DocumentPanelTabs
                 tabs={panelTabs}
                 activeTab={utilityPanel}
                 openCommentCount={openCommentCount}
+                checksToLookAt={phoneBar ? checksToLookAt : 0}
                 plain={phoneBar}
                 panelId={panelId}
                 commentsTriggerRef={commentsTriggerRef}
@@ -1766,7 +1958,7 @@ export function DocumentToolbar({
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <ShareTrigger
-                      className="h-9 rounded-lg px-3"
+                      className="h-8 rounded-md px-3"
                       emphasis="ghost"
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
@@ -1815,6 +2007,8 @@ export function DocumentToolbar({
                     hideSendTo
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
+                    confirmVisibility={confirmChartAudience}
+                    visibilityConfirmDetail={chartShareDetail}
                     visibilityCopy={{
                       private: {
                         description: t("editor.toolbar.privateLinkCanView"),
@@ -1828,6 +2022,13 @@ export function DocumentToolbar({
                         description: t("editor.toolbar.publicLinkCanView"),
                       },
                     }}
+                    publicFollowersLabel={(count, more) =>
+                      more
+                        ? t("editor.toolbar.publicSubPagesMore", { count })
+                        : count === 1
+                          ? t("editor.toolbar.publicSubPagesOne")
+                          : t("editor.toolbar.publicSubPages", { count })
+                    }
                     hideInSearchControl={
                       inWidget
                         ? undefined
@@ -1983,8 +2184,8 @@ export function DocumentToolbar({
                     <button
                       ref={pageActionsRef}
                       className={cn(
-                        "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                        phoneBar ? "size-11" : "size-9",
+                        "flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground",
+                        phoneBar ? "size-11 rounded-lg" : "size-8 rounded-md",
                         // Folded, the menu holds Stop suggesting, so it shows
                         // its state.
                         suggestingInMenu &&
@@ -2305,43 +2506,11 @@ export function DocumentToolbar({
                           {/* Conflict is shown via NotionConflictBanner above the title */}
 
                           <div className="p-1.5">
-                            <button
-                              onClick={() => setAutoSync(!autoSync)}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
-                            >
-                              <IconRefresh
-                                size={12}
-                                className={
-                                  autoSync
-                                    ? "text-emerald-500"
-                                    : "text-muted-foreground"
-                                }
-                              />
-                              <span
-                                className={
-                                  autoSync
-                                    ? "text-foreground font-medium"
-                                    : "text-muted-foreground"
-                                }
-                              >
-                                {t("editor.toolbar.autoSync")}
-                              </span>
-                              <span
-                                className={cn(
-                                  "ml-auto h-4 w-7 rounded-full relative",
-                                  autoSync
-                                    ? "bg-emerald-500"
-                                    : "bg-muted-foreground/30",
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    "absolute top-0.5 h-3 w-3 rounded-full bg-white",
-                                    autoSync ? "right-0.5" : "left-0.5",
-                                  )}
-                                />
-                              </span>
-                            </button>
+                            <AutoSyncToggle
+                              label={t("editor.toolbar.autoSync")}
+                              checked={autoSync}
+                              onCheckedChange={setAutoSync}
+                            />
                             <button
                               onClick={handlePull}
                               disabled={isWorking}

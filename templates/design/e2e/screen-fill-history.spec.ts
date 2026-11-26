@@ -95,7 +95,7 @@ for (const interruptWithUndo of [false, true]) {
       const appearance = page
         .getByRole("heading", { name: "Appearance", exact: true })
         .locator("xpath=ancestor::section");
-      const opacity = appearance.getByRole("textbox", {
+      const opacity = appearance.getByRole("combobox", {
         name: "Opacity",
         exact: true,
       });

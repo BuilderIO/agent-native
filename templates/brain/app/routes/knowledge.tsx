@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import {
   IconBook,
   IconCheck,
@@ -97,8 +98,12 @@ export default function KnowledgeRoute() {
   );
   const setCanonical = useActionMutation<
     unknown,
-    { knowledgeId: string; published: boolean }
-  >("set-knowledge-canonical" as any);
+    {
+      knowledgeId: string;
+      published: boolean;
+      expectedRevision?: string | undefined;
+    }
+  >("set-knowledge-canonical", { errorNotification: "shared" });
   const previewCanonical = useActionMutation<
     { preview: CanonicalPreviewData },
     { knowledgeId: string; operation: "publish" | "unpublish" }
@@ -143,10 +148,16 @@ export default function KnowledgeRoute() {
 
   async function confirmCanonicalChange() {
     if (!previewRow) return;
-    await setCanonical.mutateAsync({
-      knowledgeId: previewRow.id,
-      published: previewOperation === "publish",
-    });
+    try {
+      await setCanonical.mutateAsync({
+        knowledgeId: previewRow.id,
+        published: previewOperation === "publish",
+        expectedRevision: canonicalPreview?.revision,
+      });
+    } catch (error) {
+      if (!isSaveConflict(error)) return;
+      await knowledgeQuery.refetch();
+    }
     setPreviewOpen(false);
     setCanonicalPreview(null);
     setPreviewRow(null);
@@ -213,6 +224,11 @@ export default function KnowledgeRoute() {
           </CardContent>
         </Card>
 
+        {knowledgeQuery.data?.scanLimited ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("intelligence.narrowSearch")}
+          </p>
+        ) : null}
         {knowledgeQuery.isLoading ? (
           <LoadingRows rows={5} />
         ) : filteredRows.length ? (
@@ -288,7 +304,7 @@ export default function KnowledgeRoute() {
               </TableBody>
             </Table>
           </Card>
-        ) : (
+        ) : knowledgeQuery.data?.scanLimited ? null : (
           <EmptyActionState
             title={
               hasActiveFilters

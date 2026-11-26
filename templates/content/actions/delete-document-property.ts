@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { clearAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { withoutDeletedDatabaseProperty } from "../shared/database-table-columns.js";
 import {
@@ -17,6 +18,10 @@ import {
   deleteBlocksFieldIdentity,
   lockPrimaryBlocksFieldsForDocuments,
 } from "./_blocks-field-identity.js";
+import {
+  assertNoColumnRuleOn,
+  columnRuleDefinitions,
+} from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
@@ -102,6 +107,14 @@ export default defineAction({
       if (lockedDefinition.systemRole) {
         throw new Error("System properties cannot be deleted.");
       }
+      assertNoColumnRuleOn(
+        await columnRuleDefinitions(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        ),
+        propertyId,
+        "delete",
+      );
 
       const isBlocks = isBlocksPropertyType(
         lockedDefinition.type as DocumentPropertyType,
@@ -232,6 +245,10 @@ export default defineAction({
               .where(
                 inArray(schema.documents.id, documentsWithoutSurvivingPrimary),
               );
+            await clearAnalyticsChartCitations(
+              tx as unknown as ReturnType<typeof getDb>,
+              documentsWithoutSurvivingPrimary,
+            );
           }
         }
       }

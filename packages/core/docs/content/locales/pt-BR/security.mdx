@@ -326,7 +326,7 @@ pnpm action db-check-scoping --require-org  # Também requer org_id
 | Tokens OAuth (Google, GitHub)                       | Armazenamento `oauth_tokens` via `saveOAuthTokens()`            |
 | Tokens de sessão                                    | Automático (melhor autenticação lida com isso)                  |
 
-As credenciais por usuário/organização e o cofre são criptografados em repouso com AES-256-GCM. O cofre compartilhado do workspace prefere `WORKSPACE_SECRETS_ENCRYPTION_KEY`, depois candidatos legados derivados de `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` e `BETTER_AUTH_SECRET`; durante uma rotação, `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` mantém as linhas antigas legíveis até a migração. Para criptografar linhas existentes em texto simples, execute `pnpm action db-migrate-encrypt-credentials` (idempotente, não destrutivo).
+As credenciais por usuário/organização e o cofre são criptografados em repouso com AES-256-GCM. O cofre do Dispatch não mantém cópia em texto simples: o nome, o rótulo e o valor criptografado de cada chave ficam juntos na sua linha de `app_secrets`, e as tabelas próprias do cofre guardam apenas concessões, solicitações e o registro de auditoria. O cofre compartilhado do workspace prefere `WORKSPACE_SECRETS_ENCRYPTION_KEY`, depois candidatos legados derivados de `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` e `BETTER_AUTH_SECRET`; durante uma rotação, `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` mantém as linhas antigas legíveis até a migração. Para criptografar linhas existentes em texto simples, execute `pnpm action db-migrate-encrypt-credentials` (idempotente, não destrutivo).
 
 Nunca armazene segredos em `settings`, `application_state`, código-fonte ou respostas de ação. Use as credenciais/cofre APIs acima: elas lidam com criptografia e escopo por usuário.
 
@@ -354,7 +354,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. O aplicativo B lê a declaração `sub` verificada no contexto da solicitação
 4. O escopo dos dados se aplica: o aplicativo B mostra apenas os dados de Steve
 
-Sem `A2A_SECRET` em produção, cada endpoint A2A e o endpoint de disparo automático `/_agent-native/integrations/process-task` retornam **503**. Configure-o em todos os aplicativos que chamam ou recebem tráfego A2A. (Para desenvolvimento local, a estrutura ainda permite chamadas não autenticadas.)
+Sem `A2A_SECRET` em produção, cada endpoint A2A e o endpoint de disparo automático `/_agent-native/integrations/process-task` retornam **503**. Configure-o em todos os aplicativos que chamam ou recebem tráfego A2A. (No desenvolvimento local, o A2A aceita chamadas não autenticadas apenas da mesma máquina; defina `A2A_SECRET` em um servidor de desenvolvimento que outros hosts possam acessar.)
 
 ## Entrada Webhooks {#webhooks}
 

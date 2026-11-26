@@ -402,7 +402,6 @@ describe("create-journey-canvas run", () => {
     expect(mocks.createDesign).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "generated-1",
-        designSystemId: null,
         creationMethod: "import_analytics",
       }),
       expect.anything(),

@@ -7,7 +7,7 @@ export interface RecordingPolicy {
 export interface RecordingLabState {
   enabled: boolean;
   // "host": an embedding product decided (core's registerHostLabOverrides).
-  source: "choice" | "legacy" | "default" | "host";
+  source: "choice" | "legacy" | "default" | "host" | "all";
   legacyValues?: Record<string, boolean>;
 }
 

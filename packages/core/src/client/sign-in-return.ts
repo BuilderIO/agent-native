@@ -71,6 +71,36 @@ export function serverAuthReturnPath(
 }
 
 /**
+ * Drop the app's own mount from a path the server will join to that mount.
+ *
+ * Callers hand over the browser's own location (`window.location.pathname`),
+ * which already carries the mount on a path-mounted app (`/calendar-app/week`).
+ * `getAppUrl` on the server adds the mount back, so passing the browser path
+ * as-is lands on `/calendar-app/calendar-app/week` — a path no route matches,
+ * which the calendar catch-all then explains as "Route not found". Stripping
+ * here keeps both halves of the contract (see `serverMountReturnPath`) true:
+ * the server is always handed a mount-relative path, and a caller that already
+ * passed one is unchanged.
+ */
+function mountRelativePath(path: string): string {
+  let base = "";
+  try {
+    base = appBasePath();
+  } catch {
+    // No resolvable mount (a non-workspace app): the path is already relative.
+    return path;
+  }
+  if (!base) return path;
+  if (path === base) return "/";
+  if (path.startsWith(`${base}/`)) return path.slice(base.length);
+  const rest = path.slice(base.length);
+  if (path.startsWith(base) && (rest.startsWith("?") || rest.startsWith("#"))) {
+    return `/${rest}`;
+  }
+  return path;
+}
+
+/**
  * `serverAuthReturnPath` for server flows that resolve their return against
  * the server's own mount (workspace connection OAuth): the UI-return route
  * relative to that mount, in its internal `/_agent-native` form.
@@ -79,7 +109,9 @@ export function serverMountReturnPath(
   uiPath: string,
   sameOriginReturn: string = uiPath,
 ): string {
-  if (!apiBaseUrl() || typeof window === "undefined") return sameOriginReturn;
+  if (!apiBaseUrl() || typeof window === "undefined") {
+    return mountRelativePath(sameOriginReturn);
+  }
   return `${UI_RETURN_PATH}?${new URLSearchParams({
     [UI_RETURN_TARGET_PARAM]: new URL(uiPath, window.location.origin).href,
   })}`;

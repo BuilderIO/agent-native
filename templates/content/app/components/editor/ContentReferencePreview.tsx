@@ -1,12 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink, IconFileText } from "@tabler/icons-react";
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useContext, useMemo } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { useLocalSourceDocument } from "@/hooks/use-content-links";
 import { useDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
+
+import { DrawDiagramsContext } from "./draw-diagrams";
 
 const ReadonlyReferenceEditor = lazy(async () => {
   const module = await import("./VisualEditor");
@@ -69,6 +71,7 @@ export function ContentReferencePreview({
   referenceDepth?: number;
 }) {
   const t = useT();
+  const drawDiagrams = useContext(DrawDiagramsContext);
   const resolvedPath = useMemo(
     () => resolveContentReferencePath(sourcePath, currentPath),
     [currentPath, sourcePath],
@@ -170,6 +173,7 @@ export function ContentReferencePreview({
               localFileMode
               localFilePath={resolvedPath}
               referenceDepth={referenceDepth + 1}
+              drawDiagrams={drawDiagrams}
             />
           </Suspense>
         ) : (

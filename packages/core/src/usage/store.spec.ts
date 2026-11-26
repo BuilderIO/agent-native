@@ -33,6 +33,7 @@ const rawClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -45,6 +46,8 @@ const {
   builderCreditsFromCostCents,
   calculateCost,
   usageBillingForEngine,
+  deploymentUsageBilling,
+  MIXED_USAGE_BILLING,
   recordUsage,
   resolveUsageAppKey,
   getUserUsageCents,
@@ -61,7 +64,7 @@ beforeEach(async () => {
     return randomCursor / 1000;
   });
 
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -133,6 +136,35 @@ describe("usage billing", () => {
     expect(usageBillingForEngine("anthropic").unit).toBe("usd");
     expect(usageBillingForEngine(null).unit).toBe("usd");
     expect(usageBillingForEngine(undefined).unit).toBe("usd");
+  });
+});
+
+describe("billing where commercial surfaces are hidden", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("presents credit and mixed billing as plain spend", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    expect(usageBillingForEngine("builder")).toMatchObject({
+      unit: "usd",
+      label: "Estimated spend",
+      shortLabel: "Cost",
+    });
+    expect(deploymentUsageBilling(MIXED_USAGE_BILLING).unit).toBe("usd");
+    expect(usageBillingForEngine("anthropic").unit).toBe("usd");
+  });
+
+  it("keeps credit and mixed billing when the flag says show", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "show" },
+    });
+    expect(usageBillingForEngine("builder").unit).toBe("builder-credits");
+    expect(deploymentUsageBilling(MIXED_USAGE_BILLING)).toBe(
+      MIXED_USAGE_BILLING,
+    );
   });
 });
 

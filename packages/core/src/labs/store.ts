@@ -1,3 +1,4 @@
+import { isTransientDatabaseError } from "../db/errors.js";
 import {
   defaultFeatureFlagRules,
   evaluateFeatureFlagRules,
@@ -15,6 +16,8 @@ import { getLabDefinition, listLabs, type LabDefinition } from "./registry.js";
 
 export const LABS_SETTING_KEY = "labs";
 const LEGACY_LABS_SETTING_KEY = "experiments";
+// Lab keys must start with a letter, so this can't collide with a lab's choice.
+const SHOW_ALL_LABS_KEY = "__showAll";
 
 function validLabSetting(
   key: string,
@@ -28,10 +31,19 @@ function validLabSetting(
 
 async function getStoredLabs(
   email: string,
+  transaction?: FeatureFlagScope["transaction"],
 ): Promise<Record<string, unknown> | null> {
   const [labs, legacy] = await Promise.all([
-    getUserSetting(email, LABS_SETTING_KEY),
-    getUserSetting(email, LEGACY_LABS_SETTING_KEY),
+    getUserSetting(
+      email,
+      LABS_SETTING_KEY,
+      transaction ? { transaction } : undefined,
+    ),
+    getUserSetting(
+      email,
+      LEGACY_LABS_SETTING_KEY,
+      transaction ? { transaction } : undefined,
+    ),
   ]);
   const current = validLabSetting(LABS_SETTING_KEY, labs);
   const previous = validLabSetting(LEGACY_LABS_SETTING_KEY, legacy);
@@ -42,7 +54,7 @@ async function getStoredLabs(
 
 export interface UserLabState {
   enabled: boolean;
-  source: "choice" | "legacy" | "default" | "host";
+  source: "choice" | "legacy" | "default" | "host" | "all";
   legacyValues?: Record<string, boolean>;
   mixed: boolean;
 }
@@ -99,9 +111,10 @@ async function getLegacyRules(
 export async function getUserLabStates(
   email: string,
   scope: FeatureFlagScope = {},
+  options?: { propagateTransientErrors?: boolean },
 ): Promise<Record<string, UserLabStateResult>> {
   const stored = await getStoredLabs(email);
-  return resolveStoredLabStates(email, stored, scope);
+  return resolveStoredLabStates(email, stored, scope, listLabs(), options);
 }
 
 /**
@@ -127,6 +140,7 @@ async function resolveStoredLabStates(
   stored: Record<string, unknown> | null,
   scope: FeatureFlagScope,
   definitions: readonly LabDefinition[] = listLabs(),
+  options?: { propagateTransientErrors?: boolean },
 ): Promise<Record<string, UserLabStateResult>> {
   const invalidChoices = new Set(
     definitions
@@ -153,7 +167,12 @@ async function resolveStoredLabStates(
       legacyKeys.map(async (key) => {
         try {
           return [key, await getLegacyRules(key, evaluationScope)] as const;
-        } catch {
+        } catch (error) {
+          if (
+            options?.propagateTransientErrors &&
+            isTransientDatabaseError(error, { source: "database" })
+          )
+            throw error;
           return [key, null] as const;
         }
       }),
@@ -171,6 +190,9 @@ async function resolveStoredLabStates(
       const choice = stored?.[lab.key];
       if (typeof choice === "boolean") {
         return [lab.key, { enabled: choice, source: "choice", mixed: false }];
+      }
+      if (stored?.[SHOW_ALL_LABS_KEY] === true) {
+        return [lab.key, { enabled: true, source: "all", mixed: false }];
       }
       if (lab.legacyFlagKeys?.length) {
         if (lab.legacyFlagKeys.some((key) => rules.get(key) === null)) {
@@ -218,7 +240,7 @@ export async function getUserLabState(
   const key = typeof lab === "string" ? lab : lab.key;
   const definition = getLabDefinition(key);
   if (!definition) throw new Error(`Unknown lab: ${key}`);
-  const stored = await getStoredLabs(email);
+  const stored = await getStoredLabs(email, scope.transaction);
   const state = (
     await resolveStoredLabStates(email, stored, scope, [definition])
   )[key];
@@ -248,7 +270,8 @@ export function normalizeLabValues(
     listLabs().map(({ key, defaultEnabled }) => [
       key,
       stored?.[key] === true ||
-        (stored?.[key] === undefined && defaultEnabled === true),
+        (stored?.[key] === undefined &&
+          (defaultEnabled === true || stored?.[SHOW_ALL_LABS_KEY] === true)),
     ]),
   );
 }
@@ -275,7 +298,7 @@ export async function getUserLabs(
 export async function setUserLab(
   email: string,
   key: string,
-  enabled: boolean,
+  enabled: boolean | null,
   scope: FeatureFlagScope = {},
 ): Promise<Record<string, boolean>> {
   return projectReadableLabValues(
@@ -283,15 +306,20 @@ export async function setUserLab(
   );
 }
 
+/**
+ * Saves one user's choice for a lab. `null` clears it, so the lab follows its
+ * legacy flags or its default again, and with them any later rollout.
+ */
 export async function setUserLabStates(
   email: string,
   key: string,
-  enabled: boolean,
+  enabled: boolean | null,
   scope: FeatureFlagScope = {},
 ): Promise<Record<string, UserLabStateResult>> {
   if (!getLabDefinition(key)) {
     throw new Error(`Unknown lab: ${key}`);
   }
+  if (enabled === null) await clearFormerLabChoice(email, key);
   let effectiveValues: Record<string, UserLabStateResult> | undefined;
   await mutateUserSetting(email, LABS_SETTING_KEY, async (current) => {
     validLabSetting(LABS_SETTING_KEY, current);
@@ -300,12 +328,70 @@ export async function setUserLabStates(
         ? await getUserSetting(email, LEGACY_LABS_SETTING_KEY)
         : null;
     validLabSetting(LEGACY_LABS_SETTING_KEY, legacy);
-    const next = { ...(legacy ?? {}), ...(current ?? {}), [key]: enabled };
+    const next: Record<string, unknown> = {
+      ...(legacy ?? {}),
+      ...(current ?? {}),
+    };
+    if (enabled === null) delete next[key];
+    else next[key] = enabled;
     const states = await resolveStoredLabStates(email, next, scope);
     effectiveValues = states;
     return next;
   });
   return effectiveValues!;
+}
+
+export async function getUserLabsShowAll(email: string): Promise<boolean> {
+  return (await getStoredLabs(email))?.[SHOW_ALL_LABS_KEY] === true;
+}
+
+/**
+ * Turns on every registered lab the user hasn't chosen for. An explicit choice
+ * for one lab still wins, so someone can show all and keep one off.
+ */
+export async function setUserLabsShowAll(
+  email: string,
+  enabled: boolean,
+  scope: FeatureFlagScope = {},
+): Promise<Record<string, UserLabStateResult>> {
+  let effectiveValues: Record<string, UserLabStateResult> | undefined;
+  await mutateUserSetting(email, LABS_SETTING_KEY, async (current) => {
+    validLabSetting(LABS_SETTING_KEY, current);
+    const legacy =
+      current === null
+        ? await getUserSetting(email, LEGACY_LABS_SETTING_KEY)
+        : null;
+    validLabSetting(LEGACY_LABS_SETTING_KEY, legacy);
+    const next: Record<string, unknown> = {
+      ...(legacy ?? {}),
+      ...(current ?? {}),
+    };
+    if (enabled) next[SHOW_ALL_LABS_KEY] = true;
+    else delete next[SHOW_ALL_LABS_KEY];
+    effectiveValues = await resolveStoredLabStates(email, next, scope);
+    return next;
+  });
+  if (!effectiveValues) {
+    throw new Error("Could not read lab states after saving Show all Labs");
+  }
+  return effectiveValues;
+}
+
+/**
+ * Reads merge the former setting key beneath the current one, so a cleared
+ * choice has to leave it too, or its old value would come back.
+ */
+async function clearFormerLabChoice(email: string, key: string) {
+  const former = validLabSetting(
+    LEGACY_LABS_SETTING_KEY,
+    await getUserSetting(email, LEGACY_LABS_SETTING_KEY),
+  );
+  if (!former || !Object.hasOwn(former, key)) return;
+  await mutateUserSetting(email, LEGACY_LABS_SETTING_KEY, (current) => {
+    const next = { ...validLabSetting(LEGACY_LABS_SETTING_KEY, current) };
+    delete next[key];
+    return next;
+  });
 }
 
 function projectReadableLabValues(

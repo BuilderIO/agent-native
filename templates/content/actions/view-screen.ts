@@ -248,6 +248,7 @@ interface ContentSelectionAppState {
   documentId?: unknown;
   collapsed?: unknown;
   selectedBlock?: unknown;
+  interactiveBlock?: unknown;
   selectedText?: unknown;
   textTruncated?: unknown;
   blockText?: unknown;
@@ -272,6 +273,21 @@ function readSelectedBlock(value: unknown) {
     ...(blockType === CLIP_EMBED_BLOCK_TYPE && isClipRecordingId(recordingId)
       ? { recordingId }
       : {}),
+  };
+}
+
+function readInteractiveBlock(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const { title, blockId, number, whole } = value as Record<string, unknown>;
+  if (typeof number !== "number" || !Number.isSafeInteger(number)) return null;
+  return {
+    number,
+    title: typeof title === "string" ? title : null,
+    blockId:
+      typeof blockId === "string" && /^[\w-]{1,200}$/.test(blockId)
+        ? blockId
+        : null,
+    whole: whole === true,
   };
 }
 
@@ -307,10 +323,27 @@ export function buildSelectionScreenSection(
     };
   }
 
+  const interactive = readInteractiveBlock(state.interactiveBlock);
+  const interactiveBlock = interactive && {
+    number: interactive.number,
+    title: interactive.title,
+    blockId: interactive.blockId,
+  };
+  if (interactive?.whole) {
+    return {
+      documentId: state.documentId,
+      collapsed: false,
+      interactiveBlock,
+      heading,
+      hint: `The user selected a whole interactive HTML block: "html interactive" fence number ${interactive.number} in get-document's body. Change its HTML with small edit-document edits; the page runs the new version as soon as they save.`,
+    };
+  }
+
   if (state.collapsed === true || typeof state.selectedText !== "string") {
     return {
       documentId: state.documentId,
       collapsed: true,
+      ...(interactiveBlock ? { interactiveBlock } : {}),
       blockText,
       heading,
       hint: "Cursor position only; no text is selected. Call get-document for full body access before editing.",
@@ -322,6 +355,7 @@ export function buildSelectionScreenSection(
     collapsed: false,
     selectedText: state.selectedText,
     textTruncated: state.textTruncated === true,
+    ...(interactiveBlock ? { interactiveBlock } : {}),
     blockText,
     heading,
     hint:
@@ -867,7 +901,9 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns bounded navigation, document previews, the current collection window, and the editor's current text selection (if any); use get-document for full page content.",
   deferLoading: false,
   schema: z.object({}),
+  readOnly: true,
   http: false,
+  mcpTool: "search",
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
     const suggestionMode = await readAppStateForCurrentTab(
@@ -944,6 +980,7 @@ export default defineAction({
             {
               limit: DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT,
               includeSources: false,
+              pageText: "omit",
             },
           );
           screen.database = databaseResponse;

@@ -6,6 +6,7 @@
     [
       "@agent-native/core",
       "@agent-native/toolkit",
+      "@agent-native/design-system",
       "@agent-native/agentkit",
       "@agent-native/core-corpus"
     ]

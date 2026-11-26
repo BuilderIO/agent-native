@@ -2413,6 +2413,106 @@ describe("property generations", () => {
     for (const row of [0, 2]) expect(second[row]).toEqual(first[row]);
   });
 
+  it("the Source column keeps a source's choice while a rule names it", async () => {
+    const ids = await fixture(3);
+    const { ensureDatabaseSourceProperty } =
+      await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = ["Sheet A", "Sheet B", "Sheet C"].map((name, index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: name,
+      sourceTable: name,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb().insert(schema.contentDatabaseSources).values(sources);
+    await getDb()
+      .insert(schema.contentDatabaseSourceRows)
+      .values(
+        ids.rows.map((row, index) => ({
+          id: `${row.itemId}-link`,
+          ownerEmail: OWNER,
+          sourceId: sources[index].id,
+          databaseItemId: row.itemId,
+          documentId: row.documentId,
+          sourceRowId: `row-${index}`,
+          sourceQualifiedId: `row-${index}`,
+          sourceDisplayKey: `row-${index}`,
+        })),
+      );
+    await ensureDatabaseSourceProperty({
+      database,
+      now: "2026-10-24T10:00:00.000Z",
+    });
+    const sourceOptionIds = async () => {
+      const [definition] = await getDb()
+        .select({
+          id: schema.documentPropertyDefinitions.id,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
+        })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+            eq(schema.documentPropertyDefinitions.name, "Source"),
+          ),
+        );
+      const options = (
+        JSON.parse(found(definition, "Source column").optionsJson) as {
+          options?: Array<{ id: string }>;
+        }
+      ).options;
+      return {
+        id: found(definition, "Source column").id,
+        options: (options ?? []).map((option) => option.id),
+      };
+    };
+    const before = await sourceOptionIds();
+    expect(before.options).toContain(sources[2].id);
+    // A Review tab freezes while Source is Sheet C.
+    await getDb()
+      .insert(schema.documentPropertyDefinitions)
+      .values({
+        id: `${ids.databaseId}-review`,
+        ownerEmail: OWNER,
+        databaseId: ids.databaseId,
+        name: "Review",
+        type: "blocks",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          blocks: {
+            primary: false,
+            freezeWhen: { propertyId: before.id, optionIds: [sources[2].id] },
+          },
+        }),
+        position: 99,
+        createdAt: "2026-10-24T10:00:00.000Z",
+        updatedAt: "2026-10-24T10:00:00.000Z",
+      });
+
+    // Sheet C goes away, so its row becomes local and the fill rewrites the
+    // column's options from the two sources left.
+    await getDb()
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, sources[2].id));
+    await getDb()
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, sources[2].id));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: "2026-10-24T11:00:00.000Z",
+    });
+
+    expect((await sourceOptionIds()).options).toEqual(
+      expect.arrayContaining([sources[0].id, sources[1].id, sources[2].id]),
+    );
+  });
+
   it("the source writers work out their writes again under the lock", async () => {
     const ids = await fixture(2);
     const {

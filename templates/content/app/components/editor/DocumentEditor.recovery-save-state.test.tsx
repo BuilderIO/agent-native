@@ -4,9 +4,14 @@ import { createHash } from "node:crypto";
 import { performance as realPerformance } from "node:perf_hooks";
 import { setTimeout as realDelay } from "node:timers/promises";
 
+import type {
+  ResourceSuggestion,
+  SuggestionOperation,
+} from "@agent-native/core/review";
 import type { Document, DocumentPropertiesResponse } from "@shared/api";
 import { legacyBlocksFieldIdentity } from "@shared/blocks-field-identity";
-import { docToNfm, nfmToDoc } from "@shared/nfm";
+import { canonicalizeNfm, docToNfm, nfmToDoc, type PMDoc } from "@shared/nfm";
+import type { MarkdownSuggestionOperation } from "@shared/suggestion-diff";
 import {
   QueryClient,
   QueryClientProvider,
@@ -16,6 +21,7 @@ import { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
+import { toast } from "sonner";
 import {
   afterEach,
   beforeEach,
@@ -43,7 +49,20 @@ const fixture = vi.hoisted(() => ({
   }[],
   toolbar: null as {
     onUtilityPanelChange?: (tab: "info" | "comments" | null) => void;
+    onDelete?: () => Promise<void>;
+    onSuggestingChange?: (next: boolean) => void;
   } | null,
+  suggestions: null as {
+    data: { suggestions: ResourceSuggestion[] };
+    isFetching: boolean;
+    isError: boolean;
+    refetch: () => Promise<{
+      data: { suggestions: ResourceSuggestion[] };
+      isError: boolean;
+      error: null;
+    }>;
+  } | null,
+  callAction: vi.fn<(name: string) => Promise<unknown>>(),
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
   realPrimaryEditor: false,
@@ -66,6 +85,7 @@ const fixture = vi.hoisted(() => ({
   pickIcon: null as ((icon: string | null) => Promise<void>) | null,
   recovery: null as ReturnType<typeof useDocumentReconcileRecovery> | null,
   save: vi.fn(),
+  keepalive: vi.fn(),
   flushUpdates: vi.fn(),
   recoverySaveSettled: vi.fn(),
   finishRecovery: Promise.resolve(),
@@ -156,6 +176,7 @@ vi.mock("./DocumentBlockFields", async (importOriginal) => {
 vi.mock("@agent-native/core/client/application-state", () => ({
   readClientAppState: fixture.readAppState,
   compareAndSetClientAppState: fixture.compareAppState,
+  writeClientAppState: async () => {},
 }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -175,8 +196,8 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       ? mutation
       : fixture.mutation;
   },
-  callAction: vi.fn(async () => null),
-  tryCallActionKeepalive: () => ({ accepted: false }),
+  callAction: (name: string) => fixture.callAction(name),
+  tryCallActionKeepalive: (...args: unknown[]) => fixture.keepalive(...args),
   setClientAppState: vi.fn(async () => {}),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => fixture.t }));
@@ -203,7 +224,7 @@ vi.mock("@agent-native/core/client/collab", async (importOriginal) => ({
   },
 }));
 vi.mock("@agent-native/core/client/review", () => ({
-  useResourceSuggestions: () => fixture.emptyQuery,
+  useResourceSuggestions: () => fixture.suggestions ?? fixture.emptyQuery,
   useCreateResourceSuggestionProposal: () => fixture.mutation,
   useDecideResourceSuggestion: () => fixture.mutation,
   useDecideResourceSuggestionProposal: () => fixture.mutation,
@@ -361,6 +382,7 @@ vi.mock("./VisualEditor", async (original) => {
     current.current = props;
     const draft = React.useRef(props.content);
     const version = React.useRef({}).current;
+    const reportRemoteSnapshot = props.onRemoteSnapshotChange;
     if (primary)
       fixture.editor = {
         ...props,
@@ -368,6 +390,16 @@ vi.mock("./VisualEditor", async (original) => {
           draft.current = content;
           props.onChange(content);
         },
+        // A remote snapshot is the whole live document, so the editor holds
+        // and serializes it from then on.
+        ...(reportRemoteSnapshot
+          ? {
+              onRemoteSnapshotChange: (content: string) => {
+                draft.current = content;
+                reportRemoteSnapshot(content);
+              },
+            }
+          : {}),
       };
     React.useEffect(() => {
       if (!props.onPersistenceControllerChange) return;
@@ -479,7 +511,10 @@ beforeEach(() => {
   } as Document;
   fixture.commentsSidebars = [];
   fixture.toolbar = null;
+  fixture.suggestions = null;
+  fixture.callAction.mockReset().mockResolvedValue(null);
   fixture.save.mockReset();
+  fixture.keepalive.mockReset().mockReturnValue({ accepted: false });
   fixture.flushUpdates.mockReset().mockResolvedValue(true);
   fixture.recoverySaveSettled.mockReset();
   fixture.finishRecovery = Promise.resolve();
@@ -616,6 +651,22 @@ function acknowledgeCurrentSaves() {
   });
 }
 
+// A save that does not land, and recovery, hash a recovery draft before the
+// next save or retry goes out. WebCrypto settles that hash from Node's thread
+// pool, which neither fake timers nor act() wait for, so hash on this thread.
+function hashOnTestThread() {
+  vi.spyOn(crypto.subtle, "digest").mockImplementation(
+    async (algorithm, data) => {
+      if (algorithm !== "SHA-256")
+        throw new Error(`Unexpected digest ${JSON.stringify(algorithm)}`);
+      const bytes = ArrayBuffer.isView(data)
+        ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+        : new Uint8Array(data);
+      return new Uint8Array(createHash("sha256").update(bytes).digest()).buffer;
+    },
+  );
+}
+
 function connectBarrierStore(propertyId?: string) {
   const values = new Map<string, any>();
   const requests: any[] = [];
@@ -720,6 +771,23 @@ async function runConnectedRequest(request: () => Promise<unknown>) {
   expect(result).not.toBeNull();
   return result;
 }
+
+it("shows the localized protected-reference refusal when deleting a page", async () => {
+  const toastError = vi.spyOn(toast, "error").mockImplementation(() => "toast");
+  await act(async () => renderEditor({ host: "page" }));
+  fixture.mutation.mutateAsync.mockRejectedValueOnce(
+    Object.assign(
+      new Error("Workspace references cannot be deleted as pages"),
+      {
+        errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+      },
+    ),
+  );
+  await act(async () => fixture.toolbar?.onDelete?.());
+  expect(toastError).toHaveBeenCalledWith("sidebar.failedDeletePage", {
+    description: "sidebar.workspaceReferenceProtected",
+  });
+});
 
 it("confirms an actually edited settled VisualEditor through the server barrier without reauthoring its applied save", async () => {
   fixture.realPrimaryEditor = true;
@@ -1085,6 +1153,7 @@ it.each([false, true])(
   "freshly reads an accepted primary title while preserving an independent failed icon and navigation refusal (reverted: %s)",
   async (reverted) => {
     fixture.realPrimaryEditor = true;
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
     const failure = new Error("The direct icon and title save failed.");
@@ -1211,6 +1280,7 @@ it.each([false, true])(
 it.each(["title", "body"] as const)(
   "preserves attestation and retained recovery for reverted primary %s input until an accepted retry",
   async (field) => {
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
     const failure = new Error("Primary save failed before revert.");
@@ -1221,6 +1291,16 @@ it.each(["title", "body"] as const)(
     await act(async () => vi.advanceTimersByTimeAsync(500));
     expect(fixture.save).toHaveBeenCalledOnce();
     expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+    expect(fixture.mutation.mutateAsync).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        operation: "upsert",
+        draft: expect.objectContaining({
+          title: field === "title" ? "Failed title" : "Saved title",
+          content: field === "title" ? "Saved body" : "Failed body",
+          editGeneration: 1,
+        }),
+      }),
+    );
     if (field === "title") pasteTitle("Saved title");
     else act(() => fixture.editor!.onChange("Saved body"));
     let rejectAttestation!: (error: Error) => void;
@@ -1253,6 +1333,9 @@ it.each(["title", "body"] as const)(
     expect(Date.now() - started).toBeLessThanOrEqual(20_200);
     expect(refused.captures).toHaveLength(0);
     expect(fixture.save).toHaveBeenCalledTimes(2);
+    expect(fixture.mutation.mutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "delete" }),
+    );
     fixture.save.mockResolvedValue(fixture.page!);
     pasteTitle("Saved title");
     await act(async () => vi.advanceTimersByTimeAsync(500));
@@ -1264,6 +1347,9 @@ it.each(["title", "body"] as const)(
       editorEditGeneration: 3,
     });
     expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+    expect(fixture.mutation.mutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operation: "delete" }),
+    );
     const store = connectBarrierStore();
     expect(await runConnectedBarrier()).toMatchObject({
       value: {
@@ -1458,6 +1544,13 @@ it("flushes un-emitted visual input, changes the first prepare, then prepares an
   expect(publishedAcks()[0]).toHaveProperty("status", "changed");
   expect(fixture.page!.content).toBe("Not yet emitted visual body");
   expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+  await vi.waitFor(() => {
+    expect(fixture.editor?.content).toBe("Not yet emitted visual body");
+    expect(fixture.awareness?.getLocalState()).toMatchObject({
+      unsavedEdits: false,
+      savedRevision: "r2",
+    });
+  });
   await deliver(flushRequest("prepare", "stable-retry"));
   expect(publishedAcks()[1]).toHaveProperty("status", "prepared");
   await deliver(flushRequest("verify", "stable-retry"));
@@ -1832,6 +1925,7 @@ it("confirms an exact additional field independently of a dirty primary body and
 });
 
 it("republishes an acknowledged save when recovery alone finishes", async () => {
+  hashOnTestThread();
   let acknowledge!: (document: Document) => void;
   fixture.save.mockReturnValue(
     new Promise<Document>((resolve) => {
@@ -2010,6 +2104,7 @@ describe("a retried save whose edit a peer's save already stored", () => {
   }
 
   async function retryAfterPeerStoredEdit() {
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     fixture.flushUpdates.mockResolvedValueOnce(false);
     await act(async () => renderEditor());
@@ -2085,6 +2180,107 @@ describe("closing a page this tab never edited", () => {
     expect(mounted(fixture.awareness).getLocalState()?.unsavedEdits).toBe(
       false,
     );
+  });
+
+  // An agent's write keeps a blank line between blocks. A real editor that
+  // adopts it holds the same page one block per line.
+  async function adoptBlankLineRewrite() {
+    const written = "## Goal\n\nFinish the row.\n\n## Where it stands\n\nOpen.";
+    const writerDoc = new Y.Doc();
+    const writerMount = document.createElement("div");
+    document.body.append(writerMount);
+    const writer = new Editor({
+      element: writerMount,
+      extensions: createVisualEditorExtensions({ ydoc: writerDoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    writer.commands.setContent(nfmToDoc(written));
+    const held = docToNfm(writer.getJSON() as PMDoc);
+    writer.destroy();
+    writerDoc.destroy();
+    writerMount.remove();
+    expect(held).toContain("Finish the row.");
+    expect(held).not.toBe(written);
+    fixture.cachedDocument = true;
+    const page = mounted(fixture.page);
+    page.revision = documentRevisionToken(1, page.content);
+    const key = ["action", "get-document", { id: page.id }];
+    queryClient.setQueryData(key, page);
+    const rewritten = {
+      ...page,
+      content: written,
+      revision: documentRevisionToken(2, written),
+      updatedAt: "2026-10-19T12:00:01.000Z",
+    };
+    // The server keeps the other writer's body rather than this tab's unedited
+    // copy of it, as update-document does for a browser save with no edit. It
+    // takes a title on its own.
+    fixture.save.mockImplementation(async (input) =>
+      input.content === undefined
+        ? { ...rewritten, title: input.title ?? rewritten.title }
+        : {
+            preservationRequired: true,
+            id: page.id,
+            document: rewritten,
+            reason: "provenance",
+            checkpointId: "kept-writer-body",
+          },
+    );
+    await act(async () => renderEditor());
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      queryClient.setQueryData(key, rewritten);
+      renderEditor();
+    });
+    act(() => mounted(mounted(fixture.editor).onRemoteSnapshotChange)(held));
+    // The change settles before the tab saves or closes.
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    return written;
+  }
+
+  it("closes a page another writer rewrote with blank lines", async () => {
+    await adoptBlankLineRewrite();
+    expect(await closeSession()).toBe("closed");
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  it("renames a page another writer rewrote with blank lines without sending its body", async () => {
+    await adoptBlankLineRewrite();
+    pasteTitle("Renamed row");
+    // The tab goes away before the title's save is due, so the keepalive copy
+    // goes out, and the ordinary save after it when the copy is refused.
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fixture.keepalive).toHaveBeenCalledOnce();
+    const [action, copy] = mounted(fixture.keepalive.mock.calls[0]);
+    expect(action).toBe("update-document");
+    expect(copy).toMatchObject({ title: "Renamed row" });
+    expect(copy).not.toHaveProperty("content");
+    expect(fixture.save).toHaveBeenCalledOnce();
+    const saved = mounted(fixture.save.mock.calls[0])[0];
+    expect(saved).toMatchObject({ title: "Renamed row" });
+    expect(saved).not.toHaveProperty("content");
+  });
+
+  it("journals a failed rename of a page another writer rewrote on its stored body", async () => {
+    const written = await adoptBlankLineRewrite();
+    fixture.save.mockRejectedValue(
+      new Error("Action update-document failed (500)"),
+    );
+    pasteTitle("Renamed row");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).toHaveBeenCalledOnce();
+    // Recovery compares the journaled body with the stored one exactly, so
+    // the editor's spelling would come back as a body edit nobody made.
+    const journal = Object.keys(localStorage)
+      .filter((key) => key.startsWith("content-page-draft-journal-v1:"))
+      .map((key) => JSON.parse(mounted(localStorage.getItem(key))));
+    expect(journal).toHaveLength(1);
+    expect(mounted(journal[0]).snapshot).toMatchObject({
+      title: "Renamed row",
+      content: written,
+    });
   });
 
   it.each([
@@ -2808,5 +3004,415 @@ describe("a link that starts a comment on the whole page", () => {
   it("leaves a row previewed beside that page alone", async () => {
     await act(async () => renderEditor({ host: "preview", location: link }));
     expect(discussions()).toEqual([]);
+  });
+});
+
+describe("a Suggesting draft typed while another tab saves the Page", () => {
+  const page = (...paragraphs: string[]) =>
+    canonicalizeNfm(paragraphs.join("\n\n"));
+  const opened = page("Opening paragraph.", "Closing paragraph.");
+  const typed = page("Opening paragraph. Typed here.", "Closing paragraph.");
+  const elsewhere = page(
+    "Opening paragraph.",
+    "Closing paragraph. Words from another tab.",
+  );
+  const creates: Array<{ baseRevision: string; changed: string[] }> = [];
+  const amends: Array<{ baseRevision: string; changed: string[] }> = [];
+  const stored = new Map<string, ResourceSuggestion>();
+  const cacheKey = () => ["action", "get-document", { id: fixture.page?.id }];
+  let heldRead: Promise<Document | null> | null = null;
+  let toastError: ReturnType<typeof vi.spyOn>;
+
+  const savedSuggestion = (
+    id: string,
+    baseRevision: string,
+    operations: SuggestionOperation[],
+  ): ResourceSuggestion => ({
+    id,
+    proposalId: "proposal",
+    revision: 1,
+    resourceType: "document",
+    resourceId: "recovery-page",
+    adapterKind: "content.document-markdown",
+    adapterVersion: 1,
+    threadId: `thread-${id}`,
+    authorEmail: "writer@example.test",
+    actorKind: "human",
+    baseRevision,
+    status: "pending",
+    summary: "editor.toolbar.suggestEdits",
+    ownerEmail: "writer@example.test",
+    orgId: "org",
+    visibility: "private",
+    createdAt: "2026-10-19T12:06:00.000Z",
+    updatedAt: "2026-10-19T12:06:00.000Z",
+    metadata: null,
+    operations,
+  });
+  const changedText = (operations: MarkdownSuggestionOperation[]) =>
+    operations.map(({ after }) => after.changedText);
+  const refused = () =>
+    Object.assign(
+      new Error("The Page changed; refresh before saving this suggestion"),
+      { status: 409, errorCode: "suggestion_conflict" },
+    );
+
+  beforeEach(() => {
+    creates.length = 0;
+    amends.length = 0;
+    stored.clear();
+    heldRead = null;
+    toastError = vi.spyOn(toast, "error").mockImplementation(() => "toast");
+    fixture.page = {
+      ...fixture.page,
+      content: opened,
+      canComment: true,
+      canSuggest: true,
+    } as Document;
+    fixture.suggestions = {
+      data: { suggestions: [] },
+      isFetching: false,
+      isError: false,
+      refetch: async () => ({
+        data: { suggestions: [...stored.values()] },
+        isError: false,
+        error: null,
+      }),
+    };
+    fixture.callAction.mockImplementation(async (name) => {
+      if (name !== "get-document") return null;
+      const read = heldRead;
+      heldRead = null;
+      return read ?? fixture.page;
+    });
+    const otherwise = fixture.mutation.mutateAsync.getMockImplementation();
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (input?.adapterKind === "content.document-markdown") {
+        const suggestions: Array<{
+          operations: MarkdownSuggestionOperation[];
+        }> = input.suggestions;
+        creates.push({
+          baseRevision: input.baseRevision,
+          changed: suggestions.flatMap(({ operations }) =>
+            changedText(operations),
+          ),
+        });
+        if (input.baseRevision !== fixture.page?.revision) throw refused();
+        const created = suggestions.map(({ operations }, index) =>
+          savedSuggestion(`saved-${index}`, input.baseRevision, operations),
+        );
+        for (const suggestion of created) stored.set(suggestion.id, suggestion);
+        return {
+          proposal: { id: "proposal", summary: input.summary },
+          suggestions: created,
+        };
+      }
+      const current = stored.get(input?.id);
+      if (current && Array.isArray(input.operations)) {
+        const operations: MarkdownSuggestionOperation[] = input.operations;
+        const baseRevision: string = input.baseRevision ?? current.baseRevision;
+        amends.push({ baseRevision, changed: changedText(operations) });
+        if (baseRevision !== fixture.page?.revision) throw refused();
+        const amended = {
+          ...current,
+          revision: current.revision + 1,
+          baseRevision,
+          operations,
+        };
+        stored.set(amended.id, amended);
+        return amended;
+      }
+      return otherwise?.(input);
+    });
+  });
+
+  async function startSuggesting() {
+    await act(async () => renderEditor({ host: "page" }));
+    await act(async () => fixture.toolbar?.onSuggestingChange?.(true));
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  }
+
+  async function advance(ms: number) {
+    for (let elapsed = 0; elapsed < ms; elapsed += 100)
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+  }
+
+  async function anotherTabSaves(
+    content: string,
+    revision: string,
+    updatedAt: string,
+    { seen = true } = {},
+  ) {
+    fixture.page = {
+      ...fixture.page,
+      content,
+      revision,
+      updatedAt,
+    } as Document;
+    if (fixture.cachedDocument)
+      queryClient.setQueryData(cacheKey(), fixture.page);
+    if (seen) await act(async () => renderEditor({ host: "page" }));
+  }
+
+  function holdNextRead() {
+    let release!: (page: Document | null) => void;
+    heldRead = new Promise((resolve) => {
+      release = resolve;
+    });
+    return async (page: Document | null) => act(async () => release(page));
+  }
+
+  async function typeWhileAnotherTabSaves(draft: string, newer: string) {
+    act(() => fixture.editor?.onChange(draft));
+    await anotherTabSaves(newer, "r2", "2026-10-19T12:05:00.000Z");
+    await advance(6_000);
+  }
+
+  it("moves the typing onto the newer Page and saves it there, with no alert", async () => {
+    await startSuggesting();
+    await typeWhileAnotherTabSaves(typed, elsewhere);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+      { baseRevision: "r2", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(
+      page(
+        "Opening paragraph. Typed here.",
+        "Closing paragraph. Words from another tab.",
+      ),
+    );
+  });
+
+  it("moves words added to a saved suggestion onto the newer Page and amends it there", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await advance(1_500);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    await typeWhileAnotherTabSaves(
+      page("Opening paragraph. Typed here. And more.", "Closing paragraph."),
+      elsewhere,
+    );
+    expect(creates).toHaveLength(1);
+    expect(amends).toEqual([
+      { baseRevision: "r1", changed: [" Typed here. And more."] },
+      { baseRevision: "r2", changed: [" Typed here. And more."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(
+      page(
+        "Opening paragraph. Typed here. And more.",
+        "Closing paragraph. Words from another tab.",
+      ),
+    );
+  });
+
+  it("keeps the alert when the other tab changed the paragraph being typed in", async () => {
+    await startSuggesting();
+    await typeWhileAnotherTabSaves(
+      typed,
+      page("Opening paragraph, changed elsewhere.", "Closing paragraph."),
+    );
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(toastError).toHaveBeenCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+    expect(fixture.editor?.content).toBe(typed);
+  });
+
+  it("saves again when the Page gets a new revision with the same text while the refused save is being checked", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(opened, "r2", "2026-10-19T12:05:00.000Z", {
+      seen: false,
+    });
+    const release = holdNextRead();
+    await advance(1_100);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    await act(async () => renderEditor({ host: "page" }));
+    await release(fixture.page);
+    await advance(3_000);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+      { baseRevision: "r2", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(typed);
+  });
+
+  it("keeps the alert when the editor closes while the refused typing waits to move", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    await advance(1_300);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(toastError).toHaveBeenCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+  });
+
+  it("keeps an alert when the editor closes while words added to a saved suggestion wait to move", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await advance(1_500);
+    expect(creates).toHaveLength(1);
+    act(() =>
+      fixture.editor?.onChange(
+        page("Opening paragraph. Typed here. And more.", "Closing paragraph."),
+      ),
+    );
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    await advance(1_300);
+    expect(amends).toEqual([
+      { baseRevision: "r1", changed: [" Typed here. And more."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(toastError).toHaveBeenCalledWith("editor.suggestionAmendmentFailed");
+  });
+
+  it("keeps the alert when the editor closes while the refused save is being checked", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    const release = holdNextRead();
+    await advance(1_100);
+    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    await release(fixture.page);
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(toastError).toHaveBeenCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+  });
+
+  it("alerts again when the editor closes while a retried save waits to move", async () => {
+    await startSuggesting();
+    const answer = fixture.mutation.mutateAsync.getMockImplementation();
+    let serverDown = true;
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (serverDown && input?.adapterKind === "content.document-markdown") {
+        serverDown = false;
+        throw Object.assign(new Error("The server is down"), { status: 500 });
+      }
+      return answer?.(input);
+    });
+    act(() => fixture.editor?.onChange(typed));
+    await advance(1_100);
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(toastError).toHaveBeenCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+    act(() =>
+      fixture.editor?.onChange(
+        page("Opening paragraph. Typed here. And more.", "Closing paragraph."),
+      ),
+    );
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    for (let waited = 0; creates.length === 0 && waited < 3_000; waited += 100)
+      await advance(100);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(fixture.editor?.content).toBe(
+      page("Opening paragraph. Typed here. And more.", "Closing paragraph."),
+    );
+    await act(async () => root.render(null));
+    expect(toastError).toHaveBeenCalledTimes(2);
+    expect(toastError).toHaveBeenLastCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+  });
+
+  it("moves onto the newest Page when the check reads one older than sync already delivered", async () => {
+    fixture.cachedDocument = true;
+    queryClient.setQueryData(cacheKey(), fixture.page);
+    const savedAgain = page(
+      "Opening paragraph.",
+      "Closing paragraph. Words from another tab. And more.",
+    );
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z", {
+      seen: false,
+    });
+    const release = holdNextRead();
+    await advance(1_100);
+    const stale = fixture.page;
+    await anotherTabSaves(savedAgain, "r3", "2026-10-19T12:06:00.000Z", {
+      seen: false,
+    });
+    await release(stale);
+    expect(queryClient.getQueryData<Document>(cacheKey())?.revision).toBe("r3");
+    await act(async () => renderEditor({ host: "page" }));
+    await advance(6_000);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+      { baseRevision: "r3", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(
+      page(
+        "Opening paragraph. Typed here.",
+        "Closing paragraph. Words from another tab. And more.",
+      ),
+    );
+  });
+
+  it("moves onto the newest Page another cached copy holds when the check reads an older one", async () => {
+    fixture.cachedDocument = true;
+    queryClient.setQueryData(cacheKey(), fixture.page);
+    const savedAgain = page(
+      "Opening paragraph.",
+      "Closing paragraph. Words from another tab. And more.",
+    );
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    const release = holdNextRead();
+    await advance(1_100);
+    const stale = fixture.page;
+    fixture.page = {
+      ...fixture.page,
+      content: savedAgain,
+      revision: "r3",
+      updatedAt: "2026-10-19T12:06:00.000Z",
+    } as Document;
+    queryClient.setQueryData(
+      ["action", "get-document", { id: fixture.page.id, databaseId: "db" }],
+      fixture.page,
+    );
+    await release(stale);
+    await advance(6_000);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+      { baseRevision: "r3", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(
+      page(
+        "Opening paragraph. Typed here.",
+        "Closing paragraph. Words from another tab. And more.",
+      ),
+    );
   });
 });

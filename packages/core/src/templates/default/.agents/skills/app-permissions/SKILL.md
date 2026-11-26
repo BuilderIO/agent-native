@@ -65,7 +65,7 @@ disabled document-wide by default. Camera and microphone are already open.
 3. **Keep the first-request deferral.** The security middleware is registered
    during bootstrap and `Permissions-Policy` is last-write-wins. If this plugin
    called `getH3App(nitroApp).use(...)` at bootstrap time it would register
-   *before* the security middleware and be overwritten. Registering inside the
+   _before_ the security middleware and be overwritten. Registering inside the
    first `request` hook makes the handler append **after** the security
    middleware, so its value wins. Do not "simplify" this into a bootstrap-time
    `.use()`.
@@ -109,16 +109,16 @@ export default (nitroApp: {
 
 Map the capability the app needs to the `Permissions-Policy` directive to add:
 
-| Capability | Directive | Recommended value |
-| --- | --- | --- |
-| Current location | `geolocation` | `geolocation=(self)` |
-| Camera | `camera` | `camera=*` (framework default) or `camera=(self)` |
-| Microphone | `microphone` | `microphone=(self)` |
-| Screen / tab capture | `display-capture` | `display-capture=(self)` |
-| Keep screen awake | `screen-wake-lock` | `screen-wake-lock=(self)` |
-| Clipboard read/write | `clipboard-read`, `clipboard-write` | `clipboard-read=(self), clipboard-write=(self)` |
-| Fullscreen | `fullscreen` | `fullscreen=(self)` |
-| Motion / orientation sensors | `accelerometer`, `gyroscope`, `magnetometer` | `accelerometer=(self)` (etc.) |
+| Capability                   | Directive                                    | Recommended value                                 |
+| ---------------------------- | -------------------------------------------- | ------------------------------------------------- |
+| Current location             | `geolocation`                                | `geolocation=(self)`                              |
+| Camera                       | `camera`                                     | `camera=*` (framework default) or `camera=(self)` |
+| Microphone                   | `microphone`                                 | `microphone=(self)`                               |
+| Screen / tab capture         | `display-capture`                            | `display-capture=(self)`                          |
+| Keep screen awake            | `screen-wake-lock`                           | `screen-wake-lock=(self)`                         |
+| Clipboard read/write         | `clipboard-read`, `clipboard-write`          | `clipboard-read=(self), clipboard-write=(self)`   |
+| Fullscreen                   | `fullscreen`                                 | `fullscreen=(self)`                               |
+| Motion / orientation sensors | `accelerometer`, `gyroscope`, `magnetometer` | `accelerometer=(self)` (etc.)                     |
 
 Add directives to the comma-separated string; the browser ignores tokens it
 doesn't recognize, so unknown/experimental features degrade gracefully.

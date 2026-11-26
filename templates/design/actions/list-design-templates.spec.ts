@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
   files: [] as Array<Record<string, unknown>>,
-  designSystems: [] as Array<{ id: string }>,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -38,7 +37,6 @@ vi.mock("../server/db/index.js", () => {
       width: "designTemplates.width",
       height: "designTemplates.height",
       lockedLayerCount: "designTemplates.lockedLayerCount",
-      designSystemId: "designTemplates.designSystemId",
       visibility: "designTemplates.visibility",
       ownerEmail: "designTemplates.ownerEmail",
       createdAt: "designTemplates.createdAt",
@@ -52,11 +50,6 @@ vi.mock("../server/db/index.js", () => {
       fileType: "designTemplateFiles.fileType",
       content: "designTemplateFiles.content",
     },
-    designSystems: {
-      table: "designSystems",
-      id: "designSystems.id",
-    },
-    designSystemShares: { table: "designSystemShares" },
   };
 
   return {
@@ -70,9 +63,6 @@ vi.mock("../server/db/index.js", () => {
             }
             if (table.table === "designTemplateFiles") {
               return Promise.resolve(testState.files);
-            }
-            if (table.table === "designSystems") {
-              return Promise.resolve(testState.designSystems);
             }
             return Promise.resolve([]);
           },
@@ -96,7 +86,6 @@ describe("list-design-templates", () => {
         width: 1080,
         height: 1080,
         lockedLayerCount: 1,
-        designSystemId: "accessible-system",
         visibility: "private",
         ownerEmail: "owner@example.com",
         createdAt: "2026-07-14T00:00:00.000Z",
@@ -111,22 +100,19 @@ describe("list-design-templates", () => {
         content: "<main>Saved preview</main>",
       },
     ];
-    testState.designSystems = [{ id: "accessible-system" }];
   });
 
-  it("returns user templates before built-ins with previews and access-safe linked systems", async () => {
+  it("returns user templates before built-ins with previews", async () => {
     const result = await action.run({ includePreview: "true" });
 
     expect(result.templates[0]).toMatchObject({
       id: "saved-template",
       isBuiltIn: false,
-      designSystemId: "accessible-system",
       previewHtml: "<main>Saved preview</main>",
     });
     expect(result.templates[1]).toMatchObject({
       id: DESIGN_TEMPLATE_PRESETS[0]?.id,
       isBuiltIn: true,
-      designSystemId: null,
     });
     expect(result.templates[1]?.previewHtml).toContain(
       "data-agent-native-locked",
@@ -134,17 +120,7 @@ describe("list-design-templates", () => {
     expect(result.userCount).toBe(1);
     expect(result.builtInCount).toBeGreaterThan(0);
   });
-
-  it("does not expose an inaccessible linked design-system id", async () => {
-    testState.designSystems = [];
-
-    const result = await action.run({ includePreview: "false" });
-
-    expect(result.templates[0]).toMatchObject({
-      id: "saved-template",
-      designSystemId: null,
-    });
-  });
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("can include built-in previews without loading saved-template HTML", async () => {
     const result = await action.run({

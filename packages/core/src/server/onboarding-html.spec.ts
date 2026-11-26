@@ -56,6 +56,67 @@ function readAuthPageData(html: string): AuthPageProps {
   return JSON.parse(match[1]!) as AuthPageProps;
 }
 
+describe("auth document build identity", () => {
+  afterEach(() => {
+    resetAppConfigForTests();
+    vi.unstubAllEnvs();
+  });
+
+  function withBuild(env: { id?: string; sha?: string }) {
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", env.id ?? "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_SHA", env.sha ?? "");
+    resetAppConfigForTests();
+  }
+
+  it("names the release in the head of the sign-in, reset-password and deploy-settings documents", () => {
+    const release = "b".repeat(40);
+    withBuild({ id: release });
+    const meta = `<meta name="agent-native-build-sha" content="${release}"/>`;
+
+    for (const html of [
+      getOnboardingHtml(),
+      getResetPasswordHtml(),
+      getDeploySettingsRequiredHtml({
+        keys: ["DATABASE_URL"],
+        locale: "en-US",
+        dir: "ltr",
+      }),
+    ]) {
+      expect(html.indexOf(meta)).toBeGreaterThan(-1);
+      expect(html.indexOf(meta)).toBeLessThan(html.indexOf("</head>"));
+    }
+  });
+
+  it("names the workspace commit, not the content build id, when a deploy bakes both", () => {
+    const release = "c".repeat(40);
+    withBuild({ id: "content-0123456789abcdef0123456789abcdef", sha: release });
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      `<meta name="agent-native-build-sha" content="${release}"/>`,
+    );
+    expect(html).not.toContain(
+      '<meta name="agent-native-build-sha" content="content-',
+    );
+  });
+
+  it("writes no marker when the release is unknown, and never the string undefined", () => {
+    withBuild({});
+    const html = getOnboardingHtml();
+
+    expect(html).not.toContain("agent-native-build-sha");
+    expect(html).not.toContain("undefined");
+  });
+
+  it("cannot break out of the attribute", () => {
+    withBuild({ id: 'a"b<c&d' });
+
+    expect(getOnboardingHtml()).toContain(
+      '<meta name="agent-native-build-sha" content="a&quot;b&lt;c&amp;d"/>',
+    );
+  });
+});
+
 describe("getOnboardingHtml", () => {
   afterEach(() => {
     resetAppConfigForTests();
@@ -233,7 +294,7 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(html).toContain(
-      ".auth-centered {\n    display: flex;\n    justify-content: center;",
+      ".auth-centered {\n    display: flex;\n    flex-direction: column;\n    align-items: center;",
     );
     expect(html).not.toContain('class="marketing-panel"');
     expect(html).not.toContain("data-agent-native-marketing-home");
@@ -269,6 +330,25 @@ describe("getOnboardingHtml", () => {
         getOnboardingHtml({ requestPath: "/sign-in?c=continuation" }),
       ).initialView,
     ).toBe("login");
+  });
+
+  it("opens the sign-in view for a bare /sign-in request (QA AUTH-08)", () => {
+    // A plain /sign-in used to fall through to the signup form, so an existing
+    // user asking to sign in was shown "Create an account".
+    expect(
+      readAuthPageData(getOnboardingHtml({ requestPath: "/sign-in" }))
+        .initialView,
+    ).toBe("login");
+    expect(
+      readAuthPageData(
+        getOnboardingHtml({ requestPath: "/mail/_agent-native/sign-in" }),
+      ).initialView,
+    ).toBe("login");
+    // The signup entry still opens signup.
+    expect(
+      readAuthPageData(getOnboardingHtml({ requestPath: "/signup" }))
+        .initialView,
+    ).toBe("signup");
   });
 
   it("passes local-dev sign-in configuration to the auth renderer", () => {

@@ -118,7 +118,7 @@ Skills, `.agents/skills/<name>/SKILL.md` पर लाइव है और इ�
 
 ## ऐप-समर्थित skills {#app-backed-skills}
 
-मौजूदा app-backed skills में Plan के `visual-plan`, `visual-recap`, और `visualize-repo`, Design का `visual-edit`, Assets का `assets`, और repo-backed docs/blog/MDX editing के लिए `content` शामिल हैं।
+मौजूदा app-backed skills में Plan के `visual-plan`, `visual-recap`, और `visualize-repo`, Design के `visual-edit` और `remix`, Assets का `assets`, और repo-backed docs/blog/MDX editing के लिए `content` शामिल हैं।
 
 <Callout tone="info">
 
@@ -339,11 +339,14 @@ scope: dev
 होस्टेड डिफ़ॉल्ट इंस्टॉल पथ है। अनुकूलन के लिए स्थानीय लॉन्च स्पष्ट है,
 ऑफ़लाइन कार्य, या गोपनीयता-संवेदनशील उपयोग।
 
+`remix` को Design के बिना सीधे रिपॉज़िटरी में भी चला सकते हैं: `/remix add the stripe hero animation to ours but make it blue`। कैनवास पर देखकर चुनने के लिए Design माँगें। व्यवहार के विनिर्देश से अपने मूल कोड में प्रभाव दोबारा बनाया जाता है।
+
 ```bash
 # शुभ पथ: निर्यात किए गए निर्देश और होस्ट किए गए MCP कनेक्टर।
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add remix
 npx @agent-native/core@latest skills add assets
 
 # रेपो-प्रथम Content docs/blog/MDX संपादन।

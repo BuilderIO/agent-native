@@ -25,12 +25,14 @@
 import { createHash } from "node:crypto";
 
 import { withoutWriteObservation } from "../action-frame.js";
+import { automationUsageOrgId } from "../agent/engine/credential-owner.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
 import type { AgentEngine } from "../agent/engine/types.js";
+import { getRequestContext } from "../server/request-context.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 import type { UsageRecord } from "../usage/store.js";
 
@@ -167,6 +169,12 @@ export async function evaluateCondition(
       if (cached !== undefined) return cached;
     }
 
+    // Saved under the same org as the run's own usage.
+    const usageOrgId = automationUsageOrgId(
+      engine,
+      identity.orgId,
+      getRequestContext()?.providerKeyOrg?.orgId,
+    );
     // A classification is an answer, not a write of the call that emitted the event.
     const result = await withoutWriteObservation(() =>
       callClassifier(
@@ -177,7 +185,7 @@ export async function evaluateCondition(
         controller.signal,
         {
           ownerEmail: identity.userEmail,
-          ...(identity.orgId === undefined ? {} : { orgId: identity.orgId }),
+          ...(usageOrgId === undefined ? {} : { orgId: usageOrgId }),
           ...(identity.appId === undefined ? {} : { app: identity.appId }),
           label: options.usageLabel ?? "automation-condition",
         },

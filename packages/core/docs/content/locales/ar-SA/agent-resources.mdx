@@ -437,6 +437,8 @@ Skills هي ملفات موارد Markdown ضمن مسار `skills/` (يفضل `
 | `DELETE` | `/_agent-native/resources/:id`                | حذف مورد                       |
 | `POST`   | `/_agent-native/resources/upload`             | تحميل ملف كمورد                |
 
+يأتي المورد المقروء عبر `GET /_agent-native/resources/:id` مع `revision`. أعِده بوصفه `expectedRevision` مع `content` الجديد في طلب `PUT`؛ وإذا حفظ شخص آخر محتوى مختلفًا بعد قراءتك، فلن يُكتب أي شيء: تكون الاستجابة 409 مع `errorCode: "save_conflict"`، والمحتوى الحالي في `details.current.content`، ومراجعته في `details.currentRevision`. أما طلب `PUT` بدون `expectedRevision` فما زال يكتب فوق ما هو محفوظ. لا يمكن للحفظ المتحقَّق منه أن يعيد تسمية المورد في الوقت نفسه: أرسل `path` الجديد أولًا في طلب `PUT` مستقل. يتولى `<ResourceEditor saveContent>` ذلك نيابةً عنك: إذا حفظ شخص آخر محتوى مختلفًا أثناء التعديل، فإنه يسأل أي نسخة تريد الاحتفاظ بها، ثم يعرض استعادة النسخة الأخرى.
+
 ### الإجراء API {#script-api}
 
 يستخدم الوكيل هذه actions المضمنة. يمكنك أيضًا الاتصال بهم من actions الخاص بك:
@@ -457,9 +459,14 @@ pnpm action resource-effective --path "context/brand.md"
 # اكتب مصدرًا
 pnpm action resource-write --path "notes/meeting.md" --content "# ملاحظات الاجتماع..."
 
+# استبدال مورد فقط إذا لم يحفظه أحد منذ قراءتك
+pnpm action resource-write --path "notes/meeting.md" --content "# ملاحظات الاجتماع..." --expected-revision "rev_…"
+
 # حذف مورد
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+تبدأ قراءات الوكيل للموارد بسطر `[revision …, scope …]`، وتقبل أداتا الكتابة لديه تلك المراجعة بوصفها `expectedRevision` (`--expected-revision` في سطر الأوامر). إذا حفظ أحد الملف بعد القراءة، فلن يُكتب أي شيء: تفشل الكتابة مع `errorCode: "save_conflict"` والمراجعة الحالية، فيعيد الوكيل قراءة الملف ويعيد تعديله. أما الكتابة دون مراجعة فما زالت تستبدل ما هو موجود.
 
 ## الخطوة التالية {#whats-next}
 

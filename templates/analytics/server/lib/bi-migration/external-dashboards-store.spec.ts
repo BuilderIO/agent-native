@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../../packages/core/package.json", import.meta.url),
@@ -27,6 +35,7 @@ vi.mock("../../db/index.js", async () => {
 });
 
 import * as dbModule from "../../db/index.js";
+import { resetPublicSchema } from "../testing/pglite-reset.js";
 import * as store from "./external-dashboards-store.js";
 
 describe("external dashboard migration store", () => {
@@ -50,8 +59,16 @@ describe("external dashboard migration store", () => {
   type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     getDbMock.mockReset();
     getDbMock.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     state.orgId = "org-1";
@@ -62,10 +79,6 @@ describe("external dashboard migration store", () => {
     for (const statement of store.EXTERNAL_DASHBOARD_MIGRATION_SQL) {
       await client.exec(statement);
     }
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   it("upserts bounded source metadata and scopes status joins to the active org", async () => {

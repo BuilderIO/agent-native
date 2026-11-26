@@ -44,6 +44,23 @@ export {
 export type { A2AProtocolErrorCode } from "./client.js";
 export { workspacePrivateOrigins } from "./workspace-private-origins.js";
 export {
+  A2A_CALL_REFUSED_KIND,
+  A2ACallHookError,
+  A2ACallRefusedError,
+  listA2AActionCallHooks,
+  registerA2AActionCallHook,
+} from "./call-hooks.js";
+export type {
+  A2AActionCallHook,
+  A2AActionCallTarget,
+  A2AIncomingActionCall,
+  A2AIncomingActionCallDecision,
+  A2AIncomingActionCaller,
+  A2AOutgoingActionCall,
+  A2AOutgoingActionCallAdditions,
+} from "./call-hooks.js";
+export { isA2AForegroundCall } from "./foreground-call-scope.js";
+export {
   clearRemoteAgentTokenCache,
   RemoteAgentAuthError,
   RemoteAgentCredentialRejectedError,
@@ -57,6 +74,12 @@ export { canonicalA2AAudience } from "./audience.js";
 export { A2APersistencePayloadError } from "./persistence-safety.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
 export { readPeerComposerSource } from "./composer-source.js";
+export {
+  LINK_SUMMARY_TIMEOUT_MS,
+  READ_LINK_SUMMARY_ACTION,
+  answerLinkSummaries,
+  readPeerLinkSummaries,
+} from "./link-summary.js";
 export type { A2ACallerAuth } from "./caller-auth.js";
 export {
   ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,

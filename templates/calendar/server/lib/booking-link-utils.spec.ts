@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bookingReminderMinutesSchema,
   getBookingLinkRequiredHostEmails,
   isBookingLinkHost,
   normalizeBookingHosts,
@@ -41,5 +42,19 @@ describe("booking link host utilities", () => {
     expect(isBookingLinkHost(link, "brent@example.com")).toBe(true);
     expect(isBookingLinkHost(link, "viewer@example.com")).toBe(false);
     expect(isBookingLinkHost(link, null)).toBe(false);
+  });
+});
+
+describe("booking reminder setting", () => {
+  it("accepts the three choices, as numbers or digit strings", () => {
+    expect(bookingReminderMinutesSchema.parse(0)).toBe(0);
+    expect(bookingReminderMinutesSchema.parse("60")).toBe(60);
+    expect(bookingReminderMinutesSchema.parse(" 1440 ")).toBe(1440);
+  });
+
+  it("rejects an empty value rather than reading it as off", () => {
+    for (const value of [null, "", "  ", 30, "1 day"]) {
+      expect(bookingReminderMinutesSchema.safeParse(value).success).toBe(false);
+    }
   });
 });

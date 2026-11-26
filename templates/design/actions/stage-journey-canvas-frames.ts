@@ -38,9 +38,22 @@ const MAX_STAGED_ROWS_TO_INSPECT =
 const STAGE_APP_PREFIX = "journey-canvas-stage:v2:";
 const STAGE_BOARD_FILE_PREFIX = "journey-canvas-stage:";
 
+const NUL_ESCAPE = "\u001f";
+function escapeNul(value: string): string {
+  return value.replace(
+    /[\u0000\u001f]/g,
+    (c) => NUL_ESCAPE + (c === "\u0000" ? "0" : "1"),
+  );
+}
+function unescapeNul(value: string): string {
+  return value.replace(/\u001f([01])/g, (_, d: string) =>
+    d === "0" ? "\u0000" : NUL_ESCAPE,
+  );
+}
+
 const frameSchema = z
   .object({
-    frameKey: z.string().min(1).max(2_048),
+    frameKey: z.string().min(1).max(2_048).transform(escapeNul),
     replayId: z
       .string()
       .trim()
@@ -360,7 +373,14 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async (input) => {
+  run: async (parsed) => {
+    const input = {
+      ...parsed,
+      frames: parsed.frames.map((frame) => ({
+        ...frame,
+        frameKey: unescapeNul(frame.frameKey),
+      })),
+    };
     const encodedImageBytes = input.frames.reduce(
       (total, frame) => total + Buffer.byteLength(frame.pngBase64, "utf8"),
       0,

@@ -1,7 +1,4 @@
-import crypto from "node:crypto";
-
 import { fail, type ActionRunContext } from "@agent-native/core/action";
-import { signShortLivedToken } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import {
   createLocalhostBridgeAudience,
@@ -13,13 +10,8 @@ import { isBuilderHostOrigin } from "../shared/builder-host-origins.js";
 import {
   LOCALHOST_BRIDGE_RELAY_HEADER,
   LOCALHOST_BRIDGE_RELAY_MARKER,
-  localhostBridgeRelayChallengeResourceId,
   type LocalhostBridgeRelay,
 } from "../shared/visual-edit-bridge-relay.js";
-import {
-  ensureMotionLocalhostRelayChain,
-  motionLocalhostRelayIdentity,
-} from "./motion-localhost-relay.js";
 
 export function isBrowserVisibleVisualEditRequest(
   ctx?: Pick<ActionRunContext, "caller" | "requestHeaders">,
@@ -174,12 +166,11 @@ export async function createLocalhostBridgeRelay(args: {
     | "bridgeRequest"
     | "bridgeOperationCapability"
   >;
-  context?: ActionRunContext;
   bridgeToken: string;
   rootPath: string | null;
   bridgeRequest: Record<string, unknown>;
 }): Promise<never> {
-  const { relay, context, bridgeToken, rootPath, bridgeRequest } = args;
+  const { relay, bridgeToken, rootPath, bridgeRequest } = args;
   if (!rootPath) {
     return fail(
       "The connected local folder is missing. Reconnect this project before continuing.",
@@ -193,21 +184,7 @@ export async function createLocalhostBridgeRelay(args: {
     __agentNativeLocalhostBridge: LOCALHOST_BRIDGE_RELAY_MARKER,
     ...relay,
   } as LocalhostBridgeRelay;
-  let body = { ...bridgeRequest };
-  if (relay.step) {
-    const identity = motionLocalhostRelayIdentity(context);
-    if (!identity || !(await ensureMotionLocalhostRelayChain(identity))) {
-      return fail("The Motion relay chain is not active.", {
-        errorCode: "localhost_bridge_relay_chain_expired",
-        statusCode: 409,
-      });
-    }
-    issuedRelay.chainId = identity.chainId;
-    issuedRelay.actionName = identity.actionName;
-    issuedRelay.inputHash = identity.inputHash;
-    issuedRelay.challenge = issueLocalhostBridgeChallenge(issuedRelay);
-    body = { ...body, motionRelayChallenge: issuedRelay.challenge };
-  }
+  const body = { ...bridgeRequest };
   const capability = issueLocalhostBridgeOperationCapability({
     bridgeToken,
     audience: createLocalhostBridgeAudience(rootPath),
@@ -217,14 +194,4 @@ export async function createLocalhostBridgeRelay(args: {
   issuedRelay.bridgeRequest = body;
   issuedRelay.bridgeOperationCapability = capability.capability;
   return issuedRelay as never;
-}
-
-export function issueLocalhostBridgeChallenge(
-  relay: LocalhostBridgeRelay,
-): string {
-  return signShortLivedToken({
-    resourceId: localhostBridgeRelayChallengeResourceId(relay),
-    agentLabel: crypto.randomBytes(32).toString("hex"),
-    ttlSeconds: 120,
-  });
 }

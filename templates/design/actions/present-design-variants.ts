@@ -5,6 +5,7 @@ import {
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { seedFromText } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -68,19 +69,6 @@ function isModelVisibleImageAttachment(attachment: {
   const contentType = attachment.contentType?.split(";", 1)[0]?.trim();
   if (contentType) return contentType.toLowerCase().startsWith("image/");
   return /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(attachment.name ?? "");
-}
-
-async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
-  const [design] = await getDb()
-    .select({ designSystemId: schema.designs.designSystemId })
-    .from(schema.designs)
-    .where(
-      and(
-        eq(schema.designs.id, designId),
-        accessFilter(schema.designs, schema.designShares),
-      ),
-    );
-  return Boolean(design?.designSystemId?.trim());
 }
 
 function classifyBreakpointSet(
@@ -158,7 +146,7 @@ const variantSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. Omit it ONLY for genuinely open-ended exploration, where Design renders a generic direction card from label/description/features — that card ignores any supplied reference, layout, or design system, so omitting content is rejected when the design has a linked design system or the prompt specifies one.",
+      "Complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. Omit it ONLY for genuinely open-ended exploration, where Design renders a generic direction card from label/description/features — that card ignores any supplied reference or layout, so omitting content is rejected when the prompt specifies one.",
     ),
   width: z
     .number()
@@ -468,15 +456,10 @@ function optionName(index: number) {
 }
 
 function uniqueFilename(preferred: string, used: Set<string>) {
-  const dot = preferred.lastIndexOf(".");
-  const stem = dot > 0 ? preferred.slice(0, dot) : preferred;
-  const ext = dot > 0 ? preferred.slice(dot) : ".html";
-  let candidate = `${stem}${ext}`;
-  let suffix = 2;
-  while (used.has(candidate)) {
-    candidate = `${stem}-${suffix}${ext}`;
-    suffix += 1;
-  }
+  const candidate = nextFreeName(
+    preferred.lastIndexOf(".") > 0 ? preferred : `${preferred}.html`,
+    used,
+  );
   used.add(candidate);
   return candidate;
 }
@@ -814,6 +797,7 @@ function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Present generated design directions as normal screens on the Design " +
     "overview board and ask the user to choose one with inline chat buttons. " +
@@ -832,7 +816,7 @@ export default defineAction({
     "compact representative screen; pass concise labels/descriptions/features " +
     "and omit content only for open-ended exploration. For a fixed canvas " +
     "(exact size, ad, social post), an attached reference image, or a brief " +
-    "with a specific reference, layout, or design system, provide complete " +
+    "with a specific reference or layout, provide complete " +
     "self-contained HTML for every variant; the generic fallback is " +
     "blocked there. Design will render compact screens from direction data only " +
     "for open-ended exploration. Expand the chosen direction after the user " +
@@ -951,18 +935,17 @@ export default defineAction({
         },
       );
     }
-    if (
-      omittedContent.length > 0 &&
-      (hasSpecifiedDesignPrompt(intentPrompt) ||
-        (await hasLinkedDesignSystem(designId)))
-    ) {
-      throw new Error(
+    if (omittedContent.length > 0 && hasSpecifiedDesignPrompt(intentPrompt)) {
+      fail(
         "present-design-variants requires complete self-contained HTML for " +
-          "every variant when the design has a linked design system, or the " +
-          "prompt specifies a layout, reference, or product surface. The " +
-          "generic direction fallback ignores the brief and the system's " +
-          "tokens; use generate-design, or provide each variant's complete " +
+          "every variant when the prompt specifies a layout, reference, or " +
+          "product surface. The generic direction fallback ignores the " +
+          "brief; use generate-design, or provide each variant's complete " +
           "content.",
+        {
+          errorCode: "variant_content_required",
+          statusCode: 422,
+        },
       );
     }
 
@@ -981,7 +964,6 @@ export default defineAction({
         ? await deleteVariantSetsByIds(designId, deleteSupersededSetIds)
         : { removedSetIds: [], removedFileIds: [] };
 
-    const db = getDb();
     const now = new Date().toISOString();
     const variantSetId = nanoid();
     let screenFileIds: string[] = [];
@@ -1198,21 +1180,9 @@ export default defineAction({
       editorView: "overview",
       path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
-    const [linkedDesign] = await db
-      .select({ designSystemId: schema.designs.designSystemId })
-      .from(schema.designs)
-      .where(
-        and(
-          eq(schema.designs.id, designId),
-          accessFilter(schema.designs, schema.designShares),
-        ),
-      );
     const variantPickContext = [
       originalBrief
         ? `The user's original request for this design: "${originalBrief}". Expand the kept direction into that, not into a generic version of it.`
-        : "",
-      linkedDesign?.designSystemId
-        ? `This design is linked to design system "${linkedDesign.designSystemId}". Call \`get-design-system\` for that id and apply its tokens, typography, and usage notes while expanding the kept screen — do not substitute a generic palette or font.`
         : "",
     ]
       .filter(Boolean)
@@ -1259,7 +1229,6 @@ export default defineAction({
     await deleteAppState("design-variants").catch(() => false);
 
     attempt.addProperties({
-      has_linked_design_system: Boolean(linkedDesign?.designSystemId),
       variant_set_id: variantSetId,
     });
     trackDesign(

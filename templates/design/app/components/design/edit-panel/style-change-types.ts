@@ -9,7 +9,6 @@ import {
 } from "@shared/breakpoint-media";
 import type { InteractionState } from "@shared/interaction-states";
 
-import type { MotionKeyframeCssProperty } from "../inspector";
 import type { ElementInfo } from "../types";
 
 export interface CapturedStyleTarget {
@@ -119,12 +118,6 @@ export type StylesChangeHandler = (
   styles: Record<string, string>,
   meta?: StyleChangeMeta,
 ) => void;
-
-export interface MotionKeyframeFieldContext {
-  hasTimeline: boolean;
-  keyframedProperties: readonly string[];
-  onToggle?: (cssProperty: MotionKeyframeCssProperty) => void;
-}
 
 export interface BreakpointOverrideFieldContext {
   nodeId: string | undefined;

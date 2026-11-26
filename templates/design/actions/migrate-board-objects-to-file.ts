@@ -41,6 +41,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  assertVisualEditBoardFileCount,
+  assertVisualEditBoardFileSize,
+} from "../server/lib/visual-edit-capability.js";
+import {
   readLiveSourceFile,
   withDesignSourceMutationTransaction,
   writeInlineSourceFile,
@@ -72,6 +76,7 @@ export default defineAction({
     "negative coordinates), stores boardFileId in designs.data, and nulls " +
     "boardObjects. Idempotent — returns immediately if boardFileId is already " +
     "set. Requires editor access on the design.",
+  automatic: true,
   schema: z.object({
     designId: z
       .string()
@@ -202,6 +207,7 @@ export default defineAction({
       .limit(1);
     const boardFileId = existingBoardFile?.id ?? reservationId;
     let outputFileCount = 0;
+    assertVisualEditBoardFileSize(boardHtml);
 
     if (existingBoardFile) {
       const live = await readLiveSourceFile(existingBoardFile);
@@ -214,8 +220,9 @@ export default defineAction({
       outputFileCount = write.changed ? 1 : 0;
     } else {
       try {
-        await withDesignSourceMutationTransaction(designId, (tx) =>
-          tx.insert(schema.designFiles).values({
+        await withDesignSourceMutationTransaction(designId, async (tx) => {
+          await assertVisualEditBoardFileCount(designId, tx);
+          await tx.insert(schema.designFiles).values({
             id: boardFileId,
             designId,
             filename: BOARD_FILENAME,
@@ -223,8 +230,8 @@ export default defineAction({
             content: boardHtml,
             createdAt: now,
             updatedAt: now,
-          }),
-        );
+          });
+        });
         outputFileCount = 1;
       } catch (error) {
         const [concurrentBoardFile] = await db

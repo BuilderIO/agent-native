@@ -18,7 +18,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { ChartTooltip } from "./SqlChart";
+import { ChartTooltip } from "./SqlChartQuery";
 
 describe("ChartTooltip", () => {
   let container: HTMLDivElement;

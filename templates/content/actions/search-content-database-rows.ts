@@ -4,6 +4,11 @@ import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import type { ContentDatabaseRowSearchResponse } from "../shared/api.js";
+import {
+  contentOutputContract,
+  searchContentDatabaseRowsOutputSchema,
+} from "./_content-output-contracts.js";
 import { getDatabaseMutationContract } from "./_database-row-mutation.js";
 import { resolveContentDatabaseRead } from "./_database-utils.js";
 import { documentDiscoveryPagination } from "./_document-discovery-query.js";
@@ -27,8 +32,19 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(50).default(25),
     offset: z.coerce.number().int().min(0).default(0),
   }),
+  outputSchema: contentOutputContract<ContentDatabaseRowSearchResponse>(
+    searchContentDatabaseRowsOutputSchema,
+  ),
+  mcpOutputSchema: true,
   http: { method: "GET" },
-  run: async (args) => {
+  readOnly: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  mcpScript: "read",
+  run: async (args): Promise<ContentDatabaseRowSearchResponse> => {
     const resolution = await resolveContentDatabaseRead({
       databaseId: args.databaseId,
     });
@@ -77,10 +93,7 @@ export default defineAction({
 
     // Editors may create a new row from the picker; hand them the target and
     // schema revision add-database-item needs.
-    let rowCreation: {
-      target: Awaited<ReturnType<typeof getDatabaseMutationContract>>["target"];
-      schemaRevision: string;
-    } | null = null;
+    let rowCreation: ContentDatabaseRowSearchResponse["rowCreation"] = null;
     if (database.spaceId) {
       const canEdit = await assertAccess(
         "document",

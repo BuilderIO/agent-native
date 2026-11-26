@@ -787,6 +787,32 @@ describe("optimistic document titles", () => {
     ).toBe("Page one");
   });
 
+  it("saves past a removed collection's cached reads, which have no rows", () => {
+    const queryClient = new QueryClient();
+    const unavailable = { available: false, reason: "deleted" };
+    const databaseKey = [
+      "action",
+      "get-content-database",
+      { databaseId: "removed" },
+    ] as const;
+    const databasePageKey = [
+      "action",
+      "query-content-database-items",
+      { documentId: "removed-page", limit: 100 },
+    ] as const;
+    queryClient.setQueryData(documentQueryKey("a"), doc("a", null));
+    queryClient.setQueryData(databaseKey, unavailable);
+    queryClient.setQueryData(databasePageKey, unavailable);
+
+    patchDocumentCaches(queryClient, "a", { title: "Page one" });
+
+    expect(
+      queryClient.getQueryData<Document>(documentQueryKey("a"))?.title,
+    ).toBe("Page one");
+    expect(queryClient.getQueryData(databaseKey)).toBe(unavailable);
+    expect(queryClient.getQueryData(databasePageKey)).toBe(unavailable);
+  });
+
   it("renames resolved page-link blocks and breadcrumb ancestors", () => {
     const queryClient = new QueryClient();
     const linkKey = pageLinkTargetQueryKey("0123456789abcdef0123456789abcdef");

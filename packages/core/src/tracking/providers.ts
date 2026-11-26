@@ -346,12 +346,12 @@ function createMixpanelProvider(token: string): TrackingProvider {
       const data = {
         event: event.name,
         properties: {
+          ...event.properties,
           token,
           distinct_id: event.userId || "anonymous",
           time: event.timestamp
             ? new Date(event.timestamp).getTime() / 1000
             : undefined,
-          ...event.properties,
           ...(event.sessionId ? { session_id: event.sessionId } : {}),
         },
       };

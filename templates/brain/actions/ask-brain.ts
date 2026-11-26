@@ -5,7 +5,7 @@ import { z } from "zod";
 import {
   readBrainAgentGuidance,
   safeCitationUrl,
-  searchKnowledgeRows,
+  searchKnowledgePage,
   serializeKnowledge,
 } from "../server/lib/brain.js";
 import type { SearchLaneStatuses } from "../server/lib/hybrid-search.js";
@@ -55,8 +55,8 @@ function facetsFromQuestion(question: string) {
 }
 
 type KnowledgeSearchRow = Awaited<
-  ReturnType<typeof searchKnowledgeRows>
->[number];
+  ReturnType<typeof searchKnowledgePage>
+>["rows"][number];
 
 function questionTerms(question: string) {
   return Array.from(
@@ -182,6 +182,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpTool: "search",
   run: async ({ question, filters }) => {
     const { guidance } = await readBrainAgentGuidance();
     const federatedCoveragePromise = buildFederatedSearchCoverage({
@@ -191,8 +192,13 @@ export default defineAction({
     });
     const seen = new Set<string>();
     const rows = [];
+    let knowledgeScanLimited = false;
     for (const facet of facetsFromQuestion(question)) {
-      const matches = await searchKnowledgeRows({ query: facet, limit: 24 });
+      const { rows: matches, scanLimited } = await searchKnowledgePage({
+        query: facet,
+        limit: 24,
+      });
+      knowledgeScanLimited ||= scanLimited;
       for (const row of matches) {
         if (seen.has(row.id)) continue;
         seen.add(row.id);
@@ -200,6 +206,10 @@ export default defineAction({
       }
       if (rows.length >= 24) break;
     }
+    const withKnowledgeCoverage = (answer: string) =>
+      knowledgeScanLimited
+        ? `Brain knowledge search reached its scan limit, so these results are partial and matching knowledge may be missing. ${answer}`
+        : answer;
     const knowledgeCandidates = rankRowsForQuestion(rows, question).map(
       serializeKnowledge,
     );
@@ -297,11 +307,13 @@ export default defineAction({
         captureSearchLanes.fts.status === "failed" ||
         captureSearchLanes.semantic.status === "failed";
       return {
-        answer: captureSearchIncomplete
-          ? "Brain search was incomplete (the semantic or keyword lane failed), so matching synced content may be missing. I could not find Brain knowledge for that question."
-          : guidance.retrieval.rawCaptureFallback === "never-answer"
-            ? "I could not find enough distilled Brain knowledge for that question yet."
-            : "I could not find Brain knowledge or matching synced content for that question yet.",
+        answer: withKnowledgeCoverage(
+          captureSearchIncomplete
+            ? "Brain search was incomplete (the semantic or keyword lane failed), so matching synced content may be missing. I could not find Brain knowledge for that question."
+            : guidance.retrieval.rawCaptureFallback === "never-answer"
+              ? "I could not find enough distilled Brain knowledge for that question yet."
+              : "I could not find Brain knowledge or matching synced content for that question yet.",
+        ),
         answerSource: "none",
         citations: [],
         knowledge: [],
@@ -312,6 +324,7 @@ export default defineAction({
         responseGuidance: guidance.response,
         federatedCoverage,
         captureSearchLanes,
+        knowledgeScanLimited,
       };
     }
 
@@ -321,6 +334,7 @@ export default defineAction({
         knowledgeId: item.id,
         title: item.title,
         sourceName: evidence.captureTitle,
+        ...(evidence.capturedAt ? { capturedAt: evidence.capturedAt } : {}),
         excerpt: evidence.quote,
         confidence: item.confidence / 100,
         url: safeCitationUrl(evidence.sourceUrl ?? evidence.url),
@@ -349,8 +363,9 @@ export default defineAction({
     if (guidance.retrieval.requireCitations && !citations.length) {
       const federatedCoverage = await federatedCoveragePromise;
       return {
-        answer:
+        answer: withKnowledgeCoverage(
           "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
+        ),
         answerSource,
         citations: [],
         knowledge: answerKnowledge,
@@ -361,6 +376,7 @@ export default defineAction({
         responseGuidance: guidance.response,
         federatedCoverage,
         captureSearchLanes,
+        knowledgeScanLimited,
       };
     }
     const answerParts = [];
@@ -389,7 +405,9 @@ export default defineAction({
     const federatedCoverage = await federatedCoveragePromise;
     const primary = citations[0] ?? null;
     return {
-      answer: formatAnswer(answerParts.join("\n\n"), guidance),
+      answer: withKnowledgeCoverage(
+        formatAnswer(answerParts.join("\n\n"), guidance),
+      ),
       answerSource,
       citations,
       deepLink: primary?.deepLink ?? null,
@@ -401,6 +419,7 @@ export default defineAction({
       responseGuidance: guidance.response,
       federatedCoverage,
       captureSearchLanes,
+      knowledgeScanLimited,
     };
   },
   link: ({ result }) => {

@@ -27,7 +27,7 @@
  *
  * This file renders the real `FillProperties` component with real
  * `Popover`/`DesignColorPicker`/`GradientEditor` (nothing mocked except
- * i18n, tooltips, and the unrelated motion `FieldTrailer`), so it exercises
+ * i18n, tooltips, and the unrelated `FieldTrailer`), so it exercises
  * the actual popover lifecycle rather than a stubbed one.
  */
 

@@ -1,4 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { isLocalRuntimeEngine } from "@agent-native/core/client/agent-engine-readiness";
 import {
   getChangelogLatestId,
   useChangelogSeen,
@@ -17,7 +18,6 @@ import {
   getSettingsShortcutHint,
   openSettingsPage,
 } from "@agent-native/core/client/use-settings-shortcut";
-import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import {
   Command as CommandPrimitive,
   CommandGroup as CommandGroupPrimitive,
@@ -33,7 +33,15 @@ import {
   DialogTitle,
 } from "@agent-native/toolkit/ui/dialog";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconExternalLink } from "@tabler/icons-react";
+import {
+  IconExternalLink,
+  IconInfoCircle,
+  IconLogout,
+  IconSearch,
+  IconSettings,
+  IconSparkles,
+  IconSpeakerphone,
+} from "@tabler/icons-react";
 import { useCommandState } from "cmdk";
 import React, {
   createContext,
@@ -295,6 +303,8 @@ export interface AppCommandContext<TAppContext = unknown> {
 export interface AppCommandPage<TAppContext = unknown> {
   id: string;
   title: string;
+  /** Search prompt while this page is active; otherwise the root prompt is used. */
+  placeholder?: string;
   groups: AppCommandGroup<TAppContext>[];
 }
 
@@ -327,6 +337,8 @@ interface AppCommandBase<TAppContext> {
   visibleWhen?: (context: AppCommandContext<TAppContext>) => boolean;
   enabledWhen?: (context: AppCommandContext<TAppContext>) => boolean;
   deferSelect?: boolean;
+  /** Set to false to run the command and keep the menu open with focus in the search field. */
+  closeOnSelect?: boolean;
 }
 
 export type AppCommand<TAppContext = unknown> =
@@ -526,6 +538,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
         hasSelectableItems?: boolean;
       },
     ) => ReactNode;
+    /** The `value` of the highlighted row, for app-owned previews. */
+    selectedValue: string;
   }) => ReactNode;
   placeholder?: string;
   inputLabel?: string;
@@ -536,6 +550,10 @@ export interface CommandMenuProps<TAppContext = unknown> {
   initialSelection?: "first" | "none";
   container?: HTMLElement;
   onSearchChange?: (search: string) => void;
+  /** Shown in the search field after the search icon, such as a scope chip. */
+  inputAdornment?: ReactNode;
+  /** Runs before the menu's own key handling; call `preventDefault()` to skip it. */
+  onInputKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   itemMatcher?: CommandMenuItemMatcher;
   showAgentFallback?: boolean;
   chatStorageKey?: string;
@@ -549,6 +567,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
   changelogKey?: string;
   showAbout?: boolean;
   showSettingsCommand?: boolean;
+  /** Replaces the platform Settings chord, for an app with its own key sequence. */
+  settingsShortcutHint?: ReactNode;
   showSignOutCommand?: boolean;
   /** App-owned entries are additive; shortcut hints are display-only. */
   appCommandGroups?: AppCommandGroup<TAppContext>[];
@@ -580,6 +600,8 @@ export function CommandMenu<TAppContext = unknown>({
   initialSelection,
   container,
   onSearchChange,
+  inputAdornment,
+  onInputKeyDown,
   itemMatcher,
   showAgentFallback = true,
   chatStorageKey,
@@ -592,6 +614,7 @@ export function CommandMenu<TAppContext = unknown>({
   changelogKey,
   showAbout: showAboutProp,
   showSettingsCommand = true,
+  settingsShortcutHint,
   showSignOutCommand = true,
   appCommandGroups,
   commandContext,
@@ -953,6 +976,11 @@ export function CommandMenu<TAppContext = unknown>({
     }
     if (!("onSelect" in command) || !command.onSelect) return;
     if (command.enabledWhen && !command.enabledWhen(appCommandContext)) return;
+    if (command.closeOnSelect === false) {
+      command.onSelect(appCommandContext);
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return;
+    }
     if (command.deferSelect === false) {
       command.onSelect(appCommandContext);
       closeMenu();
@@ -979,7 +1007,10 @@ export function CommandMenu<TAppContext = unknown>({
     const noMatchSuggestions =
       !hasResults && search.trim() ? noMatchSuggestionsSlot?.(search) : null;
     const list = (
-      <CommandListPrimitive>
+      // Fit the menu's own content instead of a fixed number of rows: a fixed height cut the lower rows ("Log out",
+      // "Ask AI anything...") below the fold. A viewport-relative cap keeps the whole menu visible when it fits and still
+      // bounds a long list on a short window, where the list scrolls rather than overflowing.
+      <CommandListPrimitive className="max-h-[min(420px,60vh)]">
         {activeAppPage ? (
           <CommandGroup heading={activeAppPage.title}>
             <button
@@ -1073,147 +1104,142 @@ export function CommandMenu<TAppContext = unknown>({
           </div>
         ) : null}
 
-        {!activeAppPage && (
+        {!activeAppPage &&
+        (showSettingsRow ||
+          showChangelogRow ||
+          showAboutRow ||
+          showSignOutRow ||
+          showAgentFallback) ? (
           <>
-            {showSettingsRow && (
-              <>
-                {hasResults && <CommandSeparator />}
-                <div className="p-1">
-                  <CommandItemPrimitive
-                    className="min-h-8 cursor-pointer gap-2"
-                    disabled={initialSelection === "none" && !selectionEnabled}
-                    onSelect={handleOpenSettings}
-                  >
-                    <span>{settingsLabel}</span>
-                    <CommandShortcutPrimitive>
-                      {getSettingsShortcutHint(isApplePlatform())}
-                    </CommandShortcutPrimitive>
-                  </CommandItemPrimitive>
-                </div>
-              </>
-            )}
+            {hasResults ? <CommandSeparator /> : null}
+            {/* One group, one heading, an icon on every row, and the same row rhythm as the app command groups above. */}
+            <CommandGroup heading={t("agentChat.commandMenu.systemGroup")}>
+              {showSettingsRow ? (
+                <CommandItemPrimitive
+                  className="min-h-8 cursor-pointer gap-2"
+                  disabled={initialSelection === "none" && !selectionEnabled}
+                  onSelect={handleOpenSettings}
+                >
+                  <IconSettings
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span>{settingsLabel}</span>
+                  <CommandShortcutPrimitive>
+                    {settingsShortcutHint ??
+                      getSettingsShortcutHint(isApplePlatform())}
+                  </CommandShortcutPrimitive>
+                </CommandItemPrimitive>
+              ) : null}
 
-            {showChangelogRow && (
-              <>
-                {(hasResults || showSettingsRow) && <CommandSeparator />}
-                <div className="p-1">
-                  <CommandItemPrimitive
-                    className="min-h-8 cursor-pointer gap-2"
-                    disabled={initialSelection === "none" && !selectionEnabled}
-                    onSelect={openChangelog}
-                  >
-                    <span>{changelogLabel}</span>
-                    {changelogUnseen && (
-                      <span
-                        className="ms-auto h-2 w-2 rounded-full bg-primary"
-                        aria-label="New updates available"
-                      />
-                    )}
-                  </CommandItemPrimitive>
-                </div>
-              </>
-            )}
-
-            {showAboutRow && (
-              <>
-                {(hasResults || showSettingsRow || showChangelogRow) && (
-                  <CommandSeparator />
-                )}
-                <div className="p-1">
-                  <CommandItemPrimitive
-                    className="min-h-8 cursor-pointer gap-2"
-                    disabled={initialSelection === "none" && !selectionEnabled}
-                    onSelect={openAbout}
-                  >
-                    <span>{aboutLabel}</span>
-                  </CommandItemPrimitive>
-                </div>
-              </>
-            )}
-
-            {showSignOutRow && (
-              <>
-                {(hasResults ||
-                  showSettingsRow ||
-                  showChangelogRow ||
-                  showAboutRow) && <CommandSeparator />}
-                <div className="p-1">
-                  <CommandItemPrimitive
-                    className="min-h-8 cursor-pointer gap-2"
-                    disabled={initialSelection === "none" && !selectionEnabled}
-                    onSelect={handleSignOut}
-                  >
-                    <span>{signOutLabel}</span>
-                  </CommandItemPrimitive>
-                </div>
-              </>
-            )}
-
-            {showAgentFallback && (
-              <>
-                {(hasResults ||
-                  showSettingsRow ||
-                  showChangelogRow ||
-                  showAboutRow ||
-                  showSignOutRow) && <CommandSeparator />}
-                <div className="p-1">
-                  {providerStatus === "unavailable" ? (
-                    <div
-                      className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-                      role="status"
-                    >
-                      <span>
-                        {t("agentChat.setup.providerStatusUnavailable")}
-                      </span>
-                      {providerStatus === "unavailable" ? (
-                        <button
-                          type="button"
-                          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
-                          onClick={retryProviderStatus}
-                        >
-                          {t("agentChat.common.retry")}
-                        </button>
-                      ) : null}
-                    </div>
+              {showChangelogRow ? (
+                <CommandItemPrimitive
+                  className="min-h-8 cursor-pointer gap-2"
+                  disabled={initialSelection === "none" && !selectionEnabled}
+                  onSelect={openChangelog}
+                >
+                  <IconSpeakerphone
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span>{changelogLabel}</span>
+                  {changelogUnseen ? (
+                    <span
+                      className="ms-auto h-2 w-2 rounded-full bg-primary"
+                      aria-label="New updates available"
+                    />
                   ) : null}
-                  <CommandItemPrimitive
-                    className={cn(
-                      "min-h-8 gap-2",
-                      chatReady
-                        ? "cursor-pointer"
-                        : "cursor-not-allowed opacity-50",
-                    )}
-                    disabled={
-                      !chatReady ||
-                      (initialSelection === "none" && !selectionEnabled)
-                    }
-                    onSelect={handleSubmitToAgent}
-                  >
-                    <span>
-                      {search.trim() ? (
-                        <>
-                          Ask AI:{" "}
-                          <span className="text-muted-foreground">
-                            "{search}"
-                          </span>
-                        </>
-                      ) : (
+                </CommandItemPrimitive>
+              ) : null}
+
+              {showAboutRow ? (
+                <CommandItemPrimitive
+                  className="min-h-8 cursor-pointer gap-2"
+                  disabled={initialSelection === "none" && !selectionEnabled}
+                  onSelect={openAbout}
+                >
+                  <IconInfoCircle
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span>{aboutLabel}</span>
+                </CommandItemPrimitive>
+              ) : null}
+
+              {showSignOutRow ? (
+                <CommandItemPrimitive
+                  className="min-h-8 cursor-pointer gap-2"
+                  disabled={initialSelection === "none" && !selectionEnabled}
+                  onSelect={handleSignOut}
+                >
+                  <IconLogout
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span>{signOutLabel}</span>
+                </CommandItemPrimitive>
+              ) : null}
+
+              {showAgentFallback ? (
+                <CommandItemPrimitive
+                  className={cn(
+                    "min-h-8 gap-2",
+                    chatReady
+                      ? "cursor-pointer"
+                      : "cursor-not-allowed opacity-50",
+                  )}
+                  disabled={
+                    !chatReady ||
+                    (initialSelection === "none" && !selectionEnabled)
+                  }
+                  onSelect={handleSubmitToAgent}
+                >
+                  <IconSparkles
+                    className="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1">
+                    {search.trim() ? (
+                      <>
+                        Ask AI:{" "}
                         <span className="text-muted-foreground">
-                          Ask AI anything...
+                          "{search}"
                         </span>
-                      )}
-                    </span>
-                    {search.trim() && (
-                      <span className="ms-auto text-xs text-muted-foreground">
-                        ↵
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Ask AI anything...
                       </span>
                     )}
-                  </CommandItemPrimitive>
+                  </span>
+                  {search.trim() ? (
+                    <span className="ms-auto text-xs text-muted-foreground">
+                      ↵
+                    </span>
+                  ) : null}
+                </CommandItemPrimitive>
+              ) : null}
+            </CommandGroup>
+
+            {showAgentFallback && providerStatus === "unavailable" ? (
+              <div className="px-2 pb-1">
+                <div
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                  role="status"
+                >
+                  <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={retryProviderStatus}
+                  >
+                    {t("agentChat.common.retry")}
+                  </button>
                 </div>
-              </>
-            )}
+              </div>
+            ) : null}
           </>
-        )}
+        ) : null}
       </CommandListPrimitive>
     );
 
@@ -1356,6 +1382,7 @@ export function CommandMenu<TAppContext = unknown>({
               />
               {(appCommandGroups !== undefined ||
                 embeddedChatSlot ||
+                renderContent ||
                 initialSelection !== undefined) && (
                 <CommandSelectionTracker onChange={handleCommandValueChange} />
               )}
@@ -1371,7 +1398,17 @@ export function CommandMenu<TAppContext = unknown>({
                     setSelectedCommandValue(nextEmptySelectionValue());
                   }
                 }}
+                leading={
+                  inputAdornment != null ? (
+                    <>
+                      <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
+                      {inputAdornment}
+                    </>
+                  ) : undefined
+                }
                 onKeyDown={(event) => {
+                  onInputKeyDown?.(event);
+                  if (event.defaultPrevented) return;
                   if (
                     initialSelection === "none" &&
                     (event.key === "ArrowDown" || event.key === "ArrowUp")
@@ -1379,7 +1416,7 @@ export function CommandMenu<TAppContext = unknown>({
                     enableSelection();
                   }
                 }}
-                placeholder={placeholder}
+                placeholder={activeAppPage?.placeholder ?? placeholder}
                 aria-label={inputLabel}
               />
 
@@ -1394,7 +1431,11 @@ export function CommandMenu<TAppContext = unknown>({
               ) : null}
 
               {open && renderContent
-                ? renderContent({ search, renderList })
+                ? renderContent({
+                    search,
+                    renderList,
+                    selectedValue: selectedCommandValue,
+                  })
                 : open && renderList()}
               {open && footer != null ? (
                 <div
@@ -1456,6 +1497,8 @@ CommandMenu.Separator = CommandSeparator;
 export const COMMAND_MENU_OPEN_EVENT = "agent-native:open-command-menu";
 
 const AGENT_COMPOSER_SELECTOR = '[data-agent-composer-slot="root"]';
+/** A field that takes Cmd/Ctrl+K for itself, such as a comment box's link. */
+const OWN_SHORTCUT_SELECTOR = '[data-command-menu-shortcut="own"]';
 
 export function openCommandMenu() {
   if (typeof window !== "undefined") {
@@ -1479,6 +1522,8 @@ export function useCommandMenuShortcut(
         e.key.toLowerCase() === "k"
       ) {
         const target = e.target instanceof HTMLElement ? e.target : null;
+        // Left unclaimed, so the field's own handler gets it.
+        if (target?.closest(OWN_SHORTCUT_SELECTOR)) return;
         const isContentEditable = target?.isContentEditable;
         if (
           isContentEditable &&

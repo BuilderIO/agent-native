@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentCollectionConfigSchema,
+  contentStepConfigFingerprint,
   ga4PropertyIdSchema,
   searchConsoleSiteSchema,
   signupsConfigSchema,
   signupsSettingsUpdateSchema,
+  stepEnabled,
+  youtubeChannelSchema,
 } from "./config";
 
 describe("collection GA4 property", () => {
@@ -95,4 +98,111 @@ it("normalizes Domain properties when reading stored config", () => {
       },
     }).searchConsole.sites,
   ).toEqual([{ siteUrl: "sc-domain:example.test" }]);
+});
+
+describe("Search Console history and queries", () => {
+  it("reads saved settings from before them with 16 months and queries on", () => {
+    const config = contentCollectionConfigSchema.parse({
+      searchConsole: {
+        enabled: true,
+        sites: [{ siteUrl: "sc-domain:example.test" }],
+      },
+    });
+    expect(config.searchConsole.historyMonths).toBe(16);
+    expect(config.searchConsoleQueries).toEqual({ enabled: true, perPage: 25 });
+    expect(stepEnabled(config, "search_console_queries")).toBe(true);
+  });
+
+  it("runs queries only while Search Console runs", () => {
+    const config = contentCollectionConfigSchema.parse({
+      searchConsole: { enabled: false, sites: [] },
+    });
+    expect(stepEnabled(config, "search_console_queries")).toBe(false);
+  });
+
+  it("keeps query history when only the history depth changes", () => {
+    const sites = [{ siteUrl: "sc-domain:example.test" }];
+    const fingerprint = (historyMonths: number, perPage: number) =>
+      contentStepConfigFingerprint(
+        "search_console_queries",
+        contentCollectionConfigSchema.parse({
+          searchConsole: { enabled: true, sites, historyMonths },
+          searchConsoleQueries: { enabled: true, perPage },
+        }),
+      );
+    expect(fingerprint(16, 25)).toBe(fingerprint(6, 25));
+    expect(fingerprint(16, 25)).not.toBe(fingerprint(16, 10));
+  });
+
+  it("keeps history depth within the 16 months Search Console keeps", () => {
+    expect(
+      contentCollectionConfigSchema.safeParse({
+        searchConsole: { enabled: true, sites: [], historyMonths: 17 },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("daily.dev and YouTube", () => {
+  it("reads saved settings from before them with daily.dev on and YouTube off", () => {
+    const config = contentCollectionConfigSchema.parse({
+      ga4: { enabled: true, propertyId: "123456789" },
+    });
+    expect(config.dailyDev).toEqual({ enabled: true });
+    expect(config.youtube).toEqual({ enabled: false, channels: [] });
+    expect(stepEnabled(config, "daily_dev")).toBe(true);
+    expect(stepEnabled(config, "youtube")).toBe(false);
+  });
+
+  it("refills daily.dev history when the GA4 property changes", () => {
+    const fingerprint = (propertyId: string | null) =>
+      contentStepConfigFingerprint(
+        "daily_dev",
+        contentCollectionConfigSchema.parse({
+          ga4: { enabled: true, propertyId },
+        }),
+      );
+    expect(fingerprint("123456789")).toBe(
+      contentStepConfigFingerprint(
+        "ga4",
+        contentCollectionConfigSchema.parse({
+          ga4: { enabled: true, propertyId: "123456789" },
+        }),
+      ),
+    );
+    expect(fingerprint("123456789")).not.toBe(fingerprint("987654321"));
+    expect(fingerprint(null)).toBeNull();
+  });
+
+  it("fingerprints YouTube's channels, so a read for an earlier list isn't saved", () => {
+    const fingerprint = (channels: string[]) =>
+      contentStepConfigFingerprint(
+        "youtube",
+        contentCollectionConfigSchema.parse({
+          youtube: { enabled: true, channels },
+        }),
+      );
+    expect(fingerprint(["@Builderio"])).toEqual(expect.any(String));
+    expect(fingerprint(["@Builderio"])).toBe(fingerprint(["@Builderio"]));
+    expect(fingerprint(["@Builderio"])).not.toBe(
+      fingerprint(["@Builderio", "UC80PWRj_ZU8Zu0HSMNVwKWw"]),
+    );
+  });
+
+  it("takes a channel ID or an @handle and nothing else", () => {
+    expect(youtubeChannelSchema.parse(" @Builderio ")).toBe("@Builderio");
+    expect(youtubeChannelSchema.parse("UCAN7TYzCJm1yd-QXbwKfoOg")).toBe(
+      "UCAN7TYzCJm1yd-QXbwKfoOg",
+    );
+    for (const value of [
+      "",
+      "Builderio",
+      "@ab",
+      "https://www.youtube.com/@Builderio",
+      "UCshort",
+      "@Builder io",
+    ]) {
+      expect(youtubeChannelSchema.safeParse(value).success).toBe(false);
+    }
+  });
 });

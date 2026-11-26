@@ -1,7 +1,7 @@
-import { fail } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
+  navigateAfterWrite,
   writeAppState,
-  writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { trackRecordingCreated } from "../../server/lib/recording-created.js";
+import { recordingMadeBy } from "../../server/lib/recording-made-by.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -125,7 +126,9 @@ function playerDimensions(oembed: YouTubeOembed): {
  */
 export async function importYouTubeVideo(
   args: YouTubeImportArgs,
-  actionContext: { userEmail?: string | null } | undefined,
+  actionContext:
+    | Pick<ActionRunContext, "userEmail" | "caller" | "mcpClient">
+    | undefined,
 ) {
   const videoId = extractYouTubeVideoId(args.url);
   if (!videoId) {
@@ -177,6 +180,7 @@ export async function importYouTubeVideo(
     title,
     titleSource: args.title ? "manual" : "upload",
     recordingPlatform: "import",
+    ...recordingMadeBy(actionContext),
     storageMode: null,
     failureCode: null,
     failureReason: null,
@@ -225,10 +229,13 @@ export async function importYouTubeVideo(
     updatedAt: now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
-  await writeAppStateForCurrentTab("navigate", {
-    view: "recording",
-    recordingId: id,
-  });
+  await navigateAfterWrite(
+    {
+      view: "recording",
+      recordingId: id,
+    },
+    { ctx: actionContext },
+  );
 
   return {
     recordingId: id,

@@ -28,6 +28,7 @@ export default defineAction({
       .describe("Cleanup ID returned by list-recording-media-cleanups"),
   }),
   outputSchema: mediaCleanupSummarySchema,
+  mcpTool: false,
   run: async ({ id }) => {
     const ownerEmail = getCurrentOwnerEmail(),
       t = schema.recordingMediaCleanups;

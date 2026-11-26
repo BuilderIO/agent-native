@@ -17,7 +17,6 @@ import {
   getMethod,
   getQuery,
   getHeader,
-  getRequestIP,
   readBody as readH3Body,
   type H3Event,
 } from "h3";
@@ -34,8 +33,7 @@ import {
 } from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
-  isLoopbackAddress,
-  isTrustedLocalRuntime,
+  isTrustedLocalRequest,
 } from "../a2a/auth-policy.js";
 import {
   sanitizeA2ACorrelationId,
@@ -70,6 +68,8 @@ import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js"
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
+  AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
@@ -77,6 +77,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
+import { verifyDispatchedTurnGrant } from "../agent/durable-turn-grant.js";
 import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
 import { getEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import {
@@ -143,6 +144,7 @@ import {
   getRunById,
   readBackgroundRunClaim,
   retryRunThreadProjection,
+  type UserStopOptions,
 } from "../agent/run-store.js";
 import { buildAssistantTurnFromRunJournal } from "../agent/run-thread-projector.js";
 import {
@@ -176,6 +178,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  ChatThreadSourceAppRequiredError,
   InlineAttachmentDataNotPersistableError,
   QueuedSubmissionAdmissionError,
   adoptThreadScopeIfUnscoped,
@@ -183,6 +186,7 @@ import {
   clearQueuedSubmissionInterruptRun,
   createThread,
   forkThread,
+  ForkThreadBoundaryError,
   getThread,
   getQueuedSubmissionReceipt,
   getQueuedSubmissionReceiptStatus,
@@ -196,7 +200,7 @@ import {
   renewQueuedSubmissionClaim,
   resolveRunThreadScope,
   resolveThreadAccess,
-  resolveThreadAccessScope,
+  resolveThreadAppAccessScope,
   listThreads,
   searchThreads,
   renameThread,
@@ -290,6 +294,7 @@ import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-sess
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
@@ -315,6 +320,7 @@ import {
   runWithAgentRunContext,
   seedAgentRunOwnerContext,
   seedBackgroundAgentRunOwnerContext,
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
 import {
@@ -332,6 +338,7 @@ import {
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
+import { isWorkspaceRuntime } from "./derived-secret.js";
 import {
   discoveredActionMcpAnnotations,
   importDevActionEntry,
@@ -346,7 +353,10 @@ import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
 import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
-import { isDirectLoopbackRequest } from "./loopback.js";
+import {
+  isDirectLoopbackRequest,
+  isLoopbackTrustedEnvironment,
+} from "./loopback.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { scheduleQueuedSubmissionInboxDrain } from "./queued-submission-inbox-drain.js";
 import {
@@ -556,7 +566,7 @@ import {
   filterDelegatedRegistry,
   filterMcpOnlyActions,
   filterPublicAgentActions,
-  filterDirectA2AActions,
+  resolveDirectA2AAction,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
   shouldSelectedA2AReceiverOwnObjective,
@@ -596,6 +606,9 @@ import { resolveAgentChatMcpOptions } from "./agent-chat/mcp-options.js";
 import {
   resolveA2AAgentDelegationEnabled,
   type AgentChatPluginOptions,
+  type AgentChatRunCompleteOutcome,
+  type AgentChatRunNotStartedDetails,
+  type AgentChatRunProjectionOutcome,
   type NitroPluginDef,
 } from "./agent-chat/plugin-options.js";
 import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
@@ -714,7 +727,7 @@ export async function runPostAgentRunComplete(
   callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
   scope: AgentChatScope | null | undefined,
   run: ActiveRun,
-  outcome: { turnContinues: boolean } = { turnContinues: false },
+  outcome: AgentChatRunCompleteOutcome = { turnContinues: false },
 ): Promise<void> {
   if (!callback) return;
   try {
@@ -733,6 +746,24 @@ export async function runPostAgentRunComplete(
       },
     });
     console.error("[agent-chat] post-agent-run observer failed:", error);
+  }
+}
+
+export async function notifyRunNotStarted(
+  callback: AgentChatPluginOptions["onAgentRunNotStarted"] | undefined,
+  details: AgentChatRunNotStartedDetails,
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(details);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: details.runId,
+      tags: { source: "agent-chat", failureClass: "run-not-started-observer" },
+      extra: { runId: details.runId, threadId: details.threadId },
+    });
+    console.error("[agent-chat] run-not-started observer failed:", error);
   }
 }
 
@@ -780,7 +811,9 @@ export function assertAgentChatRunProjectionUpdated(
 
 export async function runAgentChatRunCompletionHooksAfterProjection(
   persistProjection: () => Promise<void>,
-  runCompletionHooks: () => Promise<void>,
+  runCompletionHooks: (
+    projection: AgentChatRunProjectionOutcome,
+  ) => Promise<void>,
 ): Promise<void> {
   let projectionFailed = false;
   let projectionError: unknown;
@@ -792,7 +825,11 @@ export async function runAgentChatRunCompletionHooksAfterProjection(
   }
 
   try {
-    await runCompletionHooks();
+    await runCompletionHooks(
+      projectionFailed
+        ? { status: "failed", error: projectionError }
+        : { status: "updated" },
+    );
   } catch (error) {
     if (projectionFailed) {
       throw new AggregateError(
@@ -1546,6 +1583,40 @@ export function disabledGroupsForA2APrompt(
   return new Set([...disabledGroups, "workspaceApps"]);
 }
 
+/**
+ * The app id this plugin attributes its threads to.
+ *
+ * A template may create the plugin without an `appId` (several do), and then
+ * every thread it writes carries no source. The thread store treats a missing
+ * source as "listable from anywhere", so an app shows chats another app owns —
+ * the class team QA reported as "an app shows only its own agent chats". Route
+ * readiness already resolves the same fallback chain from app config; use it
+ * for provenance and for read scoping too, so an app that omits the option is
+ * still attributed to itself rather than to everyone.
+ */
+export function pluginSourceAppId(
+  options: { appId?: string } | undefined,
+  config: {
+    app?:
+      | {
+          id?: string | undefined;
+          template?: string | undefined;
+          workspaceId?: string | undefined;
+          packageName?: string | undefined;
+        }
+      | undefined;
+  } | null,
+): string | null {
+  const resolved =
+    options?.appId ??
+    config?.app?.id ??
+    config?.app?.template ??
+    config?.app?.workspaceId ??
+    config?.app?.packageName;
+  const trimmed = typeof resolved === "string" ? resolved.trim() : "";
+  return trimmed === "" ? null : trimmed;
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -1576,7 +1647,8 @@ export function createAgentChatPlugin(
       // AGENT_MODE=production forces production agent constraints even in dev
       const canToggle =
         (env === "development" || env === "test") &&
-        getAppConfig().agent.mode !== "production";
+        getAppConfig().agent.mode !== "production" &&
+        isLoopbackTrustedEnvironment();
       const routePath = options?.path ?? "/_agent-native/agent-chat";
       const streamTokenPath =
         routePath.replace(/\/+$/, "") + AGENT_CHAT_STREAM_TOKEN_SUFFIX;
@@ -2489,6 +2561,21 @@ export function createAgentChatPlugin(
           )
         : {};
 
+      const builtinOpenApp =
+        frameworkTools.isEnabled("workspaceApps") &&
+        !Object.hasOwn(templateScriptsAll, "open_app") &&
+        !Object.hasOwn(discoveredActionsAll, "open_app")
+          ? (await import("../mcp/builtin-tools.js")).getBuiltinCrossAppTools({
+              name: options?.appId ?? "Agent",
+              ...(options?.appId === undefined ? {} : { appId: options.appId }),
+              description: "Agent-Native app",
+              actions: {},
+            }).open_app
+          : undefined;
+      const openAppScripts: Record<string, ActionEntry> = builtinOpenApp
+        ? { open_app: builtinOpenApp }
+        : {};
+
       // Registry `generateCorpusToolsPrompt` (below) reads from to decide what
       // it teaches by name — kept as one value so the prompt text and the
       // initial-tool-set expansion just below can never drift apart.
@@ -2520,6 +2607,7 @@ export function createAgentChatPlugin(
       const effectiveInitialToolNames = [
         ...new Set([
           ...templateInitialToolNames,
+          ...Object.keys(openAppScripts),
           ...corpusToolNames,
           // Setup CTAs are recovery actions, but they must be available on the
           // first request so a missing provider renders the card immediately
@@ -2554,6 +2642,7 @@ export function createAgentChatPlugin(
       const allScripts = attachToolSearch(
         canToggle
           ? {
+              ...openAppScripts,
               ...filterPublicAgentActions(templateScripts),
               ...resourceScripts,
               ...docsScripts,
@@ -2578,6 +2667,7 @@ export function createAgentChatPlugin(
               ...devRunCodeTool,
             }
           : {
+              ...openAppScripts,
               ...discoveredActions,
               ...templateScripts,
               ...resourceScripts,
@@ -2694,18 +2784,16 @@ export function createAgentChatPlugin(
         connect: options?.connectApps,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
-          const actions = filterDirectA2AActions(
+          const resolved = resolveDirectA2AAction(
             externalFullActions ?? externalActions,
             mcpOptions,
+            action,
+            getRequestContext()?.a2aIdentityAssurance,
           );
-          const entry = actions[action];
-          if (!entry) {
-            return {
-              status: "failed" as const,
-              output:
-                "Unknown or unavailable read-only action. Direct cross-app action mode only accepts explicitly exposed read-only operations; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
-            };
+          if ("refused" in resolved) {
+            return { status: "failed" as const, output: resolved.refused };
           }
+          const entry = resolved.entry;
 
           const result = await executeAgentToolCall({
             actions: { [action]: entry },
@@ -2722,7 +2810,7 @@ export function createAgentChatPlugin(
           if (result.status === "approval_required") {
             return {
               status: "failed" as const,
-              output: "Read-only action unexpectedly requires approval",
+              output: "Direct action unexpectedly requires approval",
             };
           }
           return a2aActionResult(result);
@@ -2742,13 +2830,6 @@ export function createAgentChatPlugin(
           }),
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
-          // Priority: A2A-JWT verified email (set by the A2A handler in
-          // request-context) > dev session DB (dev only) > Google OAuth
-          // tokeninfo (prod only). Without the JWT-verified-email path,
-          // cross-app A2A calls landed owned by `local@localhost` (dev) or
-          // `dispatch@shared`, which made resources invisible to the actual
-          // signed-in user.
-          //
           // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
           // as a fallback. The A2A endpoint runs in three modes — JWT-signed
           // (verified email lands in request context), API-key (caller is
@@ -2826,26 +2907,6 @@ export function createAgentChatPlugin(
                   args: [],
                 });
                 if (rows[0]) userEmail = rows[0].email as string;
-              } catch {}
-            }
-          }
-
-          if (!userEmail && !isDev) {
-            const googleToken = context.metadata?.googleToken as string;
-            if (googleToken) {
-              try {
-                const res = await fetch(
-                  `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(googleToken)}`,
-                );
-                if (res.ok) {
-                  const info = (await res.json()) as {
-                    email?: string;
-                    email_verified?: string;
-                  };
-                  if (info.email && info.email_verified === "true") {
-                    userEmail = info.email;
-                  }
-                }
               } catch {}
             }
           }
@@ -2928,12 +2989,17 @@ export function createAgentChatPlugin(
               }
             }
           }
+          const a2aCredentialOrgId = getRequestOrgId();
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: ownerApiKey,
             apiKeyEnvVar: ownerApiKeyEnvVar,
             apiKeyProvenance: ownerApiKeyProvenance,
             appId: options?.appId,
+            credentialIdentity: {
+              userEmail,
+              ...(a2aCredentialOrgId ? { orgId: a2aCredentialOrgId } : {}),
+            },
           });
 
           const devActive = isDevMode();
@@ -3738,6 +3804,12 @@ export function createAgentChatPlugin(
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
             : {}),
+          ...(mcpOptions.taskCandidates
+            ? { taskCandidates: mcpOptions.taskCandidates }
+            : {}),
+          ...(mcpOptions.readOnlyResources ? { readOnlyResources: true } : {}),
+          ...(mcpOptions.servesAnSkill ? { servesAnSkill: true } : {}),
+          ...(mcpOptions.skills?.length ? { skills: mcpOptions.skills } : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
             : {}),
@@ -4317,7 +4389,7 @@ export function createAgentChatPlugin(
                 run.runId,
               );
             }),
-          async () => {
+          async (projection) => {
             // Checkpoint creation is part of durable turn completion. The helper
             // catches and reports its own failures, so a broken app checkpoint does
             // not strand the run while a successful checkpoint cannot be lost when
@@ -4331,7 +4403,7 @@ export function createAgentChatPlugin(
               options?.onAgentRunComplete,
               chatScope,
               run,
-              { turnContinues: endsAtContinuationBoundary(run) },
+              { turnContinues: endsAtContinuationBoundary(run), projection },
             );
           },
         );
@@ -4581,7 +4653,13 @@ export function createAgentChatPlugin(
                 thread = await createThread(ownerEmail, {
                   id: threadId,
                   scope: runScope,
-                  source: options?.appId ? { appId: options.appId } : null,
+                  source: (() => {
+                    const sourceAppId = pluginSourceAppId(
+                      options,
+                      getAppConfig(),
+                    );
+                    return sourceAppId ? { appId: sourceAppId } : null;
+                  })(),
                 });
               } catch {
                 thread = await getThread(threadId);
@@ -4599,9 +4677,10 @@ export function createAgentChatPlugin(
                 statusMessage: "Thread not found",
               });
             }
-            if (options?.appId) {
+            const sourceAppId = pluginSourceAppId(options, getAppConfig());
+            if (sourceAppId) {
               await setThreadSourceIfMissing(threadId, ownerEmail, {
-                appId: options.appId,
+                appId: sourceAppId,
               });
             }
             const access = await resolveThreadAccess(
@@ -4798,6 +4877,7 @@ export function createAgentChatPlugin(
         message: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        queuedMessageClaimId?: string;
         agentKitMessageId?: string;
         submissionExpiresAt?: unknown;
         retryContext: RefusedTurnRetryContext;
@@ -4811,6 +4891,12 @@ export function createAgentChatPlugin(
           { failure_code: details.failure.code, stage: "not_started" },
           options?.appId,
         );
+        await notifyRunNotStarted(options?.onAgentRunNotStarted, {
+          runId: details.runId,
+          turnId: details.turnId,
+          threadId: details.threadId,
+          failure: details.failure,
+        });
         try {
           await persistSubmittedUserMessage(details);
         } catch (error) {
@@ -5059,6 +5145,7 @@ export function createAgentChatPlugin(
       // in lean mode because the framework prompt and default starter surface
       // still promise sibling-app routing.
       const leanActionEntries: Record<string, ActionEntry> = {
+        ...openAppScripts,
         ...templateScripts,
         ...resourceScripts,
         ...skillReadScripts,
@@ -5086,6 +5173,7 @@ export function createAgentChatPlugin(
           : {};
 
       const prodActions = attachToolSearch({
+        ...openAppScripts,
         ...templateScripts,
         ...resourceScripts,
         ...docsScripts,
@@ -5838,6 +5926,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : devNative
               ? { ...devScriptRegistry, ...prodActions }
               : {
+                  ...openAppScripts,
                   ...requestScopedDevActions,
                   ...resourceScripts,
                   ...docsScripts,
@@ -6051,9 +6140,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               currentDevMode = !currentDevMode;
             }
             try {
-              await putSetting(AGENT_MODE_SETTING_KEY, {
-                devMode: currentDevMode,
-              });
+              await putSetting(
+                AGENT_MODE_SETTING_KEY,
+                {
+                  devMode: currentDevMode,
+                },
+                { global: true },
+              );
             } catch {
               // Persistence is best-effort — in-memory flag still applies for
               // the lifetime of this process even if the settings write fails.
@@ -6122,17 +6215,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else {
-            const loopback = isLoopbackAddress(
-              getRequestIP(event, { xForwardedFor: false }),
-            );
-            if (!isTrustedLocalRuntime({ loopback })) {
-              setResponseStatus(event, 503);
-              return {
-                error:
-                  "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
-              };
-            }
+          } else if (!isTrustedLocalRequest(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+            };
           }
 
           try {
@@ -7432,14 +7520,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // controls require editor+ access.
           // agent_runs carries no owner column — ownership lives on the
           // chat_threads row via thread_id.
+          const appScope = {
+            sourceAppId: pluginSourceAppId(options, getAppConfig()),
+          };
+          const runAccessContext = orgId ? { orgId } : {};
+          const runRequestContext = { userEmail: owner, ...runAccessContext };
+          const backgroundScope = {
+            ownerEmail: owner,
+            ...runAccessContext,
+            ...appScope,
+          };
           const canViewThread = (threadId: string | null | undefined) =>
-            callerHasThreadAccess(owner, threadId, "viewer", { orgId });
+            callerHasThreadAccess(
+              owner,
+              threadId,
+              "viewer",
+              runAccessContext,
+              appScope,
+            );
           const canViewRun = (runId: string) =>
-            callerHasRunAccess(owner, runId, "viewer", { orgId });
+            callerHasRunAccess(
+              owner,
+              runId,
+              "viewer",
+              runAccessContext,
+              appScope,
+            );
           const canEditRun = (runId: string) =>
-            callerHasRunAccess(owner, runId, "editor", { orgId });
+            callerHasRunAccess(
+              owner,
+              runId,
+              "editor",
+              runAccessContext,
+              appScope,
+            );
           const canEditThread = (threadId: string) =>
-            callerHasThreadAccess(owner, threadId, "editor", { orgId });
+            callerHasThreadAccess(
+              owner,
+              threadId,
+              "editor",
+              runAccessContext,
+              appScope,
+            );
 
           // Route: POST /runs/:id/retry-projection
           // An editor may retry a pending fold after repairing its source.
@@ -7521,6 +7643,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (listMatch && method === "GET") {
             const query = getQuery(event);
             const goalId = query.goalId ? String(query.goalId) : undefined;
+            const limit = Math.min(Math.max(Number(query.limit) || 5, 1), 25);
             const runs = await runWithRequestContext(
               { userEmail: owner, orgId },
               async () => {
@@ -7528,7 +7651,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 if (!goalId || goalId === "agent-team") {
                   const { listAgentTeamBackgroundRuns } =
                     await import("./agent-teams.js");
-                  runs.push(...(await listAgentTeamBackgroundRuns()));
+                  runs.push(
+                    ...(await listAgentTeamBackgroundRuns(backgroundScope)),
+                  );
                 }
                 if (!goalId || goalId === "agent-harness") {
                   const { listAgentHarnessBackgroundRuns } =
@@ -7536,10 +7661,54 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runs.push(
                     ...(await listAgentHarnessBackgroundRuns({
                       goalId: "agent-harness",
-                      ownerEmail: owner,
-                      orgId,
+                      ...backgroundScope,
                     })),
                   );
+                }
+                // Chat runs too. Without them this list answered "no recent
+                // runs" for anyone whose work happens in a chat thread, which is
+                // every conversation in the product: the background sources above
+                // only see agent-team and harness work. Ownership comes from the
+                // thread join inside the query, so a shared thread's runs stay out
+                // of someone else's list.
+                if (!goalId || goalId === "chat") {
+                  const { listRecentRunsForOwner } =
+                    await import("../agent/run-store.js");
+                  const recent = await listRecentRunsForOwner(
+                    owner,
+                    limit + 1,
+                    appScope,
+                  );
+                  for (const run of recent) {
+                    const status =
+                      run.status === "running"
+                        ? "running"
+                        : run.status === "failed" || run.status === "errored"
+                          ? "errored"
+                          : run.status === "completed" ||
+                              run.status === "cancelled"
+                            ? "completed"
+                            : "unknown";
+                    runs.push({
+                      id: run.id,
+                      kind: "chat",
+                      source: "chat",
+                      sourceLabel: "Chat",
+                      title: run.threadTitle ?? "",
+                      status,
+                      goalId: "chat",
+                      createdAt: new Date(run.startedAt).toISOString(),
+                      updatedAt: new Date(
+                        run.completedAt ??
+                          run.lastProgressAt ??
+                          run.heartbeatAt ??
+                          run.startedAt,
+                      ).toISOString(),
+                      needsInput: false,
+                      needsApproval: false,
+                      sourceRecord: { threadId: run.threadId },
+                    });
+                  }
                 }
                 return runs;
               },
@@ -7559,7 +7728,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./agent-teams.js");
             let result = await runWithRequestContext(
               { userEmail: owner, orgId },
-              () => stopAgentTeamBackgroundRun(runId),
+              () => stopAgentTeamBackgroundRun(runId, "user", backgroundScope),
             );
             if (!result.ok && result.error === "Task not found") {
               const { stopAgentHarnessBackgroundRun } =
@@ -7568,8 +7737,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 { userEmail: owner, orgId },
                 () =>
                   stopAgentHarnessBackgroundRun(runId, {
-                    ownerEmail: owner,
-                    orgId,
+                    ...backgroundScope,
                   }),
               );
             }
@@ -7600,10 +7768,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             let reason = "user";
             let safeBoundary = false;
+            let stop: UserStopOptions = {};
             try {
               const body = await readBody(event);
               reason = clientAbortReason(body?.reason);
               safeBoundary = body?.safeBoundary === true;
+              if (
+                Number.isSafeInteger(body?.shownThroughSeq) &&
+                body.shownThroughSeq >= -1
+              ) {
+                stop = { shownThroughSeq: body.shownThroughSeq };
+              }
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
@@ -7615,6 +7790,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 aborted = isUserStop
                   ? await abortRunAndTurnDurably(runId, reason, {
                       safeBoundary: true,
+                      ...stop,
                     })
                   : await abortRunAtSafeBoundaryDurably(runId, reason);
                 if (isUserStop && !aborted) {
@@ -7628,7 +7804,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // the cross-isolate abort + terminal event to be durable. Returning
                 // early lets Retry collide with the still-running row.
                 if (isUserStop) {
-                  await abortRunAndTurnDurably(runId, reason);
+                  await abortRunAndTurnDurably(runId, reason, stop);
                 } else {
                   await abortRunDurably(runId, reason);
                 }
@@ -7651,17 +7827,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               getAgentTeamBackgroundRun,
               listAgentTeamBackgroundTranscriptEvents,
             } = await import("./agent-teams.js");
-            const scope = { ownerEmail: owner, orgId: orgId ?? null };
-            const requestScope = {
-              userEmail: owner,
-              ...(orgId !== undefined ? { orgId } : {}),
-            };
-            const run = await runWithRequestContext(requestScope, () =>
-              getAgentTeamBackgroundRun(runId, scope),
+            const run = await runWithRequestContext(runRequestContext, () =>
+              getAgentTeamBackgroundRun(runId, backgroundScope),
             );
             if (run && (await canViewThread(run.sourceRecord.threadId))) {
-              const events = await runWithRequestContext(requestScope, () =>
-                listAgentTeamBackgroundTranscriptEvents(runId, scope),
+              const events = await runWithRequestContext(
+                runRequestContext,
+                () =>
+                  listAgentTeamBackgroundTranscriptEvents(
+                    runId,
+                    backgroundScope,
+                  ),
               );
               return { status: "ok", runId, events };
             }
@@ -7673,8 +7849,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               { userEmail: owner, orgId },
               () =>
                 getAgentHarnessBackgroundRun(runId, {
-                  ownerEmail: owner,
-                  orgId,
+                  ...backgroundScope,
                 }),
             );
             if (!harnessRun) {
@@ -7685,8 +7860,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               { userEmail: owner, orgId },
               () =>
                 listAgentHarnessBackgroundTranscriptEvents(runId, {
-                  ownerEmail: owner,
-                  orgId,
+                  ...backgroundScope,
                 }),
             );
             return { status: "ok", runId, events };
@@ -8063,6 +8237,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   source: "checkpoint",
                   type: "change",
                   key: "*",
+                  visibility: "public",
                 });
               } catch {}
               return { success: true, commitSha: checkpoint.commitSha };
@@ -8129,6 +8304,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       ): ForkThreadSourceSnapshot | null => {
         if (!raw || typeof raw !== "object") return null;
         const r = raw as Record<string, unknown>;
+        if (
+          r.beforeMessageId !== undefined &&
+          (typeof r.beforeMessageId !== "string" ||
+            !r.beforeMessageId.trim() ||
+            r.fromMessageId !== undefined ||
+            typeof r.threadData !== "string" ||
+            !r.threadData.trim())
+        ) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: "Invalid fork message boundary",
+          });
+        }
         if (typeof r.threadData !== "string") return null;
         const messageCount =
           typeof r.messageCount === "number"
@@ -8141,6 +8329,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           messageCount,
           ...(typeof r.fromMessageId === "string"
             ? { fromMessageId: r.fromMessageId }
+            : {}),
+          ...(typeof r.beforeMessageId === "string"
+            ? { beforeMessageId: r.beforeMessageId }
             : {}),
           ...(Object.prototype.hasOwnProperty.call(r, "scope")
             ? { scope: parseScopeFromBody(r.scope) }
@@ -8192,6 +8383,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const isThreadSubroute = (subroute: string) =>
             threadTail[0] === subroute;
           const requestedScope = parseScopeFromQuery(getQuery(event));
+          const localSourceAppId = pluginSourceAppId(options, getAppConfig());
+          const threadMatchesApp = (thread: Pick<ChatThread, "source">) =>
+            options?.threadAccessScope === "aggregate" ||
+            Boolean(
+              localSourceAppId && thread.source?.appId === localSourceAppId,
+            );
           const scopesMatch = (
             left?: ChatThreadScope | null,
             right?: ChatThreadScope | null,
@@ -8202,12 +8399,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const threadMatchesRequestedScope = (
             thread: {
               scope?: ChatThreadScope | null;
+              source: ChatThread["source"];
             },
             incomingScope?: ChatThreadScope | null,
           ) =>
-            !requestedScope ||
-            scopesMatch(thread.scope, requestedScope) ||
-            (!thread.scope && scopesMatch(incomingScope, requestedScope));
+            threadMatchesApp(thread) &&
+            (!requestedScope ||
+              scopesMatch(thread.scope, requestedScope) ||
+              (!thread.scope && scopesMatch(incomingScope, requestedScope)));
 
           const threadNotFound = () => {
             if (
@@ -8387,7 +8586,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadTail[2] === "receipt" &&
               threadTail.length === 3
             ) {
-              const thread = await resolveThreadAccessScope(
+              const thread = await resolveThreadAppAccessScope(
                 owner,
                 threadId,
                 "viewer",
@@ -8984,8 +9183,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Title is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const renamed = await renameThread(threadId, title, {
                 ownerEmail: owner,
+                ...(body.collapseEdits === true
+                  ? { collapseEdits: true, orgId }
+                  : {}),
               });
               if (!renamed) {
                 setResponseStatus(event, 404);
@@ -9010,9 +9219,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "pinned boolean is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const pinned = await setThreadPinned(threadId, body.pinned, {
                 ownerEmail: owner,
                 orgId,
+                ...(body.collapseEdits === true ? { collapseEdits: true } : {}),
               });
               if (!pinned) {
                 setResponseStatus(event, 404);
@@ -9022,7 +9239,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("hide")) {
-              const thread = await resolveThreadAccessScope(
+              const thread = await resolveThreadAppAccessScope(
                 owner,
                 threadId,
                 "viewer",
@@ -9037,9 +9254,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "hidden boolean is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const hidden = await setThreadHidden(threadId, body.hidden, {
                 ownerEmail: owner,
                 orgId,
+                ...(body.collapseEdits === true ? { collapseEdits: true } : {}),
               });
               if (!hidden) {
                 setResponseStatus(event, 404);
@@ -9064,10 +9289,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "archived boolean is required" };
               }
+              if (
+                body.collapseEdits !== undefined &&
+                typeof body.collapseEdits !== "boolean"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
               const archived = await setThreadArchived(
                 threadId,
                 body.archived,
-                { ownerEmail: owner },
+                {
+                  ownerEmail: owner,
+                  ...(body.collapseEdits === true
+                    ? { collapseEdits: true, orgId }
+                    : {}),
+                },
               );
               if (!archived) {
                 setResponseStatus(event, 404);
@@ -9089,6 +9326,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event);
+              if (
+                body?.forkPurpose !== undefined &&
+                body.forkPurpose !== "edit"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid fork purpose" };
+              }
               const sourceSnapshot = parseForkSourceFromBody(body?.source);
               if (sourceSnapshot) {
                 let parsedSource: unknown;
@@ -9111,11 +9355,56 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   };
                 }
               }
-              const forked = await forkThread(threadId, owner, {
-                id: body?.id,
-                source: sourceSnapshot,
-                sourceAccessGranted: true,
-              });
+              let forked;
+              try {
+                // The ALS request boundary installs tracking scope only, so an
+                // ordinary HTTP request has no request org. forkThread compares
+                // the thread's org against getRequestOrgId() before it keeps
+                // edit_root_id; resolve the org from the event the same way the
+                // thread-create route does, or an org-scoped edit fork stores
+                // edit_root_id = NULL and every edit shows as its own row.
+                // Only carry it when it already agrees with the thread, so the
+                // gate's decision is unchanged when they differ.
+                const forkOrgId = await getOrgIdFromEvent(event);
+                const threadOrgId = thread.orgId ?? null;
+                forked = await runWithRequestContext(
+                  {
+                    userEmail: owner,
+                    ...(forkOrgId && threadOrgId === forkOrgId
+                      ? { orgId: forkOrgId }
+                      : {}),
+                  },
+                  () =>
+                    forkThread(threadId, owner, {
+                      id: body?.id,
+                      source: sourceSnapshot,
+                      sourceAccessGranted: true,
+                      ...(options?.threadAccessScope !== "aggregate" &&
+                      localSourceAppId
+                        ? { targetSource: { appId: localSourceAppId } }
+                        : {}),
+                      ...(body?.forkPurpose === "edit"
+                        ? {
+                            forkPurpose: "edit" as const,
+                            trustedAppId: pluginSourceAppId(
+                              options,
+                              getAppConfig(),
+                            ),
+                          }
+                        : {}),
+                    }),
+                );
+              } catch (error) {
+                if (error instanceof ForbiddenError) {
+                  setResponseStatus(event, 403);
+                  return { error: error.message };
+                }
+                if (!(error instanceof ForkThreadBoundaryError)) throw error;
+                throw createError({
+                  statusCode: 400,
+                  statusMessage: "Invalid fork message boundary",
+                });
+              }
               if (!forked) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -9175,7 +9464,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              await deleteThread(threadId, owner);
+              const collapseEdits = getQuery(event).collapseEdits;
+              if (
+                collapseEdits !== undefined &&
+                collapseEdits !== "1" &&
+                collapseEdits !== "0"
+              ) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid collapseEdits filter" };
+              }
+              await deleteThread(
+                threadId,
+                owner,
+                collapseEdits === "1"
+                  ? {
+                      collapseEdits: true,
+                      ...(orgId === undefined ? {} : { orgId }),
+                    }
+                  : undefined,
+              );
               return { ok: true };
             }
 
@@ -9200,41 +9507,64 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const q = query.q ? String(query.q).trim() : "";
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
-            const includeExternal = String(query.includeExternal ?? "") === "1";
+            const includeExternal =
+              options?.threadAccessScope === "aggregate" &&
+              String(query.includeExternal ?? "") === "1";
             const includeArchived = String(query.includeArchived ?? "") === "1";
             const includeHidden = String(query.includeHidden ?? "") === "1";
+            if (
+              query.collapseEdits !== undefined &&
+              query.collapseEdits !== "1" &&
+              query.collapseEdits !== "0"
+            ) {
+              setResponseStatus(event, 400);
+              return { error: "Invalid collapseEdits filter" };
+            }
+            const collapseEdits = query.collapseEdits === "1";
             const ownership =
               query.ownership === undefined ? "all" : query.ownership;
             if (!isChatThreadOwnership(ownership)) {
               setResponseStatus(event, 400);
               return { error: "Invalid ownership filter" };
             }
+            // Same resolution as the write side: an app whose plugin omits
+            // appId still lists only its own threads, not every app's.
+            const requestedSourceAppId = pluginSourceAppId(
+              options,
+              getAppConfig(),
+            );
             const offset = requestedOffset;
             // Fetch one extra row so the page can say whether another exists
             // without a count query.
-            const fetched = q
-              ? await searchThreads(owner, q, limit + 1, {
-                  scope: scope ?? undefined,
-                  orgId,
-                  includeExternal,
-                  includeArchived,
-                  includeHidden,
-                  sourceAppId: options?.appId ?? null,
-                  ownership,
-                  offset,
-                })
-              : await listThreads(owner, {
-                  limit: limit + 1,
-                  offset,
-                  scope: scope ?? undefined,
-                  unscopedOnly,
-                  orgId,
-                  includeExternal,
-                  includeArchived,
-                  includeHidden,
-                  sourceAppId: options?.appId ?? null,
-                  ownership,
-                });
+            const readOptions = {
+              ...(scope
+                ? { scope }
+                : { excludeScopeTypes: options?.historyHiddenScopeTypes }),
+              ...(orgId === undefined ? {} : { orgId }),
+              collapseEdits,
+              includeExternal,
+              includeArchived,
+              includeHidden,
+              sourceAppId: requestedSourceAppId,
+              ownership,
+              offset,
+            };
+            const fetched = await (
+              q
+                ? searchThreads(owner, q, limit + 1, readOptions)
+                : listThreads(owner, {
+                    ...readOptions,
+                    limit: limit + 1,
+                    unscopedOnly,
+                  })
+            ).catch((error: unknown) => {
+              if (!(error instanceof ChatThreadSourceAppRequiredError)) {
+                throw error;
+              }
+              setResponseStatus(event, 500);
+              return { error: error.message, code: error.code } as const;
+            });
+            if (!Array.isArray(fetched)) return fetched;
             return {
               threads: fetched.slice(0, limit),
               hasMore: fetched.length > limit,
@@ -9242,6 +9572,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           if (method === "POST") {
+            if (
+              options?.threadAccessScope !== "aggregate" &&
+              !localSourceAppId
+            ) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
             const body = await readBody(event);
             const requestedScope = parseScopeFromQuery(getQuery(event));
             const bodyIncludesScope = Boolean(
@@ -9264,6 +9601,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               existing: ChatThread,
             ): Promise<ChatThread | null> => {
               if (
+                !threadMatchesApp(existing) ||
                 (requestedScope &&
                   threadScopeMismatch(existing.scope, requestedScope)) ||
                 (bodyIncludesScope &&
@@ -9317,7 +9655,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 id: body?.id,
                 title: body?.title ?? "",
                 scope: bodyIncludesScope ? bodyScope : requestedScope,
-                source: options?.appId ? { appId: options.appId } : null,
+                source: (() => {
+                  const sourceAppId = pluginSourceAppId(
+                    options,
+                    getAppConfig(),
+                  );
+                  return sourceAppId ? { appId: sourceAppId } : null;
+                })(),
                 orgId: await getOrgIdFromEvent(event),
               });
               return thread;
@@ -10125,6 +10469,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         return result;
       };
 
+      options?.onQueuedSubmissionDrainReady?.((threadId) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        scheduleQueuedSubmissionInboxDrain({
+          threadId,
+          turnContinues: false,
+          ...(waitUntil ? { waitUntil } : {}),
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) =>
+            console.error(
+              `[agent-chat] queued submission drain failed for ${threadId}:`,
+              error,
+            ),
+        });
+      });
+
       // A Function URL is a separate origin, so the browser cannot send the
       // Amplify session cookie with the stream request. Mint a short-lived,
       // audience-bound handoff on the authenticated foreground origin.
@@ -10256,16 +10615,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
 
-          // Validate + HMAC-authenticate the self-dispatch and prepare the
-          // background-worker body. Pure decision (unit-tested in
-          // durable-background.spec.ts); the route only wires it to h3. This
-          // handler DOES have the h3 event, so it can see the real socket
-          // peer — thread the loopback signal through so unsigned local-dev
-          // self-dispatch (no A2A_SECRET) still works over 127.0.0.1/::1.
           const prepared = prepareProcessRunRequest(
             processBody,
             getHeader(event, "authorization"),
-            isLoopbackAddress(getRequestIP(event, { xForwardedFor: false })),
+            event,
           );
           if (!prepared.ok) {
             // DIAGNOSTIC: record the auth/validation failure ONTO the run
@@ -10373,6 +10726,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
           let stopBackgroundSetupHeartbeat = true;
+          let workerHandlerInvoked = false;
           const reportFailureFinalizationError = (error: unknown) => {
             console.error(
               "[agent-chat] _process-run failure finalization failed:",
@@ -10492,7 +10846,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // This self-dispatch is cookieless (HMAC-only). Restore the verified
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
-            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+            await seedBackgroundAgentRunOwnerContext(
+              event,
+              prepared.runId,
+              preparedMarkerRecord?.[
+                AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD
+              ],
+            );
+            if (
+              preparedMarkerRecord?.payloadRef === true &&
+              getAppConfig().agent.interactiveChatTurns
+            ) {
+              const turnGrant = await verifyDispatchedTurnGrant(
+                workerBody[AGENT_CHAT_TURN_GRANT_FIELD],
+                prepared.runId,
+                await import("../agent/run-store.js"),
+              );
+              if (turnGrant)
+                event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] = turnGrant;
+            }
+            workerHandlerInvoked = true;
             const result = await invokeAgentChatHandler(event);
             const responseStatus = getResponseStatus(event);
             if (responseStatus >= 400) {
@@ -10530,14 +10903,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            try {
-              await finalizeClaimedAgentChatProcessRunFailure(
-                prepared.runId,
-                err,
-              );
-            } catch (finalizationError) {
-              stopBackgroundSetupHeartbeat = false;
-              reportFailureFinalizationError(finalizationError);
+            if (workerHandlerInvoked) {
+              try {
+                await finalizeClaimedAgentChatProcessRunFailure(
+                  prepared.runId,
+                  err,
+                );
+              } catch (finalizationError) {
+                stopBackgroundSetupHeartbeat = false;
+                reportFailureFinalizationError(finalizationError);
+              }
             }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
@@ -10579,11 +10954,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       getH3App(nitroApp).use(
         capabilitiesPath,
         defineEventHandler((event) => {
-          const requestPath = new URL(
-            event.node?.req?.url || event.path || "",
-            "http://localhost",
-          ).pathname;
-          if (requestPath !== capabilitiesPath) {
+          // In a shared workspace every app is mounted under its own base path
+          // (`/calendar/_agent-native/agent-chat/capabilities`), and the
+          // mount machinery rewrites `event.path` to the mount-relative
+          // remainder ("") while the client's path survives only in
+          // `context._mountedPathname` / `req.url`. Decide from those, not from
+          // `event.path`, or every mounted app 404s this route.
+          if (!capabilitiesRouteMatches(event, capabilitiesPath)) {
             setResponseStatus(event, 404);
             return { error: "Not found" };
           }
@@ -10671,6 +11048,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               : []),
             ...(job?.meta.mcpTools ?? []),
           ],
+          ...(options?.resolveActionSurface
+            ? { resolveActionSurface: options.resolveActionSurface }
+            : {}),
           apiKey: options?.apiKey,
           model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
@@ -10681,6 +11061,75 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { processPendingAutomationFailureAlerts } =
             await import("../jobs/run-history.js");
           return processPendingAutomationFailureAlerts();
+        };
+
+        const recordNetlifyIdleSweep = async (input: {
+          startedAt: number;
+          jobsChecked: boolean;
+          unclaimedBackgroundRuns: { scanned: number };
+          queuedSubmissionDrain: { scanned: number } | null;
+          automationFailureAlerts: { attempted: number } | null;
+          appSweepHandlers: { skipped?: string };
+        }) => {
+          try {
+            if (!isNetlifyRecurringJobsRuntime() || isWorkspaceRuntime()) {
+              return;
+            }
+            const { recordNetlifySweepOutcome } =
+              await import("../jobs/netlify-wake-marker.js");
+            const foundWork =
+              input.unclaimedBackgroundRuns.scanned > 0 ||
+              (input.queuedSubmissionDrain?.scanned ?? 0) > 0 ||
+              (input.automationFailureAlerts?.attempted ?? 0) > 0 ||
+              input.appSweepHandlers.skipped !== undefined;
+            if (foundWork) {
+              await recordNetlifySweepOutcome({
+                startedAt: input.startedAt,
+                busy: true,
+                nextDueAt: null,
+              });
+              return;
+            }
+            const { hasRunningRuns } = await import("../agent/run-store.js");
+            const { nextQueuedSubmissionDueAt } =
+              await import("../chat-threads/store.js");
+            const { nextAutomationFailureAlertDueAt } =
+              await import("../jobs/run-history.js");
+            const { nextRecurringJobWakeAt } =
+              await import("../jobs/scheduler.js");
+            const { nextStaleWorkDueAt } =
+              await import("../jobs/stale-reaper.js");
+            const { nextRecurringSweepHandlerDueAt } =
+              await import("../jobs/sweep-hooks.js");
+            const { nextAgentHarnessRecoveryDueAt } =
+              await import("../agent/harness/store.js");
+            const { nextStaleAgentTeamRunDueAt } =
+              await import("./agent-teams-run-queue.js");
+            const busy = await hasRunningRuns({ fresh: true });
+            const dueTimes = busy
+              ? []
+              : [
+                  input.jobsChecked
+                    ? await nextRecurringJobWakeAt(schedulerDeps)
+                    : null,
+                  input.jobsChecked ? await nextStaleWorkDueAt() : null,
+                  await nextQueuedSubmissionDueAt(),
+                  await nextAutomationFailureAlertDueAt(),
+                  await nextRecurringSweepHandlerDueAt(),
+                  await nextAgentHarnessRecoveryDueAt(),
+                  await nextStaleAgentTeamRunDueAt(),
+                ].filter((dueAt): dueAt is number => dueAt !== null);
+            await recordNetlifySweepOutcome({
+              startedAt: input.startedAt,
+              busy,
+              nextDueAt: dueTimes.length ? Math.min(...dueTimes) : null,
+            });
+          } catch (error) {
+            console.warn(
+              "[recurring-jobs] Idle check failed; the sweep stays on its minute cadence:",
+              error,
+            );
+          }
         };
 
         // Every platform trigger lands here: Netlify's scheduled function (via
@@ -10711,6 +11160,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
+            const sweepStartedAt = Date.now();
             // Stale reaping runs FIRST and site-wide, before the open-ended job
             // sweep can spend the platform wall. It is the durable driver the
             // in-process fast sweep below cannot be on serverless: that timer is
@@ -10878,6 +11328,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
+              } else {
+                await recordNetlifyIdleSweep({
+                  startedAt: sweepStartedAt,
+                  jobsChecked: false,
+                  unclaimedBackgroundRuns,
+                  queuedSubmissionDrain,
+                  automationFailureAlerts,
+                  appSweepHandlers,
+                });
               }
               return {
                 ok: incompleteSteps.length === 0,
@@ -10911,6 +11370,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   appSweepHandlers,
                 };
               }
+              await recordNetlifyIdleSweep({
+                startedAt: sweepStartedAt,
+                jobsChecked: true,
+                unclaimedBackgroundRuns,
+                queuedSubmissionDrain,
+                automationFailureAlerts,
+                appSweepHandlers,
+              });
               return {
                 ok: true,
                 staleRunsReaped,
@@ -11119,6 +11586,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("../agent/run-store.js");
             const job = startIntervalJob(
               async () => {
+                // Stand down while the database is refusing connects or has just
+                // timed a query out. Every step below opens its own query, so a slow
+                // database turned one tick into six logged timeouts (11/5: ~6 a
+                // minute, all of it from this job, which does not go through
+                // runRecurringSweepHandlers and so missed its stand-down).
+                const { dbConnectGateRemainingMs, dbRecentTimeoutMs } =
+                  await import("../db/client.js");
+                const { DB_TIMEOUT_STANDDOWN_MS } =
+                  await import("../jobs/sweep-hooks.js");
+                if (
+                  dbConnectGateRemainingMs() > 0 ||
+                  dbRecentTimeoutMs() < DB_TIMEOUT_STANDDOWN_MS
+                ) {
+                  console.warn(
+                    "[agent-chat] in-process sweeps standing down: the database is unavailable or timing out",
+                  );
+                  return;
+                }
                 const { reapAllStaleRuns } =
                   await import("../agent/run-store.js");
                 // The unclaimed-background sweep below only matches
@@ -11243,6 +11728,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         await import("../triggers/dispatcher.js");
       await initTriggerDispatcher({
         getActions: getBackgroundActionEntries,
+        ...(options?.resolveActionSurface
+          ? { resolveActionSurface: options.resolveActionSurface }
+          : {}),
         getWorkspaceAppContext: getBackgroundWorkspaceAppContext,
         getSystemPrompt: async (owner: string) => {
           const resources = await loadResourcesForPrompt(
@@ -11309,6 +11797,82 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       await lifecycle.drainCleanups();
     });
   };
+}
+
+/**
+ * True when the raw request URL addresses exactly the agent-chat capabilities
+ * endpoint. In a shared workspace each app is mounted under its own base path
+ * (`/calendar/_agent-native/agent-chat/capabilities`); the raw `req.url`
+ * keeps that prefix while h3 matches the mount-relative path, so matching on
+ * the suffix lets one handler serve both the standalone and mounted routes.
+ */
+interface CapabilitiesRouteEvent {
+  context?: Record<string, unknown> | undefined;
+  node?: { req?: { url?: unknown } | undefined } | undefined;
+  path?: unknown;
+}
+
+/**
+ * The request path as the client addressed it, before any mount stripping.
+ *
+ * `createMountedMiddleware` rewrites `event.url.pathname`/`event.path` to the
+ * mount-relative remainder and records the original in
+ * `context._mountedPathname`; `req.url` is also the original when the runtime
+ * supplies a node request. Reading the recorded pathname first keeps the
+ * route decide the same way on a serverless event (no `req`), where
+ * `event.path` alone is the stripped `"/"`.
+ */
+export function capabilitiesRouteRequestPath(
+  event: CapabilitiesRouteEvent,
+): string {
+  const mounted = event.context?._mountedPathname;
+  if (typeof mounted === "string" && mounted) return mounted;
+  const raw = event.node?.req?.url;
+  if (typeof raw === "string" && raw) return raw;
+  return typeof event.path === "string" ? event.path : "";
+}
+
+/**
+ * True when this request is exactly the capabilities route.
+ *
+ * The mount records its own prefix in `context._mountPrefix`; when that is
+ * this route, the request reached the handler through the mount for exactly
+ * this path (sub-paths keep the deeper remainder, which then fails the suffix
+ * check). Otherwise fall back to comparing the pre-strip path suffix, which
+ * also covers a plain h3 mount that never strips anything.
+ */
+export function capabilitiesRouteMatches(
+  event: CapabilitiesRouteEvent,
+  capabilitiesPath: string,
+): boolean {
+  const mountPrefix = event.context?._mountPrefix;
+  if (mountPrefix === capabilitiesPath) return true;
+  // Reaching this handler at all means the mount for `capabilitiesPath`
+  // matched; the mount machinery then rewrites `event.path` to the remainder,
+  // which is "/" (or "") for exactly this route and a real tail for anything
+  // deeper. Without this the handler would have to trust a pre-strip path that
+  // a serverless event may not expose at all. Under an enclosing mount the
+  // remainder is that mount's, so only the original path can decide.
+  const mountRemainder = event.path;
+  if (mountPrefix === undefined && typeof mountRemainder === "string") {
+    const tail = mountRemainder.split("?")[0];
+    if (tail === "" || tail === "/") return true;
+  }
+  return matchesCapabilitiesRoutePath(
+    capabilitiesRouteRequestPath(event),
+    capabilitiesPath,
+  );
+}
+
+export function matchesCapabilitiesRoutePath(
+  requestUrl: string,
+  capabilitiesPath: string,
+): boolean {
+  const requestPath = new URL(requestUrl, "http://localhost").pathname;
+  const index = requestPath.indexOf(capabilitiesPath);
+  if (index === -1) return false;
+  const afterBase = requestPath.slice(index + capabilitiesPath.length);
+  return afterBase === "" || afterBase === "/";
 }
 
 /**

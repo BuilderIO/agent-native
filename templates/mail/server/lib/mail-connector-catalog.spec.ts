@@ -12,6 +12,8 @@ describe("Mail MCP connector catalog", () => {
       "get-email",
       "get-thread",
       "create-attachment-upload",
+      "list-content-pages",
+      "attach-content-page",
       "manage-draft",
     ]);
     expect(MAIL_CONNECTOR_CATALOG).not.toContain("search-emails");

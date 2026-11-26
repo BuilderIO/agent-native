@@ -113,7 +113,7 @@ const {
 } = await import("./run-store.js");
 
 beforeAll(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await ensureRunTables();
 });
 
@@ -817,6 +817,98 @@ describe("task execution leases", () => {
       [threadId, turnId],
     );
     expect(lease.rows[0]?.live).toBe(true);
+  });
+
+  it("does not reap a foreground worker whose lease just lapsed on its own", async () => {
+    const threadId = "thread-reap-lapsed-lease";
+    const turnId = "turn-reap-lapsed-lease";
+    const runId = "run-reap-lapsed-lease";
+    await insertRun(runId, threadId, turnId, { dispatchMode: "foreground" });
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const lastRenewalAt = Date.now() - 16_000;
+    await pglite.query(
+      `UPDATE agent_runs
+          SET started_at = ?, heartbeat_at = ?, last_progress_at = ?
+        WHERE id = ?`,
+      [lastRenewalAt, lastRenewalAt, lastRenewalAt, runId],
+    );
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 second',
+              updated_at = clock_timestamp() - INTERVAL '16 seconds'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+
+    await expect(reapIfStale(runId)).resolves.toBe(false);
+    await expect(getRunById(runId)).resolves.toMatchObject({
+      status: "running",
+    });
+    await expect(renewTurnExecutionLease(fence)).resolves.toBeUndefined();
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 second',
+              updated_at = clock_timestamp() - INTERVAL '16 seconds'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await expect(reapIfStale(runId, 0)).resolves.toBe(true);
+    await expect(getRunById(runId)).resolves.toMatchObject({
+      status: "errored",
+      errorCode: "stale_run",
+    });
+  });
+
+  it("still reaps a worker whose lease lapsed long ago or was revoked", async () => {
+    const lapsedLongAgo = {
+      threadId: "thread-reap-long-lapsed-lease",
+      turnId: "turn-reap-long-lapsed-lease",
+      runId: "run-reap-long-lapsed-lease",
+      expiredAgo: "16 seconds",
+      renewedAgo: "31 seconds",
+    };
+    const revoked = {
+      threadId: "thread-reap-revoked-lease",
+      turnId: "turn-reap-revoked-lease",
+      runId: "run-reap-revoked-lease",
+      expiredAgo: "16 seconds",
+      renewedAgo: "16 seconds",
+    };
+    for (const scenario of [lapsedLongAgo, revoked]) {
+      await insertRun(scenario.runId, scenario.threadId, scenario.turnId, {
+        dispatchMode: "foreground",
+      });
+      await claimTurnExecutionLease(
+        scenario.threadId,
+        scenario.turnId,
+        scenario.runId,
+      );
+      const lastRenewalAt = Date.now() - 31_000;
+      await pglite.query(
+        `UPDATE agent_runs
+            SET started_at = ?, heartbeat_at = ?, last_progress_at = ?
+          WHERE id = ?`,
+        [lastRenewalAt, lastRenewalAt, lastRenewalAt, scenario.runId],
+      );
+      await pglite.query(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - CAST(? AS INTERVAL),
+                updated_at = clock_timestamp() - CAST(? AS INTERVAL)
+          WHERE thread_id = ? AND turn_id = ?`,
+        [
+          scenario.expiredAgo,
+          scenario.renewedAgo,
+          scenario.threadId,
+          scenario.turnId,
+        ],
+      );
+
+      await expect(reapIfStale(scenario.runId)).resolves.toBe(true);
+      await expect(getRunById(scenario.runId)).resolves.toMatchObject({
+        status: "errored",
+        errorCode: "stale_run",
+      });
+    }
   });
 
   it("fences a lapsed lease out once it was revoked, its run ended, or a worker replaced it", async () => {

@@ -84,6 +84,7 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
+import { OAUTH_ACCOUNT_ALREADY_LINKED_ERROR } from "../connections/oauth-callback-error.js";
 import { OAuthAccountOwnedByOtherUserError } from "../oauth-tokens/store.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { ForbiddenError } from "../sharing/errors.js";
@@ -261,6 +262,55 @@ describe("workspace provider OAuth", () => {
     },
   );
 
+  it.each(["zoom", "slack"] as const)(
+    "sends the mounted callback to %s when the workspace relay is enabled",
+    async (provider) => {
+      const email = "requester@example.test";
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+      vi.stubEnv("APP_BASE_PATH", "/brain-2");
+      resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({
+        orgId: "org-1",
+        email,
+        role: "member",
+      });
+      const url = new URL(
+        `https://labs.example.test/brain-2/_agent-native/connections/oauth/${provider}/start?appId=brain-2&scope=user`,
+      );
+      const event = {
+        url,
+        path: url.pathname,
+        context: { _mountedPathname: url.pathname },
+        req: new Request(url, {
+          headers: { host: url.host, "x-forwarded-proto": "https" },
+        }),
+        res: { status: 200, headers: new Headers() },
+      } as never;
+
+      const response = (await handleWorkspaceProviderOAuthStart(
+        event,
+        provider,
+      )) as Response;
+
+      expect(response.status).toBe(302);
+      const location = response.headers.get("location");
+      expect(location).toBeTruthy();
+      if (!location) throw new Error("Missing authorization redirect");
+      const authorizeUrl = new URL(location);
+      expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
+        `https://labs.example.test/brain-2/_agent-native/connections/oauth/${provider}/callback`,
+      );
+      const state = authorizeUrl.searchParams.get("state");
+      expect(state).toBeTruthy();
+      if (!state) throw new Error("Missing OAuth state");
+      expect(decodeOAuthState(state).redirectUri).toBe(
+        `https://labs.example.test/brain-2/_agent-native/connections/oauth/${provider}/callback`,
+      );
+    },
+  );
+
   it("keeps the return URL in the encrypted OAuth flow cookie", async () => {
     const email = "requester@example.com";
     const returnUrl = "/dispatch/chat/thread-1?private=value#selected";
@@ -305,6 +355,59 @@ describe("workspace provider OAuth", () => {
     expect(JSON.parse(decryptSecretValue(encryptedFlow))).toMatchObject({
       returnUrl,
     });
+  });
+
+  it.each([
+    {
+      name: "a complete integration pair",
+      secrets: {
+        GITHUB_INTEGRATION_CLIENT_ID: "integration-client",
+        GITHUB_INTEGRATION_CLIENT_SECRET: "integration-secret",
+        GITHUB_CLIENT_ID: "sign-in-client",
+        GITHUB_CLIENT_SECRET: "sign-in-secret",
+      },
+      clientId: "integration-client",
+    },
+    {
+      name: "the sign-in pair when the integration pair is incomplete",
+      secrets: {
+        GITHUB_INTEGRATION_CLIENT_ID: "integration-client",
+        GITHUB_CLIENT_ID: "sign-in-client",
+        GITHUB_CLIENT_SECRET: "sign-in-secret",
+      },
+      clientId: "sign-in-client",
+    },
+  ])("starts GitHub OAuth with $name", async ({ secrets, clientId }) => {
+    const email = "requester@example.com";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    const secretValues = new Map(Object.entries(secrets));
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secretValues.get(key) ?? null,
+    );
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/github/start",
+    );
+    requestUrl.searchParams.set("appId", "content");
+    requestUrl.searchParams.set("scope", "user");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "github");
+
+    expect(result).toBeInstanceOf(Response);
+    const location = (result as Response).headers.get("Location");
+    expect(location).toEqual(expect.any(String));
+    expect(new URL(location ?? "").searchParams.get("client_id")).toBe(
+      clientId,
+    );
   });
 
   it("binds a start without an appId to the current app so its callback grants that app", async () => {
@@ -1502,6 +1605,49 @@ describe("workspace provider OAuth", () => {
     ).toThrow("Invalid Salesforce OAuth login URL.");
   });
 
+  it.each([
+    ["a plain connect", undefined, false],
+    ["a reconnect of a named account", "other@example.com", true],
+  ])(
+    "sends login_hint only when the account is named (%s)",
+    async (_name, targetAccountEmail, hinted) => {
+      const email = "requester@example.com";
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({
+        orgId: "org-1",
+        email,
+        role: "member",
+      });
+      const requestUrl = new URL(
+        "https://example.test/_agent-native/connections/oauth/google_calendar/start",
+      );
+      requestUrl.searchParams.set("appId", "calendar");
+      requestUrl.searchParams.set("scope", "user");
+      if (targetAccountEmail) {
+        requestUrl.searchParams.set("targetAccountEmail", targetAccountEmail);
+      }
+      const event = {
+        req: new Request(requestUrl),
+        res: { status: 200, headers: new Headers() },
+      } as never;
+
+      const response = (await handleWorkspaceProviderOAuthStart(
+        event,
+        "google_calendar",
+      )) as Response;
+
+      const authorizationUrl = new URL(response.headers.get("Location")!);
+      expect(authorizationUrl.searchParams.get("prompt")).toBe(
+        "consent select_account",
+      );
+      expect(authorizationUrl.searchParams.get("login_hint")).toBe(
+        hinted ? targetAccountEmail! : null,
+      );
+    },
+  );
+
   it("isolates offline consent to Picker-selected Drive files", () => {
     const provider = getWorkspaceConnectionProvider("google_drive")!;
     const url = new URL(
@@ -1861,6 +2007,7 @@ describe("workspace provider OAuth", () => {
       "profile",
       "https://www.googleapis.com/auth/calendar.readonly",
       "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar.calendarlist",
     ]);
   });
 
@@ -2649,5 +2796,125 @@ describe("oauthFlowFailure", () => {
     expect(callbackMocks.setOAuthDisplayName).not.toHaveBeenCalled();
     expect(callbackMocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
     expect(callbackMocks.upsertWorkspaceConnectionGrant).not.toHaveBeenCalled();
+  });
+  describe("account ownership conflict return", () => {
+    async function runConflict(options: {
+      accept: string;
+      returnUrl?: string;
+    }) {
+      const email = "requester@example.com";
+      const redirectUri = "https://example.test/_agent-native/google/callback";
+      const flow = {
+        provider: "google_drive",
+        flowId: "flow-return",
+        verifier: "verifier-1",
+        redirectUri,
+        owner: email,
+        orgId: "org-1",
+        appId: "slides",
+        scope: "user",
+        ...(options.returnUrl ? { returnUrl: options.returnUrl } : {}),
+        expiresAt: Date.now() + 60_000,
+      };
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      const state = encodeOAuthState({
+        redirectUri,
+        owner: email,
+        orgId: "org-1",
+        app: "slides",
+        scope: "user",
+        provider: "google_drive",
+        flowId: flow.flowId,
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({ access_token: "test-access-token" }),
+              {
+                status: 200,
+              },
+            ),
+          )
+          .mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({
+                email: "linked-owner@example.com",
+                sub: "account-1",
+              }),
+              { status: 200 },
+            ),
+          ),
+      );
+      resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({ orgId: "org-1", email });
+      callbackMocks.listWorkspaceConnections.mockResolvedValue([]);
+      callbackMocks.saveOAuthTokens.mockRejectedValue(
+        new OAuthAccountOwnedByOtherUserError({
+          provider: "google_drive",
+          accountId: "private-account-id",
+          existingOwner: "someone-else@example.com",
+          attemptedOwner: email,
+        }),
+      );
+      const callbackUrl = new URL(redirectUri);
+      callbackUrl.searchParams.set("code", "test-code");
+      callbackUrl.searchParams.set("state", state);
+      const event = {
+        req: new Request(callbackUrl, {
+          headers: {
+            accept: options.accept,
+            cookie: `an_workspace_oauth_google_drive=${encodeURIComponent(
+              encryptSecretValue(JSON.stringify(flow)),
+            )}`,
+          },
+        }),
+        res: { status: 200, headers: new Headers() },
+      } as never;
+      return handleWorkspaceProviderOAuthCallback(event, "google_drive");
+    }
+
+    it("redirects HTML callers back to the in-app return URL with the error and account", async () => {
+      const result = await runConflict({
+        accept: "text/html",
+        returnUrl: "/settings/integrations?tab=mail",
+      });
+      expect(result).toBeInstanceOf(Response);
+      const response = result as Response;
+      expect(response.status).toBe(302);
+      const location = new URL(response.headers.get("location") ?? "");
+      expect(location.pathname).toBe("/settings/integrations");
+      expect(location.searchParams.get("tab")).toBe("mail");
+      expect(location.searchParams.get("oauth_error")).toBe(
+        OAUTH_ACCOUNT_ALREADY_LINKED_ERROR,
+      );
+      expect(location.searchParams.get("oauth_account")).toBe(
+        "linked-owner@example.com",
+      );
+      expect(callbackMocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
+    });
+
+    it("keeps the JSON error body for non-HTML callers", async () => {
+      const result = await runConflict({
+        accept: "application/json",
+        returnUrl: "/settings/integrations",
+      });
+      expect(result).toEqual({
+        error: expect.stringContaining("already linked to another user"),
+      });
+    });
+
+    it("falls back to the error page linking to the app root, not login", async () => {
+      const result = await runConflict({ accept: "text/html" });
+      expect(result).toBeInstanceOf(Response);
+      const response = result as Response;
+      expect(response.status).toBe(409);
+      const body = await response.text();
+      expect(body).toContain('href="/"');
+      expect(body).not.toContain("Back to login");
+    });
   });
 });

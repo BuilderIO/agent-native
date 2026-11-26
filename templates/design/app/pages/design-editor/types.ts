@@ -1,4 +1,4 @@
-export type EditorMode = "annotate" | "edit" | "interact";
+export type EditorMode = "comment" | "edit" | "interact";
 
 export type DesignTool =
   | "move"
@@ -13,7 +13,6 @@ export type DesignTool =
   | "pen"
   | "hand"
   | "comment"
-  | "draw"
   | "scale";
 
 export type ShapeTool =
@@ -29,9 +28,8 @@ export type DesignLeftPanel =
   | "agent"
   | "assets"
   | "tools"
-  | "tokens"
-  | "threads"
-  | "code";
+  | "library"
+  | "threads";
 
 const designSecondaryLeftPanelsSetting =
   typeof import.meta !== "undefined"
@@ -41,7 +39,6 @@ const designSecondaryLeftPanelsSetting =
 export const SHOW_DESIGN_SECONDARY_LEFT_PANELS =
   designSecondaryLeftPanelsSetting === "1" ||
   designSecondaryLeftPanelsSetting === "true";
-export const SHOW_DESIGN_CODE_LEFT_PANEL = SHOW_DESIGN_SECONDARY_LEFT_PANELS;
 
 export function isDesignLeftPanelEnabled(
   value: unknown,
@@ -51,14 +48,12 @@ export function isDesignLeftPanelEnabled(
     value !== "agent" &&
     value !== "assets" &&
     value !== "tools" &&
-    value !== "tokens" &&
-    value !== "threads" &&
-    value !== "code"
+    value !== "library" &&
+    value !== "threads"
   ) {
     return false;
   }
 
-  if (value === "code") return SHOW_DESIGN_CODE_LEFT_PANEL;
   if (value === "assets" || value === "tools") {
     return SHOW_DESIGN_SECONDARY_LEFT_PANELS;
   }
@@ -94,7 +89,6 @@ export interface DesignData {
   updatedAt: string;
   description?: string;
   projectType: string;
-  designSystemId?: string | null;
   liveCollaborationEnabled?: boolean;
   visibility?: "private" | "org" | "public";
   data?: string | null;

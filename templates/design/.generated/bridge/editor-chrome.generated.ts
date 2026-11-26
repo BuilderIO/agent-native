@@ -903,6 +903,56 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/design-tool-markers.ts
+  var FIGMA_OPEN = /\\((?:figmeta|figma)\\)/i;
+  var FIGMA_CLOSE = /\\(\\/(?:figmeta|figma)\\)/gi;
+  var FIGMA_ATTRIBUTE = /\\sdata-(?:metadata|buffer)=(["'])/gi;
+  function hasFigmaClipboardMarkers(value) {
+    const open = FIGMA_OPEN.exec(value);
+    if (open) {
+      const close = new RegExp(FIGMA_CLOSE.source, "gi");
+      close.lastIndex = open.index + open[0].length;
+      if (close.test(value)) return true;
+    }
+    const attribute = new RegExp(FIGMA_ATTRIBUTE.source, "gi");
+    for (let match = attribute.exec(value); match; match = attribute.exec(value)) {
+      const start = attribute.lastIndex;
+      const end = value.indexOf(match[0].endsWith("'") ? "'" : '"', start);
+      const slice = value.slice(start, end < 0 ? void 0 : end);
+      if (FIGMA_OPEN.test(slice)) return true;
+      if (end < 0) break;
+      attribute.lastIndex = end + 1;
+    }
+    return false;
+  }
+  function hasPaperClipboardMarker(value) {
+    return value.includes("<paper-paste-start");
+  }
+  function hasWonderClipboardMarker(value) {
+    return value.includes("wonder-clipboard:");
+  }
+  var WONDER_COMPLETE = /wonder-clipboard:[A-Za-z0-9+/=_-]{16,}/;
+  function findCompleteDesignToolMarker(value) {
+    if (value.includes("<paper-paste-start") && value.includes("></paper-paste-start>")) {
+      return "paper";
+    }
+    if (WONDER_COMPLETE.test(value)) return "wonder";
+    return hasFigmaClipboardMarkers(value) ? "figma" : null;
+  }
+  function findDesignToolMarker(value) {
+    if (hasPaperClipboardMarker(value)) return "paper";
+    if (hasWonderClipboardMarker(value)) return "wonder";
+    if (hasFigmaClipboardMarkers(value)) return "figma";
+    return null;
+  }
+  function designToolClipboardContent(data) {
+    if (!data) return "";
+    const html = data.getData("text/html") || "";
+    if (html && findDesignToolMarker(html)) return html;
+    const text = data.getData("text/plain") || "";
+    return text && findCompleteDesignToolMarker(text) ? text : "";
+  }
+
   // shared/export-image-source.ts
   var EXPORT_IMAGE_NATURAL_WIDTH = "data-agent-native-export-image-natural-width";
   function isResponsiveExportImage(image) {
@@ -1278,6 +1328,198 @@ export const editorChromeBridgeScript: string = `"use strict";
     ].some(
       (property) => styleValueIsPresent(style(property), EMPTY_STYLE_LENGTH)
     );
+  }
+
+  // shared/visual-layers.ts
+  var VISUAL_LAYER_SCAN_MAX_ELEMENTS = 6e3;
+  var MIN_LAYER_EXTENT_PX = 2;
+  var CANVAS_CONTEXT_KINDS_KEY = "__agentNativeCanvasContextKinds";
+  var SCRIPT_CLOSE = ["</", "script>"].join("");
+  var CANVAS_CONTEXT_RECORDER_SCRIPT = \`<script data-agent-native-canvas-context-recorder>(function(){try{var p=window.HTMLCanvasElement&&HTMLCanvasElement.prototype;if(!p||p.__agentNativeContextRecorder)return;var kinds=new WeakMap();window.\${CANVAS_CONTEXT_KINDS_KEY}=kinds;var original=p.getContext;p.getContext=function(type){var ctx=original.apply(this,arguments);if(ctx&&!kinds.has(this))kinds.set(this,String(type));return ctx;};p.__agentNativeContextRecorder=true;}catch(e){console.error("[agent-native] canvas context recorder failed",e);}})();\${SCRIPT_CLOSE}\`;
+  function recordedCanvasContextKind(canvas) {
+    const view = canvas.ownerDocument.defaultView;
+    const kinds = view ? view[CANVAS_CONTEXT_KINDS_KEY] : void 0;
+    return kinds ? kinds.get(canvas) ?? null : null;
+  }
+  function isWebGlCanvas(canvas) {
+    const recorded = recordedCanvasContextKind(canvas);
+    if (recorded) return /webgl|webgpu/i.test(recorded);
+    const engine = canvas.getAttribute("data-engine") || "";
+    return /three|babylon|pixi|ogl|regl/i.test(engine);
+  }
+  function hasPaintedPseudo(el, pseudo) {
+    const view = el.ownerDocument.defaultView;
+    if (!view) return false;
+    const cs = view.getComputedStyle(el, pseudo);
+    if (cs.content === "none" || cs.display === "none") return false;
+    return cs.backgroundImage !== "none" || /url\\(/.test(cs.content);
+  }
+  function isTransparentColor(value) {
+    return value === "transparent" || /^rgba\\([^)]*,\\s*0\\s*\\)$/.test(value) || /\\/\\s*0\\s*\\)$/.test(value);
+  }
+  function hasRunningAnimation(el) {
+    const animated = el;
+    if (typeof animated.getAnimations !== "function") return false;
+    return animated.getAnimations().some(function(animation) {
+      return animation.playState === "running";
+    });
+  }
+  function visualLayerKindFor(el, cs) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "canvas") return isWebGlCanvas(el) ? "webgl" : "canvas";
+    if (tag === "video") return "video";
+    if (tag === "img" || tag === "picture") return "image";
+    if (tag === "svg") return el.parentElement?.closest("svg") ? null : "svg";
+    if (tag === "iframe" || tag === "embed" || tag === "object") return "embed";
+    if (cs.backgroundImage !== "none" || hasPaintedPseudo(el, "::before") || hasPaintedPseudo(el, "::after")) {
+      return "background";
+    }
+    if (cs.filter && cs.filter !== "none" || cs.backdropFilter && cs.backdropFilter !== "none" || cs.mixBlendMode && cs.mixBlendMode !== "normal") {
+      return "effect";
+    }
+    if ((cs.position === "absolute" || cs.position === "fixed") && cs.pointerEvents === "none" && !isTransparentColor(cs.backgroundColor)) {
+      return "background";
+    }
+    return null;
+  }
+  function isPainted(el, cs, rect) {
+    if (rect.width < MIN_LAYER_EXTENT_PX || rect.height < MIN_LAYER_EXTENT_PX)
+      return false;
+    if (cs.display === "none" || cs.visibility !== "visible") return false;
+    const checkable = el;
+    if (typeof checkable.checkVisibility === "function") {
+      return checkable.checkVisibility({
+        opacityProperty: true,
+        visibilityProperty: true,
+        contentVisibilityAuto: true
+      });
+    }
+    return Number(cs.opacity) > 0;
+  }
+  function matchFor(el, rect) {
+    const view = el.ownerDocument.defaultView;
+    if (!view) return null;
+    const cs = view.getComputedStyle(el);
+    if (!isPainted(el, cs, rect)) return null;
+    const kind = visualLayerKindFor(el, cs);
+    if (!kind) return null;
+    const video = el;
+    const animated = kind === "webgl" || kind === "video" && !video.paused && !video.ended || hasRunningAnimation(el);
+    return { element: el, kind, animated };
+  }
+  function scanElements(root, visit) {
+    const elements = root.getElementsByTagName("*");
+    const limit = Math.min(elements.length, VISUAL_LAYER_SCAN_MAX_ELEMENTS);
+    for (let i = 0; i < limit; i += 1) {
+      const el = elements.item(i);
+      if (!el || el.parentElement?.closest("svg")) continue;
+      visit(el, el.getBoundingClientRect());
+    }
+    return elements.length > limit;
+  }
+  function createsStackingContext(cs) {
+    return cs.position === "fixed" || cs.position === "sticky" || Number(cs.opacity) < 1 || [
+      cs.transform,
+      cs.translate,
+      cs.rotate,
+      cs.scale,
+      cs.perspective,
+      cs.filter,
+      cs.backdropFilter,
+      cs.clipPath,
+      cs.maskImage
+    ].some((value) => !!value && value !== "none") || !!cs.mixBlendMode && cs.mixBlendMode !== "normal" || cs.isolation === "isolate" || /layout|paint|strict|content/.test(cs.contain) || /transform|opacity|filter|perspective/.test(cs.willChange);
+  }
+  function paintLevel(el, stopAt) {
+    const view = el.ownerDocument.defaultView;
+    let z = null;
+    let positioned = false;
+    for (let node = el; node && node !== stopAt; node = node.parentElement) {
+      const cs = view ? view.getComputedStyle(node) : null;
+      if (!cs) continue;
+      const isPositioned = cs.position !== "static";
+      if (isPositioned) positioned = true;
+      const zIndex = parseInt(cs.zIndex, 10);
+      const parentDisplay = view && node.parentElement ? view.getComputedStyle(node.parentElement).display : "";
+      if (!Number.isNaN(zIndex) && (isPositioned || /flex|grid/.test(parentDisplay))) {
+        z = zIndex;
+      } else if (createsStackingContext(cs)) {
+        z = 0;
+        positioned = true;
+      }
+    }
+    if (z !== null && z < 0) return [0, z];
+    if (z !== null && z > 0) return [3, z];
+    return positioned ? [2, 0] : [1, 0];
+  }
+  function comparePaintOrder(a, b) {
+    if (a === b) return 0;
+    if (a.contains(b)) return -comparePaintOrder(b, a);
+    if (b.contains(a)) {
+      const [bucket] = paintLevel(a, b);
+      return bucket === 0 ? -1 : 1;
+    }
+    let common = a.parentElement;
+    while (common && !common.contains(b)) common = common.parentElement;
+    const levelA = paintLevel(a, common);
+    const levelB = paintLevel(b, common);
+    if (levelA[0] !== levelB[0]) return levelA[0] - levelB[0];
+    if (levelA[1] !== levelB[1]) return levelA[1] - levelB[1];
+    return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+  }
+  function mergeVisualLayersAtPoint(doc, clientX, clientY, hitStack, exclude) {
+    const stack = hitStack.slice();
+    const added = /* @__PURE__ */ new Map();
+    const body = doc.querySelector("body");
+    if (!body) return { stack, added, truncated: false };
+    const truncated = scanElements(body, function(el, rect) {
+      if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom || stack.indexOf(el) !== -1 || exclude(el)) {
+        return;
+      }
+      const match = matchFor(el, rect);
+      if (!match) return;
+      let index = stack.length;
+      for (const [i, other] of stack.entries()) {
+        if (comparePaintOrder(el, other) > 0) {
+          index = i;
+          break;
+        }
+      }
+      stack.splice(index, 0, el);
+      added.set(el, match);
+    });
+    return { stack, added, truncated };
+  }
+  function overlapArea(a, b) {
+    const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return width > 0 && height > 0 ? width * height : 0;
+  }
+  function visualLayersOverlapping(target, exclude, limit) {
+    const doc = target.ownerDocument;
+    const targetRect = target.getBoundingClientRect();
+    const targetArea = targetRect.width * targetRect.height;
+    const body = doc.querySelector("body");
+    if (!body || targetArea <= 0) return { layers: [], truncated: false };
+    const results = [];
+    const truncated = scanElements(body, function(el, rect) {
+      if (el === target) return;
+      const area = overlapArea(targetRect, rect);
+      if (area <= 0 || exclude(el)) return;
+      const match = matchFor(el, rect);
+      if (!match) return;
+      const relation = target.contains(el) ? "inside" : comparePaintOrder(el, target) > 0 ? "above" : "behind";
+      results.push({
+        ...match,
+        relation,
+        coverage: Math.round(area / targetArea * 100) / 100
+      });
+    });
+    const effectRank = (layer) => (layer.kind === "webgl" ? 2 : 0) + (layer.animated ? 1 : 0);
+    results.sort(function(a, b) {
+      return effectRank(b) - effectRank(a) || b.coverage - a.coverage;
+    });
+    return { layers: results.slice(0, limit), truncated };
   }
 
   // app/components/design/bridge/native-region-export.ts
@@ -4112,16 +4354,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
       var target = unwrapTextOverlay(hit);
-      if (typeof target.matches === "function" && target.matches("span[data-agent-native-motion-text-unit]")) {
-        var sourceTextTarget = target.parentElement;
-        while (sourceTextTarget && !isDocumentRootElement(sourceTextTarget)) {
-          if (sourceTextTarget.hasAttribute("data-agent-native-node-id") && !sourceTextTarget.hasAttribute("data-agent-native-motion-text-unit")) {
-            target = sourceTextTarget;
-            break;
-          }
-          sourceTextTarget = sourceTextTarget.parentElement;
-        }
-      }
       var textPrimitive = nativeTextPrimitiveForHit(target);
       if (textPrimitive) target = textPrimitive;
       if (!descendIntoGroup) {
@@ -5866,6 +6098,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       "overflow",
       "lineHeight",
       "letterSpacing",
+      "fontSize",
+      "opacity",
       "gridTemplateColumns",
       "gridTemplateRows",
       "gridAutoFlow",
@@ -6714,9 +6948,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var selectionGenerationAtPost = ++selectionGeneration;
       rememberLiveVisualEditOriginalStyles(el);
       var intent = e ? selectionIntentFromEvent(e) : void 0;
+      var payload = getElementInfo(el);
+      var effects = effectCandidatesForElement(el);
+      payload.effectCandidates = effects.candidates;
+      if (effects.truncated) payload.effectCandidatesTruncated = true;
       var message = {
         type: "element-select",
-        payload: getElementInfo(el)
+        payload
       };
       if (intent) message.intent = intent;
       if (e?.isTrusted && intent?.source === "pointer") {
@@ -6730,8 +6968,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!mapped || el.isConnected === false || selectedEl !== el || selectionGeneration !== selectionGenerationAtPost) {
             return;
           }
+          var remapped = getElementInfo(el);
+          remapped.effectCandidates = payload.effectCandidates;
+          if (payload.effectCandidatesTruncated) {
+            remapped.effectCandidatesTruncated = true;
+          }
           window.parent.postMessage(
-            { type: "element-select", payload: getElementInfo(el) },
+            { type: "element-select", payload: remapped },
             "*"
           );
           remapReactDocumentProvenance();
@@ -8413,7 +8656,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.querySelectorAll(
           [
             "[data-agent-native-edit-overlay]",
-            "script[data-agent-native-motion-preview-bridge]",
             "script[data-agent-native-shader-runtime]",
             "script[data-agent-native-shader-fill-preview-bridge]",
             "script[data-agent-native-tweak-bridge]",
@@ -12398,6 +12640,32 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
     }
+    function isVisualLayerScanExcluded(el) {
+      return isOverlayElement(el) || isDocumentRootElement(el) || isLayerInteractionBlocked(el) || isTemplateCloneElement(el);
+    }
+    var MAX_EFFECT_CANDIDATES = 5;
+    function effectCandidatesForElement(el) {
+      var scan = visualLayersOverlapping(
+        el,
+        isVisualLayerScanExcluded,
+        MAX_EFFECT_CANDIDATES
+      );
+      return {
+        truncated: scan.truncated,
+        candidates: scan.layers.map(function(layer) {
+          return {
+            sourceId: getSourceId(layer.element) || void 0,
+            selector: getSelector(layer.element),
+            tagName: layer.element.tagName.toLowerCase(),
+            kind: layer.kind,
+            relation: layer.relation,
+            coverage: layer.coverage,
+            animated: layer.animated,
+            webgl: layer.kind === "webgl"
+          };
+        })
+      };
+    }
     function collectLayerHitCandidates(clientX, clientY) {
       var shieldPointerEvents = shieldOverlay.style.pointerEvents;
       var selectionPointerEvents = selectionOverlay.style.pointerEvents;
@@ -12409,7 +12677,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       shieldOverlay.style.pointerEvents = shieldPointerEvents;
       selectionOverlay.style.pointerEvents = selectionPointerEvents;
       highlightOverlay.style.pointerEvents = highlightPointerEvents;
+      var nativeTargets = pointTargets.filter(function(hit) {
+        return !!hit && !isOverlayElement(hit);
+      });
+      pointTargets = mergeVisualLayersAtPoint(
+        document,
+        clientX,
+        clientY,
+        nativeTargets,
+        isVisualLayerScanExcluded
+      ).stack;
       var elements = [];
+      var nativeElements = [];
       var layerCandidates = [];
       var portableComputedStylesCache = portableStyleSnapshotsReadOnDemand ? void 0 : createPortableStyleComputedStylesCache();
       try {
@@ -12417,9 +12696,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!pointTarget || pointTarget.nodeType !== 1) return;
           if (isOverlayElement(pointTarget)) return;
           var candidate = selectionTargetForHit(pointTarget);
-          if (!candidate || isDocumentRootElement(candidate) || isOverlayElement(candidate) || isLayerInteractionBlocked(candidate) || isTemplateCloneElement(candidate) || elements.indexOf(candidate) !== -1) {
+          if (!candidate || isDocumentRootElement(candidate) || isOverlayElement(candidate) || isLayerInteractionBlocked(candidate) || isTemplateCloneElement(candidate)) {
             return;
           }
+          if (nativeTargets.indexOf(pointTarget) !== -1 && nativeElements.indexOf(candidate) === -1) {
+            nativeElements.push(candidate);
+          }
+          if (elements.indexOf(candidate) !== -1) return;
           elements.push(candidate);
           var candidateInfo = getElementInfo(
             candidate,
@@ -12427,9 +12710,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           var label = layerCandidateLabelFor(candidate, candidateInfo);
           var identity = candidateInfo.sourceId || candidateInfo.selector || String(layerCandidates.length);
+          var kind = visualLayerKindFor(
+            candidate,
+            window.getComputedStyle(candidate)
+          );
           layerCandidates.push({
             key: String(identity) + ":" + String(layerCandidates.length),
             label: String(label).slice(0, 80),
+            ...kind ? { kind } : {},
             info: candidateInfo
           });
         });
@@ -12439,7 +12727,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           portableComputedStylesCache.restoreCssomHooks();
         }
       }
-      return { elements, layerCandidates };
+      return {
+        elements,
+        layerCandidates,
+        nativeElements
+      };
     }
     function stackCycleTarget(clientX, clientY, currentEl) {
       if (!currentEl) return null;
@@ -12461,9 +12753,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       stopNativeInteraction(e);
       blurActiveTextEditor();
       var collected = collectLayerHitCandidates(e.clientX, e.clientY);
-      var candidateElements = collected.elements;
       var layerCandidates = collected.layerCandidates;
-      var target = candidateElements[0] || null;
+      var target = collected.nativeElements[0] || null;
       if (!target && !designCanvasBoardSurface && document.body) {
         target = document.body;
       }
@@ -23064,26 +23355,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
-    function hasFigmaClipboardPayload(value) {
-      var content = String(value || "");
-      return /\\((figmeta|figma)\\)[\\s\\S]*?\\(\\/(figmeta|figma)\\)/i.test(content) || /<[^>]+\\sdata-(metadata|buffer)=["'][^"']*\\((figmeta|figma)\\)[^"']*["']/i.test(
-        content
-      );
-    }
-    function getFigmaClipboardContent(data) {
-      if (!data || !data.getData) return "";
-      var html = data.getData("text/html") || "";
-      if (hasFigmaClipboardPayload(html)) return html;
-      var text = data.getData("text/plain") || "";
-      return hasFigmaClipboardPayload(text) ? text : "";
-    }
     document.addEventListener(
       "paste",
       function(e) {
         if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target) || isEditorTypingTarget(e.target)) {
           return;
         }
-        var content = getFigmaClipboardContent(e.clipboardData);
+        var content = designToolClipboardContent(e.clipboardData);
         if (content) {
           clearPendingPlainPasteHotkey();
           stopNativeInteraction(e);

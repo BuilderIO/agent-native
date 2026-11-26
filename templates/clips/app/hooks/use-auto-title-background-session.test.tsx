@@ -289,6 +289,57 @@ describe("Clips filler-word background sessions", () => {
     ).toBeNull();
   });
 
+  it.each([
+    [
+      "error:email_verification_required",
+      "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+    ],
+    [
+      "missing_api_key",
+      "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
+    ],
+    ["error:rate_limit_exceeded", "error:rate_limit_exceeded"],
+    ["error:provider_rate_limited", "error:provider_rate_limited"],
+    ["error:unknown", "error:unknown"],
+    ["run_timeout", "run_timeout"],
+  ])(
+    "persists actionable or unchanged terminal error %s",
+    async (terminalReason, message) => {
+      const session = {
+        recordingId: request.recordingId,
+        kind: "regenerate-title",
+        requestedAt,
+        operationId: "title-operation",
+        threadId: "title-thread",
+        turnId: "title-turn",
+      };
+      mocks.getBackgroundAgentSessionStatus.mockResolvedValue({
+        ...session,
+        status: "errored",
+        runId: "run-failed",
+        terminalReason,
+      });
+
+      await renderBridge({
+        requests: [],
+        activeSessions: [session],
+        titleCandidates: [],
+      });
+
+      await vi.waitFor(() =>
+        expect(mocks.callAction).toHaveBeenCalledWith(
+          "update-ai-request-status",
+          expect.objectContaining({
+            operationId: session.operationId,
+            runId: "run-failed",
+            status: "failed",
+            message,
+          }),
+        ),
+      );
+    },
+  );
+
   it("reattaches persisted receipts and records a truncated run for retry", async () => {
     const session = {
       recordingId: request.recordingId,
@@ -319,6 +370,7 @@ describe("Clips filler-word background sessions", () => {
           operationId: session.operationId,
           runId: "run-truncated",
           status: "truncated",
+          message: "output limit reached",
         }),
       ),
     );

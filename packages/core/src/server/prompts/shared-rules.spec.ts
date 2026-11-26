@@ -46,6 +46,14 @@ describe("shared framework prompt rules", () => {
     }
   });
 
+  it("has replies name the reads and searches they missed in both prompts", () => {
+    for (const prompt of [buildFrameworkCore(), buildFrameworkCoreCompact()]) {
+      expect(prompt).toContain(
+        "If a needed read or search still fails, name it and say what the answer may lack.",
+      );
+    }
+  });
+
   it("teaches provider API fallback and corpus-first coverage generically", () => {
     const rule = sharedRule8({
       providerActions: ["github-search", "notion-search"],

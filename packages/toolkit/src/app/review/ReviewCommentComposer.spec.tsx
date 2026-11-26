@@ -6,6 +6,7 @@ import { act, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ReviewCommentImage } from "./review-comment-images.js";
 import { ReviewCommentComposer } from "./ReviewCommentComposer.js";
 
 vi.mock("@agent-native/core/client/use-avatar", () => ({
@@ -158,6 +159,21 @@ describe("ReviewCommentComposer", () => {
     ).toBe("Write something");
   });
 
+  it("shows the placeholder again once a sent comment clears the box", async () => {
+    const props = {
+      onChange: () => {},
+      onSubmit: () => {},
+      placeholder: "Reply",
+    };
+    await render(<ReviewCommentComposer {...props} value={"- one\n- two"} />);
+    await render(<ReviewCommentComposer {...props} value="" />);
+    expect(
+      editorDom()
+        .querySelector(":scope > p.is-empty:only-child")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Reply");
+  });
+
   it("keeps the reply variant collapsed until it is focused", async () => {
     await render(
       <ReviewCommentComposer
@@ -279,6 +295,20 @@ describe("ReviewCommentComposer", () => {
     ).toBe(false);
   });
 
+  it("holds send back while submitDisabled, leaving the box editable", async () => {
+    const onSubmit = vi.fn();
+    await render(
+      <Harness initialValue="Hello" onSubmit={onSubmit} submitDisabled />,
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(editorDom().getAttribute("contenteditable")).toBe("true");
+    keydown("Enter");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("can expose only a dedicated agent action", async () => {
     const onSubmit = vi.fn();
     await render(
@@ -394,6 +424,373 @@ describe("ReviewCommentComposer", () => {
     ).toBeTruthy();
   });
 
+  describe("images", () => {
+    function imageFile(name: string, type = "image/png") {
+      return new File(["x"], name, { type });
+    }
+
+    const uploaded = (file: File): ReviewCommentImage => ({
+      url: `https://cdn.builder.io/api/v1/image/${file.name}`,
+      name: file.name,
+      contentType: file.type,
+    });
+
+    function ImageHarness(
+      props: Partial<ComponentProps<typeof ReviewCommentComposer>> & {
+        initialImages?: ReviewCommentImage[];
+        initialValue?: string;
+        onImages?: (images: ReviewCommentImage[]) => void;
+      },
+    ) {
+      const {
+        initialImages = [],
+        initialValue = "",
+        onImages,
+        ...rest
+      } = props;
+      const [value, setValue] = useState(initialValue);
+      const [images, setImages] = useState(initialImages);
+      return (
+        <ReviewCommentComposer
+          value={value}
+          onChange={setValue}
+          images={images}
+          onImagesChange={(next) => {
+            setImages(next);
+            onImages?.(next);
+          }}
+          onSubmit={() => {}}
+          {...rest}
+        />
+      );
+    }
+
+    function paste(files: File[], text = "") {
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: {
+          files,
+          types: [...(text ? ["text/plain"] : []), "Files"],
+          getData: (type: string) => (type === "text/plain" ? text : ""),
+        },
+      });
+      act(() => {
+        editorDom().dispatchEvent(event);
+      });
+      return event;
+    }
+
+    function drop(target: Element, files: File[]) {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", {
+        value: { files, types: ["Files"] },
+      });
+      act(() => {
+        target.dispatchEvent(event);
+      });
+      return event;
+    }
+
+    function pick(files: File[]) {
+      const input = container.querySelector<HTMLInputElement>(
+        "[data-review-image-input]",
+      )!;
+      Object.defineProperty(input, "files", {
+        value: files,
+        configurable: true,
+      });
+      act(() => {
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
+
+    function shownImages() {
+      return Array.from(
+        container.querySelectorAll<HTMLImageElement>(
+          "[data-review-composer-image] img",
+        ),
+      ).map((img) => img.alt);
+    }
+
+    function sendButton() {
+      return container.querySelector<HTMLButtonElement>(
+        'button[type="submit"]',
+      )!;
+    }
+
+    it("takes a pasted image and sends it with no text", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      const onSubmit = vi.fn();
+      await render(
+        <ImageHarness uploadImage={uploadImage} onSubmit={onSubmit} />,
+      );
+      expect(sendButton().disabled).toBe(true);
+
+      const event = paste([imageFile("shot.png")]);
+      expect(event.defaultPrevented).toBe(true);
+      await act(async () => {});
+      expect(uploadImage).toHaveBeenCalledTimes(1);
+      expect(shownImages()).toEqual(["shot.png"]);
+      expect(editorDom().textContent).toBe("");
+
+      expect(sendButton().disabled).toBe(false);
+      act(() => sendButton().click());
+      expect(onSubmit).toHaveBeenCalledWith("human");
+    });
+
+    it("pastes a spreadsheet's cells as text, not as the picture of them", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      await render(<ImageHarness uploadImage={uploadImage} />);
+      const event = paste([imageFile("cells.png")], "a\tb");
+      await act(async () => {});
+      expect(event.defaultPrevented).toBe(true);
+      expect(uploadImage).not.toHaveBeenCalled();
+      expect(editorDom().textContent).toContain("a");
+    });
+
+    it("takes dropped and picked images, up to five, and ignores other files", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      await render(<ImageHarness uploadImage={uploadImage} />);
+      const toolbar = container.querySelector("[data-review-comment-tools]")!;
+      const dropped = drop(toolbar, [
+        imageFile("one.png"),
+        new File(["x"], "notes.pdf", { type: "application/pdf" }),
+        imageFile("two.jpg", "image/jpeg"),
+      ]);
+      expect(dropped.defaultPrevented).toBe(true);
+      await act(async () => {});
+      pick([
+        imageFile("three.png"),
+        imageFile("four.png"),
+        imageFile("five.png"),
+        imageFile("six.png"),
+      ]);
+      await act(async () => {});
+      expect(shownImages()).toEqual([
+        "one.png",
+        "two.jpg",
+        "three.png",
+        "four.png",
+        "five.png",
+      ]);
+      expect(uploadImage).toHaveBeenCalledTimes(5);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-review-image-button]",
+        )!.disabled,
+      ).toBe(true);
+
+      // A sixth pasted image is still the box's, so it doesn't paste as text.
+      expect(paste([imageFile("seven.png")]).defaultPrevented).toBe(true);
+      expect(uploadImage).toHaveBeenCalledTimes(5);
+    });
+
+    it("keeps a file dragged over the box from the drop zone under it", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      const pageDrop = vi.fn();
+      const pageDrag = vi.fn();
+      await render(
+        <div
+          onDragEnter={pageDrag}
+          onDragOver={pageDrag}
+          onDragLeave={pageDrag}
+          onDrop={pageDrop}
+        >
+          <ImageHarness uploadImage={uploadImage} />
+        </div>,
+      );
+      const toolbar = container.querySelector("[data-review-comment-tools]")!;
+      for (const type of ["dragenter", "dragover", "dragleave"]) {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "dataTransfer", {
+          value: { files: [], types: ["Files"] },
+        });
+        act(() => {
+          toolbar.dispatchEvent(event);
+        });
+      }
+      expect(drop(toolbar, [imageFile("one.png")]).defaultPrevented).toBe(true);
+      // Another kind of file isn't opened by the page either.
+      const pdf = new File(["x"], "notes.pdf", { type: "application/pdf" });
+      expect(drop(toolbar, [pdf]).defaultPrevented).toBe(true);
+      await act(async () => {});
+      expect(shownImages()).toEqual(["one.png"]);
+      expect(pageDrag).not.toHaveBeenCalled();
+      expect(pageDrop).not.toHaveBeenCalled();
+    });
+
+    it("doesn't send while an image is uploading", async () => {
+      let finish: (image: ReviewCommentImage) => void = () => {};
+      const uploadImage = vi.fn(
+        () =>
+          new Promise<ReviewCommentImage>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      await render(
+        <ImageHarness initialValue="See this" uploadImage={uploadImage} />,
+      );
+      expect(sendButton().disabled).toBe(false);
+      paste([imageFile("slow.png")]);
+      expect(sendButton().disabled).toBe(true);
+      await act(async () => finish(uploaded(imageFile("slow.png"))));
+      expect(shownImages()).toEqual(["slow.png"]);
+      expect(sendButton().disabled).toBe(false);
+    });
+
+    it("keeps both batches when they finish before the box renders again", async () => {
+      const finishers = new Map<string, () => void>();
+      const uploadImage = vi.fn(
+        (file: File) =>
+          new Promise<ReviewCommentImage>((resolve) => {
+            finishers.set(file.name, () => resolve(uploaded(file)));
+          }),
+      );
+      await render(<ImageHarness uploadImage={uploadImage} />);
+      pick([imageFile("first.png")]);
+      paste([imageFile("second.png")]);
+      await act(async () => {
+        finishers.get("first.png")?.();
+        finishers.get("second.png")?.();
+        // Both batches land before React renders the first one's images.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(shownImages()).toEqual(["first.png", "second.png"]);
+    });
+
+    it("leaves out an image still uploading when the box moves to another draft", async () => {
+      let finish: (image: ReviewCommentImage) => void = () => {};
+      const uploadImage = vi.fn(
+        () =>
+          new Promise<ReviewCommentImage>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const onImages = vi.fn();
+      const box = (imageTarget: string) => (
+        <ImageHarness
+          initialValue="See this"
+          uploadImage={uploadImage}
+          onImages={onImages}
+          imageTarget={imageTarget}
+        />
+      );
+      await render(box("reply:t1"));
+      paste([imageFile("slow.png")]);
+      expect(sendButton().disabled).toBe(true);
+
+      await render(box("reply:t2"));
+      expect(sendButton().disabled).toBe(false);
+      await act(async () => finish(uploaded(imageFile("slow.png"))));
+      expect(onImages).not.toHaveBeenCalled();
+      expect(shownImages()).toEqual([]);
+    });
+
+    it("still counts an upload as running when an earlier one for its draft finishes", async () => {
+      const finishers = new Map<string, () => void>();
+      const uploadImage = vi.fn(
+        (file: File) =>
+          new Promise<ReviewCommentImage>((resolve) => {
+            finishers.set(file.name, () => resolve(uploaded(file)));
+          }),
+      );
+      const box = (imageTarget: string) => (
+        <ImageHarness
+          initialValue="See this"
+          uploadImage={uploadImage}
+          imageTarget={imageTarget}
+        />
+      );
+      await render(box("reply:t1"));
+      paste([imageFile("first.png")]);
+      await render(box("reply:t2"));
+      paste([imageFile("other.png")]);
+      await render(box("reply:t1"));
+      paste([imageFile("second.png")]);
+
+      await act(async () => finishers.get("first.png")?.());
+      expect(sendButton().disabled).toBe(true);
+      await act(async () => finishers.get("second.png")?.());
+      expect(sendButton().disabled).toBe(false);
+    });
+
+    it("takes no more images than maxImages leaves room for", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      await render(<ImageHarness uploadImage={uploadImage} maxImages={2} />);
+      pick([
+        imageFile("one.png"),
+        imageFile("two.png"),
+        imageFile("three.png"),
+      ]);
+      await act(async () => {});
+      expect(shownImages()).toEqual(["one.png", "two.png"]);
+      expect(uploadImage).toHaveBeenCalledTimes(2);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-review-image-button]",
+        )!.disabled,
+      ).toBe(true);
+    });
+
+    it("removes an image, and adds the ones that uploaded when one fails", async () => {
+      const failure = new Error("storage is full");
+      const uploadImage = vi.fn(async (file: File) => {
+        if (file.name === "bad.png") throw failure;
+        return uploaded(file);
+      });
+      const onImageUploadError = vi.fn();
+      const onImages = vi.fn();
+      await render(
+        <ImageHarness
+          uploadImage={uploadImage}
+          onImageUploadError={onImageUploadError}
+          onImages={onImages}
+          initialImages={[uploaded(imageFile("kept.png"))]}
+        />,
+      );
+      pick([imageFile("bad.png"), imageFile("good.png")]);
+      await act(async () => {});
+      expect(onImageUploadError).toHaveBeenCalledWith(failure);
+      expect(shownImages()).toEqual(["kept.png", "good.png"]);
+
+      const remove = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove image: kept.png"]',
+      )!;
+      act(() => remove.click());
+      expect(shownImages()).toEqual(["good.png"]);
+      expect(onImages).toHaveBeenLastCalledWith([
+        uploaded(imageFile("good.png")),
+      ]);
+    });
+
+    it("names one image control, which opens a file input kept out of the tab order", async () => {
+      await render(<ImageHarness attachImageLabel="Bild anhängen" />);
+      const input = container.querySelector<HTMLInputElement>(
+        "[data-review-image-input]",
+      )!;
+      expect(input.type).toBe("file");
+      // `hidden` (display: none) leaves the accessibility tree, where an
+      // unnamed file input fails axe's `label` rule.
+      expect(input.classList.contains("hidden")).toBe(true);
+      expect(input.tabIndex).toBe(-1);
+      const named = container.querySelectorAll('[aria-label="Bild anhängen"]');
+      expect(named).toHaveLength(1);
+      const button = container.querySelector<HTMLButtonElement>(
+        "[data-review-image-button]",
+      )!;
+      expect(named[0]).toBe(button);
+      const pickFiles = vi.spyOn(input, "click");
+      act(() => button.click());
+      expect(pickFiles).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers no image control, paste or drop unless the host takes images", async () => {
+      await render(<Harness />);
+      expect(container.querySelector("[data-review-image-button]")).toBeNull();
+      expect(paste([imageFile("shot.png")]).defaultPrevented).toBe(false);
+    });
+  });
+
   it("inserts an emoji into the text", async () => {
     let state: { value: string } = { value: "" };
     await render(
@@ -494,6 +891,315 @@ describe("ReviewCommentComposer", () => {
 
     keydown("Enter", { ctrlKey: true });
     expect(onSubmit).toHaveBeenCalledWith("human");
+  });
+
+  describe("formatting", () => {
+    function formatToolbar() {
+      return document.querySelector<HTMLElement>(
+        "[data-review-format-toolbar]",
+      );
+    }
+
+    function toolbarButton(label: string) {
+      const button = formatToolbar()?.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      );
+      if (!button) throw new Error(`no toolbar button ${label}`);
+      return button;
+    }
+
+    function linkField() {
+      return document.querySelector<HTMLInputElement>(
+        'input[aria-label="Link address"]',
+      );
+    }
+
+    function typeInto(input: HTMLInputElement, text: string) {
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+
+    function paste(text: string) {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", text);
+      act(() => {
+        editorDom().dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    }
+
+    it("formats the selection with the keyboard and saves Markdown", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(<Harness onState={(next) => (state = next)} />);
+      typeText("Hello world");
+      placeCaret(7, 12);
+      keydown("b", { ctrlKey: true });
+      expect(state.value).toBe("Hello **world**");
+      keydown("i", { ctrlKey: true });
+      expect(state.value).toBe("Hello ***world***");
+    });
+
+    it("shows a bar over selected text that formats it", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(<Harness onState={(next) => (state = next)} />);
+      focusEditor();
+      typeText("Hello world");
+      expect(formatToolbar()).toBeNull();
+
+      placeCaret(7, 12);
+      const toolbar = formatToolbar();
+      expect(toolbar?.getAttribute("role")).toBe("toolbar");
+      expect(toolbar?.hasAttribute("data-review-popover")).toBe(true);
+      act(() => toolbarButton("Strikethrough").click());
+      expect(state.value).toBe("Hello ~~world~~");
+      expect(toolbarButton("Strikethrough").getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expect(document.activeElement).toBe(editorDom());
+
+      placeCaret(3);
+      expect(formatToolbar()).toBeNull();
+    });
+
+    it("links the selection from Cmd/Ctrl+K without sending", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      typeText("see docs");
+      placeCaret(5, 9);
+      const shortcut = keydown("k", { ctrlKey: true });
+      expect(shortcut.defaultPrevented).toBe(true);
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com/docs");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe("see [docs](https://example.com/docs)");
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(linkField()).toBeNull();
+    });
+
+    // Selected text, and just the caret, where the link is typed in.
+    for (const [where, from, to, linked] of [
+      ["over selected text", 5, 9, "see [docs](https://example.com)"],
+      ["at the caret", 9, 9, "see docs[example.com](https://example.com)"],
+    ] as const) {
+      it(`keeps the link field open on an address a comment wouldn't link, ${where}`, async () => {
+        let state = { value: "", mentions: [] as ReviewMention[] };
+        await render(<Harness onState={(next) => (state = next)} />);
+        focusEditor();
+        typeText("see docs");
+        const submitLink = (field: HTMLInputElement) =>
+          act(() => {
+            field.form?.dispatchEvent(
+              new Event("submit", { bubbles: true, cancelable: true }),
+            );
+          });
+        placeCaret(from, to);
+        keydown("k", { ctrlKey: true });
+        const field = linkField();
+        if (!field) throw new Error("link field not open");
+        typeInto(field, "javascript:alert(1)");
+        submitLink(field);
+        expect(state.value).toBe("see docs");
+        expect(linkField()?.getAttribute("aria-invalid")).toBe("true");
+        typeInto(field, "example.com");
+        expect(linkField()?.hasAttribute("aria-invalid")).toBe(false);
+        submitLink(field);
+        expect(state.value).toBe(linked);
+        expect(linkField()).toBeNull();
+      });
+    }
+
+    it("links the text the page shows selected, before the editor hears of it", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness
+          initialValue="Make the button blue"
+          onState={(next) => (state = next)}
+        />,
+      );
+      focusEditor();
+      placeCaret(10);
+      // Shift+Arrow, then Cmd/Ctrl+K at once: the browser hasn't yet told the
+      // editor the selection moved.
+      const late = (event: Event) => event.stopImmediatePropagation();
+      document.addEventListener("selectionchange", late, true);
+      try {
+        const text = editorDom().querySelector("p")?.firstChild;
+        if (!text) throw new Error("no text in the box");
+        document.getSelection()?.setBaseAndExtent(text, 9, text, 15);
+        keydown("k", { ctrlKey: true });
+      } finally {
+        document.removeEventListener("selectionchange", late, true);
+      }
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com/docs");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe(
+        "Make the [button](https://example.com/docs) blue",
+      );
+    });
+
+    it("goes on with a list on Enter, and sends once the list has ended", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      act(() => {
+        editorDom().editor.commands.toggleBulletList();
+      });
+      typeText("one");
+      keydown("Enter");
+      typeText("two");
+      keydown("Enter", { shiftKey: true });
+      typeText("three");
+      expect(state.value).toBe("- one\n- two\n- three");
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      keydown("Enter");
+      keydown("Enter");
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(editorDom().editor.isActive("bulletList")).toBe(false);
+      keydown("Enter");
+      expect(onSubmit).toHaveBeenCalledWith("human");
+      expect(state.value).toBe("- one\n- two\n- three");
+    });
+
+    it("keeps Enter inside a code block, where @ is only a character", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      act(() => {
+        editorDom().editor.commands.toggleCodeBlock();
+      });
+      typeText("a");
+      keydown("Enter");
+      const at = keydown("@");
+      expect(at.defaultPrevented).toBe(false);
+      expect(mentionListbox()).toBeNull();
+      typeText("b");
+      expect(state.value).toBe("```\na\nb\n```");
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      keydown("Enter", { ctrlKey: true });
+      expect(onSubmit).toHaveBeenCalledWith("human");
+    });
+
+    it("leaves a code block on a third Shift+Enter, as on a third Enter", async () => {
+      await render(<Harness initialValue={"```\na\n```"} />);
+      focusEditor();
+      placeCaret(editorDom().editor.state.doc.content.size - 1);
+      keydown("Enter", { shiftKey: true });
+      keydown("Enter", { shiftKey: true });
+      expect(editorDom().editor.isActive("codeBlock")).toBe(true);
+      keydown("Enter", { shiftKey: true });
+      expect(editorDom().editor.isActive("codeBlock")).toBe(false);
+    });
+
+    it("links code and keeps it code, as a comment can", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness initialValue={"`hello`"} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      placeCaret(1, 6);
+      keydown("k", { ctrlKey: true });
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe("[`hello`](https://example.com)");
+    });
+
+    it("closes the link field once the box is disabled", async () => {
+      const onChange = vi.fn();
+      const props = { value: "hello", onChange, onSubmit: () => {} };
+      await render(<ReviewCommentComposer {...props} />);
+      focusEditor();
+      placeCaret(1, 6);
+      keydown("k", { ctrlKey: true });
+      expect(linkField()).not.toBeNull();
+      await render(<ReviewCommentComposer {...props} disabled />);
+      expect(linkField()).toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("sends on Cmd/Ctrl+Enter with the mention picker open, and Shift+Enter picks no one", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      keydown("@");
+      await act(async () => {});
+      expect(mentionListbox()).not.toBeNull();
+      keydown("Enter", { shiftKey: true });
+      expect(state.mentions).toEqual([]);
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      keydown("@");
+      await act(async () => {});
+      expect(mentionListbox()).not.toBeNull();
+      keydown("Enter", { ctrlKey: true });
+      expect(onSubmit).toHaveBeenCalledWith("human");
+      expect(state.mentions).toEqual([]);
+    });
+
+    it("reads pasted text as Markdown, and Shift-pasted text as typed", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(<Harness onState={(next) => (state = next)} />);
+      paste("**bold** and [a link](https://example.com)\n- item");
+      expect(state.value).toBe(
+        "**bold** and [a link](https://example.com)\n\n- item",
+      );
+
+      act(() => {
+        editorDom().editor.commands.clearContent(true);
+      });
+      act(() => {
+        editorDom().editor.view.pasteText("**not bold**");
+      });
+      expect(state.value).toBe("\\*\\*not bold\\*\\*");
+    });
+
+    it("keeps the caret where it is when the host renders its own value again", async () => {
+      const body = "  spaced  out  ";
+      const props = { value: body, onChange: () => {}, onSubmit: () => {} };
+      await render(<ReviewCommentComposer {...props} mentions={[]} />);
+      placeCaret(3);
+      await render(<ReviewCommentComposer {...props} mentions={[]} />);
+      expect(editorDom().editor.state.selection.from).toBe(3);
+    });
   });
 
   it("opens the picker above the field on @ and picks with the keyboard", async () => {
@@ -794,6 +1500,68 @@ describe("ReviewCommentComposer", () => {
     expect(state.mentions).toEqual([alice]);
   });
 
+  it("separates text typed after a person's mention chip", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(<Harness onState={(next) => (state = next)} />);
+    keydown("@");
+    await act(async () => {});
+    await act(async () => mentionOption("Alice").click());
+    typeText("check");
+    expect(state.value).toBe("@Alice check");
+    expect(state.mentions).toEqual([alice]);
+  });
+
+  it("separates text typed after an agent mention chip", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(
+      <Harness
+        mentionOptions={[{ label: "agent", id: "agent:default", email: null }]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    await act(async () => mentionOption("agent").click());
+    typeText("hi");
+    expect(state.value).toBe("@agent hi");
+  });
+
+  it("keeps punctuation typed after an agent mention chip adjacent", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(
+      <Harness
+        mentionOptions={[{ label: "agent", id: "agent:default", email: null }]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    await act(async () => mentionOption("agent").click());
+    typeText(",");
+    expect(state.value).toBe("@agent,");
+  });
+
+  it("keeps existing punctuation after an inserted agent mention", async () => {
+    let state = { value: "", mentions: [] as ReviewMention[] };
+    await render(
+      <Harness
+        mentionOptions={[{ label: "agent", id: "agent:default", email: null }]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    act(() => {
+      const { state: editorState, view } = editorDom().editor;
+      view.dispatch(editorState.tr.insertText(","));
+      editorDom().editor.commands.setTextSelection(2);
+    });
+    await act(async () => {});
+    expect(mentionOptionLabels()).toContain("agent");
+    await act(async () => mentionOption("agent").click());
+    expect(state.value).toBe("@agent,");
+  });
+
   it("replaces the full typed mention token and submits only its metadata", async () => {
     let state = { value: "", mentions: [alice] as ReviewMention[] };
     await render(
@@ -907,6 +1675,55 @@ describe("ReviewCommentComposer", () => {
       container.querySelectorAll("[data-review-mention-chip]"),
     ).toHaveLength(0);
     expect(editorDom().textContent).toBe("");
+  });
+
+  it("chips the people a comment mentions when they load after its text", async () => {
+    const onChange = vi.fn();
+    const box = (mentions: ReviewMention[]) => (
+      <ReviewCommentComposer
+        value="Hi @Alice, and more"
+        mentions={mentions}
+        onChange={onChange}
+        onSubmit={() => {}}
+      />
+    );
+    await render(box([]));
+    expect(
+      container.querySelectorAll("[data-review-mention-chip]"),
+    ).toHaveLength(0);
+    // After "and".
+    placeCaret(15);
+
+    await render(box([alice]));
+
+    expect(
+      container.querySelector("[data-review-mention-chip]")?.textContent,
+    ).toBe("@Alice");
+    // "Hi ", the chip and ", and": the caret holds its place in the text.
+    expect(editorDom().editor.state.selection.from).toBe(10);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("opens a mail-link mention as a chip, and saves it as written", async () => {
+    const onChange = vi.fn();
+    await render(
+      <ReviewCommentComposer
+        value="Ask @[Alex Kim](mailto:alex%40example.com) first"
+        mentions={[]}
+        onChange={onChange}
+        onSubmit={() => {}}
+      />,
+    );
+    expect(
+      container.querySelector("[data-review-mention-chip]")?.textContent,
+    ).toBe("@Alex Kim");
+
+    placeCaret(editorDom().editor.state.doc.content.size - 1);
+    typeText("!");
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      "Ask @[Alex Kim](mailto:alex%40example.com) first!",
+    );
   });
 
   describe("mention combobox", () => {

@@ -12,6 +12,7 @@ import {
   type HotUpdateOptions,
   type NormalizedHotChannel,
   type Plugin,
+  type Rolldown,
   type UserConfig,
   type ViteDevServer,
 } from "vite";
@@ -36,7 +37,11 @@ import {
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
 } from "../config.js";
-import { getRuntimeDatabaseUrl } from "../db/client.js";
+import {
+  getRuntimeDatabaseUrl,
+  isPgliteUrl,
+  pgliteDataDirFromUrl,
+} from "../db/client.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
@@ -48,13 +53,13 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
+import { isPublicDevContainer } from "../server/loopback.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
-import {
-  resolveAgentNativeBuildId,
-  resolveAgentNativeCommitSha,
-} from "../shared/build-id.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
+import { resolveAgentNativeBuildIdentity } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -108,6 +113,9 @@ import {
   createSentrySourceMapUploadPlugin,
   isSentrySourceMapUploadEnabled,
 } from "./sentry-source-maps.js";
+import { workspaceCommonChunks } from "./workspace-common-chunks.js";
+import { workspaceRootChunks } from "./workspace-root-chunks.js";
+import { isWorkspaceUiLeaf } from "./workspace-ui-leaves.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -814,6 +822,10 @@ function getClientDedupe(cwd: string): string[] {
     ...(hasDep("react-router", cwd)
       ? ["react-router", "react-router/dom"]
       : []),
+    // Apps import `toast` from "sonner" directly while Toolkit's Toaster imports
+    // its own resolved copy; without deduping, the production bundle can ship two
+    // sonner instances and every toast() is lost (the dev server dedupes).
+    ...(hasDep("sonner", cwd) ? ["sonner"] : []),
   ]);
 
   const serverOnly = new Set([
@@ -1152,6 +1164,25 @@ const CORE_CLIENT_SUBPATHS = [
 const disableDepSourcemapsPlugin: Plugin = {
   name: "agent-native:no-dep-prebundle-sourcemaps",
   outputOptions: (options) => ({ ...options, sourcemap: false }),
+};
+
+const disableServedDepSourcemapsPlugin: Plugin = {
+  name: "agent-native:no-served-dep-sourcemaps",
+  apply: "serve",
+  enforce: "post",
+  transform(code, id) {
+    if (
+      process.env.AGENT_NATIVE_DEP_SOURCEMAPS === "1" ||
+      this.environment.name !== "client" ||
+      this.environment.mode !== "dev" ||
+      !this.environment.depsOptimizer?.isOptimizedDepFile(id)
+    ) {
+      return;
+    }
+    // Vite injects an identity map when no map is present. It only takes the
+    // transformed map when the code changes, so add a trailing newline.
+    return { code: `${code}\n`, map: { mappings: "" } };
+  },
 };
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -1846,6 +1877,22 @@ export interface ClientConfigOptions {
   define?: UserConfig["define"];
   agentNativeConfig?: AgentNativeConfigInput;
   clientCompatibilityVersion?: string;
+  /**
+   * The build id this app's client and server bundles carry, which the served
+   * document stamps and the client compares with the server's. Defaults to the
+   * build environment's id (`DEPLOY_ID`, `AGENT_NATIVE_BUILD_ID`, ...). Set it
+   * when one build process compiles several apps that must report different
+   * builds, such as a mount pinned to an earlier release. Workspace deploy's
+   * served-build manifest records the build environment's id, so an app it
+   * builds leaves this unset; a pipeline that sets it records its own ids.
+   */
+  buildId?: string;
+  /**
+   * The full commit SHA this app was built from, named by the served
+   * document's `agent-native-build-sha` meta. Defaults to the commit the build
+   * environment names.
+   */
+  commitSha?: string;
   routeWarmup?: AgentNativeRouteWarmupConfigInput;
   mcpIntegrations?: McpIntegrationsConfigInput;
   tailwind?: boolean;
@@ -2604,7 +2651,32 @@ export function isFrameworkDynamicDevPath(
 function rolldownInputFix(): Plugin {
   return {
     name: "agent-native-rolldown-input-fix",
+    enforce: "post",
     configEnvironment(_name, config) {
+      // Router plugins supply environment-specific entry naming after the root
+      // config. Preserve their route suffixes while changing the cache key.
+      if (_name === "client" && process.env.AGENT_NATIVE_WORKSPACE === "1") {
+        const optionBags = new Set([
+          config.build?.rolldownOptions,
+          config.build?.rollupOptions,
+        ]);
+        for (const buildOptions of optionBags) {
+          if (!buildOptions) continue;
+          const outputs = Array.isArray(buildOptions.output)
+            ? buildOptions.output
+            : [buildOptions.output ?? (buildOptions.output = {})];
+          for (const output of outputs) {
+            const original = output.entryFileNames;
+            output.entryFileNames = (chunk) => {
+              const pattern =
+                typeof original === "function"
+                  ? original(chunk)
+                  : (original ?? "assets/[name]-[hash].js");
+              return pattern.replace(/\[hash(?::\d+)?\]/g, "[hash:16]");
+            };
+          }
+        }
+      }
       const input = config.build?.rollupOptions?.input;
       if (!Array.isArray(input)) return;
       const fixed = input.map((entry: any) => {
@@ -2616,6 +2688,97 @@ function rolldownInputFix(): Plugin {
         return entry;
       });
       config.build!.rollupOptions!.input = fixed;
+    },
+  };
+}
+
+function workspaceIconChunks(): Plugin {
+  return {
+    name: "agent-native-workspace-icon-chunks",
+    enforce: "post",
+    transform: {
+      filter: { code: /@tabler\/icons-react/ },
+      async handler(code, id, options?) {
+        if (options?.ssr || process.env.AGENT_NATIVE_WORKSPACE !== "1") return;
+        const { rewriteWorkspaceIconImports } =
+          await import("./workspace-icon-imports.js");
+        return rewriteWorkspaceIconImports(code, id, async (specifier) =>
+          Boolean(await this.resolve(specifier, id, { skipSelf: true })),
+        );
+      },
+    },
+    configEnvironment(name, config) {
+      if (name !== "client" || process.env.AGENT_NATIVE_WORKSPACE !== "1")
+        return;
+      const options =
+        config.build?.rolldownOptions ?? config.build?.rollupOptions ?? {};
+      const originalOutput = options.output;
+      const prepareOutput = (output: Rolldown.OutputOptions) => {
+        if (output.codeSplitting === false) return output;
+        const splitting =
+          typeof output.codeSplitting === "object" ? output.codeSplitting : {};
+        return {
+          ...output,
+          codeSplitting: {
+            ...splitting,
+            groups: [
+              ...(splitting.groups ?? []).filter(
+                (group) =>
+                  group.name !== "agent-native-icons" &&
+                  group.name !== "agent-native-ui-leaves" &&
+                  group.name !== "agent-native-ui",
+              ),
+              {
+                name: "agent-native-icons",
+                // Leave catalog-only icons behind their lazy picker entry.
+                minShareCount: 2,
+                test: /node_modules[\\/]@tabler[\\/]icons-react[\\/].*[\\/]icons[\\/](?!index\.)[^\\/]+\.(?:[cm]?js)$/,
+                includeDependenciesRecursively: false,
+              },
+              {
+                name: "agent-native-ui-leaves",
+                minShareCount: 2,
+                test: isWorkspaceUiLeaf,
+                includeDependenciesRecursively: false,
+              },
+              {
+                // Coalesce external UI primitives only. First-party wrappers
+                // can depend on optional app features; merging them creates
+                // chunk cycles and makes those feature bodies load eagerly.
+                // Keep wrappers under the automatic route-aware chunker.
+                name: "agent-native-ui",
+                minShareCount: 2,
+                test: (id: string) =>
+                  /node_modules[\\/]@(?:radix-ui|floating-ui)[\\/][^\\/]+[\\/]/.test(
+                    id,
+                  ),
+                includeDependenciesRecursively: false,
+              },
+            ],
+          },
+        };
+      };
+      const output = Array.isArray(originalOutput)
+        ? originalOutput.map(prepareOutput)
+        : prepareOutput(originalOutput ?? {});
+      const outputs = Array.isArray(output) ? output : [output];
+      if (outputs.every((entry) => entry.codeSplitting === false)) return;
+      // Replace only this environment's options. Returning output arrays would
+      // concatenate them during Vite's config merge; shared root options stay intact.
+      const hadLegacyAlias = Boolean(config.build?.rollupOptions);
+      const rolldownOptions = {
+        ...options,
+        preserveEntrySignatures:
+          options.preserveEntrySignatures === false
+            ? (false as const)
+            : ("allow-extension" as const),
+        output,
+      };
+      config.build = {
+        ...config.build,
+        rolldownOptions,
+        ...(hadLegacyAlias ? { rollupOptions: rolldownOptions } : {}),
+      };
     },
   };
 }
@@ -3101,6 +3264,61 @@ function devActionBridgePlugin(): Plugin {
       process.once("exit", cleanup);
     },
   };
+}
+
+function realpathIfPresent(directory: string): string {
+  try {
+    return fs.realpathSync(directory);
+  } catch {
+    // coercion-ok: a directory that does not exist yet keeps its resolved path.
+    return directory;
+  }
+}
+
+function literalDirectoryGlob(directory: string): string {
+  return `${directory
+    .split(path.sep)
+    .join("/")
+    .replace(/[^\w/.:-]/g, "\\$&")}/**`;
+}
+
+/**
+ * Vite `server.fs.deny` patterns for local state a dev server must never
+ * serve: each served root's `.agent-native/` directory, the dev action
+ * discovery directory, and the local PGlite data directory. Scoped to those
+ * directories: an app can itself live under a `.agent-native/` directory,
+ * such as the desktop workspaces folder.
+ */
+export function agentNativeStateFsDeny(
+  cwd: string,
+  allowRoots: readonly string[],
+  {
+    databaseUrl = "pglite:./data/pglite",
+    root = ".",
+  }: { databaseUrl?: string; root?: string } = {},
+): string[] {
+  const viteRoot = path.resolve(cwd, root);
+  const directories = [
+    ...[".", ...allowRoots].flatMap((allowed) => [
+      path.resolve(cwd, allowed, ".agent-native"),
+      path.resolve(viteRoot, allowed, ".agent-native"),
+    ]),
+    path.dirname(devActionDiscoveryFilePath(cwd)),
+    path.resolve(cwd, "data", "pglite"),
+  ];
+  const pgliteDataDir = isPgliteUrl(databaseUrl)
+    ? pgliteDataDirFromUrl(databaseUrl)
+    : "memory://";
+  if (pgliteDataDir !== "memory://") {
+    directories.push(path.resolve(cwd, pgliteDataDir));
+  }
+  return [
+    ...new Set(
+      directories.flatMap((directory) =>
+        [directory, realpathIfPresent(directory)].map(literalDirectoryGlob),
+      ),
+    ),
+  ];
 }
 
 function devAppDisplayName(appRoot: string): string {
@@ -4059,7 +4277,9 @@ function nitroDevEnvironmentClosePlugin(): Plugin {
       server.restart = (forceOptimize) => {
         const current = state();
         if (current.restartPromise) return current.restartPromise;
-        current.shutdownRequested = false;
+        // The watcher stays open while an explicit close cleans up, and a
+        // restart that ran then would bring the closed server back.
+        if (current.shutdownRequested) return Promise.resolve();
         current.viteInternalCloseExpected = false;
         clearRestartRetry();
         clearResumeRetry();
@@ -4381,10 +4601,38 @@ async function requestNitroDevDatabaseLifecycleEvent(
     );
   }
 
+  const on = hot.on.bind(hot);
+  const off = hot.off.bind(hot);
+  const sendPayload = hot.send.bind(hot);
+
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timeout);
-      hot.off?.(acknowledgementEvent, onClosed);
+      off("agent-native:dev-database-ready", onReady);
+      off(acknowledgementEvent, onClosed);
+    };
+    const send = (event: string, data?: object) => {
+      try {
+        sendPayload({ type: "custom", event, data });
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+    const waitFor = (stage: string) =>
+      setTimeout(() => {
+        cleanup();
+        reject(
+          new NitroDevDatabaseLifecycleTimeout(
+            `Nitro dev environment did not ${stage} before restart.`,
+          ),
+        );
+      }, 5_000);
+    const onReady = () => {
+      off("agent-native:dev-database-ready", onReady);
+      clearTimeout(timeout);
+      timeout = waitFor(`acknowledge database ${operation}`);
+      send(requestEvent, { requestId });
     };
     const onClosed = (payload: any) => {
       if (payload?.requestId !== requestId) return;
@@ -4399,25 +4647,10 @@ async function requestNitroDevDatabaseLifecycleEvent(
         resolve();
       }
     };
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(
-        new NitroDevDatabaseLifecycleTimeout(
-          `Nitro dev environment did not acknowledge database ${operation} before restart.`,
-        ),
-      );
-    }, 5_000);
-    hot.on?.(acknowledgementEvent, onClosed);
-    try {
-      hot.send?.({
-        type: "custom",
-        event: requestEvent,
-        data: { requestId },
-      });
-    } catch (error) {
-      cleanup();
-      reject(error);
-    }
+    let timeout = waitFor(`report database ${operation} listeners ready`);
+    on(acknowledgementEvent, onClosed);
+    on("agent-native:dev-database-ready", onReady);
+    send("agent-native:dev-database-ready-check");
   });
 }
 
@@ -4592,6 +4825,7 @@ function authClientAssetPlugin(cwd: string): Plugin {
         type: "chunk",
         id: entry,
         fileName: AUTH_CLIENT_ASSET_PATH,
+        preserveSignature: "exports-only",
       });
     },
     configureServer(server) {
@@ -4733,6 +4967,7 @@ function createAgentNativePlugins(
     clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
+    disableServedDepSourcemapsPlugin,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
@@ -4750,6 +4985,9 @@ function createAgentNativePlugins(
     reactRouterVirtualInvalidationMirrorPlugin(),
     silenceConnectionResets(),
     rolldownInputFix(),
+    workspaceIconChunks(),
+    workspaceCommonChunks(),
+    workspaceRootChunks(),
     ...(useServeOnlyNitroPlugin
       ? [forceServeOnly(nitroPlugin), nitroDevEnvironmentClosePlugin()]
       : includeNitro
@@ -4896,7 +5134,10 @@ function createAgentNativeConfig(
   const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
   const harnessBuildMode = JSON.stringify(harnessMode);
   const requiredEnvBuildValue = JSON.stringify(requiredEnv);
-  const buildId = resolveAgentNativeBuildId(process.env, "development");
+  const { buildId, commitSha } = resolveAgentNativeBuildIdentity(process.env, {
+    buildId: options.buildId,
+    commitSha: options.commitSha,
+  });
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   const frameworkRoutePrefix =
     resolvedAppConfig.runtime?.frameworkRoutePrefix ?? "";
@@ -4960,6 +5201,16 @@ function createAgentNativeConfig(
   const localWorkspacePackageAllow = localWorkspacePackageDeps.map(
     (pkg) => pkg.packageDir,
   );
+  const fsAllow = [
+    ".",
+    ...monorepoPackageAllow,
+    ...monorepoNodeModulesAllow,
+    ...workspaceCoreFsAllow,
+    ...localWorkspacePackageAllow,
+    ...workspaceNodeModulesAllow,
+    ...(userConfig.server?.fs?.allow ?? []),
+    ...(options.fsAllow ?? []),
+  ];
   const localWorkspacePackageResolveAliases = localWorkspacePackageAliases(
     localWorkspacePackageDeps,
   );
@@ -4987,6 +5238,8 @@ function createAgentNativeConfig(
           firstRunOnboardingBuildMode,
         "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
         "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
+        // Kept in step with the client define above.
+        __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(resolvedAppConfig),
       },
     },
     logLevel:
@@ -4999,8 +5252,9 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
-      __AGENT_NATIVE_COMMIT_SHA__: JSON.stringify(
-        resolveAgentNativeCommitSha(process.env),
+      __AGENT_NATIVE_COMMIT_SHA__: JSON.stringify(commitSha),
+      __AGENT_NATIVE_LAZY_TOOLKIT_LOCALES__: JSON.stringify(
+        process.env.AGENT_NATIVE_LAZY_TOOLKIT_LOCALES === "1",
       ),
       __AGENT_NATIVE_PACKAGE_VERSIONS__: JSON.stringify(packageVersions),
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
@@ -5052,7 +5306,9 @@ function createAgentNativeConfig(
         process.env.GTM_CONTAINER_ID?.trim() || "",
       ),
       __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify(
-        normalizeAgentNativeRouteWarmupConfig(options.routeWarmup),
+        normalizeAgentNativeRouteWarmupConfig(
+          options.routeWarmup ?? (isWorkspaceChild ? "intent" : undefined),
+        ),
       ),
       __AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__: JSON.stringify(
         normalizeMcpIntegrationsConfig(options.mcpIntegrations),
@@ -5077,7 +5333,11 @@ function createAgentNativeConfig(
     },
     server: {
       ...(userConfig.server ?? {}),
-      host: userConfig.server?.host ?? "::",
+      host:
+        userConfig.server?.host ??
+        (isAuthDisabled(runtimeEnv) && !isPublicDevContainer()
+          ? "127.0.0.1"
+          : "::"),
       port: options.port ?? userConfig.server?.port ?? 8080,
       allowedHosts: options.allowedHosts ??
         userConfig.server?.allowedHosts ?? [
@@ -5103,21 +5363,16 @@ function createAgentNativeConfig(
       },
       fs: {
         ...(userConfig.server?.fs ?? {}),
-        allow: [
-          ".",
-          ...monorepoPackageAllow,
-          ...monorepoNodeModulesAllow,
-          ...workspaceCoreFsAllow,
-          ...localWorkspacePackageAllow,
-          ...workspaceNodeModulesAllow,
-          ...(userConfig.server?.fs?.allow ?? []),
-          ...(options.fsAllow ?? []),
-        ],
+        allow: fsAllow,
         deny: [
           ".env",
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
+          ...agentNativeStateFsDeny(cwd, fsAllow, {
+            databaseUrl: getRuntimeDatabaseUrl("pglite:./data/pglite"),
+            ...(userConfig.root ? { root: userConfig.root } : {}),
+          }),
           ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],
@@ -5126,6 +5381,17 @@ function createAgentNativeConfig(
     build: {
       ...userBuild,
       rolldownOptions: {
+        // Workspace modules keep app-local URLs. A longer content hash also
+        // retires cached redirects from the former shared-asset namespace.
+        ...(process.env.AGENT_NATIVE_WORKSPACE === "1"
+          ? {
+              output: {
+                entryFileNames: "assets/[name]-[hash:16].js",
+                chunkFileNames: "assets/[name]-[hash:16].js",
+                assetFileNames: "assets/[name]-[hash:16][extname]",
+              },
+            }
+          : {}),
         external: optionalBuildExternals,
         experimental: {
           lazyBarrel: _buildRolldownOptions?.experimental?.lazyBarrel ?? true,
@@ -5235,16 +5501,16 @@ function createAgentNativeConfig(
         ...arrayFrom((userConfig.resolve as { dedupe?: any })?.dedupe),
       ],
       alias: [
+        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
+          find,
+          replacement,
+        })),
         ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
         ...(isBuildCommand(command) ? [] : getCoreSourceAliases(cwd)),
         ...localWorkspacePackageResolveAliases,
         { find: "@", replacement: path.resolve(cwd, "./app") },
         { find: "@shared", replacement: path.resolve(cwd, "./shared") },
-        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
-          find,
-          replacement,
-        })),
         ...aliasArrayFrom((userConfig.resolve as { alias?: unknown })?.alias),
       ],
     },
@@ -5318,6 +5584,7 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  nitroDevEnvironmentClosePlugin as _nitroDevEnvironmentClosePlugin,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
   persistent5xxRecovery as _persistent5xxRecovery,

@@ -8,6 +8,7 @@ import {
   type ContextManifest,
 } from "../../shared/context-xray.js";
 import { updateManifestSegmentStatus } from "./manifest.js";
+import { contextXrayStore } from "./schema-store.js";
 
 function directiveId(): string {
   return `ctxdir-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -36,6 +37,7 @@ export async function loadContextDirectives(
   threadId: string,
   opts: { ownerEmail?: string | null } = {},
 ): Promise<Map<string, ContextDirective>> {
+  await contextXrayStore.ready();
   const client = getDbExec();
   const ownerClause = opts.ownerEmail ? " AND owner_email = ?" : "";
   const args: unknown[] = [threadId, 1];
@@ -62,6 +64,7 @@ export async function upsertContextDirective(input: {
   ownerEmail: string;
   orgId?: string | null;
 }): Promise<ContextDirective> {
+  await contextXrayStore.ready();
   const client = getDbExec();
   const now = Date.now();
   const existing = await client.execute({
@@ -138,6 +141,7 @@ export async function deactivateContextDirective(input: {
   segmentId: string;
   ownerEmail: string;
 }): Promise<number> {
+  await contextXrayStore.ready();
   const result = await getDbExec().execute({
     sql: `UPDATE context_directives SET active = ?, updated_at = ? WHERE thread_id = ? AND segment_id = ? AND owner_email = ?`,
     args: [0, Date.now(), input.threadId, input.segmentId, input.ownerEmail],

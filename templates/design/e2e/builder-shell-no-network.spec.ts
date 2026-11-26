@@ -77,16 +77,14 @@ test("the Builder shell canvas makes no agent-native requests", async ({
     await page.goto(hostUrl, { waitUntil: "domcontentloaded" });
     const shell = page.frameLocator("#design");
     await expect(shell.locator("[data-screen-shell]")).toHaveCount(2);
-    const rail = shell.locator('[data-design-chrome-region="workspace-rail"]');
+    const library = shell.getByRole("tab", { name: "Library", exact: true });
 
-    await rail.getByRole("button", { name: "Tokens", exact: true }).click();
-    await expect(
-      rail.getByRole("button", { name: "Tokens", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+    await library.click();
+    await expect(library).toHaveAttribute("aria-selected", "true");
     await expect(
       shell.getByText("Tokens require editor access", { exact: true }),
     ).toBeVisible();
-    await rail.getByRole("button", { name: "Layers", exact: true }).click();
+    await shell.getByRole("tab", { name: "File", exact: true }).click();
     const layers = shell.getByRole("tree", { name: "Layers" });
     await expect(layers.getByRole("treeitem")).toHaveText(["About", "Home"]);
     await layers.getByRole("treeitem", { name: "About" }).click();

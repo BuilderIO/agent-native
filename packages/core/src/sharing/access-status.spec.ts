@@ -83,7 +83,7 @@ function statusAs(
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE qa_status_docs (
       id TEXT PRIMARY KEY,

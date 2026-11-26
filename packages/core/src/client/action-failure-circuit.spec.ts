@@ -4,11 +4,15 @@ import {
   ActionCircuitOpenError,
   actionCircuitRemainingMs,
   assertActionCircuitClosed,
+  endsActionPolling,
   isActionCircuitOpenError,
+  isProviderPausedActionError,
   isTerminalActionError,
   recordActionFailure,
+  registerProviderPausedErrorCodes,
   resetActionFailureCircuit,
   resetActionFailureCircuits,
+  resetPausedProviderCircuits,
 } from "./action-failure-circuit.js";
 
 const refused = Object.assign(new Error("Bad input"), { status: 422 });
@@ -188,5 +192,97 @@ describe("action failure circuit", () => {
     }
     expect(actionCircuitRemainingMs("key-0", 0)).toBe(0);
     expect(actionCircuitRemainingMs("key-200", 0)).toBe(1_000);
+  });
+});
+
+describe("registered provider pause codes", () => {
+  const PAUSED = "example_provider_paused";
+  let unregister: (() => void) | undefined;
+
+  beforeEach(() => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    resetActionFailureCircuits();
+  });
+
+  afterEach(() => {
+    unregister?.();
+    unregister = undefined;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("treats an unregistered pause code like any other server failure", () => {
+    const first = recordActionFailure("k", { status: 503, errorCode: PAUSED });
+    expect(first.tripped).toBe(false);
+    expect(isTerminalActionError({ status: 503, errorCode: PAUSED })).toBe(
+      false,
+    );
+    expect(isProviderPausedActionError({ errorCode: PAUSED })).toBe(false);
+  });
+
+  it("opens at once for the maximum cooldown when a registered pause refuses", () => {
+    unregister = registerProviderPausedErrorCodes([PAUSED]);
+    expect(isTerminalActionError({ status: 503, errorCode: PAUSED })).toBe(
+      true,
+    );
+    const first = recordActionFailure(
+      "k",
+      { status: 503, errorCode: PAUSED },
+      0,
+    );
+    expect(first.tripped).toBe(true);
+    expect(actionCircuitRemainingMs("k", 0)).toBe(300_000);
+    expect(() => assertActionCircuitClosed("k", 1_000)).toThrow(
+      ActionCircuitOpenError,
+    );
+
+    unregister();
+    unregister = undefined;
+    expect(isProviderPausedActionError({ errorCode: PAUSED })).toBe(false);
+  });
+
+  it("lets a visible surface read through a paused circuit, never a hidden one", () => {
+    unregister = registerProviderPausedErrorCodes([PAUSED]);
+    vi.stubGlobal("document", { visibilityState: "visible" });
+    recordActionFailure("k", { status: 503, errorCode: PAUSED }, 0);
+    expect(() => assertActionCircuitClosed("k", 1_000)).not.toThrow();
+
+    vi.stubGlobal("document", { visibilityState: "hidden" });
+    expect(() => assertActionCircuitClosed("k", 1_000)).toThrow(
+      ActionCircuitOpenError,
+    );
+
+    // A circuit opened by an ordinary refusal is not loosened by visibility.
+    vi.stubGlobal("document", { visibilityState: "visible" });
+    failTimes("other", refused, 5);
+    expect(() => assertActionCircuitClosed("other", 0)).toThrow(
+      ActionCircuitOpenError,
+    );
+  });
+
+  it("closes paused circuits when the surface comes back, and only those", () => {
+    unregister = registerProviderPausedErrorCodes([PAUSED]);
+    recordActionFailure("paused", { status: 503, errorCode: PAUSED }, 0);
+    failTimes("other", refused, 5);
+
+    resetPausedProviderCircuits();
+
+    expect(actionCircuitRemainingMs("paused", 1_000)).toBe(0);
+    expect(actionCircuitRemainingMs("other", 1_000)).toBeGreaterThan(0);
+  });
+});
+
+describe("provider pause and visible polling", () => {
+  it("keeps a visible poll running through a registered pause code", () => {
+    const unregister = registerProviderPausedErrorCodes([
+      "fake_provider_paused",
+    ]);
+    const error = Object.assign(new Error("paused"), {
+      status: 503,
+      errorCode: "fake_provider_paused",
+    });
+    expect(isProviderPausedActionError(error)).toBe(true);
+    expect(endsActionPolling(error)).toBe(false);
+    unregister();
   });
 });

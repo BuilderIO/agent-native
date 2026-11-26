@@ -43,6 +43,7 @@ vi.mock("@agent-native/core/sharing", async () => {
 });
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: localDb.getRequestUserEmail,
+  getRequestAuthCapability: () => undefined,
 }));
 vi.mock("../server/source-workspace.js", () => ({
   designSourceMutationLockKey: (designId: string) =>

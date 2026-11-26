@@ -8,12 +8,15 @@ const mocks = vi.hoisted(() => ({
   getOrgContext: vi.fn(),
   getSession: vi.fn(),
   readBody: vi.fn(),
+  setResponseHeader: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
+  getHeader: (event: { headers?: Record<string, string> }, name: string) =>
+    event.headers?.[name.toLowerCase()],
   getMethod: (event: { method?: string }) => event.method ?? "GET",
-  setResponseHeader: vi.fn(),
+  setResponseHeader: (...args: unknown[]) => mocks.setResponseHeader(...args),
   setResponseStatus: (event: { status: number }, status: number) => {
     event.status = status;
   },
@@ -61,6 +64,7 @@ vi.mock("./store.js", () => ({
   updateExtensionContent: vi.fn(),
 }));
 
+import { getLocalExtension } from "./local.js";
 import { createExtensionsHandler } from "./routes.js";
 
 function createEvent(method = "POST") {
@@ -241,5 +245,62 @@ describe("createExtensionsHandler proxy response size", () => {
     });
     expect(event.status).toBe(502);
     expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+});
+
+describe("createExtensionsHandler render route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getSession.mockResolvedValue({
+      email: "member@example.test",
+      orgId: "org-1",
+    });
+    mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
+    vi.mocked(getLocalExtension).mockResolvedValue({
+      id: "local-chart",
+      name: "Local chart",
+      content: "<div>Chart</div>",
+      ownerEmail: "owner@example.test",
+      source: { permissions: [] },
+    } as never);
+  });
+
+  function renderEvent(fetchDest?: string) {
+    return {
+      method: "GET",
+      url: new URL("http://app.test/local-chart/render"),
+      headers: fetchDest ? { "sec-fetch-dest": fetchDest } : {},
+      status: 200,
+    };
+  }
+
+  function responseCsp(): string | undefined {
+    const call = mocks.setResponseHeader.mock.calls.find(
+      ([, name]) => name === "Content-Security-Policy",
+    );
+    return call?.[2] as string | undefined;
+  }
+
+  it("serves the frame document under a header sandbox without same-origin", async () => {
+    const event = renderEvent("iframe");
+    const html = await createExtensionsHandler()(event as never);
+
+    expect(event.status).toBe(200);
+    expect(html).toContain("<div>Chart</div>");
+    const csp = responseCsp();
+    expect(csp).toMatch(
+      /(?:^|;\s*)sandbox allow-scripts allow-forms allow-downloads;/,
+    );
+    expect(csp).not.toContain("allow-same-origin");
+  });
+
+  it("refuses a top-level document load", async () => {
+    const event = renderEvent("document");
+    const result = await createExtensionsHandler()(event as never);
+
+    expect(event.status).toBe(403);
+    expect(result).toEqual({ error: expect.any(String) });
+    expect(getLocalExtension).not.toHaveBeenCalled();
+    expect(responseCsp()).toBeUndefined();
   });
 });

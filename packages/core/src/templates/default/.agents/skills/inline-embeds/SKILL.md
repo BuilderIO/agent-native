@@ -58,9 +58,7 @@ import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
 
 export function OpenButton({ path }: { path: string }) {
   if (!isInAgentEmbed()) return null;
-  return (
-    <button onClick={() => postNavigate(path)}>Open</button>
-  );
+  return <button onClick={() => postNavigate(path)}>Open</button>;
 }
 ```
 

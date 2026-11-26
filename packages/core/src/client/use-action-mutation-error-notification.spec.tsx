@@ -5,6 +5,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ProviderWritePendingError } from "./provider-writes.js";
 import {
   resetUnhandledMutationBackstopForTests,
   useActionMutation,
@@ -270,6 +271,34 @@ describe("useActionMutation errorNotification", () => {
     expect(reports).toHaveLength(0);
   });
 
+  it.each(["auto", "shared"] as const)(
+    "does not announce durable pending progress as a failure in %s mode",
+    async (errorNotification) => {
+      stubFetch(false);
+      const pending = new ProviderWritePendingError({
+        id: "write-a",
+        status: "queued",
+        attempts: 1,
+        reason: "operator",
+        resumeAt: null,
+      });
+      const view = await mount({
+        errorNotification,
+        resolveResult: async () => {
+          throw pending;
+        },
+      });
+
+      await act(async () => view.mutation().mutate({}));
+      await settle();
+      await act(async () => {
+        await expect(view.mutation().mutateAsync({})).rejects.toBe(pending);
+      });
+      await settle();
+      expect(reports).toHaveLength(0);
+    },
+  );
+
   it("keeps mutate and mutateAsync identities stable across re-renders", async () => {
     stubFetch(false);
     const view = await mount();
@@ -369,6 +398,29 @@ describe("useActionMutation errorNotification", () => {
 
       expect(reports).toHaveLength(1);
       expect((reports[0]!.error as { status?: number }).status).toBe(500);
+    });
+
+    it("leaves dropped pending progress available without announcing a failed write", async () => {
+      stubFetch(false);
+      const pending = new ProviderWritePendingError({
+        id: "write-a",
+        status: "queued",
+        attempts: 1,
+        reason: "operator",
+        resumeAt: null,
+      });
+      const view = await mount({
+        resolveResult: async () => {
+          throw pending;
+        },
+      });
+
+      await act(async () => {
+        void view.mutation().mutateAsync({});
+      });
+      await settle();
+
+      expect(reports).toHaveLength(0);
     });
 
     it("reports an await with no catch anywhere", async () => {

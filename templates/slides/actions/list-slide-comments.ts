@@ -1,15 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { resolveUserProfileName } from "@agent-native/core/user-profile";
-import { getUserProfiles } from "@agent-native/core/user-profile/server";
-import { and, asc, eq, gt, or } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import { commentActorKey } from "../shared/comment-author.js";
-import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
-import { summarizeSlideCommentReactions } from "../shared/slide-comment-reactions.js";
+import {
+  listSlideComments,
+  toSlideCommentRows,
+} from "../server/lib/slide-comments.js";
 
 const DEFAULT_COMMENT_PAGE_SIZE = 100;
 
@@ -47,70 +43,20 @@ export default defineAction({
     const pageLimit = args.limit ?? DEFAULT_COMMENT_PAGE_SIZE;
     await assertAccess("deck", deckId, "viewer");
 
-    const db = getDb();
-    const viewerEmail = getRequestUserEmail();
-    const filters = [eq(schema.slideComments.deckId, deckId)];
-    if (slideId) filters.push(eq(schema.slideComments.slideId, slideId));
-    if (args.cursor) {
-      filters.push(
-        or(
-          gt(schema.slideComments.createdAt, args.cursor.createdAt),
-          and(
-            eq(schema.slideComments.createdAt, args.cursor.createdAt),
-            gt(schema.slideComments.id, args.cursor.id),
-          ),
-        )!,
-      );
-    }
-    const query = db
-      .select()
-      .from(schema.slideComments)
-      .where(and(...filters))
-      .orderBy(
-        asc(schema.slideComments.createdAt),
-        asc(schema.slideComments.id),
-      );
-    const rows = await query
-      .limit(pageLimit + 1)
-      .offset(args.cursor ? 0 : offset);
-    const hasMore = rows.length > pageLimit;
-    const visibleRows = hasMore ? rows.slice(0, pageLimit) : rows;
-    const lastVisibleRow = visibleRows[visibleRows.length - 1];
-    const profiles = await getUserProfiles(
-      visibleRows.map((row) => row.authorEmail),
-    );
+    const { comments, hasMore } = await listSlideComments({
+      deckId,
+      slideId,
+      limit: pageLimit,
+      offset,
+      cursor: args.cursor,
+    });
+    const last = comments.at(-1);
     return {
-      comments: visibleRows.map((row) => ({
-        id: row.id,
-        deck_id: row.deckId,
-        slide_id: row.slideId,
-        thread_id: row.threadId,
-        parent_id: row.parentId,
-        content: row.content,
-        quoted_text: row.quotedText,
-        anchor: parseSlideCommentAnchor(row.anchor),
-        reactions: summarizeSlideCommentReactions(
-          row.emojiReactionsJson,
-          viewerEmail &&
-            commentActorKey(ctx?.caller, viewerEmail.trim().toLowerCase()),
-        ),
-        author_email: row.authorEmail,
-        author_kind: row.authorKind,
-        author_name: resolveUserProfileName(
-          row.authorEmail,
-          row.authorName,
-          profiles.get(row.authorEmail.toLowerCase())?.name,
-        ),
-        resolved: row.resolved,
-        created_at: row.createdAt,
-        updated_at: row.updatedAt,
-      })),
+      comments: await toSlideCommentRows(comments, ctx),
       has_more: hasMore,
       next_offset: hasMore ? offset + pageLimit : null,
       next_cursor:
-        hasMore && lastVisibleRow
-          ? { createdAt: lastVisibleRow.createdAt, id: lastVisibleRow.id }
-          : null,
+        hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
       limit: pageLimit,
       offset,
     };

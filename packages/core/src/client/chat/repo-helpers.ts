@@ -1,4 +1,4 @@
-import { ASSISTANT_RUN_DURATION_METADATA_KEY } from "../../agent/thread-data-builder.js";
+import { ASSISTANT_RUN_DURATION_METADATA_KEY } from "../../agent/types.js";
 
 export interface RepoMessageStatus {
   type?: string;

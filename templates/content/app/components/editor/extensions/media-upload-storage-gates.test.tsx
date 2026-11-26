@@ -92,6 +92,8 @@ function fakeEditor() {
   return {
     isEditable: true,
     isDestroyed: false,
+    on() {},
+    off() {},
     state: { tr },
     view: { dispatch: vi.fn() },
   };

@@ -15,15 +15,20 @@ import type { AnnotationScope } from "./annotation-scope";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { storedDashboardAnnotationScope } from "./dashboard-annotation-scope";
 import { DashboardConflictError } from "./dashboards-store";
+import {
+  firstRow,
+  type AnalyticsTransaction,
+  type GuardedCommitHook,
+} from "./guarded-writes";
 import { openDashboard, type OpenedDashboard } from "./open-dashboard";
 
 export interface ReportSubscriptionInput {
-  id?: string;
+  id?: string | undefined;
   dashboardId: string;
-  name?: string;
+  name?: string | undefined;
   recipients: string[];
-  slackWebhookUrl?: string | null;
-  filters?: Record<string, string>;
+  slackWebhookUrl?: string | null | undefined;
+  filters?: Record<string, string> | undefined;
   timeOfDay: string;
   timezone: string;
   enabled: boolean;
@@ -86,7 +91,7 @@ export async function getReportDashboard(
   );
 }
 
-function reportDashboardFromOpened(
+export function reportDashboardFromOpened(
   opened: OpenedDashboard | null,
   dashboardId: string,
   ctx: AccessCtx,
@@ -528,6 +533,7 @@ export async function getDashboardReportSubscription(
 export async function saveDashboardReportSubscription(
   input: ReportSubscriptionInput,
   ctx: AccessCtx,
+  onCommit?: GuardedCommitHook,
 ): Promise<DashboardReportSubscription> {
   const opened = await openDashboard(input.dashboardId, ctx);
   const dashboard = reportDashboardFromOpened(opened, input.dashboardId, ctx);
@@ -570,6 +576,7 @@ export async function saveDashboardReportSubscription(
     ) {
       throw new DashboardConflictError(input.dashboardId);
     }
+    let before: string | null = null;
     if (input.id) {
       const [existing] = await tx
         .select()
@@ -580,6 +587,7 @@ export async function saveDashboardReportSubscription(
           statusCode: 404,
         });
       }
+      before = existing.updatedAt;
       await tx
         .update(schema.dashboardReportSubscriptions)
         .set({
@@ -621,6 +629,12 @@ export async function saveDashboardReportSubscription(
       .from(schema.dashboardReportSubscriptions)
       .where(ownerWhere(ctx, undefined, id));
     if (!savedRow) throw new Error("Failed to save report subscription");
+    await onCommit?.(tx, {
+      targetId: id,
+      before,
+      after: updatedAt,
+      changed: true,
+    });
     return rowToSubscription(savedRow);
   });
   recordChange({
@@ -727,21 +741,41 @@ export async function queueDashboardReportSubscriptionNow(
   id: string,
   ctx: AccessCtx,
   now: Date = new Date(),
+  onCommit?: GuardedCommitHook,
 ): Promise<DashboardReportSubscription | null> {
   const db = getDb() as any;
   const queuedAt = now.toISOString();
-  const rows = await db
-    .update(schema.dashboardReportSubscriptions)
-    .set({
-      enabled: true,
-      nextRunAt: queuedAt,
-      lastStatus: null,
-      lastError: null,
-      updatedAt: queuedAt,
-    })
-    .where(ownerWhere(ctx, undefined, id))
-    .returning();
-  return rows[0] ? rowToSubscription(rows[0]) : null;
+  const target = and(
+    ownerWhere(ctx),
+    eq(schema.dashboardReportSubscriptions.id, id),
+  );
+  return db.transaction(async (tx: AnalyticsTransaction) => {
+    const existing = firstRow(
+      await tx
+        .select({ updatedAt: schema.dashboardReportSubscriptions.updatedAt })
+        .from(schema.dashboardReportSubscriptions)
+        .where(target)
+        .for("update"),
+    );
+    if (!existing) return null;
+    const [row] = await tx
+      .update(schema.dashboardReportSubscriptions)
+      .set({
+        enabled: true,
+        nextRunAt: queuedAt,
+        lastStatus: null,
+        lastError: null,
+        updatedAt: queuedAt,
+      })
+      .where(target)
+      .returning();
+    await onCommit?.(tx, {
+      before: existing.updatedAt,
+      after: queuedAt,
+      changed: true,
+    });
+    return rowToSubscription(row);
+  });
 }
 
 export async function markDashboardReportResult(

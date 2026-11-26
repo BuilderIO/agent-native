@@ -171,11 +171,6 @@ export interface CommitVisualStylesArgs {
     html: string,
     options?: { recordHistory?: boolean },
   ) => boolean;
-  upsertMotionKeyframesFromStyles: (
-    styles: Record<string, string>,
-    elementInfo?: ElementInfo,
-    selector?: string,
-  ) => void;
   viewModeRef: RefObject<"single" | "overview">;
   ydoc: Y.Doc | null;
 }
@@ -255,7 +250,6 @@ function commitVisualStylesWithOutcome(
     t,
     undoManagerRef,
     updateLiveScreenSnapshotContent,
-    upsertMotionKeyframesFromStyles,
     viewModeRef,
     ydoc,
   }: CommitVisualStylesArgs,
@@ -347,7 +341,6 @@ function commitVisualStylesWithOutcome(
     onNoRenderedBox?.();
     return op.fail("no_rendered_box");
   }
-  upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
   if (isRunningAppSourceType(activeCanvasSourceType)) {
     const targetInfo = liveTargetInfo;
     if (

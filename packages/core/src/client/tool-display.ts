@@ -1,3 +1,5 @@
+import { UNKNOWN_TOOL_ERROR_CODE } from "../agent/types.js";
+
 function builderAppToolLabels(
   labels: Record<string, string>,
 ): Record<string, string> {
@@ -142,6 +144,7 @@ type ToolDisplayPart = {
   outcome?: "unknown";
   activity?: boolean;
   structuredMeta?: Record<string, unknown>;
+  errorCode?: string;
 };
 
 const ACTIVE_AGENT_ACTIVITY_PHASES = new Set([
@@ -240,6 +243,25 @@ export function isCallAgentToolCallShadowed(
 
   return agentRows.some(
     (candidate) => normalizedAgentName(candidate.toolName?.slice(6)) === target,
+  );
+}
+
+/**
+ * A call to a tool that does not exist. Nothing ran and the model corrects
+ * itself from the error, so the raw tool name and dispatch error stay hidden.
+ */
+export function isUnknownToolCall(part: ToolDisplayPart | undefined): boolean {
+  return (
+    part?.type === "tool-call" && part.errorCode === UNKNOWN_TOOL_ERROR_CODE
+  );
+}
+
+export function isHiddenToolCall(
+  parts: readonly ToolDisplayPart[],
+  index: number,
+): boolean {
+  return (
+    isUnknownToolCall(parts[index]) || isCallAgentToolCallShadowed(parts, index)
   );
 }
 

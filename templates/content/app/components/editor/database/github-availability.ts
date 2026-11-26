@@ -1,7 +1,7 @@
 import type { ContentDatabaseSource } from "@shared/api";
 import { GITHUB_SOURCE_TYPE, githubFolderName } from "@shared/github-source";
 
-import { githubRelativeTime } from "./github-source-text";
+import { sourceRelativeTime } from "./source-status-text";
 import { dbText } from "./text";
 
 /** The collection the Sources panel is about, as GitHub linking needs it. */
@@ -98,7 +98,7 @@ export function githubRowDescription(
       return status?.syncedAt
         ? dbText("githubRowLinked", {
             folder,
-            time: githubRelativeTime(status.syncedAt, now),
+            time: sourceRelativeTime(status.syncedAt, now),
           })
         : dbText("githubRowLinkedNotUpdated", { folder });
     }

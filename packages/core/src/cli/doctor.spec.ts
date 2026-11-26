@@ -147,6 +147,44 @@ describe("runDoctorScan", () => {
     );
   });
 
+  it("lets tests read the configuration keys agent-native.json names, and nothing else", () => {
+    const testRead = "export const base = process.env.FLOWS_BASE;\n";
+    const files = {
+      ...CLEAN_FILES,
+      "tests/flows.spec.ts": testRead,
+      "server/lib/base.ts": testRead,
+    };
+    const flagged = (root: string) =>
+      runDoctorScan({ root, only: ["no-env-credentials"] }).findings.map(
+        (finding) => finding.file,
+      );
+
+    expect(flagged(makeTempAppRoot(files)).sort()).toEqual([
+      "server/lib/base.ts",
+      "tests/flows.spec.ts",
+    ]);
+    expect(
+      flagged(
+        makeTempAppRoot({
+          ...files,
+          "agent-native.json": JSON.stringify({
+            doctor: { testEnvKeys: ["FLOWS_BASE"] },
+          }),
+        }),
+      ),
+    ).toEqual(["server/lib/base.ts"]);
+  });
+
+  it("refuses a malformed or credential-like doctor.testEnvKeys", () => {
+    for (const testEnvKeys of ["FLOWS_BASE", ["flows-base"], ["STRIPE_KEY"]]) {
+      const root = makeTempAppRoot({
+        ...CLEAN_FILES,
+        "agent-native.json": JSON.stringify({ doctor: { testEnvKeys } }),
+      });
+      expect(() => runDoctorScan({ root })).toThrow(/testEnvKeys/);
+    }
+  });
+
   it("reports empty migration plugins before they reach a generated app build", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,

@@ -5,7 +5,15 @@ const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 import { drizzle } from "drizzle-orm/pglite";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../../shared/meeting-finalization.js";
 
@@ -43,7 +51,11 @@ const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
 const mockReleaseHostedClipAllowanceAfterCleanup = vi.hoisted(() => vi.fn());
 const mockReleaseOrphanedHostedClipAllowance = vi.hoisted(() => vi.fn());
 const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
     execute: (statement: SqlStatement) => execute(client, statement),
@@ -159,16 +171,9 @@ async function statusOf(id: string) {
 }
 
 describe("upload lease", () => {
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
     db = drizzle(client);
-    mockAbortResumableUploadSession.mockResolvedValue(true);
-    mockDeleteS3ObjectByUrl.mockClear();
-    mockReleaseHostedClipRecording.mockClear();
-    mockReleaseHostedClipAllowanceAfterCleanup.mockClear();
-    mockReleaseOrphanedHostedClipAllowance.mockClear();
-    mockReconcileMeetingOnRecordingFailed.mockClear();
-    mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
     await execute(
       client,
       `CREATE TABLE recordings (
@@ -235,6 +240,26 @@ describe("upload lease", () => {
         full_text TEXT NOT NULL DEFAULT ''
       )`,
     );
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    const { rows } = await client.query(
+      "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+    );
+    await client.exec(
+      `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+    );
+    mockAbortResumableUploadSession.mockResolvedValue(true);
+    mockDeleteS3ObjectByUrl.mockClear();
+    mockReleaseHostedClipRecording.mockClear();
+    mockReleaseHostedClipAllowanceAfterCleanup.mockClear();
+    mockReleaseOrphanedHostedClipAllowance.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
     mockDeleteS3ObjectByUrl.mockResolvedValue(true);
     mockReleaseHostedClipRecording.mockImplementation(
       async (input: { recordingId: string }) => {
@@ -1239,6 +1264,33 @@ describe("upload lease", () => {
 
     expect(result.failed).toBe(1);
     expect((await statusOf("stuck")).status).toBe("failed");
+  });
+
+  it("reports the status each upload timed out in", async () => {
+    mockTrack.mockClear();
+    await insertRecording({
+      id: "stuck",
+      status: "processing",
+      lease: iso(-1_000),
+    });
+    await insertRecording({
+      id: "silent",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+
+    await reapExpiredUploads({ now: NOW });
+
+    const statuses = Object.fromEntries(
+      mockTrack.mock.calls.map(([, props]) => [
+        (props as Record<string, unknown>).output_id,
+        (props as Record<string, unknown>).status_at_timeout,
+      ]),
+    );
+    expect(mockTrack).toHaveBeenCalledTimes(2);
+    expect(statuses).toEqual({ stuck: "processing", silent: "uploading" });
+    expect((await statusOf("stuck")).failure_code).toBe("upload_timed_out");
+    expect((await statusOf("silent")).failure_code).toBe("upload_timed_out");
   });
 
   it("leaves a recording whose lease is renewed mid-reap fully intact", async () => {

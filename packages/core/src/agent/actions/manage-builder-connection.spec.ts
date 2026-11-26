@@ -167,3 +167,8 @@ describe("manage-builder-connection", () => {
     });
   });
 });
+
+it("keeps manage-builder-connection in the app, off MCP", async () => {
+  const { default: action } = await import("./manage-builder-connection.js");
+  expect(action.mcpTool).toBe(false);
+});

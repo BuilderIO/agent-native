@@ -77,7 +77,6 @@ describe("runLayerMove linked component routing", () => {
       handleScreenLayerMove: vi.fn(),
       recordContentHistoryEntry: vi.fn(),
       recordLocalContentHistoryEntry: vi.fn(),
-      remapMotionTracksForClone: vi.fn(),
       runtimeStructureMoveRevisionRef: { current: 0 },
       sendRuntimeLayerMoveSemanticHandoff: vi.fn(() => false),
       setExpandedLayerIds: vi.fn(),

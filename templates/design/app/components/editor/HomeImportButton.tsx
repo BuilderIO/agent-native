@@ -118,7 +118,6 @@ export function HomeImportButton() {
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
         projectType: "prototype",
-        designSystemId: null,
         creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));

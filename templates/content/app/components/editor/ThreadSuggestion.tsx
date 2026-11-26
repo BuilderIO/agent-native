@@ -8,7 +8,7 @@ import {
   IconCircleCheck,
   IconCircleX,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,7 +17,11 @@ import { cn } from "@/lib/utils";
 import { AgentAvatar, modelDisplayName } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentRow } from "./CommentRow";
-import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
+import {
+  SuggestionDecisionButtons,
+  SuggestionGroupDecision,
+  SuggestionStepper,
+} from "./SuggestionControls";
 import {
   piecesOfStaleUnits,
   reviewUnitOperations,
@@ -45,14 +49,13 @@ type ThreadSuggestionProps = {
   ) => void;
   /** Decides every edit of the proposal still pending. */
   onDecideRemaining?: (decision: SuggestionDecision) => void;
-  /** Accepts every edit still pending, then resolves the thread. */
-  onAcceptAndResolve?: () => void;
-  /**
-   * Opens a proposal's edits at first. A thread keeps them closed, since the
-   * Page beside it already shows them; a view without the Page opens them.
-   */
-  defaultExpanded?: boolean;
+  onResolve?: () => void;
+  onStep?: (suggestion: ResourceSuggestion) => void;
+  listsEveryEdit?: boolean;
+  stickyDecision?: boolean;
 };
+
+const LISTED_EDITS_MAX = 3;
 
 function useStatusLabel() {
   const t = useT();
@@ -148,6 +151,10 @@ function ThreadSuggestionEdit({
           <SuggestionDecisionButtons
             disabled={busy}
             acceptDisabled={conflict || acceptBlocked}
+            labels={{
+              accepted: "comments.acceptEdit",
+              rejected: "comments.rejectEdit",
+            }}
             onDecide={onDecide}
           />
         </div>
@@ -197,13 +204,6 @@ function ThreadSuggestionEdit({
   );
 }
 
-/**
- * An AI suggestion shown in place of its receipt reply inside the comment
- * thread that asked for it. A proposal's edits sit in the same group as a
- * proposal in the margin, closed to its summary, edit count, Accept all and
- * Reject all until opened. Deciding changes only the suggestions; the thread
- * stays open until someone resolves it.
- */
 export function ThreadSuggestionBody({
   suggestions,
   canDecide,
@@ -213,93 +213,295 @@ export function ThreadSuggestionBody({
   onDecide,
   onDecideUnit,
   onDecideRemaining,
-  onAcceptAndResolve,
-  defaultExpanded = false,
+  onResolve,
+  onStep,
+  listsEveryEdit = false,
+  stickyDecision = false,
 }: ThreadSuggestionProps) {
   const t = useT();
   const statusLabel = useStatusLabel();
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const units = reviewUnits(suggestions);
+  const [step, setStep] = useState(() =>
+    Math.max(
+      0,
+      units.findIndex(({ leader }) => leader.status === "pending"),
+    ),
+  );
+  const [shown, setShown] = useState(false);
+  const detailsId = useId();
+  const groupRef = useRef<HTMLDivElement>(null);
+  const settledRef = useRef<HTMLDivElement>(null);
+  const showRef = useRef<HTMLButtonElement>(null);
+  const decidedHere = useRef(new Set<string>());
+  const lastPending = useRef<string[]>([]);
+  const pendingIds = suggestions
+    .filter(({ status }) => status === "pending")
+    .map(({ id }) => id);
+  const pendingUnits = units.filter(
+    ({ leader }) => leader.status === "pending",
+  );
+  const acceptedUnits = units.filter(
+    ({ leader }) => leader.status === "accepted",
+  ).length;
+  const rejectedUnits = units.filter(
+    ({ leader }) => leader.status === "rejected",
+  ).length;
+  const decided = !pendingUnits.length && acceptedUnits + rejectedUnits > 0;
+  const stepped = !listsEveryEdit && units.length > LISTED_EDITS_MAX;
+  const index = Math.min(step, units.length - 1);
+  const steppedEditId = stepped
+    ? units.find((_, unitIndex) => unitIndex === index)?.leader.id
+    : undefined;
+  const followsDecision = useRef(false);
+  const keepsFocus = () => {
+    const focused = document.activeElement;
+    return (
+      !focused ||
+      focused === document.body ||
+      !!groupRef.current?.contains(focused)
+    );
+  };
+  useLayoutEffect(() => {
+    if (!followsDecision.current) return;
+    followsDecision.current = false;
+    if (!keepsFocus()) return;
+    const group = groupRef.current;
+    (
+      group?.querySelector<HTMLElement>(
+        "[data-thread-suggestion] [data-suggestion-decision]:not(:disabled)",
+      ) ?? group?.querySelector<HTMLElement>("[data-suggestion-step]")
+    )?.focus({ preventScroll: true });
+  }, [steppedEditId]);
+  useLayoutEffect(() => {
+    if (!decided) return;
+    const settledHere =
+      lastPending.current.length > 0 &&
+      lastPending.current.every((id) => decidedHere.current.has(id));
+    decidedHere.current.clear();
+    if (!settledHere) return;
+    const focusHere = keepsFocus();
+    const frame = requestAnimationFrame(() => {
+      settledRef.current?.scrollIntoView({ block: "nearest" });
+      if (focusHere) showRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [decided]);
+  const deciding = suggestions.some(busy);
+  useLayoutEffect(() => {
+    if (deciding) return;
+    for (const id of pendingIds) decidedHere.current.delete(id);
+  }, [deciding]);
+  useLayoutEffect(() => {
+    if (pendingIds.length) lastPending.current = pendingIds;
+  });
+  useLayoutEffect(() => {
+    if (!shown) return;
+    const frame = requestAnimationFrame(() =>
+      settledRef.current?.scrollIntoView({ block: "nearest" }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [shown]);
   const [first] = suggestions;
   if (!first) return null;
+  const summary = first.proposalSummary || first.summary;
   const pending = suggestions.filter(
     (suggestion) => suggestion.status === "pending",
   );
   // Edits that all ended the same way say so once, under the group.
   const sharedStatus =
+    !decided &&
     suggestions.length > 1 &&
     suggestions.every((suggestion) => suggestion.status === first.status)
       ? first.status
       : null;
-  const summary = first.proposalSummary || first.summary;
-  const units = reviewUnits(suggestions);
   const staleUnitPieces = piecesOfStaleUnits(suggestions);
   const cantAccept = (suggestion: ResourceSuggestion) =>
     conflict(suggestion) || staleUnitPieces.has(suggestion.id);
-  const edits = units.map((unit) => (
+  const showUnit = (unit: (typeof units)[number]) => {
+    setStep(units.indexOf(unit));
+    onStep?.(unit.leader);
+  };
+  const showNextPendingAfter = (unitIndex: number) => {
+    const nextPending = [
+      ...units.slice(unitIndex + 1),
+      ...units.slice(0, unitIndex),
+    ].find(({ leader }) => leader.status === "pending");
+    if (!nextPending) return;
+    followsDecision.current = true;
+    showUnit(nextPending);
+  };
+  const decideUnit = (
+    unit: (typeof units)[number],
+    decision: SuggestionDecision,
+  ) => {
+    for (const { id } of unit.members) decidedHere.current.add(id);
+    if (unit.members.length > 1)
+      onDecideUnit(
+        unit.members.filter(({ status }) => status === "pending"),
+        decision,
+      );
+    else onDecide(unit.leader, decision);
+  };
+  const decideRemaining = (decision: SuggestionDecision) => {
+    for (const id of pendingIds) decidedHere.current.add(id);
+    if (onDecideRemaining) onDecideRemaining(decision);
+    else for (const unit of pendingUnits) decideUnit(unit, decision);
+  };
+  const edit = (unit: (typeof units)[number], unitIndex: number) => (
     <ThreadSuggestionEdit
       key={unit.leader.id}
       suggestion={unit.leader}
       operations={reviewUnitOperations(unit)}
-      canDecide={canDecide}
+      canDecide={canDecide && units.length > 1}
       busy={unit.members.some(busy)}
       conflict={unit.members.some(cantAccept)}
       acceptBlocked={unit.members.some(acceptBlocked)}
-      onDecide={(decision) =>
-        unit.members.length > 1
-          ? onDecideUnit(
-              unit.members.filter(({ status }) => status === "pending"),
-              decision,
-            )
-          : onDecide(unit.leader, decision)
-      }
+      onDecide={(decision) => {
+        decideUnit(unit, decision);
+        if (stepped) showNextPendingAfter(unitIndex);
+      }}
       showStatus={!sharedStatus}
     />
-  ));
+  );
+  const shownUnits = stepped ? units.slice(index, index + 1) : units;
+  const edits = shownUnits.map((unit) => edit(unit, units.indexOf(unit)));
+  const stepper = stepped ? (
+    <div className="border-b border-border/60 py-1 pe-1 ps-3">
+      <SuggestionStepper
+        index={index}
+        total={units.length}
+        onStep={(to) => {
+          const unit = units.find((_, unitIndex) => unitIndex === to);
+          if (unit) showUnit(unit);
+        }}
+      />
+    </div>
+  ) : null;
   return (
     <div
+      ref={groupRef}
       className="mt-0.5 grid grid-cols-1 gap-2"
       data-thread-suggestion-group={first.proposalId ?? first.id}
     >
-      {units.length > 1 ? (
-        <ProposalGroup
-          proposalId={first.proposalId ?? first.id}
-          summary={summary}
-          totalCount={suggestions.length}
-          totalUnits={units.length}
-          members={suggestions}
-          active={false}
-          expanded={expanded}
-          onExpandedChange={setExpanded}
-          deciding={pending.some(busy)}
-          acceptDisabled={
-            pending.some(cantAccept) || pending.some(acceptBlocked)
-          }
-          canDecide={canDecide && !!onDecideRemaining}
-          onDecide={(decision) => onDecideRemaining?.(decision)}
-          onAcceptAndResolve={onAcceptAndResolve}
-        >
-          {edits}
-        </ProposalGroup>
-      ) : (
-        <>
-          <p className={cn(!pending.length && "text-muted-foreground")}>
-            {summary}
-          </p>
-          <div>{edits}</div>
-          {onAcceptAndResolve && canDecide && pending.length ? (
-            <div className="flex justify-end">
-              <button
+      <p
+        className={cn(
+          "whitespace-pre-wrap break-words",
+          !pending.length && "text-muted-foreground",
+        )}
+        data-thread-suggestion-note
+      >
+        {summary}
+      </p>
+      {decided ? (
+        <div ref={settledRef} className="grid grid-cols-1 gap-2">
+          <div
+            className="overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50"
+            data-thread-suggestion-decided
+          >
+            <div className="flex min-w-0 items-center gap-x-3 gap-y-1 px-3 py-1.5">
+              <div className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-1">
+                {acceptedUnits ? (
+                  <SuggestionStatus
+                    status={{
+                      icon: IconCircleCheck,
+                      label: t("comments.editsAccepted", {
+                        count: acceptedUnits,
+                      }),
+                    }}
+                  />
+                ) : null}
+                {rejectedUnits ? (
+                  <SuggestionStatus
+                    status={{
+                      icon: IconCircleX,
+                      label: t("comments.editsRejected", {
+                        count: rejectedUnits,
+                      }),
+                    }}
+                  />
+                ) : null}
+              </div>
+              <Button
+                ref={showRef}
                 type="button"
-                disabled={pending.some(busy) || pending.some(cantAccept)}
-                onClick={onAcceptAndResolve}
-                className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
-                data-suggestion-accept-resolve
+                variant="link"
+                size="xs"
+                className="shrink-0"
+                aria-expanded={shown}
+                aria-controls={detailsId}
+                onClick={() => {
+                  if (!shown) setStep(0);
+                  setShown(!shown);
+                }}
+                data-thread-suggestion-show
               >
-                {t("comments.acceptAndResolve")}
-              </button>
+                {t(shown ? "comments.hideEdits" : "comments.showEdits")}
+              </Button>
+            </div>
+            {shown ? (
+              <div id={detailsId} className="border-t border-border/60">
+                {stepper}
+                <div className="grid gap-2 p-2">{edits}</div>
+              </div>
+            ) : null}
+          </div>
+          {onResolve ? (
+            <div
+              className="flex items-center gap-2"
+              data-thread-suggestion-resolve
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={onResolve}
+              >
+                <IconCircleCheck aria-hidden />
+                {t("comments.resolve")}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {t("comments.replyToKeepGoing")}
+              </span>
             </div>
           ) : null}
+        </div>
+      ) : pendingUnits.length ? (
+        <>
+          <div
+            className="overflow-hidden rounded-t-lg bg-popover shadow-sm ring-1 ring-border/50"
+            data-suggestion-proposal={first.proposalId ?? first.id}
+          >
+            {stepper}
+            <div className="grid gap-2 p-2">{edits}</div>
+          </div>
+          <div
+            className={cn(
+              "-mx-px -mt-2 rounded-b-lg border border-border/50 border-t-border/60 bg-popover p-2 shadow-sm",
+              stickyDecision &&
+                "sticky bottom-0 after:absolute after:-inset-x-px after:top-full after:mt-px after:h-3.5 after:bg-popover",
+            )}
+            data-suggestion-group-decision
+          >
+            <SuggestionGroupDecision
+              pendingUnitCount={pendingUnits.length}
+              undecided={!acceptedUnits && !rejectedUnits}
+              canDecide={canDecide}
+              deciding={pending.some(busy)}
+              acceptDisabled={
+                pending.some(cantAccept) || pending.some(acceptBlocked)
+              }
+              onDecide={decideRemaining}
+            />
+          </div>
         </>
+      ) : stepped ? (
+        <div className="overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50">
+          {stepper}
+          <div className="grid gap-2 p-2">{edits}</div>
+        </div>
+      ) : (
+        <div>{edits}</div>
       )}
       {sharedStatus ? (
         <SuggestionStatus status={statusLabel(sharedStatus)} />

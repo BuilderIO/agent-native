@@ -14,6 +14,7 @@ const AUDIO_EXTRACTION_MIN_TIMEOUT_MS = 30_000;
 const AUDIO_EXTRACTION_MAX_TIMEOUT_MS = 90_000;
 const AUDIO_EXTRACTION_BASE_TIMEOUT_MS = 25_000;
 const AUDIO_EXTRACTION_PER_50MB_MS = 10_000;
+const STREAM_READ_THROUGH_BYTES = 16 * 1024 * 1024;
 const SILENCE_MAX_VOLUME_DB = -60;
 export const TRANSCRIPTION_CHUNK_SECONDS = 15 * 60;
 const STDERR_LIMIT = 16 * 1024;
@@ -26,7 +27,8 @@ export type AudioOnlyExtractionErrorCode =
   | "NO_SPEECH_DETECTED"
   | "FFMPEG_UNAVAILABLE"
   | "EXTRACTION_FAILED"
-  | "TIMEOUT";
+  | "TIMEOUT"
+  | "MEDIA_TOO_LARGE";
 
 export class AudioOnlyExtractionError extends Error {
   code: AudioOnlyExtractionErrorCode;
@@ -169,6 +171,8 @@ function ffmpegInputArgs(source: AudioExtractionSource): string[] {
     "5",
     "-rw_timeout",
     "30000000",
+    "-short_seek_size",
+    String(STREAM_READ_THROUGH_BYTES),
     "-i",
     source.url,
   ];
@@ -203,6 +207,12 @@ function isMissingAudioTrack(stderr: string): boolean {
   );
 }
 
+// ffmpeg writes the audio and its chunks to the same temp filesystem as a
+// downloaded video, so it can fill the disk too.
+function isDiskFull(message: string, stderr: string): boolean {
+  return /no space left on device|\benospc\b/i.test(`${message}\n${stderr}`);
+}
+
 function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
   const message = err instanceof Error ? err.message : String(err);
   const stderr = err instanceof FfmpegRunError ? err.stderr : "";
@@ -210,6 +220,12 @@ function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
     return new AudioOnlyExtractionError(
       "FFMPEG_UNAVAILABLE",
       "Audio-only transcription requires ffmpeg to extract the recording's audio track.",
+    );
+  }
+  if (isDiskFull(message, stderr)) {
+    return new AudioOnlyExtractionError(
+      "MEDIA_TOO_LARGE",
+      "This video is too large to transcribe. The server ran out of temporary space while preparing its audio.",
     );
   }
   if (isMissingAudioTrack(stderr)) {

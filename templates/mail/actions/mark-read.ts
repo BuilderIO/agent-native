@@ -106,6 +106,7 @@ export default defineAction({
         });
       }
     }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const ids = args.id
       ?.split(",")

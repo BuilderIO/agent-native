@@ -84,3 +84,8 @@ describe("get-launchdarkly-flags action", () => {
     expect(isLaunchDarklyFlagEnabledMock).toHaveBeenCalledTimes(1);
   });
 });
+
+it("keeps get-launchdarkly-flags in the app, off MCP", async () => {
+  const { default: action } = await import("./get-launchdarkly-flags.js");
+  expect(action.mcpTool).toBe(false);
+});

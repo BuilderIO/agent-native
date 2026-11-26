@@ -30,6 +30,7 @@ import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 import type { RelativeStyleOperation } from "@/components/design/edit-panel/style-change-types";
 import type { ElementInfo } from "@/components/design/types";
 
+import type { PendingHistoryOrderEntry } from "./editor-state";
 import {
   buildReactSemanticHandoff,
   buildRuntimeReactLayerStateHandoff,
@@ -619,6 +620,7 @@ export type PendingVisualStyleUndoTarget = {
 export type PendingVisualStyleUndoEntry = PendingVisualStyleUndoTarget & {
   gestureId?: string;
   groupedTargets?: PendingVisualStyleUndoTarget[];
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export interface PendingVisualStyleGestureState {
   sequence: number;
@@ -659,21 +661,25 @@ export type PendingLiveTextUndoEntry = {
   edit: PendingLiveTextEdit;
   revertValue: string;
   revertHtml?: string;
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveStructureUndoEntry = {
   kind: "structure";
   edit: PendingLiveStructureEdit;
   groupedEdits?: PendingLiveStructureEdit[];
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveLayerStateUndoEntry = {
   kind: "layer-state";
   edit: PendingLiveLayerStateEdit;
   revertEnabled: boolean;
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveLayerNameUndoEntry = {
   kind: "layer-name";
   edit: PendingLiveLayerNameEdit;
   revertName: string;
+  historyOrderEntry?: PendingHistoryOrderEntry;
 };
 export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
@@ -849,6 +855,20 @@ export function pendingLiveEditFrameTargets(
   return targets;
 }
 
+export function discardPendingLiveEditCollections<TStyle, TLive>({
+  stylesRef,
+  liveRef,
+  clearState,
+}: {
+  stylesRef: { current: TStyle[] };
+  liveRef: { current: TLive[] };
+  clearState: () => void;
+}) {
+  clearState();
+  stylesRef.current = [];
+  liveRef.current = [];
+}
+
 export function shouldClearPendingLiveEditsAfterReload(
   pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
   reloadedTargets: ReadonlySet<string>,
@@ -1009,7 +1029,7 @@ export function updateReloadedVisualEditHandoff(
 export function shouldSuppressReloadedVisualEditHandoff(args: {
   marker: VisualEditHandoffPublicationState | null;
   designId: string | null | undefined;
-  status: "empty" | "ready" | undefined;
+  status: "empty" | "ready" | "suggested" | undefined;
   revision: number | null | undefined;
 }): boolean {
   if (!args.marker || args.marker.designId !== args.designId) return false;
@@ -1024,7 +1044,7 @@ export function shouldSuppressReloadedVisualEditHandoff(args: {
 export function shouldClearReloadedVisualEditHandoff(args: {
   marker: VisualEditHandoffPublicationState | null;
   designId: string | null | undefined;
-  status: "empty" | "ready" | undefined;
+  status: "empty" | "ready" | "suggested" | undefined;
   revision: number | null | undefined;
 }): boolean {
   if (
@@ -1825,7 +1845,13 @@ export function formatVisualEditClipboardPrompt(
     : mcpHandoff;
 }
 
-export function isVisualEditHandoffAcknowledged(args: {
+/**
+ * How this tab's own published handoff was closed on the server. An agent
+ * acknowledgement empties the row at the published revision (the edits now
+ * live in source); clear-edits empties it and bumps the revision (the edits
+ * were discarded, so the live previews must be reverted, not kept).
+ */
+export function classifyVisualEditHandoffClosure(args: {
   expectedPublisherId: string;
   expectedClientRevision: number | null;
   publisherId: string | null;
@@ -1834,17 +1860,20 @@ export function isVisualEditHandoffAcknowledged(args: {
   pendingEditCount: number;
   revision: number | null;
   status: string;
-}): boolean {
-  return (
-    args.pendingEditCount > 0 &&
-    args.status === "empty" &&
-    args.publisherId === args.expectedPublisherId &&
-    args.expectedClientRevision !== null &&
-    args.clientRevision === args.expectedClientRevision &&
-    args.serverRevision !== null &&
-    args.revision !== null &&
-    args.revision >= args.serverRevision
-  );
+}): "applied" | "discarded" | null {
+  if (
+    args.pendingEditCount <= 0 ||
+    args.status !== "empty" ||
+    args.publisherId !== args.expectedPublisherId ||
+    args.expectedClientRevision === null ||
+    args.clientRevision !== args.expectedClientRevision ||
+    args.serverRevision === null ||
+    args.revision === null ||
+    args.revision < args.serverRevision
+  ) {
+    return null;
+  }
+  return args.revision === args.serverRevision ? "applied" : "discarded";
 }
 
 export function resolveOverviewScreenSourceType(

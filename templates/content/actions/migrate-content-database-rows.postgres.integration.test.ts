@@ -261,18 +261,35 @@ async function cleanupFixture(seed: Awaited<ReturnType<typeof fixture>>) {
   });
 }
 
-async function waitForPostgresLockWait(minimum: number) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+/**
+ * Resolves once `minimum` sessions wait on a lock, counting every lock type:
+ * a second waiter on a row queues on the first waiter's tuple lock, not on a
+ * transaction.
+ */
+async function waitForPostgresLockWait(
+  minimum: number,
+  waiter: Promise<unknown>,
+) {
+  const finished = waiter.then(
+    () => true,
+    () => true,
+  );
+  for (;;) {
     const result: any = await getDb().execute(
       sql.raw(
-        "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND locktype IN ('advisory', 'transactionid')",
+        "SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
       ),
     );
     const rows = Array.isArray(result) ? result : (result.rows ?? []);
     if (Number(rows[0]?.waiting) >= minimum) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const pollAgain = new Promise<false>((resolve) =>
+      setTimeout(() => resolve(false), 10),
+    );
+    if (await Promise.race([finished, pollAgain]))
+      throw new Error(
+        "The action finished before entering the expected PostgreSQL lock wait.",
+      );
   }
-  throw new Error("Migration did not enter the expected PostgreSQL lock wait.");
 }
 
 const postgresSuite = POSTGRES_URL ? describe : describe.skip;
@@ -456,7 +473,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
           await lockContentDatabaseMutation(tx, seed.databaseId);
           contenderEntered = true;
         });
-        await waitForPostgresLockWait(1);
+        await waitForPostgresLockWait(1, contender);
         expect(contenderEntered).toBe(false);
 
         releaseFlush();
@@ -528,7 +545,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       restore = runWithRequestContext({ userEmail: OWNER }, () =>
         restoreDocument.run({ id: restoredDocumentId }),
       );
-      await waitForPostgresLockWait(1);
+      await waitForPostgresLockWait(1, restore);
       expect(
         (
           await getDb()
@@ -639,7 +656,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         const deletionExpectation = expect(deletion).rejects.toThrow(
           "Trash changed after review; create and inspect a new plan",
         );
-        await waitForPostgresLockWait(1);
+        await waitForPostgresLockWait(1, deletion);
         requestInsertion();
         await insertionCompleted;
         releaseHolder();
@@ -730,7 +747,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
           scopeToken: purgePlan.scopeToken,
         }),
       );
-      await waitForPostgresLockWait(1);
+      await waitForPostgresLockWait(1, deletion);
       await getDb().transaction(async (tx: any) => {
         await lockContentDatabaseMutation(tx, externalDatabaseId);
         await tx.insert(schema.contentDatabaseItems).values({
@@ -805,8 +822,16 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       const holderStarted = new Promise<void>((resolve) => {
         holderEntered = resolve;
       });
+      // Lock the row without updating it. A holder that updates it, as
+      // lockContentDatabaseMutation does, leaves a new row version that both
+      // waiters chase when it commits, so deletion can lock it ahead of
+      // restore.
       holder = getDb().transaction(async (tx: any) => {
-        await lockContentDatabaseMutation(tx, seed.databaseId);
+        await tx
+          .select({ id: schema.contentDatabases.id })
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, seed.databaseId))
+          .for("update");
         holderEntered();
         await holderReleased;
       });
@@ -815,7 +840,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       restore = runWithRequestContext({ userEmail: OWNER }, () =>
         restoreContentDatabase.run({ databaseId: seed.databaseId }),
       );
-      await waitForPostgresLockWait(1);
+      await waitForPostgresLockWait(1, restore);
       deletion = runWithRequestContext({ userEmail: OWNER }, () =>
         permanentlyDeleteDocument.run({
           id: seed.databaseDocumentId,
@@ -827,7 +852,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         () => null,
         (error: unknown) => error,
       );
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitForPostgresLockWait(2, deletion);
       releaseHolder();
       await holder;
       await restore;
@@ -903,7 +928,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       trash = runWithRequestContext({ userEmail: OWNER }, () =>
         deleteDocument.run({ id: rootId }),
       );
-      await waitForPostgresLockWait(1);
+      await waitForPostgresLockWait(1, trash);
 
       releaseFlush();
       await migration;
@@ -991,7 +1016,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       trash = runWithRequestContext({ userEmail: OWNER }, () =>
         deleteContentDatabase.run({ databaseId: seed.databaseId }),
       );
-      await waitForPostgresLockWait(1);
+      await waitForPostgresLockWait(1, trash);
 
       const migration = runWithRequestContext({ userEmail: OWNER }, () =>
         action.run({ phase: "apply", plan: seed.plan }),
@@ -999,7 +1024,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       migrationExpectation = Promise.resolve(
         expect(migration).rejects.toThrow("Database not found"),
       );
-      await waitForPostgresLockWait(2);
+      await waitForPostgresLockWait(2, migration);
       releaseGate();
       await gateHolder;
       await trash;
@@ -1103,7 +1128,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
                 visibility: "always_show",
               }),
         );
-        await waitForPostgresLockWait(1);
+        await waitForPostgresLockWait(1, concurrentWriter);
         const migration = runWithRequestContext({ userEmail: OWNER }, () =>
           action.run({ phase: "apply", plan: seed.plan }),
         );
@@ -1114,7 +1139,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
               : "New property definition collides with an existing definition",
           ),
         );
-        await waitForPostgresLockWait(2);
+        await waitForPostgresLockWait(2, migration);
         releaseGate();
         await gateHolder;
         await concurrentWriter;

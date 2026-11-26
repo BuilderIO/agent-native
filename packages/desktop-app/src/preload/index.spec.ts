@@ -58,6 +58,7 @@ describe("multi-frontier preload API", () => {
           requestMagicLink(request: { email: string }): Promise<unknown>;
           signOut(): Promise<unknown>;
           onStatusChange(callback: (status: unknown) => void): () => void;
+          onAccountChange(callback: () => void): () => void;
         };
       }
     ).identity;
@@ -79,6 +80,13 @@ describe("multi-frontier preload API", () => {
     const listener = electron.listeners.get(IPC.IDENTITY_STATUS_CHANGED)!;
     listener({}, "signed-in");
     unsubscribe();
+    const accountCallback = vi.fn();
+    const unsubscribeAccount = identity.onAccountChange(accountCallback);
+    const accountListener = electron.listeners.get(
+      IPC.IDENTITY_ACCOUNT_CHANGED,
+    )!;
+    accountListener({});
+    unsubscribeAccount();
 
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SETTINGS_GET);
@@ -106,6 +114,11 @@ describe("multi-frontier preload API", () => {
     expect(electron.removeListener).toHaveBeenCalledWith(
       IPC.IDENTITY_STATUS_CHANGED,
       listener,
+    );
+    expect(accountCallback).toHaveBeenCalledOnce();
+    expect(electron.removeListener).toHaveBeenCalledWith(
+      IPC.IDENTITY_ACCOUNT_CHANGED,
+      accountListener,
     );
   });
 

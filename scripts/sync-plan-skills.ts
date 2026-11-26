@@ -132,6 +132,12 @@ const GENERATED_SKILLS: GeneratedSkill[] = [
     ],
   },
   {
+    skill: "remix",
+    body: designEntry.extraSkills?.["remix"] ?? "",
+    references: designEntry.extraFiles?.["remix"] ?? {},
+    targetDirs: [join("skills", "remix")],
+  },
+  {
     skill: "turn-into-app",
     body: turnIntoAppEntry.skillMarkdown,
     references: turnIntoAppEntry.extraFiles?.["turn-into-app"] ?? {},
@@ -171,6 +177,10 @@ const REPO_SKILL_SYMLINKS: ExpectedSymlink[] = [
   {
     rel: join(".agents", "skills", "visual-edit"),
     target: "../../skills/visual-edit",
+  },
+  {
+    rel: join(".agents", "skills", "remix"),
+    target: "../../skills/remix",
   },
   {
     rel: join(".agents", "skills", "turn-into-app"),

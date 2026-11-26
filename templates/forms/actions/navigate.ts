@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { navigationIntentSchema } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import {
@@ -40,8 +41,10 @@ export default defineAction({
       .describe(
         "Form builder sub-tab to open when view is form: edit, responses, settings, or integrations. If omitted with a current form, the current form is used.",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const { view, formId, tab } = args;
     const resolvedView = view ?? (formId || tab ? "form" : undefined);

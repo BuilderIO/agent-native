@@ -21,6 +21,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -79,6 +80,7 @@ import {
 } from "./_content-space-access.js";
 import { readOpenCommentSummaries } from "./_database-comment-summary.js";
 import {
+  CLOSED_KEY_OPERATION,
   databaseRowRevision,
   getDatabaseMutationContract,
 } from "./_database-row-mutation.js";
@@ -113,6 +115,8 @@ import {
 export { getDocumentContextPath };
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
+/** Most rows one read loads page text for, since each page's text can be long. */
+export const CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT = 25;
 
 const QUERY_PROJECTION_UNSUPPORTED_PROPERTY_TYPES =
   new Set<DocumentPropertyType>(["rollup"]);
@@ -195,17 +199,19 @@ export const contentDatabaseTableQuerySchema = z
   .optional();
 
 /** A read's opt-in to compact rows; see `compactContentDatabaseRowsFor`. */
-export const contentDatabaseCompactRowsSchema = z
-  .preprocess(
-    // GET actions receive it as a query string. Other strings stay strings,
-    // so a typo fails validation instead of reading as false.
-    (value) => (value === "true" ? true : value === "false" ? false : value),
-    z.boolean(),
-  )
-  .optional()
-  .describe(
-    "Name each row's property values by propertyId instead of repeating the definition (name, type, options) in every row; the definitions are in the top-level properties. Much smaller for collections whose select properties have many options.",
-  );
+export const contentDatabaseQueryBooleanSchema = z.preprocess(
+  // GET actions receive it as a query string. Other strings stay strings,
+  // so a typo fails validation instead of reading as false.
+  (value) => (value === "true" ? true : value === "false" ? false : value),
+  z.boolean(),
+);
+
+export const contentDatabaseCompactRowsSchema =
+  contentDatabaseQueryBooleanSchema
+    .optional()
+    .describe(
+      "Name each row's property values by propertyId instead of repeating the definition (name, type, options) in every row; the definitions are in the top-level properties. Much smaller for collections whose select properties have many options.",
+    );
 
 function contentDatabaseTableQueryMode(
   query: ContentDatabaseTableQuery | undefined,
@@ -578,11 +584,22 @@ export async function resolveContentDatabaseRead(args: {
     try {
       await resolveContentSpaceAccess(database.spaceId);
       canRead = true;
-    } catch {
-      canRead = false;
+    } catch (error) {
+      // Only the space's refusal means no access. Any other failure, such as
+      // the database being briefly unreachable, stays a server error, so the
+      // browser keeps what it showed instead of treating it as a refusal.
+      const status = (error as { statusCode?: unknown } | null)?.statusCode;
+      if (status !== 401 && status !== 403 && status !== 404) throw error;
     }
   }
-  if (!canRead) throw new Error(`Database "${databaseId}" not found`);
+  // A reader without access gets the same typed 404 as a missing database, so
+  // the browser treats it as a refusal and drops what it showed.
+  if (!canRead) {
+    fail(`Database "${databaseId}" not found`, {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
 
   if (database.deletedAt) {
     return {
@@ -644,6 +661,13 @@ export async function getContentDatabasePageResponse(
     sidebarOrder?: ContentSidebarViewOrder;
     database?: typeof schema.contentDatabases.$inferSelect;
     propertySchema?: DatabasePropertySchema;
+    /**
+     * The primary Content field of each returned row. A list read leaves page
+     * bodies out, so without this the field reads "". "include" reads the text
+     * of each returned row the reader can view; "omit" sends null, so a caller
+     * can't mistake an unread page for an empty one.
+     */
+    pageText?: "include" | "omit";
   } = {},
 ): Promise<ContentDatabasePageBuild> {
   const db = getDb();
@@ -1332,7 +1356,7 @@ export async function getContentDatabasePageResponse(
           )
       : new Map<string, string>(),
   ]);
-  const pageItems = includeExcerpts
+  const excerptItems = includeExcerpts
     ? serializedItems.map((item) => ({
         ...item,
         excerpt: item.document.canView
@@ -1343,6 +1367,46 @@ export async function getContentDatabasePageResponse(
           : "",
       }))
     : serializedItems;
+  const primaryBlocksPropertyId = options.pageText
+    ? responseProperties.find(
+        (property) =>
+          isBlocksPropertyType(property.definition.type) &&
+          isPrimaryBlocksField(property.definition.options),
+      )?.definition.id
+    : undefined;
+  const pageTextDocumentIds =
+    primaryBlocksPropertyId && options.pageText === "include"
+      ? serializedItems
+          .filter((item) => item.document.canView)
+          .map((item) => item.document.id)
+      : [];
+  const bodyByDocumentId =
+    pageTextDocumentIds.length > 0
+      ? new Map(
+          (
+            await db
+              .select({
+                id: schema.documents.id,
+                content: schema.documents.content,
+              })
+              .from(schema.documents)
+              .where(inArray(schema.documents.id, pageTextDocumentIds))
+          ).map((row) => [row.id, row.content]),
+        )
+      : new Map<string, string>();
+  const pageItems = primaryBlocksPropertyId
+    ? excerptItems.map((item) => ({
+        ...item,
+        properties: item.properties.map((property) =>
+          property.definition.id === primaryBlocksPropertyId
+            ? {
+                ...property,
+                value: bodyByDocumentId.get(item.document.id) ?? null,
+              }
+            : property,
+        ),
+      }))
+    : excerptItems;
   const organizationVisibleDocumentIds =
     organizationFilesItemFilter && sourceSnapshots.length > 0
       ? new Set(
@@ -1431,6 +1495,8 @@ export async function getContentDatabaseResponse(
     database?: typeof schema.contentDatabases.$inferSelect;
     /** The caller's role on the database page, when it already resolved it. */
     accessRole?: ResolvedAccess["role"] | null;
+    /** See `getContentDatabasePageResponse`. */
+    pageText?: "include" | "omit";
   } = {},
 ): Promise<ContentDatabaseResponse> {
   const db = getDb();
@@ -1487,6 +1553,8 @@ export async function getContentDatabaseResponse(
               database,
               definitions: propertySchema.definitions,
               sourceManagedPropertyIds: propertySchema.sourceManagedPropertyIds,
+              sourceWritebackPropertyIds:
+                propertySchema.sourceWritebackPropertyIds,
             },
           },
         ).then(async (mutationContract) => ({
@@ -1574,7 +1642,7 @@ export async function getDatabaseByDocumentId(
   documentId: string,
   options: { includeDeleted?: boolean } = {},
   db = getDb(),
-) {
+): Promise<typeof schema.contentDatabases.$inferSelect | null> {
   const clauses = [eq(schema.contentDatabases.documentId, documentId)];
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
@@ -1843,7 +1911,13 @@ export async function deleteDatabaseDataForDocument(
     await db
       .delete(schema.contentDatabaseRowMutationReceipts)
       .where(
-        eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+        and(
+          eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+          ne(
+            schema.contentDatabaseRowMutationReceipts.operation,
+            CLOSED_KEY_OPERATION,
+          ),
+        ),
       );
     await db
       .delete(schema.documentPropertyDefinitions)

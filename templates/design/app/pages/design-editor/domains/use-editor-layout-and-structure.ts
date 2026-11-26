@@ -216,7 +216,6 @@ export function useEditorLayoutAndStructure({
     recordContentHistoryEntry,
   } = editorHistory;
   const {
-    setDrawMode,
     setPinMode,
     canEditDesign,
     publicVisualEdit,
@@ -991,9 +990,8 @@ export function useEditorLayoutAndStructure({
       setOverviewSelectedScreenIds([screenId]);
       setViewMode("overview");
       setActiveTool("comment");
-      setMode("annotate");
+      setMode("comment");
       setPinMode(true);
-      setDrawMode(false);
       setRepromptDraftRequest({
         nonce: Date.now() + Math.random(),
         fileId: screenId,

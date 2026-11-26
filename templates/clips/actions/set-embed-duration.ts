@@ -22,6 +22,7 @@ export default defineAction({
   }),
   // The player calls this; an agent has no measured duration to supply.
   toolCallable: false,
+  mcpTool: false,
   run: async (args) => {
     const { resource: recording } = await assertAccess(
       "recording",

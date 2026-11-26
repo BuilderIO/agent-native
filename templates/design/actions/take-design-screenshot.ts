@@ -10,7 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
+import { routeAllowedRenderRequests } from "../server/lib/design-to-figma-svg.js";
 import {
   createHubSpotEmailPreview,
   sampleContactValuesSchema,
@@ -140,8 +140,7 @@ export function chromiumUnavailableReason(err: unknown): string {
   return (
     "A headless Chromium browser is not available in this environment, so the " +
     "visual screenshot pass cannot run here (this is expected in hosted/" +
-    "serverless deploys, which do not bundle a Chromium binary). Fall back to " +
-    "run-design-audit for a static a11y/contrast-hint check, and rely on the " +
+    "serverless deploys, which do not bundle a Chromium binary). Rely on the " +
     "manual by-eye pass instead of this action. " +
     `(${detail})`
   );
@@ -164,7 +163,6 @@ async function liveContent(
   ).content;
 }
 
-// ---------------------------------------------------------------------------
 // Contrast math — exported at module scope purely so it is unit-testable
 // without a browser. `collectPageDiagnostics` below duplicates this exact
 // logic in its own closure: Playwright's `page.evaluate` serializes a
@@ -172,7 +170,6 @@ async function liveContent(
 // cannot reference anything from this module's outer scope, so the
 // evaluate-context copy cannot simply call these exports. Keep the two copies
 // in sync if the WCAG math changes.
-// ---------------------------------------------------------------------------
 
 /** WCAG relative luminance for one sRGB channel triplet (0-255 each). */
 export function relativeLuminance(r: number, g: number, b: number): number {
@@ -424,7 +421,7 @@ export default defineAction({
     "the diagnostics are actionable immediately, and screenshots are saved " +
     "at durable URLs for review. Requires a headless Chromium binary; in hosted/serverless " +
     "deploys where one isn't available, returns `{ ok: false, reason }` " +
-    "instead of throwing — fall back to run-design-audit in that case. Agent/MCP calls include screenshot image attachments for visual inspection. Prefer one call with widths [600,375] for the HubSpot desktop/mobile completion pass. Optional templatePreview=hubspot-email renders documented tokens with fake sample values/contact defaults for browser-layout checks only, not HubSpot compilation or inbox proof; source and HTML export stay unchanged.",
+    "instead of throwing — fall back to a manual by-eye pass in that case. Agent/MCP calls include screenshot image attachments for visual inspection. Prefer one call with widths [600,375] for the HubSpot desktop/mobile completion pass. Optional templatePreview=hubspot-email renders documented tokens with fake sample values/contact defaults for browser-layout checks only, not HubSpot compilation or inbox proof; source and HTML export stay unchanged.",
   schema: z
     .object({
       designId: z
@@ -633,8 +630,11 @@ export default defineAction({
     // Claude models through the Builder gateway reject a screenshot sent as a
     // URL ("internal error"), so the agent gets the pixels inline. Model
     // providers downscale wide images anyway, and 2x often exceeds the inline
-    // limit, so the agent's capture is 1x.
-    const forAgent = ctx?.caller === "tool";
+    // limit, so the agent's capture is 1x. export-png runs this action with its
+    // own ctx and returns no inline image to the model: its file is for a
+    // person, so it keeps the 2x export scale even when the agent asked.
+    const exportingPng = ctx?.actionName === "export-png";
+    const forAgent = ctx?.caller === "tool" && !exportingPng;
     const inlineAgentImages = new Map<ScreenshotResult, InlineAgentImage>();
     const oversizeForAgent: number[] = [];
 
@@ -650,21 +650,15 @@ export default defineAction({
             }),
           viewport.widthPx,
         );
-        const page = await measure(
+        const { page, requests } = await measure(
           "setup-page",
           async () => {
             await context.addInitScript(
               "globalThis.__name = globalThis.__name || function (value) { return value; };",
             );
-            await context.route("**/*", async (route) => {
-              if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
-                await route.continue();
-              } else {
-                await route.abort("blockedbyclient");
-              }
-            });
+            const requests = await routeAllowedRenderRequests(context);
             await context.routeWebSocket("**/*", () => {});
-            return context.newPage();
+            return { page: await context.newPage(), requests };
           },
           viewport.widthPx,
         );
@@ -707,6 +701,12 @@ export default defineAction({
               page.screenshot({ type: "png", fullPage: true, timeout: 30_000 }),
             viewport.widthPx,
           );
+          if (requests.blockedNavigations.length > 0) {
+            fail(
+              "The screen navigates the page away from its own document, so it cannot be captured. Remove the script that changes the page location.",
+              { errorCode: "screenshot_navigated_away", statusCode: 422 },
+            );
+          }
 
           let uploaded: Awaited<ReturnType<typeof uploadFile>> | null = null;
           let uploadError: ScreenshotUploadError | undefined;
@@ -781,7 +781,7 @@ export default defineAction({
           if (
             screenshots.length === 1 &&
             ctx?.caller === "mcp" &&
-            ctx.actionName === "export-png"
+            exportingPng
           ) {
             screenshotPngs.set(screenshot, png);
           }

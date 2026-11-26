@@ -81,8 +81,6 @@ const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
   { mode: "tile", label: "Tile" }, // i18n-ignore image fit mode
 ];
 
-// ─── CSS serialization ─────────────────────────────────────────────────────────
-
 /**
  * Escape a URL for embedding inside a double-quoted CSS url("...") token.
  * Only `"` and `\` are CSS-significant inside a double-quoted string; newlines
@@ -427,7 +425,6 @@ export function ImageFillControls({
 
   return (
     <div className={cn("space-y-2 px-3 py-3", className)}>
-      {/* ── Preview ───────────────────────────────────────────────────────── */}
       <div
         className="relative h-40 w-full overflow-hidden rounded-md border border-border/60"
         style={{
@@ -467,7 +464,6 @@ export function ImageFillControls({
         )}
       </div>
 
-      {/* ── Image URL ─────────────────────────────────────────────────────── */}
       <Input
         value={urlDraft}
         disabled={disabled}
@@ -493,7 +489,6 @@ export function ImageFillControls({
         }}
       />
 
-      {/* ── Choose image, Fit ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-2">
         <Button
           type="button"

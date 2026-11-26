@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 // @vitest-environment happy-dom
 
 import type {
@@ -335,7 +336,6 @@ describe("DesignBottomToolbar", () => {
     render(
       <DesignBottomToolbar
         mode="edit"
-        drawMode={false}
         pinMode={false}
         activeTool="move"
         hasActiveFile
@@ -349,11 +349,9 @@ describe("DesignBottomToolbar", () => {
         onShape={vi.fn()}
         onMediaFiles={vi.fn()}
         onPen={vi.fn()}
-        onDraw={vi.fn()}
         onCommentPin={vi.fn()}
         onModeChange={vi.fn()}
         showModeTabs={false}
-        annotateEnabled
         canComment
         {...overrides}
       />,
@@ -574,7 +572,7 @@ describe("DesignBottomToolbar", () => {
 
     await renderToolbar({
       activeTool: "comment",
-      mode: "annotate",
+      mode: "comment",
       pinMode: true,
     });
     expect(pressed("comment")).toBe("true");
@@ -602,36 +600,6 @@ describe("DesignBottomToolbar", () => {
     );
     expect(pressed("frame")).toBe("false");
     expect(pressed("shapes")).toBe("true");
-  });
-
-  it("keeps Draw on the Pen button after drawing, and falls back to Pen when the lab turns off", async () => {
-    const drawing = {
-      activeTool: "draw",
-      mode: "annotate",
-      drawMode: true,
-    } as const;
-    await renderToolbar({ activeTool: "pen" });
-    expect(iconOf("pen")).toBe("pen");
-    expect(mainButton("pen")?.dataset.primaryShortcut).toBe("P");
-
-    await renderToolbar(drawing);
-    expect(mainButton("pen")?.getAttribute("aria-label")).toBe(
-      "designEditor.modes.draw",
-    );
-    expect(iconOf("pen")).toBe("brush");
-    expect(pressed("pen")).toBe("true");
-
-    await renderToolbar({ activeTool: "move", mode: "edit" });
-    expect(iconOf("pen")).toBe("brush");
-    expect(pressed("pen")).toBe("false");
-
-    await renderToolbar({
-      activeTool: "move",
-      mode: "edit",
-      annotateEnabled: false,
-    });
-    expect(iconOf("pen")).toBe("pen");
-    expect(optionKeys("pen")).toEqual(["pen"]);
   });
 
   it("names every chevron after its group, not after the armed variant", async () => {
@@ -668,7 +636,6 @@ describe("DesignBottomToolbar", () => {
     const onModeChange = vi.fn();
     await renderToolbar({ showModeTabs: false, onModeChange });
     for (const label of [
-      "designEditor.modes.annotate",
       "designEditor.modes.edit",
       "designEditor.modes.interact",
     ]) {
@@ -691,43 +658,14 @@ describe("DesignBottomToolbar", () => {
     expect(onModeChange).toHaveBeenCalledWith("interact");
   });
 
-  it("offers Annotate and Draw only while the Annotate lab is on", async () => {
-    setUploadStatus();
-    await renderToolbar({ showModeTabs: true, annotateEnabled: true });
-    expect(
-      container.querySelector(
-        'button[aria-label="designEditor.modes.annotate"]',
-      ),
-    ).toBeTruthy();
-    expect(optionKeys("pen")).toEqual(["pen", "draw"]);
-
-    await renderToolbar({ showModeTabs: true, annotateEnabled: false });
-    expect(
-      container.querySelector(
-        'button[aria-label="designEditor.modes.annotate"]',
-      ),
-    ).toBeNull();
-    // Pen keeps its one item, so it has no menu for Draw to be in.
-    expect(optionKeys("pen")).toEqual(["pen"]);
-    // The rest of the switch stays.
-    expect(
-      container.querySelector('button[aria-label="designEditor.modes.edit"]'),
-    ).toBeTruthy();
-  });
-
-  it("leaves out annotation where a widget ticket cannot write comments", async () => {
+  it("leaves out comments where a widget ticket cannot write them", async () => {
     setUploadStatus();
     const modeTab = (mode: string) =>
       container.querySelector(
         `button[aria-label="designEditor.modes.${mode}"]`,
       );
 
-    await renderToolbar({
-      showModeTabs: true,
-      annotateEnabled: true,
-      canComment: false,
-    });
-    expect(modeTab("annotate")).toBeNull();
+    await renderToolbar({ showModeTabs: true, canComment: false });
     expect(optionKeys("pen")).toEqual(["pen"]);
     expect(groups()).toEqual(["move", "frame", "shapes", "text", "pen"]);
     expect(modeTab("edit")).toBeTruthy();

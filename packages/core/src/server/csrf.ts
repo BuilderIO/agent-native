@@ -74,6 +74,11 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
  */
 const CSRF_PROTECTED_PREFIXES = [
   "/auth/logout-all",
+  "/auth/two-factor/",
+  "/integrations/scopes",
+  "/integrations/budgets",
+  "/integrations/memory",
+  "/integrations/installations",
   // Remote-device relay. The device's own routes (poll/result/heartbeat)
   // authenticate with a bearer token and send no cookies, so they never reach
   // the check; the sibling routes (register, enqueue, computer/approvals,
@@ -113,14 +118,25 @@ function looksFirstParty(event: any): boolean {
     return true;
   }
   const contentType = getRequestHeader(event, "content-type");
-  if (
-    contentType &&
-    typeof contentType === "string" &&
-    contentType.toLowerCase().includes("application/json")
-  ) {
-    return true;
-  }
-  return false;
+  const essence =
+    typeof contentType === "string"
+      ? (contentType.split(";")[0]?.trim().toLowerCase() ?? "")
+      : "";
+  return essence !== "" && !CORS_SAFELISTED_CONTENT_TYPES.has(essence);
+}
+
+const CORS_SAFELISTED_CONTENT_TYPES = new Set([
+  "application/x-www-form-urlencoded",
+  "multipart/form-data",
+  "text/plain",
+]);
+
+function isTemplateApiPath(pathname: string): boolean {
+  const basePath = getConfiguredAppBasePath();
+  return (
+    pathname.startsWith("/api/") ||
+    (Boolean(basePath) && pathname.startsWith(`${basePath}/api/`))
+  );
 }
 
 function requestHasCookies(event: any): boolean {
@@ -133,6 +149,9 @@ function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
   const sub = pathname.slice(frameworkPrefix.length);
   for (const protectedPrefix of CSRF_PROTECTED_PREFIXES) {
     if (sub.startsWith(protectedPrefix)) return false;
+  }
+  if (/^\/integrations\/[^/]+\/(?:enable|disable|setup)\/?$/.test(sub)) {
+    return false;
   }
   const webhookToken = sub.match(/^\/automations\/webhook\/([^/]+)$/)?.[1];
   if (webhookToken && isAutomationWebhookToken(webhookToken)) return true;
@@ -182,8 +201,11 @@ export function createCsrfMiddleware(
 
     const pathname = event.url?.pathname ?? "";
     const matchingPrefix = matchingFrameworkPrefix(pathname, frameworkPrefix);
-    if (!matchingPrefix) return undefined;
-    if (isOnAllowlist(pathname, matchingPrefix)) return undefined;
+    if (matchingPrefix) {
+      if (isOnAllowlist(pathname, matchingPrefix)) return undefined;
+    } else if (!isTemplateApiPath(pathname)) {
+      return undefined;
+    }
 
     if (!requestHasCookies(event)) return undefined;
 

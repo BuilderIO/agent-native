@@ -1,11 +1,31 @@
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   designFinalResponseGuard,
   looksLikeDesignMutationRequest,
 } from "./design-response-guard.js";
+
+const settings = vi.hoisted(() => ({
+  email: null as string | null,
+  value: undefined as unknown,
+  read: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => settings.email,
+}));
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: settings.read,
+}));
+
+beforeEach(() => {
+  settings.email = null;
+  settings.read.mockReset();
+  settings.read.mockImplementation(async () => settings.value);
+  settings.value = undefined;
+});
 
 function guardContext(
   requestText: string,
@@ -36,6 +56,20 @@ function toolResult(
 ): AgentLoopFinalResponseGuardContext["toolResults"][number] {
   return { name, content: JSON.stringify(value), isError };
 }
+
+function thrownToolResult(
+  name: string,
+  message: string,
+  errorCode?: string,
+): AgentLoopFinalResponseGuardContext["toolResults"][number] {
+  return {
+    name,
+    content: `Error running ${name}: ${message}${errorCode ? ` (errorCode: ${errorCode})` : ""}`,
+    isError: true,
+  };
+}
+
+const MUTATION_REQUEST = "make the hero darker";
 
 describe("Design final response guard", () => {
   it("recognizes design mutations while excluding how-to and preview requests", () => {
@@ -431,9 +465,12 @@ describe("Design final response guard", () => {
     "If the preview reveals an issue, fix the layout.",
     "Check the screen and adjust its layout as needed.",
     "Make sure this email aligns with HubSpot email requirements.",
-  ])("allows verification without an unconditional mutation: %s", (request) => {
-    expect(designFinalResponseGuard(guardContext(request))).toBeNull();
-  });
+  ])(
+    "allows verification without an unconditional mutation: %s",
+    async (request) => {
+      expect(await designFinalResponseGuard(guardContext(request))).toBeNull();
+    },
+  );
 
   it.each([
     "Do not create another frame; edit the existing screen.",
@@ -441,25 +478,28 @@ describe("Design final response guard", () => {
     "Check this screen, then fix the footer.",
     "If needed, fix the footer; create a new design.",
     "Make sure to add the required tokens to this design.",
-  ])("still requires independent affirmative mutations: %s", (request) => {
-    expect(designFinalResponseGuard(guardContext(request))).toMatchObject({
-      expandToolSurface: true,
-    });
-  });
+  ])(
+    "still requires independent affirmative mutations: %s",
+    async (request) => {
+      const result = await designFinalResponseGuard(guardContext(request));
+      expect(result).not.toBeNull();
+      expect(result).not.toHaveProperty("expandToolSurface");
+    },
+  );
 
-  it("retries prose-only completion for a design mutation", () => {
-    const result = designFinalResponseGuard(
+  it("retries prose-only completion for a design mutation", async () => {
+    const result = await designFinalResponseGuard(
       guardContext("can you create another version of this"),
     );
 
     expect(result).toMatchObject({
       maxRetries: 1,
-      expandToolSurface: true,
       retryMessage: expect.stringContaining("generate-design"),
     });
+    expect(result).not.toHaveProperty("expandToolSurface");
   });
 
-  it("accepts a Design output action whose verified receipt shows a change", () => {
+  it("accepts a Design output action whose verified receipt shows a change", async () => {
     const placed = {
       tool: "place-figma-frames",
       verified: true as const,
@@ -469,7 +509,7 @@ describe("Design final response guard", () => {
     const request = "Make this Figma design. Skip questions.";
 
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(request, {
           toolResults: [toolResult("place-figma-frames", { placedFrames: 24 })],
           receipts: [{ ...placed, changed: true }],
@@ -477,14 +517,14 @@ describe("Design final response guard", () => {
       ),
     ).toBeNull();
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(request, { receipts: [{ ...placed, changed: false }] }),
       ),
     ).not.toBeNull();
     // A verified write by something other than a Design output action is not
     // proof that the design was made.
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(request, {
           receipts: [{ ...placed, tool: "save-memory", changed: true }],
         }),
@@ -492,8 +532,8 @@ describe("Design final response guard", () => {
     ).not.toBeNull();
   });
 
-  it("does not accept the empty project shell as a completed design", () => {
-    const result = designFinalResponseGuard(
+  it("does not accept the empty project shell as a completed design", async () => {
+    const result = await designFinalResponseGuard(
       guardContext("create a new design", {
         toolResults: [
           toolResult("create-design", {
@@ -507,7 +547,7 @@ describe("Design final response guard", () => {
     expect(result).not.toBeNull();
   });
 
-  it("accepts persisted generation, edit, and asset placement proof", () => {
+  it("accepts persisted generation, edit, and asset placement proof", async () => {
     for (const toolResults of [
       [
         toolResult("generate-design", {
@@ -518,15 +558,6 @@ describe("Design final response guard", () => {
       ],
       [toolResult("edit-design", { fileId: "file-1", changed: true })],
       [toolResult("insert-asset", { fileId: "file-1", inserted: true })],
-      [
-        toolResult("apply-motion-edit", {
-          designId: "design-1",
-          timelineId: "timeline-1",
-          persisted: true,
-          contentPatched: true,
-        }),
-      ],
-      [toolResult("apply-a11y-fix", { designId: "design-1", applied: true })],
       [
         toolResult("apply-component-prop-edit", {
           designId: "design-1",
@@ -552,7 +583,6 @@ describe("Design final response guard", () => {
           appliedTweaks: { "theme-accent": "#0EA5E9" },
         }),
       ],
-      [toolResult("create-design-system", { id: "design-system-1" })],
       [toolResult("update-file", { id: "file-1", updated: true })],
       [
         toolResult("update-design", {
@@ -582,35 +612,35 @@ describe("Design final response guard", () => {
       ],
     ]) {
       expect(
-        designFinalResponseGuard(
+        await designFinalResponseGuard(
           guardContext("create another version of this", { toolResults }),
         ),
       ).toBeNull();
     }
   });
 
-  it("counts a Builder delegation only once Builder finished it", () => {
-    const delegated = (value: Record<string, unknown>) =>
+  it("counts a Builder delegation only once Builder finished it", async () => {
+    const delegated = async (value: Record<string, unknown>) =>
       designFinalResponseGuard(
         guardContext("make the header sticky", {
           toolResults: [toolResult("send-builder-message", value)],
         }),
       );
 
-    expect(delegated({ sent: true, completed: true })).toBeNull();
+    expect(await delegated({ sent: true, completed: true })).toBeNull();
     expect(
-      delegated({
+      await delegated({
         sent: true,
         completed: false,
         unconfirmed: true,
         error: "Timed out waiting for the app agent to finish",
       }),
     ).not.toBeNull();
-    expect(delegated({ sent: true, completed: false })).not.toBeNull();
+    expect(await delegated({ sent: true, completed: false })).not.toBeNull();
   });
 
-  it("does not accept a partial generation", () => {
-    const result = designFinalResponseGuard(
+  it("does not accept a partial generation", async () => {
+    const result = await designFinalResponseGuard(
       guardContext("create another version of this", {
         toolResults: [
           toolResult("generate-design", {
@@ -626,7 +656,7 @@ describe("Design final response guard", () => {
     expect(result).not.toBeNull();
   });
 
-  it("does not accept empty tweaks or a stale mirrored file update", () => {
+  it("does not accept empty tweaks or a stale mirrored file update", async () => {
     for (const toolResults of [
       [
         toolResult("apply-tweaks", {
@@ -650,25 +680,17 @@ describe("Design final response guard", () => {
         }),
       ],
       [toolResult("update-design", { id: "design-1", updated: true })],
-      [
-        toolResult("apply-motion-edit", {
-          designId: "design-1",
-          timelineId: "timeline-1",
-          persisted: true,
-          contentPatched: false,
-        }),
-      ],
     ]) {
       expect(
-        designFinalResponseGuard(
+        await designFinalResponseGuard(
           guardContext("make it darker", { toolResults }),
         ),
       ).not.toBeNull();
     }
   });
 
-  it("does not accept a failed mutation result", () => {
-    const result = designFinalResponseGuard(
+  it("does not accept a failed mutation result", async () => {
+    const result = await designFinalResponseGuard(
       guardContext("create another version of this", {
         toolResults: [
           toolResult("generate-design", { renderable: true }, true),
@@ -679,9 +701,9 @@ describe("Design final response guard", () => {
     expect(result).not.toBeNull();
   });
 
-  it("accepts a moved element only when the move was persisted", () => {
+  it("accepts a moved element only when the move was persisted", async () => {
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext("move the card to the second screen", {
           toolResults: [
             toolResult("move-design-element", {
@@ -710,14 +732,14 @@ describe("Design final response guard", () => {
       ],
     ]) {
       expect(
-        designFinalResponseGuard(
+        await designFinalResponseGuard(
           guardContext("move the card to the second screen", { toolResults }),
         ),
       ).not.toBeNull();
     }
   });
 
-  it("judges the user's words, not the context the app attached to them", () => {
+  it("judges the user's words, not the context the app attached to them", async () => {
     const intakeContext = [
       "The user just created a new empty design.",
       'Design id: "design-1"',
@@ -727,12 +749,12 @@ describe("Design final response guard", () => {
     ].join("\n");
 
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(`hi\n\n<context>\n${intakeContext}\n</context>`),
       ),
     ).toBeNull();
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(
           `make it darker\n\n<context>\nDesign "Portfolio" is open.\n</context>`,
         ),
@@ -740,7 +762,7 @@ describe("Design final response guard", () => {
     ).not.toBeNull();
   });
 
-  it("leaves a preview or question turn alone when only its context says so", () => {
+  it("leaves a preview or question turn alone when only its context says so", async () => {
     const repromptContext = [
       "[Reprompt selection]",
       "repromptId: reprompt-1",
@@ -754,14 +776,14 @@ describe("Design final response guard", () => {
     ].join("\n");
 
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(
           `make the card darker\n\n<context>\n${repromptContext}\n</context>`,
         ),
       ),
     ).toBeNull();
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(
           `make the card darker\n\n<context>\n${questionContext}\n</context>`,
         ),
@@ -769,9 +791,9 @@ describe("Design final response guard", () => {
     ).toBeNull();
   });
 
-  it("guards a generation turn whose intent lives only in the attached context", () => {
+  it("guards a generation turn whose intent lives only in the attached context", async () => {
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext(
           `Here are my answers — go ahead.\n\n<context>\nAnswers: dark, minimal.\n${DESIGN_MUTATION_REQUIRED_DIRECTIVE}\n</context>`,
         ),
@@ -779,12 +801,12 @@ describe("Design final response guard", () => {
     ).not.toBeNull();
   });
 
-  it("does not guard read-only or plan turns", () => {
+  it("does not guard read-only or plan turns", async () => {
     expect(
-      designFinalResponseGuard(guardContext("what is a design system?")),
+      await designFinalResponseGuard(guardContext("what is a design system?")),
     ).toBeNull();
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext("create another version of this", {
           executionMode: "plan",
         }),
@@ -792,7 +814,7 @@ describe("Design final response guard", () => {
     ).toBeNull();
   });
 
-  it("does not read a bare mention of a design as a request to change one", () => {
+  it("does not read a bare mention of a design as a request to change one", async () => {
     expect(looksLikeDesignMutationRequest("nice design")).toBe(false);
     expect(looksLikeDesignMutationRequest("I love design")).toBe(false);
     expect(
@@ -807,10 +829,12 @@ describe("Design final response guard", () => {
       ),
     ).toBe(false);
 
-    expect(designFinalResponseGuard(guardContext("nice design"))).toBeNull();
+    expect(
+      await designFinalResponseGuard(guardContext("nice design")),
+    ).toBeNull();
   });
 
-  it("lets `design` supply the verb only where a verb can stand", () => {
+  it("lets `design` supply the verb only where a verb can stand", async () => {
     expect(looksLikeDesignMutationRequest("I love this design")).toBe(false);
     expect(looksLikeDesignMutationRequest("this design looks good")).toBe(
       false,
@@ -837,7 +861,7 @@ describe("Design final response guard", () => {
     );
   });
 
-  it("keeps a pronoun subject with a trailing verb a mutation request", () => {
+  it("keeps a pronoun subject with a trailing verb a mutation request", async () => {
     expect(looksLikeDesignMutationRequest("this needs updating")).toBe(true);
     expect(looksLikeDesignMutationRequest("it needs fixing")).toBe(true);
     expect(
@@ -851,18 +875,18 @@ describe("Design final response guard", () => {
     ).toBe(true);
   });
 
-  it("still requires proof for a real design change", () => {
+  it("still requires proof for a real design change", async () => {
     expect(looksLikeDesignMutationRequest("update the design")).toBe(true);
     expect(looksLikeDesignMutationRequest("design a login screen")).toBe(true);
     expect(looksLikeDesignMutationRequest("make the hero darker")).toBe(true);
     expect(
-      designFinalResponseGuard(guardContext("update the design")),
+      await designFinalResponseGuard(guardContext("update the design")),
     ).not.toBeNull();
   });
 
-  it("accepts a mutation saved in the same turn it is confirmed", () => {
+  it("accepts a mutation saved in the same turn it is confirmed", async () => {
     expect(
-      designFinalResponseGuard(
+      await designFinalResponseGuard(
         guardContext("update the design", {
           toolResults: [
             toolResult("generate-design", {
@@ -875,7 +899,7 @@ describe("Design final response guard", () => {
     ).toBeNull();
   });
 
-  it("labels an unproven draft instead of replacing it with a save failure", () => {
+  it("labels an unproven draft instead of replacing it with a save failure", async () => {
     const selfReferential = [
       "# Design — Agent Guide",
       "",
@@ -884,10 +908,487 @@ describe("Design final response guard", () => {
       "| `create-design` | Start a new design (empty shell) |",
     ].join("\n");
 
-    const guard = designFinalResponseGuard(guardContext(selfReferential));
+    const guard = await designFinalResponseGuard(guardContext(selfReferential));
     expect(guard).not.toBeNull();
     expect(guard).toMatchObject({
-      exhaustedDraftPrefix: expect.stringContaining("Unverified"),
+      exhaustedDraftPrefix: "No design changes were saved in this turn.",
     });
+  });
+});
+
+describe("Design final response guard: plan mode", () => {
+  it("skips a design request in plan mode", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(MUTATION_REQUEST, { executionMode: "plan" }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("Design final response guard: non-mutation request", () => {
+  it("skips a question and advice request", async () => {
+    for (const request of [
+      "how do I make the hero darker?",
+      "give me tips to improve this design",
+    ]) {
+      expect(await designFinalResponseGuard(guardContext(request))).toBeNull();
+    }
+  });
+});
+
+describe("Design final response guard: image edit", () => {
+  const request = "edit the image I imported to remove the background";
+  const assetsTool = "mcp__org_org-1_assets__edit-asset";
+
+  it("accepts a completed Assets image edit whatever the reply says", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(request, {
+          text: "All set.",
+          toolResults: [toolResult(assetsTool, { assetId: "asset-2" })],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("still flags an image edit that failed", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(request, {
+          toolResults: [toolResult(assetsTool, { error: "edit failed" }, true)],
+        }),
+      ),
+    ).not.toBeNull();
+  });
+});
+
+describe("Design final response guard: saved change", () => {
+  it("skips a verified changed receipt", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(MUTATION_REQUEST, {
+          receipts: [
+            {
+              tool: "place-figma-frames",
+              verified: true,
+              changed: true,
+              summary: "Design output: 1 file saved.",
+              subject: "design-1",
+            },
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("skips a successful mutation result", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(MUTATION_REQUEST, {
+          toolResults: [
+            toolResult("edit-design", { fileId: "file-1", changed: true }),
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
+const UNSAVED_LABEL = "No design changes were saved in this turn.";
+const LABELS_WITHOUT_RETRY = {
+  maxRetries: 0,
+  exhaustedDraftPrefix: UNSAVED_LABEL,
+};
+const RETRIES = { maxRetries: 1, exhaustedDraftPrefix: UNSAVED_LABEL };
+
+describe("Design final response guard: structural blocker", () => {
+  const blocked = async (
+    toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+    overrides: Partial<AgentLoopFinalResponseGuardContext> = {},
+  ) =>
+    designFinalResponseGuard(
+      guardContext(MUTATION_REQUEST, { toolResults, ...overrides }),
+    );
+
+  it("labels without a retry for a read-attachment result the file could not be read for", async () => {
+    for (const errorCode of [
+      "attachment_not_stored",
+      "attachment_reread_failed",
+      "attachment_read_failed",
+    ]) {
+      expect(
+        await blocked([
+          toolResult("read-attachment", {
+            error: "Could not read attachment",
+            errorCode,
+          }),
+        ]),
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
+    }
+    expect(
+      await blocked([toolResult("read-attachment", { text: "hello" })]),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("keeps the re-prompt for a read-attachment usage error", async () => {
+    expect(
+      await blocked([
+        toolResult("read-attachment", {
+          error: "name matches more than one attachment",
+        }),
+      ]),
+    ).toMatchObject(RETRIES);
+    expect(
+      await blocked([
+        toolResult("read-attachment", {
+          error: "name or path is required",
+          errorCode: "attachment_not_specified",
+        }),
+      ]),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("labels without a retry for an import-document result with no extracted text", async () => {
+    const file = (designHints: Record<string, unknown>) => ({
+      filename: "brief.pdf",
+      fileType: "pdf",
+      designHints,
+    });
+    expect(
+      await blocked([
+        toolResult("import-document", {
+          source: "document",
+          files: [file({ likelyColors: [] }), file({ contentType: "pdf" })],
+        }),
+      ]),
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
+    expect(
+      await blocked([
+        toolResult("import-document", {
+          source: "document",
+          files: [file({ likelyColors: [] }), file({ extractedText: "Brand" })],
+        }),
+      ]),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("labels without a retry for an unavailable composer source", async () => {
+    for (const code of [
+      "composer_peer_unavailable",
+      "composer_reference_unavailable",
+    ]) {
+      expect(
+        await blocked([
+          thrownToolResult("read-composer-source", "unavailable", code),
+        ]),
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
+    }
+    expect(
+      await blocked([
+        thrownToolResult("read-composer-source", "boom", "action_failed"),
+      ]),
+    ).toMatchObject(RETRIES);
+    expect(
+      await blocked([thrownToolResult("read-composer-source", "boom")]),
+    ).toMatchObject(RETRIES);
+  });
+
+  describe("framework attachment error tag", () => {
+    const TAG =
+      '<chat-attachment-processing-error code="missing-payload" name="a.pdf">x</chat-attachment-processing-error>';
+    const READ_TAG =
+      '<chat-attachment-read-error name="a.pdf">x</chat-attachment-read-error>';
+    const userMessage = (text: string) => ({
+      role: "user" as const,
+      content: [{ type: "text" as const, text }],
+    });
+    const assistantText = (text: string) => ({
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text }],
+    });
+    const toolTurn = [
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            id: "t1",
+            name: "view-screen",
+            input: {},
+          },
+        ],
+      },
+      userMessage("tool output"),
+    ];
+
+    it("labels without a retry for a tag in the request text", async () => {
+      for (const tag of [TAG, READ_TAG]) {
+        expect(
+          await designFinalResponseGuard(
+            guardContext(`${MUTATION_REQUEST}\n${tag}`),
+          ),
+        ).toMatchObject(LABELS_WITHOUT_RETRY);
+      }
+      const onlyRequestText = guardContext(MUTATION_REQUEST, {
+        requestText: `${MUTATION_REQUEST}\n${TAG}`,
+        messages: [userMessage(MUTATION_REQUEST)],
+      });
+      expect(await designFinalResponseGuard(onlyRequestText)).toMatchObject(
+        LABELS_WITHOUT_RETRY,
+      );
+    });
+
+    it("labels without a retry for a tag in an earlier message of the turn", async () => {
+      expect(
+        await designFinalResponseGuard(
+          guardContext(MUTATION_REQUEST, {
+            messages: [
+              userMessage(`${MUTATION_REQUEST}\n${TAG}`),
+              ...toolTurn,
+              userMessage("also keep the footer"),
+            ],
+          }),
+        ),
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
+    });
+
+    it("ignores a tag from a previous turn", async () => {
+      expect(
+        await designFinalResponseGuard(
+          guardContext(MUTATION_REQUEST, {
+            messages: [
+              userMessage(`old request\n${TAG}`),
+              assistantText("I could not read it."),
+              userMessage(MUTATION_REQUEST),
+            ],
+          }),
+        ),
+      ).toMatchObject(RETRIES);
+    });
+
+    it("does not count a tag quoted in a response-guard message", async () => {
+      expect(
+        await designFinalResponseGuard(
+          guardContext(MUTATION_REQUEST, {
+            messages: [
+              userMessage(MUTATION_REQUEST),
+              assistantText("draft"),
+              userMessage(`<response-guard>\n${TAG}\n</response-guard>`),
+            ],
+          }),
+        ),
+      ).toMatchObject(RETRIES);
+    });
+  });
+
+  it("ignores the model's own reply text", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(MUTATION_REQUEST, {
+          text: "I can't read the attachment, <chat-attachment-processing-error>",
+        }),
+      ),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("labels without a retry for a missing-capability error code, including after a repeated failure", async () => {
+    for (const code of [
+      "full_app_building_disabled",
+      "builder_project_not_configured",
+    ]) {
+      expect(
+        await blocked([thrownToolResult("create-builder-app", "no", code)]),
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
+    }
+    const wrapped = thrownToolResult(
+      "create-builder-app",
+      "no",
+      "builder_project_not_configured",
+    );
+    expect(
+      await blocked([
+        {
+          ...wrapped,
+          content: `Stopped after 3 identical errors. Last error: ${wrapped.content}`,
+        },
+      ]),
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
+  });
+
+  it("keeps the re-prompt when a plain design has no Builder app", async () => {
+    expect(
+      await blocked([
+        thrownToolResult(
+          "send-builder-message",
+          "no app",
+          "builder_app_missing",
+        ),
+      ]),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("stops counting a blocker once the same tool later succeeds", async () => {
+    expect(
+      await blocked([
+        toolResult("read-attachment", {
+          error: "Could not read attachment",
+          errorCode: "attachment_read_failed",
+        }),
+        toolResult("read-attachment", { text: "hello" }),
+      ]),
+    ).toMatchObject(RETRIES);
+    expect(
+      await blocked([
+        toolResult("read-attachment", { text: "hello" }),
+        toolResult("read-attachment", {
+          error: "Could not read attachment",
+          errorCode: "attachment_read_failed",
+        }),
+      ]),
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
+    expect(
+      await blocked([
+        toolResult("create-builder-app", { status: "not-configured" }),
+        toolResult("create-builder-app", { status: "created" }),
+      ]),
+    ).toMatchObject(RETRIES);
+    expect(
+      await blocked([
+        toolResult("read-attachment", {
+          error: "Could not read attachment",
+          errorCode: "attachment_read_failed",
+        }),
+        toolResult("read-attachment", {
+          error: "Still unreadable",
+          errorCode: "attachment_read_failed",
+        }),
+      ]),
+    ).toMatchObject(LABELS_WITHOUT_RETRY);
+  });
+
+  it("labels without a retry for a not-configured Builder result", async () => {
+    for (const name of ["create-builder-app", "migrate-inline-design-to-app"]) {
+      expect(
+        await blocked([toolResult(name, { status: "not-configured" })]),
+      ).toMatchObject(LABELS_WITHOUT_RETRY);
+    }
+    expect(
+      await blocked([toolResult("create-builder-app", { status: "created" })]),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("keeps the re-prompt for a locked layer", async () => {
+    expect(
+      await blocked([
+        thrownToolResult("edit-design", "Layer is locked", "layer_locked"),
+      ]),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("keeps the re-prompt for a no-op edit", async () => {
+    expect(
+      await blocked([
+        toolResult("edit-design", { fileId: "file-1", changed: false }),
+      ]),
+    ).toMatchObject(RETRIES);
+  });
+
+  it("treats truncated JSON as no signal", async () => {
+    expect(
+      await blocked([
+        {
+          name: "read-attachment",
+          content: '{"error":"Could not read att',
+          isError: false,
+        },
+        {
+          name: "create-builder-app",
+          content: '{"status":"not-conf',
+          isError: false,
+        },
+      ]),
+    ).toMatchObject(RETRIES);
+  });
+});
+
+describe("Design final response guard: unsaved draft label", () => {
+  it("uses the factual English label by default", async () => {
+    expect(
+      await designFinalResponseGuard(guardContext(MUTATION_REQUEST)),
+    ).toMatchObject({
+      exhaustedDraftPrefix: "No design changes were saved in this turn.",
+      maxRetries: 1,
+      retryMessage: expect.stringContaining("say plainly what blocks you"),
+    });
+  });
+
+  it("uses the user's locale when one is set", async () => {
+    settings.email = "user@example.com";
+    settings.value = { locale: "de-DE" };
+
+    expect(
+      await designFinalResponseGuard(guardContext(MUTATION_REQUEST)),
+    ).toMatchObject({
+      exhaustedDraftPrefix:
+        "In diesem Durchgang wurden keine Designänderungen gespeichert.",
+    });
+    expect(settings.read).toHaveBeenCalledWith(
+      "user@example.com",
+      "localization",
+    );
+  });
+
+  it("falls back to the default locale for an unset preference", async () => {
+    settings.email = "user@example.com";
+    settings.value = undefined;
+
+    expect(
+      await designFinalResponseGuard(guardContext(MUTATION_REQUEST)),
+    ).toMatchObject({
+      exhaustedDraftPrefix: "No design changes were saved in this turn.",
+    });
+  });
+
+  it("falls back to English and warns when the locale catalog cannot load", async () => {
+    settings.email = "user@example.com";
+    settings.value = { locale: "de-DE" };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.doMock("../../app/i18n/de-DE.js", () => {
+      throw new Error("catalog unavailable");
+    });
+    vi.resetModules();
+    const { designFinalResponseGuard: freshGuard } =
+      await import("./design-response-guard.js");
+
+    expect(await freshGuard(guardContext(MUTATION_REQUEST))).toMatchObject({
+      exhaustedDraftPrefix: "No design changes were saved in this turn.",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("design-response-guard"),
+      expect.objectContaining({
+        cause: expect.objectContaining({ message: "catalog unavailable" }),
+      }),
+    );
+    warn.mockRestore();
+    vi.doUnmock("../../app/i18n/de-DE.js");
+    vi.resetModules();
+  });
+
+  it("falls back to English and warns when the setting cannot be read", async () => {
+    settings.email = "user@example.com";
+    settings.read.mockRejectedValue(new Error("settings unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(
+      await designFinalResponseGuard(guardContext(MUTATION_REQUEST)),
+    ).toMatchObject({
+      exhaustedDraftPrefix: "No design changes were saved in this turn.",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("design-response-guard"),
+      expect.objectContaining({ message: "settings unavailable" }),
+    );
+    warn.mockRestore();
   });
 });

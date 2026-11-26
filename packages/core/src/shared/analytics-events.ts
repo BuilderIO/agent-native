@@ -16,6 +16,14 @@ export const AGENT_NATIVE_ACTION_EVENTS = {
   failed: "action_failed",
 } as const;
 
+/**
+ * `action_kind` on the action events: `"write"` for a call someone asked for,
+ * `"read"` for a call its action's `planMode` declares a read, and
+ * `"automatic"` for a write the app makes on its own (see `automatic` on
+ * `defineAction`). Product-use counts keep `"write"` only.
+ */
+export type AgentNativeActionKind = "write" | "read" | "automatic";
+
 /** Ephemeral join key shared by legacy and canonical records for one event. */
 export const TRACKING_EVENT_ALIAS_ID_PROPERTY = "event_alias_id";
 

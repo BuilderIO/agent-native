@@ -16,6 +16,7 @@ export default defineAction({
     limit: z.number().int().min(1).max(100).default(12).describe("Max rows"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

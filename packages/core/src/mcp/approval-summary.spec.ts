@@ -772,6 +772,35 @@ describe("mcpApprovalPromptText", () => {
     );
   });
 
+  it("states the action's notice whole, after the request, in both kinds of prompt", () => {
+    const notice =
+      "Allow up to $5.00 of BigQuery today?\nThe approval expires at 00:00 UTC.";
+    const prompt = (mode: "form" | "url") =>
+      mcpApprovalPromptText({
+        summary,
+        notice,
+        priorRun: { at: EVENT_AT - 5 * 60_000, status: "completed" },
+        messages: en,
+        locale: "en-US",
+        readerZone: "America/New_York",
+        mode,
+        reviewUrl: REVIEW_URL,
+      }).split("\n");
+    expect(prompt("url")).toEqual([
+      "Create event needs your approval before it runs. Open the review page, check what it will do, then choose Approve or Deny.",
+      "Allow up to $5.00 of BigQuery today?",
+      "The approval expires at 00:00 UTC.",
+      "This exact request already ran at 4:55 PM EDT. Approving runs it again.",
+    ]);
+    expect(prompt("form").slice(0, 4)).toEqual([
+      "Create event needs your approval before it runs. Check what it will do, then choose Approve or Deny.",
+      "Allow up to $5.00 of BigQuery today?",
+      "The approval expires at 00:00 UTC.",
+      "This exact request already ran at 4:55 PM EDT. Approving runs it again.",
+    ]);
+    expect(prompt("form")).toContain("Event title: Design review");
+  });
+
   describe("a form that can't show everything", () => {
     const form = (
       args: unknown,

@@ -1,3 +1,4 @@
+// oracle-change: Exact aspect-ratio cases remain in edit-panel/element-identity.test.ts; retain the distinct round-trip case here.
 import { describe, expect, it } from "vitest";
 
 import { textStrokeAddPatch } from "./edit-panel/position-helpers";
@@ -368,18 +369,6 @@ describe("outlineOffsetForPosition", () => {
 });
 
 describe("deriveLockedAspectSize", () => {
-  it("derives height from a width edit using width/height ratio", () => {
-    expect(deriveLockedAspectSize("width", 300, 2)).toBe(150);
-  });
-
-  it("derives width from a height edit using width/height ratio", () => {
-    expect(deriveLockedAspectSize("height", 150, 2)).toBe(300);
-  });
-
-  it("lands the derived value on whole pixels", () => {
-    expect(deriveLockedAspectSize("width", 100, 3)).toBe(33);
-  });
-
   it("round-trips width -> height -> width back to the original", () => {
     const ratio = 150 / 90;
     const height = deriveLockedAspectSize("width", 150, ratio);

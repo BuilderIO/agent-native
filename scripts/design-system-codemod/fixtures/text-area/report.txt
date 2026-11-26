@@ -1,0 +1,22 @@
+Changed files:
+  aliased.tsx  (text-area 1)
+  components/ui/textarea.tsx  (shim)
+  notes.tsx  (text-area 2)
+
+Sites transformed:
+  button     0
+  badge      0
+  input      0
+  text-area  3
+  skeleton   0
+  spinner    0
+  toast      0
+
+Shims:
+  components/ui/textarea.tsx: swapped to the new module
+
+Not transformed (0 sites), by reason:
+
+Transformed, needs a look (0 sites), by reason:
+
+Test mocks of a legacy module (0):

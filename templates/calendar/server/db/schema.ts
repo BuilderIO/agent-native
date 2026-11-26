@@ -32,6 +32,8 @@ export const bookings = table("bookings", {
   createdAt: text("created_at").notNull(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
+  reminderHandledAt: text("reminder_handled_at"),
+  reminderNextAttemptAt: text("reminder_next_attempt_at"),
 });
 
 export const bookingLinks = table("booking_links", {
@@ -46,10 +48,25 @@ export const bookingLinks = table("booking_links", {
   conferencing: text("conferencing"),
   color: text("color"),
   isActive: boolean("is_active").notNull().default(true),
+  reminderMinutes: integer("reminder_minutes").notNull().default(1440),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   ...ownableColumns(),
 });
+
+export const bookingLinkSingleUseTokens = table(
+  "booking_link_single_use_tokens",
+  {
+    // guard:allow-plaintext-secret-column — a single-use booking URL code its link's editors copy again; it books one meeting and grants no account access
+    token: text("token").primaryKey(),
+    bookingLinkId: text("booking_link_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    usedAt: text("used_at"),
+    bookingId: text("booking_id"),
+    revokedAt: text("revoked_at"),
+  },
+);
 
 export const bookingSlugRedirects = table("booking_slug_redirects", {
   oldSlug: text("old_slug").primaryKey(),

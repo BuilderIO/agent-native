@@ -5,6 +5,8 @@ export {
   refreshEventSubscriptions,
   parseTriggerFrontmatter,
   buildTriggerContent,
+  setAutomationEventGate,
+  type AutomationEventGate,
   type TriggerDispatcherDeps,
 } from "./dispatcher.js";
 export {

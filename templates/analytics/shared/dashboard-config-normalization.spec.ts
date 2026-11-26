@@ -1,6 +1,5 @@
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import { describe, expect, it } from "vitest";
-
-import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 
 describe("normalizeDashboardConfig", () => {
   it("repairs panel fields nested under config without moving renderer options", () => {

@@ -28,6 +28,16 @@ export const observabilityConfig = z.object({
       env: ["AGENT_NATIVE_BUILD_ID"],
       doc: "Deploy id or commit the server was built from (the build bakes it from the platform's deploy and commit variables), used to name the release on error reports when no explicit release is set.",
     }),
+  buildSha: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_BUILD_SHA"],
+      doc: "Workspace commit the server was built from. Workspace deploys set it when the build id is a per-app content id, and served documents name it as their release.",
+    }),
   enabled: z
     .boolean()
     .default(true)

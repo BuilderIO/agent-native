@@ -49,11 +49,30 @@ describe("a call's browser tab target", () => {
 
   it("finds no tab for a call with no signed-in user, without looking", async () => {
     userEmail = undefined;
-    const slot = createBrowserTabTargetSlot();
+    const slot = createBrowserTabTargetSlot("tab-requested");
 
     await expect(slot.resolve()).resolves.toEqual({ kind: "unavailable" });
     expect(slot.resolved).toEqual({ kind: "unavailable" });
     expect(findLastUsedBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it("targets the caller-requested tab directly without scanning last-used tabs", async () => {
+    const slot = createBrowserTabTargetSlot("tab-requested");
+    expect(slot.resolved).toBeUndefined();
+
+    const [first, second] = await Promise.all([slot.resolve(), slot.resolve()]);
+
+    expect(first).toEqual({ kind: "requested", tabId: "tab-requested" });
+    expect(second).toBe(first);
+    expect(slot.resolved).toBe(first);
+    expect(findLastUsedBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it("ignores a malformed requested tab ID and falls back to the last-used tab", async () => {
+    const slot = createBrowserTabTargetSlot("bad tab!");
+
+    await expect(slot.resolve()).resolves.toEqual(LAST_USED);
+    expect(findLastUsedBrowserTab).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -63,6 +82,14 @@ describe("the note a call's result gets", () => {
       { kind: "last-used", tabId: "tab-b", usedAt: NOW - ms },
       NOW,
     );
+
+  it("says when the call targeted the requested browser tab", () => {
+    expect(
+      browserTabTargetNote({ kind: "requested", tabId: "tab-requested" }, NOW),
+    ).toBe(
+      "Browser tab: this call targeted the requested browser tab. A navigate command reaches that tab only while it stays open, and this result doesn't confirm that it moved.",
+    );
+  });
 
   it("says the call used the most recently used tab, and when it was used", () => {
     expect(usedAgo(5 * 60_000)).toBe(

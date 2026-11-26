@@ -1,13 +1,7 @@
-import type { MotionAnimationClip } from "@shared/motion-timeline";
-import {
-  copyLayerAnimation,
-  pasteLayerAnimation,
-} from "@shared/motion-timeline";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
-import { type MotionDockTrack } from "@/components/design/MotionDock";
 import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
 import type {
   RuntimeLayerRenameRequest,
@@ -169,7 +163,6 @@ export function useEditorEditCommands({
     resetGeometryCommitCoalescing,
     canEditDesign,
     canEditLiveScreens,
-    rawServerFilesByIdRef,
     historyFilesRef,
     leaseSources,
     pendingLocalFileContentsRef,
@@ -216,9 +209,6 @@ export function useEditorEditCommands({
   } = editorCanvasAndScreens;
   const {
     setContentRenderRevision,
-    motionTracks,
-    setMotionTracks,
-    selectedMotionTargetNodeId,
     canEditLiveScreen,
     replacePreviewContent,
     syncLiveScreenSnapshotPreview,
@@ -227,7 +217,6 @@ export function useEditorEditCommands({
   const {
     contentHistorySelectionAfterRef,
     suppressContentHistoryRef,
-    markMotionTracksDirty,
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
@@ -267,8 +256,6 @@ export function useEditorEditCommands({
     (RuntimeLayerRenameRequest & { screenId: string; layerId: string }) | null
   >(null);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
-  const copiedLayerAnimationRef = useRef<MotionAnimationClip | null>(null);
-  const [hasAnimationClipboard, setHasAnimationClipboard] = useState(false);
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const handleRuntimeStructureRollbackResult = useCallback(
     (details: {
@@ -582,31 +569,6 @@ export function useEditorEditCommands({
       writeFrameGeometrySnapshot,
     ],
   );
-  const handleDeleteInlineFile = useCallback(
-    async (fileId: string) => {
-      if (!canEditDesign) return;
-      if (fileHistoryMutationPendingRef.current) {
-        throw new Error(t("common.genericError"));
-      }
-      const file =
-        files.find((candidate) => candidate.id === fileId) ??
-        rawServerFilesByIdRef.current.get(fileId) ??
-        historyFilesRef.current.find((candidate) => candidate.id === fileId);
-      if (!file) throw new Error(t("common.genericError"));
-
-      const targetFile = file;
-      let deleted = false;
-      await performDeleteFiles([targetFile], {
-        recordDeletionHistory: true,
-        onMutationSettled: (deletedFiles) => {
-          deleted = deletedFiles.some((candidate) => candidate.id === fileId);
-        },
-      });
-      if (!deleted) throw new Error(t("common.genericError"));
-    },
-    [canEditDesign, files, id, performDeleteFiles, queryClient, t],
-  );
-
   const handleOverviewNudgeSelection = useCallback(
     (targetScreenIds: string[]) =>
       !overviewNudgeTargetsElement({
@@ -736,26 +698,6 @@ export function useEditorEditCommands({
     handleStylesChange(styles);
   }, [canEditActiveVisualScreen, handleStylesChange, selectedElement]);
 
-  const handleCopyAnimation = useCallback(() => {
-    if (!selectedMotionTargetNodeId) return;
-    const clip = copyLayerAnimation(motionTracks, selectedMotionTargetNodeId);
-    if (!clip) return;
-    copiedLayerAnimationRef.current = clip;
-    setHasAnimationClipboard(true);
-  }, [motionTracks, selectedMotionTargetNodeId]);
-
-  const handlePasteAnimation = useCallback(() => {
-    if (!canEditDesign) return;
-    const clip = copiedLayerAnimationRef.current;
-    if (!clip || !selectedMotionTargetNodeId) return;
-    const targetNodeId = selectedMotionTargetNodeId;
-    setMotionTracks(
-      (current) =>
-        pasteLayerAnimation(current, clip, targetNodeId) as MotionDockTrack[],
-    );
-    markMotionTracksDirty();
-  }, [canEditDesign, markMotionTracksDirty, selectedMotionTargetNodeId]);
-
   const parseSelectionScaleValue = useCallback(
     (value: string | undefined): [number, number] => {
       const trimmed = (value ?? "").trim();
@@ -838,7 +780,7 @@ export function useEditorEditCommands({
           return;
         }
       }
-      if (!activeFile) return;
+      if (!activeFile && !selectedLayerIdsState.length) return;
       return runChangeSelectedZIndex(
         {
           activeFile,
@@ -852,6 +794,16 @@ export function useEditorEditCommands({
           getFreshActiveContent,
           invalidateRenderedElementInfo,
           renderedElementInfoByLayerKeyRef,
+          resolveScreen: (fileId) => {
+            const file = files.find((candidate) => candidate.id === fileId);
+            if (!file) return undefined;
+            return {
+              file,
+              getContent: () => getScreenContent(fileId),
+              applyContent: (nextContent, options) =>
+                applyFileContentUpdate(fileId, nextContent, options),
+            };
+          },
           reportRefusal: (reason) =>
             toast.error(
               t(
@@ -877,7 +829,10 @@ export function useEditorEditCommands({
       canEditDesign,
       canEditLiveScreen,
       commitVisualStyles,
+      files,
       getFreshActiveContent,
+      getScreenContent,
+      applyFileContentUpdate,
       invalidateRenderedElementInfo,
       t,
       selectedElement,
@@ -1338,17 +1293,13 @@ export function useEditorEditCommands({
     runtimeStructureMoveRevisionRef,
     setRuntimeLayerRenameRequest,
     hasPropsClipboard,
-    hasAnimationClipboard,
     handleRuntimeStructureRollbackResult,
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
-    handleDeleteInlineFile,
     handleOverviewNudgeSelection,
     handleDeleteOverviewSelection,
     handleCopyProps,
     handlePasteProps,
-    handleCopyAnimation,
-    handlePasteAnimation,
     handleFlipHorizontal,
     handleFlipVertical,
     changeSelectedZIndex,

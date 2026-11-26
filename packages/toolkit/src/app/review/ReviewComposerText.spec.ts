@@ -31,18 +31,30 @@ function chipLabels(doc: ProseMirrorNode) {
   return labels;
 }
 
+function textOf(doc: ProseMirrorNode) {
+  return doc.textBetween(0, doc.content.size, "");
+}
+
 describe("review composer text", () => {
-  it("round-trips lines, blank lines and mentions byte for byte", () => {
+  it("round-trips lines, blank lines, formatting and mentions", () => {
     for (const text of [
       "",
       "plain",
       "two\nlines",
-      "a\n\nb\n",
+      "a\n\nb",
       "Hey @Sam, can you check?\n@Sam Lee too",
-      "  leading and trailing  ",
+      "**bold**, *italic*, ~~gone~~, `code` and [a link](https://example.com)",
+      "- one\n- two\n\n1. first\n\n> quoted\n\n```\ncode\n```",
     ]) {
       expect(roundTrip(text).text).toBe(text);
     }
+  });
+
+  it("saves the spaces and newline at the ends as Markdown drops them", () => {
+    expect(roundTrip("a\n\nb\n").text).toBe("a\n\nb");
+    expect(roundTrip("  leading and trailing  ").text).toBe(
+      "leading and trailing",
+    );
   });
 
   it("turns only whole-token mentions into chips, longest name first", () => {
@@ -68,14 +80,14 @@ describe("review composer text", () => {
     const matchedDoc = parseReviewComposerText(matched, people);
     const elapsedMs = performance.now() - started;
 
-    expect(unmatchedDoc.content?.[0]?.content).toEqual([
-      { type: "text", text: unmatched },
-    ]);
-    expect(
-      matchedDoc.content?.[0]?.content?.filter(
-        (node) => node.type === "reviewMention",
-      ),
-    ).toHaveLength(40_000);
+    // Past the Markdown limit the rest opens as plain lines. Past the most
+    // chips the renderer draws, it draws none, and the box opens none.
+    expect(textOf(ProseMirrorNode.fromJSON(schema, unmatchedDoc))).toBe(
+      unmatched,
+    );
+    expect(chipLabels(ProseMirrorNode.fromJSON(schema, matchedDoc))).toEqual(
+      [],
+    );
     expect(elapsedMs).toBeLessThan(1_000);
   });
 });

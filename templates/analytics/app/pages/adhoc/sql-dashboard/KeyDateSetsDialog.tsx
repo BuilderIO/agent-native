@@ -1,11 +1,11 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import type { KeyDate, KeyDateSet } from "@shared/key-dates";
 import {
   formatPanelEventDate,
   formatPanelEventTime,
   panelEventInstant,
-} from "@shared/panel-events";
+} from "@agent-native/toolkit/dashboard/panel-events";
+import type { KeyDate, KeyDateSet } from "@shared/key-dates";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 

@@ -89,3 +89,8 @@ describe("manage-file-storage audit", () => {
     expect(recorded()).toMatchObject({ orgId: null, visibility: "private" });
   });
 });
+
+it("keeps manage-file-storage in the app, off MCP", async () => {
+  const { default: action } = await import("./manage-file-storage.js");
+  expect(action.mcpTool).toBe(false);
+});

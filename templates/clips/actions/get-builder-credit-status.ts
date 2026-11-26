@@ -13,6 +13,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async () => {
     const raw = await readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(
       () => null,

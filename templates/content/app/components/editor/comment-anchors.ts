@@ -1,4 +1,7 @@
-import { COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN } from "@shared/comment-quote-anchor";
+import {
+  COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN,
+  keepsQuoteContext,
+} from "@shared/comment-quote-anchor";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 export interface CommentTextAnchor {
@@ -228,38 +231,40 @@ export function resolveAnchor(
   const hay = docText.text;
   if (!hay.includes(quote)) return null;
 
-  const occurrences: number[] = [];
-  let idx = hay.indexOf(quote);
-  while (idx !== -1) {
-    occurrences.push(idx);
-    idx = hay.indexOf(quote, idx + Math.max(1, quote.length));
-    if (occurrences.length > 500) break;
-  }
-
-  let chosen = hay.indexOf(quote);
-  if (occurrences.length > 1) {
-    const prefix = anchor.prefix ?? "";
-    const suffix = anchor.suffix ?? "";
-    const target =
-      typeof anchor.startOffset === "number" ? anchor.startOffset : null;
-    let bestScore = -Infinity;
-    for (const start of occurrences) {
-      const before = hay.slice(Math.max(0, start - CONTEXT_LEN), start);
-      const after = hay.slice(
-        start + quote.length,
-        start + quote.length + CONTEXT_LEN,
-      );
-      let score =
-        commonSuffixLen(before, prefix) + commonPrefixLen(after, suffix);
-      if (target != null) {
-        score -= Math.min(CONTEXT_LEN, Math.abs(start - target) / 8);
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        chosen = start;
-      }
+  const prefix = anchor.prefix ?? "";
+  const suffix = anchor.suffix ?? "";
+  const target =
+    typeof anchor.startOffset === "number" ? anchor.startOffset : null;
+  let chosen: number | null = null;
+  let bestScore = -Infinity;
+  // Every copy is scored, as the anchor follower on save scores them, so a
+  // comment's own copy is found however many copies come before it, and
+  // where copies overlap, as the second "aa" in "aaa" does.
+  for (
+    let start = hay.indexOf(quote);
+    start !== -1;
+    start = hay.indexOf(quote, start + 1)
+  ) {
+    const before = hay.slice(Math.max(0, start - CONTEXT_LEN), start);
+    const after = hay.slice(
+      start + quote.length,
+      start + quote.length + CONTEXT_LEN,
+    );
+    const matched = {
+      prefix: commonSuffixLen(before, prefix),
+      suffix: commonPrefixLen(after, suffix),
+    };
+    if (!keepsQuoteContext(anchor, matched)) continue;
+    let score = matched.prefix + matched.suffix;
+    if (target != null) {
+      score -= Math.min(CONTEXT_LEN, Math.abs(start - target) / 8);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      chosen = start;
     }
   }
+  if (chosen == null) return null;
 
   const from = offsetToPos(docText, chosen, "start");
   const to = offsetToPos(docText, chosen + quote.length);

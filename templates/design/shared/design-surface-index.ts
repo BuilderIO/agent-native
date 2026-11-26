@@ -58,20 +58,6 @@ export interface DesignSurfaceToken {
   sourceFile?: string;
 }
 
-export interface DesignSurfaceMotionTrack {
-  targetNodeId: string;
-  property: string;
-  keyframeCount: number;
-}
-
-export interface DesignSurfaceMotionTimeline {
-  timelineId: string;
-  sourceRef: string;
-  durationMs: number;
-  tracks: DesignSurfaceMotionTrack[];
-  compiledHash?: string;
-}
-
 export type DesignStateKind = "state" | "fixture" | "capture";
 
 export type DesignBreakpoint = "auto" | "desktop" | "tablet" | "mobile";
@@ -86,36 +72,6 @@ export interface DesignSurfaceState {
   previewRef?: string;
 }
 
-export type DesignReviewFindingSeverity = "error" | "warning" | "info";
-
-export type DesignReviewFindingKind =
-  | "contrast"
-  | "tap-target"
-  | "focus-visibility"
-  | "missing-alt"
-  | "missing-label"
-  | "missing-role"
-  | "reduced-motion"
-  | "other";
-
-export interface DesignReviewFinding {
-  findingId: string;
-  severity: DesignReviewFindingSeverity;
-  kind: DesignReviewFindingKind;
-  message: string;
-  nodeId?: string;
-  selector?: string;
-  fixAvailable: boolean;
-}
-
-export interface DesignSurfaceReview {
-  snapshotId: string | null;
-  auditedAt: string | null;
-  findings: DesignReviewFinding[];
-  baseVersionId?: string;
-  compareVersionId?: string;
-}
-
 export interface DesignSurfaceIndex {
   version: 1;
 
@@ -127,9 +83,5 @@ export interface DesignSurfaceIndex {
 
   tokens?: DesignSurfaceToken[];
 
-  motion?: Record<string, DesignSurfaceMotionTimeline>;
-
   states?: DesignSurfaceState[];
-
-  review?: DesignSurfaceReview;
 }

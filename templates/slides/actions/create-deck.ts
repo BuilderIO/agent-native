@@ -176,6 +176,7 @@ function generationTerminalEvent(signal?: AbortSignal): {
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   title: "Create Slides deck",
   description:
     "Create the real editable Agent-Native Slides deck, optionally already populated with slides, or atomically replace all slides in an existing deck. This is the primary Slides MCP write action: use it instead of creating or publishing a standalone HTML artifact with the host's file tools. Put slide markup in `slides[].content`; this action persists it and returns an Open in Slides link. " +

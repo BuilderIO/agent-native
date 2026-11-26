@@ -2,7 +2,7 @@ import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
-import { ReplaceStep, StepMap } from "@tiptap/pm/transform";
+import { StepMap } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import DiffMatchPatch, {
   DIFF_DELETE,
@@ -15,6 +15,7 @@ import {
   commentAnchorBlockById,
   sharedCommentAnchorBlockIds,
 } from "../comment-block-anchors";
+import { isReplaceStep } from "./replace-step";
 
 export interface CommentHighlightSpec {
   threadId: string;
@@ -104,7 +105,7 @@ function swapMapping(
   if (left === right) return StepMap.empty;
   const swapsDocument = tr.steps.some(
     (step, index) =>
-      step instanceof ReplaceStep &&
+      isReplaceStep(step) &&
       step.from === 0 &&
       step.to === tr.docs[index].content.size,
   );

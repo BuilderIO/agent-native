@@ -277,7 +277,7 @@ Consulte [MCP Clients](/docs/mcp-clients) para obter o esquema de configuração
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-Para credenciais de aplicativos de tempo de execução, prefira o cofre do Dispatch em vez da edição manual de arquivos `.env`. O padrão do cofre é o acesso a todos os aplicativos, portanto, cada chave do cofre salva está disponível para todos os aplicativos do espaço de trabalho e pode ser enviada por push com `sync-vault-to-app`. Mude o cofre para o modo manual somente quando os apps precisarem de concessões explícitas por chave.
+Para credenciais de aplicativos de tempo de execução, prefira o cofre do Dispatch em vez da edição manual de arquivos `.env`. O padrão do cofre é o acesso a todos os aplicativos, portanto, cada chave do cofre salva está disponível para todos os aplicativos do espaço de trabalho que compartilham seu banco de dados. Mude o cofre para o modo manual somente quando os apps precisarem de concessões explícitas por chave.
 
 ```text
 my-company-platform/

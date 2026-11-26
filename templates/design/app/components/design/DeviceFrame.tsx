@@ -17,9 +17,7 @@ function DesktopFrame({
 }) {
   return (
     <div className="rounded-lg overflow-hidden shadow-2xl border border-border bg-background">
-      {/* Title bar */}
       <div className="flex items-center gap-2 px-4 h-10 bg-muted/50 border-b border-border">
-        {/* Traffic lights */}
         <div className="flex items-center gap-1.5">
           <div
             className="w-3 h-3 rounded-full"
@@ -40,7 +38,6 @@ function DesktopFrame({
           </span>
         )}
       </div>
-      {/* Content */}
       <div className="overflow-hidden">{children}</div>
     </div>
   );
@@ -55,11 +52,9 @@ function TabletFrame({
 }) {
   return (
     <div className="rounded-[2rem] overflow-hidden shadow-2xl border-[3px] border-zinc-700 bg-zinc-900">
-      {/* Camera notch area */}
       <div className="flex items-center justify-center h-5 bg-zinc-900">
         <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
       </div>
-      {/* Screen */}
       <div className="mx-1 overflow-hidden">
         {title && (
           <div className="text-center text-[10px] text-muted-foreground py-1 bg-black/40">
@@ -68,7 +63,6 @@ function TabletFrame({
         )}
         {children}
       </div>
-      {/* Home bar */}
       <div className="flex items-center justify-center h-5 bg-zinc-900">
         <div className="w-24 h-1 rounded-full bg-zinc-700" />
       </div>
@@ -85,15 +79,10 @@ function MobileFrame({
 }) {
   return (
     <div className="rounded-[2.5rem] overflow-hidden shadow-2xl border-[3px] border-zinc-700 bg-zinc-900">
-      {/* Status bar with notch */}
       <div className="relative flex items-center justify-between px-6 h-10 bg-black">
-        {/* Time */}
         <span className="!text-[11px] font-semibold text-white">9:41</span>
-        {/* Dynamic Island / Notch */}
         <div className="absolute left-1/2 -translate-x-1/2 top-1.5 w-24 h-6 rounded-full bg-zinc-900" />
-        {/* Status icons */}
         <div className="flex items-center gap-1">
-          {/* Signal bars */}
           <svg
             width="16"
             height="12"
@@ -105,7 +94,6 @@ function MobileFrame({
             <rect x="8" y="2" width="3" height="10" fill="currentColor" />
             <rect x="12" y="0" width="3" height="12" fill="currentColor" />
           </svg>
-          {/* Battery */}
           <svg
             width="22"
             height="12"
@@ -141,7 +129,6 @@ function MobileFrame({
           </svg>
         </div>
       </div>
-      {/* Screen */}
       <div className="mx-0.5 overflow-hidden">
         {title && (
           <div className="text-center text-[10px] text-muted-foreground py-1 bg-black/40">
@@ -150,7 +137,6 @@ function MobileFrame({
         )}
         {children}
       </div>
-      {/* Home indicator */}
       <div className="flex items-center justify-center h-6 bg-black">
         <div className="w-28 h-1 rounded-full bg-zinc-600" />
       </div>

@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -41,6 +49,7 @@ import { DATA_NOTES_MIGRATION_SQL } from "./data-notes-migration.js";
 import { saveDataNote } from "./data-notes-store.js";
 import { KEY_DATES_MIGRATION_SQL } from "./key-dates-migration.js";
 import { saveKeyDate } from "./key-dates-store.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const alice = { email: "alice@example.test", orgId: "org-1" };
 const carol = { email: "carol@example.test", orgId: "org-2" };
@@ -67,8 +76,16 @@ describe("dashboard annotation reads", () => {
   type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     mocks.getDb.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     mocks.getDashboard.mockReset();
     mocks.loadBuiltin.mockReset();
@@ -78,10 +95,6 @@ describe("dashboard annotation reads", () => {
     ]) {
       await client.exec(statement);
     }
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   it("summarizes one organization's key dates and notes for a dashboard", async () => {

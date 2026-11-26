@@ -50,6 +50,20 @@ access to all Analytics data.
 Keep future admin additions inside this route instead of adding many
 top-level sidebar tabs.
 
+## Outside-Agent BigQuery Budgets
+
+BigQuery jobs that connected MCP agents start count against daily limits:
+$1 per person without asking, a $5 person ceiling, $50 per organization, and
+50 GB per job, resetting at 00:00 UTC. Past $1, the onboarding journey and
+health tools ask the person once, on Analytics' review page, to allow up to $5
+for that UTC day, when their queries run on BigQuery; the approval expires at
+00:00 UTC. A2A callers and dashboard edits can't ask: an edit saves and reads
+its panel as unverified (`outside_agent_approval_required`). $5 and $50
+are hard stops. Analytics' own agent and dashboards are not limited. When an
+owner or admin asks to raise or reset a limit, call
+`set-bigquery-agent-budget` (`scope` `org` or `person`, `dailyLimitUsd`, `null`
+for the default) and report the limits it returns.
+
 ## Related Skills
 
 - Root **feature-flags** (dev-scope) — how to declare and register a flag in

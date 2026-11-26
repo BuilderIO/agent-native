@@ -70,6 +70,113 @@ export function verifyInternalToken(taskId: string, token: string): boolean {
   return safeEqual(sig, expected);
 }
 
+/** What a durable chat run carries to prove its turn was started interactively. */
+export interface DurableTurnGrantClaim {
+  /** The dispatched run; a recovery successor run never inherits the grant. */
+  runId: string;
+  turnId: string;
+  initiator: {
+    email: string;
+    authUserId?: string | null;
+    orgId?: string | null;
+    orgScope?: "personal" | null;
+  };
+  expiresAt: number;
+}
+
+function durableTurnGrantHex(claim: DurableTurnGrantClaim): string {
+  return hmacHex(
+    getSecret(),
+    `agent-native:durable-turn-grant:${JSON.stringify([
+      claim.runId,
+      claim.turnId,
+      claim.initiator.email,
+      claim.initiator.authUserId ?? null,
+      claim.initiator.orgId ?? null,
+      claim.initiator.orgScope ?? null,
+      claim.expiresAt,
+    ])}`,
+  );
+}
+
+export function signDurableTurnGrant(claim: DurableTurnGrantClaim): string {
+  return durableTurnGrantHex(claim);
+}
+
+export function verifyDurableTurnGrant(
+  claim: DurableTurnGrantClaim,
+  signature: unknown,
+): boolean {
+  if (typeof signature !== "string") return false;
+  return safeEqual(signature, durableTurnGrantHex(claim));
+}
+
+/** The identity a durable chat run is dispatched to resume as. */
+export interface DispatchedTurnInitiatorClaim {
+  email: string;
+  authUserId?: string | null;
+  orgId?: string | null;
+  orgScope?: "personal" | null;
+  anonymous: boolean;
+}
+
+function dispatchedTurnInitiatorHex(
+  runId: string,
+  claim: DispatchedTurnInitiatorClaim,
+): string {
+  return hmacHex(
+    getSecret(),
+    `agent-native:dispatched-turn-initiator:${JSON.stringify([
+      runId,
+      claim.email.trim().toLowerCase(),
+      claim.authUserId ?? null,
+      claim.orgId ?? null,
+      claim.orgScope ?? null,
+      claim.anonymous === true,
+    ])}`,
+  );
+}
+
+/** Signs the initiator a dispatched run must resume as; throws without A2A_SECRET. */
+export function signDispatchedTurnInitiator(
+  runId: string,
+  claim: DispatchedTurnInitiatorClaim,
+): string {
+  return dispatchedTurnInitiatorHex(runId, claim);
+}
+
+/** Throws when A2A_SECRET is not set, so a missing secret is not a mismatch. */
+export function verifyDispatchedTurnInitiator(
+  runId: string,
+  claim: DispatchedTurnInitiatorClaim,
+  signature: unknown,
+): boolean {
+  if (typeof signature !== "string") return false;
+  return safeEqual(signature, dispatchedTurnInitiatorHex(runId, claim));
+}
+
+// The prefix keeps a chat-turn proof from ever verifying as another token.
+function mcpChatTurnProofHex(payload: readonly unknown[]): string {
+  return hmacHex(
+    getSecret(),
+    `agent-native:mcp-chat-turn:${JSON.stringify(payload)}`,
+  );
+}
+
+/** Signs an MCP chat-turn claim; throws when A2A_SECRET is not set. */
+export function signMcpChatTurnProof(payload: readonly unknown[]): string {
+  return mcpChatTurnProofHex(payload);
+}
+
+/** Throws when A2A_SECRET is not set, so a missing secret is not a forgery. */
+export function verifyMcpChatTurnProof(
+  payload: readonly unknown[],
+  signature: unknown,
+): boolean {
+  if (typeof signature !== "string") return false;
+  return safeEqual(signature, mcpChatTurnProofHex(payload));
+}
+
 export function extractBearerToken(
   authHeader: string | undefined,
 ): string | null {

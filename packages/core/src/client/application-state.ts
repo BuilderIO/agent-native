@@ -4,6 +4,10 @@ import {
   APP_STATE_WRITER_HEADER,
   TAB_SCOPED_APP_STATE_KEYS,
 } from "../shared/app-state-routes.js";
+import {
+  readSessionInvalidationMarker,
+  SESSION_BOOTSTRAP_INVALIDATION_GLOBAL,
+} from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import {
@@ -15,10 +19,93 @@ import {
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
 import { recordStateWrite } from "./recorder.js";
+import {
+  currentSessionIdentity,
+  currentSessionScope,
+  subscribeSessionIdentityPublished,
+  subscribeSessionInvalidation,
+  subscribeSessionScope,
+} from "./session-identity.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
+const CORE_BEFORE_TURN_STATE_KEYS = [
+  "navigation",
+  "__url__",
+  "pending-selection-context",
+  "selection",
+] as const;
 const pendingMutations = new Map<string, Promise<void>>();
+const pendingTurnMutations = new Map<Promise<unknown>, BeforeTurnContext>();
+interface TurnMutationState {
+  savedRevision: number;
+  failure?: { revision: number; error: unknown };
+}
+interface BeforeTurnContext {
+  states: Map<string, TurnMutationState>;
+  coreKeys: Set<string>;
+  requiredKeys: Map<string, number>;
+  flushers: Set<() => void | Promise<void>>;
+}
+const beforeTurnContexts = new WeakMap<
+  object,
+  Map<string, BeforeTurnContext>
+>();
 const mutationRevisions = new Map<string, number>();
+const requestSessionIds = new WeakMap<object, number>();
+let nextRequestSessionId = 0;
+let appStateSessionScope = currentSessionScope();
+let awaitingInitialSession = currentSessionIdentity() === undefined;
+let invalidatedSession: { session: object; appState: object } | undefined;
+const initialInvalidationMarker =
+  typeof window === "undefined"
+    ? undefined
+    : (window[SESSION_BOOTSTRAP_INVALIDATION_GLOBAL] ??
+      readSessionInvalidationMarker());
+if (
+  typeof window === "undefined" ||
+  typeof window.addEventListener === "function"
+) {
+  subscribeSessionInvalidation(() => {
+    const session = currentSessionScope();
+    if (!invalidatedSession || invalidatedSession.session !== session) {
+      invalidatedSession = { session, appState: appStateSessionScope };
+    }
+    awaitingInitialSession = false;
+    appStateSessionScope = {};
+  });
+}
+subscribeSessionScope(() => {
+  const identity = currentSessionIdentity();
+  if (
+    invalidatedSession &&
+    identity !== undefined &&
+    invalidatedSession.session !== currentSessionScope()
+  ) {
+    invalidatedSession = undefined;
+  }
+  if (
+    !awaitingInitialSession ||
+    identity === undefined ||
+    (initialInvalidationMarker !== undefined &&
+      initialInvalidationMarker !== readSessionInvalidationMarker())
+  ) {
+    appStateSessionScope = currentSessionScope();
+  }
+  if (identity !== undefined) awaitingInitialSession = false;
+});
+subscribeSessionIdentityPublished(() => {
+  if (currentSessionIdentity() === undefined) return;
+  if (invalidatedSession?.session === currentSessionScope()) {
+    appStateSessionScope = invalidatedSession.appState;
+  }
+  invalidatedSession = undefined;
+});
+
+function assertAppStateSessionReady(): void {
+  if (invalidatedSession) {
+    throw new Error("Application state session is being verified");
+  }
+}
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -28,6 +115,12 @@ export interface ClientAppStateWriteOptions {
   keepalive?: boolean;
   requestSource?: string;
   signal?: AbortSignal;
+  /**
+   * Send this value in a request of its own. Otherwise a write still waiting
+   * on an earlier one takes the value of a later write of the key, and
+   * resolves with that. A write with a `signal` always has its own request.
+   */
+  ownRequest?: boolean;
 }
 
 function appStateUrl(key: string): string {
@@ -90,9 +183,148 @@ function browserTabHeaders(): Record<string, string> | undefined {
 // Identifies the server row a key reaches, so writes and reads through
 // `navigation` and through `navigation:<this tab>` wait on each other.
 function requestKey(key: string): string {
-  if (typeof window === "undefined") return `:${key}`;
-  const tab = getBrowserTabId();
-  return `${tab}:${TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key}`;
+  const session = appStateSessionScope;
+  let sessionId = requestSessionIds.get(session);
+  if (sessionId === undefined) {
+    sessionId = ++nextRequestSessionId;
+    requestSessionIds.set(session, sessionId);
+  }
+  const tab = typeof window === "undefined" ? null : getBrowserTabId();
+  const storageKey =
+    tab && TAB_SCOPED_APP_STATE_KEYS.has(key) ? `${key}:${tab}` : key;
+  return JSON.stringify([
+    sessionId,
+    agentNativePath("/_agent-native/application-state"),
+    tab,
+    storageKey,
+  ]);
+}
+
+function appStateTurnScope(): string {
+  return JSON.stringify([
+    agentNativePath("/_agent-native/application-state"),
+    typeof window === "undefined" ? null : getBrowserTabId(),
+  ]);
+}
+
+function currentBeforeTurnContext(): BeforeTurnContext {
+  const session = appStateSessionScope;
+  let contexts = beforeTurnContexts.get(session);
+  if (!contexts) {
+    contexts = new Map();
+    beforeTurnContexts.set(session, contexts);
+  }
+  const scope = appStateTurnScope();
+  let context = contexts.get(scope);
+  if (!context) {
+    const coreKeys = new Set<string>();
+    const tab = typeof window === "undefined" ? undefined : getBrowserTabId();
+    for (const key of CORE_BEFORE_TURN_STATE_KEYS) {
+      coreKeys.add(requestKey(key));
+      if (tab) coreKeys.add(requestKey(`${key}:${tab}`));
+    }
+    context = {
+      states: new Map(),
+      coreKeys,
+      requiredKeys: new Map(),
+      flushers: new Set(),
+    };
+    contexts.set(scope, context);
+  }
+  return context;
+}
+
+/** Keep app-owned context required while its editor or view is mounted. */
+export function registerBeforeAgentTurnStateKeys(
+  keys: readonly string[],
+): () => void {
+  for (const key of keys) appStateUrl(key);
+  const context = currentBeforeTurnContext();
+  const ids = [...new Set(keys.map(requestKey))];
+  for (const id of ids)
+    context.requiredKeys.set(id, (context.requiredKeys.get(id) ?? 0) + 1);
+  let registered = true;
+  return () => {
+    if (!registered) return;
+    registered = false;
+    for (const id of ids) {
+      const count = context.requiredKeys.get(id) ?? 0;
+      if (count <= 1) context.requiredKeys.delete(id);
+      else context.requiredKeys.set(id, count - 1);
+    }
+  };
+}
+
+/** Register deferred UI state or editor saves that must precede a new turn. */
+export function registerBeforeAgentTurnFlush(
+  flush: () => void | Promise<void>,
+): () => void {
+  const context = currentBeforeTurnContext();
+  context.flushers.add(flush);
+  return () => {
+    context.flushers.delete(flush);
+  };
+}
+
+/**
+ * Await all in-flight writes. Retained failures gate core context and keys
+ * registered by a mounted owner. Custom keys opt in with
+ * registerBeforeAgentTurnStateKeys; owner flushers perform recovery.
+ * Failed writes are never replayed without their owner's intent and fencing.
+ */
+export async function flushClientAppStateBeforeAgentTurn(
+  signal?: AbortSignal,
+): Promise<void> {
+  assertAppStateSessionReady();
+  const context = currentBeforeTurnContext();
+  const pendingInScope = () =>
+    [...pendingTurnMutations]
+      .filter(([, mutationContext]) => mutationContext === context)
+      .map(([mutation]) => mutation);
+  const deadline = new AbortController();
+  const timer = setTimeout(
+    () => deadline.abort(new Error("Application state save timed out")),
+    25_000,
+  );
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, deadline.signal])
+    : deadline.signal;
+  try {
+    boundedSignal.throwIfAborted();
+    const inFlight = pendingInScope();
+    await awaitWithAbort(
+      Promise.all([
+        ...inFlight,
+        ...[...context.flushers].map((flush) =>
+          Promise.resolve().then(() => {
+            if (currentBeforeTurnContext() !== context) {
+              throw new Error(
+                "Application state scope changed before the agent turn",
+              );
+            }
+            if (context.flushers.has(flush)) return flush();
+          }),
+        ),
+      ]),
+      boundedSignal,
+    );
+    while (pendingInScope().length > 0) {
+      await awaitWithAbort(Promise.all(pendingInScope()), boundedSignal);
+    }
+    if (currentBeforeTurnContext() !== context) {
+      throw new Error("Application state scope changed before the agent turn");
+    }
+    for (const [id, state] of context.states) {
+      if (
+        state.failure &&
+        (context.coreKeys.has(id) || context.requiredKeys.has(id))
+      ) {
+        throw state.failure.error;
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function isClientAppStateMutationPending(key: string): boolean {
@@ -102,47 +334,145 @@ export function isClientAppStateMutationPending(key: string): boolean {
 function runClientAppStateMutation<T>(
   key: string,
   operation: () => Promise<T>,
+  saved: (result: T) => boolean = () => true,
+  startedOperation?: () => Promise<T> | undefined,
 ): Promise<T> {
   const id = requestKey(key);
+  const context = currentBeforeTurnContext();
+  const state: TurnMutationState = context.states.get(id) ?? {
+    savedRevision: 0,
+  };
+  context.states.set(id, state);
   const previous = pendingMutations.get(id);
   // A later write must not fold into one queued before this mutation.
   queuedReplacements.delete(id);
-  mutationRevisions.set(id, (mutationRevisions.get(id) ?? 0) + 1);
+  const revision = (mutationRevisions.get(id) ?? 0) + 1;
+  mutationRevisions.set(id, revision);
   const mutation = (async () => {
     if (previous) await previous;
+    const underway = startedOperation?.();
+    if (underway) return underway;
+    if (currentBeforeTurnContext() !== context) {
+      throw new Error("Application state scope changed before saving");
+    }
     return operation();
   })();
+  pendingTurnMutations.set(mutation, context);
   let pending!: Promise<void>;
   const clearPending = () => {
+    pendingTurnMutations.delete(mutation);
     if (pendingMutations.get(id) === pending) {
       pendingMutations.delete(id);
     }
   };
-  pending = mutation.then(clearPending, clearPending);
+  pending = mutation.then(
+    (result) => {
+      clearPending();
+      if (saved(result)) {
+        state.savedRevision = Math.max(state.savedRevision, revision);
+        if (state.failure && state.failure.revision <= state.savedRevision) {
+          delete state.failure;
+        }
+      }
+    },
+    (error: unknown) => {
+      clearPending();
+      if (
+        revision > state.savedRevision &&
+        revision >= (state.failure?.revision ?? 0)
+      ) {
+        state.failure = { revision, error };
+      }
+    },
+  );
   pendingMutations.set(id, pending);
   return mutation;
 }
 
-// Compare-and-sets and writes with an abort signal keep their own requests.
-// A write queued behind one never goes ahead of it when the page hides (see
+// Compare-and-sets and writes with an abort signal keep their own requests. A
+// write queued behind one never goes ahead of it when the page hides (see
 // flushOnPageHide): the server doesn't order compare-and-sets, and a signalled
-// write may yet be aborted. Counts these per key until they settle.
-const unsettledBarriers = new Map<string, number>();
+// write may yet be aborted. Holds these per key until they settle.
+interface Barrier {
+  settled: boolean;
+}
+const unsettledBarriers = new Map<string, Set<Barrier>>();
 
 function runBarrierMutation<T>(
   key: string,
   operation: () => Promise<T>,
+  saved?: (result: T) => boolean,
 ): Promise<T> {
   const id = requestKey(key);
-  unsettledBarriers.set(id, (unsettledBarriers.get(id) ?? 0) + 1);
-  const mutation = runClientAppStateMutation(key, operation);
+  const barrier: Barrier = { settled: false };
+  const barriers = unsettledBarriers.get(id) ?? new Set<Barrier>();
+  barriers.add(barrier);
+  unsettledBarriers.set(id, barriers);
+  const mutation = runClientAppStateMutation(key, operation, saved);
   const settle = () => {
-    const left = (unsettledBarriers.get(id) ?? 1) - 1;
-    if (left > 0) unsettledBarriers.set(id, left);
-    else unsettledBarriers.delete(id);
+    barrier.settled = true;
+    barriers.delete(barrier);
+    if (barriers.size === 0 && unsettledBarriers.get(id) === barriers) {
+      unsettledBarriers.delete(id);
+    }
   };
   mutation.then(settle, settle);
   return mutation;
+}
+
+// Writes sent as their own request (`ownRequest`) that wait for an earlier
+// write to their key. They're numbered like queued writes, so a keepalive one
+// can go at once when the page hides, or when it's made while the page is
+// hidden and may get no later chance.
+interface WaitingOwnRequest {
+  keepalive: boolean;
+  /** Barriers made before it, which it never goes ahead of. */
+  barriersAhead: Barrier[];
+  start: () => Promise<unknown>;
+}
+const waitingOwnRequests = new Set<WaitingOwnRequest>();
+
+function runOwnRequestMutation<T>(
+  key: string,
+  keepalive: boolean,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const context = currentBeforeTurnContext();
+  let started: Promise<T> | undefined;
+  const waiting: WaitingOwnRequest = {
+    keepalive,
+    barriersAhead: [...(unsettledBarriers.get(requestKey(key)) ?? [])],
+    start: () => {
+      waitingOwnRequests.delete(waiting);
+      return (started ??=
+        currentBeforeTurnContext() === context
+          ? operation()
+          : Promise.reject(
+              new Error("Application state scope changed before saving"),
+            ));
+    },
+  };
+  waitingOwnRequests.add(waiting);
+  watchPageHide();
+  const mutation = runClientAppStateMutation(
+    key,
+    () => waiting.start() as Promise<T>,
+    undefined,
+    () => started,
+  );
+  const forget = () => {
+    waitingOwnRequests.delete(waiting);
+  };
+  mutation.then(forget, forget);
+  if (pageIsHiding()) startWaitingOwnRequest(waiting);
+  return mutation;
+}
+
+// Its caller hears how it went once the earlier write settles.
+function startWaitingOwnRequest(waiting: WaitingOwnRequest): void {
+  if (!waiting.keepalive || !waitingOwnRequests.has(waiting)) return;
+  if (waiting.barriersAhead.some((barrier) => !barrier.settled)) return;
+  waiting.start().catch(() => {});
 }
 
 interface Replacement {
@@ -154,6 +484,8 @@ interface Replacement {
 
 interface QueuedReplacement {
   key: string;
+  id: string;
+  context: BeforeTurnContext;
   replacement: Replacement;
   started: boolean;
   sent: boolean;
@@ -248,10 +580,15 @@ function replaceClientAppState(
 ): Promise<unknown> {
   appStateUrl(key);
   const id = requestKey(key);
+  const context = currentBeforeTurnContext();
   const queued = queuedReplacements.get(id);
-  if (queued) return mergeReplacement(id, queued, replacement);
+  if (queued?.context === context)
+    return mergeReplacement(id, queued, replacement);
   const inFlight = inFlightReplacements.get(id);
-  if (inFlight && inFlight.pending === pendingMutations.get(id)) {
+  if (
+    inFlight?.context === context &&
+    inFlight.pending === pendingMutations.get(id)
+  ) {
     // Not sent yet: it can still carry this value instead.
     if (!inFlight.sent) return mergeReplacement(id, inFlight, replacement);
     // The request on the wire already writes this, and nothing follows it,
@@ -265,6 +602,8 @@ function replaceClientAppState(
   }
   const entry = {
     key,
+    id,
+    context,
     replacement,
     started: false,
     sent: false,
@@ -281,7 +620,7 @@ function replaceClientAppState(
 // or sooner when the page is unloading (see flushOnPageHide).
 function startReplacement(entry: QueuedReplacement): Promise<unknown> {
   if (entry.running) return entry.running;
-  const id = requestKey(entry.key);
+  const id = entry.id;
   entry.started = true;
   if (queuedReplacements.get(id) === entry) queuedReplacements.delete(id);
   inFlightReplacements.set(id, entry);
@@ -333,7 +672,12 @@ function watchPageHide(): void {
     pageHidden = false;
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushReplacements();
+    if (document.visibilityState !== "hidden") return;
+    // A hidden tab may be discarded without a pagehide.
+    for (const waiting of [...waitingOwnRequests]) {
+      startWaitingOwnRequest(waiting);
+    }
+    flushReplacements();
   });
 }
 
@@ -344,9 +688,14 @@ function flushOnPageHide(): void {
   // write. It's numbered after the earlier one, so the server skips the
   // earlier one if it lands last. The server keeps no record of a delete,
   // though, so an earlier write landing after one brings the row back.
-  // Nothing goes ahead of a compare-and-set or a signalled write.
+  // A keepalive write sent as its own request goes now too, unless a
+  // compare-and-set or a signalled write made before it is still unsettled.
+  // Nothing else goes ahead of a compare-and-set or a signalled write.
+  for (const waiting of [...waitingOwnRequests]) {
+    startWaitingOwnRequest(waiting);
+  }
   for (const entry of [...queuedReplacements.values()]) {
-    if (unsettledBarriers.has(requestKey(entry.key))) continue;
+    if (unsettledBarriers.has(entry.id)) continue;
     if (entry.replacement.keepalive) {
       // Its caller hears how it went through entry.result, once the earlier
       // write settles.
@@ -390,14 +739,23 @@ function flushReplacements(): void {
 }
 
 function sendChunk(chunk: QueuedReplacement[], keepalive: boolean): void {
+  const context = currentBeforeTurnContext();
+  const eligible = chunk.filter((entry) => {
+    if (entry.context === context) return true;
+    entry.settle?.reject(
+      new Error("Application state scope changed before saving"),
+    );
+    return false;
+  });
+  if (eligible.length === 0) return;
   if (
-    chunk.length === 1 ||
+    eligible.length === 1 ||
     batchWritesUnsupported ||
     (pageIsHiding() && !batchRouteConfirmed)
   ) {
-    for (const entry of chunk) sendEach(entry, keepalive);
+    for (const entry of eligible) sendEach(entry, keepalive);
   } else {
-    void sendBatch(chunk, keepalive);
+    void sendBatch(eligible, keepalive);
   }
 }
 
@@ -549,6 +907,9 @@ async function sendReplacement(
   entry: QueuedReplacement,
   wantKeepalive: boolean,
 ): Promise<unknown> {
+  if (entry.context !== currentBeforeTurnContext()) {
+    throw new Error("Application state scope changed before saving");
+  }
   const { key } = entry;
   const { method, body, requestSource, keepalive: asked } = entry.replacement;
   const order = writeOrderHeaders(entry.seq);
@@ -653,13 +1014,30 @@ export interface ClientAppStateBatch {
   missing: string[];
 }
 
+class AppStateScopeChangedError extends Error {
+  constructor() {
+    super("Application state scope changed before reading");
+  }
+}
+
 const MAX_BATCH_KEYS = 100;
 
 export async function readClientAppStateMany(
   keys: readonly string[],
   options: ClientAppStateReadOptions = {},
 ): Promise<ClientAppStateBatch> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
+  const context = currentBeforeTurnContext();
+  const session = currentSessionScope();
+  const assertScope = () => {
+    if (
+      currentBeforeTurnContext() !== context ||
+      currentSessionScope() !== session
+    ) {
+      throw new AppStateScopeChangedError();
+    }
+  };
   const unique = [...new Set(keys)];
   for (const key of unique) appStateUrl(key);
   if (unique.length === 0) return { values: {}, missing: [] };
@@ -676,6 +1054,7 @@ export async function readClientAppStateMany(
       return mutation ? [mutation] : [];
     });
     await awaitWithAbort(Promise.all(pending), options.signal);
+    assertScope();
     if (
       unique.some((key) => {
         const id = requestKey(key);
@@ -706,6 +1085,7 @@ export async function readClientAppStateMany(
           `Read application state [${chunk.join(", ")}] returned an unexpected payload.`,
         );
       }
+      assertScope();
       Object.assign(merged.values, batch.values);
       merged.missing.push(...(batch.missing ?? []));
     }
@@ -721,22 +1101,36 @@ export async function readClientAppStateMany(
 }
 
 let pendingBatch:
-  | { keys: Set<string>; promise: Promise<ClientAppStateBatch> }
+  | {
+      keys: Set<string>;
+      promise: Promise<ClientAppStateBatch>;
+      context: BeforeTurnContext;
+      session: object;
+    }
   | undefined;
 
 function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
-  if (pendingBatch) {
+  const context = currentBeforeTurnContext();
+  const session = currentSessionScope();
+  if (pendingBatch?.context === context && pendingBatch.session === session) {
     pendingBatch.keys.add(key);
     return pendingBatch.promise;
   }
   const keys = new Set([key]);
   const promise = new Promise<ClientAppStateBatch>((resolve, reject) => {
     setTimeout(() => {
-      pendingBatch = undefined;
+      if (pendingBatch?.promise === promise) pendingBatch = undefined;
+      if (
+        currentBeforeTurnContext() !== context ||
+        currentSessionScope() !== session
+      ) {
+        reject(new AppStateScopeChangedError());
+        return;
+      }
       readClientAppStateMany([...keys]).then(resolve, reject);
     }, 0);
   });
-  pendingBatch = { keys, promise };
+  pendingBatch = { keys, promise, context, session };
   return promise;
 }
 
@@ -773,12 +1167,38 @@ export async function readClientAppState<T = unknown>(
   key: string,
   options: ClientAppStateReadOptions = {},
 ): Promise<T | null> {
+  assertAppStateSessionReady();
   appStateUrl(key);
   if (options.signal?.aborted) {
     throw options.signal.reason ?? new Error("Aborted");
   }
-  const batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
-  return (batch.values[key] ?? null) as T | null;
+  const initialIdentityUnknown = currentSessionIdentity() === undefined;
+  let scopeChanges = 0;
+  let readScope = currentSessionScope();
+  const unsubscribe = subscribeSessionScope(() => scopeChanges++);
+  try {
+    let batch: ClientAppStateBatch;
+    try {
+      batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+    } catch (error) {
+      if (
+        !(error instanceof AppStateScopeChangedError) ||
+        !initialIdentityUnknown ||
+        scopeChanges !== 1 ||
+        currentSessionIdentity() === undefined
+      ) {
+        throw error;
+      }
+      readScope = currentSessionScope();
+      batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+    }
+    if (currentSessionScope() !== readScope) {
+      throw new AppStateScopeChangedError();
+    }
+    return (batch.values[key] ?? null) as T | null;
+  } finally {
+    unsubscribe();
+  }
 }
 
 export async function writeClientAppState<T = unknown>(
@@ -786,39 +1206,44 @@ export async function writeClientAppState<T = unknown>(
   value: T,
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`write application state "${key}"`);
+  const ownRequest = !!options.signal || options.ownRequest === true;
   // Numbered now, in the order it was made, like a queued write.
-  const seq = options.signal ? nextWriteSeq() : 0;
-  const write = options.signal
-    ? runBarrierMutation(key, async () => {
-        const body = jsonBody(value);
-        const keepalive = keepaliveRequest(options.keepalive, body);
-        let response: Response;
-        try {
-          response = await fetch(appStateUrl(key), {
-            method: "PUT",
-            headers: {
-              ...buildHeaders(options.requestSource),
-              ...writeOrderHeaders(seq),
-            },
-            body,
-            ...keepalive.init,
-            signal: options.signal ?? null,
-          });
-        } finally {
-          keepalive.release();
-        }
-        return parseAppStateResponse<T>(
-          response,
-          `Write application state "${key}"`,
-        );
-      })
-    : (replaceClientAppState(key, {
+  const seq = ownRequest ? nextWriteSeq() : 0;
+  const send = async () => {
+    const body = jsonBody(value);
+    const keepalive = keepaliveRequest(options.keepalive, body);
+    let response: Response;
+    try {
+      response = await fetch(appStateUrl(key), {
         method: "PUT",
-        body: jsonBody(value),
-        requestSource: options.requestSource,
-        keepalive: options.keepalive,
-      }) as Promise<T>);
+        headers: {
+          ...buildHeaders(options.requestSource),
+          ...writeOrderHeaders(seq),
+        },
+        body,
+        ...keepalive.init,
+        signal: options.signal ?? null,
+      });
+    } finally {
+      keepalive.release();
+    }
+    return parseAppStateResponse<T>(
+      response,
+      `Write application state "${key}"`,
+    );
+  };
+  const write = options.signal
+    ? runBarrierMutation(key, send)
+    : ownRequest
+      ? runOwnRequestMutation(key, options.keepalive === true, send)
+      : (replaceClientAppState(key, {
+          method: "PUT",
+          body: jsonBody(value),
+          requestSource: options.requestSource,
+          keepalive: options.keepalive,
+        }) as Promise<T>);
   recordStateWrite(key, value, write, options.signal);
   return write;
 }
@@ -829,39 +1254,45 @@ export async function compareAndSetClientAppState(
   next: Record<string, unknown> | null,
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
-  return runBarrierMutation(key, async () => {
-    const body = jsonBody({ expected, next });
-    const keepalive = keepaliveRequest(options.keepalive, body);
-    let response: Response;
-    try {
-      response = await fetch(appStateUrl(key), {
-        method: "PATCH",
-        headers: buildHeaders(options.requestSource),
-        body,
-        ...keepalive.init,
-        signal: options.signal ?? null,
-      });
-    } finally {
-      keepalive.release();
-    }
-    const result = await parseAppStateResponse<{ changed?: unknown }>(
-      response,
-      `Compare application state \"${key}\"`,
-    );
-    if (typeof result?.changed !== "boolean") {
-      throw new Error(
-        `Compare application state \"${key}\" returned an unexpected payload.`,
+  return runBarrierMutation(
+    key,
+    async () => {
+      const body = jsonBody({ expected, next });
+      const keepalive = keepaliveRequest(options.keepalive, body);
+      let response: Response;
+      try {
+        response = await fetch(appStateUrl(key), {
+          method: "PATCH",
+          headers: buildHeaders(options.requestSource),
+          body,
+          ...keepalive.init,
+          signal: options.signal ?? null,
+        });
+      } finally {
+        keepalive.release();
+      }
+      const result = await parseAppStateResponse<{ changed?: unknown }>(
+        response,
+        `Compare application state \"${key}\"`,
       );
-    }
-    return result.changed;
-  });
+      if (typeof result.changed !== "boolean") {
+        throw new Error(
+          `Compare application state \"${key}\" returned an unexpected payload.`,
+        );
+      }
+      return result.changed;
+    },
+    (changed) => changed,
+  );
 }
 
 export async function deleteClientAppState(
   key: string,
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
   const seq = options.signal ? nextWriteSeq() : 0;
   const deletion = options.signal

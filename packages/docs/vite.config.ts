@@ -53,6 +53,26 @@ export default defineConfig({
         "@excalidraw/mermaid-to-excalidraw",
         "@assistant-ui/react",
       ],
+      // The home page reaches these only in the browser, after Vite's startup
+      // scan. Each one missing here makes the first page load 504 on stale
+      // optimized deps and force a full reload once Vite re-bundles.
+      optimizeDeps: {
+        include: [
+          "@radix-ui/react-dialog",
+          "gray-matter",
+          "@agent-native/core > @agent-native/agentkit > @ag-ui/core",
+          "@agent-native/core > @amplitude/analytics-browser",
+          "@agent-native/core > @mcp-b/webmcp-polyfill",
+          "@agent-native/core > @noble/hashes/sha2.js",
+          "@agent-native/core > @noble/hashes/utils.js",
+          "@agent-native/core > @opentelemetry/api",
+          "@agent-native/core > entities/decode",
+          "@agent-native/core > idb-keyval",
+          "@agent-native/toolkit > @radix-ui/react-dialog",
+          "@agent-native/toolkit > @radix-ui/react-dropdown-menu",
+          "@agent-native/toolkit > culori",
+        ],
+      },
       routeWarmup: {
         strategy: "off",
         data: true,

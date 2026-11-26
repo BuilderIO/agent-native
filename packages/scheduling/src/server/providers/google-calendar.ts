@@ -1,3 +1,10 @@
+import {
+  fetchWithProviderCallGate,
+  isProviderCallGateRefusal,
+  markProviderCallGateRefusal,
+  precheckGatedProviderCall,
+} from "@agent-native/core/provider-api/call-gates";
+
 import type { BusyInterval } from "../../shared/index.js";
 /**
  * Google Calendar provider.
@@ -50,11 +57,25 @@ export interface GoogleCalendarProviderConfig {
   clientId: string;
   clientSecret: string;
   getAccessToken: (credentialId: string) => Promise<string>;
+  /**
+   * The Google account a credential belongs to, such as its connect-time
+   * email. Provider call gates registered for "google_calendar" receive it as
+   * the request's `accountId`; return null or undefined when the credential
+   * records none, and throw when it cannot be read.
+   */
+  getAccountIdentity?: (
+    credentialId: string,
+  ) => Promise<string | null | undefined>;
   updateTokens?: (
     credentialId: string,
     tokens: { accessToken: string; refreshToken?: string; expiresAt?: Date },
   ) => Promise<void>;
   markInvalid?: (credentialId: string) => Promise<void>;
+  /**
+   * The consuming app's id, which provider call gates receive as the
+   * request's `appId`. Defaults to "scheduling".
+   */
+  appId?: string;
 }
 
 const SCOPES = [
@@ -70,14 +91,37 @@ export function createGoogleCalendarProvider(
     url: string,
     init?: RequestInit,
   ): Promise<T> {
+    // A paused provider must refuse before the token lookup can refresh it.
+    const prechecked = await precheckGatedProviderCall("google_calendar", url);
     const token = await config.getAccessToken(credentialId);
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
     headers.set("content-type", "application/json");
-    const res = await fetch(url, {
-      ...init,
-      headers,
+    const getAccountIdentity = config.getAccountIdentity;
+    const res = await fetchWithProviderCallGate({
+      providerId: "google_calendar",
+      appId: config.appId ?? "scheduling",
+      url,
+      init: { ...init, headers },
+      connectionId: credentialId,
+      prechecked,
+      ...(getAccountIdentity
+        ? { resolveAccountId: () => getAccountIdentity(credentialId) }
+        : {}),
     });
+    if (isProviderCallGateRefusal(res)) {
+      if (res.status === 429) {
+        throw new CalendarLookupRateLimitedError(
+          `Google Calendar: held by a provider call gate (${res.status} ${res.statusText})`,
+          parseRetryAfterSeconds(res.headers.get("retry-after")),
+        );
+      }
+      const refusal = new Error(
+        `Google Calendar: refused by a provider call gate (${res.status} ${res.statusText})`,
+      );
+      markProviderCallGateRefusal(refusal);
+      throw refusal;
+    }
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       const body = await res.text();
       // Google sends rate and quota limits as 403 (or 429); those are

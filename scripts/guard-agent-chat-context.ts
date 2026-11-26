@@ -143,6 +143,7 @@ const FRAMEWORK_STARTER_TOOL_NAMES = new Set([
   "extension-data-set",
   "get-extension",
   "list-extensions",
+  "render-data-widget",
   "show-workspace-file",
   "update-extension",
 ]);

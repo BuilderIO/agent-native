@@ -5,6 +5,7 @@ import { z } from "zod";
 import { readCalendarSettings } from "../server/lib/calendar-settings.js";
 
 export default defineAction({
+  mcpTool: false,
   description: "Get calendar settings",
   schema: z.object({}),
   http: { method: "GET" },

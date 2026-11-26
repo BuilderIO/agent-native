@@ -171,7 +171,6 @@ it.each(["layers-panel move", "move-to-screen", "overview reparent"] as const)(
       handleScreenLayerMove: vi.fn(),
       recordContentHistoryEntry: (entry: unknown) => history.push(entry),
       recordLocalContentHistoryEntry: (entry: unknown) => history.push(entry),
-      remapMotionTracksForClone: vi.fn(),
       runtimeStructureMoveRevisionRef: { current: 0 },
       sendRuntimeLayerMoveSemanticHandoff: () => false,
       setExpandedLayerIds: vi.fn(),

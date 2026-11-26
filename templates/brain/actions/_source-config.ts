@@ -1,6 +1,12 @@
 import { fail } from "@agent-native/core/action";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
+import { schema } from "../server/db/index.js";
+import {
+  isGoogleSourceProvider,
+  parseGoogleSourceConfig,
+} from "../shared/google-source-config.js";
 import {
   describeSourceConfigIssues,
   validateSourceConfig,
@@ -98,12 +104,39 @@ export function mergeSourceConfigJson(
   return { ...config, ...(parsed as Record<string, unknown>) };
 }
 
+export function sourceConfigUnchanged(
+  source: typeof schema.brainSources.$inferSelect,
+) {
+  return and(
+    eq(schema.brainSources.id, source.id),
+    eq(schema.brainSources.configJson, source.configJson),
+    source.sourceKey === null
+      ? isNull(schema.brainSources.sourceKey)
+      : eq(schema.brainSources.sourceKey, source.sourceKey),
+    source.ingestTokenHash === null
+      ? isNull(schema.brainSources.ingestTokenHash)
+      : eq(schema.brainSources.ingestTokenHash, source.ingestTokenHash),
+  );
+}
+
 export function assertValidSourceConfig(
   provider: string,
   config: Record<string, unknown>,
   { creating = false }: { creating?: boolean } = {},
 ) {
   if (provider === "zoom") assertValidZoomConfig(config, creating);
+  if (isGoogleSourceProvider(provider)) {
+    try {
+      parseGoogleSourceConfig(provider, config);
+    } catch (error) {
+      fail(
+        error instanceof Error
+          ? error.message
+          : "Invalid Google source configuration",
+        { errorCode: "invalid_source_config" },
+      );
+    }
+  }
   const issues = validateSourceConfig(provider, config);
   if (!issues.length) return;
   fail(describeSourceConfigIssues(issues), {

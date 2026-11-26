@@ -46,6 +46,31 @@ export class ReviewCommentRevisionConflictError extends ReviewStorageError {
   }
 }
 
+/**
+ * A retried comment whose submission ID was already used for a different
+ * comment; nothing was written.
+ */
+export class ReviewCommentSubmissionConflictError extends ReviewStorageError {
+  constructor() {
+    super(
+      "Review comment submission ID conflicts with another submission",
+      "submission_conflict",
+      409,
+    );
+    this.name = "ReviewCommentSubmissionConflictError";
+  }
+}
+
+/** An edit that would leave a comment with no text and no image. */
+export class ReviewCommentEmptyError extends ReviewStorageError {
+  constructor(commentId: string) {
+    super("A comment needs text or an image.", "empty_comment", 400, {
+      commentId,
+    });
+    this.name = "ReviewCommentEmptyError";
+  }
+}
+
 /** An outside ID already linked to another comment. */
 export class ReviewCommentLinkConflictError extends ReviewStorageError {
   constructor(provider: string, externalKind: string, externalId: string) {
@@ -56,6 +81,19 @@ export class ReviewCommentLinkConflictError extends ReviewStorageError {
       { provider, externalKind, externalId },
     );
     this.name = "ReviewCommentLinkConflictError";
+  }
+}
+
+/** A copied comment whose ID the kit already holds on another resource. */
+export class ReviewCommentResourceConflictError extends ReviewStorageError {
+  constructor(commentId: string) {
+    super(
+      `Comment ${commentId} is already on another resource.`,
+      "comment_resource_conflict",
+      409,
+      { commentId },
+    );
+    this.name = "ReviewCommentResourceConflictError";
   }
 }
 

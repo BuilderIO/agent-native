@@ -1,3 +1,4 @@
+import { durableAttachmentUrl } from "@shared/compose-attachments";
 import type {
   ComposeAttachment,
   ComposeState,
@@ -7,37 +8,35 @@ import type {
 /**
  * A Gmail draft's files are parts of that draft. A local draft's are uploads:
  * its row keeps the upload's filename as `id` and the display name as `filename`.
+ * Neither keeps a path on Mail's server, which app state refuses to store.
  */
 export function savedEmailDraftAttachments(
   email: Pick<EmailMessage, "id" | "accountEmail" | "attachments">,
 ): ComposeAttachment[] | undefined {
-  return email.attachments?.map((attachment) =>
-    email.accountEmail
-      ? {
-          id: attachment.id,
-          filename: attachment.filename,
-          originalName: attachment.filename,
-          mimeType: attachment.mimeType,
-          size: attachment.size,
-          url: `/api/attachments?messageId=${encodeURIComponent(
-            email.id,
-          )}&id=${encodeURIComponent(
-            attachment.id,
-          )}&mimeType=${encodeURIComponent(attachment.mimeType)}`,
-          source: "gmail",
-          gmailMessageId: email.id,
-          gmailAttachmentId: attachment.id,
-          accountEmail: email.accountEmail,
-        }
-      : {
-          id: attachment.id,
-          filename: attachment.id,
-          originalName: attachment.filename,
-          mimeType: attachment.mimeType,
-          size: attachment.size,
-          url: attachment.url ?? `/api/media/${attachment.id}`,
-        },
-  );
+  return email.attachments?.map((attachment) => {
+    if (email.accountEmail) {
+      return {
+        id: attachment.id,
+        filename: attachment.filename,
+        originalName: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        source: "gmail",
+        gmailMessageId: email.id,
+        gmailAttachmentId: attachment.id,
+        accountEmail: email.accountEmail,
+      };
+    }
+    const url = durableAttachmentUrl(attachment.url);
+    return {
+      id: attachment.id,
+      filename: attachment.id,
+      originalName: attachment.filename,
+      mimeType: attachment.mimeType,
+      size: attachment.size,
+      ...(url ? { url } : {}),
+    };
+  });
 }
 
 export function savedEmailDraftMetadata(

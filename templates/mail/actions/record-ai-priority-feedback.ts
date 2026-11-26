@@ -40,6 +40,7 @@ export default defineAction({
   description: "Record a user's importance feedback for an email.",
   schema: feedbackSchema,
   agentTool: true,
+  mcpTool: "search",
   run: async (input) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });

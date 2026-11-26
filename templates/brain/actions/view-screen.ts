@@ -2,6 +2,15 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { readBrainScreen } from "../server/lib/brain.js";
+import {
+  listIntelligence,
+  readPriorities,
+  getEntityGraph,
+} from "../server/lib/intelligence.js";
+import {
+  listPersonalMemories,
+  listRecipes,
+} from "../server/lib/personal-intelligence.js";
 import { readBrainHealth } from "./get-brain-health.js";
 import {
   readDistillationQueue,
@@ -17,10 +26,52 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async () => {
     const screen = await readBrainScreen();
     const navigation = (screen as { navigation?: unknown }).navigation;
     screen.brainHealth = await readBrainHealth();
+    if (
+      navigation &&
+      typeof navigation === "object" &&
+      (navigation as { view?: unknown }).view === "intelligence"
+    ) {
+      const nav = navigation as Record<string, unknown>;
+      const params = searchParamsFromPath(nav.path);
+      const tab =
+        stringValue(nav.intelligenceTab) ?? params.get("tab") ?? "actions";
+      const query = stringValue(nav.query) ?? params.get("q") ?? undefined;
+      const owner = stringValue(nav.owner) ?? params.get("owner");
+      const id =
+        stringValue(nav.intelligenceId) ?? params.get("intelligenceId");
+      const status =
+        (nav.status ?? params.get("status")) === "completed"
+          ? "completed"
+          : (nav.status ?? params.get("status")) === "dismissed"
+            ? "dismissed"
+            : "open";
+      screen.intelligence =
+        tab === "brief"
+          ? await readPriorities({
+              ...(owner ? { owner } : {}),
+              period:
+                (nav.period ?? params.get("period")) === "weekly"
+                  ? "weekly"
+                  : "daily",
+              limit: 50,
+            })
+          : tab === "entities"
+            ? await getEntityGraph({ ...(query ? { query } : {}), limit: 50 })
+            : tab === "memory"
+              ? await listPersonalMemories()
+              : tab === "recipes"
+                ? await listRecipes()
+                : await listIntelligence({
+                    ...(query ? { query } : {}),
+                    ...(id ? { id } : { status }),
+                    limit: 50,
+                  });
+    }
     if (
       navigation &&
       typeof navigation === "object" &&

@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  BROWSER_FIG_LIMITS,
-  SERVER_FIG_LIMITS,
-} from "../server/lib/fig-file-limits.js";
-import { renderHtmlTemplates } from "../server/lib/fig-file-to-html.js";
+import { BROWSER_FIG_LIMITS, SERVER_FIG_LIMITS } from "./fig-file-limits.js";
+import { renderHtmlTemplates } from "./fig-file-to-html.js";
 import {
   completeFigImport,
   convertDecodedFigToEditableHtml,

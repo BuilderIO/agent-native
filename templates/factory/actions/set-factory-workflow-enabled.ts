@@ -117,13 +117,22 @@ export default defineAction({
           const connections = await readGraphConnections(
             workflow.graph,
             scoped,
+            workflow.ownerEmail,
           );
           const missing = connections.filter(
             (connection) => connection.status === "not connected",
           );
           if (missing.length > 0) {
+            const ownerOnly = missing.filter(
+              (connection) =>
+                connection.provider === "content" &&
+                workflow.ownerEmail !== scoped.userEmail,
+            );
+            const forCaller = missing.filter(
+              (connection) => !ownerOnly.includes(connection),
+            );
             fail(
-              `Connect ${missing.map((connection) => connection.provider).join(", ")} before turning this workflow on: ${missing.map((connection) => `${connection.provider} is used by ${connection.nodes.join(", ")}`).join("; ")}. Call request-workflow-connection for each provider.`,
+              `This workflow can't turn on until ${missing.map((connection) => connection.provider).join(", ")} is connected: ${missing.map((connection) => `${connection.provider} is used by ${connection.nodes.join(", ")}`).join("; ")}.${forCaller.length > 0 ? ` Call request-workflow-connection for ${forCaller.map((connection) => connection.provider).join(", ")}.` : ""}${ownerOnly.map((connection) => (connection.detail ? ` ${connection.detail}` : "")).join("")}`,
               {
                 errorCode: "connection_required",
                 statusCode: 412,

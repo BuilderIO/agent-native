@@ -45,6 +45,10 @@ vi.mock("../server/auth.js", () => ({
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
   isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
+vi.mock("../server/loopback.js", () => ({
+  isLoopbackRequest: (event: { headers?: Record<string, string> }) =>
+    isLoopbackRequestMock(event),
+}));
 
 const listOrgMembershipsForEventMock = vi.fn(
   async (): Promise<unknown[] | null> => null,
@@ -92,6 +96,7 @@ const issuanceTransaction = {
   }),
 };
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     transaction: async (
       run: (tx: typeof issuanceTransaction) => Promise<unknown>,
@@ -230,6 +235,7 @@ vi.mock("./connect-store.js", () => ({
 }));
 
 const { withMcpCredentialIssuance } = await import("./credential-issuance.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
 const withMcpCredentialIssuanceMock = vi.mocked(withMcpCredentialIssuance);
 const { handleMcpConnect, mintOrgServiceToken } =
   await import("./connect-route.js");
@@ -583,7 +589,7 @@ describe("handleMcpConnect", () => {
       expect(body).toContain('data-tab="codex"');
       expect(body).toContain("Your MCP URL");
       expect(body).toContain(
-        "claude mcp add --transport http agent-native-mail",
+        "claude mcp add --transport http --scope user agent-native-mail",
       );
       expect(body).toContain(
         "codex mcp add agent-native-mail --url https://mail.agent-native.com/mcp",
@@ -656,14 +662,40 @@ describe("handleMcpConnect", () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
       const body = await res.text();
-      expect(body).toContain("En Claude, ve a Customize → Connectors.");
-      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
+      expect(body).toContain("Haz clic en Añadir a Claude.");
+      expect(body).not.toContain("Click Add to Claude.");
       expect(body).toContain("Tu URL de MCP");
       expect(body).toContain("Conexiones existentes");
       expect(body).not.toContain("Existing connections");
       expect(body).not.toContain("Signed in as");
       expect(body).toContain('id="mcp-guide-tab-claude"');
       expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
+    });
+
+    it("keeps each install guide's manual step out of the numbered steps", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      const panels = new Map(
+        body
+          .split('data-panel="')
+          .slice(1)
+          .map((chunk) => [chunk.slice(0, chunk.indexOf('"')), chunk]),
+      );
+      for (const id of ["claude", "cursor", "vscode"]) {
+        const panel = panels.get(id) ?? "";
+        const steps = panel.slice(
+          panel.indexOf("<ol>"),
+          panel.indexOf("</ol>"),
+        );
+        const manual = panel.slice(
+          panel.indexOf('<details class="advanced">'),
+          panel.indexOf("</details>"),
+        );
+        expect(manual, id).toContain("Manual setup");
+        expect(manual, id).toMatch(/For manual setup|Without the button/);
+        expect(steps, id).not.toMatch(/For manual setup|Without the button/);
+      }
     });
 
     it("uses a validated locale from the Settings connect link", async () => {
@@ -673,8 +705,8 @@ describe("handleMcpConnect", () => {
         "/",
       );
       const body = await res.text();
-      expect(body).toContain("En Claude, ve a Customize → Connectors.");
-      expect(body).not.toContain("In Claude, go to Customize → Connectors.");
+      expect(body).toContain("Haz clic en Añadir a Claude.");
+      expect(body).not.toContain("Click Add to Claude.");
       expect(body).toContain('<html lang="es-ES" dir="ltr">');
     });
 
@@ -914,6 +946,40 @@ describe("handleMcpConnect", () => {
       });
     });
 
+    it("refuses an org service token minted by the local development identity off loopback", async () => {
+      issuanceRole = "admin";
+      const mint = () =>
+        mintOrgServiceToken({
+          serviceName: "ci",
+          orgId: "org-1",
+          createdBy: "dev@local.test",
+          appUrl: "https://plan.example.com",
+        });
+      await expect(mint()).rejects.toMatchObject({ statusCode: 403 });
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "dev@local.test",
+            requestOrigin: "https://plan.example.com",
+            isLoopbackRequest: false,
+          },
+          mint,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "dev@local.test",
+            requestOrigin: "http://localhost:8080",
+            isLoopbackRequest: true,
+            run: { isBackgroundWorker: true },
+          },
+          mint,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(tokenRows).toHaveLength(0);
+    });
+
     it("mints a standard MCP OAuth token when no A2A_SECRET is configured", async () => {
       delete process.env.A2A_SECRET;
       process.env.BETTER_AUTH_SECRET = SECRET;
@@ -1017,6 +1083,91 @@ describe("handleMcpConnect", () => {
         "/tokens/revoke",
       );
       expect(res.status).toBe(401);
+    });
+  });
+
+  describe("AUTH_DISABLED identity", () => {
+    const authDisabledSession = { email: "dev@local.test" };
+
+    it("refuses to mint a connect token off loopback", async () => {
+      getSessionMock.mockResolvedValue(authDisabledSession);
+      const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toMatch(/local development identity/);
+      expect(tokenRows).toHaveLength(0);
+      expect(withMcpCredentialIssuanceMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses to approve a device code off loopback", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue(authDisabledSession);
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(403);
+      expect(deviceRows[0]).toMatchObject({
+        status: "pending",
+        ownerEmail: null,
+      });
+    });
+
+    it("still mints and approves for local development on loopback", async () => {
+      getSessionMock.mockResolvedValue(authDisabledSession);
+      const minted = await handleMcpConnect(
+        ev({ method: "POST", host: "localhost:8080" }),
+        "/token",
+      );
+      expect(minted.status).toBe(200);
+      expect((await minted.json()).token).toEqual(expect.any(String));
+      expect(tokenRows).toHaveLength(1);
+      expect(tokenRows[0].ownerEmail).toBe("dev@local.test");
+
+      await handleMcpConnect(
+        ev({ method: "POST", host: "localhost:8080" }),
+        "/device/start",
+      );
+      const approved = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "localhost:8080",
+          body: { user_code: "ABCD-2345" },
+        }),
+        "/device/authorize",
+      );
+      expect(approved.status).toBe(200);
+      const polled = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "localhost:8080",
+          body: { device_code: deviceRows[0].deviceCode },
+        }),
+        "/device/poll",
+      );
+      expect(polled.status).toBe(200);
+      expect(await polled.json()).toMatchObject({
+        status: "approved",
+        token: expect.any(String),
+      });
+    });
+
+    it("refuses to mint for a device code the dev identity already approved when polled off loopback", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      Object.assign(deviceRows[0], {
+        status: "approved",
+        ownerEmail: "dev@local.test",
+      });
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { device_code: deviceRows[0].deviceCode },
+        }),
+        "/device/poll",
+      );
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ status: "error" });
+      expect(deviceRows[0].status).toBe("approved");
+      expect(tokenRows).toHaveLength(0);
     });
   });
 
@@ -1880,6 +2031,19 @@ describe("connect identity", () => {
     }
     expect(body).toContain(
       'href="https://cursor.com/install-mcp?name=beta-agent-native-mail',
+    );
+    const claudeHrefs = [...body.matchAll(/href="([^"]+)"/g)]
+      .map(([, href]) => href.replace(/&amp;/g, "&"))
+      .filter((href) => href.startsWith("https://claude.ai/"));
+    expect(claudeHrefs).toHaveLength(1);
+    const claude = new URL(claudeHrefs[0]);
+    expect([...claude.searchParams.keys()].sort()).toEqual([
+      "connectorName",
+      "connectorUrl",
+      "modal",
+    ]);
+    expect(claude.searchParams.get("connectorUrl")).toBe(
+      "https://beta.mail.agent-native.com/mcp",
     );
   });
 });

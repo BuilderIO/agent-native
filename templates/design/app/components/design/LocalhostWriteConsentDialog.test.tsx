@@ -54,6 +54,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   },
 }));
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 
 import { i18nCatalog } from "@/i18n";
@@ -133,13 +134,18 @@ describe("LocalhostWriteConsentDialog", () => {
   ) {
     act(() =>
       root.render(
-        <LocalhostWriteConsentDialog
-          open
-          onOpenChange={onOpenChange}
-          designId={props.designId ?? "design-1"}
-          connectionId="connection-1"
-          payload={props.payload ?? payload}
-        />,
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          persistPreference={false}
+        >
+          <LocalhostWriteConsentDialog
+            open
+            onOpenChange={onOpenChange}
+            designId={props.designId ?? "design-1"}
+            connectionId="connection-1"
+            payload={props.payload ?? payload}
+          />
+        </AgentNativeI18nProvider>,
       ),
     );
   }
@@ -383,7 +389,8 @@ describe("LocalhostWriteConsentDialog", () => {
     render({ payload: withoutHandler });
     await allowWrites();
 
-    expect(mocks.toastError).toHaveBeenCalledWith("Bridge unavailable");
+    // oracle-change: action failures expose catalog copy, keeping bridge diagnostics in the cause.
+    expect(mocks.toastError).toHaveBeenCalledWith("Something went wrong");
     expect(payload.onCancel).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(button("Allow writes")).toBeDefined();

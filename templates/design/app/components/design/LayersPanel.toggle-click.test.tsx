@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  layerRowIndentCount,
   LayersPanel,
   type LayersPanelHandle,
   type LayersPanelNode,
@@ -979,9 +978,8 @@ describe("LayersPanel collapse layers", () => {
 });
 
 describe("LayersPanel row hierarchy", () => {
+  // oracle-change: rows moved to the File tab grid: depth 0 has no indent, each level adds one 24px slot, and the chevron has its own 16px slot, so counts, padding and type size changed
   it("renders 32px rows with one 24px flex indent per level", async () => {
-    expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);
-
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -1016,9 +1014,11 @@ describe("LayersPanel row hierarchy", () => {
 
     const panel = host.querySelector<HTMLElement>("[data-layers-panel]");
     expect(panel).not.toBeNull();
-    expect(panel?.className).toContain("[--design-icon-size:12px]");
+    expect(panel?.className).not.toContain("--design-icon-size");
+    expect(panel?.className).not.toContain("--design-section-height");
+    expect(panel?.className).not.toContain("--design-control-height");
     expect(panel?.className).not.toContain("--design-row-height");
-    expect(panel?.className).toContain("text-[11px]");
+    expect(panel?.className).toContain("text-xs");
 
     const rows = Array.from(
       host.querySelectorAll<HTMLElement>("[data-layer-row-content]"),
@@ -1031,21 +1031,33 @@ describe("LayersPanel row hierarchy", () => {
             ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
           ).length,
       ),
-    ).toEqual([1, 2, 3]);
+    ).toEqual([0, 1, 2]);
+    expect(
+      rows.map(
+        (row) =>
+          row.querySelectorAll(
+            ":scope > [data-layer-row-indents] > [data-tree-row-chevron-slot]",
+          ).length,
+      ),
+    ).toEqual([1, 1, 1]);
     expect(
       rows.every((row) =>
         row.classList.contains("h-[var(--design-row-height)]"),
       ),
     ).toBe(true);
-    expect(rows.every((row) => row.classList.contains("text-[11px]"))).toBe(
-      true,
-    );
+    expect(
+      rows.every(
+        (row) =>
+          row.classList.contains("text-xs") &&
+          row.classList.contains("leading-4"),
+      ),
+    ).toBe(true);
     expect(
       rows.every((row) => {
         const icon = row.querySelector<HTMLElement>(
           "[data-layer-row-button] > span",
         );
-        return icon?.classList.contains("size-[var(--design-icon-size)]");
+        return icon?.classList.contains("size-4");
       }),
     ).toBe(true);
     expect(rows.map((row) => row.dataset.layerSelection)).toEqual([
@@ -1071,34 +1083,31 @@ describe("LayersPanel row hierarchy", () => {
         "bg-[var(--design-editor-component-selected-subtree-color)]",
       ),
     ).toBe(false);
-    expect(rows[0]?.classList.contains("rounded-t-[4px]")).toBe(true);
-    expect(rows[1]?.classList.contains("rounded-t-[4px]")).toBe(false);
-    expect(rows[1]?.classList.contains("rounded-b-[4px]")).toBe(false);
-    expect(rows[2]?.classList.contains("rounded-b-[4px]")).toBe(true);
+    expect(rows.some((row) => /\brounded/.test(row.className))).toBe(false);
 
-    const nestedIndents = rows[2].querySelectorAll<HTMLElement>(
+    const nestedRow = rows.find((_, index) => index === 2);
+    if (!nestedRow) throw new Error("nested layer row is missing");
+    const nestedIndents = nestedRow.querySelectorAll<HTMLElement>(
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
       Array.from(nestedIndents, (indent) => indent.classList.contains("w-6")),
-    ).toEqual([true, true, true]);
+    ).toEqual([true, true]);
     expect(
-      Array.from(nestedIndents, (indent) =>
-        indent.classList.contains("shrink"),
+      Array.from(
+        nestedIndents,
+        (indent) =>
+          indent.classList.contains("shrink") &&
+          indent.classList.contains("min-w-0"),
       ),
-    ).toEqual([true, true, true]);
-    expect(nestedIndents[0]?.classList.contains("min-w-0")).toBe(true);
-    expect(nestedIndents[1]?.classList.contains("min-w-0")).toBe(true);
-    expect(nestedIndents[2]?.classList.contains("min-w-4")).toBe(true);
-    expect(
-      Array.from(nestedIndents, (indent) =>
-        indent.classList.contains("justify-start"),
-      ),
-    ).toEqual([false, false, true]);
-    expect(rows.every((row) => row.classList.contains("pl-2.5"))).toBe(true);
-    expect(
-      rows.every((row) => row.classList.contains("[--design-icon-size:16px]")),
-    ).toBe(true);
+    ).toEqual([true, true]);
+    const chevronSlot = nestedRow.querySelector<HTMLElement>(
+      "[data-tree-row-chevron-slot]",
+    );
+    expect(chevronSlot?.classList.contains("size-4")).toBe(true);
+    expect(chevronSlot?.classList.contains("shrink-0")).toBe(true);
+    expect(chevronSlot?.classList.contains("me-2")).toBe(true);
+    expect(rows.every((row) => row.classList.contains("px-4"))).toBe(true);
     expect(
       rows.every((row) =>
         row
@@ -1166,5 +1175,56 @@ describe("LayersPanel row selection", () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+});
+
+describe("LayersPanel hide and lock toggles", () => {
+  it("shows them on the selected row without a hover", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          layers={[
+            { id: "a", name: "A", type: "element" },
+            { id: "b", name: "B", type: "element" },
+          ]}
+          selectedIds={["a"]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+          onToggleHidden={() => {}}
+          onToggleLocked={() => {}}
+        />,
+      );
+    });
+    const toggles = (id: string) => {
+      const found = host
+        .querySelector(`[data-layer-node-id="${id}"]`)
+        ?.closest("[data-layer-row-content]")
+        ?.querySelector<HTMLElement>("[data-layer-toggles]");
+      if (!found) throw new Error(`no toggles for ${id}`);
+      return found;
+    };
+    expect(toggles("a").classList).not.toContain("w-0");
+    expect(
+      Array.from(
+        toggles("a").querySelectorAll<HTMLButtonElement>("[data-layer-toggle]"),
+        (button) => button.classList.contains("opacity-100"),
+      ),
+    ).toEqual([true, true]);
+    expect(toggles("b").classList).toContain("w-0");
+    expect(toggles("b").classList).toContain("group-focus-within:w-auto");
+    expect(
+      Array.from(
+        toggles("b").querySelectorAll<HTMLButtonElement>("[data-layer-toggle]"),
+        (button) => button.tabIndex,
+      ),
+    ).toEqual([0, 0]);
+    root.unmount();
+    host.remove();
   });
 });

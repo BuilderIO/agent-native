@@ -23,6 +23,7 @@ import {
 } from "vitest";
 
 import { knownLossTest } from "../acceptance/known-loss";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 
 const NESTED_TRANSACTION_LOSS = {
   lane: "unowned",
@@ -764,6 +765,117 @@ describe("exact Content database block actions", () => {
     expect(bound).toHaveLength(1);
   });
 
+  it("binds private images that Blocks fields and Files & media values add", async () => {
+    const state = await fixture("Primary");
+    const [inSetField, inMutation, inFiles, inBody] = [
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a31",
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a32",
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a33",
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a34",
+    ];
+    for (const id of [inSetField, inMutation, inFiles, inBody]) {
+      await getDb().insert(privateMedia).values({
+        id,
+        ownerEmail,
+        mimeType: "image/png",
+        size: 3,
+        sha256: "0",
+        blobHandleJson: "{}",
+        createdAt: 0,
+      });
+    }
+    const addProperty = async (
+      name: string,
+      type: "blocks" | "files_media",
+    ) => {
+      const added = await asOwner(() =>
+        configureProperty.run({
+          documentId: state.databaseDocumentId,
+          databaseId: state.databaseId,
+          name,
+          type,
+        }),
+      );
+      const property = added.properties.find(
+        (candidate) => candidate.definition.name === name,
+      );
+      if (!property) throw new Error(`Property "${name}" was not added.`);
+      return property;
+    };
+    const notes = await addProperty("Image notes", "blocks");
+    const files = await addProperty("Attachments", "files_media");
+
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: notes.definition.id,
+        value: `![](/api/private-media/${inSetField})`,
+        expectedBlocksFieldRevision: 0,
+      }),
+    );
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: files.definition.id,
+        value: [`/api/private-media/${inFiles}`],
+      }),
+    );
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: state.target.propertyId,
+        value: `![](/api/private-media/${inBody})`,
+        expectedBlocksFieldRevision: state.listed.fieldRevision,
+      }),
+    );
+    const discovered = await asOwner(() =>
+      getDatabase.run({ databaseId: state.databaseId }),
+    );
+    if (!("database" in discovered) || !discovered.mutationContract) {
+      throw new Error("Fixture database disappeared.");
+    }
+    const notesTarget = {
+      ...discovered.mutationContract.target,
+      itemId: state.target.itemId,
+      rowDocumentId: state.target.rowDocumentId,
+      propertyId: notes.definition.id,
+    };
+    const before = await asOwner(() =>
+      listBlocks.run({ target: notesTarget, limit: 100 }),
+    );
+    await asOwner(() =>
+      mutateBlock.run({
+        target: notesTarget,
+        expectedSchemaRevision: before.schemaRevision,
+        expectedRowRevision: before.rowRevision,
+        expectedFieldRevision: before.fieldRevision,
+        idempotencyKey: "additional-private-image",
+        operation: "insert",
+        block: {
+          kind: "paragraph",
+          nfm: `See the [photo](/api/private-media/${inMutation}).`,
+        },
+        position: { placement: "end" },
+      }),
+    );
+
+    const bound = await getDb()
+      .select({ mediaId: schema.privateMediaReferences.mediaId })
+      .from(schema.privateMediaReferences)
+      .where(
+        eq(
+          schema.privateMediaReferences.documentId,
+          state.target.rowDocumentId,
+        ),
+      );
+    expect(bound.map((row) => row.mediaId).sort()).toEqual(
+      [inSetField, inMutation, inFiles, inBody].sort(),
+    );
+  });
+
   it("rejects a direct editor-body race without overwriting the newer body", async () => {
     const state = await fixture("Before\nSibling");
     await getDb()
@@ -787,6 +899,71 @@ describe("exact Content database block actions", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, state.target.rowDocumentId));
     expect(stored?.content).toBe("Editor won\nSibling");
+  });
+
+  it("returns the page revision that guards an agent's main Blocks field write", async () => {
+    const state = await fixture("Read by the agent");
+    const page = async () => {
+      const [row] = await getDb()
+        .select({
+          content: schema.documents.content,
+          bodyRevision: schema.documents.bodyRevision,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, state.target.rowDocumentId));
+      return required(row);
+    };
+    const before = await page();
+    expect(state.listed.baseRevision).toBe(
+      documentRevisionToken(before.bodyRevision, before.content),
+    );
+    const agent = { caller: "mcp", userEmail: ownerEmail } as const;
+    const write = (value: string, baseRevision: string) =>
+      asOwner(() =>
+        setProperty.run(
+          {
+            databaseId: state.databaseId,
+            documentId: state.target.rowDocumentId,
+            propertyId: state.target.propertyId,
+            value,
+            baseRevision,
+          },
+          agent,
+        ),
+      );
+
+    const baseRevision = required(state.listed.baseRevision);
+    await write("Agent write", baseRevision);
+    expect((await page()).content).toBe("Agent write");
+    await expect(
+      write("Second write from the old read", baseRevision),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_REVISION_CONFLICT",
+      statusCode: 409,
+      details: { currentRevision: expect.stringMatching(/^body:/) },
+    });
+    expect((await page()).content).toBe("Agent write");
+
+    const added = await asOwner(() =>
+      configureProperty.run({
+        documentId: state.databaseDocumentId,
+        databaseId: state.databaseId,
+        name: "Research notes",
+        type: "blocks",
+      }),
+    );
+    const notes = required(
+      added.properties.find(
+        (property) => property.definition.name === "Research notes",
+      ),
+    );
+    const notesListed = await asOwner(() =>
+      listBlocks.run({
+        target: { ...state.target, propertyId: notes.definition.id },
+        limit: 100,
+      }),
+    );
+    expect(notesListed.baseRevision).toBeNull();
   });
 
   it(

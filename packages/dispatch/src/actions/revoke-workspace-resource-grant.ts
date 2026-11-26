@@ -8,6 +8,7 @@ import {
 } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description: "Revoke an app's access to a workspace resource. Admin only.",
   authorize: authorizeDispatchAdmin,
   schema: z.object({

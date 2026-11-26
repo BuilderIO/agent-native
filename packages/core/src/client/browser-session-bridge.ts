@@ -21,8 +21,10 @@ import {
   type AgentNativeHostCommandHandlers,
   type AgentNativeHostContext,
   type AgentNativeHostContextGetter,
+  type AgentNativeHostRouteContext,
   type AgentNativeHostSession,
 } from "./host-bridge.js";
+import { scrubLocationHash, scrubQueryString, scrubUrl } from "./url-scrub.js";
 import type {
   AgentNativeWebMcpClient,
   AgentNativeWebMcpTool,
@@ -338,14 +340,57 @@ function createDirectHostSession(
       : session && typeof session === "object"
         ? session
         : {};
-  return {
+  const hostSession = {
     id: base.id || fallbackId || directSessionId(),
     connectedAt: base.connectedAt || now,
-    url:
-      base.url ||
-      contextUrl ||
-      (typeof window !== "undefined" ? window.location.href : undefined),
     ...base,
+  };
+  const url =
+    base.url ||
+    contextUrl ||
+    (typeof window !== "undefined" ? window.location.href : undefined);
+  const scrubbed = url ? scrubUrl(url) : undefined;
+  return scrubbed ? { ...hostSession, url: scrubbed } : hostSession;
+}
+
+// The page URL goes to the server and on to whatever agent reads the session;
+// its query and hash are where credentials ride.
+function withScrubbedUrl<T extends { url?: string | undefined }>(value: T): T {
+  return value.url ? { ...value, url: scrubUrl(value.url) } : value;
+}
+
+function scrubSearch(search: string): string {
+  const query = scrubQueryString(search);
+  return query ? `?${query}` : "";
+}
+
+function scrubRoute(
+  route: AgentNativeHostRouteContext,
+): AgentNativeHostRouteContext {
+  const { search, hash } = route;
+  return {
+    ...route,
+    ...(typeof search === "string" ? { search: scrubSearch(search) } : {}),
+    ...(typeof hash === "string" ? { hash: scrubLocationHash(hash) } : {}),
+  };
+}
+
+function withScrubbedLocations(
+  context: AgentNativeHostContext,
+): AgentNativeHostContext {
+  const { route, session, screen } = context;
+  return {
+    ...withScrubbedUrl(context),
+    ...(route ? { route: scrubRoute(route) } : {}),
+    ...(session ? { session: withScrubbedUrl(session) } : {}),
+    ...(screen
+      ? {
+          screen: {
+            ...withScrubbedUrl(screen),
+            ...(screen.route ? { route: scrubRoute(screen.route) } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -503,7 +548,9 @@ async function executeDirectBrowserSessionRequest(
   sessionId: string,
 ): Promise<unknown> {
   if (request.type === "get-context") {
-    return resolveDirectContext(options, sessionId);
+    return withScrubbedLocations(
+      await resolveDirectContext(options, sessionId),
+    );
   }
   if (request.type === "list-actions") {
     return resolveDirectActionManifest(options);
@@ -577,7 +624,7 @@ function normalizeSession(
         : {}),
     connectedAt: hostSession?.connectedAt ?? new Date().toISOString(),
     ...(contextUrl || hostSession?.url
-      ? { url: contextUrl ?? hostSession?.url }
+      ? { url: scrubUrl(contextUrl ?? hostSession?.url) }
       : {}),
   };
 }
@@ -606,7 +653,9 @@ async function executeBrowserSessionRequest(
   }
 
   if (request.type === "get-context") {
-    return requestAgentNativeHostContext(hostOptions);
+    return withScrubbedLocations(
+      await requestAgentNativeHostContext(hostOptions),
+    );
   }
   if (request.type === "list-actions") {
     return requestAgentNativeHostActions(hostOptions);
@@ -721,11 +770,12 @@ export function createAgentNativeBrowserSessionBridge(
               requestAgentNativeHostActions(hostOptions),
               resolveWebMcpTools(options),
             ]);
-        const [context, actions, webmcpTools] = await awaitWithAbort(
+        const [rawContext, actions, webmcpTools] = await awaitWithAbort(
           registrationContext,
           registrationController.signal,
           requestAbortMs(options),
         );
+        const context = withScrubbedLocations(rawContext);
         return await serializeSessionMutation(async () => {
           if (
             registrationStopGeneration !== stopGeneration ||

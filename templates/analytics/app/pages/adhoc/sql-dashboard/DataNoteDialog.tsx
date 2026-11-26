@@ -1,4 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   MAX_DATA_NOTE_EVENT_LENGTH,
   MAX_DATA_NOTE_EVENTS,
@@ -49,8 +53,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-
-import type { DashboardAnnotations, SqlPanel } from "./types";
 
 /** An existing note to edit, or the fields a new one starts with. */
 export type DataNoteDraft =

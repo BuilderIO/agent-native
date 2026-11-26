@@ -16,7 +16,7 @@ canonical descriptions and input schemas live in [`actions/`](../../../actions/)
 | ----------------------------- | ------ | -------------------------------------------------------------------------------------------- |
 | `list-tasks`                  | GET    | List current user's tasks; `includeDone` and `includeFields` default to false                |
 | `create-task`                 | POST   | Create a task with `title`                                                                   |
-| `update-task`                 | POST   | Patch `title`, `done`, and/or `fieldValues` by `taskId`                                      |
+| `update-task`                 | POST   | Patch `title`, `done`, and/or `fieldValues` by `taskId`; send the read `revision` as `expectedRevision` |
 | `suggest-task-route`         | POST   | Suggest a queue and urgency for `taskId` without changing the task                           |
 | `apply-task-route`           | POST   | Apply a reviewed `queueName` to `taskId`, creating the Queue field on first use              |
 | `delete-task`                 | POST   | Delete a task by `taskId` (confirm with user first)                                          |

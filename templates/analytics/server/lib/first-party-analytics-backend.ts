@@ -22,6 +22,7 @@ import {
   BigQueryQueryTimeoutError,
   getBigQueryProjectId,
   runQuery,
+  type BigQueryQueryTrace,
   type BigQueryTableRef,
 } from "./bigquery.js";
 import { requireRequestCredentialContext } from "./credentials-context.js";
@@ -1003,21 +1004,37 @@ function rewriteWithMaskedSqlLiterals(
   );
 }
 
-function findMatchingSqlParen(
-  sql: string,
-  openIndex: number,
-  dialect: AgentSqlDialect = "postgres",
-): number {
-  let depth = 0;
-  for (const token of lexAgentSql(sql, { dialect })) {
-    if (token.start < openIndex || token.kind !== "punctuation") continue;
-    if (token.text === "(") depth++;
-    if (token.text === ")") {
-      depth--;
-      if (depth === 0) return token.start;
-    }
+function firstTokenFrom(tokens: AgentSqlToken[], index: number): number {
+  let low = 0;
+  let high = tokens.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    const token = tokens[middle] as AgentSqlToken | undefined;
+    if (token && token.start < index) low = middle + 1;
+    else high = middle;
   }
-  return -1;
+  return low;
+}
+
+function sqlParenMatcher(
+  sql: string,
+  dialect: AgentSqlDialect = "postgres",
+): (openIndex: number) => number {
+  let tokens: AgentSqlToken[] | undefined;
+  return (openIndex) => {
+    tokens ??= lexAgentSql(sql, { dialect });
+    let depth = 0;
+    for (let i = firstTokenFrom(tokens, openIndex); i < tokens.length; i++) {
+      const token = tokens[i] as AgentSqlToken | undefined;
+      if (token?.kind !== "punctuation") continue;
+      if (token.text === "(") depth++;
+      if (token.text === ")") {
+        depth--;
+        if (depth === 0) return token.start;
+      }
+    }
+    return -1;
+  };
 }
 
 function splitTopLevelSqlArgs(
@@ -1047,12 +1064,13 @@ function rewriteSqlFunctionCalls(
 ): string {
   const functionRe = new RegExp(`\\b${functionName}\\s*\\(`, "gi");
   const masked = maskSqlLiterals(sql);
+  const matchingParen = sqlParenMatcher(sql);
   let cursor = 0;
   let result = "";
   let match = functionRe.exec(masked);
   while (match) {
     const openIndex = match.index + match[0].lastIndexOf("(");
-    const closeIndex = findMatchingSqlParen(sql, openIndex);
+    const closeIndex = matchingParen(openIndex);
     if (closeIndex === -1) {
       throw new Error(
         `First-party BigQuery query has an unterminated ${functionName} call`,
@@ -1079,6 +1097,7 @@ function coerceDateComparisonOperands(sql: string): string {
   let cursor = 0;
   let result = "";
   const code = maskSqlLiterals(sql, "bigquery");
+  const matchingParen = sqlParenMatcher(sql, "bigquery");
   let match = comparisonRe.exec(sql);
   while (match) {
     if (code[match.index] === " ") {
@@ -1089,7 +1108,7 @@ function coerceDateComparisonOperands(sql: string): string {
     const formatMatch = /^FORMAT_DATE\s*\(/i.exec(sql.slice(operandStart));
     if (formatMatch) {
       const openIndex = operandStart + formatMatch[0].lastIndexOf("(");
-      const closeIndex = findMatchingSqlParen(sql, openIndex, "bigquery");
+      const closeIndex = matchingParen(openIndex);
       if (closeIndex === -1) {
         throw new Error(
           "First-party BigQuery query has an unterminated FORMAT_DATE call",
@@ -1263,14 +1282,40 @@ function bigQueryJsonPath(key: string): string {
   return `'${path.replace(/'/g, "''")}'`;
 }
 
+function sqlTokenAt(
+  tokens: AgentSqlToken[],
+  index: number,
+): AgentSqlToken | undefined {
+  const token = tokens[firstTokenFrom(tokens, index + 1) - 1] as
+    | AgentSqlToken
+    | undefined;
+  return token && index < token.end ? token : undefined;
+}
+
+function isSqlTokenBoundary(tokens: AgentSqlToken[], index: number): boolean {
+  const token = sqlTokenAt(tokens, index);
+  return !token || token.start === index;
+}
+
 function translatePostgresJsonOperators(sql: string): string {
   const jsonExtract = /\s*::\s*jsonb?\s*->>\s*('(?:[^']|'')*')/gi;
   let result = sql;
+  let tokens: AgentSqlToken[] | null = null;
+  let tokenShift = 0;
+  let unchangedFrom = 0;
   let match = jsonExtract.exec(result);
   while (match) {
-    const code = maskSqlLiterals(result);
+    if (!tokens) {
+      tokens = lexAgentSql(result, { dialect: "postgres" });
+      tokenShift = 0;
+      unchangedFrom = 0;
+    }
     const castIndex = match.index + match[0].indexOf("::");
-    if (code[castIndex] !== ":") {
+    const castToken = sqlTokenAt(tokens, castIndex - tokenShift);
+    if (
+      castToken?.kind === "string" ||
+      castToken?.kind === "quoted-identifier"
+    ) {
       match = jsonExtract.exec(result);
       continue;
     }
@@ -1278,10 +1323,21 @@ function translatePostgresJsonOperators(sql: string): string {
     const operand = result.slice(start, end).trim();
     const key = (match[1] ?? "").slice(1, -1).replace(/''/g, "'");
     const replacement = `JSON_VALUE(${operand}, ${bigQueryJsonPath(key)})`;
-    result =
-      result.slice(0, start) +
-      replacement +
-      result.slice(match.index + match[0].length);
+    const matchEnd = match.index + match[0].length;
+    const keyToken = sqlTokenAt(tokens, matchEnd - 1 - tokenShift);
+    const tailKeepsTokens =
+      start >= unchangedFrom &&
+      isSqlTokenBoundary(tokens, start - tokenShift) &&
+      castToken?.start === castIndex - tokenShift &&
+      keyToken?.kind === "string" &&
+      keyToken.end === matchEnd - tokenShift;
+    result = result.slice(0, start) + replacement + result.slice(matchEnd);
+    if (tailKeepsTokens) {
+      tokenShift += replacement.length - (matchEnd - start);
+      unchangedFrom = start + replacement.length;
+    } else {
+      tokens = null;
+    }
     jsonExtract.lastIndex = start + replacement.length;
     match = jsonExtract.exec(result);
   }
@@ -2101,6 +2157,11 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
+    /** Stopped by this or by `timeoutMs`, the job is left for a later call. */
+    resumeAfter?: AbortSignal;
+    claimJob?: () => Promise<boolean>;
+    onUncachedResult?: () => void;
+    trace?: BigQueryQueryTrace;
   } = {},
 ): Promise<AnalyticsQueryResult> {
   const timeoutMs = options.timeoutMs;
@@ -2118,6 +2179,10 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     options.signal && timeoutSignal
       ? AbortSignal.any([options.signal, timeoutSignal])
       : (options.signal ?? timeoutSignal);
+  const resumeAfter =
+    options.resumeAfter && timeoutSignal
+      ? AbortSignal.any([options.resumeAfter, timeoutSignal])
+      : options.resumeAfter;
   let eventsSource = options.eventsSource;
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
@@ -2139,6 +2204,12 @@ export async function queryFirstPartyAnalyticsInBigQuery(
       {
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),
+        ...(resumeAfter ? { resumeAfter } : {}),
+        ...(options.claimJob ? { claimJob: options.claimJob } : {}),
+        ...(options.onUncachedResult
+          ? { onUncachedResult: options.onUncachedResult }
+          : {}),
+        ...(options.trace ? { trace: options.trace } : {}),
         ...(eventsSource?.source === "model" && sourceGeneration
           ? { sourceGeneration }
           : {}),

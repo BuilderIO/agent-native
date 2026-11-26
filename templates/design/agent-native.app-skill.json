@@ -56,10 +56,6 @@
       "path": ".agents/skills/design-review-feedback",
       "visibility": "both",
       "exportAs": "design-review-feedback"
-    },
-    {
-      "path": ".agents/skills/creative-context",
-      "visibility": "internal"
     }
   ],
   "hostAdapters": [
@@ -76,13 +72,12 @@
     "interface": {
       "displayName": "Agent-Native Design",
       "shortDescription": "Interactive prototypes",
-      "longDescription": "Create interactive prototypes in your Agent-Native Design workspace. Browse saved designs, templates, design systems, and snapshots; start new designs, generate visual directions, and refine saved prototypes through chat. This connection works with designs in the connected Agent-Native workspace. It does not connect to local repositories, modify a running website, export files, or deploy an application.",
+      "longDescription": "Create interactive prototypes in your Agent-Native Design workspace. Browse saved designs, templates, and snapshots; start new designs, generate visual directions, and refine saved prototypes through chat. This connection works with designs in the connected Agent-Native workspace. It does not connect to local repositories, modify a running website, export files, or deploy an application.",
       "developerName": "Builder.io",
       "category": "Creativity",
       "capabilities": [
         "Create interactive prototypes",
-        "Explore design directions",
-        "Apply workspace design systems"
+        "Explore design directions"
       ],
       "websiteURL": "https://agent-native.com/apps/design/",
       "supportURL": "https://www.agent-native.com/contact/",
@@ -122,12 +117,6 @@
             "prompt": "List my saved designs and confirm whether Product Launch Demo is available.",
             "tools_triggered": "list-designs",
             "expected_behavior": "List designs available to the connected account and confirm Product Launch Demo by name."
-          },
-          {
-            "description": "Apply a saved design system",
-            "prompt": "Use the Northstar Brand design system to guide a responsive contact page for Briar & Crumb, a fictional bakery open Monday through Friday, 7 a.m. to 5 p.m., and Saturday and Sunday, 8 a.m. to 3 p.m. Include the hours and a message form.",
-            "tools_triggered": "list-design-systems, get-design-system, create-design, generate-design",
-            "expected_behavior": "Use only design details saved in Northstar Brand, identify missing guidance without inventing values, and save a renderable contact-page prototype."
           },
           {
             "description": "Refine an existing prototype",

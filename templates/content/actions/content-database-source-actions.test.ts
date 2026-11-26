@@ -39,7 +39,9 @@ import prepareReview, {
 } from "./prepare-builder-source-review";
 import previewReview from "./preview-builder-source-review";
 import previewSourceAttach from "./preview-content-database-source-attach";
-import refreshSource from "./refresh-content-database-source";
+import refreshSource, {
+  sourceRefreshSummary,
+} from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
 import stageBuilderRevision from "./stage-builder-revision";
@@ -1146,6 +1148,55 @@ describe("content database source actions", () => {
     expect(reviewWithUnavailableExecution.result).toMatchObject({
       status: "blocked",
       message: expect.stringContaining("payload is unavailable"),
+    });
+  });
+
+  describe("refresh summary", () => {
+    const summary = (
+      snapshot: Partial<ContentDatabaseSource>,
+      notionStoppedAt: number | null = null,
+    ) =>
+      sourceRefreshSummary({
+        snapshot: {
+          sourceName: "Roadmap",
+          metadata: {},
+          ...snapshot,
+        } as ContentDatabaseSource,
+        githubSummary: null,
+        skippedOverlappingRefresh: false,
+        notionStoppedAt,
+      });
+
+    it("says a Notion read stopped at its cap, not that Builder rows remain", () => {
+      const said = summary(
+        { sourceType: "notion-database", syncState: "refreshing" },
+        500,
+      );
+      expect(said).toBe(
+        "Roadmap refreshed read-only from Notion but stopped at 500 rows; more rows remain in Notion, and the next refresh reads on from there.",
+      );
+      expect(said).not.toContain("Builder");
+    });
+
+    it("says a complete Notion read refreshed", () => {
+      expect(
+        summary({ sourceType: "notion-database", syncState: "linked" }),
+      ).toBe("Roadmap refreshed read-only from Notion.");
+    });
+
+    it("asks to continue only a Builder read that is still fetching", () => {
+      expect(
+        summary({
+          sourceType: "builder-cms",
+          syncState: "refreshing",
+          metadata: { lastReadFetchedEntryCount: 120 },
+        } as Partial<ContentDatabaseSource>),
+      ).toBe(
+        "Roadmap fetched 120 rows. Run refresh again to continue loading the remaining Builder rows.",
+      );
+      expect(
+        summary({ sourceType: "local-table", syncState: "refreshing" }),
+      ).not.toContain("Builder");
     });
   });
 });

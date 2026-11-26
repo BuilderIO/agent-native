@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google Calendar is rate limited. Saved events may be out of date.",
     connect: "Connect",
     connected: "Connected",
     connecting: "Connecting...",
@@ -149,6 +151,9 @@ export default {
     googleCalendarSettings: "Google Calendar settings",
     hideCalendar: "Hide calendar",
     myCalendars: "My Calendars",
+    calendarDescription: "Description",
+    calendarDescriptionPlaceholder: "What is this calendar for?",
+    calendarDescriptionHint: "Agents read this to choose the right calendar.",
     feedsGroup: "Feeds",
     managePeerAvailability: "Manage shared availability",
     nextYear: "Next year",
@@ -550,11 +555,25 @@ export default {
     connectZoom: "Connect Zoom",
     copyBookingLink: "Copy booking link",
     copyLink: "Copy link",
+    copySingleUseLink: "Copy single-use link",
+    singleUseLinkCopied: "Single-use link copied. It works for one booking.",
+    singleUseLinkReady: "Single-use link ready",
+    singleUseLinkCreateFailed: "Couldn't create a single-use link",
+    singleUseLinkUsed: "This link has already been used",
+    singleUseLinkInvalid: "This link no longer works",
+    singleUseLinkAskForNew:
+      "It was made for a single booking. Ask the person who sent it for a new link.",
     createFirstLink: "Create your first link",
     createLink: "Create link",
     custom: "Custom",
     customLink: "Custom link",
     customLinkDescription: "Paste any meeting URL",
+    reminderEmail: "Reminder email",
+    reminderEmailDescription:
+      "Sent to the person who booked and any guests they added.",
+    reminderOff: "No reminder",
+    reminderOneHour: "1 hour before",
+    reminderOneDay: "1 day before",
     date: "Date",
     dateAndTime: "Date & Time",
     dateSelection: "date selection",

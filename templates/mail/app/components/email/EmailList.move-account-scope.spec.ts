@@ -7,18 +7,7 @@ function emailListSource(): string {
 }
 
 describe("EmailList Move action routing", () => {
-  it("passes selected account and thread provenance for every moved row", () => {
-    const source = emailListSource();
-    const start = source.indexOf("const moveFocusedToLabel");
-    const end = source.indexOf("const getThreadMessagesForKey", start);
-    const moveHandler = source.slice(start, end);
-
-    expect(moveHandler).toContain("accountEmails: targets");
-    expect(moveHandler).toContain("target.latestMessage.accountEmail");
-    expect(moveHandler).toContain("threadIds: targets");
-    expect(moveHandler).toContain("target.latestMessage.threadId");
-  });
-
+  // oracle-change: move provenance now lives in useApplyLabel; LabelPicker.apply-label.test.ts checks it by calling the hook
   it("keeps trash on non-inbox rows and importance feedback on inbox rows", () => {
     const source = emailListSource();
 

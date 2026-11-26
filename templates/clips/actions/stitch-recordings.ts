@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { recordingMadeBy } from "../server/lib/recording-made-by.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -51,6 +52,9 @@ export default defineAction({
     height: z.coerce.number().int().optional(),
     folderId: z.string().nullish(),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) && args.visibility !== "private",
+  mcpTool: "search",
   run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
@@ -133,6 +137,7 @@ export default defineAction({
       orgId: organizationId,
       folderId: args.folderId ?? null,
       title: args.title?.trim() || "Stitched recording",
+      ...recordingMadeBy(actionContext),
       status: videoUrl ? "ready" : "processing",
       uploadProgress: videoUrl ? 100 : 0,
       videoUrl,

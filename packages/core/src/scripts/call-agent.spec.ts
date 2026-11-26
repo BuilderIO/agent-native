@@ -382,6 +382,28 @@ describe("call-agent action", () => {
     });
   });
 
+  it("treats a domainless workspace's rejection as ordinary auth when A2A_SECRET is set", async () => {
+    // The caller sends the user's personal identity here, so a missing domain
+    // is not the cause of a 401.
+    process.env.A2A_SECRET = "fixture-global-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+    callAgentMock.mockRejectedValueOnce(
+      new RemoteAgentCredentialRejectedError({ status: 401 }),
+    );
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run({ agent: "slides", message: "make a deck" }),
+    ).rejects.toMatchObject({
+      errorCode: "a2a_auth_rejected",
+      message: expect.stringContaining("HTTP 401"),
+    });
+    expect(callAgentMock.mock.calls[0]?.[2]).toMatchObject({
+      orgId: "org-qa",
+      orgDomain: undefined,
+    });
+  });
+
   it("does not send an A2A request when workspace identity lookup fails", async () => {
     getOrgDomainMock.mockRejectedValueOnce(
       new Error("organization lookup unavailable"),
@@ -1166,6 +1188,57 @@ describe("call-agent action", () => {
     );
   });
 
+  describe("peer connect link", () => {
+    const peerContext = (): ActionRunContext => ({
+      send: vi.fn(),
+      blockedA2ATargets: new Map(),
+    });
+
+    it.each([
+      [
+        "https://slides.agent-native.test/_agent-native/a2a",
+        "https://slides.agent-native.test",
+      ],
+      ["http://localhost:8081/base/a2a", "http://localhost:8081"],
+    ])(
+      "points a typed missing_credentials failure at the peer origin (%s)",
+      async (url, origin) => {
+        findAgentMock.mockResolvedValueOnce({ name: "Slides", url });
+        callAgentMock.mockRejectedValueOnce(
+          terminalTaskError("failed", "child failed", "missing_credentials"),
+        );
+        const { run } = await import("./call-agent.js");
+
+        const outcome = await run(
+          { agent: "analytics", message: "first" },
+          peerContext(),
+        ).catch((error) => error);
+
+        expect(outcome.message).toContain(`Open ${origin} and`);
+        expect(outcome.message).not.toMatch(/Settings\s*[>\u2192]/i);
+      },
+    );
+
+    it.each(["ftp://slides.agent-native.test/a2a", "not a url"])(
+      "names no link when the peer url is %s",
+      async (url) => {
+        findAgentMock.mockResolvedValueOnce({ name: "Slides", url });
+        callAgentMock.mockRejectedValueOnce(
+          terminalTaskError("failed", "child failed", "missing_credentials"),
+        );
+        const { run } = await import("./call-agent.js");
+
+        const outcome = await run(
+          { agent: "analytics", message: "first" },
+          peerContext(),
+        ).catch((error) => error);
+
+        expect(outcome.message).toContain("Open the Slides app and use");
+        expect(outcome.message).not.toMatch(/Settings\s*[>\u2192]/i);
+      },
+    );
+  });
+
   describe("input-required answers", () => {
     const connectionRequired = () =>
       terminalTaskError(
@@ -1310,6 +1383,92 @@ describe("call-agent action", () => {
         expect(context.blockedA2ATargets.size).toBe(0);
       },
     );
+
+    const approvalRequired = (url: string) =>
+      terminalTaskError(
+        "input-required",
+        `Human approval is required to run create-deck. Open ${url} to review and approve this one-time action.`,
+        undefined,
+        {
+          agentNativeTaskState: "input-required",
+          agentNativeApproval: { id: "approval 1", tool: "create-deck", url },
+        },
+      );
+    const pendingAgentCall = (send: ReturnType<typeof vi.fn>) =>
+      send.mock.calls
+        .map(([event]) => event)
+        .find(
+          (event) => event.type === "agent_call" && event.status === "pending",
+        );
+
+    it("hands the chat the peer's approval page with the paused task", async () => {
+      callAgentMock.mockRejectedValueOnce(
+        approvalRequired("/_agent-native/a2a/approvals/approval%201"),
+      );
+      const { run } = await import("./call-agent.js");
+      const send = vi.fn();
+
+      const result = await run({ agent: "slides", message: "make a deck" }, {
+        send,
+        blockedA2ATargets: new Map(),
+      } as any);
+
+      expect(result).toContain('taskId="task-child" (omit message)');
+      expect(pendingAgentCall(send)).toMatchObject({
+        agent: "Slides",
+        taskId: "task-child",
+        approval: {
+          id: "approval 1",
+          tool: "create-deck",
+          url: "https://slides.agent-native.test/_agent-native/a2a/approvals/approval%201",
+        },
+      });
+    });
+
+    it.each([
+      [
+        "another origin",
+        "https://elsewhere.example.test/_agent-native/a2a/approvals/approval%201",
+      ],
+      [
+        "another approval",
+        "https://slides.agent-native.test/_agent-native/a2a/approvals/other",
+      ],
+      ["a non-web scheme", "javascript:alert(1)"],
+    ])("shows no approval card for a page on %s", async (_label, url) => {
+      callAgentMock.mockRejectedValueOnce(approvalRequired(url));
+      const { run } = await import("./call-agent.js");
+      const send = vi.fn();
+
+      await run({ agent: "slides", message: "make a deck" }, {
+        send,
+        blockedA2ATargets: new Map(),
+      } as any);
+
+      const pending = pendingAgentCall(send);
+      expect(pending).toMatchObject({ taskId: "task-child" });
+      expect(pending).not.toHaveProperty("approval");
+    });
+
+    it("names the resumed task on the call's first event", async () => {
+      // An approval card hides while its own task is resumed.
+      callAgentMock.mockResolvedValueOnce("Deleted the deck.");
+      const { run } = await import("./call-agent.js");
+      const send = vi.fn();
+
+      await run({ agent: "slides", taskId: "task-child" }, {
+        send,
+        blockedA2ATargets: new Map(),
+      } as any);
+
+      expect(
+        send.mock.calls
+          .map(([event]) => event)
+          .find(
+            (event) => event.type === "agent_call" && event.status === "start",
+          ),
+      ).toMatchObject({ taskId: "task-child" });
+    });
 
     it("types a connection request in telemetry", async () => {
       const tracked: TrackingEvent[] = [];

@@ -38,6 +38,7 @@ export default defineAction({
   agentInputSchema,
   needsApproval: (args) => args.operation !== "propose",
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: (args) =>
     args.operation === "propose"
       ? proposeCreativeContextSuggestion({

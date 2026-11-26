@@ -28,6 +28,7 @@ import {
   queryString,
   CLIPS_AGENT_ACCESS_PARAM,
 } from "../../lib/public-agent-context.js";
+import { listRecordingComments } from "../../lib/recording-comments.js";
 import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -61,12 +62,6 @@ export default defineEventHandler(async (event: H3Event) => {
       (range): SQL =>
         or(lt(timestamp, range.startMs), gte(timestamp, range.endMs)) as SQL,
     );
-  const commentScope = excludedRanges.length
-    ? and(
-        eq(schema.recordingComments.recordingId, recording.id),
-        ...outsideCuts(schema.recordingComments.videoTimestampMs),
-      )
-    : eq(schema.recordingComments.recordingId, recording.id);
   const reactionScope = excludedRanges.length
     ? and(
         eq(schema.recordingReactions.recordingId, recording.id),
@@ -77,7 +72,6 @@ export default defineEventHandler(async (event: H3Event) => {
     { transcript, agentSegments },
     commentRows,
     reactionRows,
-    commentCountRows,
     reactionCountRows,
     ctas,
     browserDiagnostics,
@@ -85,27 +79,15 @@ export default defineEventHandler(async (event: H3Event) => {
   ] = await Promise.all([
     loadAgentTranscript(recording.id, recording.durationMs),
     commentsReadable
-      ? db
-          .select({
-            id: schema.recordingComments.id,
-            recordingId: schema.recordingComments.recordingId,
-            threadId: schema.recordingComments.threadId,
-            parentId: schema.recordingComments.parentId,
-            authorEmail: schema.recordingComments.authorEmail,
-            authorName: schema.recordingComments.authorName,
-            content: schema.recordingComments.content,
-            videoTimestampMs: schema.recordingComments.videoTimestampMs,
-            resolved: schema.recordingComments.resolved,
-            createdAt: schema.recordingComments.createdAt,
-            updatedAt: schema.recordingComments.updatedAt,
-          })
-          .from(schema.recordingComments)
-          .where(commentScope)
-          .orderBy(
-            asc(schema.recordingComments.videoTimestampMs),
-            asc(schema.recordingComments.createdAt),
-          )
-          .limit(historyQueryLimit)
+      ? listRecordingComments(recording.id).then((rows) =>
+          rows.filter((row) =>
+            excludedRanges.every(
+              (range) =>
+                row.videoTimestampMs < range.startMs ||
+                row.videoTimestampMs >= range.endMs,
+            ),
+          ),
+        )
       : Promise.resolve([]),
     recording.enableReactions
       ? db
@@ -121,12 +103,6 @@ export default defineEventHandler(async (event: H3Event) => {
           .orderBy(asc(schema.recordingReactions.createdAt))
           .limit(historyQueryLimit)
       : Promise.resolve([]),
-    commentsReadable
-      ? db
-          .select({ count: count() })
-          .from(schema.recordingComments)
-          .where(commentScope)
-      : Promise.resolve([{ count: 0 }]),
     recording.enableReactions
       ? db
           .select({ count: count() })
@@ -138,12 +114,11 @@ export default defineEventHandler(async (event: H3Event) => {
     loadAgentBugReport(recording.id),
   ]);
   const chapters = parseAgentChapters(recording);
-  const comments = (await hydrateCommentAuthorNames(commentRows)).slice(
-    0,
-    MAX_PUBLIC_AGENT_HISTORY_ITEMS,
+  const comments = await hydrateCommentAuthorNames(
+    commentRows.slice(0, MAX_PUBLIC_AGENT_HISTORY_ITEMS),
   );
   const reactions = reactionRows.slice(0, MAX_PUBLIC_AGENT_HISTORY_ITEMS);
-  const commentCount = Number(commentCountRows[0]?.count ?? comments.length);
+  const commentCount = commentRows.length;
   const reactionCount = Number(reactionCountRows[0]?.count ?? reactions.length);
 
   const appActivityEventsReadable = await canReadAppActivityEvents(

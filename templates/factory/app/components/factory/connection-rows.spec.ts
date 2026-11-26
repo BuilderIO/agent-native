@@ -227,12 +227,16 @@ describe("connectTarget", () => {
     });
   });
 
-  it("keeps Builder and email with this app's Settings, in a workspace or not", () => {
+  it("keeps Builder, Content and email with this app's Settings, in a workspace or not", () => {
     for (const where of [workspace, alone]) {
       expect(connectTarget("builder", "settings", where)).toEqual({
         kind: "settings",
         page: "integrations",
         sub: "builder",
+      });
+      expect(connectTarget("content", "settings", where)).toEqual({
+        kind: "settings",
+        page: "integrations",
       });
       expect(connectTarget("email", "settings", where)).toEqual({
         kind: "settings",

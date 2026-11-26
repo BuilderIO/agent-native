@@ -31,9 +31,8 @@ validated its non-executable HTML/CSS contract. Pass item and version ids to a
 clone action instead of executing or silently rewriting the public payload.
 
 App-created artifacts use app-owned typed clone actions:
-`clone-creative-context-deck`, `clone-creative-context-design-native`,
-`clone-creative-context-document`, `clone-creative-context-asset`, and
-`clone-creative-context-dashboard`. Their exact native payloads remain private
+`clone-creative-context-deck`, `clone-creative-context-document`,
+`clone-creative-context-asset`, and `clone-creative-context-dashboard`. Their exact native payloads remain private
 and are never returned by generic Creative Context actions.
 
 `version.nativeCode.content` is exact only when it is a string. Hierarchical

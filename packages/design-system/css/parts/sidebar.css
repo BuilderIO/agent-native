@@ -1,0 +1,208 @@
+/*
+ * Part: sidebar (a layout)
+ *
+ *   <div class="sidebar" [data-collapsed]>
+ *     <div class="sidebar-header">           the brand row
+ *       <a class="sidebar-brand">            logo, name, a Badge
+ *     <div class="sidebar-content">          search, then a NavigationMenu, Separators
+ *     <div class="sidebar-footer">           the account Menu trigger, the collapse Button
+ *   <div class="sidebar-backdrop"> <div class="sidebar-drawer">   at the mobile width
+ *
+ * A 256px column on the nav surface: a 56px brand row, the content, and a
+ * footer on a hairline. The parts inside keep their own look; the layout
+ * only places and spaces them. Collapsed, it is a 56px rail, and the parts
+ * inside show icons only.
+ */
+
+@layer components {
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    width: 256px;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    border-inline-end: 1px solid var(--line-subtle);
+    background-color: var(--surface-nav);
+    color: var(--fg-default);
+    transition: width var(--duration-2) var(--ease-standard);
+  }
+
+  .sidebar[data-collapsed] {
+    width: var(--size-7);
+  }
+
+  /* ---- brand row ---- */
+
+  .sidebar-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    height: var(--size-6);
+    padding-inline: var(--space-4);
+  }
+
+  .sidebar[data-collapsed] .sidebar-header {
+    justify-content: center;
+    padding-inline: var(--space-2);
+  }
+
+  .sidebar-brand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+    border-radius: calc(var(--radius-2) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    color: var(--fg-default);
+    text-decoration: none;
+    outline-style: none;
+  }
+
+  .sidebar-brand:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  .sidebar-brand-logo {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  /* As wide as an md control; the mark keeps its own proportions. */
+  .sidebar-brand-logo svg,
+  .sidebar-brand-logo img {
+    width: var(--control-height-3);
+    height: auto;
+  }
+
+  .sidebar-brand-name {
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    font-weight: var(--font-weight-semibold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sidebar-brand-badge {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  .sidebar[data-collapsed] .sidebar-brand {
+    justify-content: center;
+    width: var(--control-height-4);
+    height: var(--control-height-4);
+  }
+
+  .sidebar[data-collapsed] .sidebar-brand-badge {
+    display: none;
+  }
+
+  /* On the rail the name stays the link's accessible name. */
+  .sidebar[data-collapsed] .sidebar-brand-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* ---- content ---- */
+
+  .sidebar-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-2);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* Between groups of places, a divider a step clear of each. */
+  .sidebar-content .navigation-menu > .separator {
+    margin-block: var(--space-3);
+  }
+
+  .sidebar[data-collapsed] .sidebar-content .navigation-menu > .separator {
+    width: var(--control-height-4);
+    align-self: center;
+  }
+
+  /* A second content region sits at the bottom, above the footer. */
+  .sidebar-content + .sidebar-content {
+    flex: none;
+  }
+
+  .sidebar[data-collapsed] .sidebar-content {
+    align-items: center;
+  }
+
+  /* ---- footer ---- */
+
+  .sidebar-footer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border-top: 1px solid var(--line-subtle);
+  }
+
+  .sidebar[data-collapsed] .sidebar-footer {
+    flex-direction: column;
+  }
+
+  /* ---- the drawer, at the mobile width ---- */
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--layer-dialog-backdrop);
+    background-color: var(--surface-overlay);
+    transition: opacity var(--duration-2) var(--ease-standard);
+  }
+
+  .sidebar-backdrop[data-starting-style],
+  .sidebar-backdrop[data-ending-style] {
+    opacity: 0;
+  }
+
+  .sidebar-drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: var(--layer-dialog);
+    display: flex;
+    max-width: calc(100vw - var(--space-7));
+    box-shadow: var(--shadow-5);
+    outline-style: none;
+    transition: translate var(--duration-2) var(--ease-standard);
+  }
+
+  .sidebar-drawer[data-starting-style],
+  .sidebar-drawer[data-ending-style] {
+    translate: calc(-100% * var(--_inline-direction, 1));
+  }
+
+  .sidebar-drawer .sidebar {
+    border-inline-end: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar,
+    .sidebar-backdrop,
+    .sidebar-drawer {
+      transition: none;
+    }
+  }
+}

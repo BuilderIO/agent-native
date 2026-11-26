@@ -22,6 +22,7 @@ export function execGuardCommand(command, args, options = {}) {
 export function resolveDiffBase(cwd) {
   for (const name of DIFF_BASE_ENV) {
     const value = process.env[name];
+    if (value && /^[0-9a-f]{40}$/i.test(value)) return value;
     if (value) return value.startsWith("origin/") ? value : `origin/${value}`;
   }
   for (const candidate of ["origin/main", "main"]) {
@@ -76,13 +77,6 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   return parseUnifiedDiff(diff, cwd);
 }
 
-/**
- * Lines this branch removed, keyed by native absolute path like `addedLines`.
- * `path` is the post-change repo path (the pre-change path for a deleted file)
- * and `oldPath` the pre-change path, so a rename's removals and additions meet
- * under one key. Each removed line records the new-file line it sat before.
- * `created` marks a file new on this branch, so its pre-change text is empty.
- */
 export function removedLines(cwd, { includeWorkingTree = true } = {}) {
   const mergeBase = diffBaseCommit(cwd);
   if (mergeBase === null) return null;
@@ -114,15 +108,26 @@ function scanRemovedLines(diff, cwd, pathApi) {
   let removeLeft = 0;
   let addLeft = 0;
   let newLine = 0;
+  let oldLine = 0;
   for (const raw of diff.split("\n")) {
     // Hunk counts, not prefixes, say what is body: a removed line may itself
     // start with "--" and must not be read as a file header.
     if (removeLeft > 0 || addLeft > 0) {
       if (raw.startsWith("-")) {
         removeLeft -= 1;
-        entry?.lines.push({ line: Math.max(newLine, 1), text: raw.slice(1) });
+        entry?.lines.push({
+          line: Math.max(newLine, 1),
+          oldLine,
+          text: raw.slice(1),
+        });
+        oldLine += 1;
       } else if (raw.startsWith("+")) {
         addLeft -= 1;
+        newLine += 1;
+      } else if (raw.startsWith(" ")) {
+        removeLeft -= 1;
+        addLeft -= 1;
+        oldLine += 1;
         newLine += 1;
       }
       continue;
@@ -146,11 +151,12 @@ function scanRemovedLines(diff, cwd, pathApi) {
       result.set(pathApi.resolve(cwd, repoPath), entry);
       continue;
     }
-    const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
     if (hunk) {
-      removeLeft = hunk[1] === undefined ? 1 : Number(hunk[1]);
-      newLine = Number(hunk[2]);
-      addLeft = hunk[3] === undefined ? 1 : Number(hunk[3]);
+      oldLine = Number(hunk[1]);
+      removeLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newLine = Number(hunk[3]);
+      addLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
     }
   }
   return result;
@@ -219,6 +225,7 @@ function scanUnifiedDiff(diff, cwd, pathApi) {
   // "++i;" or a removed "--y"); headers are only read once both counts are 0.
   let oldLeft = 0;
   let newLeft = 0;
+  let symlink = false;
   for (const raw of diff.split("\n")) {
     if (oldLeft > 0 || newLeft > 0) {
       if (raw.startsWith("+")) {
@@ -239,6 +246,13 @@ function scanUnifiedDiff(diff, cwd, pathApi) {
     }
     if (raw.startsWith("diff --git ")) {
       file = null;
+      symlink = false;
+      continue;
+    }
+    // A symlink's only "line" is its target path; guards that read the file
+    // would open the directory it points at.
+    if (/^(?:new file mode|new mode|index \S+) 120000$/.test(raw)) {
+      symlink = true;
       continue;
     }
     // Git emits no +++/@@/+ lines for a file it considers binary, so such a
@@ -270,7 +284,7 @@ function scanUnifiedDiff(diff, cwd, pathApi) {
       // path.join/path.resolve result; a "/"-joined key never matches on Windows.
       // Prototypes are throwaway design artifacts, not shipped code, so the diff-scoped guards don't police them.
       file =
-        target === "/dev/null" || path.startsWith("prototypes/")
+        symlink || target === "/dev/null" || path.startsWith("prototypes/")
           ? null
           : pathApi.resolve(cwd, path);
       continue;

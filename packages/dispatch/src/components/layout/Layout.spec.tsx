@@ -1,4 +1,9 @@
-import { emitChatFirstOpenApp } from "@agent-native/core/client/agent-chat";
+import {
+  emitChatFirstOpenApp,
+  getChatFirstSurfaceTabsStore,
+  reportAgentChatComposerSubmit,
+  withdrawAgentChatComposerSubmit,
+} from "@agent-native/core/client/agent-chat";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
 import React, { act } from "react";
@@ -51,6 +56,13 @@ const clientState = vi.hoisted(() => ({
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
+  callAction: vi.fn(
+    async (
+      _name: string,
+      _params?: unknown,
+      _options?: unknown,
+    ): Promise<unknown> => ({ status: "ok", app: "none", confidence: 1 }),
+  ),
 }));
 const workspaceAppNavigation = vi.hoisted(() => ({
   navigateToWorkspaceApp: vi.fn((_href: string) => true),
@@ -199,6 +211,8 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   useActionMutation: () => ({
     mutateAsync: clientState.createEmbedSessionMutateAsync,
   }),
+  callAction: (name: string, params?: unknown, options?: unknown) =>
+    clientState.callAction(name, params, options),
 }));
 
 vi.mock(
@@ -309,9 +323,24 @@ function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
 function ChatRouteSwitcher({ target }: { target: string }) {
   const navigate = useNavigate();
   return (
-    <button type="button" onClick={() => navigate(target)}>
-      Switch chat
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(target);
+        }}
+      >
+        Switch chat
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(-1);
+        }}
+      >
+        Go back
+      </button>
+    </>
   );
 }
 
@@ -519,6 +548,77 @@ describe("Dispatch NavContent", () => {
     }
   });
 
+  it("takes the sidebar toggle from the active kept-alive app, not an earlier retained one", async () => {
+    const install = (app: string) => ({
+      id: app,
+      name: app,
+      path: `/${app}`,
+      url: `https://${app}.example.test/${app}`,
+      status: "ready",
+    });
+    clientState.workspaceApps = [install("mail"), install("calendar")];
+    for (const app of ["calendar", "mail"]) {
+      clientState.createEmbedSessionMutateAsync.mockResolvedValueOnce({
+        startUrl: `https://${app}.example.test/${app}/initial`,
+        childBrowserTabId:
+          app === "mail"
+            ? "d178e672-918b-4c93-bd78-f627f7f00001"
+            : "d178e672-918b-4c93-bd78-f627f7f00002",
+      });
+    }
+    const toggles = vi.fn();
+    window.addEventListener("agent-panel:toggle", toggles);
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/apps/calendar"]}>
+            <Layout>
+              <div />
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[data-chat-first-app][data-app-id="mail"]',
+          )
+          ?.click();
+      });
+
+      const frameOf = (app: string) => {
+        const frame = container.querySelector<HTMLIFrameElement>(
+          `[data-dispatch-workspace-app-cache-entry="${app}"] iframe`,
+        );
+        if (!frame?.contentWindow) throw new Error(`Missing ${app} iframe`);
+        return frame;
+      };
+      const retained = frameOf("calendar");
+      const active = frameOf("mail");
+      expect(
+        retained
+          .closest("[data-dispatch-workspace-app-cache-entry]")
+          ?.getAttribute("aria-hidden"),
+      ).toBe("true");
+      const post = async (frame: HTMLIFrameElement) =>
+        act(async () => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: { type: "agentNative.toggleSidebar", data: {} },
+              source: frame.contentWindow,
+            }),
+          );
+        });
+
+      await post(retained);
+      expect(toggles).not.toHaveBeenCalled();
+      await post(active);
+      expect(toggles).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("agent-panel:toggle", toggles);
+    }
+  });
+
   it("opens mounted apps when optional connected-app discovery fails", async () => {
     clientState.workspaceApps = [
       {
@@ -579,6 +679,886 @@ describe("Dispatch NavContent", () => {
     expect(
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
+  });
+
+  it("shows an app opened beside the chat instead of leaving it hidden", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/side-app-visible"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+
+    const wrapper = container
+      .querySelector("[data-chat-first-app-pane]")
+      ?.closest("[data-chat-first-surface-content]");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.getAttribute("aria-hidden")).toBe("false");
+    expect(wrapper?.className).not.toContain("hidden");
+  });
+
+  it("opens the exact Fleet installation despite an earlier template with the same name", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "fleet-2",
+        name: "Fleet",
+        path: "/fleet-2",
+        url: "/fleet-2",
+        source: "builtin",
+        status: "ready",
+      },
+      {
+        id: "fleet",
+        name: "Fleet",
+        path: "/fleet",
+        url: "/fleet",
+        source: "workspace",
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/fleet-installation"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "fleet" });
+    });
+    expect(
+      getChatFirstSurfaceTabsStore("fleet-installation").getSnapshot().tabs,
+    ).toMatchObject([{ appId: "fleet" }]);
+  });
+
+  it("opens the app Dispatch delegates to, once", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/delegation-opens-app"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    const delegate = () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-start", {
+          detail: {
+            tool: "call-agent",
+            input: { agent: "mail", message: "what is in my inbox" },
+          },
+        }),
+      );
+    await act(async () => {
+      delegate();
+    });
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+
+    await act(async () => {
+      delegate();
+    });
+    expect(
+      container.querySelectorAll("[data-chat-first-surface-content]"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps an app the agent opens before the new chat has an id", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <ChatRouteSwitcher target="/chat/first-turn-id" />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  describe("opening the pane the route picks for a sent message", () => {
+    const apps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+      {
+        id: "notes",
+        name: "Notes",
+        path: "/notes",
+        url: "/notes",
+        status: "ready",
+      },
+    ];
+    const appTabs = (scope: string) =>
+      getChatFirstSurfaceTabsStore(scope)
+        .getSnapshot()
+        .tabs.filter((tab) => tab.kind === "app");
+
+    function routeTo(answer: unknown) {
+      let settle: (value: unknown) => void = () => undefined;
+      clientState.callAction.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve;
+          }),
+      );
+      return {
+        answer: () =>
+          act(async () => {
+            settle(answer);
+          }),
+      };
+    }
+
+    async function send(text: string, previousTurn?: string) {
+      await act(async () => {
+        reportAgentChatComposerSubmit({ text, previousTurn });
+      });
+    }
+
+    async function renderChat(
+      path: string,
+      children: React.ReactNode = null,
+      registrations = apps,
+    ) {
+      clientState.workspaceApps = registrations;
+      clientState.callAction.mockClear();
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={[path]}>
+            <Layout extensions={{ chatFirst: true }}>{children}</Layout>
+          </MemoryRouter>,
+        );
+      });
+    }
+
+    it("asks the route with the shown app and previous turn, and opens its answer", async () => {
+      await renderChat("/chat/route-opens");
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my inbox", "User: hi\nAssistant: hello");
+      expect(clientState.callAction).toHaveBeenCalledWith(
+        "route-app-intent",
+        { text: "show my inbox", previousTurn: "User: hi\nAssistant: hello" },
+        expect.objectContaining({ timeoutMs: expect.any(Number) }),
+      );
+      expect(appTabs("route-opens")).toEqual([]);
+      await route.answer();
+      expect(appTabs("route-opens").map((tab) => tab.appId)).toEqual(["mail"]);
+
+      routeTo({ status: "ok", app: "mail", confidence: 1, explicit: true });
+      await send("archive the first one");
+      expect(clientState.callAction).toHaveBeenLastCalledWith(
+        "route-app-intent",
+        expect.objectContaining({ openApp: "mail" }),
+        expect.anything(),
+      );
+    });
+
+    it.each([
+      ["a chat-only answer", { status: "ok", app: "none", confidence: 1 }],
+      ["an unconfigured route", { status: "not_configured", reason: "x" }],
+      ["a failed route", { status: "failed", reason: "x" }],
+      [
+        "an app that is not installed",
+        { status: "ok", app: "planner", confidence: 1 },
+      ],
+      ["Dispatch itself", { status: "ok", app: "dispatch", confidence: 1 }],
+    ])("leaves the pane closed for %s", async (_label, answer) => {
+      await renderChat("/chat/route-skips");
+      const route = routeTo(answer);
+      await send("what changed this week");
+      await route.answer();
+      expect(appTabs("route-skips")).toEqual([]);
+      expect(container.textContent).not.toContain("not opened");
+    });
+
+    it("leaves the pane closed when the route call rejects", async () => {
+      await renderChat("/chat/route-rejects");
+      clientState.callAction.mockRejectedValueOnce(
+        Object.assign(new Error("timed out"), { timedOut: true }),
+      );
+      await send("show my inbox");
+      expect(appTabs("route-rejects")).toEqual([]);
+    });
+
+    it("drops an answer once a newer message was sent", async () => {
+      await renderChat("/chat/route-newer-send");
+      const first = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      routeTo({ status: "ok", app: "none", confidence: 1 });
+      await send("show my inbox");
+      await send("never mind, just chat");
+      await first.answer();
+      expect(appTabs("route-newer-send")).toEqual([]);
+    });
+
+    it("drops an answer once the agent already opened a pane", async () => {
+      await renderChat("/chat/route-agent-first");
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my notes");
+      await act(async () => {
+        emitChatFirstOpenApp({ app: "notes" });
+      });
+      await route.answer();
+      expect(appTabs("route-agent-first").map((tab) => tab.appId)).toEqual([
+        "notes",
+      ]);
+    });
+
+    it("keeps Tasks offscreen before the authoritative Mail notification handoff", async () => {
+      await renderChat("/chat/route-notifications", null, [
+        {
+          id: "mail-2",
+          name: "Mail",
+          path: "/mail",
+          url: "/mail",
+          status: "ready",
+        },
+        {
+          id: "tasks-2",
+          name: "Tasks",
+          path: "/tasks",
+          url: "/tasks",
+          status: "ready",
+        },
+      ]);
+      const guess = routeTo({ status: "ok", app: "tasks-2", confidence: 0.95 });
+      await send("GitHub notifications from humans");
+      await guess.answer();
+      expect(appTabs("route-notifications")).toEqual([]);
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+      const pending = routeTo({
+        status: "ok",
+        app: "tasks-2",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("GitHub notifications from humans, please");
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:tool-start", {
+            detail: { tool: "open_app", input: { app: "mail-2" } },
+          }),
+        );
+      });
+      await pending.answer();
+      expect(appTabs("route-notifications")).toEqual([]);
+      await act(async () => {
+        emitChatFirstOpenApp({ app: "mail-2", path: "/split/github" });
+      });
+      expect(appTabs("route-notifications")).toMatchObject([
+        { appId: "mail-2", path: "/split/github" },
+      ]);
+    });
+
+    it("reads a refreshed selection only from the visible workspace pane", async () => {
+      const install = (app: string) => ({
+        id: app,
+        name: app,
+        path: `/${app}`,
+        url: `https://${app}.example.test/${app}`,
+        status: "ready",
+      });
+      await renderChat("/chat/pane-context", null, [
+        install("mail"),
+        install("notes"),
+      ]);
+
+      async function openFrame(app: string, selection: () => string) {
+        clientState.createEmbedSessionMutateAsync.mockResolvedValueOnce({
+          startUrl: `https://${app}.example.test/${app}/initial`,
+          childBrowserTabId:
+            app === "mail"
+              ? "d178e672-918b-4c93-bd78-f627f7f00001"
+              : "d178e672-918b-4c93-bd78-f627f7f00002",
+        });
+        await act(async () => emitChatFirstOpenApp({ app }));
+        const frame = container.querySelector<HTMLIFrameElement>(
+          `iframe[src^="https://${app}.example.test/"]`,
+        );
+        if (!frame?.contentWindow) throw new Error("Missing pane iframe");
+        const read = vi
+          .spyOn(frame.contentWindow, "postMessage")
+          .mockImplementation((request, _origin, transfer) => {
+            if (request?.operation !== "read") return;
+            const [port] = transfer as MessagePort[];
+            port.postMessage({
+              result: { path: `/${app}/current`, selectedText: selection() },
+            });
+            port.close();
+          });
+        await act(async () => frame.dispatchEvent(new Event("load")));
+        return read;
+      }
+
+      let selectedMail = "First message";
+      const mailRead = await openFrame("mail", () => selectedMail);
+      await send("Summarize this");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({
+            openApp: "mail",
+            openPath: "/mail/current",
+            selection: "First message",
+          }),
+          expect.anything(),
+        ),
+      );
+
+      selectedMail = "Edited message";
+      await send("Summarize this again");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({ selection: "Edited message" }),
+          expect.anything(),
+        ),
+      );
+
+      await openFrame("notes", () => "Visible note");
+      mailRead.mockClear();
+      await send("Summarize the current selection");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({
+            openApp: "notes",
+            openPath: "/notes/current",
+            selection: "Visible note",
+          }),
+          expect.anything(),
+        ),
+      );
+      expect(mailRead).not.toHaveBeenCalled();
+    });
+
+    it("does not route a send from another chat", async () => {
+      await renderChat("/chat/route-own-chat");
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "another-thread",
+        });
+      });
+      expect(clientState.callAction).not.toHaveBeenCalled();
+    });
+
+    it("drops an answer once a queued message was sent after it", async () => {
+      await renderChat("/chat/route-queued");
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my inbox");
+      await act(async () => {
+        reportAgentChatComposerSubmit({ text: "and my notes", queued: true });
+      });
+      await route.answer();
+      expect(clientState.callAction).toHaveBeenCalledTimes(1);
+      expect(appTabs("route-queued")).toEqual([]);
+    });
+
+    it("drops an answer for a send that was withdrawn", async () => {
+      await renderChat("/chat/route-withdrawn");
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      let id: string | null = null;
+      await act(async () => {
+        id = reportAgentChatComposerSubmit({ text: "show my inbox" });
+      });
+      await act(async () => {
+        withdrawAgentChatComposerSubmit(id);
+      });
+      await route.answer();
+      expect(appTabs("route-withdrawn")).toEqual([]);
+    });
+
+    it("drops an answer once the person left the chat", async () => {
+      await renderChat(
+        "/chat/route-left",
+        <ChatRouteSwitcher target="/agents" />,
+      );
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my inbox");
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      await route.answer();
+      expect(appTabs("route-left")).toEqual([]);
+      expect(appTabs("new")).toEqual([]);
+    });
+
+    it("drops a new chat's waiting pane when a newer message is sent", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-superseded" />,
+      );
+      const first = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      const second = routeTo({ status: "ok", app: "none", confidence: 1 });
+      await send("show my inbox");
+      await first.answer();
+      await send("never mind");
+      await second.answer();
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      expect(appTabs("route-superseded")).toEqual([]);
+    });
+
+    it("moves the same pane when the agent opens that app deeper", async () => {
+      await renderChat("/chat/route-same-app");
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my inbox");
+      await route.answer();
+      const [openedId] = appTabs("route-same-app").map((tab) => tab.id);
+      await act(async () => {
+        emitChatFirstOpenApp({ app: "mail", path: "/inbox/thread-1" });
+      });
+      const tabs = appTabs("route-same-app");
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0]).toMatchObject({
+        id: openedId,
+        appId: "mail",
+        path: "/inbox/thread-1",
+      });
+    });
+
+    it("replaces the pane when the agent opens a different app", async () => {
+      await renderChat("/chat/route-other-app");
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my inbox");
+      await route.answer();
+      await act(async () => {
+        emitChatFirstOpenApp({ app: "notes" });
+      });
+      expect(appTabs("route-other-app").map((tab) => tab.appId)).toEqual([
+        "notes",
+      ]);
+    });
+
+    it("keeps an app the agent opened after the routed turn", async () => {
+      await renderChat("/chat/route-later-turn");
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my inbox");
+      await route.answer();
+      await send("thanks");
+      await act(async () => {
+        emitChatFirstOpenApp({ app: "notes" });
+      });
+      expect(appTabs("route-later-turn").map((tab) => tab.appId)).toEqual([
+        "mail",
+        "notes",
+      ]);
+    });
+
+    it("opens a new chat's pane once the chat has an id, on the prefetched session", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-first-turn" />,
+      );
+      clientState.createEmbedSessionMutateAsync.mockClear();
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("show my inbox");
+      await route.answer();
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+      expect(clientState.createEmbedSessionMutateAsync).toHaveBeenCalledTimes(
+        1,
+      );
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+
+      expect(appTabs("route-first-turn").map((tab) => tab.appId)).toEqual([
+        "mail",
+      ]);
+      expect(clientState.createEmbedSessionMutateAsync).toHaveBeenCalledTimes(
+        1,
+      );
+    });
+
+    it("opens a new chat's pane at route time when the send names its thread, and keeps it when the URL catches up", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-named-thread" />,
+      );
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-named-thread",
+          queued: false,
+        });
+      });
+      await route.answer();
+
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+      const opened = appTabs("route-named-thread");
+      expect(opened.map((tab) => tab.appId)).toEqual(["mail"]);
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+
+      expect(appTabs("route-named-thread")).toEqual(opened);
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+    });
+
+    it("forgets a sent new chat's thread when another new chat starts", async () => {
+      await renderChat("/chat", <ChatRouteSwitcher target="/chat" />);
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-abandoned-thread",
+          queued: false,
+        });
+      });
+      await route.answer();
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+    });
+
+    it("clears a provisional new-chat thread when its send is withdrawn, without clearing a newer send", async () => {
+      await renderChat("/chat");
+      const firstRoute = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      let firstSubmitId: string | null = null;
+      await act(async () => {
+        firstSubmitId = reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-withdrawn-thread",
+          queued: false,
+        });
+      });
+      await act(async () => {
+        withdrawAgentChatComposerSubmit(firstSubmitId);
+      });
+      await firstRoute.answer();
+
+      expect(appTabs("route-withdrawn-thread")).toEqual([]);
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+      const secondRoute = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox again",
+          threadId: "route-kept-thread",
+          queued: false,
+        });
+      });
+      await act(async () => {
+        withdrawAgentChatComposerSubmit(firstSubmitId);
+      });
+      await secondRoute.answer();
+
+      expect(appTabs("route-kept-thread").map((tab) => tab.appId)).toEqual([
+        "mail",
+      ]);
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+    });
+
+    it("clears the provisional scope once the URL catches up, so navigating Back returns to a blank new chat", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-back-thread" />,
+      );
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-back-thread",
+          queued: false,
+        });
+      });
+      await route.answer();
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Go back")
+          ?.click();
+      });
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+    });
+
+    it("does not flash a previous session's saved pane before routing a new chat", async () => {
+      clientState.connectedApps = [
+        {
+          id: "calendar",
+          name: "Calendar",
+          url: "https://calendar.agent-native.com",
+          source: "builtin",
+        },
+      ];
+      clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+        appId: "mail",
+        path: "/inbox",
+      };
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/new-chat-no-flash" />,
+      );
+      const route = routeTo({
+        status: "ok",
+        app: "calendar",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("hows my week look");
+      await route.answer();
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+
+      expect(appTabs("new-chat-no-flash").map((tab) => tab.appId)).toEqual([
+        "calendar",
+      ]);
+    });
+
+    it("routes a new chat's first send and a settled follow-up when queued is false, and skips a queued send", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-lifecycle" />,
+      );
+      const first = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          tabId: "route-lifecycle",
+          threadId: "route-lifecycle",
+          queued: false,
+        });
+      });
+      expect(clientState.callAction).toHaveBeenCalledTimes(1);
+      expect(clientState.callAction).toHaveBeenLastCalledWith(
+        "route-app-intent",
+        { text: "show my inbox" },
+        expect.objectContaining({ timeoutMs: expect.any(Number) }),
+      );
+      await first.answer();
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      expect(appTabs("route-lifecycle").map((tab) => tab.appId)).toEqual([
+        "mail",
+      ]);
+
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "queued behind active run",
+          tabId: "route-lifecycle",
+          threadId: "route-lifecycle",
+          queued: true,
+        });
+      });
+      expect(clientState.callAction).toHaveBeenCalledTimes(1);
+
+      const second = routeTo({
+        status: "ok",
+        app: "notes",
+        confidence: 1,
+        explicit: true,
+      });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "open my Q4 planning doc",
+          tabId: "route-lifecycle",
+          threadId: "route-lifecycle",
+          queued: false,
+        });
+      });
+      expect(clientState.callAction).toHaveBeenCalledTimes(2);
+      expect(clientState.callAction).toHaveBeenLastCalledWith(
+        "route-app-intent",
+        { text: "open my Q4 planning doc", openApp: "mail" },
+        expect.objectContaining({ timeoutMs: expect.any(Number) }),
+      );
+      await second.answer();
+      expect(appTabs("route-lifecycle").map((tab) => tab.appId)).toEqual([
+        "mail",
+        "notes",
+      ]);
+    });
   });
 
   it("opens a connected built-in when mounted workspace-app discovery fails", async () => {
@@ -951,6 +1931,59 @@ describe("Dispatch NavContent", () => {
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
   });
+
+  it("restores a saved pane when the first mount is discarded", async () => {
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "clips",
+      path: "/inbox",
+    };
+
+    await act(async () => {
+      root.render(
+        <React.StrictMode>
+          <MemoryRouter initialEntries={["/chat/strict-restore"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>
+        </React.StrictMode>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-app-notice]")).toBeNull();
+  });
+
+  it.each([[null], [{ appId: 7 }]])(
+    "only reports a restore failure for unreadable pane state %j",
+    async (saved) => {
+      clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = saved;
+
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/chat/pane-state-outcome"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+
+      expect(container.querySelector("[data-app-notice]") !== null).toBe(
+        saved !== null,
+      );
+    },
+  );
 
   it("puts Overview before Chat in the primary navigation", async () => {
     await act(async () => {
@@ -1954,7 +2987,10 @@ describe("chat-first app surface tab chat rail", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderAppTab(isMobileSurface: boolean) {
+  async function renderAppTab(
+    isMobileSurface: boolean,
+    placement?: "main" | "side",
+  ) {
     const { defaultChatFirstCopy } =
       await import("@agent-native/toolkit/app/chat/chat-first");
     vi.stubGlobal(
@@ -1972,6 +3008,7 @@ describe("chat-first app surface tab chat rail", () => {
           loading: false,
           isMobileSurface,
           copy: defaultChatFirstCopy,
+          ...(placement ? { placement } : {}),
         }),
       );
     });
@@ -1985,6 +3022,27 @@ describe("chat-first app surface tab chat rail", () => {
     expect(
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("shows an app beside the chat without a second chat rail, so the app gets the panel", async () => {
+    const { container, root } = await renderAppTab(false, "side");
+
+    expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("gives an app that takes the main area its own chat rail", async () => {
+    const { container, root } = await renderAppTab(false, "main");
+
+    expect(container.querySelector("[data-agent-sidebar]")).not.toBeNull();
 
     act(() => root.unmount());
     container.remove();

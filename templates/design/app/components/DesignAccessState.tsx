@@ -92,26 +92,29 @@ export function DesignAccessState({
                   : t("designEditor.requestAccessDescription")
                 : t("designEditor.signInToRequestAccessDescription")}
             </p>
-            {signedIn ? (
-              <Button
-                type="button"
-                onClick={onRequestAccess}
-                disabled={accessRequestPending || accessRequestSent}
-                className="mt-6 cursor-pointer gap-2"
-              >
-                {accessRequestSent ? <IconCheck className="size-4" /> : null}
-                {accessRequestSent
-                  ? t("designEditor.accessRequested")
-                  : t("designEditor.requestAccess")}
-              </Button>
-            ) : (
-              <Button asChild className="mt-6 cursor-pointer gap-2">
-                <a href={signInHref}>
-                  <IconLogin2 className="size-4" />
-                  {t("designEditor.signInOrSignUp")}
-                </a>
-              </Button>
-            )}
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {signedIn ? (
+                <Button
+                  type="button"
+                  onClick={onRequestAccess}
+                  disabled={accessRequestPending || accessRequestSent}
+                  className="cursor-pointer gap-2"
+                >
+                  {accessRequestSent ? <IconCheck className="size-4" /> : null}
+                  {accessRequestSent
+                    ? t("designEditor.accessRequested")
+                    : t("designEditor.requestAccess")}
+                </Button>
+              ) : (
+                <Button asChild className="cursor-pointer gap-2">
+                  <a href={signInHref}>
+                    <IconLogin2 className="size-4" />
+                    {t("pages.notFoundSignIn")}
+                  </a>
+                </Button>
+              )}
+              <BackToDesigns />
+            </div>
           </>
         ) : (
           <>
@@ -124,17 +127,28 @@ export function DesignAccessState({
           </>
         )}
 
-        <Button
-          asChild
-          variant="ghost"
-          className="mt-7 cursor-pointer gap-2 text-muted-foreground hover:text-foreground"
-        >
-          <Link to="/home">
-            <IconArrowLeft className="size-4 rtl:-scale-x-100" />
-            {t("designEditor.backToDesigns")}
-          </Link>
-        </Button>
+        {accessStatusError ||
+        !(
+          requiresSignIn ||
+          (accessStatus?.exists && !accessStatus.hasAccess)
+        ) ? (
+          <div className="mt-6 flex justify-center">
+            <BackToDesigns />
+          </div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function BackToDesigns() {
+  const t = useT();
+  return (
+    <Button asChild variant="outline" className="cursor-pointer gap-2">
+      <Link to="/home">
+        <IconArrowLeft className="size-4 rtl:-scale-x-100" />
+        {t("designEditor.backToDesigns")}
+      </Link>
+    </Button>
   );
 }

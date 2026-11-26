@@ -26,7 +26,9 @@ const targetRoot = join(
 );
 
 if (process.argv.includes("--clean")) {
-  rmSync(targetRoot, { recursive: true, force: true });
+  // The chat starter's skills are committed under targetRoot and kept current
+  // by sync-workspace-core-skills.ts, so remove only what git doesn't track.
+  execFileSync("git", ["clean", "-fdxq", "--", targetRoot], { cwd: rootDir });
   process.exit(0);
 }
 

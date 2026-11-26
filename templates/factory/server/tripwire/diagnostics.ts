@@ -57,6 +57,11 @@ const FAILED_STEP_ROWS = 100;
 const FAILED_STEPS_PER_RUN = 3;
 const FOCUS_TRIPWIRES = 20;
 const MESSAGE_CHARS = 160;
+const CONTENT_DETAIL_CHARS = 400;
+const CONTENT_FOR_CALLER =
+  "Checked for the person asking. Each workflow's Content steps use its owner's connection; name a workflowId for that owner's.";
+const CONTENT_FOR_TEAMMATE =
+  "Checked for the workflow's owner, a teammate; get-factory-workflow names them.";
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 
@@ -98,7 +103,10 @@ interface DiagnosticsDeps {
   environment(): EnvironmentFacts;
   scheduler(): Promise<SchedulerReading | null>;
   /** Presence and status only; never a value. A check that cannot run reports `unknown`. */
-  connections(providers: string[]): Promise<ProviderConnection[]>;
+  connections(
+    providers: string[],
+    ownerEmail?: string,
+  ): Promise<ProviderConnection[]>;
   jobHealth(workflow: WorkflowRecord): Promise<WorkflowJobHealth>;
   store: Pick<WorkflowStore, "getWorkflow" | "listWorkflows">;
   models: Pick<WorkflowReadModels, "listRuns" | "getRun">;
@@ -551,10 +559,12 @@ export async function buildWorkflowDiagnostics(
   let workflowSection: Record<string, unknown> | null = null;
   let workflows: DiagnosticsBundle["workflows"] = null;
   let graphs: WorkflowGraph[] = [];
+  let ownerEmail: string | undefined;
   if (workflow !== null) {
     if (workflow.ok) {
       const record = workflow.value;
       graphs = [record.graph];
+      ownerEmail = record.ownerEmail;
       const job = await attempt(() => deps.jobHealth(record));
       workflowSection = workflowHeader(record, job);
     } else {
@@ -611,17 +621,36 @@ export async function buildWorkflowDiagnostics(
   const connections = await section("connections", async () => {
     const providers = providersUsedByGraphs(graphs, OPERATION_CATALOG);
     if (providers.length === 0) return [];
-    const reported = await deps.connections(providers);
-    return reported.map((entry) => ({
-      provider: scrubId(entry.provider, 60),
-      status: entry.status,
-      source:
-        observedSource.get(entry.provider) ??
-        (entry.status === "not connected" ? "none" : "unobserved"),
-      ...(entry.detail === undefined
-        ? {}
-        : { detail: scrub(entry.detail, MESSAGE_CHARS) }),
-    }));
+    const reported = await deps.connections(providers, ownerEmail);
+    const contentLabel =
+      ownerEmail === undefined
+        ? CONTENT_FOR_CALLER
+        : ownerEmail === deps.caller.userEmail
+          ? undefined
+          : CONTENT_FOR_TEAMMATE;
+    return reported.map((entry) => {
+      const detail =
+        contentLabel !== undefined && entry.provider === "content"
+          ? `${contentLabel}${entry.detail === undefined ? "" : ` ${entry.detail}`}`
+          : entry.detail;
+      return {
+        provider: scrubId(entry.provider, 60),
+        status: entry.status,
+        source:
+          observedSource.get(entry.provider) ??
+          (entry.status === "not connected" ? "none" : "unobserved"),
+        ...(detail === undefined
+          ? {}
+          : {
+              detail: scrub(
+                detail,
+                entry.provider === "content"
+                  ? CONTENT_DETAIL_CHARS
+                  : MESSAGE_CHARS,
+              ),
+            }),
+      };
+    });
   });
 
   // Runs, and the steps that failed in them.

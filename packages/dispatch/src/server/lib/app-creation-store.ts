@@ -38,6 +38,7 @@ import {
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   normalizeBuilderAgentAttachments,
+  resolveBuilderRequestAuthorization,
   runBuilderAgent,
   type BuilderAgentAttachment,
 } from "@agent-native/core/server";
@@ -57,6 +58,10 @@ import {
   type ConnectRequiredCard,
 } from "@agent-native/core/shared";
 import { resolveAccessMany } from "@agent-native/core/sharing";
+import {
+  resolveScaffoldWorkspaceAppPaths,
+  resolveWorkspaceAppPaths,
+} from "@agent-native/core/workspace-app-paths";
 
 import { getDb } from "../../db/index.js";
 import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
@@ -106,7 +111,7 @@ const AUTONOMOUS_WORKSPACE_APP_CREATION_CONTRACT = [
   "- This is a background implementation run launched by the turn-into-app workflow. Treat the source brief and latest user request as authorization to build the app now; do not return a proposal or wait for another turn.",
   "- Do not ask the user questions during the initial build and do not invoke a clarification, guided-question, or choice flow for a non-blocking decision.",
   "- If the confirmed source brief describes a spreadsheet source-review or input/output confirmation surface, implement that review UI as part of the first-run app experience and seed it with the bounded candidates and mapping; keep the background build autonomous and do not send a question back from the Builder run.",
-  "- When the source or a tool presents a recommended option, choose it and continue. When no recommendation is present, choose the most direct, conservative default supported by the source and normal Agent-Native conventions.",
+  "- Use the source recommendation as evidence. Compare two or three concrete UX options and record the choice and rejected options in DESIGN.md.",
   "- Resolve product, visual, copy, layout, route, data-model, dependency, and integration choices yourself. If an input is missing, use an empty state or clearly labeled representative sample so the workflow is demonstrable; never invent private facts or credentials.",
   "- Treat the source brief's unknowns and follow-up items as assumptions to record in the app README or a visible Assumptions / Review section, not as questions to send back to the user.",
   "- If a nonessential integration or provider is unavailable, build the supported boundary and leave a precise setup note; do not stop to ask which equivalent to use.",
@@ -164,6 +169,30 @@ class WorkspaceGatewayConfigurationError extends Error {
       cause,
     });
     this.name = "WorkspaceGatewayConfigurationError";
+  }
+}
+
+/**
+ * The workspace config that places its apps could not load. Discovery cannot
+ * guess another directory without listing the wrong apps, so it says why.
+ */
+export class WorkspaceAppLayoutUnreadableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `The workspace config could not be loaded, so its apps directory is unknown: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+    this.name = "WorkspaceAppLayoutUnreadableError";
+  }
+}
+
+async function resolveDiscoveredWorkspaceAppPaths(workspaceRoot: string) {
+  try {
+    return await resolveWorkspaceAppPaths(workspaceRoot);
+  } catch (error) {
+    throw new WorkspaceAppLayoutUnreadableError(error);
   }
 }
 
@@ -244,6 +273,7 @@ type WorkspaceAppVisibility = "private" | "org";
 
 export interface WorkspaceAppSummary {
   id: string;
+  icon?: string;
   name: string;
   description: string;
   whenToUse?: string[];
@@ -439,6 +469,13 @@ function workspaceAppMetadataSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
   return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+function scopedSettingsWriteOptions(): { owner: string } | { orgId: string } {
+  const orgId = currentOrgId();
+  return orgId
+    ? { orgId }
+    : { owner: currentOwnerEmail().trim().toLowerCase() };
 }
 
 function cleanOptionalString(value: unknown): string | null {
@@ -638,7 +675,7 @@ async function writeWorkspaceAppMetadataOverride(input: {
   if (input.visibility) next.visibility = input.visibility;
 
   current.apps[appId] = next;
-  await putSetting(key, { apps: current.apps });
+  await putSetting(key, { apps: current.apps }, scopedSettingsWriteOptions());
   return current;
 }
 
@@ -1025,6 +1062,9 @@ function parseWorkspaceAppsManifest(
       }
       return {
         id,
+        ...(typeof entry.icon === "string" && entry.icon.trim()
+          ? { icon: entry.icon.trim() }
+          : {}),
         name:
           typeof entry.name === "string" && entry.name.trim()
             ? entry.name.trim()
@@ -1321,73 +1361,81 @@ async function reservePendingWorkspaceApp(input: {
   const creatorEmail = currentOwnerEmail();
   const communitySourceId = normalizeCommunitySourceId(input.communitySourceId);
 
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    const existing = pendingApps
-      .filter((app) => !isPendingWorkspaceAppExpired(app))
-      .find((app) => app.id === input.appId);
-    if (existing) {
-      const owner = existing.createdBy ?? existing.owner ?? null;
-      throw new WorkspaceAppIdTakenError({
-        appId: input.appId,
-        conflict: "pending",
-        owner,
-        message: `Workspace app "${input.appId}" is already being created${
-          owner ? ` by ${owner}` : ""
-        }.`,
-      });
-    }
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      const existing = pendingApps
+        .filter((app) => !isPendingWorkspaceAppExpired(app))
+        .find((app) => app.id === input.appId);
+      if (existing) {
+        const owner = existing.createdBy ?? existing.owner ?? null;
+        throw new WorkspaceAppIdTakenError({
+          appId: input.appId,
+          conflict: "pending",
+          owner,
+          message: `Workspace app "${input.appId}" is already being created${
+            owner ? ` by ${owner}` : ""
+          }.`,
+        });
+      }
 
-    const reservation: PendingWorkspaceApp = {
-      id: input.appId,
-      name: titleCase(input.appId),
-      description:
-        input.description ||
-        "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
-      path: `/${input.appId}`,
-      builderUrl: null,
-      branchName: null,
-      projectId: input.projectId,
-      contextId: context?.id ?? null,
-      contextLabel: context?.label ?? null,
-      visibility: input.visibility,
-      ...(communitySourceId ? { communitySourceId } : {}),
-      createdBy: creatorEmail,
-      owner: creatorEmail,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: pendingWorkspaceAppExpiresAt(now),
-    };
+      const reservation: PendingWorkspaceApp = {
+        id: input.appId,
+        name: titleCase(input.appId),
+        description:
+          input.description ||
+          "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
+        path: `/${input.appId}`,
+        builderUrl: null,
+        branchName: null,
+        projectId: input.projectId,
+        contextId: context?.id ?? null,
+        contextLabel: context?.label ?? null,
+        visibility: input.visibility,
+        ...(communitySourceId ? { communitySourceId } : {}),
+        createdBy: creatorEmail,
+        owner: creatorEmail,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: pendingWorkspaceAppExpiresAt(now),
+      };
 
-    return {
-      ...raw,
-      pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
-    };
-  });
+      return {
+        ...raw,
+        pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 async function releasePendingWorkspaceAppReservation(appId: string) {
   const contextId = pendingWorkspaceAppContext()?.id ?? null;
   const creatorEmail = currentOwnerEmail().trim().toLowerCase();
-  await mutateSetting(scopedSettingsKey(), async (current) => {
-    const raw =
-      current && typeof current === "object" && !Array.isArray(current)
-        ? current
-        : {};
-    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-    return {
-      ...raw,
-      pendingApps: pendingApps.filter((app) => {
-        if (app.id !== appId || app.contextId !== contextId) return true;
-        const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
-        return owner !== creatorEmail;
-      }),
-    };
-  });
+  await mutateSetting(
+    scopedSettingsKey(),
+    async (current) => {
+      const raw =
+        current && typeof current === "object" && !Array.isArray(current)
+          ? current
+          : {};
+      const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+      return {
+        ...raw,
+        pendingApps: pendingApps.filter((app) => {
+          if (app.id !== appId || app.contextId !== contextId) return true;
+          const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
+          return owner !== creatorEmail;
+        }),
+      };
+    },
+    scopedSettingsWriteOptions(),
+  );
 }
 
 function parseArchivedAppIds(value: unknown): string[] {
@@ -1411,7 +1459,11 @@ export async function archiveWorkspaceApp(input: {
   const raw = await readSettingsRecord();
   const current = parseArchivedAppIds(raw.archivedAppIds);
   if (!current.includes(appId)) current.push(appId);
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.archived",
@@ -1431,7 +1483,11 @@ export async function unarchiveWorkspaceApp(input: {
   const current = parseArchivedAppIds(raw.archivedAppIds).filter(
     (id) => id !== appId,
   );
-  await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, archivedAppIds: current },
+    scopedSettingsWriteOptions(),
+  );
   invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.unarchived",
@@ -1454,7 +1510,11 @@ export async function removePendingWorkspaceApp(input: {
   );
   const removed = next.length !== pending.length;
   if (!removed) return { removed: false };
-  await putSetting(scopedSettingsKey(), { ...raw, pendingApps: next });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, pendingApps: next },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "workspace-app.pending-removed",
     targetType: "workspace-app",
@@ -1993,13 +2053,17 @@ async function recordPendingWorkspaceApp(input: {
     expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
   };
 
-  await putSetting(scopedSettingsKey(), {
-    ...raw,
-    pendingApps: [
-      next,
-      ...pendingApps.filter((app) => !samePendingEntry(app)),
-    ].slice(0, MAX_PENDING_APPS),
-  });
+  await putSetting(
+    scopedSettingsKey(),
+    {
+      ...raw,
+      pendingApps: [
+        next,
+        ...pendingApps.filter((app) => !samePendingEntry(app)),
+      ].slice(0, MAX_PENDING_APPS),
+    },
+    scopedSettingsWriteOptions(),
+  );
 
   await writeWorkspaceAppMetadataOverride({
     appId: input.appId,
@@ -2316,16 +2380,56 @@ function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   return null;
 }
 
+// The checked-in `.agent-native/workspace-apps.json` overrides are what a
+// workspace deploy copies into the served manifest; local discovery reads the
+// same `icon` so a local app shows the icon it will have once deployed. A file
+// that exists but cannot be read fails here as it fails the deploy.
+function readWorkspaceAppIconOverrides(
+  workspaceRoot: string,
+): Map<string, string> {
+  const file = path.join(
+    workspaceRoot,
+    ".agent-native",
+    WORKSPACE_APPS_MANIFEST_FILE,
+  );
+  const icons = new Map<string, string>();
+  const parsed: unknown = readJson(file);
+  if (parsed === null) return icons;
+  const entries: unknown =
+    typeof parsed === "object" && "apps" in parsed ? parsed.apps : parsed;
+  if (!Array.isArray(entries)) {
+    throw new Error(`${file} must contain an apps array.`);
+  }
+  for (const entry of entries) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof entry.id === "string" &&
+      typeof entry.icon === "string" &&
+      entry.icon.trim()
+    )
+      icons.set(entry.id.trim(), entry.icon.trim());
+  }
+  return icons;
+}
+
 async function readWorkspaceAppsFromFilesystem(
   workspaceRoot: string,
 ): Promise<WorkspaceAppSummary[] | null> {
-  const appsDir = path.join(workspaceRoot, "apps");
+  const { appsDir, includes } =
+    await resolveDiscoveredWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return null;
+  const icons = readWorkspaceAppIconOverrides(workspaceRoot);
 
   const apps: WorkspaceAppSummary[] = [];
   for (const entry of fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        !entry.name.startsWith(".") &&
+        includes(entry.name),
+    )) {
     const appDir = path.join(appsDir, entry.name);
     let pkg: any;
     try {
@@ -2354,8 +2458,10 @@ async function readWorkspaceAppsFromFilesystem(
       );
       continue;
     }
+    const icon = icons.get(entry.name);
     apps.push({
       id: entry.name,
+      ...(icon ? { icon } : {}),
       name: pkg.displayName || titleCase(entry.name),
       description: pkg.description || "",
       path: `/${entry.name}`,
@@ -2387,7 +2493,7 @@ export function getEnvBuilderProjectId(): string | null {
   );
 }
 
-export function getWorkspaceInfo(): WorkspaceInfo {
+export async function getWorkspaceInfo(): Promise<WorkspaceInfo> {
   const rootPath = findWorkspaceRoot();
   if (!rootPath) {
     return {
@@ -2405,12 +2511,13 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     typeof pkg?.displayName === "string" ? pkg.displayName.trim() : "";
   const displayName = rawDisplay || (name ? titleCase(name) : null);
   let appCount = 0;
-  const appsDir = path.join(rootPath, "apps");
+  const { appsDir, includes } =
+    await resolveDiscoveredWorkspaceAppPaths(rootPath);
   if (fs.existsSync(appsDir)) {
     try {
       appCount = fs
         .readdirSync(appsDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory()).length;
+        .filter((entry) => entry.isDirectory() && includes(entry.name)).length;
     } catch {
       appCount = 0;
     }
@@ -2796,9 +2903,27 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   if (!workspaceRoot) {
     throw new Error("No agent-native workspace detected for scaffolding.");
   }
-  const appDir = path.join(workspaceRoot, "apps", appId);
+  // `add-app` writes where agent-native.json points; discovery reads the full
+  // config, so the two must agree or the new app is never found.
+  const [{ appsDir, includes }, discovered] = await Promise.all([
+    resolveScaffoldWorkspaceAppPaths(workspaceRoot),
+    resolveDiscoveredWorkspaceAppPaths(workspaceRoot),
+  ]);
+  if (discovered.appsDir !== appsDir) {
+    throw new Error(
+      `The workspace's apps directory is set only in agent-native.config.ts, which add-app cannot read. Set deployment.workspace.appsDirectory in agent-native.json too.`,
+    );
+  }
+  if (!includes(appId) || !discovered.includes(appId)) {
+    throw new Error(
+      `App id ${appId} does not match the workspace appInclude patterns.`,
+    );
+  }
+  const appDir = path.join(appsDir, appId);
   if (fs.existsSync(appDir)) {
-    throw new Error(`apps/${appId} already exists.`);
+    throw new Error(
+      `${path.relative(workspaceRoot, appDir) || appDir} already exists.`,
+    );
   }
 
   const visibility = await workspaceAppDefaultVisibility();
@@ -2964,7 +3089,11 @@ async function persistProvisionedBuilderProjectId(
 ): Promise<void> {
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",
@@ -3014,7 +3143,11 @@ export async function setAppCreationSettings(input: {
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
 
-  await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
+  await putSetting(
+    scopedSettingsKey(),
+    { ...raw, builderProjectId },
+    scopedSettingsWriteOptions(),
+  );
   await recordAudit({
     action: "settings.updated",
     targetType: "dispatch-app-creation-settings",
@@ -3222,15 +3355,15 @@ function buildWorkspaceAppPrompt(input: {
       `App description: ${appDescription}`,
       `Template to start from: ${input.template || "chat"}`,
       `User prompt: ${input.prompt.trim()}`,
-      "If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.",
+      "Treat named products as workflow inspiration unless the user explicitly asks to connect to them. For requested integrations, inspect the workspace connection catalog and reuse the existing scoped connection and supported actions. If access is missing, show the supported connect or request-access path. Never invent a connector, ask users to paste a secret, or grant access from the build branch.",
       selectedKeys.length
         ? `Dispatch vault keys selected for this app: ${selectedKeys.join(", ")}`
         : "Dispatch vault keys selected for this app: none",
       `Dispatch workspace resources selected for this app:\n${resourceList}`,
-      `Dispatch workspace resources with scope=all are global. After the app exists, sync workspace resources to appId "${appId}" so global skills, guardrail instructions, and reference resources reach the new app even when no per-app resources were selected.`,
+      `Dispatch workspace resources with scope=all are global. Use the workspace resource sync for registered appId "${appId}" so global skills and reference resources reach the app even when no per-app resources were selected.`,
       "",
-      `Use the workspace app layout: create it under apps/${appId}; Dispatch mounts it at /apps/${appId}. Keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
-      `Important routing rule: from outside the app, link to /apps/${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/apps/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs.`,
+      `Use the workspace app layout: create it under apps/${appId}; The default workspace mount is /${appId}. Keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
+      `Important routing rule: resolve the actual mount and home from the workspace registry or preview gateway. Use that resolved URL outside the app. Inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs.`,
       `Home route contract: Dispatch opens the registered app.homePath. If the main screen is app/routes/_index.tsx and there is no app/routes/home.tsx or app/routes/_app.home.tsx, set app.homePath to "/" in server/plugins/config.ts. If the app uses a /home route, keep the default "/home". Never leave the registry pointing at /home when that route does not exist.`,
       "Existing first-party apps are neighbors, not implementation details for this app. If the user prompt mentions Mail, Calendar, Analytics, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, and Analytics already exist at https://mail.agent-native.com, https://calendar.agent-native.com, and https://analytics.agent-native.com.",
       `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
@@ -3244,16 +3377,22 @@ function buildWorkspaceAppPrompt(input: {
       "",
       "Agent-Native rules (these are the framework's contract — not optional):",
       `- Persist ALL data in SQL via Drizzle. Add tables to apps/${appId}/server/db/schema.ts and migrations to apps/${appId}/server/plugins/db.ts. NEVER use localStorage, sessionStorage, IndexedDB, or in-memory state for anything the user expects to persist — agent and UI must read the same source of truth.`,
-      `- Define every create/read/update/delete as an action in apps/${appId}/actions/ using defineAction. The agent calls these as tools and the frontend calls them via useActionQuery / useActionMutation. If you must raw-fetch framework action endpoints, use agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL. Don't add /api/* routes for CRUD.`,
+      `- Define every create/read/update/delete as an action in apps/${appId}/actions/ using defineAction. The agent calls these as tools and the frontend calls them via useActionQuery / useActionMutation. Use the shared action client so the framework resolves the mounted endpoint. Don't add /api/* routes for CRUD.`,
       "- Build the UI from shadcn/ui components in app/components/ui/ (Button, Input, Dialog, Popover, Card, etc.) and Tailwind utilities. Don't author bespoke CSS classes in global.css unless you genuinely need a primitive that shadcn doesn't ship.",
       "- Use Tabler Icons (@tabler/icons-react) for every icon. Never use emojis as icons.",
       `- Expose what the user is looking at via application_state (navigation.view, selection, etc.) so the agent has live context. Mirror the patterns in templates/mail or templates/slides.`,
       "- Optimistic UI for every mutation: update the React Query cache immediately, navigate immediately, run the mutation in the background, roll back on error. Don't await a server round-trip before re-rendering.",
       `- Commit an agent-native.json at apps/${appId}/agent-native.json with { "version": 1, "onboarding": { "firstRun": { "development": "off", "production": "connect-and-integrations" } } }, as the first-party templates do, so local runs open straight into the app. Keep the shared Use Builder.io / Add your own keys onboarding for production; never build a second, custom credential form or hardcode a provider key.`,
       "- Every AI-labeled button must call sendToAgentChat with openSidebar: true — plus submit: true for one-click work, or submit: false when the user should review/edit the proposed prompt first. Keep follow-ups in that same sidebar thread; don't add a second freeform input beside the result. Never use sparkle, wand, magic, robot, or other decorative AI icons on those buttons — a message or neutral action icon, or no icon, instead.",
-      "- Choose a named visual direction in DESIGN.md before styling the first screen and build to it. Don't inherit a sibling app's palette unbuilt.",
       '- Left navigation must name real domain destinations, not "Chat" as the only or default entry.',
       "- Anything irreversible — approving, publishing, sending, deleting — must show an explicit confirmation step before it executes. Never default to auto-approve or auto-send just because the workflow could run unattended.",
+      "",
+      "Run the five stages in .agents/skills/app-quality-bar/SKILL.md:",
+      "1. Choose 1–2 patterns from app-quality-bar/patterns/ that fit the user's primary task.",
+      `2. Write apps/${appId}/DESIGN.md before styling. It is the required design contract. Record direction, tokens, density, type scale, keyboard map, routes, state behavior, and the chosen and rejected UX options.`,
+      `3. Register apps/${appId}/app.manifest.ts with actual screens, entities, viewPolicy, and suggestableCapabilities. Implement view-screen, truthful navigate, and realtime useDbSync when other actors can change visible work.`,
+      "4. Apply the 12-row rubric and automatic fails linked from .agents/skills/app-quality-bar/visual-review.md to signed-in screenshots. Give a blind reviewer only the screenshots, rubric, and brief. Keep the lower score in each row, fix findings, and recapture. Require mean 4.0 or higher, each row at least 3, and zero automatic fails.",
+      "5. Run the 60-second automated Playwright walkthrough in app-quality-bar: empty, populated, narrow split pane at 520 px or less, and error with retry. Click every nav item, create and edit a fixture, reload and read it back, and exercise three manifest-driven chat prompts. Fail on visible Loading..., native alert/confirm/prompt, or unexpected full-page reloads. Keep readiness pending if verification or blind review is unavailable.",
       "",
       "Branch readiness requirements before handing off:",
       "- The CLI auto-fills package.json name and displayName from the app id; only edit the description / scripts / dependencies if the app actually needs more than the template provides.",
@@ -3263,8 +3402,8 @@ function buildWorkspaceAppPrompt(input: {
       "- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model; do not leave the branch relying only on uncommitted local state.",
       "- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment. Every sibling workspace app should be usable over A2A by default through call-agent.",
       "- Give the app agent context that sibling workspace apps are available over A2A with names and descriptions from the workspace app registry; do not hardcode a stale app list.",
-      "- Include a final verification note covering the registry entry, manifest/deploy metadata, relative same-origin routing, and agent-card readiness.",
-      `When it is ready, start or update the workspace dev server and navigate the user to /${appId}.`,
+      "- Complete app-quality-bar/preview-acceptance.md. Record the actual registry entry, resolved mount and home, action bindings, and a saved edit read back in a fresh thread from a signed-in workspace member.",
+      `Open the verified registered app when it is ready. Until the workspace gateway serves the app, report the branch or preview status separately from readiness.`,
     ].join("\n"),
   };
 }
@@ -3464,6 +3603,52 @@ export type StartWorkspaceAppCreationResult =
   | AppCreationLocalAgentResult
   | AppCreationComingSoonResult
   | AppCreationBuilderResult;
+
+function isBuilderEmailLookupFailure(
+  error: unknown,
+): error is Error & { builderStatus: number } {
+  return (
+    error instanceof Error &&
+    "builderStatus" in error &&
+    [400, 403, 404, 422].some((status) => status === error.builderStatus) &&
+    error.message.trim().replace(/\.$/, "").toLowerCase() ===
+      "user not found for the provided email"
+  );
+}
+
+async function startWorkspaceBuilderBranch(
+  args: Parameters<typeof runBuilderAgent>[0],
+) {
+  try {
+    return await runBuilderAgent(args);
+  } catch (error) {
+    if (!isBuilderEmailLookupFailure(error)) throw error;
+    if (error.builderStatus === 403 || error.builderStatus === 404) throw error;
+
+    let workspaceAuthorization: Awaited<
+      ReturnType<typeof resolveBuilderRequestAuthorization>
+    >;
+    try {
+      workspaceAuthorization = await resolveBuilderRequestAuthorization({
+        requiredScope: "builder:agents:run",
+      });
+    } catch (authorizationError) {
+      if (builderFailureReason(authorizationError) !== "builder-error") {
+        throw authorizationError;
+      }
+      throw Object.assign(
+        new Error(error.message, { cause: authorizationError }),
+        {
+          builderStatus: error.builderStatus,
+        },
+      );
+    }
+    const userId = workspaceAuthorization?.userId;
+    if (!userId) throw error;
+    const { userEmail: _requesterEmail, ...run } = args;
+    return runBuilderAgent({ ...run, userId });
+  }
+}
 
 export async function startWorkspaceAppCreation(input: {
   prompt: string;
@@ -3679,9 +3864,9 @@ export async function startWorkspaceAppCreation(input: {
   };
   try {
     result = normalizeBuilderRunResult(
-      await runBuilderAgent({
+      await startWorkspaceBuilderBranch({
         prompt,
-        attachments: input.attachments,
+        ...(input.attachments ? { attachments: input.attachments } : {}),
         projectId: builderProjectId,
         userEmail: currentOwnerEmail(),
       }),
@@ -3701,7 +3886,12 @@ export async function startWorkspaceAppCreation(input: {
       err,
       fallbackDetail: "Builder could not start the app branch",
       builderErrorMessage:
-        "Builder could not start the app branch. This is usually temporary — try again.",
+        isActionContractError(err) &&
+        err.errorCode === "builder_space_membership_required"
+          ? "Builder could not start the app branch because your email is not a member of the connected Builder space. Ask a space admin to add you, then try again."
+          : isBuilderEmailLookupFailure(err)
+            ? "Builder could not match your email to an account in the connected space. Ask a workspace admin to check the connected account and space membership."
+            : "Builder could not start the app branch. This is usually temporary — try again.",
     });
   }
 

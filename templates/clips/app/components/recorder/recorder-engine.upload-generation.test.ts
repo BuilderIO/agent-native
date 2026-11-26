@@ -130,9 +130,40 @@ describe("RecorderEngine upload generation fencing", () => {
       body: JSON.stringify({
         reason: "Recording interruption has unknown cause",
         failureCode: "recording_interrupted",
+        recorderStage: "idle",
         attemptId: "attempt-1",
         uploadGenerationId: "generation-2",
       }),
     });
+  });
+
+  it("reports the stage the recorder was in when it was cancelled", async () => {
+    const abortBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+        if (typeof init?.body !== "string") {
+          throw new Error("abort request sent no JSON body");
+        }
+        abortBodies.push(JSON.parse(init.body));
+        return Response.json({ ok: true });
+      }),
+    );
+    const engine = new RecorderEngine({
+      recordingId: "rec-1",
+      mode: "screen",
+      abortUrl: "/api/uploads/rec-1/abort",
+    });
+    (engine as unknown as { state: string }).state = "uploading";
+
+    await engine.cancel();
+
+    expect(abortBodies).toEqual([
+      expect.objectContaining({
+        failureCode: "recording_interrupted",
+        recorderStage: "uploading",
+      }),
+    ]);
+    expect(engine.getState()).toBe("idle");
   });
 });

@@ -123,7 +123,18 @@ it("renders contextual whitespace-only changes with visible markers", () => {
   ).toContain("·⇥");
 });
 
-it("renders contextual marked newlines with visible markers", () => {
+it("renders a contextual line break between code runs", () => {
+  const source = "`Ec`<br>`ho`";
+  const html = renderToStaticMarkup(
+    <SuggestionText
+      content={source}
+      context={{ source, from: 0, to: source.length }}
+    />,
+  );
+  expect(html).toMatch(/Ec<\/code><br\/><code [^>]*>ho<\/code>/);
+});
+
+it("renders a contextual tag between backticks as text", () => {
   const source = "`Ec<br>ho`";
   const html = renderToStaticMarkup(
     <SuggestionText
@@ -131,8 +142,7 @@ it("renders contextual marked newlines with visible markers", () => {
       context={{ source, from: 0, to: source.length }}
     />,
   );
-  expect(html).toContain("<code ");
-  expect(html).toContain("Ec↵ho</code>");
+  expect(html).toContain("Ec&lt;br&gt;ho</code>");
 });
 
 it.each([

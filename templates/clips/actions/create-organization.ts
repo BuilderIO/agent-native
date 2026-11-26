@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { createOrganization } from "@agent-native/core/org";
 import { z } from "zod";
@@ -12,6 +12,8 @@ export default defineAction({
   schema: z.object({
     name: z.string().min(1).describe("Organization name"),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getCurrentOwnerEmail();
 

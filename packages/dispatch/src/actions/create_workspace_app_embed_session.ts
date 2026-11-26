@@ -91,6 +91,11 @@ export default defineAction({
   toolCallable: false,
   run: async (args, context) => {
     await assertWorkspaceEmbedSessionCaller(context?.requestHeaders);
-    return createWorkspaceSsoEmbedSession(args);
+    return createWorkspaceSsoEmbedSession(
+      args,
+      context?.caller === "http" && args.chrome === "minimal"
+        ? { bindBrowserTab: true }
+        : undefined,
+    );
   },
 });

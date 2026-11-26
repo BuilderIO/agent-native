@@ -208,6 +208,12 @@ Gate UI on a lab with `useLab(LAB_DEFINITION)` rather than `useLab(key)`: a
 definition reads as its `defaultEnabled` until the server answers, while a bare
 key reads as on.
 
+Secondary features belong behind a Lab: declare it with `defineLab` and
+`createLabsPlugin`, gate the UI with `useLab`, and in an action only a Lab uses
+call `await assertLabEnabled(LAB, ctx)` first. Settings › Labs lists them with a
+"Show all Labs features" switch (`set-labs-show-all`), and the `labs`
+application state lists which are on.
+
 ## Integration Setup Preflight
 
 Before building any setup, settings, credential, OAuth, or connection surface,

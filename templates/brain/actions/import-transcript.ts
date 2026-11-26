@@ -1,15 +1,17 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 import {
   BrainCaptureBlockedError,
-  createCapture,
+  createCaptureWithWarnings,
   ensureManualSource,
   serializeCapture,
   serializeSource,
 } from "../server/lib/brain.js";
+import { importReplacesCapture } from "../server/lib/capture-replacement.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
+import { rethrowManualImportError } from "./_manual-import-errors.js";
 import { optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -28,6 +30,13 @@ export default defineAction({
     tags: z.array(z.string()).default([]),
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (await importReplacesCapture(args.externalId ? [args.externalId] : [], {
+      sourceId: args.sourceId,
+      sourceTitle: args.sourceTitle,
+    })),
+  mcpTool: "search",
   run: async (args) => {
     const importerEmail = getRequestUserEmail()?.trim().toLowerCase();
     let participants = args.participants;
@@ -42,9 +51,9 @@ export default defineAction({
     const source = args.sourceId
       ? null
       : await ensureManualSource(args.sourceTitle);
-    let capture;
+    let written;
     try {
-      capture = await createCapture({
+      written = await createCaptureWithWarnings({
         sourceId: args.sourceId ?? source!.id,
         externalId: args.externalId,
         title: args.title,
@@ -64,7 +73,9 @@ export default defineAction({
         },
       });
     } catch (error) {
-      if (!(error instanceof BrainCaptureBlockedError)) throw error;
+      if (!(error instanceof BrainCaptureBlockedError)) {
+        rethrowManualImportError(error);
+      }
       return {
         source: source ? serializeSource(source) : undefined,
         capture: undefined,
@@ -72,6 +83,7 @@ export default defineAction({
         distillation: undefined,
       };
     }
+    const { capture, ...warnings } = written;
     const distillation =
       args.enqueueDistillation &&
       capture.status !== "distilled" &&
@@ -89,6 +101,7 @@ export default defineAction({
           }
         : serializedCapture,
       distillation,
+      ...warnings,
     };
   },
 });

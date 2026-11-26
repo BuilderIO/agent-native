@@ -37,6 +37,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async () => {
     const email = getRequestUserEmail();
     if (!email) return { tags: [] };

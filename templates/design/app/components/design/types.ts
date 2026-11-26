@@ -3,6 +3,10 @@ import type {
   RuntimeComponentIdentity,
 } from "@shared/source-mode";
 import type { SvgShapeOffset } from "@shared/svg-shape-offset";
+import type {
+  VisualLayerKind,
+  VisualLayerRelation,
+} from "@shared/visual-layers";
 
 export interface PortableStyleSnapshotNode {
   sourceId?: string;
@@ -226,6 +230,14 @@ export interface ElementInfo {
   childLayouts?: ElementChildLayouts;
   imageSource?: string;
   childElementCount?: number;
+  /**
+   * Visible paint layers overlapping this element, effect-like first; present
+   * only on a selection. Hit testing never reaches pointer-events:none layers,
+   * so this is how a pick on a wrapper finds the canvas painting behind it.
+   */
+  effectCandidates?: EffectCandidate[];
+  /** The scan for `effectCandidates` stopped early, so the list may be incomplete. */
+  effectCandidatesTruncated?: boolean;
   isFlexChild: boolean;
   isFlexContainer: boolean;
   isGridContainer?: boolean;
@@ -289,9 +301,23 @@ export interface ElementSelectionIntent {
   marqueeSelectedScreenIds?: string[];
 }
 
+export interface EffectCandidate {
+  sourceId?: string;
+  selector: string;
+  tagName: string;
+  kind: VisualLayerKind;
+  relation: VisualLayerRelation;
+  /** Fraction (0–1) of the selected element's box this layer covers. */
+  coverage: number;
+  animated: boolean;
+  webgl: boolean;
+}
+
 export interface CanvasLayerHitCandidate {
   key: string;
   label: string;
+  /** Paint kind for media and decorative layers, which may sit behind the pointer. */
+  kind?: VisualLayerKind;
   screenId?: string;
   breakpointWidthPx?: number;
   info: ElementInfo;
@@ -316,14 +342,3 @@ export interface ViewportTab {
 export const ZOOM_PRESETS = [50, 75, 100, 125, 150, 200] as const;
 
 export type ZoomPreset = (typeof ZOOM_PRESETS)[number];
-
-export interface DrawAnnotation {
-  id: string;
-  type: "path" | "text";
-  pathData?: string;
-  text?: string;
-  position: { x: number; y: number };
-  color: string;
-  lineWidth: number;
-  elementContext?: ElementInfo;
-}

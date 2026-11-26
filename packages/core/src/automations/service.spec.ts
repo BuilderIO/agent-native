@@ -49,6 +49,7 @@ vi.mock("./sharing-store.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: executeMock,
     transaction: transactionMock,
@@ -57,6 +58,7 @@ vi.mock("../db/client.js", () => ({
   getDialect: () => dbRuntime.dialect,
   intType: () => "INTEGER",
   isPostgres: () => false,
+  isTransientDatabaseError: (err: { code?: string }) => err?.code === "57014",
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -122,6 +124,7 @@ import { nextOccurrence } from "../jobs/cron.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import {
   automationMatchesEventOwner,
+  automationRunScopeContext,
   canQueueAutomationRunNow,
   canUpdateAutomationResource,
   defineAutomation,
@@ -2033,6 +2036,7 @@ Observe Slack.`),
   });
 
   it("marks a verified personal owner so background execution can preserve personal scope", async () => {
+    executeMock.mockResolvedValue({ rows: [] });
     const result = await resolveAutomationExecutionIdentity(
       "alice@example.com",
       {
@@ -2048,9 +2052,53 @@ Observe Slack.`),
       identity: {
         userEmail: "alice@example.com",
         orgScope: "personal",
+        providerKeyOrgId: null,
         eventOwner: "alice@example.com",
       },
     });
+  });
+
+  it("names the organization whose provider keys a personal automation may fall back to", async () => {
+    const personal = {
+      schedule: "",
+      enabled: true,
+      triggerType: "event" as const,
+      createdBy: "alice@example.com",
+    };
+    executeMock.mockResolvedValue({
+      rows: [{ org_id: "org-1" }, { org_id: "org-2" }],
+    });
+    getUserSettingMock.mockResolvedValue({ orgId: "org-2" });
+
+    await expect(
+      resolveAutomationExecutionIdentity("alice@example.com", personal),
+    ).resolves.toMatchObject({
+      ok: true,
+      identity: { orgScope: "personal", providerKeyOrgId: "org-2" },
+    });
+
+    getUserSettingMock.mockResolvedValue({ orgId: null });
+    await expect(
+      resolveAutomationExecutionIdentity("alice@example.com", personal),
+    ).resolves.toMatchObject({
+      ok: true,
+      identity: { orgScope: "personal", providerKeyOrgId: null },
+    });
+  });
+
+  it("throws, so callers retry, when a personal automation creator's organization cannot be read", async () => {
+    executeMock.mockRejectedValue(
+      Object.assign(new Error("statement timeout"), { code: "57014" }),
+    );
+
+    await expect(
+      resolveAutomationExecutionIdentity("alice@example.com", {
+        schedule: "",
+        enabled: true,
+        triggerType: "event",
+        createdBy: "alice@example.com",
+      }),
+    ).rejects.toMatchObject({ code: "57014" });
   });
 
   it("rejects organization execution that is not explicitly creator-run", async () => {
@@ -2131,5 +2179,50 @@ Run the job.`,
       );
       expect(await queue(workflowJob, ["factory-workflows"])).toBe(true);
     });
+  });
+});
+
+describe("automationRunScopeContext", () => {
+  it("runs a personal automation as personal, with its creator's org for keys", () => {
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "member@example.com",
+        orgScope: "personal",
+        providerKeyOrgId: "org-a",
+      }),
+    ).toEqual({
+      orgScope: "personal",
+      providerKeyOrg: { orgId: "org-a", userEmail: "member@example.com" },
+    });
+  });
+
+  it("gives a personal run no org for keys when its creator has none", () => {
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "member@example.com",
+        orgScope: "personal",
+        providerKeyOrgId: null,
+      }),
+    ).toEqual({ orgScope: "personal" });
+  });
+
+  it("adds only the deployment engine scope to an organization run", () => {
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "__organization__:org-a",
+        orgId: "org-a",
+        defaultAgentEngineScope: "deployment",
+      }),
+    ).toEqual({ defaultAgentEngineScope: "deployment" });
+    expect(
+      automationRunScopeContext({
+        userEmail: "member@example.com",
+        eventOwner: "__organization__:org-a",
+        orgId: "org-a",
+      }),
+    ).toEqual({});
   });
 });

@@ -1,6 +1,15 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 const execute = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/db", () => ({ getDbExec: () => ({ execute }) }));
 vi.mock("@agent-native/core/server", () => ({
@@ -12,11 +21,18 @@ const { PGlite } = createRequire(
 )("@electric-sql/pglite");
 import { BIGQUERY_USAGE_MIGRATION_SQL } from "./bigquery-usage";
 import { pruneBigQueryUsage } from "./bigquery-usage-retention";
+import { resetPublicSchema } from "./testing/pglite-reset";
 
 const NOW = Date.parse("2026-11-06T12:00:00.000Z");
 const CUTOFF = "2026-08-08T12:00:00.000Z";
 describe("daily job record expiry", () => {
   let db: Awaited<ReturnType<typeof PGlite.create>>;
+  beforeAll(async () => {
+    db = await PGlite.create("memory://");
+  });
+  afterAll(async () => {
+    await db.close();
+  });
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
@@ -24,7 +40,7 @@ describe("daily job record expiry", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal("fetch", vi.fn());
-    db = await PGlite.create("memory://");
+    await resetPublicSchema(db);
     await db.exec(BIGQUERY_USAGE_MIGRATION_SQL);
     execute
       .mockReset()
@@ -32,7 +48,6 @@ describe("daily job record expiry", () => {
   });
   afterEach(async () => {
     expect(fetch).not.toHaveBeenCalled();
-    await db.close();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

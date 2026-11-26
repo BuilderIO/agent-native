@@ -7,6 +7,7 @@ import {
   type GitHubSourceSkipReason,
 } from "@shared/github-source";
 
+import { pageLocale } from "./source-status-text";
 import { dbText, type DatabaseMessageKey } from "./text";
 
 const PROBLEM_KEYS: Record<GitHubSourceProblemCode, DatabaseMessageKey> = {
@@ -209,13 +210,6 @@ function lastSegment(path: string): string {
   return trimmed.slice(trimmed.lastIndexOf("/") + 1);
 }
 
-/** The page's language, for numbers, dates and lists. */
-export function pageLocale(): string {
-  return typeof document === "undefined" || !document.documentElement.lang
-    ? "en-US"
-    : document.documentElement.lang;
-}
-
 // Not in the TypeScript lib this app targets, though every supported
 // browser has it.
 const ListFormat = (
@@ -234,31 +228,6 @@ export function githubList(items: string[]): string {
     style: "long",
     type: "conjunction",
   }).format(items);
-}
-
-const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ["year", 365 * 24 * 60 * 60],
-  ["month", 30 * 24 * 60 * 60],
-  ["week", 7 * 24 * 60 * 60],
-  ["day", 24 * 60 * 60],
-  ["hour", 60 * 60],
-  ["minute", 60],
-];
-
-/** "2 minutes ago", "just now" and the like, in the page's language. */
-export function githubRelativeTime(iso: string, now = Date.now()): string {
-  const at = Date.parse(iso);
-  if (!Number.isFinite(at)) return "";
-  const format = new Intl.RelativeTimeFormat(pageLocale(), {
-    numeric: "auto",
-  });
-  const seconds = Math.round((at - now) / 1000);
-  for (const [unit, size] of RELATIVE_UNITS) {
-    if (Math.abs(seconds) >= size) {
-      return format.format(Math.round(seconds / size), unit);
-    }
-  }
-  return dbText("githubJustNow");
 }
 
 /** A frontmatter example the way a writer reads it: "Yes", "Sep 15, 2026". */

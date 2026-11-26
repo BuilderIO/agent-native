@@ -41,9 +41,19 @@ vi.mock("../server/email-template.js", async () => {
   return {
     emailStrong: (value: string) => value,
     escapeEmailHtml: actual.escapeEmailHtml,
-    renderEmail: (args: { heading: string; paragraphs: string[] }) => ({
+    renderEmail: (args: {
+      heading: string;
+      paragraphs: string[];
+      cta: { label: string; url: string };
+      footer: string;
+    }) => ({
       html: `<h1>${args.heading}</h1>`,
-      text: [args.heading, ...args.paragraphs].join("\n"),
+      text: [
+        args.heading,
+        ...args.paragraphs,
+        `${args.cta.label}: ${args.cta.url}`,
+        args.footer,
+      ].join("\n"),
     }),
   };
 });
@@ -228,6 +238,78 @@ describe("notifyReviewCommentWithReceipt", () => {
   });
 });
 
+describe("an app's own comment emails", () => {
+  it("sends through the app's hook in place of the kit's emails", async () => {
+    const result = {
+      status: "delivered" as const,
+      sent: ["owner@example.com"],
+      failed: [],
+    };
+    const send = vi.fn(async () => result);
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+      email: { send },
+    });
+
+    expect(await notifyReviewComment(comment())).toEqual(result);
+    expect(send).toHaveBeenCalledWith(comment());
+    expect(mocks.notifyActivity).not.toHaveBeenCalled();
+  });
+
+  it("marks a keyed comment's emails sent before the app sends them", async () => {
+    const send = vi.fn(async () => null);
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+      email: { send },
+    });
+    mocks.markReviewCommentNotificationCompleted.mockResolvedValue(true);
+
+    expect(await notifyReviewCommentWithReceipt(comment())).toBeNull();
+    expect(mocks.markReviewCommentNotificationCompleted).toHaveBeenCalledWith(
+      "c1",
+    );
+    expect(send).toHaveBeenCalledWith(comment());
+  });
+
+  it("sends the kit's emails for a resource that keeps no emails of its own", async () => {
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+    });
+
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "delivered",
+    );
+    expect(mocks.notifyActivity).toHaveBeenCalledTimes(1);
+    expect(mocks.markReviewCommentNotificationCompleted).toHaveBeenCalledWith(
+      "c1",
+    );
+  });
+
+  it("calls the app once for a keyed comment, even when some emails failed", async () => {
+    const failed = {
+      status: "delivery-failed" as const,
+      sent: ["owner@example.com"],
+      failed: [{ email: "member@example.com", error: "offline" }],
+    };
+    const send = vi.fn(async () => failed);
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+      email: { send },
+    });
+    mocks.markReviewCommentNotificationCompleted
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    expect(await notifyReviewCommentWithReceipt(comment())).toEqual(failed);
+    expect(await notifyReviewCommentWithReceipt(comment())).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("notifyReviewComment", () => {
   it("honors thread mute for reply emails, including explicit mentions", async () => {
     mocks.filterUnmutedReviewThreadRecipients.mockResolvedValue([
@@ -306,6 +388,67 @@ describe("notifyReviewComment", () => {
     const email = mocks.sendEmail.mock.calls[0][0] as { text: string };
     expect(email.text).toContain("The spacing here is off");
     expect(mocks.getReviewableResource).toHaveBeenCalledWith("design");
+  });
+
+  it("names a titled resource, links to the comment, and keeps the app's own setting", async () => {
+    const resolveUrl = vi.fn(
+      (id: string, linked?: ReviewComment) =>
+        `https://slides.test/deck/${id}?slide=${linked?.surfaceId}`,
+    );
+    mocks.getReviewableResource.mockReturnValue({
+      type: "deck",
+      displayName: "Deck",
+      resolveUrl,
+      resolveTitle: () => "Q3 plan",
+      email: {
+        preferenceKey: "slides-user-prefs",
+        settingsName: "Slides settings",
+      },
+    });
+
+    await notifyReviewComment(
+      comment({ resourceType: "deck", resourceId: "deck-1", surfaceId: "s2" }),
+    );
+    expect(notifyArgs().preferenceKey).toBe("slides-user-prefs");
+    await notifyArgs().send("owner@example.com");
+
+    const email = mocks.sendEmail.mock.calls[0][0] as {
+      subject: string;
+      text: string;
+    };
+    expect(email.subject).toBe('Reviewer commented on "Q3 plan"');
+    expect(email.text).toContain("Reviewer commented on Q3 plan.");
+    expect(email.text).toContain(
+      "Open deck: https://slides.test/deck/deck-1?slide=s2",
+    );
+    expect(email.text).toContain("Turn these off in Slides settings.");
+    expect(resolveUrl).toHaveBeenCalledWith(
+      "deck-1",
+      expect.objectContaining({ id: "c1" }),
+    );
+  });
+
+  it("words a titled reply and a mention by what happened", async () => {
+    mocks.getReviewableResource.mockReturnValue({
+      type: "deck",
+      displayName: "Deck",
+      resolveTitle: () => "Q3 plan",
+    });
+
+    await notifyReviewComment(
+      comment({
+        parentCommentId: "c0",
+        mentions: [{ label: "Dana", email: "dana@example.com" }],
+      }),
+    );
+    await notifyArgs().send("owner@example.com");
+    await notifyArgs().send("dana@example.com");
+
+    const [toOwner, toDana] = mocks.sendEmail.mock.calls.map(
+      ([email]) => email as { subject: string },
+    );
+    expect(toOwner.subject).toBe('Reviewer replied to a comment on "Q3 plan"');
+    expect(toDana.subject).toBe('Reviewer mentioned you on "Q3 plan"');
   });
 
   it("escapes the quoted comment, since email paragraphs are HTML", async () => {

@@ -112,11 +112,6 @@ vi.mock("@agent-native/core/client/review", () => {
   };
 });
 
-vi.mock("@agent-native/creative-context/client", () => {
-  const lab = {};
-  return { useCreativeContextLabState: () => lab };
-});
-
 vi.mock("@/hooks/use-agent-generating", () => {
   const generation = {
     generating: false,
@@ -125,11 +120,6 @@ vi.mock("@/hooks/use-agent-generating", () => {
     track: () => {},
   };
   return { useAgentGenerating: () => generation };
-});
-
-vi.mock("@/hooks/use-annotate-lab", () => {
-  const annotateLab = {};
-  return { useAnnotateLab: () => annotateLab };
 });
 
 vi.mock("@/hooks/use-question-flow", () => {
@@ -175,7 +165,11 @@ function designData(overrides: Partial<DesignData>): DesignData {
   };
 }
 
-type Surface = { isSignedIn: boolean; isVisualEditSurface: boolean };
+type Surface = {
+  isSignedIn: boolean;
+  isVisualEditSurface: boolean;
+  isLiveCanvasShareLink?: boolean;
+};
 
 const unmounts: Array<() => Promise<void>> = [];
 
@@ -213,6 +207,7 @@ async function mountAccess(
       queryClient,
       shellMode: false,
       isVisualEditSurface: next.isVisualEditSurface,
+      isLiveCanvasShareLink: next.isLiveCanvasShareLink === true,
       readOnlyWidget: false,
       viewMode: "single",
       viewModeRef,
@@ -833,4 +828,39 @@ describe("automatic canonical source persistence", () => {
     expect(sync.acknowledgeOutboxEntry).not.toHaveBeenCalled();
     expect(mocks.toast.error).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("shared Visual Edit roles", () => {
+  it.each(["private", "public"] as const)(
+    "lets %s share viewers stage edits locally while only commenters can suggest",
+    async (visibility) => {
+      const surface = {
+        isSignedIn: true,
+        isVisualEditSurface: true,
+        isLiveCanvasShareLink: true,
+      };
+      const { access, rerender } = await mountAccess(
+        surface,
+        designData({
+          visibility,
+          accessRole: "viewer",
+          canPersistSource: false,
+        }),
+      );
+      expect(access().canEditLiveScreens).toBe(true);
+      expect(access().canCommentDesign).toBe(false);
+      expect(access().canEditDesign).toBe(false);
+      await rerender(
+        surface,
+        designData({
+          visibility,
+          accessRole: "commenter",
+          canPersistSource: false,
+        }),
+      );
+      expect(access().canEditLiveScreens).toBe(true);
+      expect(access().canCommentDesign).toBe(true);
+      expect(access().canEditDesign).toBe(false);
+    },
+  );
 });

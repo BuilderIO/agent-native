@@ -58,6 +58,10 @@ import {
   setThreadCacheOwner,
 } from "@/lib/thread-cache";
 
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -383,6 +387,11 @@ const MAIL_QUERY_MUTATION_ACTIONS = new Set([
   "update-queued-draft",
 ]);
 
+const INTEGRATION_KEY_ACTIONS = new Set([
+  "save-integration-key",
+  "delete-integration-key",
+]);
+
 const SCHEDULED_JOB_MUTATION_ACTIONS = new Set([
   "cancel-scheduled-email",
   "confirm-uncertain-scheduled-email",
@@ -486,6 +495,13 @@ export function createMailSyncEventHandler(qc: QueryClient) {
         }
       }
     } else if (data.source === "action") {
+      if (data.key && INTEGRATION_KEY_ACTIONS.has(data.key)) {
+        void qc.invalidateQueries({
+          queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+        });
+        void qc.invalidateQueries({ queryKey: ["integration-data"] });
+        return;
+      }
       if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;
       if (SCHEDULED_JOB_MUTATION_ACTIONS.has(data.key)) {
         void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
@@ -593,6 +609,8 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+        builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
         queryClient={queryClient}
         skeletonLayout="mail"
         themeAttribute={["class", "data-theme"]}

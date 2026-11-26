@@ -4,6 +4,7 @@ import type { AgentEngine, EngineEvent } from "./agent/engine/types.js";
 
 const executeMock = vi.fn();
 vi.mock("./db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("./db/ddl-guard.js", () => ({

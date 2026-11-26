@@ -142,6 +142,7 @@ async function createdGrant(): Promise<NewMcpApprovalGrant> {
     argumentsJson: storedApprovalArguments({ title: "Team sync" }),
     oauthClientId: "client-1",
     retrySafe: false,
+    createdAt: Date.now(),
   };
   await createMcpApprovalGrant(grant);
   return grant;

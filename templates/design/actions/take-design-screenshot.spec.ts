@@ -52,9 +52,15 @@ vi.mock("../server/db/index.js", () => ({
     designShares: {},
   },
 }));
-vi.mock("../server/lib/design-to-figma-svg.js", () => ({
-  isAllowedFigmaSvgRenderRequest: vi.fn(),
-}));
+vi.mock("../server/lib/design-to-figma-svg.js", async () => {
+  const { routeAllowedRenderRequests } = (await vi.importActual(
+    "../server/lib/design-to-figma-svg.js",
+  )) as typeof import("../server/lib/design-to-figma-svg.js");
+  return {
+    routeAllowedRenderRequests: (context: never) =>
+      routeAllowedRenderRequests(context, async () => true),
+  };
+});
 vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -172,7 +178,7 @@ describe("screenshot image handoff", () => {
     vi.mocked(uploadFile).mockResolvedValue({
       url: "https://files.example.test/screen.png",
     } as never);
-    return { page, browser };
+    return { page, browser, context };
   }
 
   it("retains PNG bytes only for MCP export calls", async () => {
@@ -235,6 +241,38 @@ describe("screenshot image handoff", () => {
     expect(mcpExportResult.screenshots[0].url).toBe(
       "https://files.example.test/screen.png",
     );
+  });
+
+  it("fails instead of capturing when the screen navigates the page away", async () => {
+    const screenshot = vi.fn();
+    const { context } = mockBrowser(screenshot);
+    screenshot.mockImplementation(async () => {
+      const [, handler] = context.route.mock.calls.at(-1) ?? [];
+      const mainFrame = { parentFrame: () => null };
+      const route = {
+        request: () => ({
+          url: () => "https://example.test/elsewhere",
+          isNavigationRequest: () => true,
+          frame: () => mainFrame,
+        }),
+        abort: vi.fn().mockResolvedValue(undefined),
+        continue: vi.fn(),
+        fetch: vi.fn(),
+      };
+      await handler(route);
+      expect(route.abort).toHaveBeenCalledWith("blockedbyclient");
+      expect(route.fetch).not.toHaveBeenCalled();
+      return Buffer.from("error page");
+    });
+    vi.mocked(uploadFile).mockClear();
+
+    await expect(
+      action.run(
+        { fileId: "file_1", widths: [600] },
+        { caller: "tool", actionName: "take-design-screenshot" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "screenshot_navigated_away" });
+    expect(uploadFile).not.toHaveBeenCalled();
   });
 
   it("re-encodes an oversize screenshot as JPEG for the agent", async () => {
@@ -352,11 +390,11 @@ describe("isMissingBrowserError", () => {
 });
 
 describe("chromiumUnavailableReason", () => {
-  it("produces a model-actionable message that names the audit fallback", () => {
+  it("produces a model-actionable message that names the manual fallback", () => {
     const reason = chromiumUnavailableReason(
       new Error("Executable doesn't exist"),
     );
-    expect(reason).toContain("run-design-audit");
+    expect(reason).toContain("by-eye");
     expect(reason).toContain("Executable doesn't exist");
     expect(reason.toLowerCase()).not.toContain("stack trace");
   });

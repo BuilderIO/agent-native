@@ -52,6 +52,25 @@ export async function runQuery(
   return client.unsafe(sql) as unknown as Record<string, unknown>[];
 }
 
+export interface PostgresColumn {
+  name: string;
+  type: number;
+}
+
+export async function runQueryWithColumns(
+  sql: string,
+  params?: unknown[],
+): Promise<{ rows: Record<string, unknown>[]; columns: PostgresColumn[] }> {
+  const client = await getPostgresClient();
+  const result = params?.length
+    ? await client.unsafe(sql, params)
+    : await client.unsafe(sql);
+  return {
+    rows: Array.from(result) as Record<string, unknown>[],
+    columns: Array.from(result.columns ?? []) as PostgresColumn[],
+  };
+}
+
 export async function testConnection(): Promise<{
   ok: boolean;
   error?: string;

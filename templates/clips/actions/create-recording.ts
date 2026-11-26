@@ -15,11 +15,15 @@ import { getDb, schema } from "../server/db/index.js";
 import { withReservedHostedClipAllowance } from "../server/lib/hosted-clip-allowance.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
+  builderGatewayFailure,
   hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
   trackRecordingFailure,
+  type BuilderGatewayFailure,
   type RecordingFailureCode,
+  type RecordingPlatform,
 } from "../server/lib/recording-failures.js";
+import { recordingMadeBy } from "../server/lib/recording-made-by.js";
 import { snapshotUploadRecoveryPolicy } from "../server/lib/recording-policy.js";
 import {
   getCurrentOwnerEmail,
@@ -61,11 +65,13 @@ export function classifyInitialUploadFailure(
   failureCode: RecordingFailureCode;
   failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
+  gateway?: BuilderGatewayFailure;
 } {
   const details =
     error && typeof error === "object"
       ? (error as Record<string, unknown>)
       : {};
+  const gateway = builderGatewayFailure(error);
   const message =
     error instanceof Error
       ? error.message
@@ -74,9 +80,9 @@ export function classifyInitialUploadFailure(
         : typeof error === "string"
           ? error
           : "";
-  const isSignedUrlFailure = /builder\.io signed-url request failed/i.test(
-    message,
-  );
+  const isSignedUrlFailure =
+    gateway?.step === "signed_url" ||
+    /builder\.io signed-url request failed/i.test(message);
   const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
     message,
   )?.[1];
@@ -102,6 +108,7 @@ export function classifyInitialUploadFailure(
       ...(hostedAuthFailure.status
         ? { httpStatus: hostedAuthFailure.status }
         : {}),
+      ...(gateway ? { gateway } : {}),
     };
   }
   // A nested signed-URL response does not mean the account needs reauthorization.
@@ -119,6 +126,7 @@ export function classifyInitialUploadFailure(
       failureCode: "storage_setup_required",
       failureStage,
       ...(httpStatus ? { httpStatus } : {}),
+      ...(gateway ? { gateway } : {}),
     };
   }
 
@@ -127,6 +135,7 @@ export function classifyInitialUploadFailure(
       failureCode === "unknown" ? "multipart_start_failed" : failureCode,
     failureStage,
     ...(httpStatus ? { httpStatus } : {}),
+    ...(gateway ? { gateway } : {}),
   };
 }
 
@@ -134,6 +143,7 @@ export default defineAction({
   description:
     "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
   schema: createRecordingSchema,
+  mcpTool: "search",
   run: async (args, actionContext) => {
     const id = args.id || nanoid();
     const now = new Date().toISOString();
@@ -141,6 +151,7 @@ export default defineAction({
     const titleSource =
       args.titleSource ??
       (title === DEFAULT_RECORDING_TITLE ? "default" : "manual");
+    const { madeBy, madeByAgent } = recordingMadeBy(actionContext);
 
     const prepared = await (async () => {
       const db = getDb();
@@ -181,11 +192,13 @@ export default defineAction({
 
       // The native mobile app names itself but sends no platform; read it from
       // that name so its rows and events are not left "unknown".
-      const recordingPlatform =
+      const recordingPlatform: RecordingPlatform | undefined =
         args.recordingPlatform ??
         (args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
           ? "mobile"
-          : undefined);
+          : madeBy === "agent"
+            ? "agent"
+            : undefined);
 
       await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
@@ -340,6 +353,8 @@ export default defineAction({
         titleSource,
         sourceAppName: args.sourceAppName?.trim() || null,
         recordingPlatform: recordingPlatform ?? "unknown",
+        madeBy,
+        madeByAgent,
         sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
         status: "uploading",
         uploadProgress: 0,

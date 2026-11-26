@@ -746,12 +746,39 @@ describe("SuggestionHighlight", () => {
     );
   });
 
+  it("marks the active inserted words over an insertion's resting look", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    const resting = css.match(
+      /\.content-editor \.suggestion-insert\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+    const active = css.match(
+      /\.content-editor\s+\.suggestion-insert\.suggestion-inline-widget\.suggestion-highlight--active\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+
+    expect(resting).toContain("background: hsl(var(--suggestion) / 0.12);");
+    expect(active).toContain("background: hsl(var(--suggestion) / 0.16);");
+    expect(active).toContain(
+      "box-shadow: inset 0 -2px hsl(var(--suggestion));",
+    );
+    expect(css).not.toMatch(
+      /\.suggestion-insert\.suggestion-highlight--active/,
+    );
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]\s*\{\s*box-shadow: inset 3px 0 hsl\(var\(--suggestion\)\);/,
+    );
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]:not\(\s*\.suggestion-delete-widget\s*\)\s*\{\s*text-decoration: none;\s*\}/,
+    );
+  });
+
   it("sets new words apart from the whole words they replace", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
     });
     expect(css).toMatch(
-      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.3em;/,
+      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.55em;/,
     );
 
     const text = "Clips keeps the recording you already made. Colour";
@@ -939,6 +966,118 @@ describe("SuggestionHighlight", () => {
           "div.widget Inserted words",
           "p Bravo two.",
         ]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it.each([
+      [
+        "callout",
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n</callout>',
+      ],
+      [
+        "toggle",
+        "<details>\n<summary>Title</summary>\n\tFirst line.\n\tNew line.\n</details>",
+      ],
+    ])(
+      "draws a saved last line of a %s inside it, below the line before",
+      (_, source) => {
+        const boxSchema = new Schema({
+          nodes: {
+            doc: { content: "block+" },
+            paragraph: {
+              group: "block",
+              content: "text*",
+              toDOM: () => ["p", 0],
+            },
+            box: {
+              group: "block",
+              content: "block+",
+              toDOM: () => ["aside", 0],
+            },
+            text: {},
+          },
+        });
+        const prose = (text: string) =>
+          boxSchema.node("paragraph", null, boxSchema.text(text));
+        const from = source.indexOf("\tNew line.");
+        const to = source.indexOf("</", from);
+        // The point is the end of the box's first line, as the page places it.
+        const point = 2 + "First line.".length;
+        const { view, mount } = mounted(
+          [
+            boxSchema.node("box", null, [prose("First line.")]),
+            prose("After."),
+          ],
+          [
+            {
+              suggestionId: "last",
+              kind: "add_block",
+              from: point,
+              to: point,
+              insertedText: source.slice(from, to),
+              insertedPresentation: { source, from, to },
+            },
+          ],
+        );
+        try {
+          expect(
+            Array.from(
+              mount.querySelector("aside")!.children,
+              (child) =>
+                `${child.tagName.toLowerCase()}${
+                  child.classList.contains("suggestion-block-widget")
+                    ? ".widget"
+                    : ""
+                } ${child.textContent}`,
+            ),
+          ).toEqual(["p First line.", "div.widget New line."]);
+          expect(mount.textContent).not.toContain("⇥");
+        } finally {
+          view.destroy();
+        }
+      },
+    );
+
+    it("keeps lines inline when text that follows them can't go after them", () => {
+      const boxSchema = new Schema({
+        nodes: {
+          doc: { content: "block+" },
+          paragraph: {
+            group: "block",
+            content: "text*",
+            toDOM: () => ["p", 0],
+          },
+          box: { group: "block", content: "block+", toDOM: () => ["aside", 0] },
+          text: {},
+        },
+      });
+      const prose = (text: string) =>
+        boxSchema.node("paragraph", null, boxSchema.text(text));
+      const source =
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n\tXY.\n</callout>';
+      const from = source.indexOf("\tNew line.");
+      const to = source.indexOf("Y.", from);
+      // The "X" that starts the next line would be drawn at the point, before
+      // the new line, if the line went after the block the point ends.
+      const point = 2 + "First line.".length;
+      const { view, mount } = mounted(
+        [boxSchema.node("box", null, [prose("First line."), prose("Y.")])],
+        [
+          {
+            suggestionId: "tail",
+            kind: "add_block",
+            from: point,
+            to: point,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(mount.querySelector(".suggestion-block-widget")).toBeNull();
+        expect(mount.querySelector("aside")!.children).toHaveLength(2);
       } finally {
         view.destroy();
       }
@@ -1509,28 +1648,40 @@ describe("SuggestionHighlight", () => {
     expect(deletion.type.toDOM().textContent).toBe("·⇥");
   });
 
-  it("makes contextual marked newlines visible in widgets", () => {
-    const source = "`Ec<br>ho`";
-    const editorState = setSpecs(state(), [
-      {
-        suggestionId: "context-code-break",
-        kind: "insert",
-        from: 1,
-        to: 1,
-        insertedText: source,
-        insertedPresentation: {
-          source,
-          from: 0,
-          to: source.length,
+  it.each([
+    ["`Ec`<br>`ho`", ["Ec", "ho"], 1],
+    ["`Ec<br>ho`", ["Ec<br>ho"], 0],
+  ])(
+    "shows contextual code %j in widgets as the page reads it",
+    (source, codes, breaks) => {
+      const editorState = setSpecs(state(), [
+        {
+          suggestionId: "context-code-break",
+          kind: "insert",
+          from: 1,
+          to: 1,
+          insertedText: source,
+          insertedPresentation: {
+            source,
+            from: 0,
+            to: source.length,
+          },
         },
-      },
-    ]);
-    const widget = suggestionHighlightKey
-      .getState(editorState)!
-      .decorations.find()[0] as any;
-    const dom = widget.type.toDOM();
-    expect(dom.querySelector("code")?.textContent).toBe("Ec↵ho");
-  });
+      ]);
+      const [widget] =
+        suggestionHighlightKey.getState(editorState)?.decorations.find() ?? [];
+      // A widget draws through its decoration's internal type.
+      const dom = (
+        widget as unknown as { type: { toDOM(): HTMLElement } } | undefined
+      )?.type.toDOM();
+      expect(
+        [...(dom?.querySelectorAll("code") ?? [])].map(
+          (code) => code.textContent,
+        ),
+      ).toEqual(codes);
+      expect(dom?.querySelectorAll("br")).toHaveLength(breaks);
+    },
+  );
 
   it("makes structural indentation visible in a zero-width widget", () => {
     const source = "\tParagraph";

@@ -1,9 +1,11 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { describe, expect, it } from "vitest";
 
 import {
   DOCKED_RIGHT_INSPECTOR_CLASSNAME,
   FLOATING_RIGHT_INSPECTOR_CLASSNAME,
   hasMinimalInspectorSelection,
+  isCommentsPanelShown,
   isRightInspectorVisible,
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
@@ -50,46 +52,21 @@ describe("isRightInspectorVisible", () => {
     responsiveInteractActive: false,
     minimalUi: false,
     minimalInspectorHasSelection: false,
-    topBarVisible: true,
-    mode: "edit" as const,
-    canEdit: true,
+    commentsPanelShown: false,
   };
 
-  it("shows in Design for someone who can edit", () => {
+  it("shows in Design", () => {
     expect(isRightInspectorVisible(docked)).toBe(true);
   });
 
+  // oracle-change: with no top bar the right column head carries Comments and Share, so mode and edit access no longer decide whether the column shows
   it("is hidden in Interact", () => {
     expect(
       isRightInspectorVisible({
         ...docked,
-        mode: "interact",
         responsiveInteractActive: true,
       }),
     ).toBe(false);
-    expect(isRightInspectorVisible({ ...docked, mode: "interact" })).toBe(
-      false,
-    );
-  });
-
-  it("is hidden in Annotate rather than left as an empty column", () => {
-    expect(isRightInspectorVisible({ ...docked, mode: "annotate" })).toBe(
-      false,
-    );
-  });
-
-  it("is hidden for someone who cannot edit: Code and Comments tabs no longer give them one", () => {
-    expect(isRightInspectorVisible({ ...docked, canEdit: false })).toBe(false);
-  });
-
-  it("keeps the rail outside Design where the top bar is absent, because it carries the share controls", () => {
-    const withoutTopBar = { ...docked, topBarVisible: false };
-    expect(
-      isRightInspectorVisible({ ...withoutTopBar, mode: "annotate" }),
-    ).toBe(true);
-    expect(isRightInspectorVisible({ ...withoutTopBar, canEdit: false })).toBe(
-      true,
-    );
   });
 
   it("stays hidden when the host owns the chrome, on a phone, and with the UI hidden", () => {
@@ -131,6 +108,56 @@ describe("isRightInspectorVisible", () => {
   });
 });
 
+describe("isCommentsPanelShown", () => {
+  const shell = {
+    hostOwnsChrome: false,
+    isMobileViewport: false,
+    uiHidden: false,
+    initialGenerationChromeLimited: false,
+    minimalUi: false,
+    commentsPanelOpen: true,
+    commentsAvailable: true,
+  };
+
+  it("keeps the right column up in Interact and in minimal UI with nothing selected", () => {
+    expect(isCommentsPanelShown(shell)).toBe(true);
+    expect(isCommentsPanelShown({ ...shell, minimalUi: true })).toBe(true);
+    expect(
+      isRightInspectorVisible({
+        ...shell,
+        responsiveInteractActive: true,
+        minimalInspectorHasSelection: false,
+        commentsPanelShown: isCommentsPanelShown(shell),
+      }),
+    ).toBe(true);
+    expect(
+      isRightInspectorVisible({
+        ...shell,
+        minimalUi: true,
+        responsiveInteractActive: false,
+        minimalInspectorHasSelection: false,
+        commentsPanelShown: isCommentsPanelShown({ ...shell, minimalUi: true }),
+      }),
+    ).toBe(true);
+  });
+
+  it("is false where the right column cannot render", () => {
+    expect(isCommentsPanelShown({ ...shell, commentsPanelOpen: false })).toBe(
+      false,
+    );
+    expect(isCommentsPanelShown({ ...shell, commentsAvailable: false })).toBe(
+      false,
+    );
+    expect(isCommentsPanelShown({ ...shell, hostOwnsChrome: true })).toBe(
+      false,
+    );
+    expect(isCommentsPanelShown({ ...shell, uiHidden: true })).toBe(false);
+    expect(isCommentsPanelShown({ ...shell, isMobileViewport: true })).toBe(
+      false,
+    );
+  });
+});
+
 describe("hasMinimalInspectorSelection", () => {
   it("is false when nothing is selected", () => {
     expect(
@@ -140,17 +167,6 @@ describe("hasMinimalInspectorSelection", () => {
         selectedScreenGeometry: null,
       }),
     ).toBe(false);
-  });
-
-  it("shows the inspector for an active Motion easing selection", () => {
-    expect(
-      hasMinimalInspectorSelection({
-        selectedElement: null,
-        selectedLayerIds: [],
-        selectedScreenGeometry: null,
-        motionEasingSegmentSelected: true,
-      }),
-    ).toBe(true);
   });
 
   it("is true for an element selection", () => {

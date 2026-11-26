@@ -41,10 +41,11 @@ import {
   hashKey,
   isCancelledError,
   useMutation,
+  useMutationState,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import type { DocumentTitlesResponse } from "@/lib/content-command-search";
@@ -71,8 +72,13 @@ import {
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
 import {
+  cachedFilesRow,
   confirmCreatedFilesRow,
+  filesRowDocument,
+  filesRowMove,
   forgetCreatedFilesRows,
+  keepMovedFilesRow,
+  moveCachedFilesRow,
   removeCreatedFilesRows,
   showCreatedFilesRow,
 } from "../lib/files-navigation";
@@ -121,12 +127,18 @@ import {
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
+  isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
 } from "./use-content-database";
 import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
 import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import type { ListContentSpacesResponse } from "./use-content-spaces";
+import {
+  MOVE_DOCUMENT_MUTATION_KEY,
+  type MoveDocumentContext,
+} from "./use-pending-moves";
 import { DELETE_DOCUMENT_MUTATION_KEY } from "./use-pending-trash";
 
 export {
@@ -466,7 +478,7 @@ export function patchDocumentInDatabaseCache<
   documentId: string,
   patch: Partial<Document>,
 ): T | undefined {
-  if (!current) return current;
+  if (!current || isContentDatabaseUnavailable(current)) return current;
   let changed = false;
   const items = current.items.map((item) => {
     if (!("document" in item)) {
@@ -1625,12 +1637,15 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
         const recentFilter = {
           queryKey: ["action", "get-content-recent"],
         } as const;
+        const documentSpaceId = currentDocumentSpaceId(
+          queryClient,
+          variables.id,
+        );
         const sidebarStateEntry = currentContentSidebarState(
           queryClient,
-          currentDocumentSpaceId(queryClient, variables.id),
+          documentSpaceId,
         );
         const sidebarStateKey = sidebarStateEntry?.[0];
-        const documentSpaceId = sidebarStateKey?.[2].spaceId;
         await Promise.all([
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
@@ -1689,17 +1704,23 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             state: nextSidebarState,
           });
 
+        // The first pin creates the Favorites collection, so there is none to
+        // draw it into yet, and a pin made while the list still loads has none
+        // either: Pinned draws these from `useFirstPins`.
+        const createsFavorites =
+          variables.isFavorite === true &&
+          !favoritesCollectionExists(queryClient);
+        let firstPin: Document | undefined;
         if (variables.isFavorite === true) {
-          const listSnapshot = queryClient.getQueryData(
-            LIST_DOCUMENTS_QUERY_KEY,
-          );
-          const documents: Document[] = Array.isArray(listSnapshot)
-            ? listSnapshot
-            : ((listSnapshot as DocumentListResponse | undefined)?.documents ??
-              []);
-          const document = documents.find(
-            (candidate) => candidate.id === variables.id,
-          );
+          const document = cachedDocumentForPinned(queryClient, variables.id);
+          if (document && favoritesListMissing(queryClient, documentSpaceId)) {
+            // Pinned lists the pins of one space.
+            firstPin = {
+              ...document,
+              spaceId: documentSpaceId ?? null,
+              isFavorite: true,
+            };
+          }
           if (document) {
             for (const [
               databaseKey,
@@ -1717,7 +1738,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
                 database.items.some((item) => item.document.id === variables.id)
               )
                 continue;
-              const optimisticItemId = `optimistic-favorite:${variables.id}`;
+              const optimisticItemId = optimisticFavoriteItemId(variables.id);
               queryClient.setQueryData(databaseKey, {
                 ...database,
                 items: [
@@ -1779,6 +1800,8 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
           renamedContentSpace,
           nextSidebarState,
           sidebarStateKey,
+          createsFavorites,
+          firstPin,
         };
       },
       onError: (_error, variables, context) => {
@@ -1921,9 +1944,35 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
             queryKey: ["action", "get-content-database"],
           });
         }
+        const firstPin = (context as { firstPin?: Document } | undefined)
+          ?.firstPin;
+        if (variables.isFavorite === true && firstPin) {
+          firstPinAnswers.set(firstPin, Date.now());
+          // Pinned keeps the pin until a Favorites read from after this answer
+          // lists it, so a first read still loading from before it starts
+          // again.
+          const favorites = favoritesDatabaseIds(queryClient);
+          void queryClient
+            .cancelQueries({
+              queryKey: ["action", "get-content-database"],
+              predicate: (query) =>
+                query.state.data === undefined &&
+                isFavoritesListKey(query.queryKey, favorites),
+            })
+            .then(() =>
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-content-database"],
+              }),
+            );
+        }
         if (variables.isFavorite !== undefined) {
           invalidateContentQueries(queryClient, [
             contentNavigationBranchFilter({ documentIds: [variables.id] }),
+            // The spaces list names the Favorites collection a first pin made.
+            ...((context as { createsFavorites?: boolean } | undefined)
+              ?.createsFavorites
+              ? [["action", "list-content-spaces"]]
+              : []),
           ]);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
@@ -2209,14 +2258,94 @@ export function usePermanentlyDeleteDocument() {
   });
 }
 
+/**
+ * Puts a moved page under its new parent in the cached paths through it, so
+ * the open page's path doesn't draw it back under the parent it left before
+ * the move's reread of the path lands.
+ */
+function moveDocumentInCachedPaths(
+  queryClient: QueryClient,
+  documentId: string,
+  parentId: string | null,
+) {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["action", "get-content-navigation-context"] })) {
+    const data = query.state.data as
+      | { path?: Array<{ id?: string; parentId?: string | null }> }
+      | undefined;
+    if (
+      !data?.path?.some(
+        (entry) => entry.id === documentId && entry.parentId !== parentId,
+      )
+    )
+      continue;
+    const stale = query.state.isInvalidated;
+    queryClient.setQueryData(
+      query.queryKey,
+      {
+        ...data,
+        path: data.path.map((entry) =>
+          entry.id === documentId ? { ...entry, parentId } : entry,
+        ),
+      },
+      { updatedAt: query.state.dataUpdatedAt },
+    );
+    if (stale) query.invalidate();
+  }
+}
+
+export function cachedPathParentId(
+  queryClient: QueryClient,
+  activeDocumentId: string,
+  documentId: string,
+): string | null | undefined {
+  return queryClient
+    .getQueryData<ContentNavigationContext>([
+      "action",
+      "get-content-navigation-context",
+      { id: activeDocumentId },
+    ])
+    ?.path.find((entry) => entry.id === documentId)?.parentId;
+}
+
 export function useMoveDocument() {
   const queryClient = useQueryClient();
   return useContentActionMutation<
     Document,
     DocumentMoveRequest & { id: string }
   >("move-document", {
-    onSuccess: (_data, variables) =>
-      forgetCreatedFilesRows(queryClient, [variables.id]),
+    mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+    // The Files tree draws the page under its new parent while the move is
+    // pending (`usePendingMoves`); a move without a new parent stays put.
+    onMutate: (variables): MoveDocumentContext => {
+      if (variables.parentId === undefined) return {};
+      const databaseId = variables.spaceId
+        ? contentSpaceFilesDatabaseId(queryClient, variables.spaceId)
+        : undefined;
+      if (variables.spaceId && !databaseId) return {};
+      const move = filesRowMove(queryClient, {
+        documentId: variables.id,
+        parentId: variables.parentId ?? null,
+        databaseId,
+      });
+      return move ? { move } : {};
+    },
+    // Before the reread starts, so a read the move didn't wait for can't take
+    // the page out of its new branch.
+    onSuccess: (_data, variables, context) => {
+      const move = (context as MoveDocumentContext | undefined)?.move;
+      if (move) keepMovedFilesRow(queryClient, move);
+      else forgetCreatedFilesRows(queryClient, [variables.id]);
+    },
+    // After the reread starts, so it still finds the branches that listed the
+    // page; the tree then keeps the page in place until the reread lands.
+    onSettled: (_data, error, _variables, context) => {
+      const move = (context as MoveDocumentContext | undefined)?.move;
+      if (error || !move) return;
+      moveCachedFilesRow(queryClient, move);
+      moveDocumentInCachedPaths(queryClient, move.documentId, move.parentId);
+    },
     invalidates: (_data, variables) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [variables.id],
@@ -2327,16 +2456,216 @@ export function filterDocumentTreeDocuments(
 
   return documents.filter((doc) => !isDatabaseContainedDocument(doc));
 }
-function currentDocumentSpaceId(queryClient: QueryClient, documentId: string) {
-  const document = queryClient
+function cachedOpenDocument(queryClient: QueryClient, documentId: string) {
+  return queryClient
     .getQueriesData<Document>(documentQueryFilter(documentId))
     .find(([, data]) => data?.id === documentId)?.[1];
-  if (document?.spaceId) return document.spaceId;
+}
+
+function cachedListedDocument(queryClient: QueryClient, documentId: string) {
   const list = queryClient.getQueryData<Document[] | DocumentListResponse>(
     LIST_DOCUMENTS_QUERY_KEY,
   );
   const documents = Array.isArray(list) ? list : list?.documents;
-  return documents?.find((candidate) => candidate.id === documentId)?.spaceId;
+  return documents?.find((candidate) => candidate.id === documentId);
+}
+
+function currentDocumentSpaceId(queryClient: QueryClient, documentId: string) {
+  const spaceId =
+    cachedOpenDocument(queryClient, documentId)?.spaceId ??
+    cachedListedDocument(queryClient, documentId)?.spaceId;
+  if (spaceId) return spaceId;
+  // A hosted sidebar lists pages only as Files rows: a row knows its space,
+  // or the Files collection it is in does.
+  const row = cachedFilesRow(queryClient, documentId);
+  if (!row) return undefined;
+  if (row.item.spaceId) return row.item.spaceId;
+  for (const [, data] of queryClient.getQueriesData<ListContentSpacesResponse>({
+    queryKey: ["action", "list-content-spaces"],
+  })) {
+    const space = data?.spaces.find(
+      (candidate) => candidate.filesDatabaseId === row.databaseId,
+    );
+    if (space) return space.id;
+  }
+  return undefined;
+}
+
+/**
+ * The page as this tab knows it, to draw it in Pinned before the server
+ * answers: from the page list, the open page, or its Files row. A hosted
+ * sidebar loads no page list, so a pin from the Files tree finds its row.
+ */
+function cachedDocumentForPinned(
+  queryClient: QueryClient,
+  documentId: string,
+): Document | undefined {
+  const listed = cachedListedDocument(queryClient, documentId);
+  if (listed) return listed;
+  const open = cachedOpenDocument(queryClient, documentId);
+  // Pinned draws a title and icon; the body stays with the page.
+  if (open) return { ...open, content: "" };
+  const row = cachedFilesRow(queryClient, documentId);
+  return row ? filesRowDocument(row.item) : undefined;
+}
+
+/**
+ * True once a loaded spaces list shows this person's Favorites collection, or
+ * shows local files, which have none. Before any list loads it is unknown, so
+ * a pin then counts as a first pin and reads the spaces list again.
+ */
+function favoritesCollectionExists(queryClient: QueryClient) {
+  const lists = queryClient
+    .getQueriesData<ListContentSpacesResponse>({
+      queryKey: ["action", "list-content-spaces"],
+    })
+    .flatMap(([, data]) => (data ? [data] : []));
+  return (
+    lists.length > 0 &&
+    !lists.some(
+      (data) => data.sourceMode === "database" && !data.favoritesDatabaseId,
+    )
+  );
+}
+
+/** Pinned's item for a pin its Favorites list doesn't list yet. */
+export function optimisticFavoriteItemId(documentId: string) {
+  return `optimistic-favorite:${documentId}`;
+}
+
+export function isOptimisticFavoriteItemId(itemId: string) {
+  return itemId.startsWith("optimistic-favorite:");
+}
+
+/** The Favorites collections the hosted spaces lists name. */
+function favoritesDatabaseIds(queryClient: QueryClient) {
+  return new Set(
+    queryClient
+      .getQueriesData<ListContentSpacesResponse>({
+        queryKey: ["action", "list-content-spaces"],
+      })
+      .flatMap(([, data]) =>
+        data?.favoritesDatabaseId ? [data.favoritesDatabaseId] : [],
+      ),
+  );
+}
+
+function isFavoritesListKey(
+  queryKey: QueryKey,
+  favorites: ReadonlySet<string>,
+  spaceId?: string | null,
+) {
+  const params = queryKey[2] as
+    | { databaseId?: unknown; contentSpaceId?: unknown }
+    | undefined;
+  return (
+    typeof params?.databaseId === "string" &&
+    favorites.has(params.databaseId) &&
+    (spaceId === undefined || (params.contentSpaceId ?? null) === spaceId)
+  );
+}
+
+/**
+ * True when Pinned has no Favorites list of `spaceId` to draw a pin into:
+ * there is no collection yet, or its list hasn't loaded.
+ */
+function favoritesListMissing(
+  queryClient: QueryClient,
+  spaceId: string | null | undefined,
+) {
+  if (!favoritesCollectionExists(queryClient)) return true;
+  const favorites = favoritesDatabaseIds(queryClient);
+  return (
+    favorites.size > 0 &&
+    !queryClient
+      .getQueriesData<ContentDatabaseResponse>({
+        queryKey: ["action", "get-content-database"],
+        predicate: (query) =>
+          isFavoritesListKey(query.queryKey, favorites, spaceId ?? null),
+      })
+      .some(([, data]) => isFavoritesDatabaseCache(data))
+  );
+}
+
+/** When the server answered each first pin, by the pin. */
+const firstPinAnswers = new WeakMap<Document, number>();
+
+/** A pin Pinned draws itself, before its Favorites list lists it. */
+export type FirstPin = {
+  document: Document;
+  /** When the server answered the pin; null while it waits. */
+  answeredAt: number | null;
+};
+
+/**
+ * Pages pinned in `spaceId` while Pinned had no Favorites list to draw them
+ * into, newest pin first, as Pinned lists a new pin. The first pin creates the
+ * collection, so Pinned draws these until the collection's own read lists
+ * them. A failed pin leaves, and so does a page unpinned since.
+ */
+export function useFirstPins(spaceId: string | null | undefined): FirstPin[] {
+  const toggles = useMutationState({
+    filters: {
+      mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+      predicate: (mutation) =>
+        mutation.state.status !== "error" &&
+        (mutation.state.variables as DocumentUpdateRequestWithCas | undefined)
+          ?.isFavorite !== undefined,
+    },
+    select: (mutation) => {
+      const variables = mutation.state
+        .variables as DocumentUpdateRequestWithCas;
+      const document = (
+        mutation.state.context as { firstPin?: Document } | undefined
+      )?.firstPin;
+      return {
+        id: variables.id,
+        firstPin: document
+          ? {
+              document,
+              answeredAt:
+                mutation.state.status === "success"
+                  ? (firstPinAnswers.get(document) ?? 0)
+                  : null,
+            }
+          : null,
+      };
+    },
+  });
+  return useMemo(() => {
+    const latest = new Map<string, FirstPin | null>();
+    for (const toggle of toggles) {
+      latest.delete(toggle.id);
+      latest.set(toggle.id, toggle.firstPin);
+    }
+    return [...latest.values()]
+      .filter(
+        (pin): pin is FirstPin =>
+          pin !== null && Boolean(spaceId) && pin.document.spaceId === spaceId,
+      )
+      .reverse();
+  }, [spaceId, toggles]);
+}
+
+/**
+ * The first pins Pinned still draws itself: all of them until the Favorites
+ * list loads, then those it doesn't list from a read made after their answer.
+ * `readAt` is when the list's current read landed.
+ */
+export function firstPinsToDraw(
+  pins: readonly FirstPin[],
+  favorites: { items: readonly { document: { id: string } }[] } | undefined,
+  readAt: number,
+): Document[] {
+  if (!favorites) return pins.map((pin) => pin.document);
+  const listed = new Set(favorites.items.map((item) => item.document.id));
+  return pins
+    .filter(
+      (pin) =>
+        !listed.has(pin.document.id) &&
+        (pin.answeredAt === null || readAt <= pin.answeredAt),
+    )
+    .map((pin) => pin.document);
 }
 
 function currentContentSidebarState(

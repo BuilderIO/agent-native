@@ -5,7 +5,10 @@ const listDashboardSummaries = vi.fn(async () => [] as any[]);
 const normalizeDashboardName = (value: string) =>
   value.trim().replace(/\s+/g, " ").toLowerCase();
 
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppStateForCurrentTab,
 }));
 vi.mock("@agent-native/core/server", () => ({

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
@@ -141,6 +141,78 @@ describe("audio-only transcription media", () => {
     expect(describeAudioStream(output.chunks[0]!.audioBytes, dir)).toMatch(
       /16000 Hz.*mono/,
     );
+  });
+
+  it("streams a fragmented MP4 in a few requests, not one per fragment", async () => {
+    const input = join(dir, "fragmented.mp4");
+    const made = spawnSync(ffmpegPath, [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=s=320x240:r=15:d=10,noise=alls=40:allf=t",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=440:duration=10",
+      "-c:v",
+      "mpeg4",
+      "-b:v",
+      "5M",
+      "-maxrate",
+      "5M",
+      "-bufsize",
+      "5M",
+      "-g",
+      "15",
+      "-c:a",
+      "aac",
+      "-movflags",
+      "frag_keyframe+empty_moov+default_base_moof+skip_trailer",
+      input,
+    ]);
+    expect(made.status).toBe(0);
+    const bytes = await readFile(input);
+
+    let requests = 0;
+    const rangeServer = createServer((req, res) => {
+      requests++;
+      const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? "");
+      const start = range ? Number(range[1]) : 0;
+      const end = range?.[2] ? Number(range[2]) : bytes.length - 1;
+      res.writeHead(range ? 206 : 200, {
+        "accept-ranges": "bytes",
+        "content-type": "video/mp4",
+        ...(range
+          ? { "content-range": `bytes ${start}-${end}/${bytes.length}` }
+          : {}),
+      });
+      res.end(bytes.subarray(start, end + 1));
+    });
+    await new Promise<void>((resolve) =>
+      rangeServer.listen(0, "127.0.0.1", resolve),
+    );
+    const port = (rangeServer.address() as AddressInfo).port;
+
+    try {
+      const output = await extractAudioOnlyWithFfmpeg({
+        source: { kind: "url", url: `http://127.0.0.1:${port}/clip.mp4` },
+        timeoutMs: 30_000,
+      });
+
+      const audioMs = output.chunks.reduce(
+        (total, chunk) => total + chunk.durationMs,
+        0,
+      );
+      expect(audioMs).toBeGreaterThan(9_000);
+      expect(requests).toBeLessThanOrEqual(3);
+    } finally {
+      rangeServer.closeAllConnections();
+      await new Promise<void>((resolve) => rangeServer.close(() => resolve()));
+    }
   });
 
   it("refuses non-network protocols for URL sources", async () => {

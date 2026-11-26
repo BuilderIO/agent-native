@@ -24,6 +24,7 @@ export default defineAction({
   description:
     "List, create, update, or delete reusable email snippets (canned responses) that can be inserted into a compose draft from the slash menu.",
   schema,
+  mcpTool: "search",
   run: async (args) => {
     const { db, schema: dbSchema } = await import("../server/db/index.js");
 

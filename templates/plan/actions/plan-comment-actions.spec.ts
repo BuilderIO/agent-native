@@ -15,6 +15,47 @@ const getDbMock = vi.hoisted(() => vi.fn());
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
+// oracle-change: Plan's comment actions write to the review kit now, so these check kit writes
+const kitMock = vi.hoisted(() => ({
+  rows: [] as Array<Record<string, unknown>>,
+  write: vi.fn(async (..._args: unknown[]) => undefined),
+  delete: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/lib/plan-comments.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../server/lib/plan-comments.js")
+  >("../server/lib/plan-comments.js");
+  return {
+    completePlanCommentRow: actual.completePlanCommentRow,
+    listPlanCommentRows: vi.fn(async () => kitMock.rows),
+    findPlanCommentRow: vi.fn(
+      async (_planId: string, id: string) =>
+        kitMock.rows.find((row) => row.id === id) ?? null,
+    ),
+    writePlanCommentRows: kitMock.write,
+    deletePlanCommentThread: vi.fn(
+      async (...args: [unknown, string, string, string | null, string]) => {
+        await kitMock.delete(...args);
+        return actual.commentAndDescendantIds(
+          kitMock.rows.map((row) => ({
+            id: String(row.id),
+            parentCommentId:
+              typeof row.parentCommentId === "string"
+                ? row.parentCommentId
+                : null,
+          })),
+          args[2],
+        );
+      },
+    ),
+  };
+});
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),
@@ -173,41 +214,59 @@ const BASE_BUNDLE = {
   summary: { sectionCounts: {}, commentCount: 1, openCommentCount: 1 },
 };
 
-function makeDb(
-  insertCapture: Record<string, unknown>[] = [],
-  updateCapture: Record<string, unknown>[] = [],
-  selectRows: Record<string, unknown>[] = [],
-  deleteCapture: Record<string, unknown>[] = [],
-) {
-  const dbInsert = vi.fn((_table: unknown) => ({
-    values: vi.fn(async (row: Record<string, unknown>) => {
-      insertCapture.push(row);
-    }),
-  }));
-  const dbUpdate = vi.fn((_table: unknown) => ({
-    set: vi.fn((patch: Record<string, unknown>) => {
-      updateCapture.push(patch);
-      return {
-        where: vi.fn(async () => undefined),
-      };
-    }),
-  }));
-  const dbSelect = vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(async () => selectRows),
-    })),
-  }));
-  const dbDelete = vi.fn((_table: unknown) => ({
-    where: vi.fn(async (where: Record<string, unknown>) => {
-      deleteCapture.push(where);
-    }),
-  }));
+function commentRow(overrides: Record<string, unknown> = {}) {
   return {
-    insert: dbInsert,
-    update: dbUpdate,
-    select: dbSelect,
-    delete: dbDelete,
+    id: "root_cmt",
+    planId: "plan_1",
+    parentCommentId: null,
+    sectionId: null,
+    kind: "comment",
+    status: "open",
+    anchor: null,
+    message: "Please update the CTA",
+    createdBy: "human",
+    authorEmail: "reviewer@example.com",
+    authorName: "Reviewer",
+    resolutionTarget: "agent",
+    mentionsJson: null,
+    resolvedBy: null,
+    resolvedAt: null,
+    consumedAt: null,
+    deletedAt: null,
+    deletedBy: null,
+    createdAt: "2026-06-10T00:00:00.000Z",
+    updatedAt: "2026-06-10T00:00:00.000Z",
+    ...overrides,
   };
+}
+
+function makeDb() {
+  const db = {
+    insert: vi.fn((_table: unknown) => ({
+      values: vi.fn(async (_row: Record<string, unknown>) => undefined),
+    })),
+    transaction: vi.fn(
+      async (write: (tx: unknown) => Promise<unknown>): Promise<unknown> =>
+        write(db),
+    ),
+  };
+  return db;
+}
+
+function written(): Array<Record<string, unknown>> {
+  expect(kitMock.write).toHaveBeenCalledTimes(1);
+  const [, , rows, patches] = kitMock.write.mock.calls[0] ?? [];
+  const stored = new Map(kitMock.rows.map((row) => [row.id, row]));
+  const inserted: Array<Record<string, unknown>> = Array.isArray(rows)
+    ? rows.filter((row: Record<string, unknown>) => !stored.has(row.id))
+    : [];
+  const patched: Array<Record<string, unknown>> = Array.isArray(patches)
+    ? patches.flatMap((patch: Record<string, unknown>) => {
+        const row = stored.get(patch.id);
+        return row ? [{ ...row, ...patch }] : [];
+      })
+    : [];
+  return [...inserted, ...patched];
 }
 
 beforeEach(() => {
@@ -230,6 +289,9 @@ beforeEach(() => {
     role: "editor",
   });
   getDbMock.mockReset();
+  kitMock.rows = [];
+  kitMock.write.mockClear();
+  kitMock.delete.mockClear();
   delete process.env.AUTH_MODE;
   process.env.PLAN_LOCAL_MODE = "0";
 });
@@ -242,24 +304,9 @@ afterEach(() => {
 });
 
 describe("reply-to-plan-comment", () => {
-  it("happy path: inserts a reply and returns the comment id", async () => {
-    const inserts: Record<string, unknown>[] = [];
-    const db = makeDb(
-      inserts,
-      [],
-      [
-        {
-          id: "root_cmt",
-          planId: "plan_1",
-          parentCommentId: null,
-          sectionId: null,
-          kind: "comment",
-          anchor: null,
-          resolutionTarget: "agent",
-          status: "open",
-        },
-      ],
-    );
+  it("happy path: writes a reply to the kit and returns the comment id", async () => {
+    kitMock.rows = [commentRow()];
+    const db = makeDb();
     getDbMock.mockReturnValue(db);
 
     const result = (await runReply({
@@ -270,16 +317,20 @@ describe("reply-to-plan-comment", () => {
 
     expect(result.planId).toBe("plan_1");
     expect(result.parentCommentId).toBe("root_cmt");
-    const commentInsert = inserts.find((row) =>
-      Object.prototype.hasOwnProperty.call(row, "message"),
-    );
-    expect(commentInsert).toBeDefined();
-    expect(commentInsert?.message).toBe("Done — CTA updated.");
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(kitMock.write).toHaveBeenCalledWith(db, "plan_1", [
+      expect.objectContaining({
+        id: result.commentId,
+        parentCommentId: "root_cmt",
+        message: "Done — CTA updated.",
+        createdBy: "agent",
+        status: "open",
+      }),
+    ]);
   });
 
   it("throws a friendly error when the parent comment is not on the plan", async () => {
-    const db = makeDb([], [], []);
-    getDbMock.mockReturnValue(db);
+    getDbMock.mockReturnValue(makeDb());
 
     await expect(
       runReply({
@@ -289,7 +340,7 @@ describe("reply-to-plan-comment", () => {
       }),
     ).rejects.toThrow("Comment not found on this plan.");
 
-    expect(db.insert).not.toHaveBeenCalled();
+    expect(kitMock.write).not.toHaveBeenCalled();
   });
 
   it("rejects an anonymous public-link viewer", async () => {
@@ -328,24 +379,8 @@ describe("reply-to-plan-comment", () => {
 
 describe("resolve-plan-comment", () => {
   it("happy path: resolves an open comment and returns the new status", async () => {
-    const updates: Record<string, unknown>[] = [];
-    const db = makeDb([], updates, [
-      {
-        id: "root_cmt",
-        planId: "plan_1",
-        parentCommentId: null,
-        sectionId: null,
-        kind: "comment",
-        anchor: null,
-        message: "Please update the CTA",
-        createdBy: "human",
-        authorEmail: "reviewer@example.com",
-        resolutionTarget: "agent",
-        mentionsJson: null,
-        status: "open",
-      },
-    ]);
-    getDbMock.mockReturnValue(db);
+    kitMock.rows = [commentRow()];
+    getDbMock.mockReturnValue(makeDb());
 
     const result = (await runResolve({
       planId: "plan_1",
@@ -354,30 +389,27 @@ describe("resolve-plan-comment", () => {
     })) as { status: string; resolvedBy: string | null };
 
     expect(result.status).toBe("resolved");
-    expect(updates).toHaveLength(1);
-    expect(updates[0]?.status).toBe("resolved");
-    expect(updates[0]?.resolvedBy).toBeTruthy();
+    expect(written()).toEqual([
+      expect.objectContaining({
+        id: "root_cmt",
+        status: "resolved",
+        resolvedBy: "agent@example.com",
+        resolvedAt: "2026-06-10T00:00:00.000Z",
+        message: "Please update the CTA",
+      }),
+    ]);
   });
 
   it("reopens a resolved comment", async () => {
-    const updates: Record<string, unknown>[] = [];
-    const db = makeDb([], updates, [
-      {
-        id: "root_cmt",
-        planId: "plan_1",
-        parentCommentId: null,
-        sectionId: null,
-        kind: "comment",
-        anchor: null,
+    kitMock.rows = [
+      commentRow({
         message: "Old feedback",
-        createdBy: "human",
-        authorEmail: "reviewer@example.com",
-        resolutionTarget: "agent",
-        mentionsJson: null,
         status: "resolved",
-      },
-    ]);
-    getDbMock.mockReturnValue(db);
+        resolvedBy: "reviewer@example.com",
+        resolvedAt: "2026-06-09T00:00:00.000Z",
+      }),
+    ];
+    getDbMock.mockReturnValue(makeDb());
 
     const result = (await runResolve({
       planId: "plan_1",
@@ -386,42 +418,26 @@ describe("resolve-plan-comment", () => {
     })) as { status: string };
 
     expect(result.status).toBe("open");
-    expect(updates[0]?.status).toBe("open");
-    expect(updates[0]?.resolvedBy).toBeNull();
-    expect(updates[0]?.resolvedAt).toBeNull();
+    expect(written()).toEqual([
+      expect.objectContaining({
+        status: "open",
+        resolvedBy: null,
+        resolvedAt: null,
+      }),
+    ]);
   });
 
   it("resolves every comment in the thread, not just the root", async () => {
-    const updates: Record<string, unknown>[] = [];
-    const db = makeDb([], updates, [
-      {
-        id: "root_cmt",
-        planId: "plan_1",
-        parentCommentId: null,
-        sectionId: null,
-        kind: "comment",
-        anchor: null,
-        message: "Original feedback",
-        createdBy: "human",
-        authorEmail: "reviewer@example.com",
-        resolutionTarget: "agent",
-        mentionsJson: null,
-        status: "open",
-      },
-    ]);
-    getDbMock.mockReturnValue(db);
-    loadPlanBundleMock.mockResolvedValue({
-      ...BASE_BUNDLE,
-      comments: [
-        BASE_BUNDLE.comments[0]!,
-        {
-          ...BASE_BUNDLE.comments[0]!,
-          id: "reply_cmt",
-          parentCommentId: "root_cmt",
-          message: "Follow-up detail",
-        },
-      ],
-    });
+    kitMock.rows = [
+      commentRow({ message: "Original feedback" }),
+      commentRow({
+        id: "reply_cmt",
+        parentCommentId: "root_cmt",
+        message: "Follow-up detail",
+      }),
+      commentRow({ id: "other_cmt", message: "Another thread" }),
+    ];
+    getDbMock.mockReturnValue(makeDb());
 
     await runResolve({
       planId: "plan_1",
@@ -429,31 +445,15 @@ describe("resolve-plan-comment", () => {
       status: "resolved",
     });
 
-    expect(updates).toHaveLength(2);
-    expect(updates.every((patch) => patch.status === "resolved")).toBe(true);
-    expect(updates.every((patch) => patch.resolvedBy)).toBe(true);
+    const rows = written();
+    expect(rows.map((row) => row.id).sort()).toEqual(["reply_cmt", "root_cmt"]);
+    expect(rows.every((row) => row.status === "resolved")).toBe(true);
+    expect(rows.every((row) => row.resolvedBy)).toBe(true);
   });
 
-  it("posts a resolutionNote reply before updating the status", async () => {
-    const inserts: Record<string, unknown>[] = [];
-    const updates: Record<string, unknown>[] = [];
-    const db = makeDb(inserts, updates, [
-      {
-        id: "root_cmt",
-        planId: "plan_1",
-        parentCommentId: null,
-        sectionId: null,
-        kind: "comment",
-        anchor: null,
-        message: "Original feedback",
-        createdBy: "human",
-        authorEmail: "reviewer@example.com",
-        resolutionTarget: "agent",
-        mentionsJson: null,
-        status: "open",
-      },
-    ]);
-    getDbMock.mockReturnValue(db);
+  it("posts a resolutionNote reply with the status change", async () => {
+    kitMock.rows = [commentRow({ message: "Original feedback" })];
+    getDbMock.mockReturnValue(makeDb());
 
     const result = (await runResolve({
       planId: "plan_1",
@@ -462,23 +462,24 @@ describe("resolve-plan-comment", () => {
       resolutionNote: "Fixed in commit abc123.",
     })) as { resolutionNoteId?: string };
 
-    expect(inserts.length).toBeGreaterThan(0);
-    const note = inserts.find(
-      (row) => row.message === "Fixed in commit abc123.",
-    );
-    expect(note).toBeDefined();
-    expect(note?.status).toBe("resolved");
-    expect(result.resolutionNoteId).toBeDefined();
-    expect(updates.every((patch) => patch.status === "resolved")).toBe(true);
+    const rows = written();
+    const note = rows.find((row) => row.message === "Fixed in commit abc123.");
+    expect(note).toMatchObject({
+      id: result.resolutionNoteId,
+      parentCommentId: "root_cmt",
+      createdBy: "agent",
+      status: "resolved",
+    });
+    expect(rows.every((row) => row.status === "resolved")).toBe(true);
   });
 
   it("throws a friendly error when the comment is not on the plan", async () => {
-    const db = makeDb([], [], []);
-    getDbMock.mockReturnValue(db);
+    getDbMock.mockReturnValue(makeDb());
 
     await expect(
       runResolve({ planId: "plan_1", commentId: "ghost", status: "resolved" }),
     ).rejects.toThrow("Comment not found on this plan.");
+    expect(kitMock.write).not.toHaveBeenCalled();
   });
 
   it("rejects an anonymous public-link viewer", async () => {
@@ -497,30 +498,22 @@ describe("resolve-plan-comment", () => {
 });
 
 describe("delete-plan-comment", () => {
-  it("soft-deletes a root comment and its descendants", async () => {
-    const updates: Record<string, unknown>[] = [];
-    const db = makeDb([], updates, [
-      {
-        id: "root_cmt",
-        parentCommentId: null,
-        authorEmail: "agent@example.com",
-      },
-      {
+  it("deletes a root comment and its descendants", async () => {
+    kitMock.rows = [
+      commentRow({ authorEmail: "agent@example.com" }),
+      commentRow({
         id: "reply_cmt",
         parentCommentId: "root_cmt",
         authorEmail: "reviewer@example.com",
-      },
-      {
+      }),
+      commentRow({
         id: "nested_cmt",
         parentCommentId: "reply_cmt",
         authorEmail: "owner@example.com",
-      },
-      {
-        id: "other_cmt",
-        parentCommentId: null,
-        authorEmail: "agent@example.com",
-      },
-    ]);
+      }),
+      commentRow({ id: "other_cmt", authorEmail: "agent@example.com" }),
+    ];
+    const db = makeDb();
     getDbMock.mockReturnValue(db);
 
     const result = (await runDelete({
@@ -534,29 +527,22 @@ describe("delete-plan-comment", () => {
       "nested_cmt",
     ]);
     expect(result.deletedCount).toBe(3);
-    expect(db.update).toHaveBeenCalledTimes(1);
-    expect(updates[0]).toMatchObject({
-      deletedAt: "2026-06-10T00:00:00.000Z",
-      deletedBy: "agent@example.com",
-      updatedAt: "2026-06-10T00:00:00.000Z",
-    });
     expect(assertAccessMock).not.toHaveBeenCalled();
+    expect(kitMock.delete).toHaveBeenCalledWith(
+      db,
+      "plan_1",
+      "root_cmt",
+      "agent@example.com",
+      "2026-06-10T00:00:00.000Z",
+    );
   });
 
   it("allows a plan editor to delete someone else's reply", async () => {
-    const updates: Record<string, unknown>[] = [];
-    const db = makeDb([], updates, [
-      {
-        id: "root_cmt",
-        parentCommentId: null,
-        authorEmail: "reviewer@example.com",
-      },
-      {
-        id: "reply_cmt",
-        parentCommentId: "root_cmt",
-        authorEmail: "reviewer@example.com",
-      },
-    ]);
+    kitMock.rows = [
+      commentRow(),
+      commentRow({ id: "reply_cmt", parentCommentId: "root_cmt" }),
+    ];
+    const db = makeDb();
     getDbMock.mockReturnValue(db);
 
     const result = (await runDelete({
@@ -568,29 +554,26 @@ describe("delete-plan-comment", () => {
     expect(assertAccessMock).toHaveBeenCalledWith("plan", "plan_1", "editor", {
       userEmail: "agent@example.com",
     });
-    expect(db.update).toHaveBeenCalledTimes(1);
-    expect(updates[0]?.deletedAt).toBe("2026-06-10T00:00:00.000Z");
+    expect(kitMock.delete).toHaveBeenCalledWith(
+      db,
+      "plan_1",
+      "reply_cmt",
+      "agent@example.com",
+      "2026-06-10T00:00:00.000Z",
+    );
   });
 
   it("throws a friendly error when the comment is not on the plan", async () => {
-    const db = makeDb(
-      [],
-      [],
-      [
-        {
-          id: "other_cmt",
-          parentCommentId: null,
-          authorEmail: "agent@example.com",
-        },
-      ],
-    );
-    getDbMock.mockReturnValue(db);
+    kitMock.rows = [
+      commentRow({ id: "other_cmt", authorEmail: "agent@example.com" }),
+    ];
+    getDbMock.mockReturnValue(makeDb());
 
     await expect(
       runDelete({ planId: "plan_1", commentId: "ghost_cmt" }),
     ).rejects.toThrow("Comment not found on this plan.");
 
-    expect(db.update).not.toHaveBeenCalled();
+    expect(kitMock.delete).not.toHaveBeenCalled();
   });
 
   it("rejects an anonymous public-link viewer", async () => {
@@ -616,10 +599,12 @@ describe("delete-plan-comment", () => {
 });
 
 describe("consume-plan-feedback", () => {
-  it("marks comments consumed and returns the consumed ids", async () => {
-    const updates: Record<string, unknown>[] = [];
-    const db = makeDb([], updates, []);
-    getDbMock.mockReturnValue(db);
+  it("marks the plan's live comments consumed and returns the requested ids", async () => {
+    kitMock.rows = [
+      commentRow({ id: "cmt_a" }),
+      commentRow({ id: "cmt_c", message: "Not asked about" }),
+    ];
+    getDbMock.mockReturnValue(makeDb());
 
     const result = (await runConsume({
       planId: "plan_1",
@@ -628,23 +613,25 @@ describe("consume-plan-feedback", () => {
 
     expect(result.consumedCommentIds).toEqual(["cmt_a", "cmt_b"]);
     expect(result.consumedAt).toBe("2026-06-10T00:00:00.000Z");
-    expect(updates).toHaveLength(1);
-    expect(updates[0]).toMatchObject({
-      consumedAt: "2026-06-10T00:00:00.000Z",
-      updatedAt: "2026-06-10T00:00:00.000Z",
-    });
+    expect(written()).toEqual([
+      expect.objectContaining({
+        id: "cmt_a",
+        message: "Please update the CTA",
+        consumedAt: "2026-06-10T00:00:00.000Z",
+        updatedAt: "2026-06-10T00:00:00.000Z",
+      }),
+    ]);
   });
 
   it("requires editor access — rejects when assertPlanEditor throws", async () => {
     assertPlanEditorMock.mockRejectedValueOnce(new Error("editor required"));
-    const db = makeDb([], [], []);
-    getDbMock.mockReturnValue(db);
+    getDbMock.mockReturnValue(makeDb());
 
     await expect(
       runConsume({ planId: "plan_1", commentIds: ["cmt_a"] }),
     ).rejects.toThrow("editor required");
 
-    expect(db.update).not.toHaveBeenCalled();
+    expect(kitMock.write).not.toHaveBeenCalled();
   });
 
   it("verify via get-plan-feedback: consumed comments are excluded from feedback", async () => {

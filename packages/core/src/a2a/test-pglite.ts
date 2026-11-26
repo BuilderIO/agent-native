@@ -7,8 +7,33 @@ function postgresSql(sql: string): string {
   return sql.replace(/\?/g, () => `$${++index}`);
 }
 
-export async function createTestPglite() {
-  const db = await PGlite.create("memory://");
+let emptyBootstrap: Promise<Blob> | undefined;
+
+function getEmptyBootstrap(): Promise<Blob> {
+  emptyBootstrap ??= (async () => {
+    const seed = await PGlite.create("memory://");
+    try {
+      // Capture only the pristine cluster, before any caller creates a schema.
+      // The archive is immutable; each load still creates an independent DB.
+      return await seed.dumpDataDir("none");
+    } finally {
+      await seed.close();
+    }
+  })().catch((error) => {
+    emptyBootstrap = undefined;
+    throw error;
+  });
+  return emptyBootstrap;
+}
+
+export async function createTestPglite(options?: {
+  reuseEmptyBootstrap?: boolean;
+}) {
+  const db = options?.reuseEmptyBootstrap
+    ? await PGlite.create("memory://", {
+        loadDataDir: await getEmptyBootstrap(),
+      })
+    : await PGlite.create("memory://");
   return {
     db,
     transaction: <T>(fn: (tx: DbExec) => Promise<T>): Promise<T> =>

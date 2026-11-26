@@ -64,10 +64,6 @@ export interface ScreenVisualDuplicateChangeArgs {
       insertedHtml?: string;
     },
   ) => void;
-  remapMotionTracksForClone?: (
-    nodeIdMap: Map<string, string>,
-    targetFileId: string,
-  ) => void;
   selectionBefore?: GeometryHistorySelection;
   handleVisualDuplicateChange: (
     selector: string,
@@ -103,7 +99,6 @@ export function runScreenVisualDuplicateChange(
     handleVisualDuplicateChange,
     overviewScreens,
     recordPendingLiveStructureEdit,
-    remapMotionTracksForClone,
     selectionBefore,
     t,
   }: ScreenVisualDuplicateChangeArgs,
@@ -243,9 +238,6 @@ export function runScreenVisualDuplicateChange(
         selectionNodeIds: linkedPlan.selectionNodeIds,
       },
       linkedSelectionBefore,
-      remapMotionTracksForClone
-        ? () => remapMotionTracksForClone(linkedPlan.nodeIdMap, screenId)
-        : undefined,
     );
     return true;
   }

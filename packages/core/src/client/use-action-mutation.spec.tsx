@@ -6,6 +6,17 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
+import {
+  ACTION_CACHE_FLUSH_EVENT,
+  readMutationEpoch,
+} from "./action-query-cache-mutation.js";
+import {
+  ProviderWriteFailedError,
+  ProviderWritePendingError,
+  ProviderWriteUncertainError,
+  waitForProviderWriteResult,
+} from "./provider-writes.js";
+import { recordSessionIdentity } from "./session-identity.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
 
 describe("useActionMutation", () => {
@@ -20,7 +31,7 @@ describe("useActionMutation", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps mutateAsync pending until an async success callback finishes", async () => {
+  it("resolves a queued result before success and waits for the success callback", async () => {
     let finishSuccess: (() => void) | undefined;
     const successFinished = new Promise<void>((resolve) => {
       finishSuccess = resolve;
@@ -39,7 +50,11 @@ describe("useActionMutation", () => {
       | undefined;
     function Probe() {
       mutation = useActionMutation<Record<string, boolean>>("save-record", {
-        onSuccess: () => successFinished,
+        resolveResult: async (data) => ({ ...data, resumed: true }),
+        onSuccess: (data) => {
+          expect(data).toEqual({ ok: true, resumed: true });
+          return successFinished;
+        },
       });
       return null;
     }
@@ -70,7 +85,7 @@ describe("useActionMutation", () => {
     expect(settled).toBe(false);
 
     finishSuccess?.();
-    await expect(result).resolves.toEqual({ ok: true });
+    await expect(result).resolves.toEqual({ ok: true, resumed: true });
     expect(settled).toBe(true);
   });
 
@@ -131,6 +146,61 @@ describe("useActionMutation", () => {
       );
       if (kind === "factory") expect(factory).toHaveBeenCalledWith(payload);
       expect(payload).toEqual({ id: "page" });
+    },
+  );
+
+  it.each([
+    { skip: false, settles: true },
+    { skip: true, settles: false },
+  ])(
+    "reports its own epoch on the flush event only when it invalidated (skip: $skip)",
+    async ({ skip, settles }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ok: true }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      const settled: unknown[] = [];
+      const listen = (event: Event) =>
+        settled.push((event as CustomEvent).detail?.settledEpoch);
+      window.addEventListener(ACTION_CACHE_FLUSH_EVENT, listen);
+      let mutation:
+        | ReturnType<typeof useActionMutation<Record<string, boolean>>>
+        | undefined;
+      function Probe() {
+        mutation = useActionMutation<Record<string, boolean>>("save-record", {
+          skipActionQueryInvalidation: skip,
+        });
+        return null;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const queryClient = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Probe />
+          </QueryClientProvider>,
+        ),
+      );
+      try {
+        await act(async () => {
+          await mutation?.mutateAsync({});
+        });
+        await vi.waitFor(() => expect(settled).toHaveLength(1));
+      } finally {
+        window.removeEventListener(ACTION_CACHE_FLUSH_EVENT, listen);
+      }
+      expect(settled[0]).toBe(settles ? readMutationEpoch() : undefined);
+      expect(settles).toBe(typeof settled[0] === "string");
     },
   );
 
@@ -195,12 +265,16 @@ describe("useActionMutation resource-scoped invalidation", () => {
     roots.length = 0;
     containers.length = 0;
     vi.unstubAllGlobals();
+    recordSessionIdentity(undefined);
   });
 
   // A batch POST gets one result per request, as the batch action answers; any
   // other reply trips the action failure circuit and blocks later fetches.
   // `writeHeaders` ride on the reply to a POST write, as the server sets them.
-  function actionFetchMock(writeHeaders: Record<string, string> = {}) {
+  function actionFetchMock(
+    writeHeaders: Record<string, string> = {},
+    readBody: (action: string) => unknown = () => ({ ok: true }),
+  ) {
     return vi.fn(async (input: unknown, init?: RequestInit) => {
       const json = (body: unknown, headers: Record<string, string> = {}) =>
         new Response(JSON.stringify(body), {
@@ -212,10 +286,18 @@ describe("useActionMutation resource-scoped invalidation", () => {
       ) {
         const { requests } = JSON.parse(String(init.body));
         return json({
-          results: requests.map(() => ({ status: 200, body: { ok: true } })),
+          results: requests.map((request: { action: string }) => ({
+            status: 200,
+            body: readBody(request.action),
+          })),
         });
       }
-      return json({ ok: true }, init?.method === "POST" ? writeHeaders : {});
+      if (init?.method === "POST") return json({ ok: true }, writeHeaders);
+      const action = String(input)
+        .split("/_agent-native/actions/")[1]
+        ?.split("?")[0];
+      if (!action) throw new Error("Unexpected action query in fixture");
+      return json(readBody(action));
     });
   }
 
@@ -257,13 +339,171 @@ describe("useActionMutation resource-scoped invalidation", () => {
         </QueryClientProvider>,
       ),
     );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => {
+      await vi.waitFor(() => {
+        const queries = queryClient.getQueryCache().getAll();
+        expect(queries.length).toBeGreaterThan(0);
+        expect(queries.every((query) => query.state.status === "success")).toBe(
+          true,
+        );
+      });
+    });
     fetch.mockClear();
     await act(async () => {
       await runMutation!();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
     });
+    return { queryClient, root };
   }
+
+  async function mountPendingProviderWrite() {
+    let providerValue = "before";
+    const fetch = actionFetchMock({}, (action) => ({
+      value: action === "get-design" ? providerValue : "unrelated",
+    }));
+    const progress = {
+      id: "pending-design-write",
+      status: "queued" as const,
+      attempts: 1,
+      reason: null,
+      resumeAt: null,
+    };
+    const onSuccess = vi.fn();
+    let writeCalls = 0;
+    function Probe({
+      mutate,
+    }: {
+      mutate: (run: () => Promise<unknown>) => void;
+    }) {
+      const design = useActionQuery<{ value: string }>(
+        "get-design",
+        { id: "d1" },
+        {
+          resources: ["design"],
+        },
+      );
+      useActionQuery("list-documents", undefined, { resources: ["document"] });
+      const mutation = useActionMutation("update-design", {
+        resources: ["design"],
+        resolveResult: async () => {
+          writeCalls++;
+          return waitForProviderWriteResult<unknown>(
+            { _providerWrite: progress },
+            {
+              resume: vi.fn(),
+              maxWaitMs: 0,
+            },
+          );
+        },
+        onSuccess,
+      });
+      mutate(() =>
+        expect(mutation.mutateAsync({ id: "d1" })).rejects.toBeInstanceOf(
+          ProviderWritePendingError,
+        ),
+      );
+      return <span>{design.data?.value}</span>;
+    }
+    const view = await mountAndMutate(Probe, fetch);
+    const designQuery = view.queryClient
+      .getQueryCache()
+      .getAll()
+      .find((query) => query.queryKey[1] === "get-design");
+    if (!designQuery) throw new Error("Design query fixture is unavailable");
+    return {
+      ...view,
+      fetch,
+      designQuery,
+      progress,
+      onSuccess,
+      writeCalls: () => writeCalls,
+      setProviderValue: (value: string) => {
+        providerValue = value;
+      },
+      mutationRequests: () =>
+        fetch.mock.calls.filter(
+          ([input, init]) =>
+            init?.method === "POST" && String(input).endsWith("/update-design"),
+        ),
+      observe: (receipt: unknown, observed = progress) =>
+        waitForProviderWriteResult<unknown>(
+          { _providerWrite: observed },
+          { resume: async () => receipt },
+        ),
+    };
+  }
+
+  it("refreshes affected queries after a timed-out write is explicitly observed complete", async () => {
+    const view = await mountPendingProviderWrite();
+    expect(view.designQuery.state.data).toEqual({ value: "before" });
+    expect(view.mutationRequests()).toHaveLength(1);
+    view.setProviderValue("after");
+    view.fetch.mockClear();
+    const completed = {
+      ...view.progress,
+      status: "completed",
+      reason: null,
+      resumeAt: null,
+    };
+
+    await act(async () => {
+      await expect(
+        view.observe({ progress: completed }),
+      ).rejects.toBeInstanceOf(ProviderWritePendingError);
+    });
+    expect(view.designQuery.state.data).toEqual({ value: "before" });
+    expect(refetchedActionNames(view.fetch)).toEqual([]);
+
+    const unrelated = { ...view.progress, id: "another-write" };
+    await act(async () => {
+      await view.observe(
+        {
+          progress: { ...completed, id: unrelated.id },
+          result: { id: "unrelated-item" },
+        },
+        unrelated,
+      );
+    });
+    expect(view.designQuery.state.data).toEqual({ value: "before" });
+    expect(refetchedActionNames(view.fetch)).toEqual([]);
+
+    await act(async () => {
+      await view.observe({ progress: completed, result: { id: "d1" } });
+      await vi.waitFor(() => expect(view.queryClient.isFetching()).toBe(0));
+    });
+    expect(view.designQuery.state.data).toEqual({ value: "after" });
+    expect(refetchedActionNames(view.fetch)).toEqual(["get-design"]);
+    expect(view.writeCalls()).toBe(1);
+    expect(view.mutationRequests()).toHaveLength(0);
+    expect(view.onSuccess).not.toHaveBeenCalled();
+  });
+
+  it.each(["unmount", "session"] as const)(
+    "disposes pending completion refreshes on %s",
+    async (lifecycle) => {
+      const view = await mountPendingProviderWrite();
+      expect(view.designQuery.state.data).toEqual({ value: "before" });
+      expect(view.designQuery.state.isInvalidated).toBe(false);
+      if (lifecycle === "unmount") act(() => view.root.unmount());
+      if (lifecycle === "session")
+        act(() => recordSessionIdentity("next-test-session"));
+      view.setProviderValue("after");
+      view.fetch.mockClear();
+      await act(async () => {
+        await view.observe({
+          progress: { ...view.progress, status: "completed" },
+          result: { id: "d1" },
+        });
+        await vi.waitFor(() => expect(view.queryClient.isFetching()).toBe(0));
+      });
+      expect(view.designQuery.state.data).toEqual({ value: "before" });
+      expect(view.designQuery.state.isInvalidated).toBe(false);
+      expect(refetchedActionNames(view.fetch)).toEqual([]);
+      expect(view.writeCalls()).toBe(1);
+      expect(view.mutationRequests()).toHaveLength(0);
+      expect(view.onSuccess).not.toHaveBeenCalled();
+    },
+  );
 
   it("refetches only the action queries tagged for the mutated resource", async () => {
     const fetch = actionFetchMock();
@@ -286,6 +526,104 @@ describe("useActionMutation resource-scoped invalidation", () => {
 
     expect(refetchedActionNames(fetch)).toEqual(["get-design", "list-designs"]);
   });
+
+  it.each([
+    ["pending", false],
+    ["pending", true],
+    ["uncertain", false],
+    ["uncertain", true],
+  ] as const)(
+    "refreshes affected queries before propagating %s resolver progress (skip: %s)",
+    async (status, skipActionQueryInvalidation) => {
+      const fetch = actionFetchMock();
+      const progress = {
+        id: "provider-write-a",
+        status:
+          status === "pending" ? ("queued" as const) : ("uncertain" as const),
+        attempts: 1,
+        reason: status === "pending" ? "operator" : "result_unavailable",
+        resumeAt: null,
+      };
+      const error =
+        status === "pending"
+          ? new ProviderWritePendingError(progress)
+          : new ProviderWriteUncertainError(progress);
+      const onSuccess = vi.fn();
+      function Probe({
+        mutate,
+      }: {
+        mutate: (run: () => Promise<unknown>) => void;
+      }) {
+        useActionQuery("list-designs", undefined, { resources: ["design"] });
+        useActionQuery("get-design", { id: "d1" }, { resources: ["design"] });
+        useActionQuery("list-documents", undefined, {
+          resources: ["document"],
+        });
+        const mutation = useActionMutation("update-design", {
+          resources: ["design"],
+          skipActionQueryInvalidation,
+          resolveResult: async () => {
+            throw error;
+          },
+          onSuccess,
+        });
+        mutate(async () => {
+          await expect(mutation.mutateAsync({ id: "d1" })).rejects.toBe(error);
+          expect(refetchedActionNames(fetch)).toEqual([
+            "get-design",
+            "list-designs",
+          ]);
+        });
+        return null;
+      }
+      await mountAndMutate(Probe, fetch);
+      expect(onSuccess).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["ordinary", false],
+    ["ordinary", true],
+    ["failed", false],
+    ["failed", true],
+  ] as const)(
+    "refreshes an unconfirmed %s resolver outcome while preserving known rejection (skip: %s)",
+    async (kind, skipActionQueryInvalidation) => {
+      const fetch = actionFetchMock();
+      const error =
+        kind === "ordinary"
+          ? new Error("Invalid action result")
+          : new ProviderWriteFailedError({
+              id: "provider-write-a",
+              status: "failed",
+              attempts: 1,
+              reason: "provider_rejected",
+              resumeAt: null,
+            });
+      function Probe({
+        mutate,
+      }: {
+        mutate: (run: () => Promise<unknown>) => void;
+      }) {
+        useActionQuery("list-designs", undefined, { resources: ["design"] });
+        const mutation = useActionMutation("update-design", {
+          resources: ["design"],
+          skipActionQueryInvalidation,
+          resolveResult: async () => {
+            throw error;
+          },
+        });
+        mutate(() =>
+          expect(mutation.mutateAsync({ id: "d1" })).rejects.toBe(error),
+        );
+        return null;
+      }
+      await mountAndMutate(Probe, fetch);
+      expect(refetchedActionNames(fetch)).toEqual(
+        kind === "failed" ? [] : ["list-designs"],
+      );
+    },
+  );
 
   it("still refetches untagged action queries, whose affected set is unknown", async () => {
     const fetch = actionFetchMock();

@@ -1,10 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
 
-import { SqlChart } from "@/components/dashboard/SqlChart";
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import { SqlChart } from "@/components/dashboard/SqlChartQuery";
 
 export function meta() {
   return [{ title: "Chart" }];
@@ -28,6 +28,7 @@ const VALID_SOURCES = new Set([
   "first-party",
   "demo",
   "prometheus",
+  "postgres",
 ]);
 
 function decodePanel(raw: string): SqlPanel | { error: string } {
@@ -46,7 +47,7 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
     if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
       return {
         error:
-          "Panel source must be bigquery, ga4, amplitude, first-party, demo, or prometheus.",
+          "Panel source must be bigquery, ga4, amplitude, first-party, demo, prometheus, or postgres.",
       };
     }
     if (

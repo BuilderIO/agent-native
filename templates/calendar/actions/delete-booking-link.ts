@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
@@ -5,6 +6,13 @@ import { z } from "zod";
 import { deleteBookingLinkById } from "../server/handlers/booking-links.js";
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Delete a booking link and its stale slug redirects. Requires owner or admin access.",
   schema: z.object({ id: z.string().min(1).describe("Booking link id") }),

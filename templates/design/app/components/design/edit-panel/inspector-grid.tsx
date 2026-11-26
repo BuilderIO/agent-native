@@ -10,16 +10,11 @@ export const INSPECTOR_GRID_PAIR_GUTTER_SPAN = 2;
 export const INSPECTOR_GRID_ACTION_PAIR_SPAN = 11;
 export const INSPECTOR_GRID_ACTION_GUTTER_SPAN = 1;
 export const INSPECTOR_GRID_ACTION_SPAN = 4;
-export const INSPECTOR_GRID_MOTION_FIELD_SPAN = 10;
-export const INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN = 9;
-export const INSPECTOR_GRID_MOTION_GUTTER_SPAN = 1;
-export const INSPECTOR_GRID_MOTION_ACTION_SPAN = 3;
 export const INSPECTOR_GRID_ACTION_WIDTH_PX =
   INSPECTOR_GRID_ACTION_SPAN * INSPECTOR_GRID_UNIT_PX;
 export const INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX =
   INSPECTOR_GRID_ACTION_GUTTER_SPAN * INSPECTOR_GRID_UNIT_PX;
-export const INSPECTOR_GRID_PAIR_GUTTER_WIDTH_PX =
-  INSPECTOR_GRID_PAIR_GUTTER_SPAN * INSPECTOR_GRID_UNIT_PX;
+export const INSPECTOR_GRID_PAIR_GUTTER_WIDTH_PX = INSPECTOR_GRID_UNIT_PX;
 export const INSPECTOR_GRID_PAINT_FIELD_SPAN = 20;
 export const INSPECTOR_GRID_PAINT_ACTION_SPAN = 4;
 export const INSPECTOR_GRID_PAINT_ACTION_WIDTH_PX =
@@ -151,6 +146,25 @@ export function InspectorActionPairGrid({
   rightClassName?: string;
   actionClassName?: string;
 }) {
+  if (action == null) {
+    return (
+      <InspectorGrid className={cn(className)} layout="pair">
+        <InspectorGridCell
+          span={INSPECTOR_GRID_PAIR_SPAN}
+          className={cn(leftClassName)}
+        >
+          {left}
+        </InspectorGridCell>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+        <InspectorGridCell
+          span={INSPECTOR_GRID_PAIR_SPAN}
+          className={cn(rightClassName)}
+        >
+          {right}
+        </InspectorGridCell>
+      </InspectorGrid>
+    );
+  }
   return (
     <InspectorGrid className={className} layout="action-pair">
       <InspectorGridCell
@@ -169,7 +183,6 @@ export function InspectorActionPairGrid({
       <InspectorGridCell span={INSPECTOR_GRID_ACTION_GUTTER_SPAN} ariaHidden />
       <InspectorGridCell
         span={INSPECTOR_GRID_ACTION_SPAN}
-        ariaHidden={action == null}
         className={cn("flex items-center justify-center", actionClassName)}
       >
         {action}

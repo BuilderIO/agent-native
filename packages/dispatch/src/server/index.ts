@@ -7,10 +7,16 @@ import {
 import { dispatchActions } from "../actions/index.js";
 import type { DispatchConfig } from "../config.js";
 import { dispatchAccessDescriptor } from "../shared/app-roles.js";
+import { getDispatchConfig, setDispatchConfig } from "./lib/dispatch-config.js";
 export {
   listOrganizationVisibleWorkspaceApps,
   listWorkspaceApps,
 } from "./lib/app-creation-store.js";
+export {
+  setDispatchAppActionHeaderProvider,
+  type DispatchAppActionHeaderProvider,
+  type DispatchAppActionRequest,
+} from "./lib/mcp-gateway.js";
 export {
   invalidateOrgAppsDirectoryCache,
   orgAppsDirectoryAccessCache,
@@ -21,14 +27,10 @@ defineAppRoles(dispatchAccessDescriptor, { allowOrgAdmins: true });
 
 registerPackageActions(dispatchActions);
 
-let activeConfig: DispatchConfig = {};
-
-export function getDispatchConfig(): DispatchConfig {
-  return activeConfig;
-}
+export { getDispatchConfig };
 
 export function setupDispatch(config: DispatchConfig = {}): NitroPluginDef {
-  activeConfig = Object.freeze({ ...config });
+  setDispatchConfig(config);
   return (nitroApp) => {
     void nitroApp;
   };

@@ -3,6 +3,19 @@ import { describe, expect, it } from "vitest";
 import { agentNativeMcpInstructions } from "./agent-mcp-metadata.js";
 
 describe("agentNativeMcpInstructions", () => {
+  it("mentions task search when advertised even without key tools", () => {
+    expect(agentNativeMcpInstructions(undefined, [], true)).toContain("task");
+    expect(agentNativeMcpInstructions(undefined, [], false)).not.toContain(
+      "tool-search",
+    );
+  });
+
+  it("explains optional task recommendations when tool search is named", () => {
+    expect(agentNativeMcpInstructions(undefined, ["read-doc"])).toContain(
+      "task",
+    );
+  });
+
   it("omits the key-tools line when no key tools are given", () => {
     const text = agentNativeMcpInstructions();
     expect(text).not.toContain("Key tools for this app:");
@@ -34,5 +47,14 @@ describe("agentNativeMcpInstructions", () => {
   it("names view-screen literally instead of a paraphrase", () => {
     const text = agentNativeMcpInstructions();
     expect(text).toContain("call the app's `view-screen` tool only when");
+  });
+
+  it("trusts a write's confirmation instead of asking for a read after every write", () => {
+    const text = agentNativeMcpInstructions();
+    expect(text).not.toMatch(/then read back the changed item/i);
+    expect(text).toContain("trust it instead of reading the item back");
+    expect(text).toContain(
+      "read the item again only when the result leaves the change unconfirmed",
+    );
   });
 });

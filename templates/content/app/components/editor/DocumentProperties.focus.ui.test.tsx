@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
 import type { DocumentProperty } from "@shared/api";
+import { FILES_PROPERTY_TYPES } from "@shared/properties";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,6 +14,7 @@ import {
   press,
   queryByLabel,
   renderUi,
+  typeInto,
 } from "@/test-utils/render-ui";
 
 const mutations = vi.hoisted(() => {
@@ -23,8 +27,13 @@ const mutations = vi.hoisted(() => {
     configure: mutation(),
     duplicate: mutation(),
     remove: mutation(),
+    reportFailure: vi.fn(),
   };
 });
+
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: mutations.reportFailure,
+}));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
@@ -42,6 +51,8 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   useDeleteDocumentProperty: () => mutations.remove,
   useDocumentProperties: () => ({ data: undefined }),
 }));
+
+import { contentDatabaseQueryKey } from "@/hooks/use-content-database";
 
 import {
   PropertyManagementPopover,
@@ -97,12 +108,126 @@ async function openValueEditor(documentProperty: DocumentProperty) {
 }
 
 beforeEach(() => {
-  for (const mutation of Object.values(mutations)) {
+  for (const mutation of [
+    mutations.setValue,
+    mutations.configure,
+    mutations.duplicate,
+    mutations.remove,
+  ]) {
     mutation.mutateAsync.mockClear();
   }
+  mutations.reportFailure.mockClear();
 });
 
 describe("property management menu", () => {
+  it("refuses column type changes before writing and still allows metadata edits", async () => {
+    const original = property("text", "Notes", "Existing value");
+    renderUi(
+      <PropertyManagementPopover
+        property={original}
+        documentId="document"
+        databaseId="database"
+        icon={TYPE_ICONS.text}
+        sorts={[]}
+        filters={[]}
+        onSortsChange={vi.fn()}
+        onFiltersChange={vi.fn()}
+      />,
+    );
+    const menuItem = (text: string) => {
+      const item = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ].find((candidate) => candidate.textContent.trim() === text);
+      if (!item) throw new Error(`No menu item "${text}"`);
+      return item;
+    };
+    await click(byLabel("editor.properties.propertyMenuFor(Notes)"));
+    await click(menuItem("editor.properties.editField"));
+    const typeMenu = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent.startsWith("editor.properties.type"));
+    if (!typeMenu) throw new Error("No Type submenu");
+    await focus(typeMenu);
+    await press(typeMenu, "ArrowRight");
+    await nextFrame();
+
+    await click(menuItem("editor.propertyTypes.text"));
+    expect(mutations.reportFailure).not.toHaveBeenCalled();
+    expect(mutations.configure.mutateAsync).not.toHaveBeenCalled();
+    for (const target of ["number", "blocks"]) {
+      await click(menuItem(`editor.propertyTypes.${target}`));
+      expect(mutations.configure.mutateAsync).not.toHaveBeenCalled();
+      expect(typeMenu.textContent).toContain("editor.propertyTypes.text");
+      expect(byLabel("editor.properties.propertyName")).toBeTruthy();
+    }
+    expect(mutations.reportFailure).toHaveBeenCalledTimes(2);
+    expect(mutations.reportFailure).toHaveBeenCalledWith(expect.any(Error), {
+      label: "editor.properties.typeChangeUnavailable",
+    });
+    expect(original.value).toBe("Existing value");
+    const description = byLabel<HTMLTextAreaElement>(
+      "editor.properties.description",
+    );
+    await focus(description);
+    await typeInto(description, "Notes details");
+    await focus(byLabel("editor.properties.propertyName"));
+    expect(mutations.configure.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(mutations.configure.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "text-property",
+        type: "text",
+        options: {},
+        description: "Notes details",
+      }),
+    );
+  });
+
+  it("offers a Files property only the types Files takes, besides its own", async () => {
+    function ReadFiles({ children }: { children: ReactNode }) {
+      const queryClient = useQueryClient();
+      useState(() =>
+        queryClient.setQueryData(contentDatabaseQueryKey("document"), {
+          database: { id: "database", systemRole: "files" },
+        }),
+      );
+      return children;
+    }
+    renderUi(
+      <ReadFiles>
+        <PropertyManagementPopover
+          property={property("files_media", "Attachments", [])}
+          documentId="document"
+          databaseId="database"
+          icon={TYPE_ICONS.files_media}
+        />
+      </ReadFiles>,
+    );
+    const typeItems = () =>
+      [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+        (item) => item.textContent.trim(),
+      );
+    await click(byLabel("editor.properties.propertyMenuFor(Attachments)"));
+    const edit = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent.trim() === "editor.properties.editField");
+    if (edit) await click(edit);
+    const typeMenu = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent.startsWith("editor.properties.type"));
+    if (!typeMenu) throw new Error("No Type submenu");
+    await focus(typeMenu);
+    await press(typeMenu, "ArrowRight");
+    await nextFrame();
+
+    const offered = typeItems();
+    for (const type of [...FILES_PROPERTY_TYPES, "files_media"]) {
+      expect(offered).toContain(`editor.propertyTypes.${type}`);
+    }
+    for (const type of ["relation", "blocks", "id", "created_time"]) {
+      expect(offered).not.toContain(`editor.propertyTypes.${type}`);
+    }
+  });
+
   it("focuses and selects the property name when the menu opens", async () => {
     renderUi(
       <PropertyManagementPopover

@@ -440,13 +440,12 @@ export function createCollabPlugin(
     const collabEmitter = getCollabEmitter();
     collabEmitter.on("collab", async (event) => {
       if (!resourceType) {
-        recordChange(event);
+        recordChange({ ...event, visibility: "public" });
         return;
       }
 
       const docId = event.docId as string | undefined;
       if (!docId) {
-        recordChange(event);
         return;
       }
 

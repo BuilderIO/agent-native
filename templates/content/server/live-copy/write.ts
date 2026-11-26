@@ -9,6 +9,7 @@ import type { DbExec } from "@agent-native/core/db";
 import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 
 import { isLiveBodyWriterPage } from "../lib/live-body-writer.js";
+import { videoIdSharedError } from "../lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS, contentLiveCopy } from "./binding.js";
 import { persistUnchangedContentBodyEdit } from "./persist.js";
 import {
@@ -37,7 +38,9 @@ type ContentLiveCopyEditInput<Edit extends string> =
     ? { content: string; expected: string }
     : typeof CONTENT_LIVE_COPY_EDITS.rebaseBody extends Edit
       ? ContentLiveCopyRebaseInput
-      : unknown;
+      : typeof CONTENT_LIVE_COPY_EDITS.appendBody extends Edit
+        ? { blocks: string }
+        : unknown;
 
 function replaceBodyInput(
   documentId: string,
@@ -222,6 +225,37 @@ export async function rewriteContentLiveCopyBody(
         "The document changed where this change applies. Read it again and retry.",
         { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
       );
+    }
+    throw unrepresentableBodyError(error) ?? error;
+  }
+}
+
+export async function appendContentLiveCopyBlocks(
+  documentId: string,
+  options: { cause: ContentBodyWriteCause; blocks: string },
+): Promise<boolean> {
+  if (!(await isLiveBodyWriterPage(documentId))) return false;
+  try {
+    await editContentLiveCopy(documentId, {
+      cause: options.cause,
+      edit: CONTENT_LIVE_COPY_EDITS.appendBody,
+      input: { blocks: options.blocks },
+      persist: async (tx) => {
+        await assertAccess("document", documentId, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
+      },
+    });
+    return true;
+  } catch (error) {
+    if (liveCopyWriteLeftPath(error)) return false;
+    if (
+      error instanceof LiveCopyError &&
+      error.code === "build_refused" &&
+      error.reason === "video_id_shared"
+    ) {
+      throw videoIdSharedError();
     }
     throw unrepresentableBodyError(error) ?? error;
   }

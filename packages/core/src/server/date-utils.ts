@@ -1,4 +1,4 @@
-import { getRequestTimezone } from "./request-context.js";
+import { getRequestDateTimezone } from "./request-context.js";
 
 export function formatDateInTimezone(date: Date, tz?: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -14,5 +14,5 @@ export function formatDateInTimezone(date: Date, tz?: string): string {
 }
 
 export function todayInTimezone(tz?: string): string {
-  return formatDateInTimezone(new Date(), tz ?? getRequestTimezone());
+  return formatDateInTimezone(new Date(), tz ?? getRequestDateTimezone());
 }

@@ -1,0 +1,352 @@
+.workspace-stage {
+  height: 100dvh;
+  min-height: 280px;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface-canvas);
+  color: var(--fg-default);
+}
+.workspace-split-region {
+  height: 100%;
+}
+.workspace-inspector {
+  height: 100%;
+  min-height: 0;
+  background: var(--surface-nav);
+}
+.workspace-brand {
+  display: inline-block;
+  width: 16px;
+  height: 12px;
+  transform: skewX(-26deg);
+  background: linear-gradient(
+    to right,
+    currentColor 0 32%,
+    transparent 32% 53%,
+    currentColor 53% 85%,
+    transparent 85%
+  );
+}
+.workspace-inspector {
+  /* This panel uses explicit grids. A query container here invalidates its
+     descendants on every divider move in WebKit. */
+  container-type: normal;
+  overflow: auto;
+}
+.workspace-inspector strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-canvas {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  background: var(--surface-sunken);
+}
+.workspace-scroller {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 36px 24px 70px;
+}
+.workspace-scroller[data-pan] {
+  cursor: grab;
+  touch-action: none;
+}
+.workspace-scroller[data-pan]:active {
+  cursor: grabbing;
+}
+.workspace-scroller[data-pan] .workspace-art-layer {
+  pointer-events: none;
+}
+.workspace-paper-viewport {
+  margin-inline: auto;
+  position: relative;
+}
+.workspace-paper {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: 0 0;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-2);
+}
+.workspace-art-layer {
+  content-visibility: auto;
+  position: absolute;
+  box-sizing: border-box;
+  display: block;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg-default);
+  font-family: var(--font-family-sans);
+  line-height: 1.2;
+  cursor: default;
+}
+.workspace-art-layer:focus-visible,
+.workspace-art-layer[aria-pressed="true"] {
+  outline: 3px solid var(--line-focus);
+  outline-offset: -2px;
+}
+.workspace-art-layer:hover:not([aria-disabled="true"], [aria-pressed="true"]) {
+  box-shadow: inset 0 0 0 2px var(--line-focus);
+}
+.workspace-selection-tag {
+  position: absolute;
+  transform-origin: bottom left;
+  background: var(--accent-solid);
+  color: var(--accent-contrast);
+  font-size: var(--font-size-0);
+  line-height: var(--line-height-0);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-1);
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.workspace-art-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.workspace-art-layer[data-source="nav"]::after {
+  border-bottom: 1px solid var(--line-subtle);
+}
+.workspace-art-layer[data-source="nav-logo"] {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.workspace-login {
+  float: right;
+  margin-right: 56px;
+  border: 1px solid var(--line-default);
+  border-radius: 18px;
+  padding: 6px 15px;
+}
+.workspace-art-layer[data-style="p-pill"],
+.workspace-art-layer[data-style="p-btn"],
+.workspace-art-layer[data-style="p-tabs"] {
+  border-radius: 32px;
+}
+.workspace-art-layer:is(
+    [data-style="p-pill"],
+    [data-style="p-btn"],
+    [data-style="p-tabs"],
+    [data-style="p-tpl"],
+    [data-style="p-code"]
+  )::after {
+  border: 1px solid var(--line-default);
+}
+.workspace-art-layer[data-style="p-cmd"]::after {
+  border: 1px solid var(--line-subtle);
+}
+.workspace-art-layer[data-source="cta-primary"] {
+  background: var(--fg-default);
+  color: var(--surface-raised);
+}
+.workspace-art-layer[data-style="p-h1"],
+.workspace-art-layer[data-style="p-h2"] {
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+}
+.workspace-art-layer[data-style="p-lead"],
+.workspace-art-layer[data-style="p-sub"] {
+  color: var(--fg-muted);
+  line-height: 1.35;
+}
+.workspace-art-layer[data-style="p-eyebrow"] {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-muted);
+}
+.workspace-art-layer[data-style="p-card"],
+.workspace-art-layer[data-style="p-feat"] {
+  background: var(--surface-sunken);
+  border-radius: 24px;
+}
+.workspace-art-layer[data-style="p-cmd"] {
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+.workspace-art-layer[data-style="p-code"] {
+  border-radius: 10px;
+  font-family: var(--font-family-mono);
+  white-space: pre-line;
+  text-align: left;
+}
+.workspace-code-body {
+  display: block;
+  padding: 17px;
+}
+.workspace-code-head {
+  display: block;
+  border-bottom: 1px solid var(--line-subtle);
+  padding: 0 0 16px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+.workspace-recipe-steps {
+  display: grid;
+  gap: 12px;
+}
+.workspace-recipe-steps span {
+  border-radius: 12px;
+  text-align: start;
+  padding: 16px 12px;
+}
+.workspace-recipe-steps span:first-child {
+  background: var(--surface-sunken);
+}
+.workspace-art-layer[data-style="p-logos"] {
+  display: grid;
+  align-content: end;
+}
+.workspace-customer-logos {
+  display: flex;
+  gap: 32px;
+  justify-content: center;
+  color: var(--fg-muted);
+}
+.workspace-art-layer[data-style="p-tpl"] {
+  border-radius: 16px;
+  background: linear-gradient(var(--brand-a3) 0 50%, transparent 50%);
+  text-align: right;
+}
+.workspace-art-layer[data-style="p-faq"]::after {
+  border-top: 1px solid var(--line-subtle);
+}
+.workspace-tools {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-3);
+  transform: translateX(-50%);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-3);
+  border: 1px solid var(--line-default);
+  border-radius: var(--radius-4);
+  padding: var(--space-2);
+  white-space: nowrap;
+}
+.workspace-tool-divider {
+  height: var(--control-height-2);
+  border-inline-start: 1px solid var(--line-subtle);
+  margin-inline: var(--space-1);
+}
+.workspace-zoom {
+  min-width: 4ch;
+  text-align: center;
+  font-size: var(--font-size-1);
+  font-variant-numeric: tabular-nums;
+}
+.workspace-mobile-tools {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+.workspace-mobile-panel {
+  min-height: 0;
+  overflow: auto;
+}
+@media (forced-colors: active) {
+  .workspace-art-layer[aria-pressed="true"] {
+    outline-color: Highlight;
+  }
+  .workspace-tools {
+    border-color: ButtonText;
+  }
+}
+.workspace-frame-children {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.workspace-art-layer {
+  inset: 0;
+  pointer-events: auto;
+}
+.workspace-scroller[data-pan] .workspace-frame-children .workspace-art-layer {
+  pointer-events: none;
+}
+.workspace-scroller:focus-visible {
+  outline: var(--focus-ring-width) solid var(--line-focus);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+.workspace-selection-tag {
+  z-index: 2;
+}
+.workspace-template-art {
+  position: absolute;
+  inset: 0 0 45%;
+  padding: 16px;
+  display: grid;
+  background: var(--brand-a3);
+  gap: 7px;
+}
+.workspace-template-art i {
+  display: block;
+  background: var(--surface-raised);
+  border-radius: 6px;
+}
+.art-mail {
+  padding-left: 30%;
+}
+.art-mail i {
+  background: linear-gradient(
+    90deg,
+    var(--info-8) 8%,
+    var(--surface-raised) 8%
+  );
+}
+.art-calendar {
+  grid-template-columns: repeat(7, 1fr);
+  background: var(--success-a4);
+}
+.art-calendar i:nth-child(5n) {
+  background: var(--success-8);
+}
+.art-content {
+  background: var(--warning-a4);
+  padding: 24px 32px;
+}
+.art-content i {
+  border-radius: 2px;
+  background: var(--warning-7);
+}
+.art-content i:first-child {
+  width: 64%;
+  background: var(--warning-9);
+}
+.art-slides {
+  grid-template-columns: 2fr 1fr;
+  background: var(--danger-a3);
+}
+.art-slides i:first-child {
+  grid-row: span 3;
+  background: var(--danger-7);
+}
+.art-clips {
+  background: var(--brand-a4);
+}
+.art-clips i {
+  background: var(--brand-8);
+  clip-path: polygon(35% 15%, 80% 50%, 35% 85%);
+}
+.art-analytics {
+  display: flex;
+  align-items: end;
+  background: var(--info-a3);
+}
+.art-analytics i {
+  flex: 1;
+  background: var(--info-8);
+}

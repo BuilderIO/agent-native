@@ -42,6 +42,13 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "owner@example.com",
 }));
 
+// With no request org the policy resolves the person's own org from the
+// database; these specs run without one.
+vi.mock("../org/context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/context.js")>()),
+  resolveOrgIdForEmail: vi.fn(async () => null),
+}));
+
 vi.mock("../server/credential-provider.js", () => ({
   canUseDeployCredentialFallbackForRequest:
     canUseDeployCredentialFallbackForRequestMock,

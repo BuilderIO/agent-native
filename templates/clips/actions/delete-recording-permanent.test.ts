@@ -29,10 +29,19 @@ const mocks = vi.hoisted(() => ({
   role: vi.fn(),
   privateBlob: vi.fn(),
   scope: vi.fn(),
+  abortUpload: vi.fn(),
   // Which reads of a recording's cleanup summary come back missing, or throw
   // ("throws"), counting reads from 1 since the last clear.
   unreadableSummaries: new Map<string, (read: number) => boolean | "throws">(),
   summaryReads: new Map<string, number>(),
+  mirrorDeletes: [] as unknown[][],
+}));
+vi.mock("../server/lib/recording-comment-mirror.js", () => ({
+  prepareRecordingCommentMirror: async () => {},
+  lockRecordingCommentThreads: async () => {},
+  deleteMirroredRecordingComments: async (...args: unknown[]) => {
+    mocks.mirrorDeletes.push(args);
+  },
 }));
 vi.mock("../server/lib/recording-media-cleanup-worker.js", async (original) => {
   const actual =
@@ -63,6 +72,37 @@ vi.mock("@agent-native/core/secrets", () => ({
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
+  readAppState: async (key: string) => {
+    const found = await client.query<{ value: string }>(
+      "SELECT value FROM application_state WHERE key=$1",
+      [key],
+    );
+    return found.rows.length ? JSON.parse(found.rows[0].value) : null;
+  },
+  deleteAppState: async (key: string) => {
+    await client.query("DELETE FROM application_state WHERE key=$1", [key]);
+  },
+  // Only conditional deletes go through here.
+  compareAndSetAppState: async (
+    key: string,
+    expected: unknown,
+    next: unknown,
+  ) => {
+    if (next !== null) throw new Error("Only deletes are faked here.");
+    const found = await client.query<{ value: string }>(
+      "SELECT value FROM application_state WHERE key=$1",
+      [key],
+    );
+    const row = found.rows.length ? found.rows[0] : null;
+    const current: unknown = row ? JSON.parse(row.value) : null;
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    await client.query("DELETE FROM application_state WHERE key=$1", [key]);
+    return true;
+  },
+}));
+vi.mock("../server/lib/resumable-upload-cleanup.js", () => ({
+  abortResumableUploadSession: (...args: unknown[]) =>
+    mocks.abortUpload(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
   BUILDER_ASSETS_WRITE_SCOPE: "assets:write",
@@ -148,6 +188,7 @@ async function state(key: string, value: unknown) {
   ]);
 }
 beforeEach(async () => {
+  mocks.mirrorDeletes.length = 0;
   vi.clearAllMocks();
   mocks.owner = owner;
   mocks.role.mockResolvedValue("member");
@@ -167,6 +208,7 @@ beforeEach(async () => {
   const tables = [
     schema.recordings,
     schema.recordingAgentFrames,
+    schema.recordingTracks,
     schema.recordingBrowserDiagnostics,
     schema.hostedClipAllowances,
     schema.recordingContextItems,
@@ -452,6 +494,34 @@ describe("permanent recording deletion with durable media cleanup", () => {
       reason: "private_blob_confirmation_unavailable",
     });
   });
+  it("journals a rich recording's track files and manifest before removing its track rows", async () => {
+    const trackUrl = (track: string) =>
+      "https://s3.example.test/bucket/clips/rec-1.track-" + track;
+    const manifestUrl = video.replace("video.mp4", "manifest.json");
+    await client.query(
+      "UPDATE recordings SET media_format='rich',rich_manifest_url=$1,rich_bytes=30",
+      [manifestUrl],
+    );
+    for (const track of ["screen", "mic"])
+      await client.query(
+        "INSERT INTO recording_tracks(id,recording_id,track,owner_email,url,content_type,bytes) VALUES ($1,'rec-1',$2,$3,$4,'video/mp4',15)",
+        ["track-" + track, track, owner, trackUrl(track)],
+      );
+    const result = await action.run({ id: "rec-1" });
+    expect(result.mediaCleanup.pending).toBe(4);
+    expect(await rows("recording_tracks")).toEqual([]);
+    await runRecordingMediaCleanup("rec-1");
+    const removed = mocks.remove.mock.calls.map(([url]) => url);
+    expect(removed).toHaveLength(4);
+    expect(removed).toEqual(
+      expect.arrayContaining([
+        video,
+        manifestUrl,
+        trackUrl("mic"),
+        trackUrl("screen"),
+      ]),
+    );
+  });
   it("refuses unreadable screenshot edits without losing either the recording or recovery state", async () => {
     await client.exec("UPDATE recordings SET kind='image',edits_json='{}'");
     // The invalid legacy data predates the new media write fence.
@@ -527,6 +597,9 @@ describe("permanent recording deletion with durable media cleanup", () => {
     expect(recordings.find((r) => r.id === "other-footage")?.trashed_at).toBe(
       "2026-10-28T00:00:00Z",
     );
+    expect(mocks.mirrorDeletes).toEqual([
+      ["rec-1", "all", "owner@example.test"],
+    ]);
   });
   it("protects shared aliases, then retries when the final recording reference disappears", async () => {
     await insertRecording("rec-2", video + "?other-token=fake");
@@ -547,6 +620,35 @@ describe("permanent recording deletion with durable media cleanup", () => {
       retained: 0,
     });
   });
+  it("cancels an unfinished track upload first, so cleanup doesn't wait on it", async () => {
+    await client.query(
+      "UPDATE recordings SET upload_generation_id='gen-1' WHERE id='rec-1'",
+    );
+    const trackKey = "resumable-session-rec-1-track-screen";
+    await state(trackKey, {
+      providerId: "fake-storage",
+      sessionId: "upload-screen",
+      meta: { objectKey: "clips/rec-1.track-screen-aaaaaaaaaaaa" },
+      bytesUploaded: 4,
+      lastCommittedIndex: 0,
+    });
+    mocks.abortUpload.mockResolvedValueOnce(true);
+
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+
+    expect(mocks.abortUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "upload-screen" }),
+      expect.anything(),
+    );
+    expect(
+      (await rows("application_state")).map((row) => row.key),
+    ).not.toContain(trackKey);
+    expect(await mediaCleanupSummary("rec-1", owner)).not.toMatchObject({
+      reason: "producer_unresolved",
+    });
+  });
+
   it("retains accounting while a producer is active and journals its late output before final release", async () => {
     await client.exec(
       "UPDATE recordings SET storage_mode='hosted'; INSERT INTO clips_hosted_clip_allowances(recording_id,user_id,status,quota_bytes) VALUES ('rec-1','stable-user','consumed',123)",

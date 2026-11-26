@@ -1,0 +1,196 @@
+/*
+ * Part: radio-cards
+ *
+ *   <div class="radio-cards" role="radiogroup"         Base UI RadioGroup
+ *        data-variant="surface|soft"
+ *        [data-color="accent|gray|danger|warning|success|info"]
+ *        [data-high-contrast]
+ *        [style="--radio-cards-columns: …; --radio-cards-gap: …"]>
+ *     <span class="radio-cards-item" role="radio"      Radio.Root, with the group's
+ *           data-variant [data-color]       props written on it, holding
+ *           [data-high-contrast] [data-checked]       the card's content
+ *           [data-unchecked] [data-invalid] [data-disabled]>
+ *
+ * Radix Themes' radio cards on the system's scale: a grid of cards, each a
+ * radio whose content is its name, so the whole card is the hit area. The
+ * grid's columns are `--radio-cards-columns` (cards at least 160px wide,
+ * as many as fit, by default) and its gap `--radio-cards-gap`; the caller
+ * sets either on the group, as Radix's `columns` and `gap` props do.
+ * One line of text makes a card 40px tall. Surface
+ * cards sit on the raised surface inside a gray hairline that darkens on
+ * hover; soft cards are a tint of the nearest color. A checked card draws
+ * a 2px edge in the color's indicator step, or its step 12 in high
+ * contrast.
+ *
+ * Checkbox Cards draws its cards with the `.checkbox-cards-item` rules
+ * here, so the two stay one look; its own sheet adds the corner checkbox.
+ */
+
+@layer components {
+  .radio-cards {
+    display: grid;
+    grid-template-columns: var(
+      --radio-cards-columns,
+      repeat(auto-fit, minmax(min(100%, 160px), 1fr))
+    );
+    gap: var(--radio-cards-gap, var(--space-4));
+  }
+
+  :is(.radio-cards-item, .checkbox-cards-item) {
+    --_padding-y: var(--space-3);
+    --_padding-x: var(--space-4);
+    --_radius: var(--radius-4);
+
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    min-width: 0;
+    padding-block: var(--_padding-y);
+    padding-inline: var(--_padding-x) var(--_padding-end, var(--_padding-x));
+    border-radius: calc(var(--_radius) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    color: var(--fg-default);
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    font-weight: var(--font-weight-regular);
+    text-align: start;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+    outline-style: none;
+    transition: background-color var(--duration-1) var(--ease-standard);
+  }
+
+  .radio-cards-item {
+    justify-content: center;
+  }
+
+  /* Children can't take the press: a dragged image or a selected word
+     would otherwise swallow the click that checks the card. */
+  :is(.radio-cards-item, .checkbox-cards-item) > * {
+    pointer-events: none;
+  }
+
+  :is(.radio-cards-item, .checkbox-cards-item) > svg {
+    flex-shrink: 0;
+  }
+
+  /* The edge, drawn over the content so an image reaching the card's edge
+     doesn't cover it. */
+  :is(.radio-cards-item, .checkbox-cards-item)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    corner-shape: inherit;
+    pointer-events: none;
+    transition: box-shadow var(--duration-1) var(--ease-standard);
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  :is(.radio-cards-item, .checkbox-cards-item)[data-variant="surface"] {
+    background-color: var(--surface-raised);
+  }
+
+  :is(.radio-cards-item, .checkbox-cards-item)[data-variant="surface"]::after {
+    box-shadow: inset 0 0 0 1px var(--line-subtle);
+  }
+
+  :is(.radio-cards-item, .checkbox-cards-item)[data-variant="soft"] {
+    background-color: var(--accent-a3);
+  }
+
+  @media (hover: hover) {
+    :is(
+        .radio-cards-item:not([data-checked]),
+        .checkbox-cards-item
+      )[data-variant="surface"]:not([data-disabled]):hover::after {
+      box-shadow: inset 0 0 0 1px var(--gray-a7);
+    }
+
+    :is(
+        .radio-cards-item:not([data-checked]),
+        .checkbox-cards-item
+      )[data-variant="soft"]:not([data-disabled]):hover {
+      background-color: var(--accent-a4);
+    }
+  }
+
+  .radio-cards-item[data-checked]::after {
+    box-shadow: inset 0 0 0 2px var(--accent-indicator);
+  }
+
+  .radio-cards-item[data-checked][data-high-contrast]::after {
+    box-shadow: inset 0 0 0 2px var(--accent-12);
+  }
+
+  :is(
+      .radio-cards-item,
+      .checkbox-cards-item
+    )[data-invalid][data-unchecked]::after {
+    box-shadow: inset 0 0 0 1px var(--fill-danger);
+  }
+
+  :is(.radio-cards-item, .checkbox-cards-item):focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- disabled ---- */
+
+  :is(.radio-cards-item, .checkbox-cards-item)[data-disabled] {
+    cursor: not-allowed;
+    color: var(--fg-disabled);
+  }
+
+  :is(
+      .radio-cards-item,
+      .checkbox-cards-item
+    )[data-disabled][data-variant="surface"] {
+    background-color: transparent;
+  }
+
+  :is(
+      .radio-cards-item,
+      .checkbox-cards-item
+    )[data-disabled][data-variant="surface"]::after {
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+
+  :is(
+      .radio-cards-item,
+      .checkbox-cards-item
+    )[data-disabled][data-variant="soft"] {
+    background-color: var(--gray-a3);
+  }
+
+  .radio-cards-item[data-disabled][data-checked]::after {
+    box-shadow: inset 0 0 0 2px var(--gray-a8);
+  }
+
+  @media (forced-colors: active) {
+    :is(.radio-cards-item, .checkbox-cards-item)::after {
+      border: 1px solid ButtonText;
+      box-shadow: none;
+    }
+
+    .radio-cards-item[data-checked]::after {
+      border: 3px double Highlight;
+    }
+
+    :is(.radio-cards-item, .checkbox-cards-item)[data-disabled]::after {
+      border-color: GrayText;
+    }
+
+    :is(
+        .radio-cards-item,
+        .checkbox-cards-item
+      )[data-invalid][data-unchecked]::after {
+      border-style: dashed;
+    }
+  }
+}

@@ -130,6 +130,36 @@
   }
 }
 
+.mail-thread-scroll {
+  container: mail-thread / inline-size;
+  --mail-thread-gutter: 0.75rem;
+  --mail-message-inset: 0.75rem;
+}
+@media (min-width: 640px) {
+  .mail-thread-scroll {
+    --mail-thread-gutter: 1.25rem;
+    --mail-message-inset: 1rem;
+  }
+}
+
+/* Designed email is laid out at about 600 px, so in a column narrower than
+   the 768 px message width it runs to the column's edges instead of losing
+   its right side to the gutter. */
+@container mail-thread (max-width: 767px) {
+  .mail-message-designed {
+    margin-inline: calc(var(--mail-thread-gutter) * -1);
+    border-radius: 0;
+  }
+  .mail-message-designed .mail-message-header {
+    padding-inline: calc(var(--mail-thread-gutter) + var(--mail-message-inset));
+  }
+}
+
+/* An email iframe swallows pointer events and would end a divider drag. */
+[data-mail-resizing] iframe {
+  pointer-events: none;
+}
+
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -209,8 +239,26 @@
 .email-list-row.multi-selected.focused {
   --mail-row-background: hsl(var(--primary) / 0.12);
 }
+/* Hover is lighter than the current row: the pointer no longer moves the
+   current row, so the two must not look alike. */
 .email-list-row:hover:not(.focused):not(.selected):not(.multi-selected) {
-  --mail-row-background: hsl(var(--accent));
+  --mail-row-background: hsl(var(--accent) / 0.55);
+}
+
+/* While J and K drive the list, a row under a resting pointer stays plain. */
+[data-keyboard-nav]
+  .email-list-row:hover:not(.focused):not(.selected):not(.multi-selected) {
+  --mail-row-background: hsl(var(--background));
+}
+[data-keyboard-nav] .email-list-row:hover:not(.focused) .hover-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The current row is marked by its background, and keyboard focus always sits
+   on the current row, so the browser focus ring would be a second mark. */
+.email-list-row:focus-visible {
+  outline: none;
 }
 
 .compose-window {
@@ -282,6 +330,12 @@
 .email-list-row:hover .hover-actions {
   opacity: 1;
   pointer-events: auto;
+}
+/* Beside the reading pane the focused row is the open email, whose toolbar
+   already shows these actions; keep the sender's name readable. */
+.email-list-row-rich.focused:not(:hover) .hover-actions {
+  opacity: 0;
+  pointer-events: none;
 }
 @media (max-width: 639px) {
   .email-list-row:hover .hover-actions,

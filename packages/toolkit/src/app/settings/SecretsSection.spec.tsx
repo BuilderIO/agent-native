@@ -134,7 +134,11 @@ const adminOrgMe = {
   iconRevision: 0,
 };
 
-function mockFetchWithSecrets(secrets: unknown[], orgMe: unknown = adminOrgMe) {
+function mockFetchWithSecrets(
+  secrets: unknown[],
+  orgMe: unknown = adminOrgMe,
+  customKeyName = "CUSTOM_TOKEN",
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request) => {
@@ -143,7 +147,7 @@ function mockFetchWithSecrets(secrets: unknown[], orgMe: unknown = adminOrgMe) {
       if (url.endsWith("/secrets/adhoc")) {
         return Response.json([
           {
-            name: "CUSTOM_TOKEN",
+            name: customKeyName,
             scope: "user",
             scopeId: "user-1",
             source: "personal",
@@ -189,6 +193,29 @@ describe("SecretsSection", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  it.each([
+    ["light", "rgb(71, 57, 130)", "rgb(255, 255, 255)"],
+    ["dark", "rgb(245, 193, 193)", "rgb(11, 13, 20)"],
+  ])(
+    "uses the host's %s primary colors for saving a key",
+    async (_theme, background, foreground) => {
+      const themeStyles = document.createElement("style");
+      themeStyles.textContent = `.bg-primary { background-color: ${background}; } .text-primary-foreground { color: ${foreground}; }`;
+      document.head.appendChild(themeStyles);
+      try {
+        await act(async () => {
+          renderSecretsSection(root, "TAVILY_API_KEY");
+        });
+        const save = findButton("Save");
+        expect(save).toBeTruthy();
+        expect(getComputedStyle(save!).backgroundColor).toBe(background);
+        expect(getComputedStyle(save!).color).toBe(foreground);
+      } finally {
+        themeStyles.remove();
+      }
+    },
+  );
 
   it("fails a stalled secrets response and retries it", async () => {
     vi.useFakeTimers();
@@ -515,29 +542,41 @@ describe("SecretsSection", () => {
     expect(container.textContent).toContain("Saved");
   });
 
-  it("shows configured keys while keeping unset providers behind New", async () => {
-    await act(async () => {
-      renderSecretsSection(root);
-    });
+  it.each([
+    "CUSTOM_TOKEN",
+    "SERVICE_CONNECTOR_CREDENTIAL_0123456789ABCDEF0123456789ABCDEF_ACCESS_TOKEN",
+    "workspace.privateKey.11111111-2222-4333-8444-555555555555",
+  ])(
+    "formats configured key %s while keeping unset providers behind New",
+    async (name) => {
+      mockFetchWithSecrets(registeredSecrets, adminOrgMe, name);
+      await act(async () => {
+        renderSecretsSection(root);
+      });
 
-    expect(container.textContent).toContain("OpenAI API key");
-    expect(container.textContent).toContain("CUSTOM_TOKEN");
-    expect(container.textContent).not.toContain("Brave Search API Key");
-    expect(container.textContent).not.toContain("Tavily API Key");
-    expect(
-      container.querySelector('input[placeholder="Paste key"]'),
-    ).toBeNull();
+      expect(container.textContent).toContain("OpenAI API key");
+      expect(
+        Array.from(container.querySelectorAll("code")).map(
+          (element) => element.textContent,
+        ),
+      ).toContain(name);
+      expect(container.textContent).not.toContain("Brave Search API Key");
+      expect(container.textContent).not.toContain("Tavily API Key");
+      expect(
+        container.querySelector('input[placeholder="Paste key"]'),
+      ).toBeNull();
 
-    await openNewMenu();
+      await openNewMenu();
 
-    expect(document.body.textContent).toContain("Decision model (Jev)");
-    expect(document.body.textContent).toContain("Brave Search API Key");
-    expect(document.body.textContent).toContain("Tavily API Key");
-    expect(document.body.textContent).toContain("Custom key");
-    expect(document.body.textContent).not.toContain(
-      "Choose a keyOpenAI API key",
-    );
-  });
+      expect(document.body.textContent).toContain("Decision model (Jev)");
+      expect(document.body.textContent).toContain("Brave Search API Key");
+      expect(document.body.textContent).toContain("Tavily API Key");
+      expect(document.body.textContent).toContain("Custom key");
+      expect(document.body.textContent).not.toContain(
+        "Choose a keyOpenAI API key",
+      );
+    },
+  );
 
   it("opens only the selected preset or custom key form", async () => {
     await act(async () => {
@@ -628,6 +667,37 @@ describe("SecretsSection", () => {
     expect(container.querySelector('input[placeholder="Paste key"]')).toBe(
       document.activeElement,
     );
+  });
+
+  it("draws the Set status in a shade that stays legible on a light card", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "set",
+        source: "vault",
+        managedHere: false,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    const pill = Array.from(container.querySelectorAll("span"))
+      .filter((span) => span.textContent?.trim() === "Set · Vault")
+      .at(-1);
+    expect(pill).toBeTruthy();
+    // green-500 on white is 2.2:1, under the 4.5:1 body-text floor; the light
+    // theme needs the darker shade and dark mode keeps the bright one.
+    expect(pill?.className).not.toMatch(/(^|\s)text-green-500(\s|$)/);
+    expect(pill?.className).toContain("text-green-700");
+    expect(pill?.className).toContain("dark:text-green-500");
   });
 
   it("shows a Vault-provided key as shadowed with no Rotate/Remove", async () => {

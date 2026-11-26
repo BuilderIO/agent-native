@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/server";
+import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/connectors";
 import { z } from "zod";
 
 export default defineAction({

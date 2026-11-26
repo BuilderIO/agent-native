@@ -70,7 +70,7 @@ const RESULT_KEY_RE = /\b(description|nextRequiredAction)\s*:/g;
 
 function isExternal(source) {
   if (/\bagentTool\s*:\s*false\b/.test(source)) return false;
-  if (/\bmcpTool\s*:\s*true\b/.test(source)) return true;
+  if (/\bmcpTool\s*:\s*(?:true\b|["'`]search["'`])/.test(source)) return true;
   const mcpToolPresent = /\bmcpTool\s*:/.test(source);
   const endsTurnTrue = /\bendsTurn\s*:\s*true\b/.test(source);
   return !mcpToolPresent && !endsTurnTrue;

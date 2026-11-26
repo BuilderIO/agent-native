@@ -18,6 +18,250 @@ function editingSafetyBridgeScript(
 }
 
 describe("editing safety bridge", () => {
+  it("drops a removed loop's positional rule so a new entrance in its slot plays", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<iframe id="preview"></iframe>`);
+      const iframe = page.frames()[1];
+      if (!iframe) throw new Error("Preview iframe did not load");
+      await iframe.setContent(`<!doctype html><html><head><style>
+        .spin { animation: spin 1s linear infinite; }
+        .fade-up { opacity: 0; animation: fade-up 0.5s ease forwards; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fade-up { to { opacity: 1; } }
+      </style></head><body><div class="spin" id="loop">Loop</div></body></html>`);
+      await iframe.addScriptTag({ content: editingSafetyBridgeScript(true) });
+
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#loop")
+            .evaluate((element) => getComputedStyle(element).animationName),
+        )
+        .toBe("none");
+
+      await iframe.evaluate(() => {
+        const entrance = document.createElement("div");
+        entrance.className = "fade-up";
+        entrance.id = "entrance";
+        entrance.textContent = "Entrance";
+        document.getElementById("loop")!.replaceWith(entrance);
+      });
+
+      await expect
+        .poll(
+          () =>
+            iframe
+              .locator("#entrance")
+              .evaluate((element) => getComputedStyle(element).opacity),
+          { timeout: 5_000 },
+        )
+        .toBe("1");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("freezes a hover-started ::after loop on a host whose own loop is already frozen", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><head><style>
+        #host { width: 120px; height: 40px; animation: spin 1s linear infinite; }
+        #host::after { content: "Badge"; display: inline-block; }
+        #host:hover::after { animation: pulse 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { to { opacity: 0.2; } }
+      </style></head><body><div id="host">Host</div></body></html>`);
+      await page.addScriptTag({ content: editingSafetyBridgeScript(true) });
+
+      await expect
+        .poll(() =>
+          page
+            .locator("#host")
+            .evaluate((element) => getComputedStyle(element).animationName),
+        )
+        .toBe("none");
+
+      await page.locator("#host").hover();
+
+      await expect
+        .poll(() =>
+          page
+            .locator("#host")
+            .evaluate(
+              (element) => getComputedStyle(element, "::after").animationName,
+            ),
+        )
+        .toBe("none");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it.each([true, false])(
+    "plays authored entrance animations to completion with editing safety %s",
+    async (enabled) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<iframe id="preview"></iframe>`);
+        const iframe = page.frames()[1];
+        if (!iframe) throw new Error("Preview iframe did not load");
+        await iframe.setContent(`<!doctype html><html><head><style>
+          .fade-up, #hero::before, #hero::after {
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fade-up 1s ease forwards;
+          }
+          #hero::before, #hero::after { content: "Entrance"; }
+          @keyframes fade-up { to { opacity: 1; transform: none; } }
+        </style></head><body><h1 class="fade-up" id="hero">Hero</h1></body></html>`);
+        await iframe.addScriptTag({
+          content: editingSafetyBridgeScript(enabled),
+        });
+
+        await expect
+          .poll(
+            () =>
+              iframe.locator("#hero").evaluate((element) =>
+                [null, "::before", "::after"].map((pseudo) => {
+                  const style = getComputedStyle(element, pseudo);
+                  return { opacity: style.opacity, transform: style.transform };
+                }),
+              ),
+            { timeout: 5_000 },
+          )
+          .toEqual([
+            { opacity: "1", transform: "matrix(1, 0, 0, 1, 0, 0)" },
+            { opacity: "1", transform: "matrix(1, 0, 0, 1, 0, 0)" },
+            { opacity: "1", transform: "matrix(1, 0, 0, 1, 0, 0)" },
+          ]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it("keeps managed timelines editable while finite authored entrances play", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<iframe id="preview"></iframe>`);
+      const iframe = page.frames()[1];
+      if (!iframe) throw new Error("Preview iframe did not load");
+      await iframe.setContent(`<!doctype html><html><head><style>
+        #managed { width: 100px; height: 100px; }
+        #mixed, #conditional { opacity: 0; animation: entrance .1s linear forwards; }
+        #mixed { animation: pulse 5s linear infinite, entrance .1s linear forwards; }
+        #loop { animation-name: pulse; animation-duration: 5s; }
+        .endless { animation-iteration-count: infinite; animation-play-state: paused; }
+        .loop { animation: pulse 5s linear infinite; }
+        .entrance { animation: entrance .1s linear forwards; }
+        @keyframes entrance { to { opacity: 1; } }
+        @keyframes pulse { from { opacity: .5; } to { opacity: 1; } }
+        @keyframes timeline { from { width: 200px; } to { width: 300px; } }
+      </style><style data-agent-native-motion>
+        @supports (display: grid) { #managed { animation: timeline 5s linear both; } }
+        @media (max-width: 0px) { #conditional { animation: timeline 5s linear both; } }
+      </style></head><body>
+        <div id="managed"></div><div id="mixed">Entrance</div>
+        <div id="conditional">Conditional entrance</div><div id="loop" class="endless">Loop</div>
+        <div id="cascade" class="loop entrance">Cascade entrance</div>
+      </body></html>`);
+      await iframe.addScriptTag({ content: editingSafetyBridgeScript() });
+
+      await expect
+        .poll(() =>
+          iframe.locator("#managed").evaluate((element) => {
+            const style = getComputedStyle(element);
+            return [style.animationName, style.width];
+          }),
+        )
+        .toEqual(["none", "100px"]);
+      await iframe.locator("#managed").evaluate((element) => {
+        (element as HTMLElement).style.width = "61px";
+      });
+      expect(
+        await iframe
+          .locator("#managed")
+          .evaluate((element) => getComputedStyle(element).width),
+      ).toBe("61px");
+      await expect
+        .poll(() =>
+          iframe.locator("#mixed").evaluate((element) => {
+            const style = getComputedStyle(element);
+            return [
+              style.animationName,
+              style.animationDuration,
+              style.opacity,
+            ];
+          }),
+        )
+        .toEqual(["none, entrance", "0s, 0.1s", "1"]);
+      expect(
+        await iframe
+          .locator("#loop")
+          .evaluate((element) => getComputedStyle(element).animationDuration),
+      ).toBe("0s");
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#conditional")
+            .evaluate((element) => getComputedStyle(element).opacity),
+        )
+        .toBe("1");
+      await expect
+        .poll(() =>
+          iframe.locator("#cascade").evaluate((element) => {
+            const style = getComputedStyle(element);
+            return [style.animationName, style.opacity];
+          }),
+        )
+        .toEqual(["entrance", "1"]);
+
+      await iframe.evaluate(() => {
+        const style = document.querySelector("style[data-agent-native-motion]");
+        if (!style) throw new Error("Managed timeline style is missing");
+        style.textContent +=
+          "#managed { animation: timeline 10s linear both; }";
+      });
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#managed")
+            .evaluate((element) => getComputedStyle(element).width),
+        )
+        .toBe("61px");
+      await page.evaluate(() => {
+        document
+          .querySelector<HTMLIFrameElement>("#preview")
+          ?.contentWindow?.postMessage(
+            {
+              type: "embedded-canvas-gesture-mode",
+              editingSafetyEnabled: false,
+            },
+            "*",
+          );
+      });
+      await expect
+        .poll(() =>
+          iframe
+            .locator("#managed")
+            .evaluate((element) => getComputedStyle(element).animationName),
+        )
+        .toBe("timeline");
+      expect(
+        await iframe
+          .locator("#loop")
+          .evaluate((element) => getComputedStyle(element).animationDuration),
+      ).toBe("5s");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it(
     "captures Space-drag in the iframe without forwarding host hotkeys unless enabled",
     { timeout: 30_000 },
@@ -332,7 +576,7 @@ describe("editing safety bridge", () => {
   );
 
   it(
-    "freezes authored motion, blocks link/form navigation, and reports full reloads",
+    "preserves authored animations, blocks link/form navigation, and reports full reloads",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -341,9 +585,9 @@ describe("editing safety bridge", () => {
         const page = await browser.newPage();
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.setContent(`<!doctype html><html><head><style>
-          @keyframes drift { to { transform: translateX(20px) } }
-          html, body { animation: drift 3s linear infinite; transition: opacity 1s }
-          #animated { animation: drift 3s linear infinite; transition: opacity 1s }
+          @keyframes drift { to { opacity: 0.8 } }
+          html, body { animation: drift 3s linear forwards; transition: opacity 1s }
+          #animated { animation: drift 3s linear forwards; transition: opacity 1s }
         </style></head><body>
           <a id="link" href="/escaped">Navigate</a>
           <form id="form" action="/submitted" method="post"><button>Submit</button></form>
@@ -363,15 +607,15 @@ describe("editing safety bridge", () => {
         await page.addScriptTag({ content: editingSafetyBridgeScript() });
 
         for (const selector of ["html", "body", "#animated"]) {
-          const frozen = await page.locator(selector).evaluate((element) => {
+          const authored = await page.locator(selector).evaluate((element) => {
             const style = getComputedStyle(element);
             return {
               animationName: style.animationName,
               transitionDuration: style.transitionDuration,
             };
           });
-          expect(frozen.animationName).toBe("none");
-          expect(frozen.transitionDuration).toBe("0s");
+          expect(authored.animationName).toBe("drift");
+          expect(authored.transitionDuration).toBe("0s");
         }
 
         const originalUrl = page.url();
@@ -398,7 +642,7 @@ describe("editing safety bridge", () => {
   );
 
   it(
-    "live-toggles authored animation and transitions between Interact and Design",
+    "keeps authored animations while toggling transition suppression between Interact and Design",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -406,7 +650,7 @@ describe("editing safety bridge", () => {
         const page = await browser.newPage();
         await page.setContent(`<!doctype html><html><head><style>
           @keyframes drift { to { transform: translateX(20px) } }
-          #animated { animation: drift 3s linear infinite; transition: opacity 1s }
+          #animated { animation: drift 3s linear forwards; transition: opacity 1s }
         </style></head><body><div id="animated">Animated</div></body></html>`);
         await page.addScriptTag({ content: editingSafetyBridgeScript(false) });
 
@@ -453,7 +697,7 @@ describe("editing safety bridge", () => {
             }),
           )
           .toEqual({
-            animationName: "none",
+            animationName: "drift",
             transitionDuration: "0s",
             safetyStylePresent: true,
           });

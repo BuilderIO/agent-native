@@ -17,6 +17,7 @@ export {
   getSessionReplayUrl,
   isErrorCaptureInstalled,
   maybeStartSessionReplay,
+  scrubUrl,
   setAnalyticsSessionId,
   setSentryUser,
   setTrackingContentCaptureEnabled,
@@ -44,6 +45,7 @@ export {
   type SessionReplayOptions,
   type SessionReplayStartResult,
   type SessionReplayUrlMatcher,
+  type SessionStatusTrigger,
   type TrackingIdentityUser,
 } from "../analytics.js";
 export { track } from "../track.js";

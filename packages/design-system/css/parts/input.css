@@ -1,0 +1,213 @@
+/*
+ * Part: input
+ *
+ *   <div class="input"                               the frame: edge, fill, focus ring
+ *        data-size="sm|md" data-variant="surface|soft"
+ *        [data-color="accent|gray|danger|warning|success|info"] [data-radius]>
+ *     <input class="input-control"                   Base UI Input
+ *            [data-focused] [data-invalid] [data-disabled] [aria-invalid]>
+ *     <div class="input-slot" [data-side="left|right"]>   an icon, a shortcut, a unit, a button
+ *
+ * Radix Themes' text field on the system's scale: md and sm are the 24 and
+ * 20px control heights. The frame draws the field, so its slots
+ * sit inside the same edge; the input itself is bare. Slots follow the
+ * input in the markup and are placed by `order`: a slot goes before the
+ * text unless it is marked right, and a second unmarked slot goes after
+ * it. A slot's outer padding belongs to what sits at the edge: the text
+ * padding for a unit or a shortcut, and --space-1 for an icon or a button. Surface is the field with an edge, and soft a
+ * tint of the color without one; as in Radix, a surface field keeps neutral
+ * edges in every color.
+ */
+
+@layer components {
+  .input {
+    --control-font-size: var(--control-font-size-3);
+    --control-line-height: var(--control-line-height-3);
+    --_height: var(--control-height-3);
+    --_icon: var(--control-icon-size-3);
+    --_padding: var(--space-2);
+    --_radius: var(--radius-3);
+
+    display: flex;
+    align-items: stretch;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: var(--_height);
+    border-radius: max(
+      calc(var(--_radius) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
+    corner-shape: var(--corner-shape, round);
+    font: inherit;
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    text-align: start;
+    cursor: text;
+    transition-property: background-color, box-shadow;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  /* ---- sizes ---- */
+
+  .input[data-size="sm"] {
+    --control-font-size: var(--control-font-size-2);
+    --control-line-height: var(--control-line-height-2);
+    --_height: var(--control-height-2);
+    --_icon: var(--control-icon-size-2);
+    --_radius: var(--radius-2);
+  }
+
+  /* ---- the input and its slots ---- */
+
+  .input-control {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0 var(--_padding);
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    outline-style: none;
+  }
+
+  .input-control::placeholder {
+    color: var(--fg-subtle);
+    opacity: 1;
+  }
+
+  .input-control::-webkit-search-cancel-button {
+    appearance: none;
+  }
+
+  .input-slot {
+    --_edge: var(--_padding);
+
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--control-gap);
+    box-sizing: border-box;
+    order: -1;
+    padding-inline: var(--_edge) var(--_gap, var(--space-2));
+    color: var(--fg-muted);
+  }
+
+  .input-slot[data-side="right"],
+  .input-slot:not([data-side="right"]) ~ .input-slot:not([data-side="left"]) {
+    order: 0;
+    padding-inline: var(--_gap, var(--space-2)) var(--_edge);
+  }
+
+  .input-slot:has(> svg, > button) {
+    --_edge: var(--space-1);
+  }
+
+  .input[data-size="sm"] .input-slot:has(> svg, > button) {
+    --_gap: var(--space-1);
+  }
+
+  .input .icon-button[data-size] {
+    --_radius: var(--radius-1);
+    width: var(--control-height-1);
+    height: var(--control-height-1);
+  }
+
+  .input-slot svg {
+    flex-shrink: 0;
+    width: var(--_icon);
+    height: var(--_icon);
+  }
+
+  .input-control:has(~ .input-slot:not([data-side="right"])) {
+    padding-inline-start: 0;
+  }
+
+  .input-control:has(
+    ~ .input-slot[data-side="right"],
+    ~ .input-slot:not([data-side="right"]) ~ .input-slot:not([data-side="left"])
+  ) {
+    padding-inline-end: 0;
+  }
+
+  /* ---- variants ---- */
+
+  .input[data-variant="surface"] {
+    background-color: var(--fill-field);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    color: var(--fg-default);
+  }
+
+  .input[data-variant="soft"] {
+    background-color: var(--accent-a3);
+    color: var(--accent-12);
+  }
+
+  .input[data-variant="soft"] .input-control::placeholder {
+    color: var(--accent-text);
+  }
+
+  .input[data-variant="soft"] .input-slot {
+    color: var(--accent-text);
+  }
+
+  @media (hover: hover) {
+    .input[data-variant="surface"]:hover {
+      box-shadow: inset 0 0 0 1px var(--gray-a8);
+    }
+  }
+
+  .input:has(.input-control:focus-visible) {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- invalid and disabled ---- */
+
+  .input:has(.input-control:is([data-invalid], [aria-invalid="true"])) {
+    box-shadow: inset 0 0 0 1px var(--fill-danger);
+  }
+
+  .input:has(
+    .input-control:is([data-invalid], [aria-invalid="true"]):focus-visible
+  ) {
+    outline-color: var(--fill-danger);
+  }
+
+  .input:has(.input-control:disabled) {
+    cursor: not-allowed;
+    color: var(--fg-disabled);
+  }
+
+  .input:has(.input-control:disabled) :is(.input-control, .input-slot) {
+    cursor: not-allowed;
+  }
+
+  .input:has(.input-control:disabled) .input-control::placeholder,
+  .input:has(.input-control:disabled) .input-slot {
+    color: var(--fg-disabled);
+  }
+
+  .input[data-variant="surface"]:has(.input-control:disabled) {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+
+  .input[data-variant="soft"]:has(.input-control:disabled) {
+    background-color: var(--gray-a3);
+  }
+  @media (forced-colors: active) {
+    .input {
+      border: 1px solid ButtonText;
+    }
+    .input:focus-within {
+      outline: var(--focus-ring-width) solid Highlight;
+      outline-offset: calc(-1 * var(--focus-ring-width));
+    }
+  }
+}

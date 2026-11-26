@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, nowIso } from "../server/lib/brain.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 
 const DEFAULT_PROJECT_SETTING = "brain-default-project";
 
@@ -23,6 +24,9 @@ export default defineAction({
     description: z.string().optional(),
     sourceIds: z.array(z.string().min(1)).optional(),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) && args.operation === "delete",
+  mcpTool: "search",
   run: async (args) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");
@@ -95,7 +99,10 @@ async function replaceProjectSources(projectId: string, sourceIds: string[]) {
       .from(schema.brainSources)
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           inArray(schema.brainSources.id, unique),
         ),
       );

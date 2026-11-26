@@ -6,6 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tabler/icons-react", () => ({
   IconMessageFilled: () => <span data-icon-comment />,
+  // The review kit's comment box loads its formatting bar's icons.
+  IconBold: () => null,
+  IconCheck: () => null,
+  IconCode: () => null,
+  IconItalic: () => null,
+  IconLink: () => null,
+  IconStrikethrough: () => null,
+  IconUnlink: () => null,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({

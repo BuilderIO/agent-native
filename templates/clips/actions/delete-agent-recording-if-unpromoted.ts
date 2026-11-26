@@ -1,9 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  liveRecordingComments,
+  reviewComments,
+} from "../server/lib/recording-comments.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import deleteRecordingPermanent from "./delete-recording-permanent.js";
 
@@ -11,6 +15,7 @@ export default defineAction({
   description:
     "Delete an expired agent-created Clip only if it is still private and has not been renamed, shared, commented on, reacted to, tagged, archived, or trashed.",
   schema: z.object({ id: z.string() }),
+  mcpTool: false,
   run: async ({ id }) => {
     assertRecordingNotExpired(await assertAccess("recording", id, "editor"));
     const db = getDb();
@@ -27,9 +32,9 @@ export default defineAction({
         .where(eq(schema.recordingShares.resourceId, id))
         .limit(1),
       db
-        .select({ id: schema.recordingComments.id })
-        .from(schema.recordingComments)
-        .where(eq(schema.recordingComments.recordingId, id))
+        .select({ id: reviewComments.id })
+        .from(reviewComments)
+        .where(and(liveRecordingComments(), eq(reviewComments.resourceId, id)))
         .limit(1),
       db
         .select({ id: schema.recordingReactions.id })

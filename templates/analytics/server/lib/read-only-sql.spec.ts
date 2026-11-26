@@ -1,7 +1,7 @@
+import { PANEL_DRILLDOWN_MAX_SQL_LENGTH } from "@agent-native/toolkit/dashboard/panel-drilldown";
 import { describe, expect, it } from "vitest";
 
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
-import { PANEL_DRILLDOWN_MAX_SQL_LENGTH } from "../../shared/panel-drilldown";
 import {
   assertRecordTemplateLiteralContexts,
   assertReadOnlySql,

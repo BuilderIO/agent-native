@@ -130,3 +130,57 @@ it("keeps a public consumer's edit until its live-copy outcome is acknowledged",
   expect(storedUpdates()).toEqual([]);
   expect(server.getText("t").toString()).toBe("public edit");
 });
+
+it("lets a flush of the edits so far end while typing goes on", async () => {
+  const send = globalThis.fetch;
+  const held: Array<() => void> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (/\/collab\/[^/]+\/update/.test(String(input)))
+        await new Promise<void>((release) => held.push(release));
+      return send(input, init);
+    }),
+  );
+  await act(async () => {
+    root.render(
+      <Consumer
+        options={{
+          docId: "flush-edits-so-far",
+          user: { name: "Ada", email: "ada@example.com", color: "#123456" },
+        }}
+      />,
+    );
+    await vi.advanceTimersByTimeAsync(50);
+  });
+  const settled: { soFar?: boolean; all?: boolean } = {};
+  await act(async () => {
+    ready().ydoc.getText("t").insert(0, "saved ");
+    void ready()
+      .flushUpdates({ editsSoFar: true })
+      .then((delivered) => (settled.soFar = delivered));
+    void ready()
+      .flushUpdates()
+      .then((delivered) => (settled.all = delivered));
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(held).toHaveLength(1);
+  expect(settled).toEqual({});
+
+  // The next keystroke lands while the first post is still on its way.
+  await act(async () => {
+    ready().ydoc.getText("t").insert(6, "typing ");
+    held.shift()?.();
+    await vi.advanceTimersByTimeAsync(100);
+  });
+  expect(settled).toEqual({ soFar: true });
+  expect(server.getText("t").toString()).toBe("saved ");
+  expect(held).toHaveLength(1);
+
+  await act(async () => {
+    held.shift()?.();
+    await vi.advanceTimersByTimeAsync(100);
+  });
+  expect(settled).toEqual({ soFar: true, all: true });
+  expect(server.getText("t").toString()).toBe("saved typing ");
+});

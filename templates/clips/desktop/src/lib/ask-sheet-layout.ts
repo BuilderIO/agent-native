@@ -1,4 +1,4 @@
-export const ASK_SHEET_DEFAULT = 0.45;
+export const ASK_SHEET_DEFAULT = 0.6;
 export const ASK_SHEET_MIN = 0.2;
 export const ASK_SHEET_MAX = 0.7;
 export const TRANSCRIPT_MIN_PX = 104;
@@ -24,13 +24,43 @@ export function isPinnedToBottom(metrics: {
   );
 }
 
+export interface AskSheetPanel {
+  height: number;
+  reservedPx: number;
+}
+
+export function measureAskSheetPanel(
+  sheet: HTMLElement | null,
+): AskSheetPanel | null {
+  const panel = sheet?.parentElement;
+  if (!sheet || !panel) return null;
+  let reservedPx = 0;
+  for (const child of Array.from(panel.children)) {
+    if (
+      child === sheet ||
+      !(child instanceof HTMLElement) ||
+      child.classList.contains("pill-transcript-area")
+    ) {
+      continue;
+    }
+    const style = getComputedStyle(child);
+    if (style.position === "fixed" || style.position === "absolute") continue;
+    reservedPx +=
+      child.offsetHeight +
+      (parseFloat(style.marginTop) || 0) +
+      (parseFloat(style.marginBottom) || 0);
+  }
+  return { height: panel.clientHeight, reservedPx };
+}
+
 export function clampAskSheetHeight(
   fraction: number,
   panelHeight: number,
+  reservedPx = 0,
 ): number {
   const roomForTranscript =
     panelHeight > 0
-      ? (panelHeight - TRANSCRIPT_MIN_PX) / panelHeight
+      ? (panelHeight - reservedPx - TRANSCRIPT_MIN_PX) / panelHeight
       : ASK_SHEET_MAX;
   const max = Math.max(
     ASK_SHEET_MIN,

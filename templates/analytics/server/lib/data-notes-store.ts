@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
+import { isIsoCalendarDate } from "@agent-native/toolkit/dashboard/panel-events";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 
 import {
@@ -14,7 +15,6 @@ import {
   type DataNotePanelRef,
   type DataNoteStatus,
 } from "../../shared/data-notes.js";
-import { isIsoCalendarDate } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
   failIfChangedSince,

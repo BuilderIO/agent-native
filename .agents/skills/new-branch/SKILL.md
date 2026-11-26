@@ -13,7 +13,11 @@ metadata:
 
 # New Branch
 
-Creating or switching branches never needs permission. In a checkout other
+Creating or switching branches never needs permission, but a branch is for
+new work, not for the next change of a flow already on a branch. A whole demo
+flow or batch of rows is one branch and one PR with one commit per change, so
+mid-flow work goes on the existing branch, and a new branch starts only after
+that flow's PR merges. In a checkout other
 sessions are using, branch in a new worktree instead of switching that
 checkout's branch under them. Platform-assigned Builder.io and Fusion branches
 stay where they are. Never move a branch that another worktree has checked out
@@ -63,7 +67,8 @@ until it has changes to ship.
 
 ## After a merge
 
-Rotate only when the PR merged, the tree is clean, and nothing is unpushed.
+Rotate only when the flow's PR merged, the tree is clean, and nothing is
+unpushed.
 
 ```bash
 git fetch origin --quiet || { echo "fetch failed: keeping this branch" >&2; exit 1; }

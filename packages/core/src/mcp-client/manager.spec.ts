@@ -10,6 +10,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
+  mcpToolCallWasNotSent,
   fetchMcpOriginBound,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
@@ -1007,6 +1008,38 @@ describe("McpClientManager", () => {
     expect(callImpl).toHaveBeenCalledWith("mutate", args);
   });
 
+  it("marks refusals raised before sending, and only those, as not sent", async () => {
+    serverFixtures["marked-bin"] = {
+      tools: [{ name: "mutate" }],
+      callImpl: () => {
+        throw new Error("socket hang up");
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { marked: { command: "marked-bin" } },
+    });
+    await mgr.start();
+    const outcome = (call: Promise<unknown>) =>
+      call.then(
+        () => "resolved",
+        (error: unknown) => mcpToolCallWasNotSent(error),
+      );
+
+    expect(
+      await outcome(
+        mgr.callTool(
+          "mcp__marked__mutate",
+          {},
+          { authorize: async () => false },
+        ),
+      ),
+    ).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__marked__missing", {}))).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__absent__mutate", {}))).toBe(true);
+    expect(await outcome(mgr.callTool("mcp__marked__mutate", {}))).toBe(false);
+    expect(mcpToolCallWasNotSent(new Error("Not authorized"))).toBe(false);
+  });
+
   it("keeps a call's own authorization when the manager resolver has no policy", async () => {
     const callImpl = vi.fn(() => ({ content: [] }));
     serverFixtures["secured-bin"] = {
@@ -1078,7 +1111,7 @@ describe("McpClientManager", () => {
   it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
     let calls = 0;
     serverFixtures["http https://93.184.216.34/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => {
         calls += 1;
         if (calls <= 2) {
@@ -1115,7 +1148,7 @@ describe("McpClientManager", () => {
       secondStarted = resolve;
     });
     serverFixtures["http https://93.184.216.34/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: async () => {
         calls += 1;
         if (calls === 1) {
@@ -1204,7 +1237,11 @@ describe("McpClientManager", () => {
     await mgr.start();
 
     await expect(
-      mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
+      mgr.callTool(
+        "mcp__remote__mutate",
+        { recordId: "record-1" },
+        { retryOnDisconnect: true },
+      ),
     ).resolves.toEqual({ content: [{ type: "text", text: "updated" }] });
     expect(authorize).toHaveBeenCalledTimes(2);
     expect(calls).toBe(2);
@@ -1233,7 +1270,11 @@ describe("McpClientManager", () => {
     await mgr.start();
 
     await expect(
-      mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
+      mgr.callTool(
+        "mcp__remote__mutate",
+        { recordId: "record-1" },
+        { retryOnDisconnect: true },
+      ),
     ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
     expect(authorize).toHaveBeenCalledTimes(2);
     expect(calls).toBe(1);
@@ -1602,13 +1643,13 @@ describe("McpClientManager", () => {
 
   it("does not replay an expired request onto a reconfigured server", async () => {
     serverFixtures["http https://old.example.com/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => {
         throw Object.assign(new Error("session expired"), { status: 404 });
       },
     };
     serverFixtures["http https://new.example.com/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => ({ content: [{ type: "text", text: "new" }] }),
     };
     const mgr = new McpClientManager({
@@ -1953,6 +1994,39 @@ describe("McpClientManager", () => {
     } finally {
       FakeClient.prototype.connect = origConnect;
       vi.useRealTimers();
+    }
+  });
+
+  it("abandons a stalled connect and closes its transport when the caller aborts", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      await origConnect.call(this, transport);
+      await new Promise(() => {
+        // Intentionally never resolves.
+      });
+    };
+
+    try {
+      const abort = new AbortController();
+      const mgr = new McpClientManager(
+        {
+          servers: {
+            stalled: { type: "http", url: "https://stalled.example.com/mcp" },
+          },
+        },
+        { signal: abort.signal, connectTimeoutMs: 60_000 },
+      );
+      const start = mgr.start();
+      await Promise.resolve();
+      abort.abort(new Error("caller gave up"));
+      await start;
+
+      expect(mgr.connectedServers).toEqual([]);
+      expect(
+        (fakeClients.at(-1)?.getTransport() as FakeHttp | undefined)?.closed,
+      ).toBe(true);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
     }
   });
 

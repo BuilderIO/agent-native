@@ -26,7 +26,9 @@ async function currentStateTab(): Promise<{
   const target = await run?.browserTabTarget?.resolve();
   if (!target) return { tabId: null, unavailable: false };
   const tabId =
-    target.kind === "last-used" ? normalizeBrowserTabId(target.tabId) : null;
+    target.kind === "requested" || target.kind === "last-used"
+      ? normalizeBrowserTabId(target.tabId)
+      : null;
   return { tabId, unavailable: !tabId };
 }
 

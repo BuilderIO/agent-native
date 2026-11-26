@@ -9,6 +9,10 @@ import { CommentComposer } from "./CommentComposer";
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [], isError: false, refetch: vi.fn() }),
 }));
+vi.mock("./comment-images", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./comment-images")>()),
+  useCommentImageStorage: () => true,
+}));
 
 describe("CommentComposer", () => {
   let container: HTMLDivElement | null = null;

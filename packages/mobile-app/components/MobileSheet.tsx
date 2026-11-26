@@ -26,6 +26,7 @@ type MobileSheetMotion = "popover" | "sheet";
 export function MobileSheet({
   visible,
   onClose,
+  onShow,
   children,
   side = "bottom",
   motion = "popover",
@@ -37,6 +38,7 @@ export function MobileSheet({
 }: {
   visible: boolean;
   onClose: () => void;
+  onShow?: () => void;
   children: React.ReactNode;
   side?: MobileSheetSide;
   motion?: MobileSheetMotion;
@@ -176,6 +178,7 @@ export function MobileSheet({
       animationType="none"
       transparent
       onRequestClose={onClose}
+      onShow={onShow}
     >
       <ModalSafeAreaProvider style={{ flex: 1 }}>
         <View className="flex-1">

@@ -11,6 +11,15 @@ import {
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
+import {
+  editorBlockIdsOf,
+  type EditorBlockIds,
+} from "../../shared/block-identity-ids.js";
+import {
+  rebaseBodyEdit,
+  type BodyTextRange,
+} from "../../shared/body-rebase.js";
+import { newlySharedCommentAnchorIds } from "../../shared/comment-block-anchor.js";
 import { commentAnchorTextOf } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { bodyHoldsChanges } from "../../shared/document-intent-merge.js";
@@ -19,6 +28,7 @@ import {
   materializeLiveBody,
 } from "../../shared/live-body.js";
 import {
+  appendNfmBlocks,
   docToNfm,
   nfmToDoc,
   parseNfmWithLosses,
@@ -29,9 +39,9 @@ import {
   applySuggestionEdit,
   type ApplySuggestionInput,
 } from "./apply-suggestion-edit.js";
-import { rebaseBodyEdit, type BodyTextRange } from "./rebase.js";
 import {
   CONTENT_ANCHOR_TEXT_TASK,
+  CONTENT_BLOCK_IDS_TASK,
   CONTENT_HOLDS_BODY_TASK,
   type HoldsBodyResult,
 } from "./task-names.js";
@@ -181,6 +191,14 @@ function bodyEdit(value: unknown): BodyEdit | undefined {
   return { base, candidate, authored: ranges };
 }
 
+function appendBodyInput(input: unknown): string | LiveCopyTaskRefusal {
+  const blocks = (input as { blocks?: unknown } | null)?.blocks;
+  if (typeof blocks !== "string" || !blocks.trim()) {
+    return refused("invalid_input", "expected { blocks } as a nonempty string");
+  }
+  return blocks;
+}
+
 function rebaseBodyInput(input: unknown): BodyEdit | LiveCopyTaskRefusal {
   return (
     bodyEdit(input) ??
@@ -320,6 +338,21 @@ const liveCopyTasks = defineLiveCopyTasks({
       updateYFragment(doc, fragment, root, meta);
     },
 
+    "append-body"(doc, field, input) {
+      const blocks = appendBodyInput(input);
+      if (isRefusal(blocks)) return blocks;
+      const current = deriveBody(doc, field);
+      if (isRefusal(current)) return current;
+      const next = appendNfmBlocks(current, blocks);
+      const [sharedId] = newlySharedCommentAnchorIds(current, next);
+      if (sharedId) return refused("video_id_shared", sharedId);
+      const root = buildBody(next);
+      if (isRefusal(root)) return root;
+      const fragment = doc.getXmlFragment(field);
+      const { meta } = initProseMirrorDoc(fragment, schema());
+      updateYFragment(doc, fragment, root, meta);
+    },
+
     /** Accepts suggestions; see `applySuggestionEdit`. */
     [APPLY_SUGGESTION_EDIT](doc, field, input) {
       const parsed = applySuggestionInput(input);
@@ -339,6 +372,25 @@ export const tasks = {
     // serialization says what the save holds.
     if (!isCanonical(candidate)) return "noncanonical";
     return bodyHoldsChanges(base, stored, candidate) ? "held" : "unheld";
+  },
+  async [CONTENT_BLOCK_IDS_TASK](
+    input: unknown,
+  ): Promise<EditorBlockIds | null> {
+    const state = (input as { state?: unknown } | null)?.state;
+    if (!(state instanceof Uint8Array)) {
+      throw new TypeError("expected { state } as a Uint8Array");
+    }
+    const doc = new Y.Doc();
+    try {
+      Y.applyUpdate(doc, state);
+      const fragment = doc.getXmlFragment(LIVE_BODY_FIELD);
+      if (fragment.length === 0) return null;
+      return editorBlockIdsOf(
+        yXmlFragmentToProseMirrorRootNode(fragment, schema()).toJSON(),
+      );
+    } finally {
+      doc.destroy();
+    }
   },
   /** The text comment quotes on a live copy were captured from; see `liveCopyAnchorText`. */
   async [CONTENT_ANCHOR_TEXT_TASK](input: unknown): Promise<string | null> {

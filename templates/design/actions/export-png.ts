@@ -1,7 +1,10 @@
 import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
 import {
   trackDesignExported,
   withDesignExportFailureTracking,
@@ -10,6 +13,7 @@ import {
   sampleContactValuesSchema,
   type SampleContactValues,
 } from "../server/lib/hubspot-email-preview.js";
+import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import takeDesignScreenshot, {
   getScreenshotPngData,
 } from "./take-design-screenshot.js";
@@ -22,6 +26,99 @@ function suggestedPngFilename(filename: string): string {
     ?.replace(/\.[^.]+$/, "")
     .replace(/[^a-zA-Z0-9_-]/g, "-");
   return `${base || "screen"}.png`;
+}
+
+const DEFAULT_WIDTH_PX = 1440;
+const MIN_WIDTH_PX = 200;
+const MAX_WIDTH_PX = 3840;
+
+function unreadableDesignData(): NoWriteError {
+  return new NoWriteError(
+    "The design's stored data could not be read, so the screen's authored frame width is unknown. " +
+      "Pass width to export at an explicit width.",
+    { errorCode: "design_data_unreadable", statusCode: 422 },
+  );
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// screenMetadata holds the screen's real viewport width; a canvas frame can be
+// a scaled-down overview size of it (new overview frames are 320px wide), so
+// the frame only answers when the screen has no metadata width.
+function authoredWidthPx(
+  data: Record<string, unknown>,
+  fileId: string,
+): number | undefined {
+  const metadata = data.screenMetadata;
+  if (metadata !== undefined && !isPlainRecord(metadata)) {
+    throw unreadableDesignData();
+  }
+  const entry = metadata?.[fileId];
+  if (entry !== undefined && !isPlainRecord(entry)) {
+    throw unreadableDesignData();
+  }
+  const metadataWidth = entry?.width;
+  if (
+    typeof metadataWidth === "number" &&
+    Number.isFinite(metadataWidth) &&
+    metadataWidth > 0
+  ) {
+    return metadataWidth;
+  }
+  return parseCanvasFrameGeometryById(data.canvasFrames)[fileId]?.width;
+}
+
+function frameWidthPx(row: { fileId: string; data: string }) {
+  let data: unknown;
+  try {
+    data = JSON.parse(row.data);
+  } catch {
+    throw unreadableDesignData();
+  }
+  if (!isPlainRecord(data)) {
+    throw unreadableDesignData();
+  }
+  const width = authoredWidthPx(data, row.fileId);
+  return width !== undefined && width > 0
+    ? Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, Math.round(width)))
+    : undefined;
+}
+
+// A screen the caller cannot read is also undefined here: the screenshot does
+// its own access-filtered lookup and reports it as not found.
+async function authoredFrameWidthPx({
+  designId,
+  fileId,
+  filename,
+}: {
+  designId: string | undefined;
+  fileId: string | undefined;
+  filename: string;
+}): Promise<number | undefined> {
+  const rows = await getDb()
+    .select({ fileId: schema.designFiles.id, data: schema.designs.data })
+    .from(schema.designFiles)
+    .innerJoin(
+      schema.designs,
+      eq(schema.designFiles.designId, schema.designs.id),
+    )
+    .where(
+      and(
+        accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+          includePublic: true,
+        }),
+        fileId
+          ? eq(schema.designFiles.id, fileId)
+          : and(
+              eq(schema.designFiles.designId, designId ?? ""),
+              eq(schema.designFiles.filename, filename),
+            ),
+      ),
+    )
+    .limit(1);
+  return rows.map(frameWidthPx)[0];
 }
 
 const trackPngExportFailures = withDesignExportFailureTracking<{
@@ -42,8 +139,9 @@ export default defineAction({
     "Screens with enabled native WebGPU effects require the foreground " +
     "request-native-local-export action in an open editor tab; this " +
     "headless action fails typed for those screens rather than returning " +
-    "pixels without the effect. Other screens render at 1440px wide " +
-    "by default and full-page height. Optional templatePreview=hubspot-email uses fake sample template values for browser-layout proof, not HubSpot compilation or inbox rendering; source and HTML export remain unchanged.",
+    "pixels without the effect. Other screens render at the screen's " +
+    "authored frame width by default (1440px when it has none), 2x pixel " +
+    "density and full-page height. Optional templatePreview=hubspot-email uses fake sample template values for browser-layout proof, not HubSpot compilation or inbox rendering; source and HTML export remain unchanged.",
   schema: z
     .object({
       designId: z
@@ -77,10 +175,12 @@ export default defineAction({
       width: z.coerce
         .number()
         .int()
-        .min(200)
-        .max(3840)
+        .min(MIN_WIDTH_PX)
+        .max(MAX_WIDTH_PX)
         .optional()
-        .describe("Render viewport width in pixels. Defaults to 1440."),
+        .describe(
+          "Render viewport width in pixels. Defaults to the screen's authored frame width, else 1440. An explicit width always wins.",
+        ),
       height: z.coerce
         .number()
         .int()
@@ -117,12 +217,16 @@ export default defineAction({
       templatePreview,
       sampleContactValues,
     } = args;
+    const widthPx =
+      width ??
+      (await authoredFrameWidthPx({ designId, fileId, filename })) ??
+      DEFAULT_WIDTH_PX;
     const result = await takeDesignScreenshot.run(
       {
         ...(designId ? { designId } : {}),
         ...(fileId ? { fileId } : {}),
         filename,
-        widths: [width ?? 1440],
+        widths: [widthPx],
         ...(templatePreview ? { templatePreview } : {}),
         ...(sampleContactValues === undefined ? {} : { sampleContactValues }),
         ...(height === undefined ? {} : { heights: [height] }),

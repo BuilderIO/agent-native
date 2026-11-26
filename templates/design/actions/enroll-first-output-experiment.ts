@@ -15,6 +15,7 @@ const EXPERIMENT_ID = "design_first_output_next_step_v1";
 export default defineAction({
   description:
     "Enroll the signed-in user in the first output next-step experiment.",
+  automatic: true,
   schema: z.object({
     outputId: z.string().min(1),
     runId: z.string().min(1),

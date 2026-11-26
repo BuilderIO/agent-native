@@ -687,3 +687,212 @@ describe("BuilderSourceReviewDialog row selection", () => {
     expect(onCancelPrepared).toHaveBeenCalledWith("change-1");
   });
 });
+
+describe("BuilderSourceReviewDialog batched loading", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.replaceChildren();
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  const rowsOf = (count: number) => ({
+    ...review,
+    rows: review.rows.slice(0, count),
+    totalRowCount: count,
+  });
+  const rowBoxes = () =>
+    Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="checkbox"]'),
+    );
+  const renderDialog = (
+    props: Partial<Parameters<typeof BuilderSourceReviewDialog>[0]>,
+  ) =>
+    act(() => {
+      root.render(
+        <BuilderSourceReviewDialog
+          open
+          review={rowsOf(2)}
+          source={source}
+          canEdit
+          pending={false}
+          checkedAt={null}
+          onClose={vi.fn()}
+          onValidate={vi.fn()}
+          {...props}
+        />,
+      );
+    });
+
+  it("keeps loaded rows usable while later pages load", () => {
+    renderDialog({ loadProgress: { kind: "loading", pageCount: 3 } });
+
+    expect(rowBoxes()).toHaveLength(2);
+    expect(rowBoxes().every((box) => !box.disabled)).toBe(true);
+    expect(
+      document.body.querySelector('[aria-live="polite"]')?.textContent,
+    ).toContain('database.builderReviewLoadingMorePages:{"count":3}');
+  });
+
+  it("says when a whole-source review is still finding its pages", () => {
+    renderDialog({ loadProgress: { kind: "listing", pageCount: 0 } });
+
+    expect(rowBoxes().every((box) => !box.disabled)).toBe(true);
+    expect(
+      document.body.querySelector('[aria-live="polite"]')?.textContent,
+    ).toContain("database.builderReviewFindingPages");
+  });
+
+  it("locks rows until the first batch has loaded", () => {
+    renderDialog({ loading: true });
+
+    expect(rowBoxes().every((box) => box.disabled)).toBe(true);
+  });
+
+  it("explains a failed batch and loads it again on Retry", () => {
+    const onRetryLoad = vi.fn();
+    renderDialog({ loadError: "Network down", onRetryLoad });
+
+    const alert = document.body.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain(
+      'database.builderReviewLoadFailed:{"message":"Network down"}',
+    );
+    expect(rowBoxes().every((box) => !box.disabled)).toBe(true);
+    const retry = Array.from(alert?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent === "database.retry",
+    );
+    act(() => retry?.click());
+    expect(onRetryLoad).toHaveBeenCalledOnce();
+  });
+
+  it("waits to check until every row has loaded", () => {
+    const cta = () =>
+      Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent.includes("Review details"));
+    renderDialog({
+      autoSelectReviewRows: true,
+      loadProgress: { kind: "loading", pageCount: 3 },
+    });
+    expect(cta()?.disabled).toBe(true);
+
+    renderDialog({ autoSelectReviewRows: true, loadError: "Network down" });
+    expect(cta()?.disabled).toBe(true);
+
+    renderDialog({ autoSelectReviewRows: true });
+    expect(cta()?.disabled).toBe(false);
+  });
+
+  it("holds Retry while a request is running", () => {
+    renderDialog({
+      loadError: "Network down",
+      onRetryLoad: vi.fn(),
+      pending: true,
+    });
+
+    const retry = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "database.retry");
+    expect(retry?.disabled).toBe(true);
+  });
+
+  it("selects rows that load later until the reviewer changes the selection", () => {
+    const checked = () =>
+      rowBoxes().map((box) => box.getAttribute("data-state"));
+    renderDialog({ review: rowsOf(1), autoSelectReviewRows: true });
+    expect(checked()).toEqual(["checked"]);
+
+    renderDialog({ review: rowsOf(2), autoSelectReviewRows: true });
+    expect(checked()).toEqual(["checked", "checked"]);
+
+    act(() => rowBoxes()[0]?.click());
+    renderDialog({ review: rowsOf(3), autoSelectReviewRows: true });
+    expect(checked()).toEqual(["unchecked", "checked", "unchecked"]);
+
+    act(() => rowBoxes()[1]?.click());
+    renderDialog({ autoSelectReviewRows: true });
+    expect(checked()).toEqual(["unchecked", "unchecked"]);
+  });
+
+  it("selects nothing new when every row the reviewer kept drops out", () => {
+    const checked = () =>
+      rowBoxes().map((box) => box.getAttribute("data-state"));
+    renderDialog({ review: rowsOf(3), autoSelectReviewRows: true });
+    act(() => rowBoxes()[0]?.click());
+    act(() => rowBoxes()[2]?.click());
+    expect(checked()).toEqual(["unchecked", "checked", "unchecked"]);
+
+    renderDialog({
+      review: {
+        ...review,
+        rows: [reviewRow(0), reviewRow(2)],
+        totalRowCount: 2,
+      },
+      autoSelectReviewRows: true,
+    });
+    expect(checked()).toEqual(["unchecked", "unchecked"]);
+  });
+
+  it("shows a body's changed lines with the changed words marked", () => {
+    const bodyRow = {
+      ...reviewRow(0),
+      effect: "update_in_place",
+      bodyChange: {
+        summary: "Builder body changed.",
+        currentExcerpt: "Intro",
+        proposedExcerpt: "Intro",
+        currentHash: null,
+        proposedHash: null,
+        warnings: [],
+      },
+      bodyDiff: {
+        hunks: [
+          {
+            lines: [
+              { kind: "same", text: "Intro" },
+              {
+                kind: "removed",
+                text: "Old line",
+                changedFrom: 0,
+                changedTo: 3,
+              },
+              { kind: "added", text: "New line", changedFrom: 0, changedTo: 3 },
+            ],
+            omittedLineCount: 0,
+          },
+        ],
+        omittedHunkCount: 1,
+        addedLineCount: 1,
+        removedLineCount: 1,
+      },
+    } as ContentDatabaseSourceReviewPayload["rows"][number];
+    renderDialog({ review: { ...review, rows: [bodyRow], totalRowCount: 1 } });
+
+    const comparison = document.body.querySelector(
+      '[aria-label="database.bodyChangeComparison"]',
+    );
+    expect(
+      Array.from(comparison?.querySelectorAll("mark") ?? []).map(
+        (mark) => mark.textContent,
+      ),
+    ).toEqual(["Old", "New"]);
+    expect(comparison?.textContent).toContain("database.bodyDiffRemoved");
+    expect(comparison?.textContent).toContain("database.bodyDiffAdded");
+    expect(comparison?.textContent).toContain(
+      'database.bodyDiffMoreChangesOne:{"count":1}',
+    );
+  });
+});

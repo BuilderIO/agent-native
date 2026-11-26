@@ -16,6 +16,7 @@ import {
   CALENDAR_BOOKING_CANCELLED_HOST_EMAIL_ID,
   CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
   CALENDAR_BOOKING_RECEIVED_EMAIL_ID,
+  CALENDAR_BOOKING_REMINDER_EMAIL_ID,
 } from "./emails.js";
 
 function stripCrlf(value: string | undefined): string {
@@ -47,11 +48,13 @@ export function formatBookingWhen(
   return `${dateFormatter.format(start)}, ${timeFormatter.format(start)} - ${timeFormatter.format(end)}`;
 }
 
-function bookingTitle(booking: Booking) {
+function bookingTitle(booking: Pick<Booking, "eventTitle">) {
   return stripCrlf(booking.eventTitle) || "Meeting";
 }
 
-function bookingAttendeeEmails(booking: Booking): string[] {
+function bookingAttendeeEmails(
+  booking: Pick<Booking, "email" | "additionalGuestEmails">,
+): string[] {
   const seen = new Set<string>();
   return [
     stripCrlf(booking.email),
@@ -67,12 +70,14 @@ function bookingAttendeeEmails(booking: Booking): string[] {
 async function sendBestEffort(
   label: string,
   args: Parameters<typeof sendEmail>[0],
-) {
-  if (!(await isEmailConfigured())) return;
+): Promise<boolean> {
+  if (!(await isEmailConfigured())) return false;
   try {
     await sendEmail(args);
+    return true;
   } catch (error) {
     console.warn(`[calendar booking email] failed to send ${label}:`, error);
+    return false;
   }
 }
 
@@ -154,6 +159,47 @@ export function renderBookingReceivedEmail({
       ],
       cta: { label: "View booking", url: manageUrl },
       footer: "This booking was created from your calendar booking link.",
+    }),
+  };
+}
+
+export function renderBookingReminderEmail({
+  title,
+  when,
+  host,
+  manageUrl,
+  meetingLink,
+  meetingLinkPending = false,
+}: {
+  title: string;
+  when: string;
+  host: string;
+  manageUrl?: string | null | undefined;
+  meetingLink?: string | null | undefined;
+  meetingLinkPending?: boolean | undefined;
+}) {
+  const paragraphs = [
+    `This is a reminder of ${emailStrong(title)} with ${emailStrong(host)}.`,
+    `Time: ${emailStrong(when)}.`,
+  ];
+  if (meetingLink) {
+    paragraphs.push(`Meeting link: ${emailLink("Join meeting", meetingLink)}.`);
+  } else if (meetingLinkPending) {
+    paragraphs.push("The host will follow up with meeting details.");
+  }
+
+  return {
+    subject: `Reminder: ${title}`,
+    ...renderEmail({
+      preheader: `${title} with ${host} is on ${when}.`,
+      heading: "Your meeting is coming up",
+      paragraphs,
+      ...(manageUrl
+        ? { cta: { label: "Manage booking", url: manageUrl } }
+        : {}),
+      footer: manageUrl
+        ? "Use the manage link if you need to cancel or reschedule this meeting."
+        : "If you can't make it, reply to this email to let the host know.",
     }),
   };
 }
@@ -306,4 +352,52 @@ export async function sendBookingCancellationEmails({
     replyTo: attendee,
     templateId: CALENDAR_BOOKING_CANCELLED_HOST_EMAIL_ID,
   });
+}
+
+export async function sendBookingReminderEmails({
+  booking,
+  hostEmail,
+  manageUrl,
+  timeZone,
+}: {
+  booking: Pick<
+    Booking,
+    | "email"
+    | "additionalGuestEmails"
+    | "eventTitle"
+    | "start"
+    | "end"
+    | "meetingLink"
+    | "meetingLinkPending"
+  >;
+  hostEmail: string;
+  manageUrl?: string | null | undefined;
+  timeZone?: string | undefined;
+}): Promise<{ delivered: number; failed: number }> {
+  const title = bookingTitle(booking);
+  const when = formatBookingWhen(booking.start, booking.end, timeZone);
+  const host = stripCrlf(hostEmail);
+  const result = { delivered: 0, failed: 0 };
+
+  for (const [index, recipient] of bookingAttendeeEmails(booking).entries()) {
+    const sent = await sendBestEffort(
+      index === 0 ? "attendee reminder" : "additional guest reminder",
+      {
+        to: recipient,
+        ...renderBookingReminderEmail({
+          title,
+          when,
+          host,
+          manageUrl,
+          meetingLink: booking.meetingLink,
+          meetingLinkPending: booking.meetingLinkPending,
+        }),
+        replyTo: host,
+        templateId: CALENDAR_BOOKING_REMINDER_EMAIL_ID,
+      },
+    );
+    if (sent) result.delivered += 1;
+    else result.failed += 1;
+  }
+  return result;
 }

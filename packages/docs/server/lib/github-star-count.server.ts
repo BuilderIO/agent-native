@@ -159,7 +159,7 @@ function isFresh(value: GithubStarCache, now: number): boolean {
 
 async function persistCache(value: GithubStarCache): Promise<void> {
   try {
-    await putSetting(CACHE_KEY, cacheValue(value));
+    await putSetting(CACHE_KEY, cacheValue(value), { global: true });
   } catch (error) {
     warnPersistenceUnavailable(error);
   }
@@ -171,25 +171,30 @@ async function claimRefresh(now: number): Promise<{
 }> {
   let claimed = false;
   try {
-    const value = await mutateSetting(CACHE_KEY, (current) => {
-      claimed = false;
-      const currentCache = parseCache(current) ?? cache ?? emptyCache();
-      const currentNow = Date.now();
-      if (
-        isFresh(currentCache, currentNow) ||
-        (currentCache.retryAt !== null && currentNow < currentCache.retryAt) ||
-        (currentCache.refreshUntil !== null &&
-          currentNow < currentCache.refreshUntil)
-      ) {
-        return cacheValue(currentCache);
-      }
+    const value = await mutateSetting(
+      CACHE_KEY,
+      (current) => {
+        claimed = false;
+        const currentCache = parseCache(current) ?? cache ?? emptyCache();
+        const currentNow = Date.now();
+        if (
+          isFresh(currentCache, currentNow) ||
+          (currentCache.retryAt !== null &&
+            currentNow < currentCache.retryAt) ||
+          (currentCache.refreshUntil !== null &&
+            currentNow < currentCache.refreshUntil)
+        ) {
+          return cacheValue(currentCache);
+        }
 
-      claimed = true;
-      return cacheValue({
-        ...currentCache,
-        refreshUntil: currentNow + REFRESH_LEASE_MS,
-      });
-    });
+        claimed = true;
+        return cacheValue({
+          ...currentCache,
+          refreshUntil: currentNow + REFRESH_LEASE_MS,
+        });
+      },
+      { global: true },
+    );
     const currentCache = parseCache(value) ?? cache ?? emptyCache();
     cache = currentCache;
     return { claimed, cache: currentCache };

@@ -26,7 +26,7 @@ export default defineAction({
       .min(0)
       .default(0)
       .describe(
-        "Video time (ms) of the frame the comment is about, stored as given",
+        "Video time (ms) of the frame a new thread is about, stored as given; a reply sits at its thread's time",
       ),
     threadId: z
       .string()
@@ -50,12 +50,13 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
     idempotencyKey: commentIdempotencyKeySchema,
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
-    const saved = await saveRecordingComment(args, ctx?.requestHeaders);
+    const saved = await saveRecordingComment(args, ctx);
     return {
       id: saved.id,
       threadId: saved.threadId,
-      notified: saved.repeated ? null : await saved.notify(),
+      notified: saved.notified,
       repeated: saved.repeated,
     };
   },

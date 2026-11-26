@@ -45,6 +45,7 @@ function mockAuthWithBetterAuthSessions(activeTokens: Record<string, string>) {
     getBetterAuthSync: vi.fn(() => undefined),
   }));
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => {
       const execute = vi.fn(async (query: any) => {
         const sql: string = typeof query === "string" ? query : query.sql;

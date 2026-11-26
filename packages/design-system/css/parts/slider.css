@@ -1,0 +1,169 @@
+/*
+ * Part: slider
+ *
+ *   <div class="slider" data-orientation                    Base UI Slider.Root
+ *        data-variant="surface|soft"
+ *        [data-color="accent|gray|danger|warning|success|info"]
+ *        [data-high-contrast] [data-radius] [data-disabled]>
+ *     <div class="slider-control">                          Slider.Control
+ *       <div class="slider-track">                          Slider.Track
+ *         <div class="slider-indicator">                    Slider.Indicator
+ *         <div class="slider-thumb" [data-dragging]>        Slider.Thumb, one per value
+ *
+ * Radix Themes' slider on the system's scale: a 6px track with a thumb
+ * 12px larger, inside a 24px control row, so the whole row takes the pointer. The range fills with the nearest
+ * color's track step; the thumb is a raised dot ringed in its indicator
+ * step. Surface draws the track as a gray field with an edge, soft as a
+ * tint. A pill unless `radius` sets the control shape. Vertical sliders fill
+ * their container's height.
+ */
+
+@layer components {
+  .slider {
+    --_track: 6px;
+    --_thumb: calc(var(--_track) + var(--space-3));
+    --_radius: var(--radius-full);
+
+    display: flex;
+    align-items: center;
+    width: 100%;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .slider[data-orientation="vertical"] {
+    flex-direction: column;
+    width: auto;
+    height: 100%;
+  }
+
+  .slider[data-radius] {
+    --_radius: var(--shape-control);
+  }
+
+  .slider-control {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-height: var(--control-height-3);
+    cursor: pointer;
+  }
+
+  .slider[data-orientation="vertical"] .slider-control {
+    flex-direction: column;
+    min-width: var(--control-height-3);
+    min-height: 0;
+  }
+
+  .slider-track {
+    position: relative;
+    flex: 1;
+    height: var(--_track);
+    border-radius: calc(var(--_radius) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+  }
+
+  .slider[data-orientation="vertical"] .slider-track {
+    width: var(--_track);
+    height: auto;
+  }
+
+  .slider-indicator {
+    border-radius: inherit;
+    background-color: var(--accent-track);
+  }
+
+  .slider[data-orientation="horizontal"] .slider-indicator {
+    height: 100%;
+  }
+
+  .slider[data-orientation="vertical"] .slider-indicator {
+    width: 100%;
+  }
+
+  .slider-thumb {
+    box-sizing: border-box;
+    width: var(--_thumb);
+    height: var(--_thumb);
+    border: 2px solid var(--accent-indicator);
+    border-radius: calc(var(--_radius) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    box-shadow: var(--shadow-2);
+    outline-style: none;
+  }
+
+  .slider-thumb:has(:focus-visible) {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- variants ---- */
+
+  .slider[data-variant="surface"] .slider-track {
+    background-color: var(--gray-a3);
+    box-shadow: inset 0 0 0 1px var(--gray-a7);
+  }
+
+  .slider[data-variant="soft"] .slider-track {
+    background-color: var(--gray-a4);
+  }
+
+  .slider[data-variant="soft"] .slider-indicator {
+    background-color: var(--accent-a7);
+  }
+
+  .slider[data-high-contrast] .slider-indicator {
+    background-color: var(--accent-12);
+  }
+
+  .slider[data-high-contrast] .slider-thumb {
+    border-color: var(--accent-12);
+  }
+
+  /* ---- disabled ---- */
+
+  .slider[data-disabled] .slider-control {
+    cursor: not-allowed;
+  }
+
+  .slider[data-disabled][data-variant] .slider-track {
+    background-color: var(--gray-a3);
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+
+  .slider[data-disabled][data-variant] .slider-indicator {
+    background-color: var(--gray-a6);
+  }
+
+  .slider[data-disabled][data-variant] .slider-thumb {
+    border-color: var(--gray-a6);
+    box-shadow: none;
+  }
+
+  @media (forced-colors: active) {
+    .slider-track,
+    .slider-thumb {
+      border: 1px solid ButtonText;
+    }
+
+    .slider[data-variant] .slider-indicator {
+      forced-color-adjust: none;
+      background-color: Highlight;
+    }
+
+    .slider[data-disabled][data-variant] .slider-indicator {
+      background-color: GrayText;
+    }
+
+    .slider[data-disabled][data-variant] :is(.slider-track, .slider-thumb) {
+      border-color: GrayText;
+    }
+
+    .slider-thumb:has(:focus-visible) {
+      outline: var(--focus-ring-width) solid Highlight;
+    }
+  }
+}

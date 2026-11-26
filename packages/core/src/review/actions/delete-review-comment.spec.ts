@@ -26,6 +26,7 @@ const rawClient = {
 };
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -47,6 +48,9 @@ const {
 } = await import("../store.js");
 const { __resetStoreLedgerSnapshotForTests } =
   await import("../../db/store-registry.js");
+const { actionCallIntent, runPreparedActionCall } =
+  await import("../../action.js");
+const { vouchedOutcome } = await import("../../action-frame.js");
 
 const OWNER = "owner@example.com";
 const EDITOR = "editor@example.com";
@@ -63,7 +67,7 @@ const ROLES: Record<string, "editor" | "commenter" | "viewer"> = {
 };
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   __resetReviewInitForTests();
   __resetReviewableResourcesForTests();
@@ -266,6 +270,83 @@ describe("delete-review-comment", () => {
   });
 });
 
+describe("delete-review-comment from an outside agent, in an app that never asked for delete approval", () => {
+  const bobsReply = async () => {
+    await thread([BOB, EDITOR]);
+    const replies = await queryReviewComments({
+      ...RESOURCE,
+      scope: { userEmail: OWNER },
+    });
+    const reply = (body: string) => {
+      const found = replies.find((comment) => comment.body === body);
+      if (!found) throw new Error(`No reply "${body}"`);
+      return found;
+    };
+    return { bob: reply("Reply 1"), editor: reply("Reply 2") };
+  };
+  const needsApproval = deleteReviewCommentAction.needsApproval as (
+    args: unknown,
+    ctx?: unknown,
+  ) => Promise<boolean>;
+
+  it("asks before an editor's outside agent deletes someone else's reply, and not for their own", async () => {
+    const { bob, editor } = await bobsReply();
+    const args = (commentId: string) => ({ ...RESOURCE, commentId });
+
+    expect(
+      await needsApproval(args(bob.id), { userEmail: EDITOR, caller: "mcp" }),
+    ).toBe(true);
+    expect(
+      await needsApproval(args(editor.id), {
+        userEmail: EDITOR,
+        caller: "mcp",
+      }),
+    ).toBe(false);
+    expect(
+      await needsApproval(args(bob.id), { userEmail: EDITOR, caller: "tool" }),
+    ).toBe(false);
+  });
+
+  it("refuses the unapproved outside delete and leaves the reply", async () => {
+    const { bob } = await bobsReply();
+
+    await expect(
+      deleteReviewCommentAction.run(
+        { ...RESOURCE, commentId: bob.id },
+        { userEmail: EDITOR, caller: "mcp" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "approval_required" });
+    expect(await remainingBodies()).toEqual(["Root", "Reply 1", "Reply 2"]);
+  });
+
+  it("deletes it once the person approved that call", async () => {
+    const { bob } = await bobsReply();
+    const prepared = await actionCallIntent(deleteReviewCommentAction, {
+      ...RESOURCE,
+      commentId: bob.id,
+    });
+    if (!prepared.valid) throw prepared.error;
+
+    await runPreparedActionCall(
+      deleteReviewCommentAction,
+      prepared,
+      { userEmail: EDITOR, caller: "mcp" },
+      vouchedOutcome({ refused: false }, { mcpClientAccepted: true }),
+    );
+    expect(await remainingBodies()).toEqual(["Root", "Reply 2"]);
+  });
+
+  it("lets the app's own agent delete it, as before", async () => {
+    const { bob } = await bobsReply();
+
+    await deleteReviewCommentAction.run(
+      { ...RESOURCE, commentId: bob.id },
+      { userEmail: EDITOR, caller: "tool" },
+    );
+    expect(await remainingBodies()).toEqual(["Root", "Reply 2"]);
+  });
+});
+
 describe("list-review-comments canDeleteThread", () => {
   const list = async (userEmail: string) =>
     (await listReviewCommentsAction.run(RESOURCE, { userEmail })) as {
@@ -319,4 +400,9 @@ describe("list-review-comments canDeleteThread", () => {
       byBody(await list(ALICE), "Reply 1").canDeleteThread,
     ).toBeUndefined();
   });
+});
+
+it("serves delete-review-comment to outside agents unlisted, through tool search", async () => {
+  const { default: action } = await import("./delete-review-comment.js");
+  expect(action.mcpTool).toBe("search");
 });

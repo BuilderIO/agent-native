@@ -13,13 +13,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
-  CreativeContextShareSheet,
-  parseCreativeContexts,
-  useCreativeContextLab,
-  useCreativeContexts,
-  useCreativeContextState,
-} from "@agent-native/creative-context/client";
-import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
 } from "@agent-native/toolkit/agentkit";
@@ -55,7 +48,6 @@ import {
   IconChecks,
   IconChevronLeft,
   IconChevronRight,
-  IconPlus,
   IconSearch,
   IconDots,
   IconTrash,
@@ -84,7 +76,6 @@ import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
-import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
 import { HomeFigmaLinkBubble } from "@/components/editor/HomeFigmaLinkBubble";
 import { useHomePromptContext } from "@/components/editor/HomePromptContext";
@@ -130,8 +121,6 @@ import {
   DESIGN_HOME_SUGGESTION_POOLS,
   trackDesignHomeSuggestionClick,
 } from "@/home-suggestions";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
-import { useDesignSystems } from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   readStoredDesignFilter,
@@ -161,7 +150,6 @@ interface Design {
   title: string;
   description?: string;
   projectType: ProjectType;
-  designSystemId?: string | null;
   ownerEmail?: string | null;
   ownerName?: string | null;
   createdAt?: string;
@@ -191,10 +179,13 @@ export default function Index() {
   const isSaveTemplateGettingStarted =
     searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-  const [designFilter, setDesignFilter] = useState<DesignFilter>(
-    () => readStoredDesignFilter() ?? "mine",
-  );
+  const urlSearch = searchParams.get("search") ?? "";
+  const lastUrlSearchRef = useRef(urlSearch);
+  const [search, setSearch] = useState(urlSearch);
+  const [designFilter, setDesignFilter] = useState<DesignFilter>(() => {
+    const stored = readStoredDesignFilter() ?? "mine";
+    return urlSearch.trim() && stored === "mine" ? "all" : stored;
+  });
   const [page, setPage] = useState(1);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -215,6 +206,7 @@ export default function Index() {
     isSaveTemplateGettingStarted,
     search: checklistSearch,
     hash: location.hash,
+    key: location.key,
   });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
@@ -223,16 +215,11 @@ export default function Index() {
   const quickStartRef = useRef(false);
   const submissionErrorRef = useRef(false);
   const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
-  const systemsEnabled = useDesignSystemWorkflows();
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
-  const [chosenDesignSystemId, setNewDesignSystemId] = useState<string | null>(
-    null,
-  );
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   const [newDesignMode] = useState<"design" | "app">("design");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
 
   useLayoutEffect(() => {
     const unsubscribe = subscribeToDesignHomeLibraryTab((tab) => {
@@ -251,13 +238,22 @@ export default function Index() {
       previousLocation.isSaveTemplateGettingStarted &&
       isSaveTemplateGettingStarted &&
       previousLocation.search !== checklistSearch;
+    const locationChanged =
+      previousLocation.key !== location.key ||
+      previousLocation.search !== checklistSearch ||
+      previousLocation.hash !== location.hash;
     previousChecklistLocationRef.current = {
       isSaveTemplateGettingStarted,
       search: checklistSearch,
       hash: location.hash,
+      key: location.key,
     };
 
-    if (isSaveTemplateGettingStarted && !checklistQueryReplace) {
+    if (
+      isSaveTemplateGettingStarted &&
+      !checklistQueryReplace &&
+      (locationChanged || !homeLibraryTabWasSelectedRef.current)
+    ) {
       homeLibraryTabWasSelectedRef.current = true;
       setHomeSection("recent");
     }
@@ -282,7 +278,6 @@ export default function Index() {
   ]);
 
   const skipToEditorPendingRef = useRef(false);
-  const newDesignSystemWasChosenRef = useRef(false);
   const templateCopyIdsRef = useRef(
     new Map<string, { key: string; id: string }>(),
   );
@@ -393,12 +388,6 @@ export default function Index() {
   });
   const generateTitleMutation = useActionMutation("generate-design-title");
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
-  const {
-    designSystems,
-    isLoading: designSystemsLoading,
-    error: designSystemsError,
-    refetch: refetchDesignSystems,
-  } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
@@ -561,10 +550,6 @@ export default function Index() {
       return { id, label: t(label), prompt: t(prompt ?? label) };
     },
   );
-  const designSystemOptions = useMemo(
-    () => designSystemPickerOptions(designSystems),
-    [designSystems],
-  );
 
   const designs = useMemo(
     () => designsData?.designs ?? [],
@@ -580,44 +565,9 @@ export default function Index() {
         width: template.width,
         height: template.height,
         previewHtml: template.previewHtml,
-        designSystemId: template.designSystemId,
         isBuiltIn: template.isBuiltIn,
       })),
     [templatesData?.templates],
-  );
-  const creativeContextEnabled = useCreativeContextLab();
-  const creativeContextsQuery = useCreativeContexts(
-    {},
-    { enabled: creativeContextEnabled },
-  );
-  const creativeContextState = useCreativeContextState({
-    enabled: creativeContextEnabled,
-  });
-  const creativeContextOptions = useMemo(
-    () =>
-      parseCreativeContexts(creativeContextsQuery.data)
-        .filter((context) => context.memberCount > 0)
-        .map((context) => ({ id: context.id, name: context.name })),
-    [creativeContextsQuery.data],
-  );
-  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
-  const handleCreativeContextChange = useCallback(
-    (contextId: string | null) => {
-      creativeContextPersistRef.current = creativeContextState
-        .setState({
-          ...creativeContextState.state,
-          contextMode: "auto",
-          selectedContextId: contextId,
-          pinnedPackId: null,
-        })
-        .catch((error) => {
-          reportWriteFailure(error, {
-            label: t("creativeContext.stateSaveFailed"),
-          });
-          throw error;
-        });
-    },
-    [creativeContextState, t],
   );
   const homeTemplates = useMemo(
     () =>
@@ -628,18 +578,6 @@ export default function Index() {
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
-  const templateDesignSystemId =
-    selectedTemplate?.designSystemId &&
-    designSystems.some(
-      (system) => system.id === selectedTemplate.designSystemId,
-    )
-      ? selectedTemplate.designSystemId
-      : null;
-  const newDesignSystemId = !systemsEnabled
-    ? null
-    : newDesignSystemWasChosenRef.current
-      ? chosenDesignSystemId
-      : templateDesignSystemId;
 
   const showAuthors = designFilter !== "mine";
   const selectedDesignCount = selectedDesignIds.size;
@@ -674,61 +612,16 @@ export default function Index() {
     [syncSelectedTemplate],
   );
 
-  const handleNewDesignSystemChange = useCallback(
-    (designSystemId: string | null) => {
-      newDesignSystemWasChosenRef.current = true;
-      setNewDesignSystemId(designSystemId);
-    },
-    [],
-  );
   const homeContext = useHomePromptContext({
-    systems: designSystemOptions,
-    systemId: newDesignSystemId,
-    onSystemChange: handleNewDesignSystemChange,
     templates: templateOptions,
     templateId: newTemplateId,
     onTemplateChange: handleTemplateChange,
-    systemsLoading: designSystemsLoading,
-    systemsError: designSystemsError,
-    retrySystems: () => void refetchDesignSystems(),
   });
   const { briefsFor: homeBriefsFor } = homeContext;
   // Submitting navigates away, and unmounting discards every Figma
   // attachment the context still holds; accepting hands the sent ones over.
   const acceptHomeContext = useRef(homeContext.submissionAccepted);
   acceptHomeContext.current = homeContext.submissionAccepted;
-
-  const resolveAppDesignSystemId = useCallback(async () => {
-    const linkedSystemId = selectedTemplate?.designSystemId;
-    if (
-      !linkedSystemId ||
-      newDesignMode !== "app" ||
-      !systemsEnabled ||
-      newDesignSystemWasChosenRef.current ||
-      (!designSystemsLoading && !designSystemsError)
-    ) {
-      return newDesignSystemId;
-    }
-
-    const result = await refetchDesignSystems();
-    if (!result.isSuccess || !result.data) {
-      throw result.error ?? new Error(t("home.failedToCreateDesign"));
-    }
-    return result.data.designSystems.some(
-      (system) => system.id === linkedSystemId,
-    )
-      ? linkedSystemId
-      : null;
-  }, [
-    designSystemsError,
-    designSystemsLoading,
-    newDesignMode,
-    newDesignSystemId,
-    refetchDesignSystems,
-    selectedTemplate,
-    systemsEnabled,
-    t,
-  ]);
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -760,14 +653,38 @@ export default function Index() {
     });
   }, [designs]);
 
-  const handleSearchChange = useCallback((query: string) => {
-    setSearch(query);
-    if (query.trim()) setHomeSection("recent");
+  const handleSearchChange = useCallback(
+    (query: string) => {
+      setSearch(query);
+      if (query.trim()) setHomeSection("recent");
+      setPage(1);
+      setSelectedDesignIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+      lastUrlSearchRef.current = query;
+      const next = new URLSearchParams(searchParams);
+      if (query) next.set("search", query);
+      else next.delete("search");
+      if (next.toString() !== searchParams.toString()) {
+        setSearchParams(next, { replace: true });
+      }
+    },
+    [searchParams, setSearchParams],
+  );
+
+  useEffect(() => {
+    if (lastUrlSearchRef.current === urlSearch) return;
+    lastUrlSearchRef.current = urlSearch;
+    setSearch(urlSearch);
+    if (urlSearch.trim()) {
+      setDesignFilter((current) => (current === "mine" ? "all" : current));
+    }
+    if (urlSearch.trim()) setHomeSection("recent");
     setPage(1);
     setSelectedDesignIds((current) =>
       current.size === 0 ? current : new Set(),
     );
-  }, []);
+  }, [urlSearch]);
 
   const handleDesignFilterChange = useCallback(
     (next: "all" | "mine" | "shared") => {
@@ -823,14 +740,12 @@ export default function Index() {
   const createDesign = useCallback(
     (
       title: string,
-      designSystemId: string | null | undefined,
       creationMethod: "prompt" | "blank",
       briefs: readonly DesignBrief[] = [],
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
       const finalTitle = title.trim() || "Untitled Design";
-      const linkedDesignSystemId = designSystemId ?? null;
 
       queryClient.setQueryData(
         ["action", "list-designs", listDesignsParams],
@@ -840,7 +755,6 @@ export default function Index() {
             id,
             title: finalTitle,
             projectType,
-            designSystemId: linkedDesignSystemId,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -872,7 +786,6 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          ...(designSystemId !== undefined ? { designSystemId } : {}),
           creationMethod,
           ...(briefs.length ? { briefs } : {}),
         } as any)
@@ -934,18 +847,7 @@ export default function Index() {
         quickStartRef.current || homeSuggestionPromptSourceRef.current
           ? "home_suggestion"
           : "composer";
-      await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
-      const templateCopyDesignSystemId =
-        selectedTemplate &&
-        newDesignMode === "design" &&
-        !newDesignSystemWasChosenRef.current
-          ? undefined
-          : newDesignSystemId;
-      const designSystemId =
-        newDesignMode === "app"
-          ? await resolveAppDesignSystemId()
-          : templateCopyDesignSystemId;
       const reportPromptSubmitted = (outputId: string) => {
         if (pendingOptions?.fromSkip) return;
         try {
@@ -957,7 +859,6 @@ export default function Index() {
               contextItems: options.contextItems,
               files,
               templateSelected: Boolean(selectedTemplate),
-              designSystemId,
             }),
             startMode: selectedTemplate ? "template" : newDesignMode,
           });
@@ -975,7 +876,6 @@ export default function Index() {
         const retryKey = designTemplateRetryKey({
           templateId: selectedTemplate.id,
           title,
-          designSystemId,
           prompt,
           briefs: templateBriefs,
         });
@@ -994,7 +894,6 @@ export default function Index() {
             title,
             newId,
             retryKey,
-            ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
             ...(templateBriefs.length ? { briefs: templateBriefs } : {}),
           });
@@ -1006,29 +905,6 @@ export default function Index() {
           );
           if (currentRetry?.id === newId && currentRetry.key === retryKey) {
             templateCopyIdsRef.current.delete(selectedTemplate.id);
-          }
-          const effectiveDesignSystemId = result.designSystemId ?? null;
-          if (result.adaptationPending) {
-            const effectiveSystemTitle =
-              designSystems.find(
-                (system) => system.id === effectiveDesignSystemId,
-              )?.title ?? t("promptDialog.designSystem");
-            writePendingGeneration(result.id, {
-              prompt:
-                prompt.trim() ||
-                t("promptDialog.reskinTemplatePrompt", {
-                  title: selectedTemplate.title,
-                  system: effectiveSystemTitle,
-                }),
-              files,
-              title: result.title ?? title,
-              source: selectedTemplate.title,
-              templateId: selectedTemplate.id,
-              templateBaselineFiles: result.templateBaselineFiles,
-              designSystemId: effectiveDesignSystemId,
-              skipQuestions: true,
-              ...options,
-            });
           }
           if (trimmedPrompt) {
             handleGenerateDesignTitle(
@@ -1042,8 +918,6 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
-          if (result.adaptationPending && options.contextItems)
-            acceptHomeContext.current(options.contextItems);
           reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
@@ -1062,7 +936,6 @@ export default function Index() {
 
       const { id, title, ready } = createDesign(
         derivedTitle,
-        designSystemId,
         "prompt",
         homeBriefsFor(options.contextItems),
       );
@@ -1080,7 +953,6 @@ export default function Index() {
           setNewDesignHandoffPending(false);
           trace("persist", "create-design-failed", {
             id,
-            designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
           reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
@@ -1124,7 +996,6 @@ export default function Index() {
           prompt,
           files,
           title,
-          designSystemId,
           skipQuestions: pendingOptions?.skipQuestions ?? quickStartRef.current,
           outputBaselineFiles: [],
           ...options,
@@ -1136,7 +1007,6 @@ export default function Index() {
           setNewDesignHandoffPending(false);
           trace("persist", "create-design-failed", {
             id,
-            designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
           reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
@@ -1152,7 +1022,7 @@ export default function Index() {
       reportPromptSubmitted(id);
       homeSuggestionPromptSourceRef.current = false;
       homeSuggestionPromptTextRef.current = null;
-      trace("persist", "new-design-handoff", { id, designSystemId });
+      trace("persist", "new-design-handoff", { id });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
     },
@@ -1160,15 +1030,12 @@ export default function Index() {
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
-      designSystems,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       homeBriefsFor,
       navigate,
       newDesignMode,
-      newDesignSystemId,
       queryClient,
-      resolveAppDesignSystemId,
       selectedTemplate,
       t,
     ],
@@ -1180,15 +1047,7 @@ export default function Index() {
     setNewDesignHandoffPending(true);
 
     try {
-      const designSystemId =
-        newDesignMode === "app"
-          ? await resolveAppDesignSystemId()
-          : newDesignSystemId;
-      const { id, ready } = createDesign(
-        t("home.untitledDesign"),
-        designSystemId,
-        "blank",
-      );
+      const { id, ready } = createDesign(t("home.untitledDesign"), "blank");
       await ready;
       void navigate(`/design/${id}`);
     } catch (error) {
@@ -1197,14 +1056,7 @@ export default function Index() {
       reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
       throw error;
     }
-  }, [
-    createDesign,
-    navigate,
-    newDesignMode,
-    newDesignSystemId,
-    resolveAppDesignSystemId,
-    t,
-  ]);
+  }, [createDesign, navigate, t]);
 
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
@@ -1494,24 +1346,6 @@ export default function Index() {
               templatesLoading={templatesLoading}
               selectedTemplateId={newTemplateId}
               onTemplateChange={handleTemplateChange}
-              designSystems={designSystemOptions}
-              designSystemsLoading={designSystemsLoading}
-              selectedDesignSystemId={newDesignSystemId ?? null}
-              onDesignSystemChange={handleNewDesignSystemChange}
-              creativeContexts={
-                creativeContextEnabled ? creativeContextOptions : []
-              }
-              creativeContextsLoading={
-                creativeContextEnabled && creativeContextsQuery.isLoading
-              }
-              selectedCreativeContextId={
-                creativeContextEnabled
-                  ? (creativeContextState.state.selectedContextId ?? null)
-                  : undefined
-              }
-              onCreativeContextChange={
-                creativeContextEnabled ? handleCreativeContextChange : undefined
-              }
               loading={newDesignHandoffPending}
             />
           </div>
@@ -1709,25 +1543,6 @@ export default function Index() {
                               {t("home.clearSelection")}
                             </TooltipContent>
                           </Tooltip>
-                          {creativeContextEnabled ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setContextDesigns(
-                                  designs.filter((design) =>
-                                    selectedDesignIds.has(design.id),
-                                  ),
-                                )
-                              }
-                              className="cursor-pointer"
-                            >
-                              <IconPlus className="w-3.5 h-3.5" />
-                              {t(
-                                "creativeContext.addToContext" /* i18n-key-ignore */,
-                              )}
-                            </Button>
-                          ) : null}
                           <Button
                             variant="destructive"
                             size="sm"
@@ -1830,24 +1645,11 @@ export default function Index() {
                                   <IconCopy />
                                   {t("home.duplicate")}
                                 </DropdownMenuItem>
-                                {creativeContextEnabled ? (
-                                  <DropdownMenuItem
-                                    onSelect={(event) => {
-                                      event.preventDefault();
-                                      setContextDesigns([design]);
-                                    }}
-                                  >
-                                    <IconPlus />
-                                    {t(
-                                      "creativeContext.addToContext" /* i18n-key-ignore */,
-                                    )}
-                                  </DropdownMenuItem>
-                                ) : null}
                                 <DropdownMenuItem
                                   onClick={() =>
                                     setTimeout(() => setDeleteId(design.id))
                                   }
-                                  className="text-destructive focus:text-destructive"
+                                  variant="destructive"
                                 >
                                   <IconTrash />
                                   {t("home.delete")}
@@ -1902,24 +1704,6 @@ export default function Index() {
         </ClientOnly>
       </PromptHome>
 
-      {creativeContextEnabled ? (
-        <CreativeContextShareSheet
-          open={contextDesigns.length > 0}
-          onOpenChange={(open) => {
-            if (!open) setContextDesigns([]);
-          }}
-          resources={contextDesigns.map((design) => ({
-            appId: "design",
-            resourceType: "design",
-            resourceId: design.id,
-            title: design.title,
-            updatedAt: design.updatedAt ?? design.createdAt,
-            preview: { kind: "document", label: "Design" },
-          }))}
-        />
-      ) : null}
-
-      {/* Delete Confirmation */}
       <AlertDialog
         open={!!deleteId || bulkDeleteOpen}
         onOpenChange={(open) => {
@@ -1966,7 +1750,6 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Rename Dialog */}
       <AlertDialog
         open={!!renameId}
         onOpenChange={(open) => {

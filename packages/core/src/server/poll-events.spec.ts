@@ -66,7 +66,9 @@ describe("poll event SSE handler", () => {
       source: "action",
       type: "change",
       key: "global",
+      visibility: "public",
     });
+    recordChange({ source: "action", type: "change", key: "unscoped" });
 
     expect(
       event.pushed

@@ -30,19 +30,21 @@ export function isWaitingOnConnectionRequest(
   );
 }
 
-/** An approval pauses an active run until the user responds. */
+/**
+ * An approval pauses an active run until the user responds, and the server
+ * reports that run settled while it waits, so the server's answer says nothing
+ * about a lost ending. This follows `hasActiveAgentRuns`, which keeps the run
+ * active on the same grounds: a snapshot that restores the paused run before its
+ * approval request has no request entry to match, and reloading it would drop
+ * the card the user still has to answer.
+ */
 export function isWaitingOnApprovalRequest(thread: AgentThreadState): boolean {
-  const openApprovalRunIds = new Set(
-    Object.entries(thread.approvalRunIds).flatMap(([id, runId]) =>
-      thread.approvals[id] ? [runId] : [],
-    ),
-  );
   return (
     thread.activeRunIds.length > 0 &&
     thread.activeRunIds.every(
       (runId) =>
         thread.runs[runId]?.status === "awaiting_approval" &&
-        openApprovalRunIds.has(runId),
+        hasActiveAgentRuns({ ...thread, activeRunIds: [runId] }),
     )
   );
 }

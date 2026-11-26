@@ -6,27 +6,58 @@ import {
   subscribeConsent,
 } from "@agent-native/core/client/consent";
 import { useT } from "@agent-native/core/client/i18n";
+import type { ConsentBannerMessages } from "@agent-native/core/localization/privacy-choice-messages";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Label } from "@agent-native/toolkit/ui/label";
 import { Switch } from "@agent-native/toolkit/ui/switch";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 const DEFAULT_PRIVACY_POLICY_HREF = "https://www.agent-native.com/privacy";
+
+type ConsentBannerProps = {
+  privacyPolicyHref?: string;
+  automaticPrompt?: boolean;
+};
 
 /**
  * The cookie banner for visitors in the consent region. Renders nothing
  * elsewhere, and nothing once the visitor has chosen, until
  * `openConsentSettings()` reopens it.
  */
-export function ConsentBanner({
-  privacyPolicyHref = DEFAULT_PRIVACY_POLICY_HREF,
-}: {
-  privacyPolicyHref?: string;
-}) {
+export function ConsentBanner(props: ConsentBannerProps) {
   const t = useT();
+  const messages = useMemo(
+    () => ({
+      label: t("consentBanner.label"),
+      message: t("consentBanner.message"),
+      privacyPolicy: t("consentBanner.privacyPolicy"),
+      necessary: t("consentBanner.necessary"),
+      performance: t("consentBanner.performance"),
+      targeting: t("consentBanner.targeting"),
+      rejectAll: t("consentBanner.rejectAll"),
+      acceptAll: t("consentBanner.acceptAll"),
+      save: t("consentBanner.save"),
+      manage: t("consentBanner.manage"),
+    }),
+    [t],
+  );
+  return <ConsentBannerPanel {...props} messages={messages} />;
+}
+
+/**
+ * `ConsentBanner` with its copy passed in, for the sign-in page, which has
+ * its own locale and no i18n provider.
+ */
+export function ConsentBannerPanel({
+  messages,
+  privacyPolicyHref = DEFAULT_PRIVACY_POLICY_HREF,
+  automaticPrompt = true,
+}: ConsentBannerProps & {
+  messages: Omit<ConsentBannerMessages, "cookieSettings">;
+}) {
   const open = useSyncExternalStore(
     subscribeConsent,
-    shouldShowConsentBanner,
+    () => shouldShowConsentBanner(automaticPrompt),
     () => false,
   );
   const [managing, setManaging] = useState(false);
@@ -50,32 +81,30 @@ export function ConsentBanner({
   return (
     <section
       role="region"
-      aria-label={t("consentBanner.label")}
+      aria-label={messages.label}
       data-agent-native-consent-banner
       className="fixed bottom-4 left-4 z-[100] flex w-[min(420px,calc(100vw-2rem))] flex-col gap-3 rounded-lg border bg-popover p-4 text-sm text-popover-foreground shadow-lg"
     >
       <p className="m-0 leading-relaxed">
-        {t("consentBanner.message")}{" "}
+        {messages.message}{" "}
         <a
           href={privacyPolicyHref}
           target="_blank"
           rel="noreferrer"
           className="underline underline-offset-2"
         >
-          {t("consentBanner.privacyPolicy")}
+          {messages.privacyPolicy}
         </a>
       </p>
       {managing ? (
-        <div className="flex flex-col gap-2">
+        <div data-consent-settings className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="an-consent-necessary">
-              {t("consentBanner.necessary")}
-            </Label>
+            <Label htmlFor="an-consent-necessary">{messages.necessary}</Label>
             <Switch id="an-consent-necessary" checked disabled />
           </div>
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor="an-consent-performance">
-              {t("consentBanner.performance")}
+              {messages.performance}
             </Label>
             <Switch
               id="an-consent-performance"
@@ -84,9 +113,7 @@ export function ConsentBanner({
             />
           </div>
           <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="an-consent-targeting">
-              {t("consentBanner.targeting")}
-            </Label>
+            <Label htmlFor="an-consent-targeting">{messages.targeting}</Label>
             <Switch
               id="an-consent-targeting"
               checked={targeting}
@@ -95,7 +122,7 @@ export function ConsentBanner({
           </div>
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-2">
+      <div data-consent-actions className="flex flex-wrap gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -104,7 +131,7 @@ export function ConsentBanner({
             setConsentChoice({ performance: false, targeting: false })
           }
         >
-          {t("consentBanner.rejectAll")}
+          {messages.rejectAll}
         </Button>
         <Button
           variant="outline"
@@ -114,7 +141,7 @@ export function ConsentBanner({
             setConsentChoice({ performance: true, targeting: true })
           }
         >
-          {t("consentBanner.acceptAll")}
+          {messages.acceptAll}
         </Button>
         {managing ? (
           <Button
@@ -123,16 +150,17 @@ export function ConsentBanner({
             className="flex-1"
             onClick={() => setConsentChoice({ performance, targeting })}
           >
-            {t("consentBanner.save")}
+            {messages.save}
           </Button>
         ) : (
           <Button
             variant="ghost"
             size="sm"
             className="flex-1"
+            data-consent-manage
             onClick={() => setManaging(true)}
           >
-            {t("consentBanner.manage")}
+            {messages.manage}
           </Button>
         )}
       </div>

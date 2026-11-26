@@ -32,10 +32,10 @@ describe("buildShellScreens", () => {
   });
 
   it("titles routes from their last segment", () => {
-    const { screens } = build(["/", "/design-systems", "/blog/my_post"]);
+    const { screens } = build(["/", "/settings", "/blog/my_post"]);
     expect(screens.map((s) => s.title)).toEqual([
       "Home",
-      "Design Systems",
+      "Settings",
       "My Post",
     ]);
   });

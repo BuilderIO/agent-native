@@ -8,6 +8,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
 import { CONTENT_DATABASE_FILTER_OPERATORS } from "../shared/api.js";
 import { withSavedContentDatabaseItemLayout } from "../shared/database-item-layout.js";
@@ -172,6 +173,11 @@ export default defineAction({
     summary: (_args, result) =>
       setupAuditSummary(result, "Updated Content database views"),
   },
+  // The app's own calls name the collection by databaseId alone.
+  changeResource: (input) =>
+    "operation" in input
+      ? documentChangeResource(input.target.databaseDocumentId)
+      : null,
   run: async (args, context) => {
     if (context?.caller === "mcp") {
       updateContentDatabaseViewAgentSchema.parse(args);

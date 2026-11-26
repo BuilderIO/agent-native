@@ -26,6 +26,28 @@ describe("bare pnpm spawn guard", () => {
     assert.deepEqual(flagged(source, "all"), [1, 2, 3, 4]);
   });
 
+  it("flags npm and npx the same way", () => {
+    const source = [
+      'execFileSync("npm", ["pack"], { stdio: "ignore" });',
+      'spawn("npx", ["tsx", "x.ts"]);',
+      'const npm = process.platform === "win32" ? "npm.cmd" : "npm";',
+      "execFileSync(npm, args);",
+      'spawn("npm", ["pack"], { shell: process.platform === "win32" });',
+      'spawn("npmx", []);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), [1, 2, 3, 4]);
+  });
+
+  it("accepts shimSpawnTarget's command line with its shell", () => {
+    const source = [
+      'const [command, commandArgs, shell] = shimSpawnTarget("npm", args);',
+      "execFileSync(command, commandArgs, { ...options, shell });",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source, "all"), []);
+  });
+
   it("follows a const, a conditional and a local helper to the command", () => {
     const source = [
       'const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";',

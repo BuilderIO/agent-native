@@ -247,17 +247,19 @@ connection or page WebMCP. Route UI through
 unless they explicitly opt into the full catalog, and
 `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools
 outside the compact MCP Apps catalog. Apps can set
-`externalAgents.authenticatedReads: "auto"` to automatically advertise every
-action that is GET + `readOnly` + `publicAgent.requiresAuth`, instead of
-maintaining a long connector allow-list. This policy never includes writes by
-default; use `writes: "ask_app_only"` to keep mutations behind `ask_app`, and
-use `denyActions` for defense-in-depth vetoes. `tool-search` remains available
-for discovery, but a searched action still needs to be in the connector
-catalog, included by the authenticated-read policy, or enabled by the explicit
-full-catalog opt-in before `tools/call` can execute it. Do not rely on
+`externalAgents.authenticatedReads: "auto"` advertises GET + `readOnly` +
+`publicAgent.requiresAuth` actions without a connector allow-list. Writes are
+excluded by default. Set `writes: "allowlisted"` to serve selected writes;
+`writes: "ask_app_only"`, the automatic-reads default, is deprecated and warns at startup. Keep a write in
+the app with `mcpTool: false`. Use `denyActions` for defense-in-depth vetoes.
+`tool-search` finds only the tools the connection is served, listed or
+`mcpTool: "search"` ones that `call-tool` runs. It names matching actions
+outside them under `notServed`, for the caller to hand to `ask_app`. Do not rely on
 action-specific `mcpApp` resources appearing in ChatGPT/Claude discovery by
 default; use `open_app` for the
-first-class app embed path. If a specific
+first-class app embed path. For "show", "open", "draft", "chart", calendar, or
+dashboard asks, call `open_app` after the read or save so the host opens the pane
+instead of drawing its own card. If a specific
 action truly must remain visible in that compact app-host catalog, set
 `mcpApp.compactCatalog: true` as a rare escape hatch.
 
@@ -417,8 +419,8 @@ link in any browser or inline webview, `GET /_agent-native/open`
    param + `view`) for the signed-in email with `requestSource: "deep-link"`
    under a fresh `navigate:<tabId>`, and decodes a `compose` base64url draft
    into a `compose-<id>` key.
-4. 302-redirects to a safe same-origin relative path (`to=`, else `/<view>`,
-   else `resolveOpenPath`), forwarding `f_*` filter params and
+4. 302-redirects to a safe same-origin relative path (`to=`, else
+   `resolveOpenPath`, else `/<view>`), forwarding `f_*` filter params and
    `agentNativeTab=<tabId>`, which the page adopts as its tab ID.
 
 Cross-origin, scheme-relative `//host`, and control-char redirects are rejected
@@ -503,10 +505,6 @@ before telling the user they are unauthenticated.
   and read live (Yjs) state, not the stale DB column.
 - Do let the open route resolve the browser session; pass record ids as deep-
   link params and let the UI focus them via the polled `navigate` command.
-- Do return `designSystem` on reads in visual apps (see the actions skill) and
-  put `get-design-system` and `list-design-systems` in both `connectorCatalog`
-  and `initialToolNames`; a description that points at a tool the connector
-  cannot see is a dead end.
 
 ## Don't
 

@@ -113,6 +113,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async (_, context) => {
     const navigation = await readAppStateForCurrentTab("navigation");
 

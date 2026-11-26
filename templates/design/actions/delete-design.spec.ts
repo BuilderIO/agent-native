@@ -20,14 +20,16 @@ const mocks = vi.hoisted(() => {
       designId: "motionTimeline.designId",
     },
     designState: { id: "designState.id", designId: "designState.designId" },
-    designReviewSnapshot: {
-      id: "designReviewSnapshot.id",
-      designId: "designReviewSnapshot.designId",
-    },
     designFiles: { id: "designFiles.id", designId: "designFiles.designId" },
     designVersions: {
       id: "designVersions.id",
       designId: "designVersions.designId",
+    },
+    designVersionFiles: {
+      designId: "designVersionFiles.designId",
+    },
+    designContents: {
+      designId: "designContents.designId",
     },
     designLocalhostWriteGrants: {
       id: "designLocalhostWriteGrants.id",
@@ -62,7 +64,6 @@ const mocks = vi.hoisted(() => {
       dataOperationRevisions: "designs.dataOperationRevisions",
       liveCollaborationEnabled: "designs.liveCollaborationEnabled",
       projectType: "designs.projectType",
-      designSystemId: "designs.designSystemId",
       createdAt: "designs.createdAt",
       updatedAt: "designs.updatedAt",
       ownerEmail: "designs.ownerEmail",
@@ -183,7 +184,6 @@ const expectedCreatedShell = {
   dataOperationRevisions: "{}",
   liveCollaborationEnabled: false,
   projectType: "prototype",
-  designSystemId: null,
   createdAt: "2026-10-11T12:00:00.000Z",
   updatedAt: "2026-10-11T12:00:00.000Z",
   ownerEmail: "owner@example.test",
@@ -261,6 +261,12 @@ describe("delete-design snapshot cleanup", () => {
     );
     expect(mocks.tx.delete).toHaveBeenCalledWith({
       designId: "designVisualEditPending.designId",
+    });
+    expect(mocks.tx.delete).toHaveBeenCalledWith({
+      designId: "designVersionFiles.designId",
+    });
+    expect(mocks.tx.delete).toHaveBeenCalledWith({
+      designId: "designContents.designId",
     });
     expect(mocks.events).toEqual(["queue-cleanup", "commit", "cleanup"]);
   });
@@ -343,7 +349,6 @@ describe("delete-design snapshot cleanup", () => {
     ["a motion timeline", mocks.schema.motionTimeline],
     ["a localhost write grant", mocks.schema.designLocalhostWriteGrants],
     ["a fusion edit", mocks.schema.designFusionEdits],
-    ["a review snapshot", mocks.schema.designReviewSnapshot],
     ["a visual edit", mocks.schema.designVisualEditPending],
     ["a visual snapshot", mocks.schema.designVisualEditSnapshots],
     ["a restore claim", mocks.schema.designScreenRestoreClaims],

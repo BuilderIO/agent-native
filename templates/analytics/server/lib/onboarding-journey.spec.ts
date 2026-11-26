@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BigQueryBackendError,
+  BigQueryJobNotClaimedError,
   BigQueryMaximumBytesBilledError,
+  type BigQueryQueryTrace,
 } from "./bigquery.js";
 import { FirstPartyAnalyticsQueryTimeoutError } from "./first-party-analytics.js";
 
@@ -55,6 +57,7 @@ import {
   type JourneySummary,
   type JourneyTree,
   type OnboardingJourneyArgs,
+  type OnboardingJourneyCohorts,
 } from "./onboarding-journey";
 
 const scope = { userEmail: "owner@example.test", orgId: null };
@@ -102,6 +105,17 @@ function eventRow(
     action: null,
     ...extra,
   };
+}
+
+async function claimPageJob(options: unknown): Promise<void> {
+  const { claimJob } = (options ?? {}) as {
+    claimJob?: () => Promise<boolean>;
+  };
+  if (claimJob && !(await claimJob())) throw new BigQueryJobNotClaimedError();
+}
+
+function pageOffset(sql: string): number {
+  return Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
 }
 
 function cohortEvent(
@@ -854,7 +868,7 @@ describe("getOnboardingJourney", () => {
       ...counts,
     });
     mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
-      if (sql.includes("terminal_members AS (")) {
+      if (sql.includes("cohort_keys AS (")) {
         return {
           rows: [
             personRow("signup", {
@@ -904,21 +918,15 @@ describe("getOnboardingJourney", () => {
     });
     const personSql = mocks.queryFirstPartyAnalytics.mock.calls
       .map(([sql]) => sql as string)
-      .find((sql) => sql.includes("terminal_members AS ("))!;
+      .find((sql) => sql.includes("cohort_keys AS ("))!;
     // Grace's latest session has only her email; her sign-in ID comes from
     // the sessions that share it.
     expect(personSql).toContain(
-      `"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"`,
+      `{"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","identityStatus":"identified","sessionKey":"s1","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"}`,
     );
+    expect(personSql.match(/"sessionId":"s1"/g)).toHaveLength(1);
     expect(personSql).toContain(
       `"authUserId":null,"emailHash":"${hash("heidi@example.com")}"`,
-    );
-    // Later activity matches every email and sign-in ID Grace's sessions carried.
-    expect(personSql).toContain(
-      '{"sessionId":"s1","authUserId":"person-g","emailHash":null}',
-    );
-    expect(personSql).toContain(
-      `{"sessionId":"s1","authUserId":null,"emailHash":"${hash("grace@example.com")}"}`,
     );
     expect(personSql).not.toContain('"sessionId":"s2"');
     expect(personSql).not.toContain('"sessionId":"s3"');
@@ -1214,7 +1222,7 @@ describe("getOnboardingJourney", () => {
       });
       expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
         eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },
-        maxBytesBilled: 10_000_000_000,
+        maxBytesBilled: 25_000_000_000,
       });
     } finally {
       now.mockRestore();
@@ -1949,16 +1957,18 @@ describe("getOnboardingJourney", () => {
   });
 
   it("stops BigQuery pages at the aggregate budget and marks the tree partial", async () => {
-    let page = 0;
-    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
-      const offset = page++ * 4_000;
-      return {
-        rows: Array.from({ length: 4_000 }, (_, index) =>
-          eventRow(`budget-${offset + index}`, "signup", offset + index),
-        ),
-        schema: [],
-      };
-    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        await claimPageJob(options);
+        const offset = pageOffset(sql);
+        return {
+          rows: Array.from({ length: 4_000 }, (_, index) =>
+            eventRow(`budget-${offset + index}`, "signup", offset + index),
+          ),
+          schema: [],
+        };
+      },
+    );
 
     const tree = (await getOnboardingJourney(scope, {
       ...ARGS,
@@ -1967,14 +1977,14 @@ describe("getOnboardingJourney", () => {
       maxTotalBytesBilled: 50_000_000_000,
     })) as JourneyTree;
 
-    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(2);
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
     expect(mocks.listJourneyRecordings).not.toHaveBeenCalled();
     expect(tree.coverage).toMatchObject({
       sessionsWithReplay: null,
       truncated: true,
     });
     expect(tree.notes?.join(" ")).toMatch(
-      /aggregate maxTotalBytesBilled=50000000000 bytes budget/,
+      /spent its maxTotalBytesBilled=50000000000 bytes budget on pages it had to run in BigQuery/,
     );
     expect(tree.notes?.join(" ")).toMatch(/replay reads were skipped/);
     const examples = tree.nodes.flatMap((node) => node.examples);
@@ -1986,6 +1996,219 @@ describe("getOnboardingJourney", () => {
       incompleteReason: "journey_event_read_truncated",
       coverage: { journeyEventRead: { pages: 2, truncated: true } },
     });
+  });
+
+  it("reads cached BigQuery pages without spending the aggregate budget", async () => {
+    const cached = new Set([0, 4_000, 8_000]);
+    const jobs: number[] = [];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        if (!cached.has(offset)) {
+          await claimPageJob(options);
+          jobs.push(offset);
+        }
+        const rows = offset === 16_000 ? 2_000 : 4_000;
+        return {
+          rows: Array.from({ length: rows }, (_, index) =>
+            eventRow(`cached-${offset + index}`, "signup", offset + index),
+          ),
+          schema: [],
+        };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(jobs).toEqual([12_000, 16_000]);
+    expect(summary.coverage.truncated).toBe(false);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      rows: 18_000,
+      pages: 5,
+      truncated: false,
+    });
+    expect(summary.continueWith).toBeUndefined();
+  });
+
+  it("gives the budget to pages in order and offers to continue from the cache", async () => {
+    const total = 12_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`order-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const jobs: number[] = [];
+    let thirdPageAsked!: () => void;
+    const thirdPageAsking = new Promise<void>((resolve) => {
+      thirdPageAsked = resolve;
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        if (offset === 4_000) await thirdPageAsking;
+        if (offset === 8_000) thirdPageAsked();
+        await claimPageJob(options);
+        jobs.push(offset);
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(jobs).toEqual([0, 4_000]);
+    expect(summary.coverage.truncated).toBe(true);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 2,
+      truncated: true,
+    });
+    expect(summary.notes?.join(" ")).toMatch(
+      /used up maxTotalBytesBilled=50000000000 before it finished\. The pages it read are cached and cost nothing to read again, so calling again with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z" reads them/,
+    );
+    expect(summary.continueWith).toEqual({
+      observationWatermark: expect.stringMatching(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+      ),
+    });
+  });
+
+  it("keeps the budget in page order across a cached page between two misses", async () => {
+    const total = 16_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`between-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const jobs: number[] = [];
+    const letLaterPagesClaimFirst = async () => {
+      for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+    };
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        if (offset !== 8_000) {
+          if (offset === 4_000) await letLaterPagesClaimFirst();
+          await claimPageJob(options);
+          jobs.push(offset);
+        }
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(jobs).toEqual([0, 4_000]);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 3,
+      truncated: true,
+    });
+  });
+
+  it("says which budget-cut pages bill again because the cache did not keep them", async () => {
+    const total = 12_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`warned-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const read = async (uncachedOffsets: number[]) => {
+      mocks.queryFirstPartyAnalytics.mockImplementation(
+        async (sql: string, _scope: unknown, options: unknown) => {
+          if (!sql.includes("journey_total_rows"))
+            return { rows: [], schema: [] };
+          const offset = pageOffset(sql);
+          await claimPageJob(options);
+          if (uncachedOffsets.includes(offset))
+            (options as { onUncachedResult?: () => void }).onUncachedResult?.();
+          return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+        },
+      );
+      return (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+        maxEventRows: 20_000,
+        maxTotalBytesBilled: 50_000_000_000,
+      })) as JourneySummary;
+    };
+
+    const oneUncached = await read([0]);
+    expect(oneUncached.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 2,
+      truncated: true,
+    });
+    expect(oneUncached.notes?.join(" ")).toMatch(
+      /1 of the pages it read were not kept in the query cache \(BigQuery returned them with warnings, or the cache write failed\), so calling again with the same arguments and observationWatermark="[^"]+" bills them again\./,
+    );
+    expect(oneUncached.continueWith).toEqual({
+      observationWatermark: expect.any(String),
+    });
+
+    const allUncached = await read([0, 4_000]);
+    expect(allUncached.notes?.join(" ")).toMatch(
+      /none of the pages it billed was kept in the query cache .*\. Calling again would bill the same pages without reading further/,
+    );
+    expect(allUncached.continueWith).toBeUndefined();
+  });
+
+  it("ends a read at its reported total without asking for an empty page", async () => {
+    const total = 8_000;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`exact-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const offsets: number[] = [];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        offsets.push(offset);
+        await claimPageJob(options);
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(offsets).toEqual([0, 4_000]);
+    expect(summary.coverage.truncated).toBe(false);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      rows: total,
+      pages: 2,
+      truncated: false,
+      paginationConsistency: "stable",
+    });
+    expect(summary.continueWith).toBeUndefined();
   });
 
   it("returns completed pages as partial coverage at the event-read deadline", async () => {
@@ -2009,8 +2232,19 @@ describe("getOnboardingJourney", () => {
       })) as JourneySummary;
 
       expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[0]?.[2]).toMatchObject({
+        resumable: { deadline: expect.any(AbortSignal) },
+      });
       expect(summary.coverage.truncated).toBe(true);
-      expect(summary.notes?.join(" ")).toMatch(/45-second deadline/);
+      expect(summary.notes?.join(" ")).toMatch(/15-second time budget/);
+      expect(summary.notes?.join(" ")).toMatch(
+        /stopped at its time budget \(15 seconds for the event read, 22 in all\)\. Call again within a few minutes with the same arguments and observationWatermark="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z": queries that finished are kept in the query cache and unfinished BigQuery queries keep running/,
+      );
+      expect(summary.continueWith).toEqual({
+        observationWatermark: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+        ),
+      });
       expect(summary.followUp).toMatchObject({
         status: "incomplete",
         incompleteReason: "journey_event_read_truncated",
@@ -2018,6 +2252,521 @@ describe("getOnboardingJourney", () => {
       });
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it.each(["postgres", "dual"] as const)(
+    "tells a %s-backed read stopped at its deadline to continue from its cached pages",
+    async (sink) => {
+      // Finished pages are cached there too, but nothing is left running.
+      vi.useFakeTimers();
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+        await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+        return {
+          rows: Array.from({ length: 4_000 }, (_, index) =>
+            eventRow(`deadline-${index}`, "signup", index),
+          ),
+          schema: [],
+        };
+      });
+
+      try {
+        const summary = (await getOnboardingJourney(scope, {
+          ...ARGS,
+          dateTo: "2026-10-09",
+          format: "summary",
+          maxEventRows: 20_000,
+        })) as JourneySummary;
+
+        const notes = summary.notes?.join(" ");
+        expect(notes).toMatch(
+          /queries that finished are kept in the query cache, so the next call continues from them\. Repeat until this note is gone\./,
+        );
+        expect(notes).not.toMatch(/BigQuery/);
+        expect(summary.continueWith).toBeDefined();
+        expect(summary.stoppedPage).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("gives cohort trees the watermark to continue from at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      return {
+        rows: Array.from({ length: 4_000 }, (_, index) =>
+          eventRow(`deadline-${index}`, "signup", index),
+        ),
+        schema: [],
+      };
+    });
+
+    try {
+      const cohorts = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        app: "design",
+        splitDesignFirstTouch: true,
+        dateTo: "2026-10-09",
+        maxEventRows: 20_000,
+      })) as OnboardingJourneyCohorts;
+
+      expect(cohorts.readCoverage.truncated).toBe(true);
+      expect(cohorts.continueWith).toEqual({
+        observationWatermark: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/,
+        ),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says which step the BigQuery page it was waiting on had reached at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    const jobs = [
+      {
+        job: "existing" as const,
+        slot: 1,
+        collectable: false,
+        state: "DONE",
+        ageSeconds: 600,
+        sameQuery: false,
+        queryDifference: {
+          at: 412,
+          existingLength: 2_000,
+          submittedLength: 2_010,
+        },
+        failureReason: null,
+      },
+      { job: "new" as const, slot: 2 },
+    ];
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(
+      (
+        _sql: string,
+        _scope: unknown,
+        options: { signal: AbortSignal; trace: BigQueryQueryTrace },
+      ) => {
+        const { trace } = options;
+        trace.jobs.push(...jobs);
+        setTimeout(() => {
+          trace.stage = "polling";
+          trace.stageStartedAt = performance.now();
+          trace.polls = 4;
+        }, 5_000);
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            "abort",
+            () => reject(options.signal.reason),
+            { once: true },
+          );
+        });
+      },
+    );
+
+    try {
+      const pending = getOnboardingJourney(scope, {
+        ...ARGS,
+        dateTo: "2026-10-09",
+        format: "summary",
+        maxEventRows: 20_000,
+      });
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      const summary = (await pending) as JourneySummary;
+
+      expect(summary.stoppedPage).toEqual({
+        page: 1,
+        stage: "polling",
+        stageMs: ONBOARDING_EVENT_READ_DEADLINE_MS - 5_000,
+        elapsedMs: ONBOARDING_EVENT_READ_DEADLINE_MS,
+        lockWaitMs: 0,
+        staleLockCleared: false,
+        jobs,
+        polls: 4,
+      });
+      expect(summary.notes?.join(" ")).toMatch(
+        /stoppedPage says which step event page 1 was on when time ran out\./,
+      );
+      expect(summary.continueWith).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("requests the pages after the first side by side once it reports the total", async () => {
+    const total = 10_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(
+        `side-${String(Math.floor(index / 10)).padStart(4, "0")}`,
+        "signup",
+        index,
+        { journey_total_rows: total, journey_rows_fingerprint: 7 },
+      ),
+    );
+    const offsets: number[] = [];
+    let releaseSecondPage!: () => void;
+    const thirdPageRequested = new Promise<void>((resolve) => {
+      releaseSecondPage = resolve;
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      if (!sql.includes("journey_total_rows")) return { rows: [], schema: [] };
+      const offset = Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
+      offsets.push(offset);
+      if (offset === 8_000) releaseSecondPage();
+      // A read that waited for each page before asking for the next would
+      // never request the third page, and this one would never answer.
+      if (offset === 4_000) await thirdPageRequested;
+      return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+    });
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 12_000,
+    })) as JourneySummary;
+
+    expect(offsets).toEqual([0, 4_000, 8_000]);
+    expect(summary.coverage.truncated).toBe(false);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      rows: total,
+      pages: 3,
+      paginationConsistency: "stable",
+    });
+  });
+
+  it("runs both follow-ups side by side in the time the event read left, at 25 GB each", async () => {
+    let clockMs = 0;
+    const clock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => clockMs);
+    let call = 0;
+    let releaseSessionFollowup!: () => void;
+    const personFollowupRequested = new Promise<void>((resolve) => {
+      releaseSessionFollowup = resolve;
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
+      call += 1;
+      if (call === 1) {
+        clockMs = 18_000;
+        return { rows: journeyRows(), schema: [] };
+      }
+      // Waiting for the session follow-up first would leave this unanswered.
+      if (call === 2) await personFollowupRequested;
+      else releaseSessionFollowup();
+      return { rows: [], schema: [] };
+    });
+
+    try {
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        followUpMode: "person",
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
+      for (const [
+        ,
+        ,
+        options,
+      ] of mocks.queryFirstPartyAnalytics.mock.calls.slice(1)) {
+        expect(options).toMatchObject({
+          maxBytesBilled: 25_000_000_000,
+          timeoutMs: 4_000,
+        });
+      }
+      expect(summary.personFollowUp).toBeDefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("gives the follow-ups a whole number of milliseconds when the clock reads fractions", async () => {
+    let clockMs = 0.4;
+    const clock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => clockMs);
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
+      if (mocks.queryFirstPartyAnalytics.mock.calls.length === 1) {
+        clockMs = 18_000.9;
+        return { rows: journeyRows(), schema: [] };
+      }
+      return { rows: [], schema: [] };
+    });
+
+    try {
+      await getOnboardingJourney(scope, {
+        ...ARGS,
+        followUpMode: "person",
+        format: "summary",
+      });
+
+      const followups = mocks.queryFirstPartyAnalytics.mock.calls.slice(1);
+      expect(followups).toHaveLength(2);
+      for (const [, , options] of followups) {
+        expect(options).toMatchObject({ timeoutMs: 3_999 });
+      }
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      name: "says how to continue when a follow-up was cut short by the budget",
+      readMs: 10_000,
+    },
+    {
+      // Its job keeps running, so the next call collects it.
+      name: "says how to continue when a follow-up ran out of a query's full time",
+      readMs: 0,
+    },
+  ])("$name", async ({ readMs }) => {
+    let clockMs = 0;
+    const clock = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => clockMs);
+    mocks.queryFirstPartyAnalytics
+      .mockImplementationOnce(async () => {
+        clockMs = readMs;
+        return { rows: journeyRows(), schema: [] };
+      })
+      .mockRejectedValueOnce(new FirstPartyAnalyticsQueryTimeoutError());
+
+    try {
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
+        resumable: {},
+      });
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "followup_aggregate_query_timeout",
+      });
+      expect(summary.notes?.join(" ")).toMatch(
+        /stopped at its time budget.*Call again within a few minutes with the same arguments and observationWatermark=/,
+      );
+      expect(summary.notes).toHaveLength(1);
+      expect(summary.continueWith).toBeDefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("says why each timed-out follow-up's earlier BigQuery jobs weren't collected", async () => {
+    const sessionJobs = [{ job: "new" as const, slot: 1 }];
+    const personJobs = [
+      {
+        job: "existing" as const,
+        slot: 1,
+        collectable: false,
+        state: "DONE",
+        ageSeconds: 180,
+        sameQuery: true,
+        failureReason: "other" as const,
+        failureCode: "stopped",
+      },
+      { job: "new" as const, slot: 2 },
+    ];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (
+        sql: string,
+        _scope: unknown,
+        options: { trace: BigQueryQueryTrace },
+      ) => {
+        if (sql.includes("journey_total_rows")) {
+          return { rows: journeyRows(), schema: [] };
+        }
+        const { trace } = options;
+        trace.jobs.push(
+          ...(sql.includes("authUserId") ? personJobs : sessionJobs),
+        );
+        trace.stage = "polling";
+        trace.polls = 3;
+        throw new FirstPartyAnalyticsQueryTimeoutError();
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(summary.followUp).toMatchObject({
+      incompleteReason: "followup_aggregate_query_timeout",
+      coverage: {
+        followupAggregateRead: {
+          stoppedQuery: { stage: "polling", jobs: sessionJobs, polls: 3 },
+        },
+      },
+    });
+    expect(summary.personFollowUp).toMatchObject({
+      incompleteReason: "person_followup_query_timeout",
+      coverage: {
+        followupAggregateRead: {
+          stoppedQuery: { stage: "polling", jobs: personJobs, polls: 3 },
+        },
+      },
+    });
+  });
+
+  it("reports a person follow-up BigQuery refused for resources as failed, without a retry", async () => {
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      if (sql.includes("journey_total_rows")) {
+        return { rows: journeyRows(), schema: [] };
+      }
+      if (sql.includes("cohort_keys AS (")) {
+        throw new BigQueryBackendError("job", null, "resources_exceeded");
+      }
+      return { rows: [], schema: [] };
+    });
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(summary.personFollowUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "person_followup_query_failed",
+      coverage: {
+        followupAggregateRead: {
+          status: "incomplete",
+          backendStatus: null,
+          backendReason: "resources_exceeded",
+          backendOperation: "job",
+        },
+      },
+    });
+    expect(summary.notes?.join(" ") ?? "").not.toMatch(/Call again/);
+    expect(summary.continueWith).toBeUndefined();
+  });
+
+  it.each(["postgres", "dual"] as const)(
+    "does not offer a retry when a %s-backed follow-up had a query's full time",
+    async (sink) => {
+      // Only a BigQuery job keeps running for the next call to collect.
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics
+        .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+        .mockRejectedValueOnce(new FirstPartyAnalyticsQueryTimeoutError());
+
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "followup_aggregate_query_timeout",
+      });
+      expect(
+        summary.followUp.coverage.followupAggregateRead,
+      ).not.toHaveProperty("stoppedQuery");
+      expect(summary.notes).toEqual([
+        expect.stringMatching(
+          /needed more than the 20 seconds one query may run, so calling again will not finish it/,
+        ),
+      ]);
+      expect(summary.continueWith).toBeUndefined();
+    },
+  );
+
+  it("reads as of a pinned observationWatermark, so a later call sends the same queries", async () => {
+    const watermark = "2026-10-09T11:58:00.000Z";
+    const now = vi.spyOn(Date, "now");
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => ({
+      rows: sql.includes("journey_total_rows") ? journeyRows() : [],
+      schema: [],
+    }));
+    const pinned = {
+      ...ARGS,
+      dateTo: "2026-10-09",
+      followUpMode: "person" as const,
+      format: "summary" as const,
+      observationWatermark: watermark,
+    };
+    const queriesAt = async (nowIso: string) => {
+      mocks.queryFirstPartyAnalytics.mockClear();
+      now.mockReturnValue(Date.parse(nowIso));
+      const summary = (await getOnboardingJourney(
+        scope,
+        pinned,
+      )) as JourneySummary;
+      expect(summary.personFollowUp?.observationWatermark).toBe(watermark);
+      return mocks.queryFirstPartyAnalytics.mock.calls.map(([sql]) => sql);
+    };
+
+    try {
+      const first = await queriesAt("2026-10-09T12:00:00.000Z");
+      expect(first).toHaveLength(3);
+      expect(first.every((sql) => sql.includes(watermark))).toBe(true);
+      expect(await queriesAt("2026-10-09T12:07:30.000Z")).toEqual(first);
+      for (const observationWatermark of [
+        "2026-10-09T11:58:30.000Z",
+        "2026-10-09T11:58:00Z",
+        "2026-10-09T12:30:00.000Z",
+      ]) {
+        await expect(
+          getOnboardingJourney(scope, { ...pinned, observationWatermark }),
+        ).rejects.toThrow(/past UTC minute/);
+      }
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("gives a window ending today a watermark that rebuilds the same queries", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-10-09T12:07:30.000Z"));
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => ({
+      rows: sql.includes("journey_total_rows") ? journeyRows() : [],
+      schema: [],
+    }));
+    const today = {
+      ...ARGS,
+      dateTo: "2026-10-09",
+      followUpMode: "person" as const,
+      format: "summary" as const,
+    };
+
+    try {
+      const first = (await getOnboardingJourney(
+        scope,
+        today,
+      )) as JourneySummary;
+      const firstQueries = mocks.queryFirstPartyAnalytics.mock.calls.map(
+        ([sql]) => sql,
+      );
+      expect(first.personFollowUp?.observationWatermark).toBe(
+        "2026-10-09T12:07:00.000Z",
+      );
+      expect(first.followUp.observationCutoff).toBe("2026-10-09T12:07:00.000Z");
+
+      mocks.queryFirstPartyAnalytics.mockClear();
+      now.mockReturnValue(Date.parse("2026-10-09T12:09:10.000Z"));
+      await getOnboardingJourney(scope, {
+        ...today,
+        observationWatermark: "2026-10-09T12:07:00.000Z",
+      });
+      expect(
+        mocks.queryFirstPartyAnalytics.mock.calls.map(([sql]) => sql),
+      ).toEqual(firstQueries);
+    } finally {
+      now.mockRestore();
     }
   });
 

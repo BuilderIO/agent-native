@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
+import type { DataSourceType } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { STALE_RESULT_AGE_MS } from "@/lib/sql-query-freshness";
-import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 type Freshness = {
   fetchedAt?: string;
@@ -87,7 +87,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SqlChartCard } from "@/pages/adhoc/sql-dashboard/SqlChartCard";
 
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 const FETCHED_AT = "2026-10-14T12:00:00.000Z";
 const fetchedMs = Date.parse(FETCHED_AT);
@@ -300,6 +300,42 @@ describe("SqlChart freshness", () => {
       ).not.toBeNull();
       expect(container.textContent).toContain("42");
     });
+
+    it.each([
+      {
+        state: "a run is pending",
+        error: false,
+        placeholder: false,
+        updating: true,
+      },
+      {
+        state: "the read after it fails",
+        error: true,
+        placeholder: false,
+        updating: false,
+      },
+      {
+        state: "it belongs to the previous filters",
+        error: false,
+        placeholder: true,
+        updating: false,
+      },
+    ])(
+      "shows a pending data program result as updating only while $state",
+      async ({ error, placeholder, updating }) => {
+        mocks.query.data = {
+          rows: [{ value: 42 }],
+          refreshPending: true,
+        } as never;
+        mocks.query.error = error ? new Error("query failed") : null;
+        mocks.query.isPlaceholderData = placeholder;
+        await render();
+        expect(
+          container.querySelector("[data-dashboard-report-updating]") !== null,
+        ).toBe(updating);
+        expect(container.querySelector('[role="alert"]') !== null).toBe(error);
+      },
+    );
 
     it("keeps the previous filters label rather than the age while paused offscreen", async () => {
       mocks.query.freshness = { fetchedAt: FETCHED_AT, cache: "live" };

@@ -108,12 +108,6 @@ export {
   type InteractionStatePanelProps,
 } from "./InteractionStatePanel";
 export {
-  MotionKeyframeDiamond,
-  motionPropertyHasKeyframe,
-  type MotionKeyframeCssProperty,
-  type MotionKeyframeDiamondProps,
-} from "./MotionKeyframeDiamond";
-export {
   ScrubInput,
   type ScrubInputChangeMeta,
   type ScrubInputProps,

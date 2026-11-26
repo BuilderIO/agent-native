@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -42,7 +43,6 @@ import {
   useDashboardNameDraft,
 } from "./DashboardNameDrafts";
 import SqlDashboardPage from "./index";
-import type { SqlPanel } from "./types";
 
 type CardRender = {
   dashboardId: string;
@@ -2984,36 +2984,42 @@ describe("SqlDashboardPage dashboard switch", () => {
         }
       },
     };
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
     async function afterSaveDelay() {
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 1600));
+        await vi.advanceTimersByTimeAsync(1600);
       });
     }
 
-    await renderAt("/dashboards/dash-a?f_region=eu");
-    await goTo("/dashboards/dash-a?f_region=us");
-    await afterSaveDelay();
-    expect(writes).toEqual([{ filters: { f_region: "us" } }]);
+    try {
+      await renderAt("/dashboards/dash-a?f_region=eu");
+      await goTo("/dashboards/dash-a?f_region=us");
+      await afterSaveDelay();
+      expect(writes).toEqual([{ filters: { f_region: "us" } }]);
 
-    // The failed write rereads the saved preference; that must not resend it.
-    mocks.userPref = {
-      ...mocks.userPref,
-      data: { filters: { f_region: "eu" } },
-    };
-    await renderAt("/dashboards/dash-a?f_region=us");
-    await afterSaveDelay();
-    expect(writes).toHaveLength(1);
+      mocks.userPref = {
+        ...mocks.userPref,
+        data: { filters: { f_region: "eu" } },
+      };
+      await renderAt("/dashboards/dash-a?f_region=us");
+      await afterSaveDelay();
+      expect(writes).toHaveLength(1);
 
-    // Leaving them counts while the preference is still being reread.
-    mocks.userPref = { ...mocks.userPref, isFetching: true };
-    await goTo("/dashboards/dash-a?f_region=eu");
-    await afterSaveDelay();
-    mocks.userPref = { ...mocks.userPref, isFetching: false };
-    await goTo("/dashboards/dash-a?f_region=us");
-    await afterSaveDelay();
-    expect(writes).toEqual([
-      { filters: { f_region: "us" } },
-      { filters: { f_region: "us" } },
-    ]);
+      mocks.userPref = { ...mocks.userPref, isFetching: true };
+      await goTo("/dashboards/dash-a?f_region=eu");
+      await afterSaveDelay();
+      mocks.userPref = { ...mocks.userPref, isFetching: false };
+      await goTo("/dashboards/dash-a?f_region=us");
+      await afterSaveDelay();
+      expect(writes).toEqual([
+        { filters: { f_region: "us" } },
+        { filters: { f_region: "us" } },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   }, 15_000);
 });

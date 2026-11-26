@@ -40,6 +40,7 @@ export default defineAction({
         "Per-id thread ID hints, comma-separated and positionally matched to --id (bulk UI calls only)",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const ids = args.id
       ?.split(",")

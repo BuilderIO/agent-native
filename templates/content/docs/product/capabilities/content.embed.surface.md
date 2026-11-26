@@ -14,6 +14,7 @@ related_features:
   [
     "content.feature.work-on-content-inside-another-application",
     "content.feature.build-living-dashboards",
+    "content.feature.use-content-from-chatgpt",
   ]
 roadmap_boundary: "feature"
 acceptance_summary: "A stable mount contract renders a selected canonical Content surface responsively and routes its allowed interactions through shared Actions, current access, history, and application state without cloning the object."

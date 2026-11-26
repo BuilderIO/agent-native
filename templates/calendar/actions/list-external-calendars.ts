@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ExternalCalendar } from "../shared/api.js";
 
 export default defineAction({
+  mcpTool: "search",
   description: "List all subscribed external calendar feeds (ICS/webcal URLs)",
   schema: z.object({}),
   http: { method: "GET" },

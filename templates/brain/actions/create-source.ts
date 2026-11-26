@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -9,6 +13,7 @@ import {
   serializeSource,
   sha256Hex,
 } from "../server/lib/brain.js";
+import { requirePersonalGoogleConnection } from "../server/lib/google-source-connection.js";
 import {
   assertSourceCredentialAvailable,
   assertSourceWorkspaceConnectionAvailable,
@@ -19,6 +24,7 @@ import {
   recordZoomAuditEvent,
   zoomAllowlistChange,
 } from "../server/lib/zoom-governance.js";
+import { isGoogleSourceProvider } from "../shared/google-source-config.js";
 import {
   COMPANY_CONTEXT_INTAKE_KEY,
   COMPANY_CONTEXT_SOURCE_ID_PREFIX,
@@ -66,6 +72,15 @@ export default defineAction({
         "Optional answer policy controlling trust, eligibility, authority, freshness, review, and conflicts",
       ),
   }),
+  needsApproval: (args, ctx) => {
+    if (!isOutsideAgentCall(ctx)) return false;
+    if (args.visibility === "org" || args.sourceKey) return true;
+    const config = mergeSourceConfigJson(args.config, args.configJson) ?? {};
+    return ["sourceKey", "ingestTokenHash"].some((key) =>
+      Object.prototype.hasOwnProperty.call(config, key),
+    );
+  },
+  mcpTool: "search",
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
     assertValidSourceConfig(args.provider, config, { creating: true });
@@ -106,6 +121,13 @@ export default defineAction({
       });
     } else {
       delete config.workspaceConnectionId;
+    }
+    if (isGoogleSourceProvider(args.provider)) {
+      if (args.visibility !== "private")
+        fail("Personal Google sources must be private.", {
+          errorCode: "google_source_private_required",
+        });
+      await requirePersonalGoogleConnection(args.provider, config);
     }
     let ingestToken: string | undefined;
     if (args.sourceKey) {

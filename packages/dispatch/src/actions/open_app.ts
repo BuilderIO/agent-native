@@ -5,6 +5,7 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppCspBuilder,
 } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import { normalizeTrackingDimension } from "@agent-native/core/shared";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
@@ -13,41 +14,59 @@ import {
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
 } from "../server/lib/mcp-gateway.js";
+import routeAppIntent from "./route-app-intent.js";
 
 const deepLinkParam = z.union([z.string(), z.number(), z.boolean()]);
-const openAppSchema = z
-  .object({
-    app: z
-      .string()
-      .describe(
-        'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions.',
-      ),
-    view: z.string().optional().describe("Target view in the app, e.g. inbox."),
-    path: z
-      .string()
-      .optional()
-      .describe(
-        'Optional route within the target app, e.g. /adhoc/q2 or /chart?panel=... . Dispatch extension routes such as /extensions/<id>/<slug> belong to app "dispatch".',
-      ),
-    params: z
-      .record(z.string(), deepLinkParam)
-      .optional()
-      .describe("Optional record-focus or filter params."),
-    embed: z
-      .boolean()
-      .optional()
-      .describe(
-        "Render the app or focused route/component inline in MCP Apps when supported.",
-      ),
-    chrome: z
-      .enum(["full", "minimal"])
-      .optional()
-      .describe("Embed chrome preference for compatible app routes."),
-  })
-  .refine((input) => input.view?.trim() || input.path?.trim(), {
-    message: "open_app requires either view or path",
-    path: ["view"],
-  });
+const openAppSchema = z.object({
+  app: z
+    .string()
+    .optional()
+    .describe(
+      'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions. Leave it out and pass intent to let Dispatch pick the app.',
+    ),
+  intent: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .optional()
+    .describe(
+      "What the user wants to see, in their words (for example: my unread email from Dana). Used to pick the app when app is not given; app wins when both are set.",
+    ),
+  screen: z
+    .string()
+    .optional()
+    .describe(
+      "Declared manifest screen id to resolve with params, e.g. deck or thread.",
+    ),
+  view: z.string().optional().describe("Target view in the app, e.g. inbox."),
+  path: z
+    .string()
+    .optional()
+    .describe(
+      'Optional route within the target app, e.g. /adhoc/q2 or /chart?panel=... . Omit both view and path to open the app\'s home. Dispatch extension routes such as /extensions/<id>/<slug> belong to app "dispatch".',
+    ),
+  params: z
+    .record(z.string(), deepLinkParam)
+    .optional()
+    .describe("Optional record-focus or filter params."),
+  focus: z
+    .boolean()
+    .optional()
+    .describe(
+      "Explicitly transfer foreground pane focus when another app was already committed during this turn.",
+    ),
+  embed: z
+    .boolean()
+    .optional()
+    .describe(
+      "Render the app or focused route/component inline in MCP Apps when supported.",
+    ),
+  chrome: z
+    .enum(["full", "minimal"])
+    .optional()
+    .describe("Embed chrome preference for compatible app routes."),
+});
 
 type OpenAppArgs = z.infer<typeof openAppSchema>;
 
@@ -126,15 +145,55 @@ const openAppResource = embedApp({
   openLabel: "Open app",
 });
 
+async function pickAppForIntent(
+  intent: string,
+  ctx: Parameters<typeof routeAppIntent.run>[1],
+): Promise<string> {
+  const routed = await routeAppIntent.run({ text: intent }, ctx);
+  if (routed.status !== "ok") {
+    fail(
+      `open_app could not pick an app for that intent (${routed.reason}). Pass app explicitly; list_apps shows the choices.`,
+      { errorCode: "app_not_resolved", statusCode: 422 },
+    );
+  }
+  if (routed.app === "none") {
+    fail(
+      "That request needs no app on screen. Answer in chat, or pass app explicitly to open one.",
+      { errorCode: "no_app_needed", statusCode: 422 },
+    );
+  }
+  return routed.app;
+}
+
 export default defineAction({
   description:
-    'Build a deep link or embeddable app route/component route for an app available through Dispatch MCP. Use app "dispatch" for Dispatch extension/tool pages. No side effects; surface the returned Open link to the user.',
+    "Return a registered app route for the host to open beside the conversation to show a view or item such as mail, a draft, a calendar view, a chart, a dashboard, a document, or a record. Accepts an `app` id or a natural-language `intent` to select a matching granted app.",
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  opensAnotherAppEmbed: true,
   run: async (args, ctx) => {
-    const result = await openGrantedDispatchMcpApp(normalizeOpenAppArgs(args));
+    const { intent, ...normalizedArgs } = normalizeOpenAppArgs(args);
+    let app = normalizedArgs.app?.trim();
+    if (!app) {
+      if (!intent) {
+        fail("open_app needs an app, or an intent to pick one.", {
+          errorCode: "app_required",
+          statusCode: 400,
+        });
+      }
+      app = await pickAppForIntent(intent, ctx);
+    }
+    const normalized = { ...normalizedArgs, app };
+    const result =
+      ctx?.caller === "tool"
+        ? await openGrantedDispatchMcpApp(normalized, { prefetchEmbed: true })
+        : await openGrantedDispatchMcpApp(
+            normalized.embed == null && ctx?.caller === "mcp"
+              ? { ...normalized, embed: true }
+              : normalized,
+          );
     const targetApp = normalizeTrackingDimension(result.app) ?? result.app;
     if (targetApp !== "dispatch") {
       track(
@@ -149,7 +208,9 @@ export default defineAction({
         ctx,
       );
     }
-    return result;
+    // The gateway echoes only `embed: true`; the MCP server reads an explicit
+    // `false` to open no panel.
+    return normalized.embed === false ? { ...result, embed: false } : result;
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

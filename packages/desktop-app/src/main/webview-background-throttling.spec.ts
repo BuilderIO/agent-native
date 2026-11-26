@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { setMailWebviewBackgroundThrottling } from "./webview-background-throttling.js";
+import {
+  setMailWebviewBackgroundThrottling,
+  setWebviewBackgroundThrottling,
+} from "./webview-background-throttling.js";
 
 describe("setMailWebviewBackgroundThrottling", () => {
   it("throttles an active Mail guest and preserves hidden polling when inactive", () => {
@@ -42,5 +45,51 @@ describe("setMailWebviewBackgroundThrottling", () => {
       getWebContents,
     );
     expect(setBackgroundThrottling).not.toHaveBeenCalled();
+  });
+});
+
+describe("setWebviewBackgroundThrottling", () => {
+  it("applies the requested throttling to webview contents only", () => {
+    const setBackgroundThrottling = vi.fn();
+    const webview = {
+      getType: () => "webview" as const,
+      setBackgroundThrottling,
+    };
+    const window = {
+      getType: () => "window" as const,
+      setBackgroundThrottling,
+    };
+
+    setWebviewBackgroundThrottling(
+      { webContentsId: 9, throttle: true },
+      () => webview,
+    );
+    setWebviewBackgroundThrottling(
+      { webContentsId: 9, throttle: true },
+      () => window,
+    );
+    setWebviewBackgroundThrottling(
+      { webContentsId: "9", throttle: true },
+      () => webview,
+    );
+
+    expect(setBackgroundThrottling).toHaveBeenCalledTimes(1);
+    expect(setBackgroundThrottling).toHaveBeenCalledWith(true);
+  });
+
+  it("rejects malformed payloads without reading the contents", () => {
+    const getWebContents = vi.fn();
+    for (const payload of [
+      null,
+      undefined,
+      "9",
+      42,
+      { webContentsId: "9", throttle: true },
+      { webContentsId: 9, throttle: "true" },
+      { webContentsId: 9 },
+    ]) {
+      setWebviewBackgroundThrottling(payload, getWebContents);
+    }
+    expect(getWebContents).not.toHaveBeenCalled();
   });
 });

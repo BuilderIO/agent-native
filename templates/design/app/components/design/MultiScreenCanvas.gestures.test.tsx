@@ -3682,7 +3682,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(onScreenSelectionChange).toHaveBeenLastCalledWith(["visible"]);
   });
 
-  it("forwards Enter when a selected board object is double-clicked", async () => {
+  it("leaves a selected board object's double-click to the iframe's own drill-in, without a second keyboard Enter", async () => {
     const onBoardIframeHotkey = vi.fn();
     const boardSelectedSourceId = "board-vector-source";
     await act(async () => {
@@ -3743,15 +3743,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       );
     });
 
-    expect(onBoardIframeHotkey).toHaveBeenCalledExactlyOnceWith({
-      key: "Enter",
-      code: "Enter",
-      metaKey: false,
-      ctrlKey: false,
-      shiftKey: false,
-      altKey: false,
-      repeat: false,
-    });
+    // The drag surface already replays a coordinate-correct dblclick into the
+    // board iframe. A host Enter on top of it raced that drill-in and could
+    // land on the collection's last child instead of the child under the
+    // pointer (interaction-selection.spec.ts "double-click drills one level").
+    expect(onBoardIframeHotkey).not.toHaveBeenCalled();
   });
 });
 

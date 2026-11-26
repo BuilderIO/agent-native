@@ -5,19 +5,26 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   BrowserRouter,
+  createMemoryRouter,
   MemoryRouter,
   Route,
   Routes,
+  RouterProvider,
   useLocation,
   useNavigate,
 } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { flushClientAppStateBeforeAgentTurn } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   useAgentRouteState,
   useSemanticNavigationState,
 } from "./route-state.js";
+import {
+  currentSessionIdentity,
+  recordSessionIdentity,
+} from "./session-identity.js";
 import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "./workspace-app-navigation.js";
 
 function jsonResponse(body: unknown): Response {
@@ -104,6 +111,16 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
         state[key] = body;
         writes.push({ key, body, init: init ?? {} });
         return jsonResponse(body);
+      }
+      if (method === "PATCH") {
+        const { expected, next } = JSON.parse(String(init?.body));
+        if (JSON.stringify(expected) !== JSON.stringify(state[key]))
+          return jsonResponse({ changed: false });
+        if (next === null) {
+          delete state[key];
+          deletes.push({ key, init: init ?? {} });
+        } else state[key] = next;
+        return jsonResponse({ changed: true });
       }
       if (method === "DELETE") {
         delete state[key];
@@ -258,6 +275,7 @@ describe("route-state client helpers", () => {
         browserTabId: moduleTabId,
         requestSource: moduleTabId,
         refetchInterval: false,
+        writeDebounceMs: 0,
         getNavigationState: ({ pathname }) => ({ pathname }),
         getCommandPath: () => null,
       });
@@ -294,6 +312,191 @@ describe("route-state client helpers", () => {
       "X-Request-Source": scopedNavigationKeys[1]?.slice("navigation:".length),
     });
   });
+
+  it("flushes debounced navigation before a turn instead of reading the previously selected object", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "inbox", threadId: "selected-now" },
+        navigationKeys: ["navigation:tab-1"],
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        writeDebounceMs: 60_000,
+        onCommand: vi.fn(),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(writes).toEqual([]);
+    await act(() => flushClientAppStateBeforeAgentTurn());
+    expect(writes.map(({ key, body }) => ({ key, body }))).toEqual([
+      {
+        key: "navigation:tab-1",
+        body: { view: "inbox", threadId: "selected-now" },
+      },
+    ]);
+  });
+
+  it("retries a rejected navigation flush before the next turn", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    let rejectWrite = true;
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(init?.body).includes("selected-now") && rejectWrite) {
+        rejectWrite = false;
+        return Promise.reject(new Error("Transient navigation failure"));
+      }
+      return fetchMock(url, init);
+    });
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "inbox", threadId: "selected-now" },
+        navigationKeys: ["navigation:tab-1"],
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        writeDebounceMs: 60_000,
+        onCommand: vi.fn(),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await expect(flushClientAppStateBeforeAgentTurn()).rejects.toThrow(
+      "Transient navigation failure",
+    );
+    await act(() => flushClientAppStateBeforeAgentTurn());
+    expect(writes.map(({ key, body }) => ({ key, body }))).toEqual([
+      {
+        key: "navigation:tab-1",
+        body: { view: "inbox", threadId: "selected-now" },
+      },
+    ]);
+  });
+
+  it("retries a rejected default immediate navigation write before the next turn", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    let rejectWrite = true;
+    const errors: unknown[] = [];
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(init?.body).includes("selected-now") && rejectWrite) {
+        rejectWrite = false;
+        return Promise.reject(new Error("Transient immediate write failure"));
+      }
+      return fetchMock(url, init);
+    });
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "inbox", threadId: "selected-now" },
+        navigationKeys: ["navigation:tab-1"],
+        commandKeys: ["navigate:tab-1"],
+        commandRefetchInterval: false,
+        onCommand: vi.fn(),
+        onError: (error) => {
+          errors.push(error);
+        },
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    expect(errors).toHaveLength(1);
+    expect(writes).toEqual([]);
+    await act(() => flushClientAppStateBeforeAgentTurn());
+    expect(writes.map(({ key, body }) => ({ key, body }))).toEqual([
+      {
+        key: "navigation:tab-1",
+        body: { view: "inbox", threadId: "selected-now" },
+      },
+    ]);
+  });
+
+  it.each([false, true])(
+    "seeds the new session from the visible route instead of orphaning its flush (previousSaved=%s)",
+    async (previousSaved) => {
+      vi.useFakeTimers();
+      recordSessionIdentity("synthetic-old-user", "org-a");
+      const { fetchMock, writes } = makeAppStateFetch({});
+      const sessions: Array<string | null | undefined> = [];
+      vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          init?.method === "PUT" &&
+          appStateKey(url).startsWith("navigation:")
+        )
+          sessions.push(currentSessionIdentity());
+        return fetchMock(url, init);
+      });
+      function Harness() {
+        useAgentRouteState({
+          refetchInterval: false,
+          writeDebounceMs: 60_000,
+          getNavigationState: (location) => ({
+            pathname: location.pathname,
+            ...(previousSaved
+              ? {}
+              : { visibleAccount: currentSessionIdentity() }),
+          }),
+          getCommandPath: () => null,
+        });
+        return null;
+      }
+      const rendered = renderWithQueryClient(
+        <MemoryRouter initialEntries={["/visible-object"]}>
+          <Harness />
+        </MemoryRouter>,
+      );
+      roots.push(rendered.root);
+      containers.push(rendered.container);
+      try {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1);
+        });
+        await act(async () => {
+          if (previousSaved) {
+            const gate = flushClientAppStateBeforeAgentTurn();
+            await vi.advanceTimersByTimeAsync(1);
+            await gate;
+          }
+        });
+        await act(async () => {
+          recordSessionIdentity("synthetic-new-user", "org-b");
+          await Promise.resolve();
+        });
+        await act(async () => {
+          const gate = flushClientAppStateBeforeAgentTurn();
+          await vi.advanceTimersByTimeAsync(1);
+          await gate;
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+        const expectedCurrent = {
+          pathname: "/visible-object",
+          ...(previousSaved ? {} : { visibleAccount: "synthetic-new-user" }),
+        };
+        expect(writes.map(({ body }) => body)).toEqual(
+          previousSaved
+            ? [expectedCurrent, expectedCurrent]
+            : [expectedCurrent],
+        );
+        expect(sessions).toEqual(
+          previousSaved
+            ? ["synthetic-old-user", "synthetic-new-user"]
+            : ["synthetic-new-user"],
+        );
+      } finally {
+        act(() => rendered.root.unmount());
+        recordSessionIdentity(undefined);
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("writes semantic navigation state with request-source metadata", async () => {
     const { fetchMock, writes } = makeAppStateFetch({});
@@ -393,6 +596,7 @@ describe("route-state client helpers", () => {
       setView = updateView;
       useAgentRouteState({
         refetchInterval: false,
+        writeDebounceMs: 0,
         getNavigationState: () => ({ view }),
         getCommandPath: () => null,
       });
@@ -617,6 +821,38 @@ describe("route-state client helpers", () => {
     ).toBe(false);
   });
 
+  it("consumes a local tool navigation command on refresh without waiting for polling", async () => {
+    const { fetchMock, state } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const commands: unknown[] = [];
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "editor" },
+        browserTabId: "tab-local-refresh",
+        commandRefetchInterval: false,
+        onCommand: (command) => commands.push(command),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+    state["navigate:tab-local-refresh"] = { path: "/settings" };
+    state["navigate:other-tab"] = { path: "/other" };
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await flush();
+    });
+    await act(flush);
+    // The consumed command's delete goes out on the tick after it's read.
+    await act(flush);
+    expect(commands).toEqual([{ path: "/settings" }]);
+    expect(state["navigate:tab-local-refresh"]).toBeUndefined();
+    expect(state["navigate:other-tab"]).toEqual({ path: "/other" });
+  });
+
   it("reads the first available command key and deletes the consumed command", async () => {
     const { deletes, fetchMock } = makeAppStateFetch({
       "navigate:tab-1": { view: "thread", threadId: "thread-2", _writeId: "a" },
@@ -651,21 +887,16 @@ describe("route-state client helpers", () => {
     expect(deletes).toEqual([
       {
         key: "navigate:tab-1",
-        init: {
-          method: "DELETE",
-          headers: {
-            "X-Agent-Native-CSRF": "1",
-            "X-Agent-Native-Browser-Tab": expect.any(String),
-            "X-Request-Source": "tab-1",
-            // Its place in this page's write order.
-            "X-Agent-Native-App-State-Writer": expect.stringMatching(/^page-/),
-            "X-Agent-Native-App-State-Seq": expect.stringMatching(/^[0-9]+$/),
-          },
-          keepalive: undefined,
-          signal: undefined,
-        },
+        init: expect.objectContaining({
+          method: "PATCH",
+          headers: expect.objectContaining({ "X-Request-Source": "tab-1" }),
+        }),
       },
     ]);
+    expect(JSON.parse(String(deletes[0]?.init.body))).toEqual({
+      expected: commands[0],
+      next: null,
+    });
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);
@@ -710,13 +941,17 @@ describe("route-state client helpers", () => {
     expect(rendered.container.textContent).toBe("/detail");
   });
 
-  it("derives route state and applies navigate commands with React Router", async () => {
+  it("emits the targeted receipt after its route loader and DOM commit", async () => {
+    let finishLoading = () => {};
+    const loading = new Promise<void>((resolve) => {
+      finishLoading = resolve;
+    });
     const { fetchMock, writes } = makeAppStateFetch({
       "navigate:tab-1": { view: "detail", id: "123", _writeId: "cmd-1" },
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    function Harness() {
+    function Harness({ tabId }: { tabId: string }) {
       const location = useLocation();
       useAgentRouteState<
         {
@@ -729,9 +964,10 @@ describe("route-state client helpers", () => {
           _writeId?: string;
         }
       >({
-        browserTabId: "tab-1",
-        requestSource: "tab-1",
+        browserTabId: tabId,
+        requestSource: tabId,
         refetchInterval: false,
+        writeDebounceMs: 0,
         getNavigationState: ({ pathname, searchParams }) => ({
           view: pathname === "/" ? "home" : pathname.slice(1),
           label: searchParams.get("label"),
@@ -744,30 +980,70 @@ describe("route-state client helpers", () => {
       return <div>{`${location.pathname}${location.search}`}</div>;
     }
 
-    const rendered = renderWithQueryClient(
-      <MemoryRouter initialEntries={["/?label=important"]}>
-        <Routes>
-          <Route path="*" element={<Harness />} />
-        </Routes>
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <Harness tabId="tab-1" /> },
+        {
+          path: "/detail/:id",
+          loader: () => loading,
+          element: <Harness tabId="tab-1" />,
+        },
+      ],
+      { initialEntries: ["/?label=important"] },
+    );
+    const rendered = renderWithQueryClient(<RouterProvider router={router} />);
+    const other = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Harness tabId="tab-2" />
       </MemoryRouter>,
     );
-    roots.push(rendered.root);
-    containers.push(rendered.container);
-    await act(flush);
-    await act(flush);
+    roots.push(rendered.root, other.root);
+    containers.push(rendered.container, other.container);
+    const settled = vi.fn((_event: Event) => rendered.container.textContent);
+    window.addEventListener("agent-native:screen-settled", settled, {
+      once: true,
+    });
 
-    expect(rendered.container.textContent).toBe("/detail/123");
+    try {
+      await act(flush);
+      await act(flush);
+      expect(router.state.navigation.state).toBe("loading");
+      expect(settled).not.toHaveBeenCalled();
+      await act(async () => {
+        finishLoading();
+        await flush();
+      });
+
+      expect(other.container.textContent).toBe("/");
+      expect(settled).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          detail: expect.objectContaining({
+            type: "agent-native:screen-settled",
+            writeId: "cmd-1",
+            tabId: "tab-1",
+            url: "/detail/123",
+          }),
+        }),
+      );
+      expect(settled).toHaveReturnedWith("/detail/123");
+    } finally {
+      window.removeEventListener("agent-native:screen-settled", settled);
+      router.dispose();
+    }
     // The second state waits for the first write to land, then goes out.
     await act(flush);
-    expect(writes.map((write) => write.key)).toEqual([
+    const targetWrites = writes.filter(
+      (write) => write.key === "navigation:tab-1",
+    );
+    expect(targetWrites.map((write) => write.key)).toEqual([
       "navigation:tab-1",
       "navigation:tab-1",
     ]);
-    expect(writes[0].body).toEqual({
+    expect(targetWrites[0].body).toEqual({
       view: "home",
       label: "important",
     });
-    expect(writes[1].body).toEqual({
+    expect(targetWrites[1].body).toEqual({
       view: "detail/123",
       label: null,
     });
@@ -821,6 +1097,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/market-research/_agent-native/poll",
         assign,
@@ -877,6 +1155,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/risk/chat/thread-1",
         assign,
@@ -933,6 +1213,10 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      dispatchEvent: vi.fn(),
+      parent: { postMessage: vi.fn() },
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/risk/register",
         assign,

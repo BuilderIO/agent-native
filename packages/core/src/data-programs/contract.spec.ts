@@ -120,6 +120,32 @@ describe("data-programs/contract", () => {
       expect(result.error.code).toBe("emit_shape_invalid");
     });
 
+    it.each([
+      ["cut emit()'s line off", `${DATA_PROGRAM_SENTINEL}{"rows":[{"a":1},{"a`],
+      ["filled up with logs before emit()", "debug\n".repeat(20)],
+    ])(
+      "returns result_too_large when the sandbox's output cap %s",
+      (_case, stdout) => {
+        const result = parseDataProgramResult(stdout, {
+          ...CAPS,
+          outputTruncated: true,
+        });
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error.code).toBe("result_too_large");
+      },
+    );
+
+    it("keeps a whole emit() line when only later logs were cut off", () => {
+      const result = parseDataProgramResult(
+        `${DATA_PROGRAM_SENTINEL}${JSON.stringify({ rows: [{ a: 1 }] })}\nlate log`,
+        { ...CAPS, outputTruncated: true },
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.result.rows).toEqual([{ a: 1 }]);
+    });
+
     it("returns emit_shape_invalid when rows is not an array", () => {
       const stdout = DATA_PROGRAM_SENTINEL + JSON.stringify({ rows: "nope" });
       const result = parseDataProgramResult(stdout, CAPS);

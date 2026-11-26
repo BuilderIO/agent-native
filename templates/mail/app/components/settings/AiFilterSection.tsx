@@ -114,8 +114,7 @@ function reviewHrefForRule(rule: AutomationRule): string | null {
 }
 
 function ruleName(mode: RuleMode, condition: string) {
-  const prefix =
-    mode === "filtered" ? "spam" : mode === "archive" ? "archive" : mode;
+  const prefix = mode === "filtered" ? "spam" : mode === "tag" ? "label" : mode;
   return `AI ${prefix}: ${condition.slice(0, 72)}`;
 }
 

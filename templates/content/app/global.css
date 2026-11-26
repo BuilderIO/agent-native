@@ -36,6 +36,14 @@
   --ring: 0 0% 15%;
   --suggestion: 207 39% 46%;
 
+  /* Analytics charts kept in a page draw with Analytics' colors. */
+  --brand-blue: #0284c7;
+  --brand-green: #16a34a;
+  --brand-orange: #d97706;
+  --brand-purple: #7c3aed;
+  --brand-red: #dc2626;
+  --brand-teal: #0d9488;
+
   --radius: 0.375rem;
 
   --sidebar-background: 0 0% 98%;
@@ -74,6 +82,14 @@
   /* Active filter and sort chips in collection views. */
   --database-chip: #2383e2;
   --database-chip-foreground: #0f5ea8;
+
+  /* Notices to read before acting, such as importing pages a second time. */
+  --warning: #fffbeb;
+  --warning-border: #fcd34d;
+  --warning-foreground: #92400e;
+
+  /* A check's dot where a part of the page doesn't pass. */
+  --page-check-miss: #d97706;
 }
 
 @theme {
@@ -84,6 +100,9 @@
   --color-database-blue-foreground: #fff;
   --color-database-chip: var(--database-chip);
   --color-database-chip-foreground: var(--database-chip-foreground);
+  --color-warning: var(--warning);
+  --color-warning-border: var(--warning-border);
+  --color-warning-foreground: var(--warning-foreground);
   /* The Clip player stays dark in both themes, like Clips' own player. */
   --color-player-control: hsl(0 0% 0%);
   --color-player-control-foreground: hsl(0 0% 100%);
@@ -123,6 +142,13 @@
   --destructive-foreground: 0 0% 100%;
   --suggestion: 207 55% 68%;
 
+  --brand-blue: #00b5ff;
+  --brand-green: #22c55e;
+  --brand-orange: #f59e0b;
+  --brand-purple: #a78bfa;
+  --brand-red: #ef4444;
+  --brand-teal: #48ffe4;
+
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 0 0% 50%;
@@ -159,6 +185,12 @@
 
   --database-chip: #529cca;
   --database-chip-foreground: #8ec7ff;
+
+  --warning: #451a034d;
+  --warning-border: #92400e;
+  --warning-foreground: #fde68a;
+
+  --page-check-miss: #f59e0b;
 }
 
 @layer base {
@@ -374,6 +406,81 @@
   min-height: max(320px, 50vh);
 }
 
+/* Checks: a dot beside each part of the page that doesn't pass. Its shape
+   says which answer it is, so color is never the only sign. */
+.page-check-marks {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.page-check-mark {
+  position: absolute;
+  top: var(--page-check-top);
+  inset-inline-start: var(--page-check-inset);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  color: hsl(var(--muted-foreground));
+  pointer-events: auto;
+}
+
+.page-check-mark:hover,
+.page-check-mark[data-state="open"] {
+  background: hsl(var(--muted));
+}
+
+.page-check-mark:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.page-check-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.page-check-dot[data-shape="filled"] {
+  background: var(--page-check-miss);
+}
+
+.page-check-dot[data-shape="hollow"] {
+  border: 1.5px solid hsl(var(--muted-foreground));
+}
+
+.page-check-dot[data-shape="ring"] {
+  border: 1.5px dashed hsl(var(--muted-foreground));
+}
+
+.page-check-mark-count {
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (pointer: coarse) {
+  .page-check-mark {
+    min-width: 32px;
+    height: 32px;
+  }
+}
+
+@media print {
+  .page-check-marks {
+    display: none;
+  }
+}
+
 /* TipTap injects these for `.ProseMirror` only once an editor exists. The
    static body that stands in for the editor needs them to wrap and space text
    exactly as the editor that replaces it. */
@@ -398,6 +505,71 @@
 .content-reference-preview .visual-editor-wrapper,
 .content-reference-preview .visual-editor-wrapper .content-editor {
   min-height: 0;
+}
+
+/* A new page's starting points float over its empty body, so the whole body
+   still takes a click to start writing and nothing moves when they go. */
+.content-new-page-body {
+  position: relative;
+}
+
+.content-new-page-body
+  .content-editor
+  p.is-new-page-empty.is-editor-empty:first-child::before {
+  content: none;
+}
+
+.content-new-page-start {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 1;
+  display: none;
+  margin: 0;
+  padding-inline: inherit;
+  font-family:
+    "Inter Variable",
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: hsl(var(--muted-foreground) / 0.6);
+  pointer-events: none;
+}
+
+/* Gate on ProseMirror's own empty mark, not React state: it drops on the
+   keystroke that adds text, so the overlay never sits over typed words. */
+.content-new-page-body:has(
+    .content-editor > p.is-new-page-empty:first-child:not([data-indent])
+  )
+  .content-new-page-start {
+  display: block;
+}
+
+.content-new-page-start__action {
+  border-radius: 2px;
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.35);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color 120ms ease-out,
+    text-decoration-color 120ms ease-out;
+}
+
+.content-new-page-start__action:hover {
+  color: hsl(var(--muted-foreground));
+  text-decoration-color: currentColor;
+}
+
+.content-new-page-start__action:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 /* A public page's sub-pages and sign-up card follow its body, so the body
@@ -558,6 +730,13 @@
 .content-editor li p {
   margin: 0;
 }
+.content-editor li > ul:not(.content-task-list),
+.content-editor li > ol,
+.content-editor li > .content-task-list,
+.content-editor .content-task-list li > div > ul,
+.content-editor .content-task-list li > div > ol {
+  margin: 0;
+}
 
 .content-editor ul:not(.content-task-list) > li,
 .content-editor ol > li {
@@ -697,11 +876,6 @@
   margin-bottom: 0;
 }
 
-.content-editor .content-code-block-wrapper {
-  margin: 0.6em 0;
-  border-radius: 6px;
-  background: hsl(var(--muted));
-}
 .content-editor .content-code-block-header {
   display: flex;
   align-items: center;
@@ -732,59 +906,46 @@
   background: transparent;
   color: hsl(var(--muted-foreground));
 }
-.content-code-lang-picker {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 50;
-  width: 200px;
-  margin-top: 4px;
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--popover));
-  box-shadow: 0 4px 16px hsl(0 0% 0% / 0.2);
-  overflow: hidden;
-}
-.content-code-lang-search {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 0.8rem;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid hsl(var(--border));
-  color: hsl(var(--foreground));
-  outline: none;
-}
-.content-code-lang-search::placeholder {
-  color: hsl(var(--muted-foreground) / 0.6);
-}
-.content-code-lang-list {
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 4px;
-}
-.content-code-lang-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 5px 8px;
-  font-size: 0.8rem;
-  color: hsl(var(--foreground));
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  text-align: left;
-}
-.content-code-lang-option:hover {
-  background: hsl(var(--accent));
-}
-.content-code-lang-option.active {
-  color: hsl(var(--primary));
+.content-code-lang-btn--icon {
+  justify-content: center;
+  width: 24px;
+  padding: 0;
 }
 
-.content-editor .content-code-block-wrapper pre,
+/* A code block's language, wrapping and Copy, over the room the block keeps
+   at its top. Only its buttons take the pointer; the rest of it is the
+   block's. */
+.content-code-block-bar {
+  position: absolute;
+  top: var(--code-block-bar-top);
+  left: var(--code-block-bar-left);
+  z-index: 10;
+  width: var(--code-block-bar-width);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px 0;
+  pointer-events: none;
+}
+.content-code-block-bar .content-code-lang-btn {
+  height: 24px;
+  pointer-events: auto;
+}
+/* The block's own background is the accent color in light mode, so a
+   pressed or hovered button there needs a darker tint to show. */
+.content-code-block-bar
+  .content-code-lang-btn:not(.content-code-lang-btn--readonly):hover,
+.content-code-block-bar .content-code-lang-btn--active {
+  background: hsl(var(--muted-foreground) / 0.16);
+  color: hsl(var(--foreground));
+}
+.content-code-block-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+
 .content-editor .content-code-block,
 .content-editor pre {
   font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
@@ -796,14 +957,16 @@
   overflow-x: auto;
   line-height: 1.55;
 }
-.content-editor .content-code-block-wrapper pre {
-  background: hsl(var(--muted));
-  border-radius: 0 0 6px 6px;
-}
 .content-editor .content-code-block {
   background: hsl(var(--muted));
   border-radius: 6px;
   margin: 0.6em 0;
+  /* Room for the block's bar, which shows on hover or with the cursor in it. */
+  padding-top: 2.5em;
+}
+.content-editor .content-code-block[data-wrap="true"] code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .content-editor pre code {
   white-space: pre;
@@ -813,6 +976,152 @@
   border: none;
   font-size: inherit;
   color: inherit;
+}
+
+/* A Mermaid code block drawn as its diagram; the source opens above it. */
+.content-editor .content-mermaid {
+  margin: 0.6em 0;
+  border-radius: 6px;
+}
+.content-editor .content-mermaid--open {
+  background: hsl(var(--muted));
+}
+.content-editor .content-mermaid .content-code-block-header {
+  justify-content: space-between;
+}
+.content-editor .content-mermaid__error {
+  margin: 0;
+  padding: 0 1.1em 0.9em;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  color: hsl(var(--destructive));
+}
+.content-editor .content-mermaid__drawing {
+  display: block;
+  width: 100%;
+  padding: 0.5em 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: initial;
+}
+.content-editor
+  .content-mermaid:not([data-editing])
+  button.content-mermaid__drawing {
+  cursor: pointer;
+}
+.content-editor
+  .content-mermaid:not([data-editing])
+  button.content-mermaid__drawing:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+.content-editor .content-mermaid--open .content-mermaid__drawing {
+  border-top: 1px solid hsl(var(--border) / 0.5);
+  border-radius: 0 0 6px 6px;
+  background: hsl(var(--background));
+}
+.content-editor .content-mermaid__svg {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.content-editor .content-mermaid__svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* An interactive HTML block: a dialog so it can cover the window without its
+   frame moving in the page, which would load it again. */
+.content-editor .content-interactive-html {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0.6em 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--background));
+  color: inherit;
+}
+.content-editor .content-interactive-html__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding-block: 4px;
+  padding-inline: 12px 6px;
+}
+.content-editor .content-interactive-html__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+}
+.content-editor .content-interactive-html pre {
+  max-height: 480px;
+  overflow: auto;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+  background: hsl(var(--muted));
+}
+.content-editor .content-interactive-html__body {
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+.content-editor .content-interactive-html__frame {
+  display: block;
+  width: 100%;
+  border: 0;
+}
+.content-editor .content-interactive-html__waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 160px;
+  padding: 16px;
+  font-size: 0.875rem;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+}
+.content-editor .content-interactive-html__waiting p {
+  margin: 0;
+}
+.content-editor .content-interactive-html--full {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  border: 0;
+  border-radius: 0;
+}
+.content-editor
+  .content-interactive-html--full
+  .content-interactive-html__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.content-editor
+  .content-interactive-html--full
+  .content-interactive-html__body
+  > * {
+  flex: 1;
+  min-height: 0;
 }
 
 .content-editor .hljs-comment,
@@ -1149,6 +1458,19 @@
   user-select: none;
 }
 
+.content-table-moving,
+.content-table-moving * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* Where a dragged row or column will land, drawn as the block drop line is. */
+.content-table-drop-indicator {
+  border-radius: 999px;
+  background: hsl(210 100% 52%);
+  box-shadow: 0 0 0 1px hsl(var(--background));
+}
+
 .content-image {
   max-width: 100%;
   border-radius: 4px;
@@ -1314,6 +1636,32 @@
 
 .content-toggle__title {
   font-weight: 500;
+}
+
+.content-toggle[data-heading-level="1"]
+  > .content-toggle__content
+  .content-toggle__title {
+  font-size: 1.875em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.content-toggle[data-heading-level="2"]
+  > .content-toggle__content
+  .content-toggle__title {
+  font-size: 1.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+}
+
+.content-toggle[data-heading-level="3"]
+  > .content-toggle__content
+  .content-toggle__title {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .content-toggle--titled:not(.content-toggle--open)
@@ -2126,10 +2474,83 @@ audio.media-block__content {
   transform: translateY(-1px);
 }
 
-.media-block__alt-generate:disabled {
+.media-block__alt-generate:disabled,
+.media-block__alt-generate[aria-disabled="true"] {
   cursor: wait;
   opacity: 0.58;
   transform: none;
+}
+
+/* A quiet alt text run's progress and outcome, on the image itself. */
+.media-block__alt-status {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: calc(100% - 64px);
+  min-height: 2rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9px;
+  background: hsl(var(--background) / 0.96);
+  color: hsl(var(--foreground));
+  padding: 0.2rem 0.25rem 0.2rem 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.25;
+  box-shadow:
+    0 8px 22px hsl(0 0% 0% / 0.12),
+    0 1px 3px hsl(0 0% 0% / 0.12);
+}
+
+.media-block__alt-status[data-phase="running"] {
+  padding-right: 0.6rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.media-block__alt-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-block__alt-status-action,
+.media-block__alt-status-dismiss {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.media-block__alt-status-action {
+  padding: 0.2rem 0.4rem;
+  font-weight: 600;
+}
+
+.media-block__alt-status-dismiss {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.media-block__alt-status-action:hover,
+.media-block__alt-status-action:focus-visible,
+.media-block__alt-status-dismiss:hover,
+.media-block__alt-status-dismiss:focus-visible {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  outline: none;
 }
 
 .media-block__toolbar-btn {
@@ -2377,13 +2798,20 @@ audio.media-block__content {
   background: transparent;
 }
 
-.media-lightbox__zoom-value {
+.media-lightbox__zoom-value,
+.media-lightbox__position {
   min-width: 3.2rem;
   color: hsl(0 0% 88%);
   font-size: 0.8rem;
   font-weight: 500;
   text-align: center;
   line-height: 2rem;
+}
+
+.media-lightbox__position {
+  padding: 0 0.375rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .media-lightbox__separator {
@@ -2565,6 +2993,31 @@ audio.media-block__content {
   outline-offset: 0;
 }
 
+/* The block an open block menu acts on: the editor's selection fill laid
+   over the whole block, in place of a selected block's outline or ring. */
+.content-block-menu-tint {
+  position: absolute;
+  border-radius: 6px;
+  background: hsl(210 100% 52% / 0.08);
+  pointer-events: none;
+}
+
+.visual-editor-wrapper:has(> .content-block-menu-tint)
+  .content-editor
+  .ProseMirror-selectednode {
+  outline: none;
+}
+
+.visual-editor-wrapper:has(> .content-block-menu-tint) .media-block--selected {
+  box-shadow: none;
+}
+
+.content-editor .content-linked-block {
+  border-radius: 4px;
+  background-color: hsl(var(--primary) / 0.08);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.35);
+}
+
 .visual-editor-wrapper--dragging {
   position: relative;
 }
@@ -2678,9 +3131,11 @@ audio.media-block__content {
 
   [data-document-print-root] [class*="absolute"],
   [data-document-print-root] .media-block__toolbar,
+  [data-document-print-root] .content-code-block-bar,
   [data-document-print-root] .media-block__overlay,
   [data-document-print-root] .media-block__resize-handle,
   [data-document-print-root] .media-block__alt-badge,
+  [data-document-print-root] .media-block__alt-status,
   [data-document-print-root] .ProseMirror-selectednode::selection {
     display: none !important;
   }
@@ -2768,6 +3223,15 @@ audio.media-block__content {
   .content-editor .comment-highlight {
     transition: none;
   }
+}
+
+/* Discussion quotes a thread's text in the colours of its highlight. */
+.discussion-subject-quote {
+  background-color: hsl(45 93% 47% / 0.14);
+  box-shadow: inset 2px 0 0 hsl(45 93% 40% / 0.5);
+}
+button.discussion-subject-quote:hover {
+  background-color: hsl(45 93% 47% / 0.24);
 }
 
 /* Property rows and Collection markers with Comments use the highlight colours. */
@@ -2890,11 +3354,11 @@ audio.media-block__content {
   color: hsl(var(--suggestion));
 }
 
-/* New words after the struck words they replace start a little apart, so the
-   two runs don't read as one word. */
+/* New words after the struck words they replace start clearly apart, wider
+   than a word space, so the two runs read as two things, not one phrase. */
 .content-editor
   .suggestion-inline-widget.suggestion-insert--spaced[data-suggestion-widget] {
-  margin-inline-start: 0.3em;
+  margin-inline-start: 0.55em;
 }
 
 /* A whole suggested line is drawn as the block it adds or removes, marked by
@@ -2910,6 +3374,14 @@ audio.media-block__content {
 .content-editor
   .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget] {
   box-shadow: inset 3px 0 hsl(var(--suggestion));
+}
+/* Its new text isn't underlined like active inserted words; removed lines
+   stay struck through. */
+.content-editor
+  .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget]:not(
+    .suggestion-delete-widget
+  ) {
+  text-decoration: none;
 }
 .content-editor .suggestion-block-widget[data-suggestion-widget] > * {
   color: inherit;
@@ -2930,6 +3402,13 @@ audio.media-block__content {
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
+}
+.content-editor
+  .suggestion-insert.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget],
+.content-editor
+  .suggestion-add-block.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget] {
+  background: hsl(var(--suggestion) / 0.16);
+  box-shadow: inset 0 -2px hsl(var(--suggestion));
 }
 
 .content-editor .suggestion-delete.suggestion-highlight--active,
@@ -3089,44 +3568,6 @@ audio.media-block__content {
   .comment-stack-front-leave {
     animation: comment-stack-front-fade-out 120ms linear forwards;
   }
-}
-
-.slash-command-menu {
-  background: hsl(var(--popover));
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  box-shadow:
-    0 10px 28px rgb(0 0 0 / 0.12),
-    0 2px 8px rgb(0 0 0 / 0.08),
-    0 0 0 1px rgb(0 0 0 / 0.04);
-  min-width: 300px;
-  max-height: 380px;
-  overflow-y: auto;
-}
-.slash-command-menu button {
-  color: hsl(var(--foreground));
-}
-.slash-command-menu button:hover,
-.slash-command-menu button.active {
-  background: hsl(var(--accent));
-}
-.slash-command-menu .text-gray-400 {
-  color: hsl(var(--muted-foreground));
-}
-.slash-command-menu .text-gray-900 {
-  color: hsl(var(--foreground));
-}
-.slash-command-menu .text-gray-500 {
-  color: hsl(var(--muted-foreground));
-}
-.slash-command-menu .border-gray-200 {
-  border-color: hsl(var(--border));
-}
-.slash-command-menu .bg-white {
-  background: hsl(var(--popover));
-}
-.slash-command-menu .bg-gray-100 {
-  background: hsl(var(--accent));
 }
 
 /* A collaborator's selection: a tint in their colour, as strong as a local

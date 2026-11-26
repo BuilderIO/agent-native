@@ -13,6 +13,7 @@ export type SearchAnalyticsRow = {
   keys: string[];
   clicks: number;
   impressions: number;
+  position?: number;
 };
 
 export type SearchAnalyticsRequest = {

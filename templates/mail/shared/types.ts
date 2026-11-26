@@ -1,3 +1,5 @@
+import type { ContactPanelWidgets } from "./contact-panel-widgets.js";
+
 export type EmailAddress = {
   name: string;
   email: string;
@@ -40,6 +42,50 @@ export type EmailMessage = {
   };
 };
 
+export type ContactAttachment = Attachment & {
+  emailId: string;
+  threadId: string;
+  subject: string;
+  date: string;
+  accountEmail?: string;
+};
+
+export type ContactAttachmentList = { attachments: ContactAttachment[] };
+
+export type ContactMeeting = {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  url?: string;
+  accountEmail?: string;
+};
+
+export type ContactMeetings = {
+  source: "calendar" | "mail" | "none";
+  calendar: "connected" | "not_connected" | "unavailable";
+  calendarUrl?: string;
+  upcoming: ContactMeeting[];
+  recent: ContactMeeting[];
+  failedAccounts: Array<{ accountEmail: string; message: string }>;
+};
+
+export type ContactNote = {
+  markdown: string;
+  truncated: boolean;
+  url?: string;
+  updatedAt?: string;
+};
+
+export type ContactNoteResult = { note: ContactNote | null };
+
+export type AddContactNoteResult = {
+  note: ContactNote;
+  created: boolean;
+  appended: boolean;
+};
+
 export type EmailThread = {
   id: string;
   subject: string;
@@ -70,7 +116,11 @@ export type ComposeAttachment = {
   originalName: string;
   mimeType: string;
   size: number;
-  url: string;
+  /**
+   * Only a file-storage address. A file Mail serves itself (a Gmail part, or a
+   * local upload) has none: `composeAttachmentLink` rebuilds it from the IDs.
+   */
+  url?: string;
   source?: "upload" | "gmail";
   gmailMessageId?: string;
   gmailAttachmentId?: string;
@@ -142,7 +192,7 @@ export type UserSettings = {
   autocompleteEnabled?: boolean;
   theme: "light" | "dark" | "system";
   density: "compact" | "comfortable" | "spacious";
-  previewPane: "right" | "bottom" | "off";
+  previewPane: "right" | "off";
   sendAndArchive: boolean;
   combineInbox: boolean;
   showAllTab?: boolean;
@@ -156,6 +206,7 @@ export type UserSettings = {
   trustedSenders?: string[];
   mobileActions?: MobileActionId[];
   tracking?: { opens: boolean; clicks: boolean };
+  contactPanelWidgets?: ContactPanelWidgets;
 };
 
 export type EmailTrackingStats = {

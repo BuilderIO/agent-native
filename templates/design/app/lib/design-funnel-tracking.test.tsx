@@ -187,7 +187,6 @@ describe("design_prompt_submitted helpers", () => {
       designPromptReferenceTypes({
         contextItems: [
           { key: "design-home-template" },
-          { key: "design-home-system" },
           { key: "design-home-reference:figma:FILEKEY:node-1" },
           { key: "design-home-reference:figma:FILEKEY:node-2" },
           { key: "design-home-reference:website:https://x.test:x" },
@@ -196,21 +195,11 @@ describe("design_prompt_submitted helpers", () => {
         ],
         files: [{ type: "image/png" }, { type: "application/pdf" }],
         templateSelected: true,
-        designSystemId: "system-1",
       }),
-    ).toEqual([
-      "design",
-      "design_system",
-      "figma",
-      "file",
-      "image",
-      "template",
-      "url",
-    ]);
+    ).toEqual(["design", "figma", "file", "image", "template", "url"]);
     expect(
       designPromptReferenceTypes({
         templateSelected: false,
-        designSystemId: null,
       }),
     ).toEqual([]);
   });

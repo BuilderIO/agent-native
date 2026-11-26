@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { commercialSurfacesHidden } from "../../client/app-config.js";
 import { isOrgMember } from "../../org/membership.js";
 import {
   ALL_USAGE_APPS,
@@ -58,6 +59,7 @@ export default defineAction({
       .optional()
       .describe("Deprecated: use app. Filters to this one app."),
   }),
+  mcpTool: false,
   run: async ({ sinceDays, scope, userEmail, app, appId }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     // scope "me" ignores userEmail, so only a workspace lookup is checked.
@@ -89,7 +91,12 @@ export default defineAction({
     }
     const selection = resolveAppSelection(app, appId);
     return listAppUsageMetrics(
-      { sinceDays, scope, userEmail, builderCreditsEnabled: true },
+      {
+        sinceDays,
+        scope,
+        ...(userEmail !== undefined ? { userEmail } : {}),
+        builderCreditsEnabled: !commercialSurfacesHidden(),
+      },
       {
         ownerEmail: ctx.userEmail,
         orgId: ctx.orgId,

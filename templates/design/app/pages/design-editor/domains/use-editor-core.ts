@@ -76,6 +76,7 @@ import {
 import { usePerformanceBufferGuard } from "../performance-buffer-guard";
 import { endedTextEditClosesActiveSession } from "../text-edit-utils";
 import { type DesignTool, type EditorMode } from "../types";
+import { readVisualEditPublisherSession } from "../visual-edit-publisher-session";
 
 export function useEditorCore() {
   const t = useT();
@@ -137,6 +138,7 @@ export function useEditorCore() {
       embedded,
       embedChromeRequested,
       widgetEmbed,
+      minimalUiRequested: searchParams.get("minimalUi") === "1",
     });
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
@@ -476,7 +478,7 @@ export function useEditorCore() {
   ] = useState<number | null>(null);
   const pendingVisualEditPublicationRevisionRef = useRef(0);
   const pendingVisualEditBridgeRevisionSyncKeyRef = useRef<string | null>(null);
-  const pendingVisualEditPublisherIdRef = useRef(crypto.randomUUID());
+  const pendingVisualEditPublisherIdRef = useRef<string>(crypto.randomUUID());
   const pendingVisualEditClearRequestedRef = useRef<string | null>(null);
   const pendingVisualEditHadPendingRef = useRef<string | null>(null);
   const pendingVisualEditHandoffPublicationRef =
@@ -492,9 +494,10 @@ export function useEditorCore() {
   const pendingVisualEditReloadedHandoffRef =
     useRef<VisualEditHandoffPublicationState | null>(null);
   useEffect(() => {
-    pendingVisualEditPublicationRevisionRef.current = 0;
+    const publisherSession = readVisualEditPublisherSession(id);
+    pendingVisualEditPublicationRevisionRef.current = publisherSession.revision;
     pendingVisualEditBridgeRevisionSyncKeyRef.current = null;
-    pendingVisualEditPublisherIdRef.current = crypto.randomUUID();
+    pendingVisualEditPublisherIdRef.current = publisherSession.publisherId;
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
     pendingVisualEditHandoffPublicationRef.current = null;

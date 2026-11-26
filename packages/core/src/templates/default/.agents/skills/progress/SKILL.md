@@ -14,11 +14,11 @@ description: >-
 
 Separate concern from `notifications`:
 
-| | Notifications | Progress |
-|---|---|---|
-| Shape | One-shot event — "X happened" | Continuous state — "X is 45% done" |
-| UI surface | Bell + toast | Runs tray with percent bar |
-| Lifecycle | Dismissable (read/unread) | Running → terminal (succeeded/failed/cancelled) |
+|            | Notifications                 | Progress                                        |
+| ---------- | ----------------------------- | ----------------------------------------------- |
+| Shape      | One-shot event — "X happened" | Continuous state — "X is 45% done"              |
+| UI surface | Bell + toast                  | Runs tray with percent bar                      |
+| Lifecycle  | Dismissable (read/unread)     | Running → terminal (succeeded/failed/cancelled) |
 
 Common pattern: on completion, emit a `notify()` so the user sees the outcome when they're not actively watching the tray.
 
@@ -26,12 +26,12 @@ Common pattern: on completion, emit a `notify()` so the user sees the outcome wh
 
 All progress operations go through a single `manage-progress` tool with an `action` parameter:
 
-| Action | Purpose |
-|---|---|
-| `start` | Mark the start of a long task. Returns a runId. |
-| `update` | Update percent and/or current step. Call frequently. |
+| Action     | Purpose                                                   |
+| ---------- | --------------------------------------------------------- |
+| `start`    | Mark the start of a long task. Returns a runId.           |
+| `update`   | Update percent and/or current step. Call frequently.      |
 | `complete` | Mark terminal status: `succeeded`, `failed`, `cancelled`. |
-| `list` | List recent runs (all or `--active=true`). |
+| `list`     | List recent runs (all or `--active=true`).                |
 
 ## Canonical Flow
 
@@ -51,18 +51,18 @@ notify --severity=info --title="Triage done" --body="12 archived, 6 drafts ready
 - **Start a run for anything > ~5 seconds.** Users want feedback; a spinner with no context feels frozen.
 - **Update at natural checkpoints**, not every iteration. Every 5–10% is enough for most UIs.
 - **Always call `manage-progress --action=complete`** at the end — including the error path. An orphaned `running` row is worse than no row.
-- **Pair with `notify`** on completion. The tray tells users what's *running*; notifications tell them what *finished*.
+- **Pair with `notify`** on completion. The tray tells users what's _running_; notifications tell them what _finished_.
 - **Use `metadataJson`** on `manage-progress --action=start` to pass a link back to the produced artifact (thread id, document path), so the UI can deep-link from the runs tray.
 
 ## Runs API
 
 Mounted at `/_agent-native/runs/*` by `core-routes-plugin`. **Read-only** over HTTP — writes flow through the agent tools:
 
-| Method | Route |
-|---|---|
+| Method   | Route                                      |
+| -------- | ------------------------------------------ |
 | `GET`    | `/_agent-native/runs?active=true&limit=50` |
-| `GET`    | `/_agent-native/runs/:id` |
-| `DELETE` | `/_agent-native/runs/:id` |
+| `GET`    | `/_agent-native/runs/:id`                  |
+| `DELETE` | `/_agent-native/runs/:id`                  |
 
 ## UI Surface
 
@@ -90,7 +90,7 @@ Two events emit on the bus so automations can react:
 - `run.progress.started` — `{ runId, title, step? }`
 - `run.progress.updated` — `{ runId, percent, step, status }`
 
-Example automation: *"when a run takes longer than 5 minutes, notify me."*
+Example automation: _"when a run takes longer than 5 minutes, notify me."_
 
 ## Related Skills
 

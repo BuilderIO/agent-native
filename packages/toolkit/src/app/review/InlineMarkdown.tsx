@@ -1,12 +1,10 @@
 import { withoutHtmlComments } from "@agent-native/core/review/plain-text";
 import { Children, type ReactNode } from "react";
-import ReactMarkdown, {
-  defaultUrlTransform,
-  type Components,
-} from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "../../utils.js";
+import { commentLinkHref } from "./comment-link-href.js";
 
 const INLINE_MARKDOWN_ELEMENTS = [
   "a",
@@ -102,9 +100,7 @@ export function InlineMarkdown({
         );
       }
 
-      const safeHref = href
-        ? defaultUrlTransform(normalizeInlineMarkdownHref(href))
-        : "";
+      const safeHref = href ? commentLinkHref(href) : "";
       if (!safeHref) return <>{children}</>;
       const anchorClassName = cn(
         "text-primary underline-offset-2 hover:underline",
@@ -340,12 +336,4 @@ function restoreProtectedSpanSource(
 
 function escapeProtectedSpanLabel(label: string): string {
   return label.replace(/[\\[\]]/g, "\\$&");
-}
-
-function normalizeInlineMarkdownHref(href: string): string {
-  if (/^www\./i.test(href)) return `https://${href}`;
-  if (/^http:\/\/www\./i.test(href)) {
-    return `https://${href.slice("http://".length)}`;
-  }
-  return href;
 }

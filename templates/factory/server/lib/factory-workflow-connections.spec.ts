@@ -7,6 +7,11 @@ const getEmailReadinessMock = vi.hoisted(() => vi.fn());
 const listCatalogMock = vi.hoisted(() => vi.fn());
 const connectorSourcesMock = vi.hoisted(() => vi.fn());
 const builderStateMock = vi.hoisted(() => vi.fn());
+const runAsMock = vi.hoisted(() =>
+  vi.fn((_identity: unknown, run: () => unknown) => run()),
+);
+const contentDepsMock = vi.hoisted(() => vi.fn((owner: string) => ({ owner })));
+const contentServersMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredentialDetailed: resolveCredentialDetailedMock,
@@ -16,6 +21,7 @@ vi.mock("@agent-native/core/server", () => ({
   getCredentialContext: getCredentialContextMock,
   getEmailReadiness: getEmailReadinessMock,
   resolveBuilderOAuthRequestAccessState: builderStateMock,
+  runWithRequestContext: runAsMock,
 }));
 vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnectionProviderCatalogForApp: listCatalogMock,
@@ -24,6 +30,12 @@ vi.mock("../connectors/credentials.js", () => ({
   resolveFactoryConnectorSources: connectorSourcesMock,
 }));
 vi.mock("./provider-api.js", () => ({ FACTORY_APP_ID: "factory" }));
+vi.mock("../connectors/content-workflow.js", () => ({
+  CONTENT_CONNECT_STEPS: "connect Content",
+  CONTENT_UNREACHABLE: "Content is unreachable.",
+  contentMcpDeps: contentDepsMock,
+  ownerContentServers: contentServersMock,
+}));
 
 import {
   PROVIDER_COMPANION_KEYS,
@@ -441,6 +453,73 @@ describe("readProviderConnections", () => {
       "factory",
       "stripe",
     ]);
+  });
+});
+
+describe("content", () => {
+  const server = { id: "content-1", url: "https://content.example.test" };
+
+  it("checks the connection of the workflow's owner, whose connection its steps write with", async () => {
+    contentServersMock.mockResolvedValue({ saved: [], reachable: [] });
+    expect(await statusOf("content")).toMatchObject({
+      status: "not connected",
+      detail: "Connect it for yourself: connect Content.",
+    });
+    expect(contentDepsMock).toHaveBeenLastCalledWith("teammate@example.test");
+
+    const owned = { ...identity, ownerEmail: "owner@example.test" };
+    const [missing] = await readProviderConnections(["content"], owned);
+    expect(missing).toMatchObject({
+      status: "not connected",
+      detail: expect.stringContaining("as its owner, owner@example.test,"),
+    });
+    expect(contentDepsMock).toHaveBeenLastCalledWith("owner@example.test");
+    expect(runAsMock).toHaveBeenLastCalledWith(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
+
+    contentServersMock.mockResolvedValue({
+      saved: [server],
+      reachable: [server],
+    });
+    expect(
+      (await readProviderConnections(["content"], owned))[0],
+    ).toMatchObject({ status: "connected" });
+  });
+
+  it("tells a teammate that only the owner can repair the owner's unreachable or doubled connection", async () => {
+    const owned = { ...identity, ownerEmail: "owner@example.test" };
+    const onlyOwner =
+      /owner@example\.test.*Only they can fix it: in their own account,/;
+
+    contentServersMock.mockResolvedValue({ saved: [server], reachable: [] });
+    expect(await statusOf("content")).toMatchObject({
+      status: "unknown",
+      detail: "Content is unreachable.",
+    });
+    expect(
+      (await readProviderConnections(["content"], owned))[0],
+    ).toMatchObject({
+      status: "unknown",
+      detail: expect.stringMatching(onlyOwner),
+    });
+
+    contentServersMock.mockResolvedValue({
+      saved: [server, { ...server, id: "content-2" }],
+      reachable: [server],
+    });
+    expect(await statusOf("content")).toMatchObject({
+      status: "not connected",
+      detail:
+        "Content is connected 2 times, so which to use is unclear. Keep one connection and remove the others.",
+    });
+    expect(
+      (await readProviderConnections(["content"], owned))[0],
+    ).toMatchObject({
+      status: "not connected",
+      detail: expect.stringMatching(onlyOwner),
+    });
   });
 });
 

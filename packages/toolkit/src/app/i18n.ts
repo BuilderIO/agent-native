@@ -1,95 +1,34 @@
-import {
-  createAgentNativeI18nCatalog,
-  SUPPORTED_LOCALES,
-  type AgentNativeI18nCatalog,
-  type AgentNativeI18nLocaleLoader,
-  type LocaleCode,
-  type LocaleMessages,
-} from "@agent-native/core/client/i18n";
+import { createDefaultToolkitI18nCatalog } from "./i18n/default.js";
+import type {
+  ToolkitCreateI18nCatalogArgs,
+  ToolkitI18nCatalog,
+} from "./i18n/factory-types.js";
+import { createLazyToolkitI18nCatalog } from "./i18n/lazy.js";
 
-import { toolkitMessagesForLocale } from "./i18n/catalog.js";
+declare const __AGENT_NATIVE_LAZY_TOOLKIT_LOCALES__: boolean | undefined;
 
+/** Synchronous access loads every catalog; use the factory for lazy app bundles. */
 export { toolkitMessagesForLocale } from "./i18n/catalog.js";
 
-function mergeMessages(
-  base: LocaleMessages,
-  overrides: LocaleMessages,
-): LocaleMessages {
-  const merged = { ...base };
-  for (const [key, value] of Object.entries(overrides)) {
-    const current = merged[key];
-    if (
-      current &&
-      value &&
-      typeof current === "object" &&
-      typeof value === "object" &&
-      !Array.isArray(current) &&
-      !Array.isArray(value)
-    ) {
-      merged[key] = mergeMessages(
-        current as LocaleMessages,
-        value as LocaleMessages,
-      );
-    } else {
-      merged[key] = value;
-    }
-  }
-  return merged;
-}
-
-function normalizeMessages(value: unknown): LocaleMessages {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  if (Object.prototype.toString.call(value) === "[object Module]") {
-    return normalizeMessages((value as { default?: unknown }).default);
-  }
-  return value as LocaleMessages;
-}
-
+/**
+ * Build the Toolkit i18n catalog for an app.
+ *
+ * Default (no compile-time opt-in): the synchronous aggregate supplies every
+ * locale, and a non-English `sourceLocale` keeps working unchanged.
+ *
+ * When `__AGENT_NATIVE_LAZY_TOOLKIT_LOCALES__` is defined as `true`, the en-US
+ * source is static and every other Toolkit catalog is a dynamic chunk. That
+ * optimized factory requires `sourceLocale: "en-US"`. Core/Vite builds opt in
+ * with `AGENT_NATIVE_LAZY_TOOLKIT_LOCALES=1`; leave it unset for other sources.
+ */
 export function createToolkitI18nCatalog(
-  args: Omit<
-    AgentNativeI18nCatalog,
-    "messages" | "loadMessages" | "sourceLocale"
-  > & {
-    messages: LocaleMessages;
-    sourceLocale?: LocaleCode;
-    loadMessages?: AgentNativeI18nCatalog["loadMessages"];
-    localeLoaders?: Partial<Record<LocaleCode, AgentNativeI18nLocaleLoader>>;
-  },
-): AgentNativeI18nCatalog & {
-  messages: LocaleMessages;
-  sourceLocale: LocaleCode;
-  loadMessages: (locale: LocaleCode) => Promise<LocaleMessages | null>;
-} {
-  const {
-    loadMessages: customLoadMessages,
-    localeLoaders: appLoaders,
-    ...catalogArgs
-  } = args;
-  const localeLoaders: Partial<
-    Record<LocaleCode, AgentNativeI18nLocaleLoader>
-  > = {};
-  for (const locale of SUPPORTED_LOCALES) {
-    if (locale === (args.sourceLocale ?? "en-US")) continue;
-    const appLoader = appLoaders?.[locale];
-    localeLoaders[locale] = async () =>
-      mergeMessages(
-        toolkitMessagesForLocale(locale),
-        normalizeMessages(
-          appLoader
-            ? await appLoader()
-            : customLoadMessages
-              ? await customLoadMessages(locale)
-              : null,
-        ),
-      );
+  args: ToolkitCreateI18nCatalogArgs,
+): ToolkitI18nCatalog {
+  if (
+    typeof __AGENT_NATIVE_LAZY_TOOLKIT_LOCALES__ !== "undefined" &&
+    __AGENT_NATIVE_LAZY_TOOLKIT_LOCALES__ === true
+  ) {
+    return createLazyToolkitI18nCatalog(args);
   }
-
-  return createAgentNativeI18nCatalog({
-    ...catalogArgs,
-    messages: mergeMessages(
-      toolkitMessagesForLocale(args.sourceLocale ?? "en-US"),
-      args.messages,
-    ),
-    localeLoaders,
-  });
+  return createDefaultToolkitI18nCatalog(args);
 }

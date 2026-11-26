@@ -3,6 +3,56 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-26
+
+### Fixed
+
+- Apps and agents reading events page by page no longer skip an event when calendars are in different time zones, and see a failed workspace calendar connection as an error instead of an empty calendar.
+
+## 2026-11-24
+
+### Improved
+
+- Week navigation reuses cached events and refreshes calendar changes in the background.
+
+### Fixed
+
+- Calendar keeps saved events visible and retries when Google limits requests.
+
+## 2026-11-23
+
+### Added
+
+- People who book you now get a reminder email before the meeting, 1 day before by default. Change it to 1 hour before, or turn it off, under Reminder email in each booking link's settings. Agents can set it too.
+
+## 2026-11-22
+
+### Added
+
+- Copy a single-use link from a booking link's menu: it takes exactly one booking, then tells anyone else who opens it to ask for a new one. Agents can make, list and revoke single-use links too.
+
+## 2026-11-20
+
+### Added
+
+- Describe what each connected Google account and calendar feed is for, from its color menu in the sidebar. Calendar's agent and outside agents read the description to put new events on the right calendar.
+
+## 2026-11-19
+
+### Added
+
+- Claude, ChatGPT and other outside agents connected to Calendar can now find a time, search events and people, delete events and manage booking links directly, asking you to approve deletes, emails and booking-link changes first.
+
+### Improved
+
+- Signing in with Google asks for calendar access on the same screen, so your calendar is connected as soon as you sign in.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
 ## 2026-11-09
 
 ### Improved

@@ -10,6 +10,8 @@ vi.mock("@agent-native/core/server", () => ({
 
 import action from "./get-figma-connection-status.js";
 
+// oracle-change: removed the case restating the agentTool, http and readOnly flags of the defineAction declaration; the remaining case runs the action
+
 describe("get-figma-connection-status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,11 +39,5 @@ describe("get-figma-connection-status", () => {
     await expect(
       action.run({}, { appId: "design", userEmail: "member@example.test" }),
     ).resolves.toEqual({ available: false });
-  });
-
-  it("stays hidden from the model while remaining a read-only UI action", () => {
-    expect(action.agentTool).toBe(false);
-    expect(action.http).toEqual({ method: "GET" });
-    expect(action.readOnly).toBe(true);
   });
 });

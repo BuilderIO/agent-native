@@ -136,14 +136,14 @@ export async function setIntegrationEnabled(
 ): Promise<unknown> {
   return integrationRequest(
     `/_agent-native/integrations/${encodeURIComponent(platform)}/${enabled ? "enable" : "disable"}`,
-    { method: "POST" },
+    { method: "POST", headers: { "X-Agent-Native-CSRF": "1" } },
   );
 }
 
 export async function setupIntegration(platform: string): Promise<unknown> {
   return integrationRequest(
     `/_agent-native/integrations/${encodeURIComponent(platform)}/setup`,
-    { method: "POST" },
+    { method: "POST", headers: { "X-Agent-Native-CSRF": "1" } },
   );
 }
 

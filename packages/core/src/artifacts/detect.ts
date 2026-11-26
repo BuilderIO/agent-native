@@ -261,6 +261,38 @@ function designReceipt(
     : candidate;
 }
 
+function databaseRowReceipt(
+  result: Record<string, unknown>,
+): ArtifactReceipt | null {
+  const mutationReceipt = asRecord(result.receipt);
+  const row = asRecord(mutationReceipt?.row);
+  const target = asRecord(mutationReceipt?.target);
+  const rowLink = asRecord(mutationReceipt?.rowLink);
+  const id = stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
+  if (!id) return null;
+  const createdDocument = asRecord(asRecord(result.createdItem)?.document);
+  const title =
+    stringValue(createdDocument?.id) === id
+      ? stringValue(createdDocument?.title)
+      : undefined;
+  const url = [
+    stringValue(row?.urlPath),
+    stringValue(rowLink?.urlPath),
+    resultUrl(result),
+  ]
+    .filter((value): value is string => !!value)
+    .find((candidate) => {
+      const reference = parseArtifactReferenceUrl(candidate);
+      return reference?.kind === "document" && reference.id === id;
+    });
+  return receipt(
+    "document",
+    id,
+    title ? { ...result, title } : result,
+    url ?? null,
+  );
+}
+
 function renderableDesignFile(value: unknown): boolean {
   const file = asRecord(value);
   if (!file) return false;
@@ -331,10 +363,12 @@ function detectFromRecord(
     const id = stringValue(result.createdDocumentId);
     remember(
       receipts,
-      receipt("document", id, {
-        ...result,
-        title: result.createdDocumentTitle,
-      }),
+      id
+        ? receipt("document", id, {
+            ...result,
+            title: result.createdDocumentTitle,
+          })
+        : databaseRowReceipt(result),
     );
     return;
   }
@@ -343,21 +377,7 @@ function detectFromRecord(
     toolName === "upsert-database-item-by-key" ||
     toolName === "mutate-content-database-block"
   ) {
-    const mutationReceipt = asRecord(result.receipt);
-    const row = asRecord(mutationReceipt?.row);
-    const target = asRecord(mutationReceipt?.target);
-    const rowLink = asRecord(mutationReceipt?.rowLink);
-    const id =
-      stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
-    remember(
-      receipts,
-      receipt(
-        "document",
-        id,
-        result,
-        stringValue(row?.urlPath) ?? stringValue(rowLink?.urlPath),
-      ),
-    );
+    remember(receipts, databaseRowReceipt(result));
     return;
   }
 

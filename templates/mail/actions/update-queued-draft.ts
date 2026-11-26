@@ -1,7 +1,11 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { updateQueuedDraft } from "../server/lib/queued-drafts.js";
+import {
+  getQueuedDraft,
+  updateQueuedDraft,
+} from "../server/lib/queued-drafts.js";
 
 export default defineAction({
   description:
@@ -31,6 +35,22 @@ export default defineAction({
       .optional()
       .describe("Sent email message ID, when marking sent"),
   }),
+  needsApproval: async (args, ctx) => {
+    if (!isOutsideAgentCall(ctx)) return false;
+    if (args.status === "sent") return true;
+    const me = getRequestUserEmail()?.trim().toLowerCase();
+    if (
+      args.ownerEmail !== undefined &&
+      args.ownerEmail.trim().toLowerCase() !== me
+    ) {
+      return true;
+    }
+    const draft = await getQueuedDraft(args.id);
+    return (
+      draft !== null && (draft.ownerEmail !== me || draft.requesterEmail !== me)
+    );
+  },
+  mcpTool: "search",
   run: async (args) => {
     const { id, ...updates } = args;
     return updateQueuedDraft(id, updates);

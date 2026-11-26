@@ -272,7 +272,9 @@ together.
 
 Visitors in the consent region (`shared/consent.ts`, copied from builder.io's
 banner rules) see `ConsentBanner`, which `AppProviders` and the docs root
-mount, and choose two categories: `performance` (Google Analytics,
+mount, and choose two categories (the sign-in page shows the same banner
+under its card, through `ConsentBannerPanel` with the page's own language,
+so a visitor can accept before signing up): `performance` (Google Analytics,
 Amplitude, Ahrefs) and `targeting` (Google Tag Manager, attribution).
 Everyone else gets no banner and every tag at once.
 
@@ -348,7 +350,8 @@ Shared properties: `$mcp_source` (`http` / `stdio`), `$mcp_server_name`,
 `$mcp_client_user_agent`, `$mcp_vendor_client`, `$mcp_protocol_version`. Per
 event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
 (`read` / `write`), `$mcp_listed_tool_names`, `$mcp_duration_ms`,
-`$mcp_is_error`, `$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
+`$mcp_response_text_chars`, `$mcp_response_structured_chars`, `$mcp_is_error`,
+`$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
 `$mcp_resource_uri`.
 
 - **A client's own name is only on the wire at `initialize`.** The mount is
@@ -362,6 +365,15 @@ event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
   where it returns rather than having it guessed back out of the response text.
 - **Payloads stay out.** `$mcp_response` is never emitted. `$mcp_parameters` is
   off by default and redacted when on — tool arguments carry user content.
+- **A result's size goes in, counted per part.** `$mcp_response_text_chars`
+  counts the characters in the result's text blocks, and
+  `$mcp_response_structured_chars` the structured content as JSON (absent when
+  the result has none). Hosts cut or move a result past about 40,000
+  characters, and they read different parts: Claude Code and OpenCode show the
+  model only the structured content when there is one, Codex shows both. The
+  handler measures the result only when MCP analytics are on
+  (`mcpAnalyticsEnabled()`), and passes only the two numbers, so no part of
+  the payload reaches `trackMcpToolCall`.
 
 Off switches: `MCP_ANALYTICS=false` (`observability.mcpEvents`) disables the
 events; `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`)
@@ -376,7 +388,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Event: `pageview`
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
-- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `page_load_id`, `app`, and inferred `template`
+- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `page_load_id`, `app`, and inferred `template`. `path` and `url` carry the React Router route template (`/share/:shareId`), never the raw path; with no manifest route, id-looking segments become `:id`. Query and hash values are redacted except the attribution parameters (`FIRST_TOUCH_QUERY_FIELDS`, `utm_*`). Every sink goes through `scrubUrl()` (`client/url-scrub.ts`) with `routePath: true`; never write a second scrubber or send `location.pathname` raw. A public content site whose slugs are its analytics (the docs site) passes `routeTemplates: false` to `configureTracking`: its `path`, `url`, `entry_path` and `landing_path` stay real, and query and hash values are still scrubbed
 - Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 
@@ -394,7 +406,7 @@ These fields land in the `analytics_events.anonymous_id`, `analytics_events.sess
 
 `configureTracking()` also captures an anonymous visitor's **first-touch** referral context once, on first page load, and persists it across the signup boundary so the server-side `signup` event records where the user came from. This powers virality metrics for every template (Clips share links, Plans public pages, etc.).
 
-There is one capture implementation, `captureAttribution()` from `@agent-native/core/client/analytics`. Every page that can be someone's first visit calls it, including the server-rendered sign-in page, which never runs `configureTracking()` and passes `{ landingPath }` so `landing_path` names the app path behind the sign-in page. Never copy the capture into a page: the sign-in page's private copy silently dropped ad click ids, site handoff fields, and last touch for every visitor who landed on it.
+There is one capture implementation, `captureAttribution()` from `@agent-native/core/client/analytics`. Every page that can be someone's first visit calls it, including the server-rendered sign-in page, which never runs `configureTracking()` and passes `{ landingPath, landingSearch }` so `landing_path` names the app path behind the sign-in page and that path's source fields (`utm_*`, `ref`, `via`, click ids) count when the sign-in URL has no source of its own. A consent-region visitor sent to sign-in from an app page has the source only there, in the `c` continuation, since the app page couldn't store it before they accepted. Never copy the capture into a page: the sign-in page's private copy silently dropped ad click ids, site handoff fields, and last touch for every visitor who landed on it.
 
 **Share-link params** (set by whatever generates the link; read client-side only):
 
@@ -405,7 +417,7 @@ There is one capture implementation, `captureAttribution()` from `@agent-native/
 **Client persistence** (first-write-wins, except that the first visit with a source replaces one without; last touch lives in `an_last_touch` / `an_lt`):
 
 - `localStorage` key `an_attribution` and first-party cookie `an_ft` (`path=/; max-age=2592000; SameSite=Lax`, not HttpOnly — non-sensitive, written by client JS).
-- Both store the same URL-encoded compact JSON (empty fields omitted, each value capped at 120 chars): `{ ref, via, utm_source, utm_medium, utm_campaign, utm_content, utm_term, landing_path, landing_referrer, landed_at }`. `landing_referrer` is the **host only** of `document.referrer` (scrubbed; same-origin referrers are dropped).
+- Both store the same URL-encoded compact JSON (empty fields omitted, each value capped at 120 chars): `{ ref, via, utm_source, utm_medium, utm_campaign, utm_content, utm_term, landing_path, landing_referrer, landed_at }`. `landing_referrer` is the **host only** of `document.referrer` (scrubbed; same-origin referrers are dropped). `landing_path` is the route template of the landing page, so analytics code that matches it must match `/share/:shareId`, not a raw id.
 - A durable copy, cookie `an_fts`, set only by our server (`POST /_agent-native/auth/attribution`, same-origin, no session needed) and expiring 365 days after `landed_at`, never extended by later visits. The browser sends its first touch there each load until the server holds that visit. Safari caps cookies written by page JavaScript at seven days, so only a server-set cookie can keep first touch for a year. The value carries `v: "1"`; a reader ignores other versions. When the browser's copies are gone, capture restores them from `an_fts`. Each sync after the browser writes `an_ft` or `an_lt` also has the server write them again from the request's cookies, so Safari keeps them their full 30 days too.
 - Every copy is compared with `preferFirstTouch` (`shared/first-touch-persistence.ts`): the first visit with a source, else the first visit. Never add a second ordering rule: the server cookie route, the browser, and signup must agree on which visit is first touch, or a slow response from one tab overwrites a better touch from another.
 - Attribution is a `targeting` consent category. Visitors in the consent region (builder.io's GDPR list: the EU, the rest of the EEA, Monaco, San Marino, Åland and France's overseas regions; not the UK or Switzerland, in `packages/core/src/shared/consent.ts`) get nothing stored until they opt in through the `an_consent` cookie. The banner writes `an_consent` in the page and then `POST /_agent-native/auth/consent` writes it again from the server, so Safari keeps the choice its full year. The browser gates capture with `whenConsentAllows("targeting", …)` from `client/consent.ts`, which asks `GET /_agent-native/auth/consent-region` (the request's country) and falls back to the time zone; a reject clears every copy. The server refuses `an_fts` and clears all three cookies by request country unless `an_consent` grants targeting. Everyone else is stored as before, with no banner. Don't add attribution storage that bypasses `captureAttribution()`, or it skips this check.
@@ -418,11 +430,20 @@ There is one capture implementation, `captureAttribution()` from `@agent-native/
 - `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` (raw passthrough)
 - `first_touch_path` (= `landing_path`), `landing_referrer`
 
-Attribution parsing is fully defensive and never blocks signup — a missing/malformed cookie falls back to `referral_source: "direct"`.
+Attribution parsing is defensive and never blocks signup. A request with no attribution context (no `an_fts`, `an_ft`, `an_lt` or `an_aid`) adds no attribution fields at all, not `referral_source: "direct"`, so a signup we couldn't attribute stays distinct from a direct visit.
+
+**Consent markers.** When the signup request's consent kept attribution or analytics ids off the event, the event says so: `attribution_consent` when `targeting` wasn't allowed, `analytics_consent` when `performance` wasn't. Each is `"withheld"` (a stored `an_consent` choice said no, or the request's country is in the consent region and no choice was made) or `"unknown"` (no stored choice and no usable country: missing, `XX` or `ZZ`). An allowed category adds no marker, and a marker never brings back what consent withheld. `requestConsentCategoryState` in `server/consent-route.ts` decides both; the boolean helpers are its `"allowed"` case. An account another signed-in user created carries no markers, as it carries no attribution.
 
 Other framework-level baseline events:
 
-- `session status` from `useSession()`, with `signed_in`
+- `session status` from `useSession()`, with `signed_in` and `trigger`: what
+  made the tab read the session. `load` is its first read in the page, `focus`
+  a return to the tab (focus or visibility) once the answer was stale,
+  `expired` a component mounting after the answer expired, `auth_change` a
+  sign-in, sign-out, or account or organization switch here or in another tab,
+  `unauthorized` a request answered 401, and `transport_change` requests
+  moving to another transport, such as an embed's token. Only `load` is a page
+  load; count visits from it, not from every `session status`.
 - `action.response` from the browser action transport, with action name,
   the `route` template of the page that made the request (omitted when no
   manifest route matches),
@@ -463,7 +484,7 @@ Other framework-level baseline events:
   database work) and an `X-Agent-Native-Request-Id` header where applicable.
   Query text and parameters are never captured. There is no sampling knob for
   this span; export volume is governed by the OpenTelemetry sampler.
-- `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
+- `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above), and `attribution_consent` / `analytics_consent` when consent withheld them
 - `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 - `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `turn_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Run failure messages are omitted from every tracking provider even with content capture enabled. `$ai_error` carries a fixed message derived from `terminal_code`, a named `cause`, terminal state, and retryability. The `error_message` field and tool error output text are absent. Local trace SQL retains debugging detail under the observability capture settings.
@@ -489,7 +510,15 @@ framework also emits `action_started`, `action_completed`, and
 `action_failed` for mutating `defineAction()` calls so UI, agent, MCP, A2A,
 automation, and CLI activity share one action-level trail. Read-only actions
 and high-frequency refresh, polling, navigation, and application-state actions
-are excluded.
+are excluded. `action_kind` says what kind of call it was: `write` for one
+someone asked for, `read` for a call the action's `planMode` declares a read,
+and `automatic` for a write the app made on its own, declared with
+`automatic` on `defineAction` (a predicate of the input and the call's
+context when only some calls are automatic). Only a call from the app's own UI
+can be automatic; an agent's, MCP client's, or CLI call stays `write`.
+Product-use counts keep `write` only. A new action that runs
+on load, on mount, on a timer, or as experiment or usage bookkeeping must
+declare `automatic`.
 
 App entry is emitted once per app and browser session. Tracking is action-level
 only: it does not install mouse, pointer, scroll, keypress, or DOM autocapture.

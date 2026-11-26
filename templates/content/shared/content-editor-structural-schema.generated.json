@@ -5,6 +5,11 @@
       "name": "paragraph",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "color",
           "hasDefault": true,
           "default": null
@@ -21,6 +26,11 @@
     {
       "name": "notionToggle",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "summary",
           "hasDefault": true,
@@ -87,6 +97,11 @@
       "name": "heading",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "color",
           "hasDefault": true,
           "default": null
@@ -108,12 +123,24 @@
     },
     {
       "name": "horizontalRule",
-      "attrs": [],
+      "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        }
+      ],
       "group": "block"
     },
     {
       "name": "listItem",
-      "attrs": [],
+      "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        }
+      ],
       "content": "paragraph block*",
       "defining": true
     },
@@ -148,6 +175,11 @@
       "name": "blockquote",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "color",
           "hasDefault": true,
           "default": null
@@ -161,9 +193,19 @@
       "name": "codeBlock",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "language",
           "hasDefault": true,
           "default": null
+        },
+        {
+          "name": "wrap",
+          "hasDefault": true,
+          "default": false
         }
       ],
       "content": "text*",
@@ -182,6 +224,11 @@
       "name": "taskItem",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "checked",
           "hasDefault": true,
           "default": false
@@ -193,6 +240,11 @@
     {
       "name": "image",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "src",
           "hasDefault": true,
@@ -237,6 +289,11 @@
     {
       "name": "video",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "src",
           "hasDefault": true,
@@ -287,6 +344,11 @@
       "name": "audio",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "src",
           "hasDefault": true,
           "default": null
@@ -315,6 +377,11 @@
     {
       "name": "table",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "headerRow",
           "hasDefault": true,
@@ -429,6 +496,11 @@
       "name": "notionCallout",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "icon",
           "hasDefault": true,
           "default": "💡"
@@ -446,7 +518,13 @@
     },
     {
       "name": "notionColumns",
-      "attrs": [],
+      "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        }
+      ],
       "content": "notionColumn+",
       "group": "block",
       "defining": true
@@ -454,6 +532,11 @@
     {
       "name": "notionColumn",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "ratio",
           "hasDefault": true,
@@ -466,6 +549,11 @@
     {
       "name": "notionBlockAtom",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "tagName",
           "hasDefault": true,
@@ -520,6 +608,11 @@
       "name": "notionSyncedBlock",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "url",
           "hasDefault": true,
           "default": null
@@ -542,6 +635,11 @@
     {
       "name": "registryBlock",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "blockType",
           "hasDefault": true,
@@ -583,6 +681,11 @@
       "name": "contentReference",
       "attrs": [
         {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "sourcePath",
           "hasDefault": true,
           "default": ""
@@ -611,6 +714,11 @@
     {
       "name": "localMdxComponent",
       "attrs": [
+        {
+          "name": "identityId",
+          "hasDefault": true,
+          "default": null
+        },
         {
           "name": "name",
           "hasDefault": true,

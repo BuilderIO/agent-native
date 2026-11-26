@@ -17,6 +17,42 @@ let errorResponse: (error: unknown) => {
   errorDevice?: string;
 };
 let abortServerUpload: (...args: any[]) => Promise<void>;
+let correctMicStreamIfNeeded: (
+  stream: MediaStream,
+  requestedDeviceId: string,
+  requestedDeviceLabel: string,
+) => Promise<MediaStream>;
+
+function micStream(deviceId: string, label: string): MediaStream {
+  const track = {
+    label,
+    getSettings: () => ({ deviceId }),
+    stop: vi.fn(),
+  };
+  return {
+    getAudioTracks: () => [track],
+    getTracks: () => [track],
+  } as unknown as MediaStream;
+}
+
+function stubMicrophones() {
+  const replacement = micStream("built-in", "MacBook Pro Microphone");
+  const getUserMedia = vi.fn(async () => replacement);
+  vi.stubGlobal("navigator", {
+    mediaDevices: {
+      enumerateDevices: async () => [
+        { kind: "audioinput", deviceId: "ipad", label: "iPad Mic" },
+        {
+          kind: "audioinput",
+          deviceId: "built-in",
+          label: "MacBook Pro Microphone",
+        },
+      ],
+      getUserMedia,
+    },
+  });
+  return { getUserMedia, replacement };
+}
 
 beforeAll(async () => {
   (globalThis as { chrome?: unknown }).chrome = {
@@ -28,8 +64,46 @@ beforeAll(async () => {
       sync: { get: async () => ({}) },
     },
   };
-  ({ displayConstraints, errorResponse, abortServerUpload } =
-    await import("./offscreen"));
+  ({
+    displayConstraints,
+    errorResponse,
+    abortServerUpload,
+    correctMicStreamIfNeeded,
+  } = await import("./offscreen"));
+});
+
+describe("offscreen phone-like microphone correction", () => {
+  it("records from a phone-like mic the user picked", async () => {
+    const { getUserMedia } = stubMicrophones();
+    try {
+      const picked = micStream("ipad", "iPad Mic");
+
+      await expect(
+        correctMicStreamIfNeeded(picked, "ipad", "iPad Mic"),
+      ).resolves.toBe(picked);
+      expect(getUserMedia).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("moves the system default off a phone-like mic", async () => {
+    const { getUserMedia, replacement } = stubMicrophones();
+    try {
+      const systemDefault = micStream("ipad", "iPad Mic");
+
+      await expect(
+        correctMicStreamIfNeeded(systemDefault, "", ""),
+      ).resolves.toBe(replacement);
+      expect(getUserMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audio: expect.objectContaining({ deviceId: { exact: "built-in" } }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("offscreen error replies", () => {

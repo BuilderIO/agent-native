@@ -175,7 +175,6 @@ async function openGeneratedDashboard(app: App) {
   const created = await action(app.page, "create-design", {
     title: `AI bridge replay ${Date.now()}`,
     projectType: "prototype",
-    designSystemId: null,
   });
   expect(created.ok(), await created.text()).toBe(true);
   const createdBody = await created.json();

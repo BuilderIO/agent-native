@@ -24,7 +24,6 @@ export interface A2ACallerAuth {
 
 export async function resolveA2ACallerAuth(options?: {
   expiresIn?: string | number;
-  includeGoogleToken?: boolean;
   audience?: string | string[];
   userIdentityOnly?: boolean;
 }): Promise<A2ACallerAuth> {
@@ -54,13 +53,12 @@ export async function resolveA2ACallerAuth(options?: {
     userEmail &&
     !isOrgMemberDelegation &&
     options?.audience &&
-    globalSecret &&
-    (options?.userIdentityOnly || !orgId || orgDomain?.trim())
+    globalSecret
   ) {
     addApiKeyAttempt(
       await signA2AToken(
         userEmail,
-        options?.userIdentityOnly ? undefined : orgDomain,
+        options.userIdentityOnly ? undefined : orgDomain?.trim() || undefined,
         undefined,
         {
           expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
@@ -97,10 +95,6 @@ export async function resolveA2ACallerAuth(options?: {
     );
   }
 
-  if (options?.includeGoogleToken) {
-    await attachGoogleTokenMetadata(metadata, userEmail);
-  }
-
   return {
     apiKey: apiKeyAttempts[0],
     ...(apiKeyAttempts.length > 1
@@ -112,21 +106,4 @@ export async function resolveA2ACallerAuth(options?: {
     orgSecret,
     metadata,
   };
-}
-
-async function attachGoogleTokenMetadata(
-  metadata: Record<string, unknown>,
-  userEmail: string | undefined,
-): Promise<void> {
-  if (process.env.NODE_ENV !== "production" || !userEmail) return;
-
-  try {
-    const { listOAuthAccountsByOwner } =
-      await import("../oauth-tokens/store.js");
-    const accounts = await listOAuthAccountsByOwner("google", userEmail);
-    const tokens = accounts[0]?.tokens;
-    if (tokens?.access_token) {
-      metadata.googleToken = tokens.access_token;
-    }
-  } catch {}
 }

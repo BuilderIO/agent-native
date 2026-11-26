@@ -1,6 +1,11 @@
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
+import {
+  intelligenceDistillationInstructions,
+  KNOWLEDGE_UPDATE_INSTRUCTIONS,
+} from "../../shared/intelligence-distillation.js";
 import { getDb, schema } from "../db/index.js";
 import {
   nanoid,
@@ -38,8 +43,11 @@ async function writeDistillationRequest(values: {
       `includeRawContent=true when you need exact quote validation, extract ` +
       `durable company knowledge, including brief dated launch announcements, ` +
       `with exact evidence quotes. Keep launch plans distinct from confirmed ` +
-      `launches. Call write-knowledge for supported entries, then ` +
-      `mark-capture-distilled when finished. Ignore only when no company-relevant ` +
+      `launches. ` +
+      intelligenceDistillationInstructions(values.captureId) +
+      `Call write-knowledge for other supported durable entries. ` +
+      KNOWLEDGE_UPDATE_INSTRUCTIONS +
+      `Call mark-capture-distilled when finished. Ignore only when no company-relevant ` +
       `fact remains after privacy filtering.`,
   });
 }
@@ -50,99 +58,126 @@ export async function enqueueCaptureDistillation(values: {
   instructions?: string;
   payload?: Record<string, unknown>;
   guidance?: BrainAgentGuidance;
+  reconsiderIgnored?: boolean;
 }) {
+  await assertAccess("brain-source", values.capture.sourceId, "editor");
   const guidance = values.guidance ?? (await readBrainAgentGuidance()).guidance;
-  const db = getDb();
   const now = nowIso();
-  const [existing] = await db
-    .select()
-    .from(schema.brainIngestQueue)
-    .where(
-      and(
-        eq(schema.brainIngestQueue.captureId, values.capture.id),
-        eq(schema.brainIngestQueue.operation, "distill"),
-        inArray(schema.brainIngestQueue.status, ["queued", "processing"]),
-      ),
-    )
-    .orderBy(desc(schema.brainIngestQueue.updatedAt))
-    .limit(1);
 
-  if (existing) {
-    if (values.capture.status !== "distilling") {
-      await db
-        .update(schema.brainRawCaptures)
-        .set({ status: "distilling", updatedAt: now })
-        .where(eq(schema.brainRawCaptures.id, values.capture.id));
+  return getDb().transaction(async (tx) => {
+    const current = (
+      await tx
+        .select({
+          id: schema.brainRawCaptures.id,
+          status: schema.brainRawCaptures.status,
+        })
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, values.capture.id))
+        .limit(1)
+        .for("update")
+    ).find((row) => row.id === values.capture.id);
+    if (!current) throw new Error(`Capture ${values.capture.id} not found`);
+    if (
+      current.status === "distilled" ||
+      (current.status === "ignored" && !values.reconsiderIgnored)
+    ) {
+      throw new Error(
+        `Capture ${values.capture.id} is already ${current.status}`,
+      );
     }
-    const payload = parseJson<Record<string, unknown>>(
-      existing.payloadJson,
-      {},
-    );
-    const existingInstructions =
-      typeof payload.instructions === "string"
-        ? payload.instructions
-        : undefined;
-    await writeDistillationRequest({
-      captureId: values.capture.id,
-      queueId: existing.id,
-      sourceId: values.capture.sourceId,
-      requestedAt: now,
-      instructions: values.instructions ?? existingInstructions,
-      guidance,
-    });
-    return {
-      queueItem: serializeDistillationQueue(existing),
-      existing: true,
-      guidance: guidance.distillation,
-    };
-  }
 
-  const id = nanoid();
-  const priority = values.priority ?? 50;
-  await db.insert(schema.brainIngestQueue).values({
-    id,
-    sourceId: values.capture.sourceId,
-    captureId: values.capture.id,
-    operation: "distill",
-    status: "queued",
-    priority,
-    attempts: 0,
-    payloadJson: stableJson({
-      ...(values.payload ?? {}),
-      instructions: values.instructions,
-    }),
-    error: null,
-    runAfter: null,
-    createdAt: now,
-    updatedAt: now,
-  });
-  await db
-    .update(schema.brainRawCaptures)
-    .set({ status: "distilling", updatedAt: now })
-    .where(eq(schema.brainRawCaptures.id, values.capture.id));
-  await writeDistillationRequest({
-    captureId: values.capture.id,
-    queueId: id,
-    sourceId: values.capture.sourceId,
-    requestedAt: now,
-    instructions: values.instructions ?? null,
-    guidance,
-  });
+    const existing = (
+      await tx
+        .select()
+        .from(schema.brainIngestQueue)
+        .where(
+          and(
+            eq(schema.brainIngestQueue.captureId, values.capture.id),
+            eq(schema.brainIngestQueue.operation, "distill"),
+            inArray(schema.brainIngestQueue.status, ["queued", "processing"]),
+          ),
+        )
+        .orderBy(desc(schema.brainIngestQueue.updatedAt))
+        .limit(1)
+    ).find((row) => row.captureId === values.capture.id);
 
-  return {
-    queueItem: {
+    if (existing) {
+      if (current.status !== "distilling") {
+        await tx
+          .update(schema.brainRawCaptures)
+          .set({ status: "distilling", updatedAt: now })
+          .where(eq(schema.brainRawCaptures.id, values.capture.id));
+      }
+      const payload = parseJson<Record<string, unknown>>(
+        existing.payloadJson,
+        {},
+      );
+      const existingInstructions =
+        typeof payload.instructions === "string"
+          ? payload.instructions
+          : undefined;
+      await writeDistillationRequest({
+        captureId: values.capture.id,
+        queueId: existing.id,
+        sourceId: values.capture.sourceId,
+        requestedAt: now,
+        instructions: values.instructions ?? existingInstructions ?? null,
+        guidance,
+      });
+      return {
+        queueItem: serializeDistillationQueue(existing),
+        existing: true,
+        guidance: guidance.distillation,
+      };
+    }
+
+    const id = nanoid();
+    const priority = values.priority ?? 50;
+    await tx.insert(schema.brainIngestQueue).values({
       id,
       sourceId: values.capture.sourceId,
       captureId: values.capture.id,
-      status: "queued" as const,
+      operation: "distill",
+      status: "queued",
       priority,
       attempts: 0,
+      payloadJson: stableJson({
+        ...(values.payload ?? {}),
+        instructions: values.instructions,
+      }),
       error: null,
       runAfter: null,
       createdAt: now,
       updatedAt: now,
-    },
-    existing: false,
-    guidance: guidance.distillation,
-  };
+    });
+    await tx
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilling", updatedAt: now })
+      .where(eq(schema.brainRawCaptures.id, values.capture.id));
+    await writeDistillationRequest({
+      captureId: values.capture.id,
+      queueId: id,
+      sourceId: values.capture.sourceId,
+      requestedAt: now,
+      instructions: values.instructions ?? null,
+      guidance,
+    });
+
+    return {
+      queueItem: {
+        id,
+        sourceId: values.capture.sourceId,
+        captureId: values.capture.id,
+        status: "queued" as const,
+        priority,
+        attempts: 0,
+        error: null,
+        runAfter: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      existing: false,
+      guidance: guidance.distillation,
+    };
+  });
 }

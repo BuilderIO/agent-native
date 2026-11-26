@@ -1,5 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { seedFromText } from "@agent-native/core/collab";
+import { isUniqueViolation } from "@agent-native/core/db";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -9,12 +11,15 @@ import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
-import {
-  checkpointSkippedResultField,
-  snapshotDesignBeforeAgentEdit,
-} from "../server/lib/design-versions.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+import {
+  assertVisualEditBoardDataSize,
+  assertVisualEditBoardFileCount,
+  assertVisualEditBoardFileSize,
+  assertVisualEditCapabilityDesign,
+} from "../server/lib/visual-edit-capability.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
@@ -48,6 +53,8 @@ import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
 const CREATED_SCREEN_GAP = 96;
+const EDIT_INSTEAD_HINT =
+  "To change the existing file, use edit-design instead.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -126,6 +133,13 @@ export default defineAction({
       .describe(
         "Screen in this design to copy metadata from while duplicating.",
       ),
+    ifNameTaken: z
+      .enum(["fail", "next-free"])
+      .optional()
+      .default("fail")
+      .describe(
+        'What to do when another file in the design already has this filename. "fail" (the default) refuses with errorCode name_taken and details.suggestion, a free name. "next-free" saves under that free name instead, such as "home-2.html", and the result\'s filename says which. A restore always fails.',
+      ),
     fileType: z
       .enum(["html", "css", "jsx", "asset"])
       .optional()
@@ -138,6 +152,7 @@ export default defineAction({
         'Set "hubspot-email" only for a HubSpot marketing email HTML frame: it is placed 600px wide with no device variants and keeps email authoring rules on later edits. "web" keeps a copied screen ordinary when its HTML still carries a legacy email marker. Omit for every other screen.',
       ),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async (
     {
       designId,
@@ -147,6 +162,7 @@ export default defineAction({
       frameType,
       restoreClaimId,
       duplicateSourceFileId,
+      ifNameTaken,
     },
     context,
   ) => {
@@ -177,6 +193,8 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+    assertVisualEditCapabilityDesign(designId);
+    assertVisualEditBoardFileSize(content);
 
     assertHubSpotEmailFileType({
       fileType,
@@ -199,17 +217,13 @@ export default defineAction({
       filename,
     });
 
-    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
-      allowCheckpointFailureSkip: true,
-    });
-    const checkpointField = checkpointSkippedResultField(checkpoint);
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const requestedId = nanoid();
     const now = new Date().toISOString();
 
-    const createdFile = await withDesignSourceMutationTransaction(
-      designId,
-      async (tx) => {
+    const insertFile = () =>
+      withDesignSourceMutationTransaction(designId, async (tx) => {
         let restoreClaim:
           | {
               id: string;
@@ -327,6 +341,7 @@ export default defineAction({
         if (existingRestoredFile) {
           return {
             id,
+            filename: existingRestoredFile.filename,
             content: existingRestoredFile.content,
             fileType: existingRestoredFile.fileType,
             createdAt: existingRestoredFile.createdAt,
@@ -349,14 +364,25 @@ export default defineAction({
             ),
           )
           .limit(1);
+        // The design's lock is held, so a free name picked here is still free
+        // at the insert: two copies made at once both save, under two names.
+        let savedFilename = filename;
         if (existing) {
-          fail(
-            `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
-            {
-              errorCode: "design_file_already_exists",
-              statusCode: 409,
-            },
+          const takenFilenames = new Set(
+            (
+              await tx
+                .select({ filename: schema.designFiles.filename })
+                .from(schema.designFiles)
+                .where(eq(schema.designFiles.designId, designId))
+            ).map((file) => file.filename),
           );
+          const freeFilename = nextFreeName(filename, takenFilenames);
+          if (ifNameTaken !== "next-free" || restoreClaimId) {
+            throw nameTaken("file", filename, freeFilename, {
+              hint: EDIT_INSTEAD_HINT,
+            });
+          }
+          savedFilename = freeFilename;
         }
 
         let duplicateDesignData: string | undefined;
@@ -474,10 +500,13 @@ export default defineAction({
 
         const createdAt =
           restoreCreatedAt === undefined ? now : restoreCreatedAt;
+        // Counted under the design's source-mutation lock, so concurrent
+        // creates cannot all see room for one more file.
+        await assertVisualEditBoardFileCount(designId, tx);
         await tx.insert(schema.designFiles).values({
           id,
           designId,
-          filename,
+          filename: savedFilename,
           fileType: fileType ?? "html",
           content: annotatedContent,
           createdAt,
@@ -505,6 +534,9 @@ export default defineAction({
           }
         }
 
+        if (duplicateDesignData !== undefined) {
+          assertVisualEditBoardDataSize(duplicateDesignData);
+        }
         await tx
           .update(schema.designs)
           .set({
@@ -516,6 +548,7 @@ export default defineAction({
           .where(eq(schema.designs.id, designId));
         return {
           id,
+          filename: savedFilename,
           content: annotatedContent,
           fileType: fileType ?? "html",
           createdAt,
@@ -529,8 +562,38 @@ export default defineAction({
                 })
               : frameTypeFromStored(insertedFrameType),
         };
-      },
-    );
+      });
+    // A writer that doesn't take the design's lock, such as an import, can
+    // claim the name between the check and the insert. The unique index
+    // refuses this file then, so nothing is overwritten.
+    const insertUnderFreeName = async (
+      attempt: number,
+    ): Promise<Awaited<ReturnType<typeof insertFile>>> => {
+      try {
+        return await insertFile();
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        const taken = new Set(
+          (
+            await getDb()
+              .select({ filename: schema.designFiles.filename })
+              .from(schema.designFiles)
+              .where(eq(schema.designFiles.designId, designId))
+          ).map((file) => file.filename),
+        );
+        // If the name is still free, some other key refused the insert, and
+        // that error stands.
+        if (!taken.has(filename)) throw error;
+        // A create that asked for the free name looks for it again.
+        if (ifNameTaken === "next-free" && !restoreClaimId && attempt < 3) {
+          return insertUnderFreeName(attempt + 1);
+        }
+        throw nameTaken("file", filename, nextFreeName(filename, taken), {
+          hint: EDIT_INSTEAD_HINT,
+        });
+      }
+    };
+    const createdFile = await insertUnderFreeName(1);
 
     const { id } = createdFile;
     await seedFromText(id, createdFile.content);
@@ -585,7 +648,7 @@ export default defineAction({
             placements: [
               {
                 fileId: id,
-                filename,
+                filename: createdFile.filename,
                 x: 0,
                 y: nextFreeCanvasRowY(
                   current.canvasFrames,
@@ -653,7 +716,7 @@ export default defineAction({
     return {
       id,
       designId,
-      filename,
+      filename: createdFile.filename,
       fileType: resolvedFileType,
       frameType: createdFrameType,
       createdAt: createdFile.createdAt,
@@ -665,7 +728,6 @@ export default defineAction({
       ...(advisory.length > 0
         ? { warnings: advisory.map(describeDesignHtmlIntegrityIssue) }
         : {}),
-      ...checkpointField,
     };
   },
   changeResource: (p, result) => designChangeResource(p.designId, result),

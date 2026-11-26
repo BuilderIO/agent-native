@@ -1,9 +1,14 @@
-import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import { type Page } from "@playwright/test";
-
 import enUS from "../app/i18n/en-US";
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
-import { appPath, expandAllLayers, resetPersistedCanvasState } from "./helpers";
+import {
+  appPath,
+  EDIT_MODE_BUTTON,
+  expandAllLayers,
+  INTERACT_MODE_BUTTON,
+  must,
+  openPageOverview,
+  resetPersistedCanvasState,
+} from "./helpers";
 import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -28,16 +33,7 @@ async function openFixture(app: App, html = FIXTURE_HTML) {
   await app.open(id);
   return id;
 }
-
-async function setCreativeContextLab(page: Page, enabled: boolean) {
-  const response = await page.request.post(
-    appPath("/_agent-native/actions/set-lab"),
-    {
-      data: { key: CREATIVE_CONTEXT_LIBRARY_LAB.key, enabled },
-    },
-  );
-  expect(response.ok(), `set-lab returned ${response.status()}`).toBe(true);
-}
+// oracle-change: Creative context removed from Design; its assertions no longer apply
 
 async function clickCenter(app: App, nodeId: string) {
   const rect = await app.designRect(nodeId);
@@ -86,19 +82,12 @@ test("editor renders the toolbar and the design iframe content", async ({
     ).toBeVisible();
   }
   await expect(toolbar.getByRole("button", { name: /agent/i })).toHaveCount(0);
-  const modeSwitch = page.locator(
-    "[data-design-top-bar] [data-design-mode-switch]",
-  );
-  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
-  await expect(modeSwitch.locator("[data-design-mode]")).toHaveText([
-    "Interact",
-    "Design",
-  ]);
-  await expect(modeSwitch.locator('[data-design-mode="edit"]')).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(toolbar.locator("[data-design-mode]")).toHaveCount(0);
+  await expect(
+    toolbar.getByRole("button", { name: "Edit", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    toolbar.getByRole("button", { name: "Interact", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
   await expect(app.node("e2e-alpha-button")).toHaveText("Alpha Button");
   await expect(
     app.page
@@ -114,11 +103,7 @@ test("agent rail keeps the shared chat header and chat switcher", async ({
   await openFixture(app);
   const page = app.page;
   await page
-    .locator('[data-design-chrome-region="workspace-rail"]')
-    .getByRole("button", {
-      name: enUS.designEditor.leftRail.agent,
-      exact: true,
-    })
+    .getByRole("tab", { name: enUS.designEditor.leftTabs.agent, exact: true })
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
@@ -166,12 +151,9 @@ test("agent rail stays inside a narrow viewport without the canvas toolbar cover
   await openFixture(app);
   const page = app.page;
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('[data-design-minimal-toggle="ui"]').click();
   await page
-    .locator('[data-design-chrome-region="workspace-rail"]')
-    .getByRole("button", {
-      name: enUS.designEditor.leftRail.agent,
-      exact: true,
-    })
+    .getByRole("tab", { name: enUS.designEditor.leftTabs.agent, exact: true })
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
@@ -221,8 +203,7 @@ test("designs list shared sidebar stays contained at normal and narrow widths", 
 });
 
 test("share dialog uses editor panel chrome", async ({ app }) => {
-  await setCreativeContextLab(app.page, true);
-  try {
+  {
     await openFixture(app);
     const page = app.page;
     await page
@@ -237,13 +218,6 @@ test("share dialog uses editor panel chrome", async ({ app }) => {
     const tabListBox = (await shareOptions.boundingBox())!;
     expect(tabListBox.width).toBeLessThanOrEqual(420);
     expect(tabListBox.height).toBeLessThanOrEqual(42);
-    const contextTab = page.getByRole("tab", { name: "Context", exact: true });
-    expect((await contextTab.boundingBox())!.height).toBeLessThanOrEqual(36);
-
-    await contextTab.click();
-    await expect(
-      page.getByRole("region", { name: "Creative context" }),
-    ).toBeVisible();
 
     // oracle-change(templates/design/app/pages/design-editor/view/share-send-to-tab.test.tsx): Design's own Send to agent tab and its terminal preview are gone; the coding handoff is the shared panel's Send to prompt.
     await page.getByRole("tab", { name: "Share link" }).click();
@@ -288,8 +262,6 @@ test("share dialog uses editor panel chrome", async ({ app }) => {
       );
     expect(await zIndex(accessMenu)).toBeGreaterThan(await zIndex(popover));
     await page.keyboard.press("Escape");
-  } finally {
-    await setCreativeContextLab(app.page, false);
   }
 });
 
@@ -308,7 +280,9 @@ test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs",
     rightPanel.getByRole("button", { name: /^share/i }).first(),
   ).toBeVisible();
   await expect(
-    rightPanel.getByRole("button", { name: /^\d+%$/ }),
+    page
+      .locator("[data-design-toolbar-zoom]")
+      .getByRole("button", { name: /^\d+%$/ }),
   ).toBeVisible();
   const toolbar = page.locator("[data-design-bottom-toolbar]");
   for (const tab of ["Edit", "Interact"]) {
@@ -321,40 +295,62 @@ test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs",
   ).toHaveCount(0);
 });
 
-test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({
+// oracle-change: the editor top bar is gone; its Share, presence and zoom moved into the 48px column heads and the bottom toolbar, so this now pins those heads.
+test("column heads are 48px and keep Share in the right head and zoom in the bottom toolbar", async ({
   app,
 }) => {
   await openFixture(app);
   const page = app.page;
-  const topBar = page.locator("[data-design-top-bar]");
-  const barBox = (await topBar.boundingBox())!;
-  expect([barBox.y, barBox.height]).toStrictEqual([0, 48]);
-  const leftShellBox = (await page
-    .locator('[data-design-chrome-region="left-shell"]')
-    .boundingBox())!;
-  expect(leftShellBox.y).toBe(0);
-  expect(barBox.x).toBe(leftShellBox.x + leftShellBox.width);
+  const leftHead = page.locator(
+    '[data-design-left-column] > [data-design-chrome-region="left-header"]',
+  );
+  const rightHead = page.locator(
+    '[data-design-chrome-region="right-toolbar-actions"]',
+  );
+  const leftHeadBox = must(await leftHead.boundingBox(), "left head");
+  const rightHeadBox = must(await rightHead.boundingBox(), "right head");
+  expect([leftHeadBox.y, leftHeadBox.height]).toStrictEqual([0, 48]);
+  expect([rightHeadBox.y, rightHeadBox.height]).toStrictEqual([0, 48]);
+  expect(rightHeadBox.x + rightHeadBox.width).toBeLessThanOrEqual(
+    (await page.evaluate(() => innerWidth)) + 1,
+  );
   await expect(
     page.getByRole("button", { name: "Add to Context" }),
   ).toHaveCount(0);
 
-  const shareBox = (await topBar
-    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
-    .first()
-    .boundingBox())!;
-  expect(shareBox.x).toBeGreaterThanOrEqual(barBox.x - 1);
+  const shareBox = must(
+    await rightHead
+      .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+      .first()
+      .boundingBox(),
+    "Share",
+  );
+  expect(shareBox.x).toBeGreaterThanOrEqual(rightHeadBox.x - 1);
   expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
-    barBox.x + barBox.width + 1,
+    rightHeadBox.x + rightHeadBox.width + 1,
   );
   expect(
-    await topBar.evaluate((node) => node.scrollWidth - node.clientWidth),
+    await rightHead.evaluate((node) => node.scrollWidth - node.clientWidth),
   ).toBeLessThanOrEqual(1);
-  await expect(topBar.getByRole("button", { name: /^\d+%$/ })).toBeVisible();
   await expect(
     page
-      .locator('[data-design-chrome-region="right-panel"]')
-      .getByRole("button", { name: /^share/i }),
-  ).toHaveCount(0);
+      .locator("[data-design-toolbar-zoom]")
+      .getByRole("button", { name: /^\d+%$/ }),
+  ).toBeVisible();
+
+  await page.evaluate(() =>
+    localStorage.setItem("design.editor.inspectorWidth", "240"),
+  );
+  await page.reload();
+  await expect(rightHead).toBeVisible();
+  expect(must(await rightHead.boundingBox(), "right head").width).toBeCloseTo(
+    280,
+    0,
+  );
+  await expect(page.locator("[data-design-comments-toggle]")).toBeVisible();
+  expect(
+    await rightHead.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).toBeLessThanOrEqual(1);
 });
 
 test("screen overview adds, targets and removes breakpoints from the unified control and saves each set", async ({
@@ -394,11 +390,9 @@ test("screen overview adds, targets and removes breakpoints from the unified con
     waitUntil: "domcontentloaded",
   });
   await expect(page.locator("[data-screen-card]")).toBeVisible();
-  await page
-    .locator("aside")
-    .first()
-    .getByRole("button", { name: "All screens", exact: true })
-    .click();
+  await openPageOverview(page);
+  // oracle-change: the All screens row is gone; selecting a page row in the Pages list shows the same breakpoint control.
+  await page.locator("[data-screen-row]").first().click();
   const control = page.locator("[data-breakpoint-device-control]");
   const base = control.getByRole("button", { name: "Base" });
   await expect(base).toHaveAttribute("aria-pressed", "true");
@@ -493,14 +487,14 @@ test("the frame + offers the next built-in breakpoint and skips one equal to the
   await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(4);
 
   await expect(
-    page.locator('button[title$="breakpoint (1280px) to all screens"]'),
+    page.locator('button[title$="breakpoint (1280px) to all pages"]'),
   ).toHaveCount(1);
   await expect(
-    page.locator('button[title^="Add "][title$=" to all screens"]'),
+    page.locator('button[title^="Add "][title$=" to all pages"]'),
   ).toHaveCount(1);
   await expect(
-    page.locator('button[title$="breakpoint (1280px) to all screens"]'),
-  ).toHaveAttribute("title", "Add Desktop breakpoint (1280px) to all screens");
+    page.locator('button[title$="breakpoint (1280px) to all pages"]'),
+  ).toHaveAttribute("title", "Add Desktop breakpoint (1280px) to all pages");
 });
 
 test("screen overview keeps frame labels contained when header space is tight", async ({
@@ -602,25 +596,20 @@ test("left sidebar switches between all screens and focused screens", async ({
   await openFixture(app);
   const page = app.page;
   const sidebar = page.locator("aside").first();
-  const allScreens = sidebar.getByRole("button", { name: "All screens" });
+  const pageRows = sidebar.locator("[data-screen-row]");
+  const currentPageRow = pageRows.locator('[aria-current="page"]');
   const homeScreen = sidebar
     .getByRole("button", { name: "Home", exact: true })
     .first();
-  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(currentPageRow).toHaveCount(0);
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 
-  // A row focuses its Screen on the overview canvas: the Screen is selected and
-  // "All screens" stays current. Interact is what leaves the overview.
   await homeScreen.click();
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Home"]);
-  await expect(allScreens).toHaveAttribute("aria-current", "page");
-  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+  await expect(currentPageRow).toHaveCount(0);
 
-  await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
-    .click();
-  await expect(homeScreen).toHaveAttribute("aria-current", "page");
-  await expect(allScreens).not.toHaveAttribute("aria-current", "page");
+  // oracle-change: Interact has no Pages list, so the current-row check moves to the preview's screen shell.
+  await page.locator(INTERACT_MODE_BUTTON).click();
   await expect(
     page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
   ).toHaveCount(1);
@@ -631,9 +620,9 @@ test("left sidebar switches between all screens and focused screens", async ({
       .getByText("E2E Hero Heading"),
   ).toBeVisible();
 
-  await allScreens.click();
-  await expect(allScreens).toHaveAttribute("aria-current", "page");
-  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+  await page.locator(EDIT_MODE_BUTTON).click();
+  await openPageOverview(page);
+  await expect(currentPageRow).toHaveCount(0);
 });
 
 if (process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS === "0") {
@@ -641,18 +630,19 @@ if (process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS === "0") {
     app,
   }) => {
     const id = await app.seed(FIXTURE_HTML, { title: SEED_TITLE });
-    const layersRailButton = app.page
-      .getByRole("navigation", { name: "Design workspace" })
-      .getByRole("button", { name: "Layers", exact: true });
+    const fileTab = app.page.getByRole("tab", {
+      name: enUS.designEditor.leftTabs.file,
+      exact: true,
+    });
     for (const panel of ["tools", "assets", "code"]) {
       await resetPersistedCanvasState(app.page);
       await app.page.goto(appPath(`/design/${id}?panel=${panel}`), {
         waitUntil: "domcontentloaded",
       });
       await expect(
-        layersRailButton,
-        `?panel=${panel} must fall back to Layers`,
-      ).toHaveAttribute("aria-current", "page");
+        fileTab,
+        `?panel=${panel} must fall back to the File tab`,
+      ).toHaveAttribute("aria-selected", "true");
       await expect(
         app.page.getByRole("tree", { name: "Layers" }),
       ).toBeVisible();

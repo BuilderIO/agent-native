@@ -243,6 +243,11 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 `ask_app_status`；沒有控制代碼的舊版結果必須重用相同的 `app` 與 `taskId`。切勿為了復原而
 重新提交 `ask_app`，因為提交可能重複工作。永久性的驗證、找不到與通訊協定錯誤仍然是錯誤。
 
+`taskHandle` 在 `ask_app` 傳回後一小時到期。當 `ask_app_status` 以無效或已
+到期為由拒絕控制代碼時，請使用 `ask_app` 結果中的 `app` 與 `taskId`、不帶
+`taskHandle`，繼續輪詢同一個任務；錯誤訊息也會如此提示。沒有控制代碼時，狀態
+呼叫會透過探索機制重新尋找應用程式，因此只有在應用程式仍可被探索時才有效。
+
 ## 驗證 {#authentication}
 
 MCP 端點支援標準遠端 MCP OAuth 以及現有的不記名權杖後備：

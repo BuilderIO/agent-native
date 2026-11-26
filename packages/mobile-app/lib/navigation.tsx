@@ -26,7 +26,9 @@ function getTabPath(href: string): string | null {
     ) || "/";
 
   if (pathname === "/") return "/chat";
-  return TAB_PATHS.has(pathname) ? pathname : null;
+  return TAB_PATHS.has(pathname) || pathname.startsWith("/tab-app/")
+    ? pathname
+    : null;
 }
 
 function performNavigation(href: string, mode: "push" | "replace"): void {

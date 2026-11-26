@@ -5,6 +5,7 @@ import { z } from "zod";
 import { searchPeopleForUser } from "../server/lib/people-search.js";
 
 export default defineAction({
+  mcpTool: true,
   description:
     "Search Google contacts and the Google Workspace directory for people by name or email",
   schema: z.object({
@@ -17,6 +18,11 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

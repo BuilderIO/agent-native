@@ -1,6 +1,5 @@
+import { csvCell } from "@agent-native/toolkit/dashboard/csv";
 import { describe, expect, it } from "vitest";
-
-import { csvCell } from "./csv";
 
 describe("csvCell", () => {
   it("neutralizes formula prefixes after whitespace and control characters", () => {

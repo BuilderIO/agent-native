@@ -51,8 +51,14 @@ function takeIdFromUrl(): string | null {
   // A stubbed or non-browser window can lack a location.
   const { location } = window as Partial<Window>;
   const href = location?.href;
-  if (!href || !URL.canParse(href)) return null;
-  const url = new URL(href);
+  if (!href) return null;
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    // coercion-ok: malformed location URLs cannot supply a linked tab ID.
+    return null;
+  }
   const id = url.searchParams.get(BROWSER_TAB_QUERY_PARAM);
   if (id === null) return null;
   url.searchParams.delete(BROWSER_TAB_QUERY_PARAM);

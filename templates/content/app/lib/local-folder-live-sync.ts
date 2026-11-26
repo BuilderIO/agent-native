@@ -8,6 +8,18 @@ const ACTIVATION_EVENT = "content-local-folder-working-copy-activation";
 
 let requestedWorkingCopyId: string | null = null;
 
+interface SyncedLocalFile {
+  id: string;
+  path: string;
+}
+
+export interface LiveLocalFolderSyncResult {
+  filesDatabaseId: string;
+  created: SyncedLocalFile[];
+  updated: SyncedLocalFile[];
+  removed: SyncedLocalFile[];
+}
+
 interface LiveLocalFolderSource {
   folderId: string;
   sourceId: string;

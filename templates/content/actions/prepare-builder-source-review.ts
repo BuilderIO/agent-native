@@ -17,6 +17,7 @@ import type {
   PrepareBuilderSourceReviewResponse,
 } from "../shared/api.js";
 import { isBuilderCmsWriteEffect } from "../shared/api.js";
+import { builderBodyLineDiff } from "../shared/builder-body-diff.js";
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
@@ -24,6 +25,7 @@ import {
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
+import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import {
   buildBuilderCmsExecutionPlan,
   resolveBuilderCmsWriteEffect,
@@ -160,6 +162,76 @@ function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
     : null;
 }
 
+function reviewBodyDiff(
+  bodyChange: ContentDatabaseSourceChangeSet["bodyChange"],
+  row: ContentDatabaseSource["rows"][number] | null,
+) {
+  if (!bodyChange || bodyChange.currentExcerpt === null) return null;
+  if (typeof bodyChange.proposedContent !== "string") return null;
+  const current = row?.sourceValues?.[BUILDER_CMS_BODY_CONTENT_KEY];
+  if (typeof current !== "string") return null;
+  return builderBodyLineDiff(current, bodyChange.proposedContent);
+}
+
+const LOCAL_PENDING_REVISION_SUFFIX = /-revision-[0-9a-f]{16}(?:-\d+)?$/;
+
+export function matchRequestedBuilderChangeSets(args: {
+  requestedIds: string[];
+  reviewable: ContentDatabaseSourceChangeSet[];
+  rows: Array<{ id: string; documentId: string }>;
+}) {
+  const reviewableById = new Map(
+    args.reviewable.map((changeSet) => [changeSet.id, changeSet]),
+  );
+  const documentIdByRowId = new Map(
+    args.rows.map((row) => [row.id, row.documentId]),
+  );
+  const matched = new Map<string, ContentDatabaseSourceChangeSet>();
+  const requestedIdByChangeSetId = new Map<string, string>();
+  const unchangedIds: string[] = [];
+  const missingIds: string[] = [];
+  for (const requestedId of args.requestedIds) {
+    const exact = reviewableById.get(requestedId);
+    if (exact) {
+      matched.set(exact.id, exact);
+      continue;
+    }
+    if (!requestedId.startsWith("local-pending-")) {
+      missingIds.push(requestedId);
+      continue;
+    }
+    const base = requestedId.replace(LOCAL_PENDING_REVISION_SUFFIX, "");
+    const createItemId = base.startsWith("local-pending-create-")
+      ? base.slice("local-pending-create-".length)
+      : null;
+    const rowDocumentId =
+      !createItemId && base.endsWith("-change")
+        ? documentIdByRowId.get(
+            base.slice("local-pending-".length, -"-change".length),
+          )
+        : undefined;
+    const sameRow = args.reviewable.find((changeSet) =>
+      createItemId
+        ? changeSet.databaseItemId === createItemId
+        : !!rowDocumentId && changeSet.documentId === rowDocumentId,
+    );
+    if (!sameRow) {
+      unchangedIds.push(requestedId);
+      continue;
+    }
+    if (!matched.has(sameRow.id)) {
+      matched.set(sameRow.id, sameRow);
+      requestedIdByChangeSetId.set(sameRow.id, requestedId);
+    }
+  }
+  return {
+    changeSets: [...matched.values()],
+    requestedIdByChangeSetId,
+    unchangedIds,
+    missingIds,
+  };
+}
+
 export function buildBuilderSourceReviewPayload(args: {
   source: ContentDatabaseSource;
   changeSets: ContentDatabaseSourceChangeSet[];
@@ -204,6 +276,7 @@ export function buildBuilderSourceReviewPayload(args: {
         effect === "create_draft" ? null : (row?.sourceRowId ?? null),
       fieldChanges: changeSet.fieldChanges,
       bodyChange: changeSet.bodyChange,
+      bodyDiff: reviewBodyDiff(changeSet.bodyChange, row),
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
@@ -948,28 +1021,51 @@ export default defineAction({
           `Publication transition does not belong to the requested Builder selection: ${foreignTransitionIds.join(", ")}.`,
         );
       }
-      const allReviewableChanges = snapshot.changeSets.filter(
+      const snapshotReviewableChanges = snapshot.changeSets.filter(
         (changeSet) =>
           changeSet.direction === "outbound" &&
           (changeSet.state === "pending_push" ||
             changeSet.state === "staged_revision" ||
-            changeSet.state === "approved") &&
-          (requestedIds.size === 0 || requestedIds.has(changeSet.id)),
+            changeSet.state === "approved"),
       );
-      if (
-        requestedIds.size > 0 &&
-        allReviewableChanges.length !== requestedIds.size
-      ) {
-        const foundIds = new Set(
-          allReviewableChanges.map((changeSet) => changeSet.id),
-        );
-        const missingIds = [...requestedIds].filter((id) => !foundIds.has(id));
-        throw new Error(
-          `Requested Builder change-set is not reviewable: ${missingIds.join(", ")}.`,
+      const requested =
+        requestedIds.size > 0
+          ? matchRequestedBuilderChangeSets({
+              requestedIds: [...requestedIds],
+              reviewable: snapshotReviewableChanges,
+              rows: snapshot.rows,
+            })
+          : null;
+      if (requested && requested.missingIds.length > 0) {
+        fail(
+          `Requested Builder change-set is not reviewable: ${requested.missingIds.join(", ")}.`,
+          { errorCode: "builder_change_set_not_reviewable", statusCode: 409 },
         );
       }
+      const allReviewableChanges =
+        requested?.changeSets ?? snapshotReviewableChanges;
+      const requestedIdFor = (changeSet: ContentDatabaseSourceChangeSet) =>
+        requested?.requestedIdByChangeSetId.get(changeSet.id) ?? changeSet.id;
+      const unchangedChangeSetIds = requested?.unchangedIds ?? [];
       if (allReviewableChanges.length === 0) {
-        throw new Error("No pending local Builder changes to review.");
+        if (unchangedChangeSetIds.length === 0) {
+          fail("No pending local Builder changes to review.", {
+            errorCode: "builder_review_empty",
+            statusCode: 409,
+          });
+        }
+        const review = buildBuilderSourceReviewPayload({
+          source: snapshot,
+          changeSets: [],
+        });
+        const result = {
+          review,
+          preparedChangeSetMappings: [],
+          unchangedChangeSetIds,
+          timings: timing.finish(),
+        };
+        timing.log("succeeded");
+        return result;
       }
       const reviewableChanges = [...allReviewableChanges]
         .sort(
@@ -982,8 +1078,8 @@ export default defineAction({
       // one the caller can only view refuses the review before any approval.
       for (const changeSet of reviewableChanges) {
         const transition =
-          args.transitions?.[changeSet.id]?.publicationTransition ??
-          args.publicationTransition;
+          args.transitions?.[requestedIdFor(changeSet)]
+            ?.publicationTransition ?? args.publicationTransition;
         if (transition && changeSet.documentId) {
           await assertAccess("document", changeSet.documentId, "editor");
         }
@@ -1010,11 +1106,12 @@ export default defineAction({
         });
         approvedIds.push(approved.id);
         preparedChangeSetMappings.push({
-          requestedChangeSetId: changeSet.id,
+          requestedChangeSetId: requestedIdFor(changeSet),
           preparedChangeSetId: approved.id,
         });
         const transition =
-          args.transitions?.[changeSet.id] ?? args.transitions?.[approved.id];
+          args.transitions?.[requestedIdFor(changeSet)] ??
+          args.transitions?.[approved.id];
         await upsertExecutionGate({
           source: authoritativeSnapshot,
           changeSet: approved.changeSet,
@@ -1067,6 +1164,7 @@ export default defineAction({
       const result = {
         review,
         preparedChangeSetMappings,
+        ...(unchangedChangeSetIds.length > 0 ? { unchangedChangeSetIds } : {}),
         timings: timing.finish(),
       };
       timing.log("succeeded");

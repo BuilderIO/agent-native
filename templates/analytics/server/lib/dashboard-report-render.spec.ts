@@ -3,18 +3,18 @@ import {
   retainRequestDbPoolScope,
   runWithRequestDbPoolScope,
 } from "@agent-native/core/db/request-pool-context";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import {
+  APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
+} from "@agent-native/toolkit/dashboard/tokens/app-series-colors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
 import {
   CONNECT_UNDERCOUNT,
   SETUP_INCIDENT,
   SKIPS_UNTRACKED,
 } from "../../shared/annotation-fixtures";
-import {
-  APP_SERIES_COLORS,
-  UNKNOWN_APP_COLOR,
-} from "../../shared/tokens/app-series-colors";
 
 const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(

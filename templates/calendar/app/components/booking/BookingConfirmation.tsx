@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 interface BookingConfirmationProps {
   booking: Booking;
   customFields?: CustomField[];
-  onReset: () => void;
+  onReset?: (() => void) | undefined;
 }
 
 const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
@@ -115,9 +115,11 @@ export function BookingConfirmation({
         </p>
       )}
 
-      <Button variant="outline" onClick={onReset}>
-        {t("bookingLinks.bookAnother")}
-      </Button>
+      {onReset && (
+        <Button variant="outline" onClick={onReset}>
+          {t("bookingLinks.bookAnother")}
+        </Button>
+      )}
     </div>
   );
 }

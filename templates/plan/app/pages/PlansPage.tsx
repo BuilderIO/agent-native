@@ -11,8 +11,14 @@ import {
   trackEvent,
 } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  acceptBuilderSignupAssignment,
+  getBuilderSignupAssignment,
+  type BuilderSignupAssignment,
+} from "@agent-native/core/client/auth/builder-signup";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
+  actionErrorMessage,
   callAction,
   useActionQuery,
   useAvatarUrl,
@@ -36,22 +42,22 @@ import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import { saveWithMerge } from "@agent-native/core/save-conflict";
-import { docsUrl } from "@agent-native/core/shared";
+import { docsUrl, isTestIdentityEmail } from "@agent-native/core/shared";
+import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
-import {
-  CommentBody,
-  isComposingKey,
-  isCommentSendKey,
-} from "@agent-native/toolkit/app/review";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "@shared/builder-signup";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -81,6 +87,7 @@ import {
 } from "@shared/share-attribution";
 import {
   type PlanBundle,
+  type PlanCommentReaction,
   type PlanKind,
   type PlanReportReason,
   type PlanSource,
@@ -148,6 +155,16 @@ import {
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  EMPTY_PLAN_COMMENT_BOX_DRAFT,
+  PlanCommentBox,
+  PlanCommentEntry,
+  planCommentBoxDraft,
+  planCommentMessage,
+  planReviewComment,
+  togglePlanCommentReaction,
+  type PlanCommentBoxDraft,
+} from "@/components/comments/plan-comment-kit";
 import type {
   CanvasMarkupCreateContext,
   CanvasMarkupMode,
@@ -260,6 +277,7 @@ import {
   useDeletePlan,
   useDeletePlanComment,
   useExportPlan,
+  useReactToPlanComment,
   useImportPlanSource,
   useRequestPlanAccess,
   type DeletePlanInput,
@@ -300,13 +318,9 @@ import {
   type SavedPlanBlocks,
 } from "@/lib/plan-block-save";
 import {
-  appendMessageToEditor,
   canSubmitInlineCommentDraft,
   commentBodyText,
-  createMentionChip,
   displayNameForMention,
-  mentionQueryAtCaret,
-  serializeCommentEditor,
   type CommentDraft,
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
@@ -360,12 +374,7 @@ export {
 };
 export type { NativeMarkerPlacement } from "@/lib/plan-native-anchors";
 export type { PlanOrgAccessPrompt } from "@/lib/plan-access-prompt";
-export {
-  AnnotationPopover,
-  canSubmitInlineCommentDraft,
-  CommentMentionEditor,
-  mentionQueryAtCaret,
-};
+export { AnnotationPopover, canSubmitInlineCommentDraft, InlineCommentPopover };
 export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
 
 export function buildPlanEmailVerificationCallbackURL(
@@ -467,11 +476,6 @@ function readDesktopPlanAutoSync(planId: string | undefined): boolean {
   if (typeof window === "undefined" || !planId) return false;
   return window.localStorage.getItem(desktopPlanAutoSyncKey(planId)) === "1";
 }
-
-type OrgMemberSuggestion = {
-  email: string;
-  role?: string;
-};
 
 type InlineCommentPosition = {
   left: number;
@@ -690,7 +694,15 @@ export function shouldKeepCommentPopoverOpenForTarget(
   if (!(target instanceof Element)) return false;
   if (target.closest("[data-comment-marker]")) return true;
   if (target.closest("[data-comment-popover-portal]")) return true;
+  if (target.closest("[data-review-popover]")) return true;
   return false;
+}
+
+const OPEN_COMMENT_MENU_SELECTOR =
+  '[data-comment-popover-portal][data-state="open"], [data-review-popover][data-state="open"]:not([data-review-format-toolbar]), [data-review-format-toolbar][data-state="open"] input';
+
+export function commentMenuIsOpen() {
+  return document.querySelector(OPEN_COMMENT_MENU_SELECTOR) !== null;
 }
 
 function normalizeCommentEmail(email: string | null | undefined) {
@@ -860,74 +872,6 @@ function useCommentAvatarUrls(emails: string[]) {
   }, [emailKey]);
 
   return urls;
-}
-
-function useOrgMemberMentionSearch(query: string | null) {
-  const [members, setMembers] = useState<OrgMemberSuggestion[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const requestRef = useRef(0);
-
-  useEffect(() => {
-    const search = query?.trim() ?? "";
-    if (query === null) {
-      setMembers([]);
-      setIsLoading(false);
-      return;
-    }
-    const requestId = ++requestRef.current;
-    const controller = new AbortController();
-    setIsLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    params.set("limit", "8");
-    fetch(`${agentNativePath("/_agent-native/org/members")}?${params}`, {
-      credentials: "include",
-      signal: controller.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error("Could not load members");
-        return response.json() as Promise<{ members?: unknown }>;
-      })
-      .then((data) => {
-        if (controller.signal.aborted || requestId !== requestRef.current) {
-          return;
-        }
-        const next = Array.isArray(data.members)
-          ? data.members
-              .map((member) => {
-                if (!member || typeof member !== "object") return null;
-                const value = member as { email?: unknown; role?: unknown };
-                const email =
-                  typeof value.email === "string"
-                    ? normalizeCommentEmail(value.email)
-                    : null;
-                if (!email) return null;
-                const suggestion: OrgMemberSuggestion = { email };
-                if (typeof value.role === "string") {
-                  suggestion.role = value.role;
-                }
-                return suggestion;
-              })
-              .filter((member): member is OrgMemberSuggestion =>
-                Boolean(member),
-              )
-          : [];
-        setMembers(next);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted && requestId === requestRef.current) {
-          setMembers([]);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && requestId === requestRef.current) {
-          setIsLoading(false);
-        }
-      });
-    return () => controller.abort();
-  }, [query]);
-
-  return { members, isLoading };
 }
 
 function elementForShortcutTarget(target: EventTarget | null) {
@@ -1351,24 +1295,6 @@ export function runtimeAnnotationFromThread(
   };
 }
 
-function runtimeCommentFromAuthor(
-  comment: RuntimeAnnotationComment,
-): CommentAuthorPresentation {
-  const author = commentAuthorPresentation(
-    {
-      createdBy: comment.createdBy,
-      authorEmail: comment.authorEmail,
-      authorName: comment.authorName,
-    },
-    comment.authorAvatarUrl,
-  );
-  return {
-    ...author,
-    color: comment.authorColor ?? author.color,
-    initials: comment.authorInitials ?? author.initials,
-  };
-}
-
 function runtimeAnnotationRootComment(
   annotation: RuntimeAnnotation,
 ): RuntimeAnnotationComment {
@@ -1683,6 +1609,35 @@ function buildQuestionFormRevisionMessage(summary: string) {
     "",
     summary,
   ].join("\n");
+}
+
+export function offerFrameQuestionAnswers({
+  summary,
+  context,
+  t,
+  onSent,
+}: {
+  summary: string;
+  context: string;
+  t: ReturnType<typeof useT>;
+  onSent: () => void;
+}) {
+  toast(t("plansPage.reader.sendAnswersPrompt"), {
+    duration: 15_000,
+    action: {
+      label: t("plansPage.reader.sendAnswersAction"),
+      onClick: () => {
+        sendToAgentChat({
+          type: "content",
+          submit: true,
+          context,
+          message: buildQuestionFormRevisionMessage(summary),
+        });
+        onSent();
+        toast.success(t("plansPage.reader.sentAnswers"));
+      },
+    },
+  });
 }
 
 function newCanvasMarkupId() {
@@ -2337,30 +2292,40 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       setAccessRequestSentPlanId(null);
     }
   }, [accessRequestSentPlanId, selectedId]);
-  const startGoogleSignIn = useCallback(async () => {
-    const returnPath = planReturnPathFromLocation(window.location);
-    try {
-      const res = await fetch(
-        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(serverAuthReturnPath(appPath(returnPath), returnPath))}`,
-        { cache: "no-store" },
-      );
-      const data = (await res.json().catch(() => null)) as {
-        url?: string;
-        error?: string;
-        message?: string;
-      } | null;
-      if (res.ok && data?.url) {
-        window.location.href = data.url;
-        return;
+  const startGoogleSignIn = useCallback(
+    async (options?: { builderSignupAttemptId?: string }) => {
+      const returnPath = planReturnPathFromLocation(window.location);
+      try {
+        const params = new URLSearchParams({
+          return: serverAuthReturnPath(appPath(returnPath), returnPath),
+        });
+        if (options?.builderSignupAttemptId) {
+          params.set("builder_signup_attempt", options.builderSignupAttemptId);
+        }
+        const res = await fetch(
+          `${agentNativePath("/_agent-native/google/auth-url")}?${params.toString()}`,
+          { cache: "no-store" },
+        );
+        // coercion-ok: non-JSON error responses fall through to the full sign-in page.
+        const data = (await res.json().catch(() => null)) as {
+          url?: string;
+          error?: string;
+          message?: string;
+        } | null;
+        if (res.ok && data?.url) {
+          window.location.href = data.url;
+          return;
+        }
+        if (data?.error || data?.message) {
+          toast.error(data.error ?? data.message);
+        }
+      } catch {
+        // coercion-ok: network failures fall through to the full sign-in page.
       }
-      if (data?.error || data?.message) {
-        toast.error(data.error ?? data.message);
-      }
-    } catch {
-      // Fall through to the full sign-in page, which has the same auth options.
-    }
-    openSignIn(returnPath);
-  }, [openSignIn]);
+      openSignIn(returnPath);
+    },
+    [openSignIn],
+  );
   const requestPlanAccess = useCallback(() => {
     if (!selectedId || localPlanMode) return;
     requestPlanAccessMutation.mutate(
@@ -2538,6 +2503,18 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       ),
     [collabUser?.email, collabUser?.name, currentCommentAuthor],
   );
+  const commentReactions = useMemo(
+    () =>
+      new Map(
+        (bundle?.comments ?? []).map((comment) => [
+          comment.id,
+          comment.reactions ?? [],
+        ]),
+      ),
+    [bundle?.comments],
+  );
+  const canReactToComments =
+    canCommentPlan && !localPlanMode && Boolean(session);
   const runtimeCommentThreads = useMemo(
     () =>
       visibleMarkerCommentThreads
@@ -2600,6 +2577,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const updateCommentMutation = useUpdatePlanComments();
   const updateLocalCommentMutation = useUpdateLocalPlanComments();
   const deleteCommentMutation = useDeletePlanComment();
+  const reactToCommentMutation = useReactToPlanComment();
+  const reactionQueuesRef = useRef(new Map<string, Promise<unknown>>());
   const deletePlanMutation = useDeletePlan();
 
   const handleArchivePlan = useCallback(
@@ -3409,14 +3388,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         data?.type === "agent-native-visual-questions-send-to-agent" &&
         typeof data.summary === "string"
       ) {
-        sendToAgentChat({
-          type: "content",
-          submit: true,
+        const summary = data.summary;
+        offerFrameQuestionAnswers({
+          summary,
           context: planAgentContext,
-          message: buildQuestionFormRevisionMessage(data.summary),
+          t,
+          onSent: () => persistQuestionFormAnswers(summary, bundle?.plan.id),
         });
-        persistQuestionFormAnswers(data.summary, bundle?.plan.id);
-        toast.success(t("plansPage.reader.sentAnswers"));
       }
     };
     window.addEventListener("message", onMessage);
@@ -4865,6 +4843,75 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
   };
 
+  const reactToComment = async (
+    commentId: string,
+    reaction: string,
+    active: boolean,
+  ) => {
+    if (!bundle || !selectedPlanQueryKey || !canReactToComments) return;
+    const queryKey = selectedPlanQueryKey;
+    const setReactions = (
+      update: (current: PlanCommentReaction[]) => PlanCommentReaction[],
+    ) =>
+      queryClient.setQueryData(
+        queryKey,
+        (current: PlanBundleWithHtml | undefined) =>
+          current
+            ? withPlanComments(
+                current,
+                current.comments.map((comment) =>
+                  comment.id === commentId
+                    ? { ...comment, reactions: update(comment.reactions ?? []) }
+                    : comment,
+                ),
+              )
+            : current,
+      );
+    await queryClient.cancelQueries({ queryKey });
+    const reactedBefore =
+      queryClient
+        .getQueryData<PlanBundleWithHtml>(queryKey)
+        ?.comments.find((comment) => comment.id === commentId)
+        ?.reactions?.some(
+          (item) => item.reaction === reaction && item.reactedByMe,
+        ) ?? false;
+    setReactions((current) =>
+      togglePlanCommentReaction(current, reaction, active),
+    );
+    const planId = bundle.plan.id;
+    const queues = reactionQueuesRef.current;
+    const request = (queues.get(commentId) ?? Promise.resolve()).then(() =>
+      reactToCommentMutation.mutateAsync({
+        planId,
+        commentId,
+        reaction,
+        active,
+      }),
+    );
+    const turn = request.catch(() => undefined);
+    queues.set(commentId, turn);
+    try {
+      const result = await request;
+      if (queues.get(commentId) === turn) {
+        setReactions(() => result.reactions);
+      }
+    } catch (error) {
+      if (queues.get(commentId) === turn) {
+        if (reactedBefore !== active) {
+          setReactions((current) =>
+            togglePlanCommentReaction(current, reaction, !active),
+          );
+        }
+        void queryClient.invalidateQueries({ queryKey });
+      }
+      toast.error(
+        actionErrorMessage(error) ?? t("plansPage.comments.reactionFailed"),
+      );
+    } finally {
+      if (queues.get(commentId) === turn) queues.delete(commentId);
+    }
+  };
+
   const nativeMarkerPosition = (anchor: PlanAnnotationAnchor) => {
     void nativeMarkerVersion;
     const reader = nativeReaderRef.current;
@@ -5755,7 +5802,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   annotation={activeAnnotation.annotation}
                   position={activeAnnotation.position}
                   isPending={commentWritePending}
-                  pendingAuthor={pendingCommentAuthor}
                   canComment={canCommentPlan}
                   canEditRootComment={canEditPlanContent}
                   onSave={(message) =>
@@ -5788,6 +5834,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       requestDeleteComment(activeCommentThread, commentId);
                     }
                   }}
+                  reactionsFor={(commentId) =>
+                    commentReactions.get(commentId) ?? []
+                  }
+                  showReactions={!localPlanMode}
+                  canReact={canReactToComments}
+                  onReact={(commentId, reaction, active) =>
+                    void reactToComment(commentId, reaction, active)
+                  }
                   onClose={() => setActiveAnnotation(null)}
                 />
               )}
@@ -5797,7 +5851,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   showResolvedComments={commentVisibility === "all"}
                   avatarUrls={commentAvatarUrls}
                   currentUser={currentCommentAuthor}
-                  pendingAuthor={pendingCommentAuthor}
                   isPending={commentWritePending}
                   canComment={canCommentPlan}
                   onReply={replyToCommentThread}
@@ -5809,6 +5862,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   }
                   onDeleteThread={requestDeleteCommentThread}
                   onDeleteComment={requestDeleteComment}
+                  showReactions={!localPlanMode}
+                  canReact={canReactToComments}
+                  onReact={(commentId, reaction, active) =>
+                    void reactToComment(commentId, reaction, active)
+                  }
                   onClose={() => setAnnotationsOpen(false)}
                 />
               )}
@@ -7012,6 +7070,15 @@ function LocalPlanConnection({
   );
 }
 
+function createPlanBuilderSignupAttemptId(): string {
+  try {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch {
+    // coercion-ok: randomUUID can throw in restricted browser contexts; fallback id is intentional.
+  }
+  return `plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function PlanLoadError({
   error,
   planId,
@@ -7023,19 +7090,26 @@ export function PlanLoadError({
   requestAccessPending,
   accessRequestSent,
   viewerEmail,
+  builderSignupEnabled,
 }: {
   error?: unknown;
   planId?: string | null;
   accessStatus?: PlanAccessStatusResponse | null;
   onRetry: () => void;
   onSignIn: () => void;
-  onGoogleSignIn: () => Promise<void> | void;
+  onGoogleSignIn: (options?: {
+    builderSignupAttemptId?: string;
+  }) => Promise<void> | void;
   onRequestAccess: () => void;
   requestAccessPending?: boolean;
   accessRequestSent?: boolean;
   viewerEmail?: string | null;
+  builderSignupEnabled?: boolean;
 }) {
   const t = useT();
+  const authCopy = resolveNativeAuthCopy(
+    typeof navigator === "undefined" ? undefined : navigator.language,
+  );
   const [emailOpen, setEmailOpen] = useState(false);
   const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const [emailMode, setEmailMode] = useState<"sign-in" | "create">("sign-in");
@@ -7070,6 +7144,103 @@ export function PlanLoadError({
     status === 403 &&
     /not found|no access|forbidden/i.test(message);
   const showAccessHelp = hasNoAccess || likelyPrivatePlan;
+  const effectiveBuilderSignupEnabled =
+    showAccessHelp &&
+    !signedIn &&
+    (builderSignupEnabled ??
+      (typeof window !== "undefined" &&
+        BUILDER_SIGNUP_HOSTED_HOSTS.includes(
+          window.location.hostname.toLowerCase(),
+        )));
+  const [builderSignup, setBuilderSignup] =
+    useState<BuilderSignupAssignment | null>(() =>
+      effectiveBuilderSignupEnabled ? null : { status: "disabled" },
+    );
+  const builderSignupRequestRef =
+    useRef<Promise<BuilderSignupAssignment> | null>(null);
+  const builderSignupExposureRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!effectiveBuilderSignupEnabled) {
+      setBuilderSignup({ status: "disabled" });
+      return;
+    }
+    let disposed = false;
+    builderSignupRequestRef.current ??= getBuilderSignupAssignment();
+    void builderSignupRequestRef.current.then(
+      (assignment) => {
+        if (!disposed) setBuilderSignup(assignment);
+      },
+      () => {
+        builderSignupRequestRef.current = null;
+        if (disposed) return;
+        setBuilderSignup({ status: "unavailable" });
+        trackAnonymousEvent("builder_signup_experiment_unavailable", {
+          surface: "plan_access_gate",
+          stage: "assignment",
+        });
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [effectiveBuilderSignupEnabled]);
+
+  useEffect(() => {
+    if (
+      !effectiveBuilderSignupEnabled ||
+      builderSignup?.status !== "assigned" ||
+      builderSignupExposureRef.current === builderSignup.id
+    ) {
+      return;
+    }
+    builderSignupExposureRef.current = builderSignup.id;
+    trackAnonymousEvent("builder_signup_experiment_exposed", {
+      surface: "plan_access_gate",
+      experiment_id: builderSignup.experimentId ?? BUILDER_SIGNUP_EXPERIMENT_ID,
+      experiment_variant: builderSignup.variant,
+      assignment_id: builderSignup.id,
+    });
+  }, [builderSignup, effectiveBuilderSignupEnabled]);
+
+  const prepareBuilderSignup = useCallback(
+    async (
+      method: "password" | "google",
+      attemptEmail?: string,
+    ): Promise<string | undefined> => {
+      if (
+        !effectiveBuilderSignupEnabled ||
+        builderSignup?.status !== "assigned" ||
+        builderSignup.variant !== "automatic"
+      ) {
+        return undefined;
+      }
+      const attemptId = createPlanBuilderSignupAttemptId();
+      try {
+        await acceptBuilderSignupAssignment(
+          builderSignup.id,
+          attemptId,
+          method,
+          attemptEmail,
+        );
+        return attemptId;
+      } catch {
+        if (!attemptEmail || !isTestIdentityEmail(attemptEmail)) {
+          trackAnonymousEvent("builder_signup_experiment_unavailable", {
+            surface: "plan_access_gate",
+            stage: "acceptance",
+          });
+        }
+        return undefined;
+      }
+    },
+    [builderSignup, effectiveBuilderSignupEnabled],
+  );
+  const builderSignupPending = effectiveBuilderSignupEnabled && !builderSignup;
+  const showBuilderDisclosure =
+    effectiveBuilderSignupEnabled &&
+    builderSignup?.status === "assigned" &&
+    builderSignup.variant === "automatic";
   const orgName = accessStatus?.orgName?.trim() || null;
   const orgAccessBody =
     orgName && accessStatus?.visibility === "org"
@@ -7143,6 +7314,10 @@ export function PlanLoadError({
     };
     try {
       if (emailMode === "create") {
+        const builderSignupAttemptId = await prepareBuilderSignup(
+          "password",
+          email.trim().toLowerCase(),
+        );
         const registerRes = await fetch(
           agentNativePath("/_agent-native/auth/register"),
           {
@@ -7153,6 +7328,7 @@ export function PlanLoadError({
               callbackURL: buildPlanEmailVerificationCallbackURL(
                 window.location,
               ),
+              ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
             }),
           },
         );
@@ -7199,9 +7375,15 @@ export function PlanLoadError({
   };
 
   const startGoogle = async () => {
+    if (googlePending || (!signedIn && builderSignupPending)) return;
     setGooglePending(true);
     try {
-      await onGoogleSignIn();
+      const builderSignupAttemptId = signedIn
+        ? undefined
+        : await prepareBuilderSignup("google");
+      await onGoogleSignIn(
+        builderSignupAttemptId ? { builderSignupAttemptId } : undefined,
+      );
     } finally {
       setGooglePending(false);
     }
@@ -7279,7 +7461,7 @@ export function PlanLoadError({
                   <Button
                     type="button"
                     onClick={() => void startGoogle()}
-                    disabled={googlePending}
+                    disabled={googlePending || builderSignupPending}
                     className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
                   >
                     {googlePending ? (
@@ -7437,7 +7619,13 @@ export function PlanLoadError({
                         </div>
                       ) : null}
                       <div className="flex flex-wrap items-center gap-2">
-                        <Button type="submit" disabled={emailAuthPending}>
+                        <Button
+                          type="submit"
+                          disabled={
+                            emailAuthPending ||
+                            (emailMode === "create" && builderSignupPending)
+                          }
+                        >
                           {emailAuthPending ? (
                             <IconLoader2 className="size-4 animate-spin" />
                           ) : (
@@ -7467,6 +7655,29 @@ export function PlanLoadError({
                     </form>
                   </CollapsibleContent>
                 </Collapsible>
+                {showBuilderDisclosure ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {authCopy.builderSignupNewAccountDisclosure}{" "}
+                    <a
+                      href="https://www.builder.io/legal/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 hover:no-underline"
+                    >
+                      {authCopy.legalTerms}
+                    </a>{" "}
+                    {authCopy.legalConnector}{" "}
+                    <a
+                      href="https://www.builder.io/legal/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 hover:no-underline"
+                    >
+                      {authCopy.legalPrivacy}
+                    </a>
+                    {authCopy.legalSuffix}
+                  </p>
+                ) : null}
               </>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -8927,230 +9138,6 @@ function focusIsFree() {
   return !active || active === document.body;
 }
 
-function focusCommentEditorAtEnd(root: HTMLElement) {
-  root.focus();
-  const selection = window.getSelection();
-  const range = document.createRange();
-  range.selectNodeContents(root);
-  range.collapse(false);
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-}
-
-function CommentMentionEditor({
-  initialMessage,
-  resetKey,
-  focusKey,
-  placeholder,
-  className,
-  autoFocus,
-  onChange,
-  onSubmitShortcut,
-}: {
-  initialMessage?: string;
-  resetKey?: string;
-  /** A new value puts the caret back in the editor and keeps its text. */
-  focusKey?: unknown;
-  placeholder: string;
-  className?: string;
-  /** "if-free" only takes focus nobody holds, for a box reopened after a failed save. */
-  autoFocus?: boolean | "if-free";
-  onChange: (draft: Pick<CommentDraft, "message" | "mentions">) => void;
-  onSubmitShortcut?: () => void;
-}) {
-  const t = useT();
-  const editorRef = useRef<HTMLDivElement>(null);
-  const activeQueryRef = useRef<ReturnType<typeof mentionQueryAtCaret>>(null);
-  const onChangeRef = useRef(onChange);
-  const [query, setQuery] = useState<string | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [empty, setEmpty] = useState(true);
-  const { members, isLoading } = useOrgMemberMentionSearch(query);
-  onChangeRef.current = onChange;
-
-  const emitChange = useCallback(() => {
-    const root = editorRef.current;
-    if (!root) return;
-    const message = serializeCommentEditor(root);
-    setEmpty(message.length === 0);
-    onChangeRef.current({
-      message,
-      mentions: extractCommentMentions(message),
-    });
-    const nextQuery = mentionQueryAtCaret(root);
-    activeQueryRef.current = nextQuery;
-    setQuery(nextQuery?.query ?? null);
-    setSelectedIndex(0);
-  }, []);
-
-  useEffect(() => {
-    const root = editorRef.current;
-    if (!root) return;
-    const hadFocus = root.contains(document.activeElement);
-    appendMessageToEditor(root, initialMessage ?? "");
-    emitChange();
-    // Reloading the text keeps the caret in an editor that had it.
-    if (hadFocus) focusCommentEditorAtEnd(root);
-    if (!autoFocus || (autoFocus === "if-free" && !focusIsFree())) return;
-    // An Edit menu item mounts this editor while its menu still traps focus,
-    // so keep trying for a few frames until focus lands.
-    let attempts = 0;
-    let frame = 0;
-    const focusEditor = () => {
-      focusCommentEditorAtEnd(root);
-      if (document.activeElement !== root && ++attempts < 10)
-        frame = requestAnimationFrame(focusEditor);
-    };
-    focusEditor();
-    return () => cancelAnimationFrame(frame);
-  }, [autoFocus, emitChange, initialMessage, resetKey]);
-
-  // Only a new key moves the caret; mounting is autoFocus's job.
-  const focusKeyRef = useRef(focusKey);
-  useEffect(() => {
-    if (focusKeyRef.current === focusKey) return;
-    focusKeyRef.current = focusKey;
-    const root = editorRef.current;
-    if (!root || focusKey === undefined) return;
-    if (root.contains(document.activeElement)) return;
-    focusCommentEditorAtEnd(root);
-  }, [focusKey]);
-
-  const selectMember = (member: OrgMemberSuggestion) => {
-    const root = editorRef.current;
-    const active = activeQueryRef.current;
-    if (!root || !active) return;
-    const label = displayNameForMention(member.email);
-    const range = active.range.cloneRange();
-    range.deleteContents();
-    const chip = createMentionChip({
-      email: member.email,
-      label,
-      role: member.role,
-    });
-    const trailing = document.createTextNode(" ");
-    range.insertNode(trailing);
-    range.insertNode(chip);
-    range.setStartAfter(trailing);
-    range.collapse(true);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    setQuery(null);
-    activeQueryRef.current = null;
-    emitChange();
-  };
-
-  const suggestionsOpen = query !== null;
-
-  return (
-    <div className="relative min-w-0 flex-1">
-      {empty && (
-        <span className="pointer-events-none absolute left-3 top-2.5 text-sm text-muted-foreground">
-          {placeholder}
-        </span>
-      )}
-      <div
-        ref={editorRef}
-        contentEditable
-        role="textbox"
-        aria-multiline="true"
-        data-plan-interactive
-        className={cn(
-          "min-h-11 max-h-36 overflow-y-auto rounded-md border border-border/80 bg-background px-3 py-2.5 text-sm leading-6 shadow-none outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          className,
-        )}
-        onInput={emitChange}
-        onKeyUp={emitChange}
-        onMouseUp={emitChange}
-        onKeyDown={(event) => {
-          // While an input method is composing, its keys (arrows to pick a
-          // candidate, Enter to confirm, Escape to cancel) belong to it.
-          if (isComposingKey(event)) return;
-          if (suggestionsOpen && event.key === "ArrowDown") {
-            event.preventDefault();
-            setSelectedIndex((index) =>
-              members.length === 0 ? 0 : (index + 1) % members.length,
-            );
-            return;
-          }
-          if (suggestionsOpen && event.key === "ArrowUp") {
-            event.preventDefault();
-            setSelectedIndex((index) =>
-              members.length === 0
-                ? 0
-                : (index - 1 + members.length) % members.length,
-            );
-            return;
-          }
-          if (suggestionsOpen && event.key === "Enter" && members[0]) {
-            event.preventDefault();
-            selectMember(members[selectedIndex] ?? members[0]);
-            return;
-          }
-          if (suggestionsOpen && event.key === "Escape") {
-            event.preventDefault();
-            setQuery(null);
-            return;
-          }
-          if (isCommentSendKey(event)) {
-            event.preventDefault();
-            onSubmitShortcut?.();
-          }
-        }}
-      />
-      {suggestionsOpen && (
-        <div
-          role="listbox"
-          aria-label={t("plansPage.comments.mentionMember")}
-          className="absolute bottom-full left-0 z-50 mb-2 w-[min(320px,calc(100vw-48px))] overflow-hidden rounded-xl border border-border/80 bg-background/98 p-1 shadow-2xl backdrop-blur-xl"
-        >
-          {isLoading && members.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">
-              {t("plansPage.comments.searchingPeople")}
-            </div>
-          ) : members.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">
-              {t("plansPage.comments.noMatchingMembers")}
-            </div>
-          ) : (
-            members.map((member, index) => {
-              const name = displayNameForMention(member.email);
-              return (
-                <button
-                  key={member.email}
-                  type="button"
-                  role="option"
-                  aria-selected={index === selectedIndex}
-                  data-plan-interactive
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
-                    index === selectedIndex
-                      ? "bg-primary/10 text-foreground"
-                      : "text-foreground hover:bg-muted",
-                  )}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectMember(member)}
-                >
-                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <IconAt className="size-3.5" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {member.email}
-                    </span>
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ResolutionTargetToggle({
   value,
   onChange,
@@ -9202,36 +9189,52 @@ function InlineCommentPopover({
   reopened?: boolean;
 }) {
   const t = useT();
-  const initialMessageRef = useRef(initialDraft.message);
-  const [draft, setDraft] = useState<CommentDraft>(initialDraft);
-  const [resolverTouched, setResolverTouched] = useState(false);
+  const [box, setBox] = useState(() =>
+    planCommentBoxDraft(initialDraft.message),
+  );
+  const [chosenTarget, setChosenTarget] = useState(
+    initialDraft.resolutionTarget,
+  );
+  const [resolverTouched, setResolverTouched] = useState(reopened);
   const [submitError, setSubmitError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [placed, setPlaced] = useState({ anchor, moves: 0 });
+  if (placed.anchor !== anchor) {
+    setPlaced({ anchor, moves: placed.moves + 1 });
+  }
+  const [focusFree] = useState(() => !reopened || focusIsFree());
   const mountedRef = useRef(true);
   useEffect(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
+  const message = planCommentMessage(box).trim();
+  const mentions = extractCommentMentions(message);
+  if (!resolverTouched && mentions.length > 0 && chosenTarget !== "human") {
+    setChosenTarget("human");
+  }
+  const draft: CommentDraft = {
+    message,
+    mentions,
+    resolutionTarget: lockToAgent ? "agent" : chosenTarget,
+  };
   const canSubmit = canSubmitInlineCommentDraft({
     draft,
     isSubmitting,
     lockToAgent,
   });
+  const needsMention =
+    !lockToAgent &&
+    draft.resolutionTarget === "human" &&
+    mentions.length === 0 &&
+    commentBodyText(message).length > 0;
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitError(false);
     setIsSubmitting(true);
     try {
-      await onSubmit({
-        ...draft,
-        message: draft.message.trim(),
-        resolutionTarget: lockToAgent
-          ? "agent"
-          : !resolverTouched && draft.mentions.length > 0
-            ? "human"
-            : draft.resolutionTarget,
-      });
+      await onSubmit(draft);
     } catch {
       if (mountedRef.current) {
         setSubmitError(true);
@@ -9259,7 +9262,7 @@ function InlineCommentPopover({
             value={draft.resolutionTarget}
             onChange={(resolutionTarget) => {
               setResolverTouched(true);
-              setDraft((current) => ({ ...current, resolutionTarget }));
+              setChosenTarget(resolutionTarget);
             }}
           />
         )}
@@ -9276,43 +9279,24 @@ function InlineCommentPopover({
           </Button>
         </div>
       </div>
-      <div className="flex items-start gap-2">
-        <CommentMentionEditor
-          initialMessage={initialMessageRef.current}
-          placeholder={t("plansPage.comments.addPlaceholder")}
-          autoFocus={reopened ? "if-free" : true}
-          // Commenting somewhere else moves this popover instead of
-          // remounting it, so the draft keeps its text and gets the caret.
-          focusKey={anchor}
-          onSubmitShortcut={submit}
-          onChange={(value) =>
-            setDraft((current) => {
-              const addedMention =
-                value.mentions.length > current.mentions.length;
-              return {
-                ...current,
-                ...value,
-                resolutionTarget: resolverTouched
-                  ? current.resolutionTarget
-                  : addedMention
-                    ? "human"
-                    : current.resolutionTarget,
-              };
-            })
-          }
-        />
-        <Button
-          type="button"
-          size="sm"
-          className="h-11 w-[60px] shrink-0 px-0"
-          onClick={submit}
-          disabled={!canSubmit}
-        >
-          {isSubmitting
-            ? t("plansPage.comments.saving")
-            : t("plansPage.common.save")}
-        </Button>
-      </div>
+      <PlanCommentBox
+        key={placed.moves}
+        draft={box}
+        onDraftChange={setBox}
+        onSubmit={() => void submit()}
+        onEscape={onCancel}
+        placeholder={t("plansPage.comments.addPlaceholder")}
+        commentLabel={t("plansPage.common.save")}
+        ariaLabel={t("plansPage.comments.addPlaceholder")}
+        autoFocus={placed.moves > 0 || focusFree}
+        submitting={isSubmitting}
+        submitDisabled={!canSubmit}
+      />
+      {needsMention && (
+        <p className="mt-2 px-1 text-xs text-muted-foreground">
+          {t("plansPage.comments.mentionRequired")}
+        </p>
+      )}
       {submitError && (
         <p className="mt-2 px-1 text-xs text-destructive">
           {t("plansPage.comments.saveFailed")}
@@ -9363,92 +9347,13 @@ function GuestCommentCta({
   );
 }
 
-function CommentThreadMessage({
-  comment,
-  action,
-}: {
-  comment: RuntimeAnnotationComment;
-  action?: ReactNode;
-}) {
-  const author = runtimeCommentFromAuthor(comment);
-  return (
-    <div className="flex items-start gap-3">
-      <CommentAvatar author={author} size="md" className="mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <p className="truncate text-sm font-semibold">{author.name}</p>
-          {comment.createdAt && (
-            <p className="shrink-0 text-[11px] text-muted-foreground">
-              {shortDate(comment.createdAt)}
-            </p>
-          )}
-        </div>
-        <div className="mt-1 text-sm leading-6">
-          <CommentBody body={comment.message} />
-        </div>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-function CommentDeleteButton({
-  label,
-  onClick,
-}: {
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="size-7 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          onClick={(event) => {
-            event.stopPropagation();
-            onClick();
-          }}
-          aria-label={label}
-        >
-          <IconTrash className="size-3.5" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-/** What a reply box shows: the editor reloads `loadedMessage` when `version` changes. */
-function loadReplyBox({
-  threadId,
-  message,
-  version,
-  takeFocus,
-}: {
-  threadId: string;
-  message: string;
-  version: number;
-  takeFocus: boolean;
-}) {
-  const draft: Pick<CommentDraft, "message" | "mentions"> = {
-    message,
-    mentions: extractCommentMentions(message),
-  };
-  return { threadId, loadedMessage: message, version, takeFocus, draft };
-}
-
 function ReplyComposer({
-  author,
   isPending,
   placeholder,
-  autoFocus,
+  autoFocus = false,
   threadId = "",
   onSubmit,
 }: {
-  author: CommentAuthorPresentation;
   isPending: boolean;
   placeholder?: string;
   autoFocus?: boolean;
@@ -9458,71 +9363,51 @@ function ReplyComposer({
 }) {
   const t = useT();
   // Unsent replies by thread, including the one on screen.
-  const [drafts] = useState(() => new Map<string, string>());
-  // The thread on screen and its draft change together, so Send always
-  // pairs them.
-  const [box, setBox] = useState(() =>
-    loadReplyBox({ threadId, message: "", version: 0, takeFocus: true }),
-  );
+  const [drafts, setDrafts] = useState<
+    ReadonlyMap<string, PlanCommentBoxDraft>
+  >(() => new Map());
   const [sendingThreadIds, setSendingThreadIds] = useState<string[]>([]);
   const [failedThreadIds, setFailedThreadIds] = useState<string[]>([]);
-
-  if (box.threadId !== threadId) {
-    // Opening another thread brings back that thread's own reply.
-    setBox(
-      loadReplyBox({
-        threadId,
-        message: drafts.get(threadId) ?? "",
-        version: box.version + 1,
-        takeFocus: true,
-      }),
+  const updateDraft = (
+    id: string,
+    update: (current: PlanCommentBoxDraft) => PlanCommentBoxDraft,
+  ) =>
+    setDrafts((current) =>
+      new Map(current).set(
+        id,
+        update(current.get(id) ?? EMPTY_PLAN_COMMENT_BOX_DRAFT),
+      ),
     );
-  }
 
-  const isSubmitting = sendingThreadIds.includes(box.threadId);
+  const draft = drafts.get(threadId) ?? EMPTY_PLAN_COMMENT_BOX_DRAFT;
+  const message = planCommentMessage(draft).trim();
+  const isSubmitting = sendingThreadIds.includes(threadId);
   const canSubmit =
-    commentBodyText(box.draft.message).length > 0 &&
-    !isSubmitting &&
-    !isPending;
+    commentBodyText(message).length > 0 && !isSubmitting && !isPending;
   const submit = async () => {
     if (!canSubmit) return;
-    const sentThreadId = box.threadId;
-    const message = box.draft.message;
+    const sentThreadId = threadId;
     setFailedThreadIds((ids) => ids.filter((id) => id !== sentThreadId));
     setSendingThreadIds((ids) => [...ids, sentThreadId]);
     // Empty the box right away. The reply shows in the thread while it
     // sends, and anything typed meanwhile is a new draft.
-    drafts.set(sentThreadId, "");
-    setBox((current) =>
-      loadReplyBox({
-        threadId: current.threadId,
-        message: "",
-        version: current.version + 1,
-        takeFocus: true,
-      }),
-    );
+    updateDraft(sentThreadId, () => EMPTY_PLAN_COMMENT_BOX_DRAFT);
     try {
-      await onSubmit(message.trim());
+      await onSubmit(message);
     } catch {
       // Put the reply back in its thread's box, ahead of anything typed
       // since, wherever that box is now.
-      const typedSince = drafts.get(sentThreadId)?.trim();
-      const restored = typedSince ? `${message} ${typedSince}` : message;
-      drafts.set(sentThreadId, restored);
+      updateDraft(sentThreadId, (typed) => {
+        const typedSince = typed.text.trim();
+        return {
+          text: typedSince ? `${message} ${typedSince}` : message,
+          mentions: typed.mentions,
+        };
+      });
       setFailedThreadIds((ids) => [
         ...ids.filter((id) => id !== sentThreadId),
         sentThreadId,
       ]);
-      setBox((current) =>
-        current.threadId === sentThreadId
-          ? loadReplyBox({
-              threadId: sentThreadId,
-              message: restored,
-              version: current.version + 1,
-              takeFocus: false,
-            })
-          : current,
-      );
     } finally {
       setSendingThreadIds((ids) => ids.filter((id) => id !== sentThreadId));
     }
@@ -9530,43 +9415,20 @@ function ReplyComposer({
 
   return (
     <div className="grid gap-1.5">
-      <div className="flex items-end gap-2">
-        <CommentAvatar author={author} size="md" className="mb-1" />
-        <div className="flex min-w-0 flex-1 items-end gap-2 rounded-xl border border-border/80 bg-muted/40 px-3 py-2 focus-within:border-primary/60 focus-within:bg-background">
-          <CommentMentionEditor
-            placeholder={
-              placeholder ?? t("plansPage.comments.replyPlaceholder")
-            }
-            initialMessage={box.loadedMessage}
-            resetKey={`reply-${box.version}`}
-            // Only opening the thread or pressing Send pulls focus here; a
-            // reply put back after a failed send takes only free focus.
-            autoFocus={!autoFocus ? false : box.takeFocus ? true : "if-free"}
-            className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
-            onChange={(next) => {
-              setBox((current) => ({ ...current, draft: next }));
-              drafts.set(box.threadId, next.message);
-            }}
-            onSubmitShortcut={() => void submit()}
-          />
-          <Button
-            type="button"
-            size="icon-sm"
-            className="mb-0.5 shrink-0 rounded-full"
-            onClick={() => void submit()}
-            disabled={!canSubmit}
-            aria-label={t("plansPage.comments.sendReply")}
-          >
-            {isSubmitting ? (
-              <IconLoader2 className="size-4 animate-spin" />
-            ) : (
-              <IconSend className="size-4" />
-            )}
-          </Button>
-        </div>
-      </div>
-      {failedThreadIds.includes(box.threadId) && (
-        <p className="ml-11 text-xs text-destructive">
+      <PlanCommentBox
+        key={autoFocus ? threadId : undefined}
+        variant="reply"
+        draft={draft}
+        onDraftChange={(update) => updateDraft(threadId, update)}
+        onSubmit={() => void submit()}
+        placeholder={placeholder ?? t("plansPage.comments.replyPlaceholder")}
+        commentLabel={t("plansPage.comments.sendReply")}
+        ariaLabel={placeholder ?? t("plansPage.comments.replyPlaceholder")}
+        autoFocus={autoFocus}
+        submitDisabled={!canSubmit}
+      />
+      {failedThreadIds.includes(threadId) && (
+        <p className="text-xs text-destructive">
           {t("plansPage.comments.sendFailed")}
         </p>
       )}
@@ -9578,7 +9440,6 @@ function AnnotationPopover({
   annotation,
   position,
   isPending,
-  pendingAuthor,
   canComment,
   canEditRootComment,
   onSave,
@@ -9589,12 +9450,15 @@ function AnnotationPopover({
   onDelete,
   canDeleteComment,
   onDeleteComment,
+  reactionsFor,
+  showReactions,
+  canReact,
+  onReact,
   onClose,
 }: {
   annotation: RuntimeAnnotation;
   position: InlineCommentPosition;
   isPending: boolean;
-  pendingAuthor: CommentAuthorPresentation;
   canComment: boolean;
   canEditRootComment: boolean;
   onSave: (message: string) => void;
@@ -9605,27 +9469,25 @@ function AnnotationPopover({
   onDelete: () => void;
   canDeleteComment: (comment: RuntimeAnnotationComment) => boolean;
   onDeleteComment: (commentId: string) => void;
+  reactionsFor: (commentId: string) => readonly PlanCommentReaction[];
+  showReactions: boolean;
+  canReact: boolean;
+  onReact: (commentId: string, reaction: string, active: boolean) => void;
   onClose?: () => void;
 }) {
   const t = useT();
   const popoverRef = useRef<HTMLDivElement>(null);
   const editChosenFromMenuRef = useRef(false);
   const [editing, setEditing] = useState(false);
-  const [messageDraft, setMessageDraft] = useState<
-    Pick<CommentDraft, "message" | "mentions">
-  >({
-    message: annotation.message,
-    mentions: extractCommentMentions(annotation.message),
-  });
+  const [editBox, setEditBox] = useState(() =>
+    planCommentBoxDraft(annotation.message),
+  );
   useEffect(() => {
     setEditing(false);
   }, [annotation.id]);
   useEffect(() => {
     if (editing) return;
-    setMessageDraft({
-      message: annotation.message,
-      mentions: extractCommentMentions(annotation.message),
-    });
+    setEditBox(planCommentBoxDraft(annotation.message));
   }, [annotation.id, annotation.message, annotation.commentCount, editing]);
   const rootComment = runtimeAnnotationRootComment(annotation);
   const replies = annotation.replies ?? [];
@@ -9634,8 +9496,8 @@ function AnnotationPopover({
     commentDescendantCount(annotationComments, rootComment.id),
     t,
   );
-  const canSave =
-    canEditRootComment && messageDraft.message.trim().length > 0 && !isPending;
+  const editMessage = planCommentMessage(editBox).trim();
+  const canSave = canEditRootComment && editMessage.length > 0 && !isPending;
   const hasOptions = canResolve || canEditRootComment || canDelete;
   const resolver = normalizePlanCommentResolutionTarget(
     annotation.anchor.resolutionTarget,
@@ -9643,15 +9505,18 @@ function AnnotationPopover({
   const isResolved = annotation.status === "resolved";
   const save = () => {
     if (!canSave) return;
-    onSave(messageDraft.message.trim());
+    onSave(editMessage);
+  };
+  const cancelEdit = () => {
+    setEditing(false);
+    setEditBox(planCommentBoxDraft(annotation.message));
   };
 
   useEffect(() => {
     if (!onClose) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
+      if (event.key !== "Escape" || commentMenuIsOpen()) return;
+      onClose();
     };
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () =>
@@ -9810,71 +9675,70 @@ function AnnotationPopover({
       </div>
       <div className="max-h-[min(360px,calc(100vh-180px))] overflow-y-auto">
         <div className="grid gap-4 p-4">
-          {editing ? (
-            <div className="grid gap-2">
-              <CommentMentionEditor
-                initialMessage={annotation.message}
-                resetKey={`edit-${annotation.id}-${editing ? "on" : "off"}`}
-                placeholder={t("plansPage.comments.editPlaceholder")}
-                autoFocus
-                className="min-h-24"
-                onChange={setMessageDraft}
-                onSubmitShortcut={save}
-              />
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setEditing(false);
-                    setMessageDraft({
-                      message: annotation.message,
-                      mentions: extractCommentMentions(annotation.message),
-                    });
-                  }}
-                >
-                  {t("plansPage.common.cancel")}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={save}
-                  disabled={!canSave}
-                >
-                  {t("plansPage.common.save")}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <CommentThreadMessage comment={rootComment} />
-          )}
-          {replies.map((reply) => {
-            const replyDeleteLabel = deleteCommentLabel(
-              commentDescendantCount(annotationComments, reply.id),
-              t,
-            );
-            return (
-              <CommentThreadMessage
-                key={reply.id}
-                comment={reply}
-                action={
-                  canDeleteComment(reply) ? (
-                    <CommentDeleteButton
-                      label={replyDeleteLabel}
-                      onClick={() => onDeleteComment(reply.id)}
-                    />
-                  ) : undefined
-                }
-              />
-            );
-          })}
+          <PlanCommentEntry
+            comment={planReviewComment(rootComment)}
+            variant="root"
+            reactions={reactionsFor(rootComment.id)}
+            showReactions={showReactions}
+            canReact={canReact}
+            onReact={(reaction, active) =>
+              onReact(rootComment.id, reaction, active)
+            }
+            deleteLabel={rootDeleteLabel}
+            editor={
+              editing ? (
+                <div className="grid gap-2">
+                  <PlanCommentBox
+                    draft={editBox}
+                    onDraftChange={setEditBox}
+                    onSubmit={save}
+                    placeholder={t("plansPage.comments.editPlaceholder")}
+                    commentLabel={t("plansPage.common.save")}
+                    ariaLabel={t("plansPage.comments.editComment")}
+                    autoFocus
+                    submitting={isPending}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={cancelEdit}
+                    >
+                      {t("plansPage.common.cancel")}
+                    </Button>
+                  </div>
+                </div>
+              ) : undefined
+            }
+          />
+          {replies.map((reply) => (
+            <PlanCommentEntry
+              key={reply.id}
+              comment={planReviewComment(reply)}
+              variant="reply"
+              reactions={reactionsFor(reply.id)}
+              showReactions={showReactions}
+              canReact={canReact}
+              onReact={(reaction, active) =>
+                onReact(reply.id, reaction, active)
+              }
+              deleteLabel={deleteCommentLabel(
+                commentDescendantCount(annotationComments, reply.id),
+                t,
+              )}
+              onDelete={
+                canDeleteComment(reply)
+                  ? () => onDeleteComment(reply.id)
+                  : undefined
+              }
+            />
+          ))}
         </div>
       </div>
       {canComment && (
         <div className="shrink-0 border-t border-border/70 p-3">
           <ReplyComposer
-            author={pendingAuthor}
             isPending={isPending}
             autoFocus
             // Opening another thread reuses this popover and its reply box.
@@ -9892,7 +9756,6 @@ function AnnotationsPanel({
   showResolvedComments,
   avatarUrls,
   currentUser,
-  pendingAuthor,
   isPending,
   onReply,
   canComment,
@@ -9902,13 +9765,15 @@ function AnnotationsPanel({
   onStatusChange,
   onDeleteThread,
   onDeleteComment,
+  showReactions,
+  canReact,
+  onReact,
   onClose,
 }: {
   threads: CommentThread[];
   showResolvedComments: boolean;
   avatarUrls: Record<string, string | null>;
   currentUser?: CurrentCommentAuthor | null;
-  pendingAuthor: CommentAuthorPresentation;
   isPending: boolean;
   onReply: (threadRootId: string, message: string) => Promise<void>;
   canComment: boolean;
@@ -9921,6 +9786,9 @@ function AnnotationsPanel({
   ) => void;
   onDeleteThread: (thread: CommentThread) => void;
   onDeleteComment: (thread: CommentThread, commentId: string) => void;
+  showReactions: boolean;
+  canReact: boolean;
+  onReact: (commentId: string, reaction: string, active: boolean) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -9944,7 +9812,7 @@ function AnnotationsPanel({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || commentMenuIsOpen()) return;
       if (!panelRef.current?.contains(document.activeElement)) return;
       onClose();
       const trigger = document.querySelector<HTMLElement>(
@@ -10138,27 +10006,29 @@ function AnnotationsPanel({
                       commentDescendantCount(thread.comments, comment.id),
                       t,
                     );
+                    const isRoot = comment.id === thread.root.id;
                     return (
-                      <CommentThreadMessage
+                      <PlanCommentEntry
                         key={comment.id}
-                        comment={runtimeComment}
-                        action={
-                          comment.id !== thread.root.id &&
-                          canDeleteComment(comment) ? (
-                            <CommentDeleteButton
-                              label={commentDeleteLabel}
-                              onClick={() =>
-                                onDeleteComment(thread, comment.id)
-                              }
-                            />
-                          ) : undefined
+                        comment={planReviewComment(runtimeComment)}
+                        variant={isRoot ? "root" : "reply"}
+                        reactions={comment.reactions ?? []}
+                        showReactions={showReactions}
+                        canReact={canReact}
+                        onReact={(reaction, active) =>
+                          onReact(comment.id, reaction, active)
+                        }
+                        deleteLabel={commentDeleteLabel}
+                        onDelete={
+                          !isRoot && canDeleteComment(comment)
+                            ? () => onDeleteComment(thread, comment.id)
+                            : undefined
                         }
                       />
                     );
                   })}
                   {canComment && (
                     <ReplyComposer
-                      author={pendingAuthor}
                       isPending={isPending}
                       onSubmit={(reply) => onReply(thread.id, reply)}
                     />
@@ -10189,7 +10059,10 @@ function DeleteCommentDialog({
   const t = useT();
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent
+        data-comment-popover-portal
+        overlayProps={{ "data-comment-popover-portal": "" }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>
             {replyCount > 0

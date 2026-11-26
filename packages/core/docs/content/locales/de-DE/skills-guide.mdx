@@ -118,7 +118,7 @@ Domäne skills folgt demselben Format wie das Framework skills. Sie kodieren Mus
 
 ## App-gestütztes skills {#app-backed-skills}
 
-Aktuelle appgestützte Skills sind `visual-plan`, `visual-recap` und `visualize-repo` aus Plan, `visual-edit` aus Design, `assets` aus Assets und `content` für repo-gestützte docs/blog/MDX-Bearbeitung.
+Aktuelle appgestützte Skills sind `visual-plan`, `visual-recap` und `visualize-repo` aus Plan, `visual-edit` und `remix` aus Design, `assets` aus Assets und `content` für repo-gestützte docs/blog/MDX-Bearbeitung.
 
 <Callout tone="info">
 
@@ -339,11 +339,14 @@ Skill-Sichtbarkeit steuert, was versendet wird:
 Hosted ist der Standardinstallationspfad. Der lokale Start dient explizit der Anpassung,
 Offline-Arbeit oder datenschutzrelevante Nutzung.
 
+`remix` funktioniert auch direkt im Repository ohne Design: `/remix add the stripe hero animation to ours but make it blue`. Für eine visuelle Auswahl auf der Leinwand Design ausdrücklich anfordern. Das Verhalten wird anhand einer Spezifikation mit eigenem Code nachgebaut.
+
 ```bash
 # Glücklicher Weg: exportierte Anweisungen plus gehosteter MCP-Connector.
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add remix
 npx @agent-native/core@latest skills add assets
 
 # Repo-first Content docs/blog/MDX Bearbeitung.

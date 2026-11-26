@@ -1,8 +1,10 @@
 import { ActionContractError } from "@agent-native/core/action";
-import { and, eq, inArray } from "drizzle-orm";
+import { alias } from "@agent-native/core/db/schema";
+import { and, eq, exists, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { DocumentSourceInfo } from "../shared/api.js";
+import { GITHUB_PULL_REQUESTS_SOURCE_TYPE } from "../shared/github-pull-requests.js";
 import {
   githubFileWebUrl,
   parseGitHubSourceTable,
@@ -17,6 +19,43 @@ interface DocumentSourceColumns {
   sourceAbsolutePath?: string | null;
   sourceRootPath?: string | null;
   sourceUpdatedAt?: string | null;
+}
+
+export function linkedNestedLocalFile(
+  db: ReturnType<typeof getDb>,
+  databaseId?: string,
+) {
+  const items = alias(schema.contentDatabaseItems, "linked_local_file_items");
+  const rows = schema.contentDatabaseSourceRows;
+  const sources = schema.contentDatabaseSources;
+  return sql<boolean>`coalesce(${and(
+    eq(schema.documents.sourceMode, "local-files"),
+    eq(schema.documents.sourceKind, "file"),
+    sql`${schema.documents.sourcePath} ~ ${"^[^/]+(/[^/]+)+$"}`,
+    sql`${schema.documents.sourcePath} !~ ${"(^|/)[.][.]?(/|$)"}`,
+    exists(
+      db
+        .select({ id: rows.id })
+        .from(rows)
+        .innerJoin(sources, eq(sources.id, rows.sourceId))
+        .innerJoin(
+          items,
+          and(
+            eq(items.id, rows.databaseItemId),
+            eq(items.documentId, rows.documentId),
+            eq(items.databaseId, sources.databaseId),
+          ),
+        )
+        .where(
+          and(
+            eq(rows.documentId, schema.documents.id),
+            eq(sources.sourceType, "local-folder"),
+            eq(sources.sourceTable, schema.documents.sourceRootPath),
+            databaseId ? eq(sources.databaseId, databaseId) : undefined,
+          ),
+        ),
+    ),
+  )}, false)`;
 }
 
 export function serializeDocumentSource(
@@ -75,12 +114,19 @@ export function assertSourceAllowsPageEdit(
 }
 
 /**
- * A GitHub folder decides its collection's rows and columns, so the general
- * source settings (another source, roles, column bindings) don't apply.
+ * A GitHub folder or pull request search decides its collection's rows and
+ * columns, so the general source settings (another source, roles, column
+ * bindings) don't apply.
  */
 export function assertNotGitHubSource(
   source: { sourceType: string } | null | undefined,
 ) {
+  if (source?.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE) {
+    throw new ActionContractError(
+      "This collection follows GitHub pull requests, which decide its rows and columns, so its source settings can't change here.",
+      { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
+    );
+  }
   if (source?.sourceType !== "github") return;
   throw new ActionContractError(
     "This collection follows a GitHub folder, which decides its rows and columns, so its source settings can't change here.",
@@ -90,25 +136,31 @@ export function assertNotGitHubSource(
 
 /**
  * A collection linked to a GitHub folder gets its rows from the folder's
- * files, so Content doesn't add rows of its own to it.
+ * files, and one linked to pull requests from those pull requests, so
+ * Content doesn't add rows of its own to either.
  */
 export async function assertCollectionAcceptsNewRows(
   databaseId: string,
   db: ReturnType<typeof getDb> = getDb(),
 ) {
   const [linked] = await db
-    .select({ id: schema.contentDatabaseSources.id })
+    .select({ sourceType: schema.contentDatabaseSources.sourceType })
     .from(schema.contentDatabaseSources)
     .where(
       and(
         eq(schema.contentDatabaseSources.databaseId, databaseId),
-        eq(schema.contentDatabaseSources.sourceType, "github"),
+        inArray(schema.contentDatabaseSources.sourceType, [
+          "github",
+          GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+        ]),
       ),
     )
     .limit(1);
   if (!linked) return;
   throw new ActionContractError(
-    "This collection follows a GitHub folder, so its rows come from the files there. Add a Markdown file in GitHub; Content adds the row after the next push.",
+    linked.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
+      ? "This collection follows GitHub pull requests, so its rows come from GitHub. Add a pull request by its link with add-github-pull-requests."
+      : "This collection follows a GitHub folder, so its rows come from the files there. Add a Markdown file in GitHub; Content adds the row after the next push.",
     { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
   );
 }
@@ -122,6 +174,12 @@ export async function assertCollectionAcceptsNewRows(
  * file is gone. Rows restored along with their collection stay rows. It takes
  * the collection's lock, as each sync write does, so a sync never writes a
  * page from a record this deletes; call it before the restore's other writes.
+ *
+ * A pull request collection's row stays its pull request's row in Trash
+ * while the link's record of it does. Once the sync drops that record, as it
+ * does when the search stops finding the pull request, the page comes back
+ * the same way, so the collection never holds a copy that no longer follows
+ * GitHub beside the row the pull request gets if it returns.
  */
 export async function releaseRestoredPagesFromGitHubCollections(
   db: ReturnType<typeof getDb>,
@@ -140,6 +198,7 @@ export async function releaseRestoredPagesFromGitHubCollections(
         databaseId: schema.contentDatabaseItems.databaseId,
         databaseDocumentId: schema.contentDatabases.documentId,
         sourceId: schema.contentDatabaseSources.id,
+        sourceType: schema.contentDatabaseSources.sourceType,
       })
       .from(schema.contentDatabaseItems)
       .innerJoin(
@@ -153,7 +212,10 @@ export async function releaseRestoredPagesFromGitHubCollections(
             schema.contentDatabaseSources.databaseId,
             schema.contentDatabaseItems.databaseId,
           ),
-          eq(schema.contentDatabaseSources.sourceType, "github"),
+          inArray(schema.contentDatabaseSources.sourceType, [
+            "github",
+            GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+          ]),
         ),
       )
       .where(inArray(schema.contentDatabaseItems.documentId, batch));
@@ -162,6 +224,12 @@ export async function releaseRestoredPagesFromGitHubCollections(
       if (!locked.has(membership.databaseId)) {
         await lockContentDatabaseMutation(db, membership.databaseId);
         locked.add(membership.databaseId);
+      }
+      if (
+        membership.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE &&
+        (await stillFollowsSource(db, membership))
+      ) {
+        continue;
       }
       releasedFrom.add(membership.databaseId);
       await db
@@ -200,4 +268,22 @@ export async function releaseRestoredPagesFromGitHubCollections(
     }
   }
   return [...releasedFrom];
+}
+
+/** Whether the link still has its record of a row's page. */
+async function stillFollowsSource(
+  db: ReturnType<typeof getDb>,
+  row: { sourceId: string; documentId: string },
+) {
+  const [record] = await db
+    .select({ id: schema.contentDatabaseSourceRows.id })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+        eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+      ),
+    )
+    .limit(1);
+  return Boolean(record);
 }

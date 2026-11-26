@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   navigation: {} as Record<string, unknown>,
+  pane: null as Record<string, unknown> | null,
+  tab: { tabId: "parent-one", unavailable: false } as {
+    tabId: string | null;
+    unavailable: boolean;
+  },
   appState: {} as Record<string, unknown>,
   listAgentRunFailures: vi.fn(),
   listThreadDebugSources: vi.fn(),
@@ -14,6 +19,8 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  appStateKeyForBrowserTab: (key: string, tabId: string) => `${key}:${tabId}`,
+  resolveCurrentRequestStateTab: async () => mocks.tab,
   readAppState: vi.fn(async (key: string) =>
     key === "navigation" ? mocks.navigation : (mocks.appState[key] ?? null),
   ),
@@ -21,6 +28,10 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("../server/lib/app-creation-store.js", () => ({
   listWorkspaceApps: vi.fn(),
+}));
+
+vi.mock("../server/lib/dispatch-pane-context.js", () => ({
+  readDispatchPaneContext: async () => mocks.pane,
 }));
 
 vi.mock("../server/lib/dispatch-store.js", () => ({
@@ -57,6 +68,72 @@ vi.mock("../server/lib/workspace-resources-store.js", () => ({
 }));
 
 import viewScreen from "./view-screen.js";
+
+describe("view-screen MCP exposure", () => {
+  it("returns current pane identity and paths over MCP without operational data", async () => {
+    mocks.navigation = { view: "overview", path: "/account-wide" };
+    mocks.appState = {
+      "navigation:parent-one": {
+        view: "chat",
+        path: "/chat/current?filter=private",
+        owner: "hidden",
+      },
+      "navigation:parent-two": { view: "apps", path: "/apps?filter=private" },
+    };
+    mocks.pane = {
+      appId: "workspace/mail",
+      path: "/mail/threads/2?filter=private",
+    };
+    expect(viewScreen.mcpTool).toBe(true);
+    expect(viewScreen.readOnly).toBe(true);
+    expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({
+      navigation: { view: "chat", path: "/chat/current" },
+      embeddedApp: {
+        status: "open",
+        id: "workspace/mail",
+        path: "/mail/threads/2",
+        source: "chat-first-pane",
+      },
+    });
+    mocks.tab = { tabId: "parent-two", unavailable: false };
+    expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({
+      navigation: { view: "apps", path: "/apps" },
+    });
+    for (const tab of [
+      { tabId: "parent-without-route", unavailable: false },
+      { tabId: null, unavailable: true },
+      { tabId: null, unavailable: false },
+    ]) {
+      mocks.tab = tab;
+      expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({});
+    }
+    mocks.tab = { tabId: "parent-one", unavailable: false };
+    mocks.appState = {};
+    mocks.pane = null;
+  });
+});
+
+describe("view-screen app pane", () => {
+  it("does not borrow the account-wide pane when the current tab has none", async () => {
+    mocks.navigation = { view: "chat" };
+    mocks.tab = { tabId: "parent-one", unavailable: false };
+    mocks.pane = null;
+    mocks.appState = {
+      "chat-first-pane": { appId: "workspace/other", path: "/other" },
+    };
+    try {
+      const empty = JSON.parse((await viewScreen.run({})) as string);
+      expect(empty).not.toHaveProperty("embeddedApp");
+
+      mocks.pane = { appId: "workspace/current", path: "/current" };
+      const current = JSON.parse((await viewScreen.run({})) as string);
+      expect(current.embeddedApp).toMatchObject({ id: "workspace/current" });
+    } finally {
+      mocks.appState = {};
+      mocks.pane = null;
+    }
+  });
+});
 
 describe("view-screen Thread Debug summary", () => {
   beforeEach(() => {
@@ -130,6 +207,7 @@ describe("view-screen embedded workspace app", () => {
   beforeEach(() => {
     mocks.navigation = { view: "chat" };
     mocks.appState = {};
+    mocks.pane = null;
     mocks.listWorkspaceResourceOptions.mockReset();
     mocks.listWorkspaceResourceOptions.mockResolvedValue([]);
   });
@@ -153,7 +231,7 @@ describe("view-screen embedded workspace app", () => {
   });
 
   it("names the chat-first pane app while the route stays on /chat", async () => {
-    mocks.appState["chat-first-pane"] = {
+    mocks.pane = {
       appId: "mail",
       path: "/inbox",
       placement: "side",
@@ -170,7 +248,7 @@ describe("view-screen embedded workspace app", () => {
   });
 
   it("keeps a pane's named screen when it carries no path", async () => {
-    mocks.appState["chat-first-pane"] = { appId: "mail", view: "inbox" };
+    mocks.pane = { appId: "mail", view: "inbox" };
 
     const result = JSON.parse(await viewScreen.run({}));
 
@@ -203,7 +281,7 @@ describe("view-screen embedded workspace app", () => {
   });
 
   it("reports a pane that names no app as unknown, not as no app open", async () => {
-    mocks.appState["chat-first-pane"] = { placement: "side" };
+    mocks.pane = { placement: "side" };
 
     const result = JSON.parse(await viewScreen.run({}));
 

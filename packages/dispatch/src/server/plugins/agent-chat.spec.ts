@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   createAgentChatPlugin: vi.fn((options: Record<string, unknown>) => options),
   registerAgentContextAgentFilter: vi.fn(),
   hideHostedAppsWhenOff: vi.fn(),
+  listGrantedDispatchMcpApps: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -20,8 +21,22 @@ vi.mock("@agent-native/core/org", () => ({
   getOrgContext: vi.fn(),
 }));
 
+vi.mock("../lib/mcp-gateway.js", () => ({
+  listGrantedDispatchMcpApps: mocks.listGrantedDispatchMcpApps,
+}));
+
+vi.mock("../lib/workspace-app-action-auth.js", () => ({
+  workspaceAppActionRouteAuth: { resolveCaller: vi.fn() },
+  WORKSPACE_APP_CLAIM_ACTION_PATH:
+    "/_agent-native/actions/claim-workspace-app-organization",
+  WORKSPACE_APPS_ACTION_PATH: "/_agent-native/actions/list-workspace-apps",
+}));
+
+const resolveDispatchActions = vi.hoisted(() => () => ({}));
+
 vi.mock("../../actions/index.js", () => ({
   dispatchActions: {},
+  resolveDispatchActions,
 }));
 
 describe("Dispatch agent chat plugin", () => {
@@ -31,6 +46,7 @@ describe("Dispatch agent chat plugin", () => {
     expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "dispatch",
+        actions: resolveDispatchActions,
         durableBackgroundRuns: true,
         initialToolNames: expect.arrayContaining([
           "list-workspace-apps",
@@ -39,6 +55,9 @@ describe("Dispatch agent chat plugin", () => {
         ]),
         mcp: {
           appApprovalPage: true,
+          readOnlyResources: true,
+          servesAnSkill: true,
+          taskCandidates: expect.any(Function),
           connectorCatalog: expect.arrayContaining([
             "start-workspace-app-creation",
             "list-dispatch-usage-metrics",
@@ -64,6 +83,79 @@ describe("Dispatch agent chat plugin", () => {
     );
   });
 
+  it("supplies only currently granted apps when open_app is callable", async () => {
+    await import("./agent-chat.js");
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      mcp: {
+        taskCandidates: (input: {
+          callableActionNames: string[];
+          signal: AbortSignal;
+        }) => Promise<any[]>;
+      };
+    };
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      { id: "alpha", name: "Alpha", description: "Research" },
+    ]);
+    const signal = new AbortController().signal;
+    expect(
+      await options.mcp.taskCandidates({ callableActionNames: [], signal }),
+    ).toEqual([]);
+    expect(mocks.listGrantedDispatchMcpApps).not.toHaveBeenCalled();
+    const candidates = await options.mcp.taskCandidates({
+      callableActionNames: ["open_app"],
+      signal,
+    });
+    expect(candidates).toMatchObject([
+      {
+        id: "app:alpha",
+        kind: "app",
+        name: "Alpha",
+        use: { type: "open_app", app: "alpha", path: "/" },
+        callable: true,
+      },
+    ]);
+    expect(mocks.listGrantedDispatchMcpApps).toHaveBeenCalledOnce();
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(
+      options.mcp.taskCandidates({
+        callableActionNames: ["open_app"],
+        signal: aborted.signal,
+      }),
+    ).rejects.toThrow();
+    mocks.listGrantedDispatchMcpApps.mockRejectedValueOnce(
+      new Error("grant unavailable"),
+    );
+    await expect(
+      options.mcp.taskCandidates({ callableActionNames: ["open_app"], signal }),
+    ).rejects.toThrow("grant unavailable");
+  });
+
+  it("fails explicitly when the app catalog exceeds task ranking bounds", async () => {
+    await import("./agent-chat.js");
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      mcp: {
+        taskCandidates: (input: {
+          callableActionNames: string[];
+          signal: AbortSignal;
+        }) => Promise<any[]>;
+      };
+    };
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue(
+      Array.from({ length: 129 }, (_, i) => ({
+        id: `app-${i}`,
+        name: "App",
+        description: "",
+      })),
+    );
+    await expect(
+      options.mcp.taskCandidates({
+        callableActionNames: ["open_app"],
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/limit/i);
+  });
+
   it("routes customer credit questions to the owning workspace app", async () => {
     await import("./agent-chat.js");
 
@@ -75,6 +167,41 @@ describe("Dispatch agent chat plugin", () => {
     );
     expect(options.systemPrompt).toContain(
       "Do not use this action for external customer/account/company data.",
+    );
+  });
+
+  it("keeps the app on screen beside the chat", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt?: string;
+    };
+    expect(options.systemPrompt).toContain("Show the work in the app:");
+    expect(options.systemPrompt).toContain(
+      "call open_app with the app and, when you know it, the view or path",
+    );
+    expect(options.systemPrompt).toContain(
+      "go to that app's own agent, which navigates the open pane in place",
+    );
+    expect(options.systemPrompt).toContain(
+      "opens as an unsaved draft in the app",
+    );
+  });
+
+  it("routes domain work to workspace apps instead of third-party tools", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt?: string;
+    };
+    expect(options.systemPrompt).toContain(
+      "Prefer the workspace app that owns a domain over a connected third-party tool",
+    );
+    expect(options.systemPrompt).toContain(
+      "go to the owning app's agent so the item opens beside the chat as an unsaved draft",
+    );
+    expect(options.systemPrompt).toContain(
+      "use navigate to open the page, then summarize what it shows",
     );
   });
 });

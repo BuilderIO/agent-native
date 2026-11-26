@@ -57,9 +57,16 @@ const getConfiguredLoginHtmlMock = vi.fn(() => ({
   html: "<form>Sign in</form>",
   status: 200,
 }));
+type HostEvent = { headers?: Record<string, string> };
+const isLoopbackRequestMock = vi.fn((event: HostEvent) =>
+  /^(localhost|127\.|\[?::1\]?)(:|$)/i.test(event.headers?.host ?? ""),
+);
 vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
+}));
+vi.mock("../server/loopback.js", () => ({
+  isLoopbackRequest: (event: HostEvent) => isLoopbackRequestMock(event),
 }));
 vi.mock("../server/better-auth-instance.js", () => ({
   getAuthSecret: () => "mcp-oauth-test-secret",
@@ -473,6 +480,160 @@ describe("MCP OAuth route", () => {
     ).toEqual(new Set(["claude"]));
   });
 
+  describe("AUTH_DISABLED identity", () => {
+    const verifier = "d".repeat(50);
+    const LOCAL = { host: "localhost:3000" };
+
+    async function authorizeParams(headers: Record<string, string> = {}) {
+      const client = await (
+        await handleMcpOAuth(
+          event({
+            method: "POST",
+            headers,
+            body: {
+              redirect_uris: ["http://localhost:5555/callback"],
+            } as unknown as Record<string, string>,
+          }),
+          "/register",
+        )
+      ).json();
+      return {
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: "http://localhost:5555/callback",
+        resource: getMcpOAuthAudiences(event({ headers }))[0],
+        code_challenge: challenge(verifier),
+        code_challenge_method: "S256",
+      };
+    }
+
+    async function connectOnLoopback() {
+      const params = await authorizeParams(LOCAL);
+      const consent = await handleMcpOAuth(
+        event({ query: params, headers: LOCAL }),
+        "/authorize",
+      );
+      expect(consent.status).toBe(200);
+      const consentToken =
+        /name="consent_token" value="([^"]+)"/.exec(
+          await consent.text(),
+        )?.[1] ?? "";
+      expect(consentToken).not.toBe("");
+      const approved = await handleMcpOAuth(
+        event({
+          method: "POST",
+          headers: LOCAL,
+          body: { ...params, decision: "approve", consent_token: consentToken },
+        }),
+        "/authorize",
+      );
+      const location = approved.headers.get("location") ?? "";
+      expect(location).not.toBe("");
+      const code = new URL(location).searchParams.get("code") ?? "";
+      expect(code).not.toBe("");
+      return { params, code };
+    }
+
+    beforeEach(() => {
+      getSessionMock.mockResolvedValue({ email: "dev@local.test" });
+    });
+
+    it("refuses consent and approval off loopback", async () => {
+      const params = await authorizeParams();
+      const consent = await handleMcpOAuth(
+        event({ query: params }),
+        "/authorize",
+      );
+      expect(consent.status).toBe(403);
+      expect(await consent.json()).toMatchObject({
+        error: "access_denied",
+        error_description: expect.stringMatching(/local development identity/),
+      });
+
+      const approve = await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { ...params, decision: "approve", consent_token: "forged" },
+        }),
+        "/authorize",
+      );
+      expect(approve.status).toBe(403);
+      expect(codes.size).toBe(0);
+    });
+
+    it("still completes consent and token exchange on loopback", async () => {
+      const { params, code } = await connectOnLoopback();
+      const token = await handleMcpOAuth(
+        event({
+          method: "POST",
+          headers: LOCAL,
+          body: {
+            grant_type: "authorization_code",
+            client_id: params.client_id,
+            redirect_uri: params.redirect_uri,
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      );
+      expect(token.status).toBe(200);
+      const refreshed = await handleMcpOAuth(
+        event({
+          method: "POST",
+          headers: LOCAL,
+          body: {
+            grant_type: "refresh_token",
+            client_id: params.client_id,
+            refresh_token: (await token.json()).refresh_token,
+          },
+        }),
+        "/token",
+      );
+      expect(refreshed.status).toBe(200);
+    });
+
+    it("refuses to exchange or refresh a dev identity grant off loopback", async () => {
+      const { params, code } = await connectOnLoopback();
+      const codeBody = {
+        grant_type: "authorization_code",
+        client_id: params.client_id,
+        redirect_uri: params.redirect_uri,
+        code,
+        code_verifier: verifier,
+      };
+      const hostedExchange = await handleMcpOAuth(
+        event({ method: "POST", body: codeBody }),
+        "/token",
+      );
+      expect(hostedExchange.status).toBe(400);
+      expect(await hostedExchange.json()).toMatchObject({
+        error: "invalid_grant",
+      });
+
+      const token = await handleMcpOAuth(
+        event({ method: "POST", headers: LOCAL, body: codeBody }),
+        "/token",
+      );
+      expect(token.status).toBe(200);
+      const hostedRefresh = await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "refresh_token",
+            client_id: params.client_id,
+            refresh_token: (await token.json()).refresh_token,
+          },
+        }),
+        "/token",
+      );
+      expect(hostedRefresh.status).toBe(400);
+      expect(await hostedRefresh.json()).toMatchObject({
+        error: "invalid_grant",
+      });
+    });
+  });
+
   it("does not record OAuth consent, invalid grants or failed issuance", async () => {
     await openConsent();
     expect(agentConnectedCalls()).toEqual([]);
@@ -529,6 +690,28 @@ describe("MCP OAuth route", () => {
       await expect(protectedRes.json()).resolves.toMatchObject({
         resource: "https://mail.agent-native.com/dispatch/mcp",
       });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("answers the RFC 9728 path-inserted URL of a mounted app's resource", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    try {
+      const pathForm = handleMcpOAuthProtectedResourceMetadata(
+        event({
+          pathname: "/.well-known/oauth-protected-resource/dispatch/mcp",
+        }),
+      );
+      expect(pathForm.status).toBe(200);
+      await expect(pathForm.json()).resolves.toMatchObject({
+        resource: "https://mail.agent-native.com/dispatch/mcp",
+        authorization_servers: ["https://mail.agent-native.com/dispatch"],
+      });
+      const otherApp = handleMcpOAuthProtectedResourceMetadata(
+        event({ pathname: "/.well-known/oauth-protected-resource/mail/mcp" }),
+      );
+      expect(otherApp.status).toBe(404);
     } finally {
       vi.unstubAllEnvs();
     }

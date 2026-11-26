@@ -78,6 +78,7 @@ function runFastTestsSummary(
       DOCS_ONLY: "false",
       CI_FULL: "false",
       FAST_TESTS: "true",
+      TEST_PLAN_RESULT: "success",
       HAS_TESTS: "true",
       DOCS_RESULT: "skipped",
       TEST_REST_RESULT: "skipped",
@@ -143,6 +144,64 @@ test("normalizes paths from git output", () => {
   assert.equal(
     normalizeChangedPath("packages\\docs\\README.md"),
     "packages/docs/README.md",
+  );
+});
+
+test("keeps standalone end-to-end runners on their own checks and retains helper unit coverage", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "standalone-e2e-scope-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const path of [
+    "templates/analytics-2/e2e/thread-layout.ts",
+    "templates/mail/e2e/daily/run.ts",
+    "packages/core/e2e/run.ts",
+    "community-templates/demo/e2e/run.ts",
+  ]) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), "console.log(process.argv.slice(2));");
+    const scope = classifyChangedPaths([path], [], root);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.fast_tests, false, path);
+    assert.equal(scope.checks.lint, true, path);
+    assert.equal(scope.checks.typecheck, true, path);
+    assert.equal(scope.checks.build, true, path);
+    for (const production of [
+      "templates/mail/actions/send-email.ts",
+      "templates/mail/actions/e2e/inspect-catalog.ts",
+      "packages/core/src/mcp/server.ts",
+    ]) {
+      assert.equal(
+        classifyChangedPaths([path, production], [], root).checks.fast_tests,
+        true,
+        production,
+      );
+    }
+  }
+  for (const source of [
+    "export const args = process.argv.slice(2);",
+    "export async function prepare() {}",
+    "console.log('loaded');",
+    "console.log('process.argv');",
+    "/* process.argv */ console.log('loaded');",
+    "console.log(/process.argv/);",
+  ]) {
+    const helper = "templates/mail/e2e/helper.ts";
+    writeFileSync(join(root, helper), source);
+    assert.equal(
+      classifyChangedPaths([helper], [], root).checks.fast_tests,
+      true,
+      source,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths(["templates/mail/e2e/unreadable.ts"], [], root).checks
+      .fast_tests,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths([
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+    ]).checks.pre_auth_session_replay_e2e,
+    true,
   );
 });
 
@@ -577,6 +636,7 @@ test("keeps slow app lanes scoped on full CI tooling changes", () => {
       "slides_text_surface_e2e",
       "slides_authoring_e2e",
       "slides_oracle",
+      "storybook_tests",
     ] as const) {
       assert.equal(scope.checks[check], false, `${path}: ${check}`);
     }
@@ -1401,7 +1461,6 @@ test("routes Design pin attestation inputs to core regression", () => {
   assert.deepEqual(config.designCanvasBroadWorkflowShards, [
     "ai-sidebar-loopback",
     "music-app-workflow",
-    "home-system-selection",
     "landing-page-build",
     "autolayout-vertical-center-trailing",
   ]);
@@ -2102,12 +2161,7 @@ test("Design core and broad selectors stay independently scoped", () => {
     );
   }
 
-  const homeSelection = classifyChangedPaths([
-    "templates/design/e2e/home-system-selection.spec.ts",
-  ]);
-  assert.deepEqual(homeSelection.designCanvasBroadWorkflowShards, [
-    "home-system-selection",
-  ]);
+  // oracle-change: the Home system-selection spec and its shard were removed with Creative context
   assert.deepEqual(
     classifyChangedPaths([
       "templates/design/app/components/design/EditPanel.document-colors.test.tsx",
@@ -2134,9 +2188,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const broadWorkflowArtifacts = step("Upload Design E2E artifacts");
   const landingPageWorkflow = step(
     "Run landing-page build workflow regression",
-  );
-  const homeSystemSelection = step(
-    "Run Home design-system selection regressions",
   );
   const verticalAutoLayoutWorkflow = step(
     "Run vertical auto-layout held-guide regression",
@@ -2385,41 +2436,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "the landing-page matrix cell must retain its Design E2E traces and results",
   );
-  assert.equal(
-    homeSystemSelection.match(/^        if: (.+)$/m)?.[1],
-    "matrix.shard == 'home-system-selection'",
-  );
   assert.match(
     workflow,
-    /^  design-canvas-broad-workflows:\n(?:.*\n){4}    timeout-minutes: \$\{\{ matrix\.shard == 'home-system-selection' && 40 \|\| \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
-    "the Home workflow job must leave setup and artifact headroom after the long Playwright step",
+    /^  design-canvas-broad-workflows:\n(?:.*\n){4}    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    "the broad workflow job must leave setup and artifact headroom after the long Playwright step",
   );
-  assert.match(
-    homeSystemSelection,
-    /^        timeout-minutes: 28$/m,
-    "Home system-selection coverage must fit global setup, webServer startup, three tests, and loopback startup",
-  );
-  assert.ok(
-    homeSystemSelection.includes(
-      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
-    ),
-    "the Home lane must use the broad Design run ID for retry detection and artifacts",
-  );
-  assert.ok(
-    homeSystemSelection.includes('E2E_AI_SIDEBAR_LOOPBACK: "1"'),
-    "the Home composer tests must opt in to the deterministic loopback provider",
-  );
-  assert.ok(
-    homeSystemSelection.includes(
-      "pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on",
-    ),
-    "the Home lane must run the dedicated Home project serially with traces",
-  );
-  assert.doesNotMatch(
-    homeSystemSelection,
-    /vertical auto-layout|autolayout-drag/,
-    "Home selection must not carry the slow auto-layout regression",
-  );
+
   assert.match(
     verticalAutoLayoutWorkflow,
     /^        if: \$\{\{ matrix\.shard == 'autolayout-vertical-center-trailing' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/autolayout-drag-drop-matrix\.spec\.ts'\) \}\}$/m,
@@ -2634,7 +2656,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     broadJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'home-system-selection' && 40 \|\| \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    /^    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
     "broad Design jobs must leave headroom outside the setup-aware test steps",
   );
   const stepTimeout = Number(
@@ -2867,6 +2889,7 @@ test("fast-tests gates the selected browser checks on their actual job results",
       .filter(Boolean),
     [
       "change-scope",
+      "test-plan",
       "docs",
       "test-rest",
       "test-targeted",
@@ -2987,6 +3010,30 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: {},
       status: 0,
     },
+    ...["failure", "cancelled", "skipped", ""].flatMap((result) =>
+      ["true", "false"].map((full) => ({
+        name: `selected ${full === "true" ? "full" : "targeted"} lanes require a successful planner (${result})`,
+        overrides: {
+          CI_FULL: full,
+          TEST_PLAN_RESULT: result,
+          TEST_REST_RESULT: full === "true" ? "success" : "skipped",
+          TEST_TARGETED_RESULT: full === "true" ? "skipped" : "success",
+        },
+        status: 1,
+        outputIncludes: "Plan fast-test lanes:",
+      })),
+    ),
+    ...["true", "false"].map((full) => ({
+      name: `selected ${full === "true" ? "full" : "targeted"} lanes reject missing planner outputs`,
+      overrides: {
+        CI_FULL: full,
+        HAS_TESTS: "",
+        TEST_REST_RESULT: "skipped",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes: "Plan fast-test lanes:",
+    })),
     {
       name: "selected Design lanes pass",
       overrides: {
@@ -3464,7 +3511,7 @@ test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
     ["pnpm-lock.yaml"],
     [],
     process.cwd(),
-    ["templates/design/e2e/home-system-selection.spec.ts"],
+    ["templates/design/e2e/interaction-landing-page-build.spec.ts"],
   );
   assert.equal(
     fullRunWithDeletedShard.checks.design_canvas_broad_workflows,
@@ -3473,10 +3520,42 @@ test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
   assert.deepEqual(fullRunWithDeletedShard.designCanvasBroadWorkflowShards, [
     "ai-sidebar-loopback",
     "music-app-workflow",
-    "landing-page-build",
     "autolayout-vertical-center-trailing",
   ]);
 });
+
+test(
+  "CI names only E2E specs that exist",
+  { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
+  () => {
+    const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+    const missing: string[] = [];
+    for (const step of workflow.split("\n      - name: ")) {
+      const directory = step.match(/^\s+working-directory: (\S+)$/m)?.[1];
+      if (!directory) continue;
+      for (const [spec] of step.matchAll(
+        /(?<![\w./-])e2e\/[\w.-]+\.spec\.ts/g,
+      )) {
+        if (!existsSync(join(directory, spec))) {
+          missing.push(`.github/workflows/ci.yml: ${directory}/${spec}`);
+        }
+      }
+    }
+    for (const source of [
+      ".github/workflows/ci.yml",
+      "scripts/ci-change-scope.ts",
+    ]) {
+      // source-read-ok: the spec paths CI and the classifier name are the subject, checked against the tree
+      const text = readFileSync(source, "utf8");
+      for (const [spec] of text.matchAll(
+        /(?:templates|packages)\/[\w-]+\/e2e\/[\w.-]+\.spec\.ts/g,
+      )) {
+        if (!existsSync(spec)) missing.push(`${source}: ${spec}`);
+      }
+    }
+    assert.deepEqual(missing, []);
+  },
+);
 
 test("a non-empty selector with only deleted specs resolves to a no-op", () => {
   const removed = "templates/design/e2e/removed-by-this-change.spec.ts";
@@ -3489,32 +3568,6 @@ test("a non-empty selector with only deleted specs resolves to a no-op", () => {
       filteredSpecs: [],
     },
   );
-});
-
-test("filters loopback-only Home specs from default changed-spec selection", () => {
-  const home = "templates/design/e2e/home-system-selection.spec.ts";
-  const regular = "templates/design/e2e/interaction-selection.spec.ts";
-  const selector = JSON.stringify([home, regular]);
-  const resolve = (includeLoopbackOnlySpecs: boolean) =>
-    resolveDesignE2ESpecs(selector, {
-      isFile: () => true,
-      readFile: () => "",
-      includeLoopbackOnlySpecs,
-    });
-
-  assert.deepEqual(resolve(false), {
-    existingSpecs: ["e2e/interaction-selection.spec.ts"],
-    removedSpecs: [],
-    filteredSpecs: ["e2e/home-system-selection.spec.ts"],
-  });
-  assert.deepEqual(resolve(true), {
-    existingSpecs: [
-      "e2e/home-system-selection.spec.ts",
-      "e2e/interaction-selection.spec.ts",
-    ],
-    removedSpecs: [],
-    filteredSpecs: [],
-  });
 });
 
 test("keeps runnable specs while excluding deleted paths from the same selector", () => {
@@ -3951,6 +4004,16 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
 test("scopes Content DB tests to Content and shared database runtime changes", () => {
   for (const path of [
     "templates/content/actions/update-document.ts",
+    "templates/content/actions/query-content-database-items.ts",
+    "templates/content/actions/_database-navigation.ts",
+    "templates/content/actions/_content-database-personal-view.ts",
+    "templates/content/actions/_content-space-access.ts",
+    "templates/content/actions/_database-utils.ts",
+    "packages/core/src/settings/store.ts",
+    "packages/core/src/settings/index.ts",
+    "packages/core/src/org/federation.ts",
+    "packages/core/src/org/membership.ts",
+    "packages/core/src/org/index.ts",
     "templates/content/server/db/schema.ts",
     "templates/content/actions/update-document.db.test.ts",
     "templates/content/acceptance/one-stored-form.db.test.ts",
@@ -4051,14 +4114,24 @@ test("runs shared coverage when core changes", () => {
 
 test("selects Core integration E2E for its runtime dependencies and specs", () => {
   for (const path of [
+    "packages/core/src/provider-api/write-queue.ts",
+    "packages/core/src/provider-api/provider-budget.ts",
+    "packages/core/src/provider-api/write-queue.postgres.integration.test.ts",
     "packages/core/src/agent/engine/translate-ai-sdk.ts",
     "packages/core/src/db/client.ts",
     "packages/core/src/scripts/db/postgres-client.ts",
     "packages/core/src/server/core-routes-plugin.ts",
     "packages/core/src/server/action-routes.ts",
     "packages/core/src/server/embedded.ts",
+    "packages/core/src/server/ssr-handler.ts",
+    "packages/core/src/shared/cache-control.ts",
+    "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
     "packages/core/src/extensions/session-replay-iframe.ts",
+    "packages/core/src/mcp/script-writes.ts",
+    "packages/core/src/client/route-chunk-recovery.ts",
+    "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
     "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+    "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
     "packages/core/src/server/embedded.integration.spec.ts",
     "templates/analytics/scripts/journey-capture-iframe-audit.ts",
     "templates/design/app/components/templates/TemplatePreview.tsx",
@@ -4124,7 +4197,14 @@ test("selects Brain evals only for Core code in its runtime dependency surface",
     "templates/brain/actions/run-demo-eval.ts",
     "templates/brain/actions/run-retrieval-eval.ts",
     "templates/brain/server/lib/demo.ts",
+    "templates/brain/server/lib/audiences.ts",
+    "templates/brain/server/lib/intelligence.ts",
+    "templates/brain/server/lib/knowledge-access.ts",
+    "templates/brain/server/lib/knowledge-provenance.ts",
+    "templates/brain/server/lib/knowledge-provenance.integration.test.ts",
+    "templates/brain/server/lib/knowledge-write.postgres.integration.test.ts",
     "templates/brain/server/lib/search.ts",
+    "templates/brain/server/plugins/db.ts",
     "packages/core/src/action.ts",
     "packages/core/src/db/client.ts",
     "packages/core/src/search/index.ts",
@@ -4437,15 +4517,23 @@ test("resolves the root script tests a guard-scoped change must run", () => {
   );
 });
 
-test("selects chat health regression for its script or test changes", () => {
-  for (const path of [
-    "scripts/chat-health.mjs",
+test("selects chat health regressions for its script or test changes", () => {
+  const source = classifyChangedPaths(["scripts/chat-health.mjs"]);
+  assert.equal(source.full, true);
+  assert.equal(source.checks.guards, true);
+  assert.deepEqual(source.scriptTests, [
+    "scripts/chat-health-terminal.test.ts",
     "scripts/chat-health.test.ts",
+  ]);
+
+  for (const path of [
+    "scripts/chat-health.test.ts",
+    "scripts/chat-health-terminal.test.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
-    assert.equal(scope.full, path.endsWith(".mjs"), path);
+    assert.equal(scope.full, false, path);
     assert.equal(scope.checks.guards, true, path);
-    assert.deepEqual(scope.scriptTests, ["scripts/chat-health.test.ts"], path);
+    assert.deepEqual(scope.scriptTests, [path], path);
   }
   assert.deepEqual(
     classifyChangedPaths(["scripts/new-tool.ts"]).scriptTests,
@@ -4456,12 +4544,14 @@ test("selects chat health regression for its script or test changes", () => {
 test("still runs changed root script tests when the change set is full", () => {
   const scope = classifyChangedPaths([
     ".github/workflows/ci.yml",
+    "scripts/ci-run-script-tests.ts",
     "scripts/package-release-workflow.test.ts",
     "scripts/guard-no-unbounded-table-reads.mjs",
   ]);
   assert.equal(scope.full, true);
   assert.equal(scope.checks.guards, true);
   assert.deepEqual(scope.scriptTests, [
+    "scripts/ci-run-script-tests.test.ts",
     "scripts/feedback-fix-proof.test.ts",
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
@@ -4647,6 +4737,82 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
   }
 });
 
+void test("runs story tests for the stories, the source they render, and their config", () => {
+  for (const path of [
+    "packages/toolkit/dev/stories/components/button.stories.tsx",
+    "packages/toolkit/dev/foundations/themes.tsx",
+    "packages/toolkit/.storybook/preview.tsx",
+    "packages/toolkit/src/ui/base-ui/table.tsx",
+    "packages/toolkit/src/app/settings/SettingsSection.tsx",
+    "packages/design-system/css/parts/table.css",
+    "packages/design-system/src/index.ts",
+    "packages/toolkit/vitest.storybook.config.ts",
+    "packages/toolkit/package.json",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.storybook_tests,
+      true,
+      path,
+    );
+  }
+  for (const path of [
+    "packages/toolkit/src/ui/base-ui/table.spec.tsx",
+    "packages/design-system/src/palette.test.ts",
+    "packages/toolkit/vitest.config.ts",
+    "packages/core/src/feature-flags/registry.ts",
+    "templates/calendar/app/routes/index.tsx",
+    "packages/design-system/README.md",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.storybook_tests,
+      false,
+      path,
+    );
+  }
+  for (const path of [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "package.json",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.storybook_tests,
+      true,
+      `full run: ${path}`,
+    );
+  }
+  assert.equal(classifyChangedPaths([]).checks.storybook_tests, true);
+  assert.equal(
+    classifyChangedPaths(["scripts/ci-change-scope.ts"]).checks.storybook_tests,
+    false,
+    "tooling-only full run",
+  );
+  const ownWorkflow = classifyChangedPaths([
+    ".github/workflows/storybook-tests.yml",
+  ]);
+  assert.equal(ownWorkflow.full, true);
+  assert.equal(ownWorkflow.checks.storybook_tests, true, "its own workflow");
+});
+
+void test("the Storybook workflow records on main only paths that run story tests on a PR", () => {
+  // source-read-ok: the workflow's push paths are the subject, checked against the classifier.
+  const workflow = readFileSync(
+    ".github/workflows/storybook-tests.yml",
+    "utf8",
+  );
+  const paths = [...workflow.matchAll(/^ {6}- "([^"]+)"$/gmu)].flatMap(
+    ([, path]) => (path ? [path] : []),
+  );
+  assert.ok(paths.length > 0, "missing push paths");
+  for (const path of paths) {
+    const sample = path.replace(/\*\*$/u, "x/y.tsx");
+    assert.equal(
+      classifyChangedPaths([sample]).checks.storybook_tests,
+      true,
+      `${path} records a baseline on main but runs no story tests on a PR`,
+    );
+  }
+});
+
 test("runs the execution-lease model check for its model, script, and covered code", () => {
   for (const path of [
     "verification/execution-lease/ExecutionLease.tla",
@@ -4739,7 +4905,9 @@ test(
         "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/ci-run-script-tests.test.ts",
         "scripts/chat-health.test.ts",
+        "scripts/chat-health-terminal.test.ts",
         "scripts/lib/pnpm-command.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",
         "scripts/design-e2e-regression-pins.test.ts",
@@ -4754,6 +4922,7 @@ test(
         ".github/workflows/slides-authoring-nightly.yml",
         ".github/workflows/slides-authoring-image.yml",
         ".github/workflows/email-workflow-failures.yml",
+        ".github/workflows/storybook-tests.yml",
         ".github/actions/slides-authoring-shard/action.yml",
         ".github/actions/slides-authoring-image/action.yml",
         "docker/ci-slides-authoring/Dockerfile",

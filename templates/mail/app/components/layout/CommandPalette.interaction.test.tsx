@@ -42,6 +42,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "commandPalette.reportSpamBlock": "Report spam & block sender",
       "commandPalette.muteThread": "Mute thread",
       "commandPalette.snooze": "Snooze email",
+      "mail.actions.copyLink": "Copy link",
       "commandPalette.compose": "Compose new email",
       "commandPalette.reply": "Reply to thread",
       "commandPalette.goToInbox": "Go to Inbox",
@@ -56,6 +57,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "mail.actions.moveToTrash": "Move to Trash",
       "mail.actions.markRead": "Mark read",
       "mail.actions.markUnread": "Mark unread",
+      "mail.actions.labelAs": "Label as",
+      "mail.actions.moveTo": "Move to",
       "mail.selection.read": "Read",
       "mail.mobileActions.star": "Star",
       "mail.mobileActions.replyAll": "Reply All",
@@ -279,6 +282,28 @@ describe("CommandPalette Search action", () => {
     ).toBeTruthy();
   });
 
+  it("copies a link only when an email is available", () => {
+    const onCopyLink = vi.fn();
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      onCompose: vi.fn(),
+      onSearch: vi.fn(),
+    };
+
+    const { rerender } = render(<CommandPalette {...props} />);
+    expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+
+    rerender(
+      <CommandPalette {...props} onCopyLink={onCopyLink} isComposeContext />,
+    );
+    expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+
+    rerender(<CommandPalette {...props} onCopyLink={onCopyLink} />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    expect(onCopyLink).toHaveBeenCalledOnce();
+  });
+
   it("routes All Mail and Archive commands to their distinct destinations", () => {
     render(
       <CommandPalette
@@ -368,6 +393,8 @@ describe("CommandPalette Search action", () => {
     expectShortcut("Search in conversation...", "⌘ F / Ctrl F");
     expectShortcut("Toggle read state", "U");
     expectShortcut("Move to Trash", "# / D");
+    expectShortcut("Label as", "L");
+    expectShortcut("Move to", "V");
     expectShortcut("Extend selection", "Shift+J/K · Shift+↑/↓");
     expectShortcut("Select all conversations", "⌘ A / Ctrl A");
     expectShortcut("Cycle tabs", "Tab / Shift+Tab");

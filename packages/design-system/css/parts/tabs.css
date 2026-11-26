@@ -1,0 +1,335 @@
+/*
+ * Part: tabs
+ *
+ *   <div class="tabs" data-orientation>                  Base UI Tabs.Root
+ *     <div class="tabs-list" role="tablist"              Tabs.List
+ *          data-justify="start|center|end"
+ *          data-wrap="nowrap|wrap|wrap-reverse"
+ *          [data-color="accent|gray|danger|warning|success|info"]
+ *          [data-high-contrast] data-orientation>
+ *       <button class="tabs-tab" role="tab"               Tabs.Tab
+ *               [data-active] [data-disabled]>
+ *       <span class="tabs-indicator">                     Tabs.Indicator
+ *     <div class="tabs-panel" role="tabpanel">            Tabs.Panel [hidden]
+ *
+ * Radix Themes' tabs on the system's scale: a row of triggers over a
+ * hairline, the active one underlined by Base UI's indicator in the nearest
+ * `data-color`'s indicator step. md triggers are 24px tall, lg are
+ * 32px; each draws its hover tint one control step shorter, inset from its
+ * edges. Vertical tabs stack the list beside the panels with the line on
+ * its inline end.
+ *
+ * Tab Nav draws with these rules: `.tab-nav-list` is a list and
+ * `.tab-nav-link` a trigger, the current page's link (`aria-current="page"`)
+ * the active one. Its own sheet, tab-nav.css, adds only what links need.
+ */
+
+@layer components {
+  .tabs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .tabs[data-orientation="vertical"] {
+    flex-direction: row;
+  }
+
+  :is(.tabs-list, .tab-nav-list) {
+    --_tabs-tab-height: var(--control-height-4);
+    --_tabs-tab-tint-height: var(--control-height-3);
+    --_tabs-tab-padding-x: var(--control-padding-x-3);
+    --_tabs-tab-icon-size: var(--control-icon-size-3);
+    position: relative;
+    display: flex;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    box-sizing: border-box;
+    overflow-x: auto;
+    scrollbar-width: none;
+    box-shadow: inset 0 -1px 0 0 var(--line-subtle);
+  }
+
+  :is(.tabs-list, .tab-nav-list)::-webkit-scrollbar {
+    display: none;
+  }
+
+  :is(.tabs-list, .tab-nav-list)[data-justify="center"] {
+    justify-content: safe center;
+  }
+
+  :is(.tabs-list, .tab-nav-list)[data-justify="end"] {
+    justify-content: safe flex-end;
+  }
+
+  :is(.tabs-list, .tab-nav-list)[data-wrap="wrap"] {
+    flex-wrap: wrap;
+  }
+
+  :is(.tabs-list, .tab-nav-list)[data-wrap="wrap-reverse"] {
+    flex-wrap: wrap-reverse;
+  }
+
+  .tabs-list[data-orientation="vertical"] {
+    flex-direction: column;
+    align-items: stretch;
+    overflow: visible;
+    box-shadow: inset -1px 0 0 0 var(--line-subtle);
+  }
+
+  .tabs-list[data-orientation="vertical"]:dir(rtl) {
+    box-shadow: inset 1px 0 0 0 var(--line-subtle);
+  }
+
+  :is(.tabs-tab, .tab-nav-link) {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: var(--control-gap);
+    box-sizing: border-box;
+    height: var(--_tabs-tab-height);
+    padding: 0 calc(var(--_tabs-tab-padding-x) + var(--control-padding-x-1));
+    border: 0;
+    background-color: transparent;
+    color: var(--fg-muted);
+    font: inherit;
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    outline-style: none;
+    transition: color var(--duration-2) var(--ease-standard);
+  }
+
+  .tabs-list[data-orientation="vertical"] .tabs-tab {
+    justify-content: flex-start;
+  }
+
+  /* The hover tint and focus ring, inset from the trigger. The list scrolls,
+     so the ring has to stay inside the trigger to stay visible. */
+  :is(.tabs-tab, .tab-nav-link)::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: calc((var(--_tabs-tab-height) - var(--_tabs-tab-tint-height)) / 2)
+      var(--control-padding-x-1);
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    transition: background-color var(--duration-2) var(--ease-standard);
+  }
+
+  :is(.tabs-tab, .tab-nav-link) svg {
+    flex-shrink: 0;
+    width: var(--_tabs-tab-icon-size);
+    height: var(--_tabs-tab-icon-size);
+  }
+
+  @media (hover: hover) {
+    :is(.tabs-tab, .tab-nav-link):not([data-disabled]):hover {
+      color: var(--fg-default);
+    }
+
+    :is(.tabs-tab, .tab-nav-link):not([data-disabled]):hover::before {
+      background-color: var(--fill-hover);
+    }
+
+    :is(.tabs-tab, .tab-nav-link):not(
+        [data-disabled]
+      ):focus-visible:hover::before {
+      background-color: var(--accent-a3);
+    }
+  }
+
+  :is(.tabs-tab[data-active], .tab-nav-link[aria-current="page"]) {
+    color: var(--fg-default);
+  }
+
+  :is(.tabs-tab, .tab-nav-link):focus-visible::before {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+  }
+
+  .tabs-tab[data-disabled] {
+    cursor: not-allowed;
+    color: var(--fg-disabled);
+  }
+
+  /* The underline: Base UI's indicator under Tabs, the current link's own
+     ::after under Tab Nav. :is() can't match a pseudo-element, so these
+     are a selector list. */
+  .tabs-indicator,
+  .tab-nav-link[aria-current="page"]::after {
+    position: absolute;
+    bottom: 0;
+    height: 2px;
+    background-color: var(--accent-indicator);
+    pointer-events: none;
+  }
+
+  .tabs-indicator {
+    bottom: var(--active-tab-bottom);
+    left: var(--active-tab-left);
+    width: var(--active-tab-width);
+    transition-property: left, bottom, width, top, height;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .tabs-list[data-orientation="vertical"] .tabs-indicator {
+    top: var(--active-tab-top);
+    bottom: auto;
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    width: 2px;
+    height: var(--active-tab-height);
+  }
+
+  .tabs-list[data-high-contrast] .tabs-indicator,
+  .tab-nav-list[data-high-contrast] .tab-nav-link[aria-current="page"]::after {
+    background-color: var(--accent-12);
+  }
+
+  @media (forced-colors: active) {
+    .tabs-indicator,
+    .tab-nav-link[aria-current="page"]::after {
+      box-sizing: border-box;
+      border-block-end: 2px solid Highlight;
+    }
+
+    .tabs-list[data-orientation="vertical"] .tabs-indicator {
+      border-block-end: 0;
+      border-inline-end: 2px solid Highlight;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tabs-indicator {
+      transition: none;
+    }
+  }
+
+  .tabs-panel {
+    position: relative;
+    outline-style: none;
+  }
+
+  .tabs-panel:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+}
+
+@layer components {
+  .tabs[data-variant="framed"][data-orientation="horizontal"] {
+    --_frame: var(
+      --tabs-frame-surface,
+      var(--_tabs-default-frame, var(--surface-raised))
+    );
+    --_tab-radius: calc(var(--radius-2) * var(--corner-scale, 1));
+    --_shoulder: calc(var(--radius-1) * var(--corner-scale, 1));
+    gap: 0;
+    min-inline-size: 0;
+
+    > .tabs-list {
+      --_tabs-tab-height: var(--control-height-3);
+      --_tabs-tab-tint-height: var(--control-height-2);
+      --_rail-inset: calc(
+        (var(--control-height-4) - var(--_tabs-tab-height)) / 2
+      );
+      flex: none;
+      flex-wrap: nowrap;
+      padding-block: var(--_rail-inset);
+      padding-inline: var(--space-1);
+      background: var(--tabs-frame-rail, var(--gray-4));
+      box-shadow: inset 0 calc(-1 * var(--_rail-inset)) var(--_frame);
+      border-start-start-radius: var(--_tab-radius);
+      border-start-end-radius: var(--_tab-radius);
+      corner-shape: var(--corner-shape, round);
+    }
+
+    > .tabs-list > .tabs-tab {
+      --_tab-surface: transparent;
+      min-inline-size: var(--_tabs-tab-height);
+      border-radius: var(--_tab-radius) var(--_tab-radius) 0 0;
+      corner-shape: var(--corner-shape, round);
+      background-color: var(--_tab-surface);
+    }
+
+    > .tabs-list > .tabs-tab::before {
+      background-color: transparent;
+      border-radius: var(--_tab-radius);
+    }
+
+    > .tabs-panel {
+      background-color: var(--_frame);
+    }
+
+    > .tabs-panel[inert],
+    > .tabs-list > .tabs-indicator {
+      display: none;
+    }
+
+    > .tabs-list > .tabs-tab[data-active] {
+      --_tab-surface: var(--_frame);
+      z-index: 1;
+    }
+
+    /* The two outside corners end flush with the panel. */
+    > .tabs-list > .tabs-tab::after {
+      content: "";
+      position: absolute;
+      pointer-events: none;
+      inset-inline: calc(-1 * var(--_shoulder));
+      bottom: 0;
+      height: var(--_shoulder);
+      color: var(--_tab-surface);
+      background:
+        radial-gradient(
+            circle var(--_shoulder) at top left,
+            transparent calc(100% - 0.5px),
+            currentColor calc(100% + 0.5px)
+          )
+          left bottom / var(--_shoulder) 100% no-repeat,
+        radial-gradient(
+            circle var(--_shoulder) at top right,
+            transparent calc(100% - 0.5px),
+            currentColor calc(100% + 0.5px)
+          )
+          right bottom / var(--_shoulder) 100% no-repeat;
+    }
+
+    @media (hover: hover) {
+      > .tabs-list > .tabs-tab:not([data-active]) {
+        transition-property: color, background-color;
+      }
+
+      > .tabs-list > .tabs-tab:not([data-active])::after {
+        transition: color var(--duration-2) var(--ease-standard);
+      }
+
+      > .tabs-list > .tabs-tab:not([data-active], [data-disabled]):hover {
+        --_tab-surface: var(--fill-hover);
+      }
+
+      > .tabs-list
+        > .tabs-tab:not([data-active], [data-disabled]):focus-visible:hover {
+        --_tab-surface: var(--accent-a3);
+      }
+    }
+
+    @media (forced-colors: active) {
+      > .tabs-list > .tabs-tab[data-active]::after {
+        inset: 0;
+        height: auto;
+        background: none;
+        border-radius: inherit;
+        border-block-start: 2px solid Highlight;
+      }
+    }
+  }
+}

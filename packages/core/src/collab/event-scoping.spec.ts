@@ -11,6 +11,22 @@ const resolveAccessMock =
 vi.mock("../sharing/access.js", () => ({
   resolveAccess: (...args: unknown[]) =>
     (resolveAccessMock as any)(...(args as [any, any, any])),
+  resolveAccessMany: async (
+    resourceType: string,
+    resourceIds: string[],
+    ctx: { userEmail?: string; orgId?: string },
+  ) => {
+    const access = new Map<string, unknown>();
+    for (const resourceId of resourceIds) {
+      const resolved = await resolveAccessMock(resourceType, resourceId, ctx);
+      if (resolved) access.set(resourceId, resolved);
+    }
+    return access;
+  },
+  hasHostAccessResolver: () => false,
+}));
+vi.mock("../sharing/registry.js", () => ({
+  getShareableResource: () => ({}),
 }));
 
 import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";
@@ -49,15 +65,25 @@ describe("collab event scoping via canSeeChangeForUser", () => {
   };
 
   describe("unscoped events (no owner, no orgId)", () => {
-    it("delivers to any authenticated user", () => {
+    it("hides unscoped events", () => {
       const event = { ...baseEvent };
+      expect(canSeeChangeForUser(event, "alice@example.com", undefined)).toBe(
+        false,
+      );
+      expect(canSeeChangeForUser(event, "bob@example.com", "org-2")).toBe(
+        false,
+      );
+      expect(canSeeChangeForUser(event, "charlie@example.com", "org-3")).toBe(
+        false,
+      );
+    });
+
+    it("delivers events explicitly marked public", () => {
+      const event = { ...baseEvent, visibility: "public" as const };
       expect(canSeeChangeForUser(event, "alice@example.com", undefined)).toBe(
         true,
       );
       expect(canSeeChangeForUser(event, "bob@example.com", "org-2")).toBe(true);
-      expect(canSeeChangeForUser(event, "charlie@example.com", "org-3")).toBe(
-        true,
-      );
     });
   });
 

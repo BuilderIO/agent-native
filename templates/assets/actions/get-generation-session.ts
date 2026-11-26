@@ -24,6 +24,7 @@ export default defineAction({
   schema: z.object({ id: z.string() }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id }) => {
     const db = getDb();
     const [session] = await db

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { waitFor } from "@testing-library/react";
 import type { Editor } from "@tiptap/core";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -1019,6 +1020,208 @@ describe("controlled composer context", () => {
     );
   });
 
+  it.each([
+    ["source", { source: "reports", referenceType: "dashboard" }],
+    ["reference type", { source: "dashboards", referenceType: "report" }],
+  ])(
+    "reloads an open scoped picker when its %s changes",
+    async (_changedField, nextFilter) => {
+      const oldItem = {
+        id: "old",
+        label: "Old result",
+        source: "dashboards",
+        refType: "dashboard",
+        refId: "old",
+      };
+      const newItem = {
+        id: "new",
+        label: "New result",
+        source: nextFilter.source,
+        refType: nextFilter.referenceType,
+        refId: "new",
+      };
+      let finish: (response: Response) => void = () => {
+        throw new Error("No second search started");
+      };
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ items: [oldItem] })),
+        )
+        .mockImplementationOnce(
+          () => new Promise<Response>((resolve) => (finish = resolve)),
+        );
+      vi.stubGlobal("fetch", fetch);
+      const composerRef = React.createRef<TiptapComposerHandle>();
+      const onSubmit = vi.fn();
+      const render = async (filter: typeof nextFilter) => {
+        await act(async () =>
+          root.render(
+            <PromptComposer
+              composerRef={composerRef}
+              onSubmit={onSubmit}
+              contextMenuItems={[
+                {
+                  id: "scoped",
+                  label: "Choose reference",
+                  section: "context",
+                  referencePicker: filter,
+                },
+              ]}
+              showModelSelector={false}
+              modelStatusChecksEnabled={false}
+              includeDefaultSlashSkills={false}
+              voiceEnabled={false}
+            />,
+          ),
+        );
+      };
+      const options = () =>
+        Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+
+      await render({ source: "dashboards", referenceType: "dashboard" });
+      await act(async () => {
+        const trigger = container.querySelector<HTMLElement>(
+          'button[aria-label="Add context"]',
+        );
+        if (!trigger) throw new Error("Missing context trigger");
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+      });
+      await act(async () => {
+        const action = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((item) => item.textContent === "Choose reference");
+        if (!action) throw new Error("Missing scoped reference action");
+        action.click();
+      });
+      await waitFor(() =>
+        expect(options().map((item) => item.textContent)).toEqual([
+          "Old result",
+        ]),
+      );
+
+      await render(nextFilter);
+      expect(options()).toHaveLength(0);
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(fetch.mock.calls[1][0]).toContain(`source=${nextFilter.source}`);
+      await act(async () =>
+        finish(new Response(JSON.stringify({ items: [oldItem, newItem] }))),
+      );
+      expect(options().map((item) => item.textContent)).toEqual(["New result"]);
+      await act(async () => options()[0].click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      const composer = composerRef.current;
+      if (!composer) throw new Error("Missing composer handle");
+      await act(async () => composer.submit());
+      expect(onSubmit.mock.calls[0][2]).toEqual([
+        expect.objectContaining({
+          refType: nextFilter.referenceType,
+          refId: "new",
+        }),
+      ]);
+    },
+  );
+
+  it("selects sequential workspace results after the composer re-renders", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "agent:slides",
+                  label: "Slides",
+                  source: "agent",
+                  refType: "agent",
+                  refId: "slides",
+                },
+                {
+                  id: "agent:plans",
+                  label: "Plans",
+                  source: "agent",
+                  refType: "agent",
+                  refId: "plans",
+                },
+              ],
+            }),
+          ),
+      ),
+    );
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    const render = async () => {
+      await act(async () =>
+        root.render(
+          <PromptComposer
+            composerRef={composerRef}
+            onSubmit={onSubmit}
+            contextMenuItems={[]}
+            showModelSelector={false}
+            modelStatusChecksEnabled={false}
+            includeDefaultSlashSkills={false}
+            voiceEnabled={false}
+          />,
+        ),
+      );
+    };
+    const open = async (label: string) => {
+      await act(async () => {
+        const trigger = container.querySelector<HTMLElement>(
+          'button[aria-label="Add context"]',
+        );
+        if (!trigger) throw new Error("Missing context trigger");
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+      });
+      await act(async () => {
+        const action = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((item) => item.textContent === "Search workspace…");
+        if (!action) throw new Error("Missing workspace search");
+        action.click();
+      });
+      await waitFor(() =>
+        expect(
+          Array.from(
+            document.querySelectorAll<HTMLElement>('[role="option"]'),
+          ).some((item) => item.textContent === label),
+        ).toBe(true),
+      );
+    };
+    const select = async (label: string) => {
+      const option = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((item) => item.textContent === label);
+      expect(option).toBeDefined();
+      if (!option) throw new Error(`Missing workspace result: ${label}`);
+      await act(async () => option.click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    };
+
+    await render();
+    await open("Slides");
+    await select("Slides");
+    await open("Plans");
+    await render();
+    await select("Plans");
+    const composer = composerRef.current;
+    if (!composer) throw new Error("Missing composer handle");
+    await act(async () => composer.submit());
+    expect(onSubmit.mock.calls[0][2]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ refType: "agent", refId: "slides" }),
+        expect.objectContaining({ refType: "agent", refId: "plans" }),
+      ]),
+    );
+  });
+
   it("aborts a workspace picker on identity change before stale results can be selected", async () => {
     let scopeKey = "org:one";
     let finish: (response: Response) => void = () => {
@@ -1271,6 +1474,94 @@ describe("controlled composer context", () => {
       measure.mockRestore();
     }
   });
+
+  it("keeps a cancelled submit preparation silent and retains the draft", async () => {
+    const onBeforeSubmit = vi.fn().mockResolvedValue(false);
+    const { composerRef, onSubmit } = await mount({ onBeforeSubmit });
+    const composer = composerRef.current;
+    if (!composer) throw new Error("Composer did not mount");
+    await act(async () =>
+      expect(await composer.submitWithText("Ready")).toBe(false),
+    );
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "Keep the editable draft",
+    );
+    expect(
+      container.querySelector('[data-notice="context-submission"]'),
+    ).toBeNull();
+  });
+
+  it.each(["unknown", "unavailable"] as const)(
+    "reports an %s send probe even when rendered readiness remains configured",
+    async (state) => {
+      const fetchReadiness = vi
+        .fn()
+        .mockResolvedValueOnce(state)
+        .mockResolvedValue("configured");
+      const onSubmit = vi.fn();
+      await act(async () =>
+        root.render(
+          <ComposerRuntimeAdaptersProvider
+            adapters={{
+              models: {
+                useAgentEngineConfigured: () => ({
+                  state: "configured",
+                  missing: false,
+                }),
+                fetchAgentEngineConfiguredState: fetchReadiness,
+              },
+            }}
+          >
+            <PromptComposer
+              onSubmit={onSubmit}
+              initialText="Keep this question"
+              initialTextKey="failed-readiness"
+              autoFocus={false}
+              showModelSelector={false}
+              requireAgentEngine
+              includeDefaultSlashSkills={false}
+              includeDefaultMentionSearch={false}
+              voiceEnabled={false}
+            />
+          </ComposerRuntimeAdaptersProvider>,
+        ),
+      );
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      if (!editor) throw new Error("Composer editor did not mount");
+      const pressEnter = async () => {
+        await act(async () => {
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      };
+      await pressEnter();
+      expect(
+        container.querySelector(
+          '[data-notice="context-submission"][role="alert"]',
+        )?.textContent,
+      ).toContain("agentChat.setup.providerStatusUnavailable");
+      expect(editor.textContent).toBe("Keep this question");
+      expect(editor.getAttribute("contenteditable")).toBe("true");
+      expect(onSubmit).not.toHaveBeenCalled();
+      await pressEnter();
+      expect(onSubmit).toHaveBeenCalledOnce();
+      expect(onSubmit.mock.calls[0]?.[0]).toBe("Keep this question");
+      expect(editor.textContent).toBe("");
+      expect(
+        container.querySelector('[data-notice="context-submission"]'),
+      ).toBeNull();
+    },
+  );
 
   it("reports a rejected submit preparation and retains the draft for retry", async () => {
     const onBeforeSubmit = vi
@@ -2468,7 +2759,7 @@ describe("controlled composer context", () => {
     await pressEnter();
     expect(onSubmit).not.toHaveBeenCalled();
     const contextRow = container.querySelector('[data-context-key="brief"]')!;
-    expect(contextRow.className).toContain("py-0.5");
+    expect(contextRow.className).toContain("h-5");
     expect(contextRow.querySelector("span")?.textContent).toBe("Brief");
     expect(contextRow.querySelectorAll("button")).toHaveLength(1);
     expect(
@@ -2532,7 +2823,7 @@ describe("controlled composer context", () => {
     expect(
       contextChip.querySelector('button[aria-label="Remove Brief context"]'),
     ).not.toBeNull();
-    expect(contextChip.className).toContain("py-0.5");
+    expect(contextChip.className).toContain("h-5");
     await act(async () => contextChip.click());
     expect(onInspectContextItem).not.toHaveBeenCalled();
   });

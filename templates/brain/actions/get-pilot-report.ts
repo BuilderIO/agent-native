@@ -449,6 +449,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async ({ sourceId, targetChannel }) => {
     const access = await getAccessibleSource(sourceId);
     const db = getDb();
@@ -566,6 +567,7 @@ export default defineAction({
         and(
           accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
           eq(schema.brainKnowledge.sourceId, sourceId),
+          isNull(schema.brainKnowledge.intelligenceKind),
           accessibleDerivedAudienceFilter,
         ),
       )

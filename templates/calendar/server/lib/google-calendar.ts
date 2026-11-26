@@ -1,10 +1,17 @@
 import { getDbExec } from "@agent-native/core/db";
 import {
+  OAuthAccountOwnedByOtherUserError,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
+import {
+  checkSaveRevision,
+  countSaveOutcome,
+  isSameRecord,
+  saveConflict,
+} from "@agent-native/core/save-conflict/server";
 import {
   getOAuthAccounts,
   getCredentialContext,
@@ -41,8 +48,11 @@ import {
   calendarPatchEvent,
   calendarUpdateEvent,
   isGoogleEventAbsentError,
+  GoogleApiError,
+  isGooglePreconditionFailedError,
   peopleGetProfile,
 } from "./google-api.js";
+import { listSyncedGoogleEvents } from "./google-event-sync.js";
 import { getCalendarProviderApiRuntime } from "./provider-api.js";
 import {
   alignSeriesRecurrenceToStart,
@@ -54,14 +64,18 @@ type ManagedCalendarClient = {
   accessToken: string;
 };
 
-async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | null> {
-  if (!getCredentialContext()) return null;
+async function hasManagedCalendarConnection(): Promise<boolean> {
+  if (!getCredentialContext()) return false;
   const connection = await resolveWorkspaceConnectionForApp({
     appId: "calendar",
     provider: "google_calendar",
     requireConnected: true,
   });
-  if (!connection.available) return null;
+  return connection.available;
+}
+
+async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | null> {
+  if (!(await hasManagedCalendarConnection())) return null;
   const credential =
     await getCalendarProviderApiRuntime().resolveOAuthAccessToken({
       provider: "google_calendar",
@@ -72,26 +86,6 @@ async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | n
     );
   }
   return { email: credential.accountId, accessToken: credential.accessToken };
-}
-
-/**
- * A workspace connection can be registered and marked "connected" while its
- * token still can't be resolved (revoked, mid-authorization, misconfigured
- * credential). Callers that only need a yes/no read of connection status must
- * see that as "not connected", not as a thrown error — otherwise a single
- * flaky managed-token resolution turns every read action (list-events
- * included) into a 500 instead of the same not-connected state the UI already
- * shows.
- */
-async function resolveManagedCalendarClientOrNull(): Promise<ManagedCalendarClient | null> {
-  try {
-    return await resolveManagedCalendarClient();
-  } catch {
-    // coercion-ok: null is the same typed "not connected" result callers
-    // already get for "no managed connection configured" - isConnected and
-    // getConnectedAccounts never distinguish it from a genuine read success.
-    return null;
-  }
 }
 
 const SCOPES = [
@@ -115,9 +109,16 @@ const CALENDAR_SCOPE_PREFIX = "https://www.googleapis.com/auth/calendar.";
 function hasCalendarScope(tokens: Record<string, unknown>): boolean {
   const scope = tokens.scope;
   if (typeof scope !== "string" || !scope.trim()) return true;
-  return scope
-    .split(/[\s,]+/)
-    .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX));
+  return grantsCalendarScope(scope);
+}
+
+function grantsCalendarScope(scope: unknown): boolean {
+  return (
+    typeof scope === "string" &&
+    scope
+      .split(/[\s,]+/)
+      .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX))
+  );
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -553,6 +554,7 @@ export async function getAuthUrl(
   state?: string,
   owner?: string,
   orgId?: string,
+  { selectAccount = false }: { selectAccount?: boolean } = {},
 ): Promise<string> {
   const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
@@ -563,7 +565,7 @@ export async function getAuthUrl(
   return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
-    prompt: "consent",
+    prompt: selectAccount ? "consent select_account" : "consent",
     state,
   });
 }
@@ -575,19 +577,95 @@ export async function exchangeCode(
   owner?: string,
   orgId?: string,
 ): Promise<string> {
-  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
   if (!uri) throw new Error("Google OAuth redirect URI is required.");
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
+  const { tokens, email, photoUrl } = await exchangeGoogleCode(
+    code,
+    uri,
+    owner,
+    orgId,
+  );
+  await saveExchangedTokens(tokens, email, photoUrl, owner);
+  return email;
+}
+
+export interface GoogleSignInProfile {
+  email: string;
+  id?: string | undefined;
+  name?: string | undefined;
+  picture?: string | undefined;
+  connectCalendar: () => Promise<boolean>;
+}
+
+export async function exchangeSignInCode(
+  code: string,
+  redirectUri: string,
+  orgId?: string,
+): Promise<GoogleSignInProfile> {
+  const { tokens, userInfo, email, photoUrl } = await exchangeGoogleCode(
+    code,
+    redirectUri,
+    undefined,
+    orgId,
+  );
+  if (userInfo.verified_email !== true) {
+    throw new Error(
+      "Google account email is not verified. Please verify your email with Google and try again.",
+    );
+  }
+  return {
+    email,
+    id: optionalString(userInfo.id),
+    name: optionalString(userInfo.name),
+    picture: photoUrl,
+    async connectCalendar() {
+      if (!grantsCalendarScope(tokens.scope)) return false;
+      try {
+        await saveExchangedTokens(tokens, email, photoUrl);
+        return true;
+      } catch (error) {
+        if (
+          error instanceof OAuthAccountOwnedByOtherUserError ||
+          (error instanceof Error &&
+            error.name === "OAuthAccountOwnedByOtherUserError")
+        ) {
+          return false;
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+async function exchangeGoogleCode(
+  code: string,
+  redirectUri: string,
+  owner?: string,
+  orgId?: string,
+) {
+  const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
+  const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
   const tokens = await oauth2.getToken(code);
 
   const userInfo = await oauth2GetUserInfo(tokens.access_token);
   const email = userInfo.email;
   if (!email) throw new Error("Google returned no email address");
-  const photoUrl = optionalString(userInfo.picture);
+  return {
+    tokens,
+    userInfo,
+    email: email as string,
+    photoUrl: optionalString(userInfo.picture),
+  };
+}
 
+async function saveExchangedTokens(
+  tokens: object,
+  email: string,
+  photoUrl: string | undefined,
+  owner?: string,
+): Promise<void> {
   await saveOAuthTokens(
     "google",
     email,
@@ -596,8 +674,6 @@ export async function exchangeCode(
   );
   invalidateAccountTimezoneCache(email);
   if (owner) invalidateAccountTimezoneCache(owner);
-
-  return email;
 }
 
 async function resolveAccountPhotoUrl(
@@ -919,7 +995,7 @@ export async function getClientsForAccountsWithErrors(
   accountEmails?: string[],
 ): Promise<{
   clients: Array<{ email: string; accessToken: string }>;
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
   requestedAccounts: string[];
   resolvedAccounts: string[];
 }> {
@@ -936,24 +1012,25 @@ export async function getClientsForAccountsWithErrors(
   );
   if (accounts.length === 0) {
     let managed: ManagedCalendarClient | null = null;
-    let managedError: string | undefined;
+    let managedError: { error: string; code?: string } | undefined;
     try {
       managed = await resolveManagedCalendarClient();
     } catch (err: any) {
-      managedError =
-        err?.message || "Workspace Google Calendar connection failed";
+      const code = googleReadErrorCode(err);
+      managedError = {
+        error: err?.message || "Workspace Google Calendar connection failed",
+        ...(code ? { code } : {}),
+      };
     }
     if (!managed) {
-      if (accountEmails?.length) {
+      if (accountEmails?.length && !managedError) {
         throw new Error(
           `Google Calendar account not connected for this user: ${accountEmails.join(", ")}`,
         );
       }
       return {
         clients: [],
-        errors: managedError
-          ? [{ email: "workspace", error: managedError }]
-          : [],
+        errors: managedError ? [{ email: "workspace", ...managedError }] : [],
         requestedAccounts: [],
         resolvedAccounts: [],
       };
@@ -1002,7 +1079,7 @@ export async function getClientsForAccountsWithErrors(
   }
   const selected = requestedAccounts.map((email) => byNormalized.get(email)!);
   const clients: Array<{ email: string; accessToken: string }> = [];
-  const errors: Array<{ email: string; error: string }> = [];
+  const errors: Array<{ email: string; error: string; code?: string }> = [];
   await mapWithConcurrency(selected, async (account) => {
     try {
       const accessToken = await getValidAccessToken(
@@ -1012,9 +1089,11 @@ export async function getClientsForAccountsWithErrors(
       );
       clients.push({ email: account.accountId, accessToken });
     } catch (err: any) {
+      const code = googleReadErrorCode(err);
       errors.push({
         email: account.accountId,
         error: err?.message || "Unknown refresh error",
+        ...(code ? { code } : {}),
       });
     }
   });
@@ -1101,13 +1180,32 @@ export async function resolveGoogleCalendarSource(
   return source;
 }
 
+function googleReadErrorCode(error: unknown): string | undefined {
+  if (!(error instanceof GoogleApiError)) return undefined;
+  if (
+    error.status === 429 ||
+    (error.status === 403 &&
+      [
+        "rateLimitExceeded",
+        "userRateLimitExceeded",
+        "quotaExceeded",
+        "dailyLimitExceeded",
+        "rate_limit_exceeded",
+      ].includes(error.reason ?? ""))
+  )
+    return "RATE_LIMITED";
+  return error.status === 401 ? "AUTH_REQUIRED" : undefined;
+}
+
 export async function listGoogleCalendars(forEmail?: string): Promise<{
   calendars: GoogleCalendarSource[];
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
 }> {
   const { clients, errors: refreshErrors } =
     await getClientsForAccountsWithErrors(forEmail);
-  const errors = [...refreshErrors];
+  const errors: Array<{ email: string; error: string; code?: string }> = [
+    ...refreshErrors,
+  ];
   const results = await mapWithConcurrency(clients, async (client) => {
     try {
       const items: any[] = [];
@@ -1149,8 +1247,10 @@ export async function listGoogleCalendars(forEmail?: string): Promise<{
           ];
         });
     } catch (error: any) {
+      const code = googleReadErrorCode(error);
       errors.push({
         email: client.email,
+        ...(code ? { code } : {}),
         error: error?.message || "Unable to list Google calendars",
       });
       return [];
@@ -1188,7 +1288,7 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
-  return Boolean(await resolveManagedCalendarClientOrNull());
+  return hasManagedCalendarConnection();
 }
 
 export async function getConnectedAccounts(
@@ -1199,7 +1299,7 @@ export async function getConnectedAccounts(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length > 0) return accounts.map((a) => a.accountId);
-  const managed = await resolveManagedCalendarClientOrNull();
+  const managed = await resolveManagedCalendarClient();
   return managed ? [managed.email] : [];
 }
 
@@ -1239,7 +1339,7 @@ export async function getAuthStatus(
   );
 
   if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedCalendarClientOrNull();
+    const managed = await resolveManagedCalendarClient();
     return managed
       ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
       : { connected: false, accounts: [] };
@@ -1314,14 +1414,17 @@ export async function listEvents(
     accountEmails?: string[];
     calendarSourceKeys?: string[];
     maxResults?: number;
+    incremental?: boolean;
   } = {},
 ): Promise<{
   events: CalendarEvent[];
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
 }> {
   const { clients, errors: refreshErrors } =
     await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
-  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
+  const errors: Array<{ email: string; error: string; code?: string }> = [
+    ...refreshErrors,
+  ];
   if (clients.length === 0) return { events: [], errors };
   const hasMultipleOwnedAccounts =
     clients.length > 1 || (await getOwnedAccountEmails(forEmail)).length > 1;
@@ -1357,13 +1460,15 @@ export async function listEvents(
     const invalid = requestedSourceKeys.filter(
       (sourceKey) => !discoveredByKey.has(sourceKey),
     );
-    if (invalid.length > 0) {
+    if (invalid.length > 0 && discovered.errors.length === 0) {
       throw new Error(
         `Google Calendar source is not connected or no longer available: ${invalid.join(", ")}`,
       );
     }
     for (const sourceKey of requestedSourceKeys) {
-      const { source, paths } = discoveredByKey.get(sourceKey)!;
+      const discoveredSource = discoveredByKey.get(sourceKey);
+      if (!discoveredSource) continue;
+      const { source, paths } = discoveredSource;
       for (const path of paths) {
         const accountKey = path.accountEmail.trim().toLowerCase();
         selectedSourcesByAccount.set(accountKey, [
@@ -1398,11 +1503,32 @@ export async function listEvents(
     clients,
     async ({ email, accessToken }) => {
       try {
-        const sources = selectedSourcesByAccount.size
-          ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
-          : [undefined];
+        const sources =
+          requestedSourceKeys.length > 0
+            ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
+            : [undefined];
+        const preloaded =
+          options.incremental && forEmail
+            ? await Promise.allSettled(
+                sources.map((source) =>
+                  source?.accessRole === "freeBusyReader"
+                    ? Promise.resolve([])
+                    : listSyncedGoogleEvents({
+                        owner: forEmail,
+                        orgId: getRequestOrgId() ?? undefined,
+                        account: email,
+                        accessToken,
+                        calendarId: source?.calendarId ?? "primary",
+                        timeMin,
+                        timeMax,
+                        eventTypes: LIST_EVENT_TYPES,
+                        maxResults: options.maxResults ?? 2500,
+                      }),
+                ),
+              )
+            : null;
         const events: any[] = [];
-        for (const source of sources) {
+        for (const [index, source] of sources.entries()) {
           if (source?.accessRole === "freeBusyReader") {
             errors.push({
               email,
@@ -1411,6 +1537,21 @@ export async function listEvents(
             continue;
           }
           try {
+            if (preloaded) {
+              const result = preloaded.find(
+                (_, position) => position === index,
+              );
+              if (!result)
+                throw new Error("Google Calendar batch response is incomplete");
+              if (result.status === "rejected") throw result.reason;
+              events.push(
+                ...result.value.map((event) => ({
+                  ...event,
+                  __calendarSource: source,
+                })),
+              );
+              continue;
+            }
             let pageToken: string | undefined;
             do {
               const response = await calendarListEvents(
@@ -1438,8 +1579,10 @@ export async function listEvents(
                   : undefined;
             } while (pageToken);
           } catch (error: any) {
+            const code = googleReadErrorCode(error);
             errors.push({
               email,
+              ...(code ? { code } : {}),
               error: source
                 ? `Unable to read Google Calendar source ${source.name} (${source.calendarId}): ${error?.message || "Unknown provider error"}`
                 : error?.message || "Unable to load Google Calendar events",
@@ -1475,6 +1618,7 @@ export async function listEvents(
             allDay: !event.start?.dateTime,
             source: "google" as const,
             googleEventId: event.id || undefined,
+            revision: event.etag || undefined,
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
             calendarSourceKey: calendarSource?.sourceKey,
@@ -1667,14 +1811,14 @@ export async function listOverlayEvents(
   timeMax: string,
   overlayEmails: string[],
   forEmail?: string,
-  options: { accountEmails?: string[] } = {},
+  options: { accountEmails?: string[]; incremental?: boolean } = {},
 ): Promise<{
   events: CalendarEvent[];
-  errors: Array<{ email: string; error: string }>;
-  accountErrors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
+  accountErrors: Array<{ email: string; error: string; code?: string }>;
 }> {
   let clients: Array<{ email: string; accessToken: string }>;
-  let refreshErrors: Array<{ email: string; error: string }>;
+  let refreshErrors: Array<{ email: string; error: string; code?: string }>;
   try {
     const resolved = await getClientsForAccountsWithErrors(
       forEmail,
@@ -1690,13 +1834,17 @@ export async function listOverlayEvents(
       accountErrors: [{ email: forEmail ?? "google", error: message }],
     };
   }
-  const errors: Array<{ email: string; error: string }> = [];
+  const errors: Array<{ email: string; error: string; code?: string }> = [];
   if (clients.length === 0) {
     const message =
       refreshErrors[0]?.error ?? "Google Calendar is not connected";
     return {
       events: [],
-      errors: overlayEmails.map((email) => ({ email, error: message })),
+      errors: overlayEmails.map((email) => ({
+        email,
+        error: message,
+        ...(refreshErrors[0]?.code ? { code: refreshErrors[0].code } : {}),
+      })),
       accountErrors: refreshErrors,
     };
   }
@@ -1704,26 +1852,43 @@ export async function listOverlayEvents(
   const allResults = await Promise.all(
     overlayEmails.map(async (overlayEmail) => {
       const accessErrors: string[] = [];
+      const failureCodes: string[] = [];
       for (const client of clients) {
         try {
           const events: any[] = [];
-          let pageToken: string | undefined;
-          do {
-            const response = await calendarListEvents(
-              client.accessToken,
-              overlayEmail,
-              {
+          if (options.incremental && forEmail) {
+            events.push(
+              ...(await listSyncedGoogleEvents({
+                owner: forEmail,
+                orgId: getRequestOrgId() ?? undefined,
+                account: client.email,
+                accessToken: client.accessToken,
+                calendarId: overlayEmail,
                 timeMin,
                 timeMax,
-                singleEvents: true,
-                orderBy: "startTime",
                 eventTypes: LIST_EVENT_TYPES,
-                pageToken,
-              },
+                maxResults: 2500,
+              })),
             );
-            events.push(...(response.items || []));
-            pageToken = response.nextPageToken;
-          } while (pageToken);
+          } else {
+            let pageToken: string | undefined;
+            do {
+              const response = await calendarListEvents(
+                client.accessToken,
+                overlayEmail,
+                {
+                  timeMin,
+                  timeMax,
+                  singleEvents: true,
+                  orderBy: "startTime",
+                  eventTypes: LIST_EVENT_TYPES,
+                  pageToken,
+                },
+              );
+              events.push(...(response.items || []));
+              pageToken = response.nextPageToken;
+            } while (pageToken);
+          }
           return events.map((event: any) => ({
             id: `overlay-${overlayEmail}-${event.id}`,
             title: event.summary || "Busy",
@@ -1749,6 +1914,8 @@ export async function listOverlayEvents(
             updatedAt: event.updated || new Date().toISOString(),
           }));
         } catch (error: any) {
+          const code = googleReadErrorCode(error);
+          if (code) failureCodes.push(code);
           const message = error?.message || "Unable to read overlay calendar";
           console.error(
             `[listOverlayEvents] Error fetching ${overlayEmail} via ${client.email}:`,
@@ -1761,6 +1928,11 @@ export async function listOverlayEvents(
       errors.push({
         email: overlayEmail,
         error: `No selected Google account could read this overlay (${accessErrors.join("; ")})`,
+        ...(failureCodes.includes("RATE_LIMITED")
+          ? { code: "RATE_LIMITED" }
+          : failureCodes.includes("AUTH_REQUIRED")
+            ? { code: "AUTH_REQUIRED" }
+            : {}),
       });
       return [];
     }),
@@ -1819,6 +1991,7 @@ export async function getEvent(
     allDay: !event.start?.dateTime,
     source: "google",
     googleEventId: event.id || undefined,
+    revision: event.etag || undefined,
     htmlLink: event.htmlLink || undefined,
     accountEmail: account.accountEmail,
     calendarSourceKey: calendarSource?.sourceKey,
@@ -1948,12 +2121,92 @@ export async function createEvent(
   };
 }
 
+export const CALENDAR_EVENT_RECORD = "calendar_event";
+const MAX_EVENT_REPLACE_ATTEMPTS = 3;
+const TIME_WITH_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+const REPEATABLE_EVENT_FIELDS = new Set<string>([
+  "title",
+  "description",
+  "location",
+  "start",
+  "end",
+  "startTimeZone",
+  "endTimeZone",
+  "allDay",
+  "transparency",
+  "visibility",
+  "status",
+  "colorId",
+  "recurrence",
+]);
+
+function sameEventTime(a: string, b: string, allDay: boolean): boolean {
+  if (allDay) return a.split("T")[0] === b.split("T")[0];
+  if (!TIME_WITH_OFFSET.test(a) || !TIME_WITH_OFFSET.test(b)) return a === b;
+  return Date.parse(a) === Date.parse(b);
+}
+
+function eventHoldsPatch(
+  current: CalendarEvent,
+  patch: Partial<CalendarEvent>,
+): boolean {
+  const allDay = patch.allDay ?? current.allDay;
+  const stored: Record<string, unknown> = { ...current };
+  const fields: Record<string, unknown> = { ...patch };
+  return Object.entries(fields).every(([key, value]) => {
+    if (key === "accountEmail" || value === undefined) return true;
+    if (!REPEATABLE_EVENT_FIELDS.has(key)) return false;
+    const storedValue = stored[key] ?? (key === "recurrence" ? [] : null);
+    if (
+      (key === "start" || key === "end") &&
+      typeof value === "string" &&
+      typeof storedValue === "string"
+    ) {
+      return sameEventTime(value, storedValue, allDay);
+    }
+    return isSameRecord(value, storedValue);
+  });
+}
+
+function eventConflict(current: CalendarEvent) {
+  return saveConflict(CALENDAR_EVENT_RECORD, current, current.revision ?? null);
+}
+
+export interface EventUpdateResult {
+  htmlLink?: string | undefined;
+  meetLink?: string | undefined;
+  conferenceData?: CalendarEvent["conferenceData"] | undefined;
+  attendees?: CalendarEvent["attendees"] | undefined;
+  revision?: string | undefined;
+}
+
+async function updateResultAfterStaleWrite(
+  googleEventId: string,
+  account: GoogleAccountSelection,
+  resend: Partial<CalendarEvent> | undefined,
+): Promise<EventUpdateResult> {
+  const current = await getEvent(googleEventId, account);
+  if (!resend || !eventHoldsPatch(current, resend)) {
+    throw eventConflict(current);
+  }
+  countSaveOutcome(CALENDAR_EVENT_RECORD, "already_applied");
+  return {
+    htmlLink: current.htmlLink,
+    meetLink: current.hangoutLink,
+    conferenceData: current.conferenceData,
+    attendees: current.attendees,
+    revision: current.revision,
+  };
+}
+
 export async function moveEvent(
   googleEventId: string,
   options: {
     sourceAccount: GoogleAccountSelection;
     destinationAccount: GoogleAccountSelection;
     sendUpdates?: "all" | "none";
+    expectedRevision?: string | undefined;
   },
 ): Promise<{
   id?: string;
@@ -1962,6 +2215,12 @@ export async function moveEvent(
   conferenceData?: CalendarEvent["conferenceData"];
 }> {
   const sourceEvent = await getEvent(googleEventId, options.sourceAccount);
+  checkSaveRevision({
+    record: CALENDAR_EVENT_RECORD,
+    expectedRevision: options.expectedRevision,
+    current: { value: sourceEvent, revision: sourceEvent.revision ?? null },
+    isSameSave: () => false,
+  });
   if (sourceEvent.status === "cancelled") {
     throw new Error("Cancelled events cannot be moved.");
   }
@@ -2008,6 +2267,7 @@ export async function moveEvent(
     await deleteEvent(googleEventId, options.sourceAccount, {
       scope: "single",
       sendUpdates: options.sendUpdates,
+      ifMatch: sourceEvent.revision,
     });
   } catch (error) {
     try {
@@ -2033,21 +2293,18 @@ export async function updateEvent(
   event: Partial<CalendarEvent>,
   options: {
     account: GoogleAccountSelection;
-    sendUpdates?: "all" | "none";
-    addGoogleMeet?: boolean;
-    removeGoogleMeet?: boolean;
-    scope?: UpdateEventScope;
+    sendUpdates?: "all" | "none" | undefined;
+    addGoogleMeet?: boolean | undefined;
+    removeGoogleMeet?: boolean | undefined;
+    scope?: UpdateEventScope | undefined;
+    expectedRevision?: string | undefined;
   },
-): Promise<{
-  htmlLink?: string;
-  meetLink?: string;
-  conferenceData?: CalendarEvent["conferenceData"];
-  attendees?: CalendarEvent["attendees"];
-}> {
+): Promise<EventUpdateResult> {
   const client = await getClientForAccount(options.account);
 
   let targetEventId = googleEventId;
   let eventPatch = event;
+  let ifMatch = options.expectedRevision;
   if (options?.scope === "all") {
     const instance = await calendarGetEvent(
       client.accessToken,
@@ -2064,6 +2321,20 @@ export async function updateEvent(
         recurringEventId,
       );
       eventPatch = alignSeriesUpdateToMaster(event, instance, master);
+    }
+    if (
+      options.expectedRevision !== undefined &&
+      recurringEventId !== googleEventId
+    ) {
+      const occurrence = await calendarGetEvent(
+        client.accessToken,
+        "primary",
+        googleEventId,
+      );
+      if (occurrence.etag !== options.expectedRevision) {
+        throw eventConflict(await getEvent(googleEventId, options.account));
+      }
+      ifMatch = master.etag;
     }
     eventPatch = alignSeriesRecurrenceToStart(eventPatch, {
       startValue: googleEventStartValue(master),
@@ -2126,42 +2397,67 @@ export async function updateEvent(
     requestBody.conferenceData = null;
   }
 
-  const response = eventPatch.workingLocationProperties
-    ? await calendarUpdateEvent(
+  const writeParams = {
+    sendUpdates: options.sendUpdates,
+    conferenceDataVersion:
+      options.addGoogleMeet || options.removeGoogleMeet ? 1 : undefined,
+    supportsAttachments:
+      eventPatch.attachments !== undefined ? true : undefined,
+  };
+  const replaceStoredEvent = async () => {
+    for (let attempt = 1; ; attempt++) {
+      const stored = await calendarGetEvent(
         client.accessToken,
         "primary",
         targetEventId,
-        {
-          ...(await calendarGetEvent(
-            client.accessToken,
-            "primary",
-            targetEventId,
-          )),
-          ...requestBody,
-        },
-        {
-          sendUpdates: options?.sendUpdates,
-          conferenceDataVersion:
-            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
-          supportsAttachments:
-            eventPatch.attachments !== undefined ? true : undefined,
-        },
-      )
-    : await calendarPatchEvent(
-        client.accessToken,
-        "primary",
-        targetEventId,
-        requestBody,
-        {
-          sendUpdates: options?.sendUpdates,
-          conferenceDataVersion:
-            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
-          supportsAttachments:
-            eventPatch.attachments !== undefined ? true : undefined,
-        },
       );
+      try {
+        return await calendarUpdateEvent(
+          client.accessToken,
+          "primary",
+          targetEventId,
+          { ...stored, ...requestBody },
+          { ...writeParams, ifMatch: ifMatch ?? stored.etag },
+        );
+      } catch (error) {
+        if (
+          ifMatch !== undefined ||
+          attempt >= MAX_EVENT_REPLACE_ATTEMPTS ||
+          !isGooglePreconditionFailedError(error)
+        ) {
+          throw error;
+        }
+      }
+    }
+  };
+
+  let response: Awaited<ReturnType<typeof calendarPatchEvent>>;
+  try {
+    response = eventPatch.workingLocationProperties
+      ? await replaceStoredEvent()
+      : await calendarPatchEvent(
+          client.accessToken,
+          "primary",
+          targetEventId,
+          requestBody,
+          { ...writeParams, ifMatch },
+        );
+  } catch (error) {
+    if (ifMatch === undefined || !isGooglePreconditionFailedError(error)) {
+      throw error;
+    }
+    const resend =
+      targetEventId === googleEventId &&
+      !options.addGoogleMeet &&
+      !options.removeGoogleMeet
+        ? event
+        : undefined;
+    return updateResultAfterStaleWrite(googleEventId, options.account, resend);
+  }
 
   return {
+    revision:
+      targetEventId === googleEventId ? response?.etag || undefined : undefined,
     htmlLink: response?.htmlLink || undefined,
     meetLink: response?.hangoutLink || undefined,
     conferenceData: mapConferenceData(response?.conferenceData),
@@ -2187,6 +2483,7 @@ export async function deleteEvent(
   options?: {
     scope?: "single" | "all" | "thisAndFollowing";
     sendUpdates?: "all" | "none";
+    ifMatch?: string | undefined;
   },
 ): Promise<void> {
   const client = await getClientForAccount(account);
@@ -2195,12 +2492,23 @@ export async function deleteEvent(
   const sendUpdates = options?.sendUpdates;
 
   if (scope === "single") {
-    await calendarDeleteEvent(
-      client.accessToken,
-      "primary",
-      googleEventId,
-      sendUpdates,
-    );
+    try {
+      await calendarDeleteEvent(
+        client.accessToken,
+        "primary",
+        googleEventId,
+        sendUpdates,
+        options?.ifMatch,
+      );
+    } catch (error) {
+      if (
+        options?.ifMatch === undefined ||
+        !isGooglePreconditionFailedError(error)
+      ) {
+        throw error;
+      }
+      throw eventConflict(await getEvent(googleEventId, account));
+    }
     return;
   }
 

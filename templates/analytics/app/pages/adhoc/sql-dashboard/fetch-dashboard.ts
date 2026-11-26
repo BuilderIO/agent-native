@@ -1,9 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import type {
+  DashboardCertification,
+  SqlDashboardConfig,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 import { DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS } from "@/lib/dashboard-report-capture";
 import type { ResourceAccess } from "@/lib/resource-access";
-
-import type { DashboardCertification, SqlDashboardConfig } from "./types";
 
 export type FetchedDashboard = {
   id: string;

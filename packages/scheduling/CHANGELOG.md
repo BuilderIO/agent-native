@@ -1,5 +1,234 @@
 # @agent-native/scheduling
 
+## 0.4.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [8959acb]
+- Updated dependencies [3cf91b8]
+- Updated dependencies [6409765]
+- Updated dependencies [3b2114d]
+- Updated dependencies
+- Updated dependencies [415f03e]
+- Updated dependencies [a37f935]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [0a08ec4]
+- Updated dependencies [3e81b56]
+  - @agent-native/toolkit@0.235.0
+
+## 0.4.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0f7bf06]
+- Updated dependencies
+- Updated dependencies [459726e]
+- Updated dependencies [0315ffa]
+- Updated dependencies [124141d]
+- Updated dependencies [4ad86d5]
+- Updated dependencies [f037abc]
+- Updated dependencies [971ad70]
+- Updated dependencies [631ee7c]
+  - @agent-native/toolkit@0.234.0
+
+## 0.4.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6f4b56e]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c71955a]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [7c866e8]
+- Updated dependencies [6f84c01]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c541b37]
+- Updated dependencies
+- Updated dependencies [a57a58f]
+- Updated dependencies [c3bcccd]
+- Updated dependencies [bb20dd7]
+- Updated dependencies [2a7cf8c]
+- Updated dependencies [4b68858]
+- Updated dependencies [b755252]
+- Updated dependencies [87dfdb6]
+- Updated dependencies [a57a58f]
+  - @agent-native/toolkit@0.233.0
+
+## 0.4.0
+
+### Minor Changes
+
+- 41c2b0e: Add extension points a deployment can register its own policy through, with no change until something registers:
+  - `fetchWithProviderCallGate` (from `@agent-native/core/provider-api` and `@agent-native/core/provider-api/call-gates`) sends a request made with a package's own client through the registered provider call gates, so a gate refuses, debits or rate-limits it exactly as it would a provider-api request. `precheckProviderCall` takes the request URL when known, so a gate that claims requests by URL is prechecked too, and a caller that must precheck before its own work (such as a token refresh) calls `precheckGatedProviderCall`, which bounds the precheck by the same admission deadline (`ProviderCallGateAdmissionTimeoutError`), and passes the receipt as `prechecked` so it runs once. The scheduling Google Calendar provider sends every request through it as provider `google_calendar`, takes an optional `getAccountIdentity(credentialId)` that gates receive as the request's `accountId` (a lookup that misses the admission deadline arrives as `ProviderAccountLookupTimeoutError` in `accountIdError`), and an optional `appId` (default `"scheduling"`) that gates receive as the consuming app.
+  - `registerA2AActionCallHook` (from `@agent-native/core/a2a`) lets a hook add JSON-RPC params to outgoing `actions/invoke` calls and, on the receiving app, refuse an incoming call or admit it as foreground work (`isA2AForegroundCall()`), optionally in a verified organization. A refusal reaches the caller as `A2ACallRefusedError`.
+  - `registerMcpTurnGrantAdmitter` (from `@agent-native/core/mcp`) admits a turn grant the framework's own store does not recognize, such as one another service minted for the user's current turn. An admitted decision names the grant's `ownerEmail` and `appId`, and the framework refuses it unless both match the call. An admitter that does not answer within 5 seconds refuses the grant.
+  - `defineConfig` client options take `buildId` and `commitSha`, so one build process can compile apps that report different builds.
+  - `agent-native.json` `doctor.testEnvKeys` lists non-secret env keys an app's tests may read without the `no-env-credentials` guard flagging them; credential-like names (including `*_URI` connection strings, webhooks, passphrases and `JWT`) are refused.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [bfea22b]
+- Updated dependencies [bf07e40]
+- Updated dependencies [062955d]
+- Updated dependencies [05d86d4]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [5be6e23]
+- Updated dependencies [830feff]
+- Updated dependencies [b578994]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [6facea0]
+- Updated dependencies [234a3ba]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [fbab2ca]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [7e639f5]
+- Updated dependencies [6d231e9]
+- Updated dependencies [d4e0116]
+- Updated dependencies [226913b]
+- Updated dependencies [1faef32]
+- Updated dependencies [f7bcd0f]
+- Updated dependencies [0eeea8c]
+- Updated dependencies [e0eaf3f]
+- Updated dependencies [75c90a5]
+- Updated dependencies [c8d851d]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [ac21d0b]
+- Updated dependencies
+- Updated dependencies [554a6aa]
+- Updated dependencies [798b8b1]
+- Updated dependencies [75c90a5]
+- Updated dependencies [ca69494]
+- Updated dependencies [2308970]
+- Updated dependencies [56ca9e7]
+- Updated dependencies [8815d89]
+- Updated dependencies [786235c]
+- Updated dependencies [caec4be]
+- Updated dependencies [b879e94]
+- Updated dependencies [626773e]
+- Updated dependencies [e675278]
+- Updated dependencies [bc7c1b3]
+- Updated dependencies [4b67d85]
+- Updated dependencies [862e5bf]
+- Updated dependencies [6938e7c]
+- Updated dependencies [eb5c241]
+- Updated dependencies [66de1ad]
+- Updated dependencies [99491ba]
+- Updated dependencies [e01adee]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [3ed4a65]
+- Updated dependencies [5f3dacf]
+- Updated dependencies [d7de14c]
+- Updated dependencies [a911ca6]
+- Updated dependencies [bb6eb2c]
+  - @agent-native/toolkit@0.232.0
+
+## 0.3.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9f49abc]
+- Updated dependencies [2755d62]
+- Updated dependencies [d863c6a]
+- Updated dependencies [3d92e2e]
+- Updated dependencies
+  - @agent-native/toolkit@0.231.0
+
+## 0.3.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [f6464e1]
+- Updated dependencies [816c571]
+- Updated dependencies [3fc2440]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [0794eec]
+- Updated dependencies [817593c]
+- Updated dependencies [675f590]
+- Updated dependencies [6c6a245]
+- Updated dependencies [01e4cc6]
+- Updated dependencies
+- Updated dependencies [8360101]
+- Updated dependencies [f53f27f]
+- Updated dependencies [d8c2381]
+- Updated dependencies [2e1e77e]
+- Updated dependencies [428b8b9]
+- Updated dependencies [5c2d0ab]
+  - @agent-native/toolkit@0.230.0
+
+## 0.3.0
+
+### Minor Changes
+
+- f152dfe: Booking attendees keep the order they were added in through a new nullable `booking_attendees.position` column (add it in your app's migrations), and calendar and video providers can read credentials and account identity through workspace connections, including a Google Calendar workspace provider and calendar reminders.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [a4a4f9e]
+- Updated dependencies [988cdee]
+- Updated dependencies [dfe5aa0]
+- Updated dependencies [f152dfe]
+- Updated dependencies [fceb6b5]
+- Updated dependencies [425c9ac]
+- Updated dependencies
+- Updated dependencies [9af0433]
+- Updated dependencies [79bc394]
+- Updated dependencies [e79c1ae]
+- Updated dependencies [a6ccc79]
+- Updated dependencies [cf9ff10]
+  - @agent-native/toolkit@0.229.0
+
+## 0.2.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [75f2dbb]
+  - @agent-native/toolkit@0.228.2
+
+## 0.2.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.228.1
+
+## 0.2.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ade88da]
+- Updated dependencies [8656de2]
+- Updated dependencies [c8c081c]
+- Updated dependencies [da0d6d2]
+- Updated dependencies [353cb43]
+- Updated dependencies [40362af]
+- Updated dependencies [8656de2]
+- Updated dependencies [8175f2d]
+- Updated dependencies [54b3cc3]
+- Updated dependencies
+- Updated dependencies [8930066]
+- Updated dependencies [bea9322]
+- Updated dependencies [b6222c2]
+- Updated dependencies [78738f3]
+- Updated dependencies [bdefc2e]
+  - @agent-native/toolkit@0.228.0
+
 ## 0.2.56
 
 ### Patch Changes
@@ -1197,85 +1426,5 @@
 - Release all public npm packages with a patch version bump.
 - Updated dependencies
   - @agent-native/toolkit@0.16.14
-
-## 0.1.42
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.13
-
-## 0.1.41
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.12
-
-## 0.1.40
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.10
-
-## 0.1.39
-
-### Patch Changes
-
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-- Updated dependencies [9e21e1b]
-  - @agent-native/toolkit@0.16.0
-
-## 0.1.38
-
-### Patch Changes
-
-- Updated dependencies [f07ec04]
-  - @agent-native/toolkit@0.15.0
-
-## 0.1.37
-
-### Patch Changes
-
-- Updated dependencies [aa17e22]
-  - @agent-native/toolkit@0.14.0
-
-## 0.1.36
-
-### Patch Changes
-
-- Updated dependencies [106af0e]
-  - @agent-native/toolkit@0.13.0
-
-## 0.1.35
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-- Updated dependencies [f499dff]
-  - @agent-native/toolkit@0.12.2
-
-## 0.1.34
-
-### Patch Changes
-
-- Updated dependencies [c0e7d64]
-- Updated dependencies [c0e7d64]
-  - @agent-native/toolkit@0.12.0
-
-## 0.1.33
-
-### Patch Changes
-
-- Updated dependencies [24a5a20]
-  - @agent-native/toolkit@0.11.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

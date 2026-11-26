@@ -226,7 +226,7 @@ test("Typography applies to a selected range after focus moves to its controls",
     )
     .toBe("E2E");
 
-  const weightPicker = typography.getByRole("combobox");
+  const weightPicker = typography.getByRole("combobox").first();
   await expect(weightPicker).toHaveCount(1);
   await weightPicker.click();
   const semiBold = page.getByRole("option", {
@@ -722,7 +722,7 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
     });
   const typography = typographySection(page);
   await expect(await sizeInput(page)).toHaveValue("16");
-  await expect(typography.getByRole("combobox")).toContainText("Bold");
+  await expect(typography.getByRole("combobox").first()).toContainText("Bold");
 
   const lineHeight = typography.locator('input[aria-label="Line height" i]');
   await expect(lineHeight).toHaveValue("Auto");
@@ -753,15 +753,17 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
     .poll(() => heading.evaluate(() => window.getSelection()?.isCollapsed))
     .toBe(true);
   await expect(await sizeInput(page)).toHaveValue("16");
-  await expect(typography.getByRole("combobox")).toContainText("Bold");
+  await expect(typography.getByRole("combobox").first()).toContainText("Bold");
   await expect(lineHeight).toHaveValue(nextRangeLineHeightShown);
   await page.keyboard.press("ArrowRight");
   await expect(await sizeInput(page)).toHaveValue("24");
-  await expect(typography.getByRole("combobox")).toContainText("Regular");
+  await expect(typography.getByRole("combobox").first()).toContainText(
+    "Regular",
+  );
   await expect(lineHeight).toHaveValue("Auto");
   await page.keyboard.press("Escape");
   await expect(await sizeInput(page)).toHaveValue("Mixed");
-  await expect(typography.getByRole("combobox")).toContainText("Mixed");
+  await expect(typography.getByRole("combobox").first()).toContainText("Mixed");
   await expect(lineHeight).toHaveValue("Mixed");
 });
 
@@ -785,7 +787,7 @@ test("text range caret follows the active text leaf and exits to whole-layer Mix
     .toBe("Nested E2E");
   const typography = typographySection(page);
   await expect(await sizeInput(page)).toHaveValue("16");
-  await expect(typography.getByRole("combobox")).toContainText("Bold");
+  await expect(typography.getByRole("combobox").first()).toContainText("Bold");
   const lineHeight = typography.locator('input[aria-label="Line height" i]');
   await expect(lineHeight).toHaveValue("150%");
   await typography.getByRole("button", { name: "Typography details" }).click();
@@ -809,15 +811,17 @@ test("text range caret follows the active text leaf and exits to whole-layer Mix
     .poll(() => heading.evaluate(() => window.getSelection()?.isCollapsed))
     .toBe(true);
   await expect(await sizeInput(page)).toHaveValue("16");
-  await expect(typography.getByRole("combobox")).toContainText("Bold");
+  await expect(typography.getByRole("combobox").first()).toContainText("Bold");
   await expect(lineHeight).toHaveValue("150%");
   await page.keyboard.press("ArrowRight");
   await expect(await sizeInput(page)).toHaveValue("24");
-  await expect(typography.getByRole("combobox")).toContainText("Regular");
+  await expect(typography.getByRole("combobox").first()).toContainText(
+    "Regular",
+  );
   await expect(lineHeight).toHaveValue("30");
   await page.keyboard.press("Escape");
   await expect(await sizeInput(page)).toHaveValue("Mixed");
-  await expect(typography.getByRole("combobox")).toContainText("Mixed");
+  await expect(typography.getByRole("combobox").first()).toContainText("Mixed");
   await expect(lineHeight).toHaveValue("Mixed");
   await typography.getByRole("button", { name: "Typography details" }).click();
   await expect(

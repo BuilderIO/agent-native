@@ -17,7 +17,7 @@ test("the Interact frame is rounded for its device and clips the page to it", as
   );
   const radius = async () => (await cornerOf(card)).radius;
   const device = page.locator(
-    "[data-design-top-bar] [data-design-interact-device]",
+    "[data-design-interact-floating-bar] [data-design-interact-device]",
   );
   const pick = async (name: RegExp) => {
     await device.click();

@@ -35,7 +35,7 @@ describe("resolveBackgroundPanelScope", () => {
 
   it("offers no background section to a viewer, in any scope", () => {
     for (const viewMode of ["overview", "single"] as const) {
-      for (const mode of ["edit", "interact", "annotate"] as const) {
+      for (const mode of ["edit", "interact", "comment"] as const) {
         expect(
           resolveBackgroundPanelScope({ viewMode, mode, readOnly: true }),
         ).toBeNull();

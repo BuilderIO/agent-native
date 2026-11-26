@@ -1,0 +1,4250 @@
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  IconArrowsSort,
+  IconSortAscending,
+  IconSortDescending,
+  IconChevronLeft,
+  IconChevronRight,
+  IconAlertCircle,
+  IconAlertTriangle,
+  IconArrowDownRight,
+  IconArrowUpRight,
+  IconEye,
+  IconInfoCircle,
+  IconPencil,
+  IconTrendingUp,
+  IconTrendingDown,
+} from "@tabler/icons-react";
+import {
+  createContext,
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { Link } from "react-router";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  getRelativeCoordinate,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  usePlotArea,
+  useXAxisDomain,
+  useXAxisScale,
+  XAxis,
+  YAxis,
+  type RelativePointer,
+} from "recharts";
+
+import {
+  evenTickValues,
+  isCategoryAxis,
+  planCategoryAxis,
+  trimToWidth,
+  type CategoryAxisPlan,
+} from "../../dashboard/chart-axis-labels.js";
+import { csvCell } from "../../dashboard/csv.js";
+import {
+  funnelOutcomeShare,
+  type DashboardFunnelItem,
+  type DashboardFunnelOutcomes,
+  type DashboardFunnelOutcomeSummary,
+  type DashboardFunnelRows,
+} from "../../dashboard/dashboard-funnel.js";
+import {
+  resolveDualAxis,
+  type ChartAxisSide,
+  type ChartValueFormatter,
+  type DualAxisPlan,
+} from "../../dashboard/dual-axis.js";
+import {
+  EventMarkerList,
+  renderEventMarkers,
+  useEventMarkerAxisPadding,
+  useEventMarkerGroups,
+} from "../../dashboard/event-markers.js";
+import { formatDollars } from "../../dashboard/format-dollars.js";
+import {
+  EMPTY_DURATION,
+  durationTicks,
+  formatDuration,
+  isEmptyDuration,
+} from "../../dashboard/format-duration.js";
+import {
+  metricComparison,
+  type MetricComparison,
+} from "../../dashboard/metric-comparison.js";
+import {
+  isNumericLikeValue,
+  type ChartPointLimit,
+  type HeatmapKeys,
+} from "../../dashboard/panel-render-contract.js";
+import type {
+  SqlPanel,
+  ChartType,
+  TableColumnConfig,
+  ColumnFormat,
+} from "../../dashboard/sql-dashboard-types.js";
+import {
+  numberTableColumns,
+  tableQuantity,
+} from "../../dashboard/table-columns.js";
+import {
+  FUNNEL_OUTCOME_FILLS,
+  FUNNEL_OUTCOME_SEGMENTS,
+  type FunnelOutcomeSegment,
+} from "../../dashboard/tokens/funnel-outcome-colors.js";
+import { useChartTooltipPortalPosition } from "../../dashboard/use-chart-tooltip-portal.js";
+import { Badge } from "../../ui/badge.js";
+import { Button } from "../../ui/button.js";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "../../ui/context-menu.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../ui/dropdown-menu.js";
+import { Input } from "../../ui/input.js";
+import { Popover, PopoverAnchor, PopoverContent } from "../../ui/popover.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select.js";
+import {
+  Tooltip as HoverTooltip,
+  TooltipContent as HoverTooltipContent,
+  TooltipProvider as HoverTooltipProvider,
+  TooltipTrigger as HoverTooltipTrigger,
+} from "../../ui/tooltip.js";
+import { cn } from "../../utils.js";
+import { InlineMarkdown } from "../review/InlineMarkdown.js";
+import {
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription.js";
+import {
+  DataNoteLines,
+  useDashboardPanelChartHost,
+  useDataNoteChartMargin,
+  useDataNoteLayout,
+  usePanelDataNotes,
+  usePanelEvents,
+  useRenderDataNoteBands,
+} from "./panel-chart-host.js";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_TABLE_PAGE_SIZE = 25;
+const EMPTY_DRILLDOWN_SERIES: string[] = [];
+
+export const DEFAULT_COLORS = [
+  "var(--brand-blue)",
+  "var(--brand-teal)",
+  "#06b6d4",
+  "#10b981",
+  "#f59e0b",
+  "#ef4444",
+  "#ec4899",
+  "#14b8a6",
+];
+
+const CHART_TOOLTIP_Z_INDEX = 60;
+
+const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
+  zIndex: CHART_TOOLTIP_Z_INDEX,
+  pointerEvents: "none",
+};
+
+const CHART_TOOLTIP_PROPS = {
+  allowEscapeViewBox: { x: true, y: true },
+  wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
+} as const;
+
+const BAR_TOOLTIP_CURSOR_PROPS = {
+  fill: "hsl(var(--muted))",
+  fillOpacity: 0.32,
+  stroke: "hsl(var(--border))",
+  strokeOpacity: 0.5,
+  strokeWidth: 1,
+  rx: 4,
+  ry: 4,
+} as const;
+
+const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
+  fontSize: 11,
+  paddingTop: 8,
+};
+
+const CHART_LEGEND_PROPS = {
+  iconSize: 8,
+  wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
+} as const;
+
+const CHART_RESIZE_DEBOUNCE_MS = 50;
+const LEGEND_ACTION_CLOSE_DELAY_MS = 600;
+
+function ChartResponsiveContainer({ children }: { children: ReactNode }) {
+  return (
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      debounce={CHART_RESIZE_DEBOUNCE_MS}
+    >
+      {children}
+    </ResponsiveContainer>
+  );
+}
+
+const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
+const PARTIAL_DAY_DASH = "3 5";
+const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
+// A table is as tall as its rows (up to TABLE_SCROLL_MAX_HEIGHT_CLASS), so
+// only its placeholder holds a height; a heatmap keeps a fixed one.
+export const TABLE_PLACEHOLDER_MIN_HEIGHT_CLASS = "min-h-32";
+export const TABLE_SKELETON_ROWS = 5;
+const TABLE_SCROLL_MAX_HEIGHT_CLASS = "max-h-120";
+export const HEATMAP_PANEL_MIN_HEIGHT_CLASS = "min-h-[386px]";
+export const HEATMAP_SKELETON_ROWS = 10;
+
+export function formatSqlChartError(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : stringifyValue(error);
+  // The action client names the failed action before the server's message,
+  // which says nothing to someone reading a panel.
+  const readableMessage = message
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^Action [\w-]+ failed:\s*/, "");
+
+  if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
+    return "This chart took too long to load. Try again.";
+  }
+  if (/abort(?:ed|ing)?|signal is aborted/i.test(readableMessage)) {
+    return "This chart load was interrupted. Try again.";
+  }
+  if (/internal server error/i.test(readableMessage)) {
+    return "This chart could not be loaded. Try again.";
+  }
+  return readableMessage || "This chart could not be loaded. Try again.";
+}
+
+function stringifyValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : JSON.stringify(value);
+}
+
+function formatYValue(value: number, formatter?: ChartValueFormatter): string {
+  if (formatter === "currency") return formatDollars(value);
+  if (formatter === "percent") {
+    const pct = value <= 1 && value >= -1 ? value * 100 : value;
+    return `${pct.toFixed(2)}%`;
+  }
+  if (formatter === "duration") return formatDuration(value);
+  return value.toLocaleString();
+}
+
+const Y_AXIS_BASE_PROPS = {
+  stroke: "hsl(var(--muted-foreground))",
+  fontSize: 12,
+  tickLine: false,
+  axisLine: false,
+} as const;
+
+function axisLabelProps(value: string, side: ChartAxisSide) {
+  return {
+    value,
+    angle: side === "left" ? -90 : 90,
+    position:
+      side === "left" ? ("insideLeft" as const) : ("insideRight" as const),
+    style: {
+      textAnchor: "middle" as const,
+      fill: "hsl(var(--muted-foreground))",
+      fontSize: 11,
+    },
+  };
+}
+
+/** The rows and visible series a chart draws, for sizing its value axes. */
+type ChartAxisValues = {
+  rows: Record<string, unknown>[];
+  keys: string[];
+  stacked?: boolean | undefined;
+  stackedKeys?: ReadonlySet<string> | undefined;
+};
+
+// Duration axes step in clean units ("6 hours") rather than the decimal
+// seconds Recharts picks, and size to their labels so "36 hours" fits on one
+// line.
+function durationAxisProps(values: ChartAxisValues, keys: string[]) {
+  let min = 0;
+  let max = 0;
+  for (const row of values.rows) {
+    let below = 0;
+    let above = 0;
+    for (const key of keys) {
+      const value = Number(row[key]);
+      if (!Number.isFinite(value)) continue;
+      if (values.stacked || values.stackedKeys?.has(key)) {
+        if (value < 0) below += value;
+        else above += value;
+      } else {
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+    }
+    min = Math.min(min, below);
+    max = Math.max(max, above);
+  }
+  const ticks = durationTicks(min, max);
+  return {
+    ticks,
+    domain: [ticks[0], ticks[ticks.length - 1]],
+    width: "auto" as const,
+  };
+}
+
+function valueAxisProps(
+  formatter: ChartValueFormatter | undefined,
+  values: ChartAxisValues,
+  keys: string[],
+) {
+  return formatter === "duration" ? durationAxisProps(values, keys) : {};
+}
+
+function renderChartYAxes(
+  plan: DualAxisPlan,
+  yFormatter: ChartValueFormatter | undefined,
+  values: ChartAxisValues,
+): ReactNode[] {
+  if (!plan.enabled) {
+    return [
+      <YAxis
+        key="y"
+        {...Y_AXIS_BASE_PROPS}
+        {...valueAxisProps(yFormatter, values, values.keys)}
+        tickFormatter={(v) => formatYValue(v, yFormatter)}
+      />,
+    ];
+  }
+  const keysOn = (side: ChartAxisSide) =>
+    values.keys.filter((key) => plan.sideFor(key) === side);
+
+  return [
+    <YAxis
+      key="y-left"
+      yAxisId="left"
+      {...Y_AXIS_BASE_PROPS}
+      {...valueAxisProps(plan.leftFormatter, values, keysOn("left"))}
+      tickFormatter={(v) => formatYValue(v, plan.leftFormatter)}
+      label={
+        plan.leftLabel ? axisLabelProps(plan.leftLabel, "left") : undefined
+      }
+    />,
+    <YAxis
+      key="y-right"
+      yAxisId="right"
+      orientation="right"
+      {...Y_AXIS_BASE_PROPS}
+      {...valueAxisProps(plan.rightFormatter, values, keysOn("right"))}
+      tickFormatter={(v) => formatYValue(v, plan.rightFormatter)}
+      label={
+        plan.rightLabel ? axisLabelProps(plan.rightLabel, "right") : undefined
+      }
+    />,
+  ];
+}
+
+function seriesAxisId(plan: DualAxisPlan, key: string): string | undefined {
+  return plan.enabled ? plan.sideFor(key) : undefined;
+}
+
+export function seriesValueFormatter(
+  yKeys: string[],
+  plan: DualAxisPlan,
+  seriesNameFormatter: (name: string) => string,
+  fallback?: ChartValueFormatter,
+): (value: number, name?: string | number) => string {
+  if (!plan.enabled) return (value) => formatYValue(value, fallback);
+
+  const byName = new Map<string, ChartValueFormatter | undefined>();
+  for (const key of yKeys) {
+    const formatter = plan.formatterFor(key);
+    byName.set(key, formatter);
+    byName.set(seriesNameFormatter(key), formatter);
+  }
+
+  return (value, name) => {
+    const lookup = name == null ? undefined : String(name);
+    return formatYValue(
+      value,
+      lookup !== undefined && byName.has(lookup)
+        ? byName.get(lookup)
+        : fallback,
+    );
+  };
+}
+
+export function formatMetricValue(
+  raw: unknown,
+  formatter?: ChartValueFormatter,
+  valueLabels?: Record<string, string>,
+): string {
+  const valueLabel = valueLabels?.[String(raw)];
+  if (valueLabel !== undefined) return valueLabel;
+  if (formatter === "duration" && isEmptyDuration(raw)) return EMPTY_DURATION;
+  const numericRaw =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" &&
+          raw.trim() !== "" &&
+          Number.isFinite(Number(raw))
+        ? Number(raw)
+        : null;
+  return numericRaw !== null
+    ? formatYValue(numericRaw, formatter)
+    : raw == null
+      ? "-"
+      : stringifyValue(raw);
+}
+
+export function detectMetricValueColumn(
+  row: Record<string, unknown>,
+  configuredKey?: string,
+): string {
+  const cols = Object.keys(row);
+  if (configuredKey && cols.includes(configuredKey)) return configuredKey;
+  return cols.find((key) => isNumericLikeValue(row[key])) || cols[0] || "";
+}
+
+function parsePrometheusSeriesLabel(label: string): {
+  metric: string;
+  labels: Record<string, string>;
+} {
+  const trimmed = label.trim();
+  const match = /^(.*?)\{(.*)\}$/.exec(trimmed);
+  if (!match) return { metric: trimmed, labels: {} };
+
+  const labels: Record<string, string> = {};
+  const body = match[2];
+  const re = /([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) {
+    labels[m[1]] = m[2].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return { metric: match[1], labels };
+}
+
+function compactGrafanaTarget(value: string): string {
+  const withoutDevicePrefix = value.replace(/^device\s+-\s+/i, "");
+  const beforeExplanation = withoutDevicePrefix.split(/\s+[–-]\s+/)[0];
+  return beforeExplanation.trim() || value;
+}
+
+function truncateLabel(value: string, max = 48): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 3)}...`;
+}
+
+function parseCalendarDate(value: string): Date | null {
+  const normalized = /^\d{8}$/.test(value)
+    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+    : value;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+  if (dateOnly) {
+    return new Date(
+      Number(dateOnly[1]),
+      Number(dateOnly[2]) - 1,
+      Number(dateOnly[3]),
+    );
+  }
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function toSqlChartDateKey(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+    const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(trimmed);
+    if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  }
+
+  const parsed = new Date(stringifyValue(value));
+  return Number.isNaN(parsed.getTime()) ? null : sqlChartLocalDateKey(parsed);
+}
+
+export function sqlChartLocalDateKey(
+  date = new Date(),
+  timeZone = PARTIAL_DAY_TIME_ZONE,
+): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {}
+  return date.toISOString().slice(0, 10);
+}
+
+export interface SplitTimeSeries {
+  key: string;
+  solidKey: string;
+  partialKey: string | null;
+}
+
+export function splitCurrentDayTimeSeriesRows(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  yKeys: string[],
+  todayKey = sqlChartLocalDateKey(),
+): { rows: Record<string, unknown>[]; series: SplitTimeSeries[] } {
+  const todayIndexes = rows
+    .map((row, index) => ({ index, dateKey: toSqlChartDateKey(row[xKey]) }))
+    .filter((entry) => entry.dateKey === todayKey)
+    .map((entry) => entry.index);
+  const firstTodayIndex = todayIndexes[0] ?? -1;
+
+  if (firstTodayIndex <= 0 || yKeys.length === 0) {
+    return {
+      rows,
+      series: yKeys.map((key) => ({ key, solidKey: key, partialKey: null })),
+    };
+  }
+
+  const todaySet = new Set(todayIndexes);
+  const previousIndex = firstTodayIndex - 1;
+  const series = yKeys.map((key, index) => ({
+    key,
+    solidKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_solid`,
+    partialKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_partial`,
+  }));
+  const splitRows = rows.map((row, index) => {
+    const next = { ...row };
+    const isToday = todaySet.has(index);
+    const isPartialSegmentStart = index === previousIndex;
+    for (const item of series) {
+      next[item.solidKey] = isToday ? null : row[item.key];
+      next[item.partialKey] =
+        isToday || isPartialSegmentStart ? row[item.key] : null;
+    }
+    return next;
+  });
+
+  return { rows: splitRows, series };
+}
+
+export function shouldSplitCurrentDayTimeSeries(
+  panel: Pick<SqlPanel, "source">,
+  xKey: string,
+): boolean {
+  if (panel.source === "prometheus") return false;
+
+  return isDailyChartKey(xKey);
+}
+
+function isDailyChartKey(xKey: string): boolean {
+  const normalizedKey = xKey.trim().toLowerCase();
+  if (normalizedKey === "timestamp" || normalizedKey.endsWith("_timestamp")) {
+    return false;
+  }
+
+  return (
+    normalizedKey === "date" ||
+    normalizedKey === "day" ||
+    normalizedKey.endsWith("_date") ||
+    normalizedKey.endsWith("_day")
+  );
+}
+
+function formatSeriesLabel(value: string): string {
+  const { metric, labels } = parsePrometheusSeriesLabel(value);
+  const target =
+    typeof labels.grafana_target === "string"
+      ? compactGrafanaTarget(labels.grafana_target)
+      : "";
+
+  if (target) {
+    if (labels.device) return truncateLabel(`${labels.device} ${target}`);
+    if (labels.mountpoint)
+      return truncateLabel(`${labels.mountpoint} ${target}`);
+    if (labels.cpu) return truncateLabel(`cpu ${labels.cpu} ${target}`);
+    if (labels.state) return truncateLabel(`${labels.state} ${target}`);
+    if (labels.chip_name) return truncateLabel(`${labels.chip_name} ${target}`);
+    if (labels.sensor) return truncateLabel(`${labels.sensor} ${target}`);
+    return truncateLabel(target);
+  }
+
+  const preferred = [
+    "device",
+    "mountpoint",
+    "fstype",
+    "cpu",
+    "mode",
+    "state",
+    "collector",
+    "name",
+    "route",
+    "status",
+    "phase",
+    "dependency",
+    "type",
+    "quantile",
+    "le",
+  ];
+  const parts = preferred
+    .filter((key) => labels[key])
+    .map((key) => `${key}=${labels[key]}`);
+
+  if (parts.length) {
+    const prefix = metric ? `${metric} ` : "";
+    return truncateLabel(`${prefix}${parts.slice(0, 2).join(" ")}`);
+  }
+
+  return truncateLabel(metric || value);
+}
+
+function usesPrometheusPresentation(panel: SqlPanel): boolean {
+  return panel.source === "prometheus" || panel.source === "demo";
+}
+
+export function formatSeriesLabelForPanel(
+  panel: SqlPanel,
+  value: string,
+): string {
+  const alias = panel.config?.seriesLabels?.[value]?.trim();
+  if (alias) return alias;
+  return usesPrometheusPresentation(panel) ? formatSeriesLabel(value) : value;
+}
+
+function formatXLabel(
+  value: string,
+  panel: SqlPanel,
+  includeWeekday = false,
+): string {
+  try {
+    const s = String(value);
+    const d = parseCalendarDate(s);
+    if (d && s.length >= 8) {
+      const options: Intl.DateTimeFormatOptions = {
+        month: "short",
+        day: "numeric",
+      };
+      if (includeWeekday) options.weekday = "long";
+      return d.toLocaleDateString("en-US", options);
+    }
+  } catch {}
+  return formatSeriesLabelForPanel(panel, String(value));
+}
+
+export function formatSqlChartTooltipLabel(
+  value: string,
+  panel: SqlPanel,
+  xKey: string,
+): string {
+  return formatXLabel(value, panel, isDailyChartKey(xKey));
+}
+
+function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
+  return panel.config?.legend !== false && seriesCount > 0;
+}
+
+function numericTooltipValue(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : Number.NEGATIVE_INFINITY;
+}
+
+function sumTooltipPayloadValues(
+  items: Array<{ value?: unknown }>,
+): number | null {
+  let total = 0;
+  let hasNumericValue = false;
+
+  for (const item of items) {
+    const numeric =
+      typeof item.value === "number" ? item.value : Number(item.value);
+    if (!Number.isFinite(numeric)) continue;
+    hasNumericValue = true;
+    total += numeric;
+  }
+
+  return hasNumericValue ? total : null;
+}
+
+function tooltipItemName(item: {
+  dataKey?: string | number;
+  name?: string | number;
+}): string {
+  return String(item.name ?? item.dataKey ?? "");
+}
+
+/** Sorts by value, or by `order` (series names) first when given. */
+export function sortTooltipPayloadItems<
+  T extends {
+    dataKey?: string | number;
+    name?: string | number;
+    value?: unknown;
+  },
+>(items: T[], order?: readonly string[]): T[] {
+  const rank = new Map(order?.map((name, index) => [name, index]));
+  const sorted = items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const ranked =
+        (rank.get(tooltipItemName(a.item)) ?? rank.size) -
+        (rank.get(tooltipItemName(b.item)) ?? rank.size);
+      if (ranked !== 0) return ranked;
+      const diff =
+        numericTooltipValue(b.item.value) - numericTooltipValue(a.item.value);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ item }) => item);
+  const seen = new Set<string>();
+  return sorted.filter((item) => {
+    const name = tooltipItemName(item);
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+}
+
+export function getHiddenSeriesKeysAfterFilter(
+  keys: string[],
+  filteredKey: string,
+): Set<string> {
+  return new Set(keys.filter((key) => key !== filteredKey));
+}
+
+function useSeriesVisibility(keys: string[]): {
+  hiddenKeys: Set<string>;
+  visibleKeys: string[];
+  toggleSeries: (key: string) => void;
+  filterSeries: (key: string) => void;
+} {
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setHiddenKeys((prev) => {
+      const next = new Set(
+        Array.from(prev).filter((key) => keys.includes(key)),
+      );
+      return next.size === prev.size ? prev : next;
+    });
+  }, [keys]);
+
+  const visibleKeys = useMemo(
+    () => keys.filter((key) => !hiddenKeys.has(key)),
+    [hiddenKeys, keys],
+  );
+
+  const toggleSeries = useCallback(
+    (key: string) => {
+      setHiddenKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) {
+          next.delete(key);
+          return next;
+        }
+        const visibleCount = keys.filter((k) => !next.has(k)).length;
+        if (visibleCount <= 1) return prev;
+        next.add(key);
+        return next;
+      });
+    },
+    [keys],
+  );
+
+  const filterSeries = useCallback(
+    (key: string) => {
+      setHiddenKeys(getHiddenSeriesKeysAfterFilter(keys, key));
+    },
+    [keys],
+  );
+
+  return { hiddenKeys, visibleKeys, toggleSeries, filterSeries };
+}
+
+export function SeriesLegend({
+  keys,
+  colors,
+  panel,
+  hiddenKeys,
+  onToggleKey,
+  onFilterKey,
+}: {
+  keys: string[];
+  colors: string[];
+  panel: SqlPanel;
+  hiddenKeys?: Set<string>;
+  onToggleKey?: (key: string) => void;
+  onFilterKey?: (key: string) => void;
+}) {
+  const t = useT();
+  const hasLegendActions = Boolean(onToggleKey || onFilterKey);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextTouchToggleRef = useRef(false);
+
+  const clearCloseTimeout = useCallback(() => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const openLegendActions = useCallback(
+    (key: string) => {
+      clearCloseTimeout();
+      setOpenKey(key);
+    },
+    [clearCloseTimeout],
+  );
+
+  const scheduleCloseLegendActions = useCallback(() => {
+    clearCloseTimeout();
+    closeTimeoutRef.current = setTimeout(() => {
+      setOpenKey(null);
+      closeTimeoutRef.current = null;
+    }, LEGEND_ACTION_CLOSE_DELAY_MS);
+  }, [clearCloseTimeout]);
+
+  useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
+
+  if (!shouldShowLegend(panel, keys.length)) return null;
+
+  return (
+    <div className="mt-1 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {keys.map((key, i) => {
+          const hidden = hiddenKeys?.has(key) ?? false;
+          const label = formatSeriesLabelForPanel(panel, key);
+          const color = colors[i % colors.length];
+          return (
+            <Popover
+              key={key}
+              open={openKey === key}
+              onOpenChange={(open) => setOpenKey(open ? key : null)}
+            >
+              <PopoverAnchor asChild>
+                <div
+                  className="inline-flex min-h-6 max-w-[14rem] items-center"
+                  onPointerDown={(event) => {
+                    if (!hasLegendActions || event.pointerType === "mouse") {
+                      return;
+                    }
+                    skipNextTouchToggleRef.current = true;
+                    openLegendActions(key);
+                  }}
+                  onPointerCancel={() => {
+                    skipNextTouchToggleRef.current = false;
+                  }}
+                  onPointerEnter={(event) => {
+                    if (hasLegendActions && event.pointerType !== "touch") {
+                      openLegendActions(key);
+                    }
+                  }}
+                  onPointerLeave={(event) => {
+                    if (hasLegendActions && event.pointerType !== "touch") {
+                      scheduleCloseLegendActions();
+                    }
+                  }}
+                  onFocusCapture={
+                    hasLegendActions ? () => openLegendActions(key) : undefined
+                  }
+                  onBlurCapture={
+                    hasLegendActions ? scheduleCloseLegendActions : undefined
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-pressed={!hidden}
+                    aria-expanded={
+                      hasLegendActions ? openKey === key : undefined
+                    }
+                    aria-haspopup={hasLegendActions ? "menu" : undefined}
+                    data-chart-legend-item={key}
+                    className={`inline-flex min-h-6 max-w-[14rem] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left transition-[opacity,color] touch-manipulation hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      hidden ? "opacity-35" : "opacity-100"
+                    } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
+                    title={label}
+                    onClick={() => {
+                      if (skipNextTouchToggleRef.current) {
+                        skipNextTouchToggleRef.current = false;
+                        return;
+                      }
+                      onToggleKey?.(key);
+                    }}
+                  >
+                    <span className="relative h-2.5 w-3 shrink-0">
+                      <span
+                        className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span
+                        className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    </span>
+                    <span className="truncate">{label}</span>
+                  </button>
+                </div>
+              </PopoverAnchor>
+              {hasLegendActions && (
+                <PopoverContent
+                  side="top"
+                  align="center"
+                  sideOffset={0}
+                  collisionPadding={12}
+                  className="w-auto max-w-[calc(100vw-1.5rem)] rounded-lg p-1 shadow-lg"
+                  onPointerEnter={clearCloseTimeout}
+                  onPointerLeave={scheduleCloseLegendActions}
+                  onFocusCapture={clearCloseTimeout}
+                >
+                  <div className="flex items-center gap-0.5">
+                    {onFilterKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="filter"
+                        aria-label={`${t("sqlDashboard.filterSeries")} ${label}`}
+                        className="min-h-8 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        onClick={() => {
+                          onFilterKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.filterSeries")}
+                      </button>
+                    )}
+                    {onToggleKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="hide"
+                        aria-label={`${t("sqlDashboard.hide")} ${label}`}
+                        disabled={hidden}
+                        className="min-h-8 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+                        onClick={() => {
+                          onToggleKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.hide")}
+                      </button>
+                    )}
+                  </div>
+                </PopoverContent>
+              )}
+            </Popover>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export const ChartFillHeightContext = createContext(false);
+
+export function ChartFillHeight({ children }: { children: ReactNode }) {
+  return (
+    <ChartFillHeightContext.Provider value={true}>
+      {children}
+    </ChartFillHeightContext.Provider>
+  );
+}
+
+function ChartFrame({
+  panel,
+  legendKeys,
+  colors,
+  hiddenKeys,
+  onToggleLegendKey,
+  onFilterLegendKey,
+  showCustomLegend = false,
+  footer,
+  drilldownItems,
+  onDatumClick,
+  children,
+}: {
+  panel: SqlPanel;
+  legendKeys: string[];
+  colors: string[];
+  hiddenKeys?: Set<string>;
+  onToggleLegendKey?: (key: string) => void;
+  onFilterLegendKey?: (key: string) => void;
+  showCustomLegend?: boolean;
+  footer?: ReactNode;
+  drilldownItems?: (offset: number, limit: number) => AccessibleDrilldownPage;
+  onDatumClick?: DatumClickHandler;
+  children: ReactNode;
+}) {
+  const fill = useContext(ChartFillHeightContext);
+  const chartHeight = fill ? "h-full min-h-[250px]" : "h-[250px]";
+
+  const renderLegend = showCustomLegend || usesPrometheusPresentation(panel);
+
+  if (!renderLegend) {
+    return (
+      <>
+        <div className={`${chartHeight} w-full overflow-visible`}>
+          {children}
+        </div>
+        <ChartDrilldownList
+          getItems={drilldownItems}
+          onDatumClick={onDatumClick}
+        />
+        {footer}
+      </>
+    );
+  }
+
+  return (
+    <div
+      className={`flex w-full flex-col overflow-hidden ${fill ? "h-full" : ""}`}
+    >
+      <div
+        className={`${chartHeight} w-full overflow-visible ${fill ? "flex-1" : ""}`}
+      >
+        {children}
+      </div>
+      <ChartDrilldownList
+        getItems={drilldownItems}
+        onDatumClick={onDatumClick}
+      />
+      <SeriesLegend
+        keys={legendKeys}
+        colors={colors}
+        panel={panel}
+        hiddenKeys={hiddenKeys}
+        onToggleKey={onToggleLegendKey}
+        onFilterKey={onFilterLegendKey}
+      />
+      {footer}
+    </div>
+  );
+}
+
+export function isTableLikeChartType(type: ChartType): boolean {
+  return type === "table" || type === "heatmap";
+}
+
+export function chartTypeReservesLegend(panel: SqlPanel): boolean {
+  if (panel.config?.legend === false) return false;
+  const chartUsesFrame =
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    panel.chartType === "combo" ||
+    panel.chartType === "pie";
+  if (!chartUsesFrame) return false;
+  return (
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    panel.chartType === "combo" ||
+    usesPrometheusPresentation(panel)
+  );
+}
+
+export function ChartTooltip({
+  active,
+  payload,
+  label,
+  coordinate,
+  labelFormatter,
+  seriesNameFormatter,
+  valueFormatter,
+  stacked,
+  seriesOrder,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    color?: string;
+    dataKey?: string | number;
+    name?: string | number;
+    value?: unknown;
+  }>;
+  label?: unknown;
+  coordinate?: { x?: number; y?: number };
+  labelFormatter?: (value: string) => string;
+  seriesNameFormatter?: (value: string) => string;
+  valueFormatter?: (value: number, name?: string | number) => string;
+  stacked?: boolean;
+  /** Series names in draw order; a stacked chart lists them this way. */
+  seriesOrder?: readonly string[];
+}) {
+  const items = useMemo(
+    () =>
+      sortTooltipPayloadItems(
+        payload?.filter((item) => item.value != null && item.value !== "") ??
+          [],
+        stacked ? seriesOrder : undefined,
+      ),
+    [payload, seriesOrder, stacked],
+  );
+  const isVisible = Boolean(active) && items.length > 0;
+  const { anchorRef, boxRef } = useChartTooltipPortalPosition(
+    isVisible,
+    coordinate,
+  );
+  const stackedTotal = stacked ? sumTooltipPayloadValues(items) : null;
+  const totalValue =
+    stackedTotal != null && valueFormatter
+      ? valueFormatter(stackedTotal, items[0]?.name)
+      : stackedTotal != null
+        ? String(stackedTotal)
+        : null;
+
+  const labelText =
+    label == null
+      ? ""
+      : labelFormatter
+        ? labelFormatter(stringifyValue(label))
+        : stringifyValue(label);
+
+  if (!isVisible) return null;
+
+  const tooltip = (
+    <div
+      ref={boxRef}
+      role="tooltip"
+      className="fixed min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
+      style={{ zIndex: CHART_TOOLTIP_Z_INDEX }}
+    >
+      {totalValue && (
+        <div className="mb-1.5 font-semibold text-foreground">{totalValue}</div>
+      )}
+      {labelText && (
+        <div className="mb-1.5 break-words font-medium text-foreground">
+          {labelText}
+        </div>
+      )}
+      <div className="space-y-1">
+        {items.map((item) => {
+          const raw = item.value;
+          const numeric = typeof raw === "number" ? raw : Number(raw);
+          const name = String(item.name ?? item.dataKey ?? "");
+          const value =
+            Number.isFinite(numeric) && valueFormatter
+              ? valueFormatter(numeric, name)
+              : stringifyValue(raw);
+          return (
+            <div key={name} className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: item.color ?? "currentColor" }}
+              />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {seriesNameFormatter ? seriesNameFormatter(name) : name}
+              </span>
+              <span className="font-medium tabular-nums text-foreground">
+                {value}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <span ref={anchorRef} aria-hidden="true" />
+      {createPortal(tooltip, document.body)}
+    </>
+  );
+}
+
+export function ConfigWarning({ keys }: { keys: string[] }) {
+  if (keys.length === 0) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+      <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>Ignored missing result columns: {keys.join(", ")}</span>
+    </div>
+  );
+}
+
+export function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
+  const t = useT();
+  const formatters = useFormatters();
+  return (
+    <p
+      data-chart-point-limit
+      className="mt-1 text-[11px] leading-4 text-muted-foreground"
+    >
+      {t(
+        limit.keeps === "newest"
+          ? "sqlDashboard.chartPointLimitNewest"
+          : limit.keeps === "last"
+            ? "sqlDashboard.chartPointLimitLast"
+            : "sqlDashboard.chartPointLimitFirst",
+        {
+          shown: formatters.formatNumber(limit.shown),
+          total: formatters.formatNumber(limit.total),
+        },
+      )}
+    </p>
+  );
+}
+
+export interface ChartDatum {
+  x: string;
+  /** Set when the row's x is null, which `x` alone can't tell from ''. */
+  xIsNull?: true;
+  series?: string;
+  value?: unknown;
+}
+
+function datumX(value: unknown): Pick<ChartDatum, "x" | "xIsNull"> {
+  return value == null
+    ? { x: "", xIsNull: true }
+    : { x: stringifyValue(value) };
+}
+
+export type DatumClickHandler = (datum: ChartDatum) => void;
+
+interface AccessibleDrilldownItem {
+  datum: ChartDatum;
+  label: string;
+  valueLabel?: string | undefined;
+}
+
+interface AccessibleDrilldownPage {
+  items: AccessibleDrilldownItem[];
+  total: number;
+}
+
+const DRILLDOWN_PAGE_SIZE = 100;
+
+function chartDrilldownItems(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  seriesKeys: string[],
+  valueKeys: string[],
+  formatXLabel: (value: unknown) => string,
+  formatSeriesLabel: (key: string) => string,
+  formatValue: (value: unknown, key?: string) => string,
+  formatList: (values: string[]) => string,
+  offset: number,
+  limit: number,
+): AccessibleDrilldownPage {
+  const seriesPerRow = Math.max(seriesKeys.length, 1);
+  const total = rows.length * seriesPerRow;
+  const end = Math.min(offset + limit, total);
+  const items: AccessibleDrilldownItem[] = [];
+
+  const firstRow = Math.floor(offset / seriesPerRow);
+  const slots: (string | null)[] = seriesKeys.length > 0 ? seriesKeys : [null];
+  const onlyValueKey = valueKeys.length === 1 ? valueKeys[0] : undefined;
+
+  for (const [rowOffset, row] of rows.slice(firstRow).entries()) {
+    for (const [slot, series] of slots.entries()) {
+      const index = (firstRow + rowOffset) * seriesPerRow + slot;
+      if (index < offset) continue;
+      if (index >= end) return { items, total };
+      const x = datumX(row[xKey]);
+      const label = formatXLabel(row[xKey]);
+      items.push(
+        series !== null
+          ? {
+              datum: { ...x, series, value: row[series] },
+              label: `${label} · ${formatSeriesLabel(series)}`,
+              valueLabel: formatValue(row[series], series),
+            }
+          : {
+              datum: {
+                ...x,
+                value:
+                  onlyValueKey === undefined ? undefined : row[onlyValueKey],
+              },
+              label:
+                valueKeys.length > 1
+                  ? `${label} · ${formatList(
+                      valueKeys.map(
+                        (key) =>
+                          `${formatSeriesLabel(key)}: ${formatValue(row[key], key)}`,
+                      ),
+                    )}`
+                  : label,
+              valueLabel:
+                onlyValueKey === undefined
+                  ? undefined
+                  : formatValue(row[onlyValueKey], onlyValueKey),
+            },
+      );
+    }
+  }
+
+  return { items, total };
+}
+
+function useChartDrilldownItems(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  seriesKeys: string[],
+  formatXLabel: (value: unknown) => string,
+  formatSeriesLabel: (key: string) => string,
+  valueKeys: string[],
+  valueFormatter: (value: number, name?: string | number) => string,
+) {
+  const formatters = useFormatters();
+  const noXValueLabel = useT()("sqlDashboard.noXValue");
+  const formatAccessibleXLabel = useCallback(
+    (value: unknown) => {
+      if (value == null) return noXValueLabel;
+      const text = stringifyValue(value);
+      const dateKey =
+        /^\d{8}$/.test(text) || /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(text);
+      const date = dateKey ? parseCalendarDate(text) : null;
+      if (!date) return formatXLabel(value);
+      return formatters.formatDate(date, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        ...(isDailyChartKey(xKey) ? { weekday: "long" } : {}),
+      });
+    },
+    [formatXLabel, formatters, noXValueLabel, xKey],
+  );
+  const formatValue = useCallback(
+    (value: unknown, key?: string) => {
+      if (value == null || (typeof value === "string" && !value.trim())) {
+        return stringifyValue(value);
+      }
+      const numeric = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(numeric)
+        ? valueFormatter(numeric, key)
+        : stringifyValue(value);
+    },
+    [valueFormatter],
+  );
+  return useCallback(
+    (offset: number, limit: number) =>
+      chartDrilldownItems(
+        rows,
+        xKey,
+        seriesKeys,
+        valueKeys,
+        formatAccessibleXLabel,
+        formatSeriesLabel,
+        formatValue,
+        formatters.formatList,
+        offset,
+        limit,
+      ),
+    [
+      rows,
+      xKey,
+      seriesKeys,
+      formatAccessibleXLabel,
+      formatSeriesLabel,
+      valueKeys,
+      formatValue,
+      formatters.formatList,
+    ],
+  );
+}
+
+function ChartDrilldownList({
+  getItems,
+  onDatumClick,
+}: {
+  getItems?: (offset: number, limit: number) => AccessibleDrilldownPage;
+  onDatumClick?: DatumClickHandler;
+}) {
+  const t = useT();
+  const formatters = useFormatters();
+  const [open, setOpen] = useState(false);
+  const [pagination, setPagination] = useState({ getItems, page: 0 });
+  const page = pagination.getItems === getItems ? pagination.page : 0;
+  const result = useMemo(
+    () =>
+      open
+        ? (getItems?.(page * DRILLDOWN_PAGE_SIZE, DRILLDOWN_PAGE_SIZE) ?? {
+            items: [],
+            total: 0,
+          })
+        : null,
+    [getItems, open, page],
+  );
+  if (!onDatumClick || !getItems) return null;
+
+  const actionLabel = t("sqlDashboard.drilldownChartPoints");
+  const total = result?.total ?? 0;
+  const start = page * DRILLDOWN_PAGE_SIZE;
+  const end = Math.min(start + DRILLDOWN_PAGE_SIZE, total);
+  const updatePage = (update: (current: number) => number) =>
+    setPagination((current) => ({
+      getItems,
+      page: update(current.getItems === getItems ? current.page : 0),
+    }));
+  return (
+    <details
+      className="px-1 text-xs"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="w-fit cursor-pointer rounded px-1 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {actionLabel}
+      </summary>
+      {open && (
+        <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto rounded-sm border border-border/50 p-1">
+          {result?.items.map(({ datum, label, valueLabel }, index) => {
+            const formattedValue = valueLabel ? ` · ${valueLabel}` : "";
+            const pointLabel = `${label}${formattedValue}`;
+            return (
+              <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
+                <button
+                  type="button"
+                  aria-label={`${actionLabel}: ${pointLabel}`}
+                  className="w-full rounded px-2 py-1 text-left text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onDatumClick(datum)}
+                >
+                  {pointLabel}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {open && total > DRILLDOWN_PAGE_SIZE && (
+        <div className="flex items-center justify-end gap-2 pt-1 text-xs text-muted-foreground">
+          <span aria-live="polite">
+            {t("sqlDashboard.drilldownPageRange", {
+              start: formatters.formatNumber(start + 1),
+              end: formatters.formatNumber(end),
+              total: formatters.formatNumber(total),
+            })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 aria-disabled:opacity-50"
+            aria-label={t("sqlDashboard.drilldownPreviousPage")}
+            aria-disabled={page === 0}
+            onClick={() => {
+              if (page > 0) updatePage((current) => current - 1);
+            }}
+          >
+            <IconChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 aria-disabled:opacity-50"
+            aria-label={t("sqlDashboard.drilldownNextPage")}
+            aria-disabled={end >= total}
+            onClick={() => {
+              if (end < total) updatePage((current) => current + 1);
+            }}
+          >
+            <IconChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+    </details>
+  );
+}
+
+function rowDatum(
+  rows: Record<string, unknown>[],
+  index: unknown,
+  xKey: string,
+  series?: string,
+  valueKey?: string,
+): ChartDatum | null {
+  const row =
+    typeof index === "number" && Number.isInteger(index)
+      ? rows[index]
+      : undefined;
+  if (!row) return null;
+  return {
+    ...datumX(row[xKey]),
+    series,
+    value: valueKey ? row[valueKey] : undefined,
+  };
+}
+
+type ChartRowLocator = (pointer: RelativePointer) => number | null;
+
+/**
+ * The index of the row plotted nearest the pointer, or null when the pointer is
+ * outside the plot.
+ */
+function ChartClickLocator({
+  locatorRef,
+}: {
+  locatorRef: { current: ChartRowLocator | null };
+}) {
+  const scale = useXAxisScale();
+  const domain = useXAxisDomain();
+  const plot = usePlotArea();
+  // Installed before paint, so a click never meets the previous data's locator.
+  useLayoutEffect(() => {
+    if (!scale || !domain || !plot) return;
+    // Recharts plots row i at the i-th domain value, not at the row's own x:
+    // repeated x values turn the domain into row indexes.
+    const positions = domain.map((value) =>
+      scale(value, { position: "middle" }),
+    );
+    locatorRef.current = ({ relativeX, relativeY }) => {
+      const insidePlot =
+        plot.x <= relativeX &&
+        relativeX <= plot.x + plot.width &&
+        plot.y <= relativeY &&
+        relativeY <= plot.y + plot.height;
+      if (!insidePlot) return null;
+      let nearest: number | null = null;
+      let nearestDistance = Infinity;
+      for (const [index, position] of positions.entries()) {
+        if (position == null) continue;
+        const distance = Math.abs(position - relativeX);
+        if (distance < nearestDistance) {
+          nearest = index;
+          nearestDistance = distance;
+        }
+      }
+      return nearest;
+    };
+    return () => {
+      locatorRef.current = null;
+    };
+  }, [scale, domain, plot, locatorRef]);
+  return null;
+}
+
+/**
+ * Recharts hands a chart click the hovered index, which trails the pointer by
+ * a frame and is null when a click lands before the first hover, so the click
+ * is located from its own position instead. Render `locator` inside the chart.
+ */
+function useChartClick(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  onDatumClick: DatumClickHandler | undefined,
+) {
+  const locatorRef = useRef<ChartRowLocator | null>(null);
+  if (!onDatumClick) return { props: {}, locator: null };
+  return {
+    props: {
+      style: { cursor: "pointer" } as CSSProperties,
+      onClick: (
+        _state: unknown,
+        event?: ReactMouseEvent<SVGGraphicsElement>,
+      ) => {
+        if (!event) return;
+        const index = locatorRef.current?.(getRelativeCoordinate(event));
+        const datum = rowDatum(rows, index, xKey);
+        if (datum) onDatumClick(datum);
+      },
+    },
+    locator: <ChartClickLocator locatorRef={locatorRef} />,
+  };
+}
+
+function chartSeriesClickProps(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  series: string | undefined,
+  valueKey: string,
+  onDatumClick: DatumClickHandler | undefined,
+) {
+  if (!onDatumClick) return {};
+  return {
+    style: { cursor: "pointer" } as CSSProperties,
+    onClick: (
+      _data: unknown,
+      index: unknown,
+      event?: { stopPropagation?: () => void },
+    ) => {
+      event?.stopPropagation?.();
+      const datum = rowDatum(rows, index, xKey, series, valueKey);
+      if (datum) onDatumClick(datum);
+    },
+  };
+}
+
+type TableRendererRowClick = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+) => void;
+
+export function MetricRenderer({
+  rows,
+  panel,
+}: {
+  rows: Record<string, unknown>[];
+  panel: SqlPanel;
+}) {
+  const row = rows[0];
+  const valueCol = detectMetricValueColumn(row, panel.config?.yKey);
+
+  let raw: unknown;
+  if (rows.length > 1 && isNumericLikeValue(row[valueCol])) {
+    raw = rows.reduce((sum, r) => sum + (Number(r[valueCol]) || 0), 0);
+  } else {
+    raw = row[valueCol];
+  }
+  const format = panel.config?.yFormatter;
+  const value = formatMetricValue(raw, format, panel.config?.valueLabels);
+  const comparison = metricComparison({
+    rows,
+    current: raw,
+    config: panel.config,
+    formatValue: (change) => formatMetricValue(change, format),
+  });
+
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-2 text-center">
+      <div className="text-3xl font-bold">{value}</div>
+      {comparison ? (
+        <MetricComparisonLine comparison={comparison} format={format} />
+      ) : null}
+    </div>
+  );
+}
+
+const METRIC_COMPARISON_TONE_CLASS: Record<MetricComparison["tone"], string> = {
+  // guard:allow-raw-color — text-agent-kit-positive reads 2.8:1 on its own tint in light mode; emerald-700 and emerald-300 pass AA on theirs.
+  good: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
+  // guard:allow-raw-color — text-destructive reads 3.3:1 on its own tint in light mode; red-700 and red-300 pass AA on theirs.
+  bad: "bg-red-500/10 text-red-700 dark:bg-red-400/10 dark:text-red-300",
+  neutral: "text-muted-foreground ring-1 ring-inset ring-border",
+};
+
+/**
+ * The change from the period before, as a chip ("↘ 71%") and the period
+ * ("vs the 7 days before"); the previous value is in the hover text.
+ */
+function MetricComparisonLine({
+  comparison,
+  format,
+}: {
+  comparison: MetricComparison;
+  format: ChartValueFormatter | undefined;
+}) {
+  const t = useT();
+  const { change, direction, tone } = comparison;
+  const period =
+    comparison.period ?? t("sqlDashboard.metricComparisonPreviousPeriod");
+  const changeText =
+    change.kind === "none"
+      ? t("sqlDashboard.metricComparisonNoChange")
+      : change.kind === "points"
+        ? t("sqlDashboard.metricComparisonPoints", { value: change.amount })
+        : change.kind === "percent"
+          ? `${change.amount}%`
+          : change.amount;
+  const sentence = t(
+    direction === "up"
+      ? "sqlDashboard.metricComparisonUp"
+      : direction === "down"
+        ? "sqlDashboard.metricComparisonDown"
+        : "sqlDashboard.metricComparisonFlat",
+    {
+      change: changeText,
+      previous: formatMetricValue(comparison.previous, format),
+      period,
+    },
+  );
+  const description =
+    tone === "good"
+      ? t("sqlDashboard.metricComparisonBetter", { comparison: sentence })
+      : tone === "bad"
+        ? t("sqlDashboard.metricComparisonWorse", { comparison: sentence })
+        : sentence;
+  const Arrow =
+    direction === "up"
+      ? IconArrowUpRight
+      : direction === "down"
+        ? IconArrowDownRight
+        : null;
+
+  return (
+    <div
+      data-metric-comparison={tone}
+      className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-xs"
+      title={description}
+    >
+      <span className="sr-only">{description}</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-medium tabular-nums",
+          METRIC_COMPARISON_TONE_CLASS[tone],
+        )}
+      >
+        {Arrow ? <Arrow className="h-3 w-3" /> : null}
+        {changeText}
+      </span>
+      <span aria-hidden="true" className="text-muted-foreground">
+        {t("sqlDashboard.metricComparisonVs", { period })}
+      </span>
+    </div>
+  );
+}
+
+function numericTableValue(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  const cleaned = trimmed.replace(/[$€£¥%,\s]/g, "");
+  if (cleaned === "" || cleaned === "-" || cleaned === "+") return null;
+  const numeric = Number(cleaned);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+export type TableSort = {
+  key: string;
+  direction: "asc" | "desc";
+};
+
+export function sortTableRows(
+  rows: Record<string, unknown>[],
+  sorts: TableSort[],
+  columns: TableColumnConfig[] = [],
+  // The columns that line up as numbers, when the caller already has them.
+  numberColumns?: ReadonlySet<string>,
+): Record<string, unknown>[] {
+  if (sorts.length === 0) return rows;
+
+  // Empty cells sort last both ways: nulls, and in a duration column every
+  // value it shows as a dash.
+  const formats = new Map(columns.map((col) => [col.key, col.format]));
+  const isEmpty = (key: string, value: unknown) =>
+    formats.get(key) === "duration" ? isEmptyDuration(value) : value == null;
+
+  // Text that reads as a number sorts by it, and a duration such as
+  // "4.8 days" by how long it is, in a column that lines up as numbers.
+  const numeric =
+    numberColumns ??
+    numberTableColumns(
+      sorts.map(
+        (sort) =>
+          columns.find((col) => col.key === sort.key) ?? { key: sort.key },
+      ),
+      rows,
+    );
+  const quantity = (key: string, value: unknown) =>
+    numericTableValue(value) ??
+    (numeric.has(key) ? tableQuantity(value) : null);
+
+  return rows
+    .map((row, index) => ({
+      row,
+      index,
+      // Read each sorted cell once, not on every comparison.
+      quantities: new Map<string, number | null>(
+        sorts.map((sort) => [sort.key, quantity(sort.key, row[sort.key])]),
+      ),
+    }))
+    .sort((a, b) => {
+      for (const sort of sorts) {
+        const av = a.row[sort.key];
+        const bv = b.row[sort.key];
+        const aEmpty = isEmpty(sort.key, av);
+        const bEmpty = isEmpty(sort.key, bv);
+        if (aEmpty && bEmpty) continue;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+
+        const an = a.quantities.get(sort.key) ?? null;
+        const bn = b.quantities.get(sort.key) ?? null;
+
+        if (an !== null && bn === null) return -1;
+        if (an === null && bn !== null) return 1;
+
+        const comparison =
+          an !== null && bn !== null
+            ? an - bn
+            : stringifyValue(av).localeCompare(stringifyValue(bv));
+        if (comparison !== 0) {
+          return sort.direction === "asc" ? comparison : -comparison;
+        }
+      }
+      return a.index - b.index;
+    })
+    .map(({ row }) => row);
+}
+
+/**
+ * Moves `fromKey` to the position `toKey` holds among the visible columns.
+ * Hidden entries keep their slots in the persisted list, so reordering never
+ * shifts a column the user hid.
+ */
+export function reorderColumnConfigs(
+  configs: TableColumnConfig[],
+  visibleKeys: string[],
+  fromKey: string,
+  toKey: string,
+): TableColumnConfig[] {
+  const from = visibleKeys.indexOf(fromKey);
+  const to = visibleKeys.indexOf(toKey);
+  if (from < 0 || to < 0 || from === to) return configs;
+
+  const nextVisible = [...visibleKeys];
+  nextVisible.splice(from, 1);
+  nextVisible.splice(to, 0, fromKey);
+
+  const visibleSet = new Set(visibleKeys);
+  const configByKey = new Map(configs.map((config) => [config.key, config]));
+  const next = [...configs];
+  let visibleIndex = 0;
+  configs.forEach((config, index) => {
+    if (!visibleSet.has(config.key)) return;
+    const entry = configByKey.get(nextVisible[visibleIndex]);
+    if (entry) next[index] = entry;
+    visibleIndex += 1;
+  });
+  return next;
+}
+
+export function formatCell(
+  value: unknown,
+  format: ColumnFormat | undefined,
+): string {
+  if (format === "duration" && isEmptyDuration(value)) return EMPTY_DURATION;
+  if (value == null) return "";
+  const numeric = numericTableValue(value);
+  if (format === "number" && numeric !== null) {
+    return numeric.toLocaleString();
+  }
+  if (format === "currency" && numeric !== null) {
+    return formatDollars(numeric);
+  }
+  if (format === "percent" && numeric !== null) {
+    const pct = numeric <= 1 && numeric >= -1 ? numeric * 100 : numeric;
+    return `${pct.toFixed(2)}%`;
+  }
+  if (format === "delta" && numeric !== null) {
+    const sign = numeric > 0 ? "+" : "";
+    return `${sign}${numeric.toFixed(1)}%`;
+  }
+  if (format === "duration" && numeric !== null) {
+    return formatDuration(numeric);
+  }
+  if (format === "date") {
+    const text = stringifyValue(value);
+    const d = new Date(text);
+    if (!isNaN(d.getTime())) {
+      // A bare YYYY-MM-DD parses as UTC midnight; local time would show the
+      // previous day anywhere west of UTC.
+      return d.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        timeZone: /^\d{4}-\d{2}-\d{2}$/.test(text) ? "UTC" : undefined,
+      });
+    }
+  }
+  return stringifyValue(value);
+}
+
+function clipboardCell(value: string): string {
+  return value.replace(/[\t\r\n]+/g, " ");
+}
+
+export function buildTableClipboardText(
+  columns: TableColumnConfig[],
+  rows: Record<string, unknown>[],
+): string {
+  const tableRows = [
+    columns.map((col) => col.label ?? col.key),
+    ...rows.map((row) =>
+      columns.map((col) => formatCell(row[col.key], col.format)),
+    ),
+  ];
+  return tableRows.map((row) => row.map(clipboardCell).join("\t")).join("\n");
+}
+
+function renderDeltaCell(value: unknown): ReactNode {
+  const numeric = numericTableValue(value);
+  if (numeric === null) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+  const sign = numeric > 0 ? "+" : "";
+  const text = `${sign}${numeric.toFixed(1)}%`;
+  const isPositive = numeric > 0;
+  const isNegative = numeric < 0;
+  const colorClass = isPositive
+    ? "text-emerald-500"
+    : isNegative
+      ? "text-red-500"
+      : "text-muted-foreground";
+  const Arrow = isPositive
+    ? IconTrendingUp
+    : isNegative
+      ? IconTrendingDown
+      : null;
+  const critical = Math.abs(numeric) > 30;
+  return (
+    <span
+      className={`inline-flex items-center justify-end gap-1 ${colorClass}`}
+    >
+      {Arrow && <Arrow className="h-3.5 w-3.5" />}
+      <span>{text}</span>
+      {critical && <IconAlertTriangle className="h-3.5 w-3.5" />}
+    </span>
+  );
+}
+
+function rowString(
+  row: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function sessionReplayHref(row: Record<string, unknown>): string | null {
+  const recordingId = rowString(row, [
+    "recording_id",
+    "session_recording_id",
+    "sessionRecordingId",
+  ]);
+  if (recordingId) return `/sessions/${encodeURIComponent(recordingId)}`;
+
+  const sessionId = rowString(row, ["session_id", "sessionId"]);
+  if (!sessionId) return null;
+  const params = new URLSearchParams({ range: "all", q: sessionId });
+  return `/sessions?${params.toString()}`;
+}
+
+function isSessionColumn(key: string): boolean {
+  return key === "session_id" || key === "sessionId";
+}
+
+/**
+ * The column that takes a table's spare width: the first one that is not a
+ * number or a date. In a narrow panel it gives way first, so numbers stay
+ * whole.
+ */
+export function tableFillColumn(
+  columns: TableColumnConfig[],
+  numberColumns: Set<string>,
+): string | undefined {
+  return columns.find(
+    (col) => !numberColumns.has(col.key) && col.format !== "date",
+  )?.key;
+}
+
+const MIN_TABLE_COLUMN_WIDTH = 48;
+const MIN_FILL_COLUMN_WIDTH = 96;
+const TABLE_HEAD_CELL_CLASS =
+  "sticky top-0 z-1 h-9 whitespace-nowrap border-b border-border bg-card align-middle text-xs font-medium text-muted-foreground";
+const TABLE_BODY_CELL_CLASS = "h-10 px-3 whitespace-nowrap";
+// Other text columns stop at this width and end in an ellipsis.
+const TABLE_TEXT_MAX_WIDTH_CLASS = "max-w-80";
+const COLUMN_DRAG_MIME = "application/x-analytics-table-column";
+
+// A set width must also be the cell's max-width: with max-width 0 Chrome
+// resolves the preferred width to 0 and the column collapses to its padding.
+function sizedColumnClass(col: TableColumnConfig): string {
+  return col.width ? " overflow-hidden text-ellipsis" : "";
+}
+
+function sizedColumnStyle(width: number | undefined) {
+  return width ? { width, maxWidth: width } : undefined;
+}
+
+export function TableRenderer({
+  rows,
+  panel,
+  onExportCsvChange,
+  onCopyTableChange,
+  onSaveColumns,
+  columnWidths,
+  onColumnWidthChange,
+  onRowClick,
+  isRowActive,
+}: {
+  rows: Record<string, unknown>[];
+  panel: SqlPanel;
+  onExportCsvChange?: ((handler: (() => void) | null) => void) | undefined;
+  onCopyTableChange?:
+    | ((handler: (() => Promise<void>) | null) => void)
+    | undefined;
+  onSaveColumns?: ((columns: TableColumnConfig[]) => void) | undefined;
+  columnWidths?: Record<string, number> | undefined;
+  onColumnWidthChange?:
+    | ((columnKey: string, width: number | null) => void)
+    | undefined;
+  onRowClick?: TableRendererRowClick | undefined;
+  isRowActive?: ((row: Record<string, unknown>) => boolean) | undefined;
+}) {
+  const { sessionReplays } = useDashboardPanelChartHost();
+  const t = useT();
+  const config = panel.config;
+  const sortable = config?.sortable !== false;
+  const editable = onSaveColumns !== undefined;
+  const personalResize = onColumnWidthChange !== undefined;
+  const resizable = editable || personalResize;
+  const rowKeys = useMemo(() => new Set(Object.keys(rows[0] ?? {})), [rows]);
+
+  const savedColumns = useMemo<TableColumnConfig[]>(() => {
+    if (config?.columns?.length) {
+      const configured = config.columns.filter(
+        (c) => !c.hidden && rowKeys.has(c.key),
+      );
+      if (configured.length > 0) return configured;
+    }
+    return Object.keys(rows[0]).map((key) => ({ key }));
+  }, [config?.columns, rows, rowKeys]);
+
+  // A viewer's own widths are drawn over the saved ones but never saved:
+  // edits start from `editableColumns`, which reads the panel config.
+  const columns = useMemo<TableColumnConfig[]>(
+    () =>
+      columnWidths
+        ? savedColumns.map((c) =>
+            columnWidths[c.key] ? { ...c, width: columnWidths[c.key] } : c,
+          )
+        : savedColumns,
+    [savedColumns, columnWidths],
+  );
+
+  // Edits start from the persisted list, hidden entries included, so a change
+  // never drops a key the agent configured. Visible keys missing from it (the
+  // all-keys fallback above) are appended so every visible column is editable.
+  const editableColumns = useMemo<TableColumnConfig[]>(() => {
+    const base: TableColumnConfig[] = config?.columns?.length
+      ? config.columns
+      : Object.keys(rows[0] ?? {}).map((key) => ({ key }));
+    const listed = new Set(base.map((c) => c.key));
+    return [
+      ...base,
+      ...columns.filter((c) => !listed.has(c.key)).map((c) => ({ key: c.key })),
+    ];
+  }, [config?.columns, rows, columns]);
+
+  const hiddenColumns = editable
+    ? editableColumns.filter((c) => c.hidden && rowKeys.has(c.key))
+    : [];
+
+  const updateColumn = (key: string, patch: Partial<TableColumnConfig>) => {
+    onSaveColumns?.(
+      editableColumns.map((c) => (c.key === key ? { ...c, ...patch } : c)),
+    );
+  };
+
+  const moveColumn = (fromKey: string, toKey: string) => {
+    const next = reorderColumnConfigs(
+      editableColumns,
+      columns.map((c) => c.key),
+      fromKey,
+      toKey,
+    );
+    if (next !== editableColumns) onSaveColumns?.(next);
+  };
+
+  // While dragging, the live width stays local; the save happens on release.
+  const [resize, setResize] = useState<{
+    key: string;
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
+
+  const renameKeyRef = useRef<string | null>(null);
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
+
+  const startRename = (key: string) => {
+    renameKeyRef.current = key;
+    setRenamingKey(key);
+  };
+
+  // A rename ends on blur or Escape; the ref makes the second call a no-op,
+  // since Escape unmounts the input and some browsers blur it on removal.
+  const finishRename = (key: string, draft: string | null) => {
+    if (renameKeyRef.current !== key) return;
+    renameKeyRef.current = null;
+    setRenamingKey(null);
+    if (draft === null) return;
+    const label = draft.trim();
+    const current = editableColumns.find((c) => c.key === key);
+    if (label === (current?.label ?? key)) return;
+    updateColumn(key, { label: label || undefined });
+  };
+
+  // The last column fills the table's remaining width, so widening it has no
+  // visible effect and its handle is not rendered.
+  const handleResizeStart = (
+    key: string,
+    event: ReactPointerEvent<HTMLSpanElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const header = event.currentTarget.closest("th");
+    if (!header) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startWidth = Math.round(header.getBoundingClientRect().width);
+    setResize({ key, startX: event.clientX, startWidth, width: startWidth });
+  };
+
+  const handleResizeMove = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const { clientX } = event;
+    setResize(
+      (current) =>
+        current && {
+          ...current,
+          width: Math.max(
+            MIN_TABLE_COLUMN_WIDTH,
+            Math.round(current.startWidth + clientX - current.startX),
+          ),
+        },
+    );
+  };
+
+  // The width is recomputed from the release point rather than read from state,
+  // so a release that lands before React renders the last move still saves it.
+  const handleResizeEnd = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    if (resize === null) return;
+    setResize(null);
+    const width = Math.max(
+      MIN_TABLE_COLUMN_WIDTH,
+      Math.round(resize.startWidth + event.clientX - resize.startX),
+    );
+    if (width === resize.startWidth) return;
+    if (personalResize) onColumnWidthChange(resize.key, width);
+    else updateColumn(resize.key, { width });
+  };
+
+  const renderHeaderCell = (col: TableColumnConfig) => {
+    const label = col.label ?? col.key;
+    const sort = sortColumns.find((item) => item.key === col.key);
+    const isSorted = sort !== undefined;
+    const isRenaming = renamingKey === col.key;
+    const width = resize?.key === col.key ? resize.width : col.width;
+    const cell = (
+      <th
+        aria-sort={
+          sort
+            ? sort.direction === "asc"
+              ? "ascending"
+              : "descending"
+            : "none"
+        }
+        style={columnStyle(col.key, width, "head")}
+        draggable={editable && !isRenaming && resize === null}
+        onDragStart={
+          editable
+            ? (event) => {
+                event.dataTransfer.setData(COLUMN_DRAG_MIME, col.key);
+                event.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
+        onDragOver={
+          editable
+            ? (event) => {
+                if (event.dataTransfer.types.includes(COLUMN_DRAG_MIME)) {
+                  event.preventDefault();
+                }
+              }
+            : undefined
+        }
+        onDrop={
+          editable
+            ? (event) => {
+                const fromKey = event.dataTransfer.getData(COLUMN_DRAG_MIME);
+                if (!fromKey) return;
+                event.preventDefault();
+                moveColumn(fromKey, col.key);
+              }
+            : undefined
+        }
+        className={cn(
+          TABLE_HEAD_CELL_CLASS,
+          "px-3",
+          numberColumns.has(col.key) ? "text-right" : "text-left",
+          // No `relative` for the resize handle: the sticky header already
+          // anchors it, and twMerge would drop `sticky` for it.
+          sortable && "cursor-pointer select-none hover:text-foreground",
+        )}
+        onClick={(event) => {
+          // The second click of a double-click renames the column and must not
+          // toggle the sort a second time.
+          if (event.detail > 1) return;
+          handleHeaderClick(col.key, event.shiftKey);
+        }}
+        title={sortable ? t("sqlDashboard.multiColumnSortHelp") : undefined}
+      >
+        <span
+          className={cn(
+            "inline-flex max-w-full items-center gap-1",
+            numberColumns.has(col.key) && "flex-row-reverse",
+          )}
+        >
+          {isRenaming ? (
+            <Input
+              autoFocus
+              defaultValue={label}
+              aria-label={t("sqlDashboard.columnName")}
+              className="h-6 w-32 px-1.5 py-0 text-sm font-medium"
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") finishRename(col.key, null);
+              }}
+              onBlur={(event) =>
+                finishRename(col.key, event.currentTarget.value)
+              }
+            />
+          ) : (
+            <>
+              <span
+                className="truncate"
+                title={label}
+                onDoubleClick={
+                  editable
+                    ? (event) => {
+                        event.stopPropagation();
+                        startRename(col.key);
+                      }
+                    : undefined
+                }
+              >
+                {label}
+              </span>
+              {sortable &&
+                (isSorted ? (
+                  sort?.direction === "asc" ? (
+                    <IconSortAscending className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <IconSortDescending className="h-3 w-3 shrink-0" />
+                  )
+                ) : (
+                  <IconArrowsSort className="h-3 w-3 shrink-0 opacity-30" />
+                ))}
+            </>
+          )}
+        </span>
+        {resizable &&
+        !isRenaming &&
+        col.key !== columns[columns.length - 1]?.key ? (
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("sqlDashboard.columnResize")}
+            title={
+              personalResize
+                ? t("dashboardMode.columnResizePersonal")
+                : t("dashboardMode.columnResizeShared")
+            }
+            className="absolute inset-y-0 end-0 w-1.5 cursor-col-resize hover:bg-border"
+            onPointerDown={(event) => handleResizeStart(col.key, event)}
+            onPointerMove={handleResizeMove}
+            onPointerUp={handleResizeEnd}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={
+              personalResize
+                ? (event) => {
+                    event.stopPropagation();
+                    onColumnWidthChange(col.key, null);
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+      </th>
+    );
+    if (!editable) return <Fragment key={col.key}>{cell}</Fragment>;
+    return (
+      <ContextMenu key={col.key}>
+        <ContextMenuTrigger asChild>{cell}</ContextMenuTrigger>
+        <ContextMenuContent
+          onCloseAutoFocus={(event) => {
+            // Rename moves focus into the input after the menu closes; letting
+            // the menu return focus to the header would blur the input at once.
+            if (renameKeyRef.current !== null) event.preventDefault();
+          }}
+        >
+          <ContextMenuItem onSelect={() => startRename(col.key)}>
+            <IconPencil className="me-2 h-3.5 w-3.5" />
+            {t("sqlDashboard.columnRename")}
+          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              {t("sqlDashboard.columnFormat")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* Delta and link stay out of this menu: delta needs a sign
+                  convention and link needs a linkKey source. */}
+              <ContextMenuRadioGroup
+                value={col.format ?? "text"}
+                onValueChange={(value) =>
+                  updateColumn(col.key, { format: value as ColumnFormat })
+                }
+              >
+                <ContextMenuRadioItem value="text">
+                  {t("sqlDashboard.columnFormatText")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="number">
+                  {t("sqlDashboard.columnFormatNumber")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="currency">
+                  {t("sqlDashboard.columnFormatCurrency")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="percent">
+                  {t("sqlDashboard.columnFormatPercent")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="date">
+                  {t("sqlDashboard.columnFormatDate")}
+                </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="duration">
+                  {t("sqlDashboard.columnFormatDuration")}
+                </ContextMenuRadioItem>
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={columns.length <= 1}
+            onSelect={() => updateColumn(col.key, { hidden: true })}
+          >
+            {t("sqlDashboard.columnHide")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  const limitedRows = useMemo(() => {
+    const limit = config?.limit;
+    return limit != null && rows.length > limit ? rows.slice(0, limit) : rows;
+  }, [rows, config?.limit]);
+
+  const [sortColumns, setSortColumns] = useState<TableSort[]>([]);
+  const [requestedPage, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+
+  // Formats, not widths, decide these, so resizing a column doesn't redo it.
+  const numberColumns = useMemo(
+    () => numberTableColumns(savedColumns, limitedRows),
+    [savedColumns, limitedRows],
+  );
+
+  const sortedRows = useMemo(() => {
+    return sortable
+      ? sortTableRows(limitedRows, sortColumns, savedColumns, numberColumns)
+      : limitedRows;
+  }, [limitedRows, sortColumns, sortable, savedColumns, numberColumns]);
+
+  const pageCount = Math.ceil(sortedRows.length / pageSize);
+  // A refresh can return fewer rows than the page a viewer was on; show the
+  // last page that still has rows.
+  const page = Math.min(requestedPage, Math.max(pageCount - 1, 0));
+  const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
+
+  const fillKey = tableFillColumn(columns, numberColumns);
+  // The fill column's max-width of 0 drops its content from the table's
+  // minimum width, so it takes only the spare width; a width set on it (saved
+  // or the viewer's own) is its minimum. Every other column shrinks to its
+  // content (1px in an auto-layout table) or keeps its set width.
+  const columnStyle = (
+    key: string,
+    width: number | undefined,
+    part: "head" | "body",
+  ): CSSProperties => {
+    if (key === fillKey) {
+      const minWidth = Math.max(width ?? 0, MIN_FILL_COLUMN_WIDTH);
+      return part === "head" ? { minWidth } : { maxWidth: 0, minWidth };
+    }
+    return sizedColumnStyle(width) ?? { width: 1 };
+  };
+  const bodyCellStyle = (col: TableColumnConfig) =>
+    columnStyle(col.key, col.width, "body");
+  const textSpanClass = (col: TableColumnConfig) =>
+    cn(
+      "block truncate",
+      col.key !== fillKey && !col.width && TABLE_TEXT_MAX_WIDTH_CLASS,
+    );
+
+  const handleHeaderClick = (key: string, shiftKey: boolean) => {
+    if (!sortable) return;
+    setSortColumns((current) => {
+      const index = current.findIndex((sort) => sort.key === key);
+      if (!shiftKey) {
+        const existing = index >= 0 ? current[index] : undefined;
+        return [
+          {
+            key,
+            direction: existing?.direction === "desc" ? "asc" : "desc",
+          },
+        ];
+      }
+      if (index < 0) return [...current, { key, direction: "desc" }];
+      return current.map((sort, sortIndex) =>
+        sortIndex === index
+          ? {
+              ...sort,
+              direction: sort.direction === "desc" ? "asc" : "desc",
+            }
+          : sort,
+      );
+    });
+    setPage(0);
+  };
+
+  const handleExportCsv = useCallback(() => {
+    const headers = columns.map((col) => col.label ?? col.key);
+    const rowsCsv = sortedRows.map((row) =>
+      columns.map((col) =>
+        csvCell(row[col.key], {
+          displayValue: formatCell(row[col.key], col.format),
+        }),
+      ),
+    );
+    const csv = [
+      headers.map((header) => csvCell(header)).join(","),
+      ...rowsCsv.map((r) => r.join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `${panel.id}-${date}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [columns, panel.id, sortedRows]);
+
+  const handleCopyTable = useCallback(async () => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard unavailable");
+    }
+    await navigator.clipboard.writeText(
+      buildTableClipboardText(columns, sortedRows),
+    );
+  }, [columns, sortedRows]);
+
+  useEffect(() => {
+    onExportCsvChange?.(handleExportCsv);
+    onCopyTableChange?.(handleCopyTable);
+    return () => {
+      onExportCsvChange?.(null);
+      onCopyTableChange?.(null);
+    };
+  }, [handleCopyTable, handleExportCsv, onCopyTableChange, onExportCsvChange]);
+
+  return (
+    <div className="space-y-1">
+      <div
+        className={`relative overflow-auto ${TABLE_SCROLL_MAX_HEIGHT_CLASS}`}
+      >
+        {/* Separate borders keep the sticky header's bottom border in place
+            while rows scroll under it. */}
+        <table className="w-full border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr>
+              {columns.map((col) => renderHeaderCell(col))}
+              {hiddenColumns.length > 0 ? (
+                <th className={cn(TABLE_HEAD_CELL_CLASS, "w-8 px-1")}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+                        aria-label={t("sqlDashboard.columnShowHidden")}
+                      >
+                        <IconEye className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {hiddenColumns.map((col) => (
+                        <DropdownMenuItem
+                          key={col.key}
+                          onSelect={() =>
+                            updateColumn(col.key, { hidden: false })
+                          }
+                        >
+                          {t("sqlDashboard.columnShow", {
+                            name: col.label ?? col.key,
+                          })}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </th>
+              ) : null}
+            </tr>
+          </thead>
+          <tbody>
+            {displayRows.map((row, i) => (
+              <tr
+                key={i}
+                className={cn(
+                  "[&>td]:border-b [&>td]:border-border/50 [&:last-child>td]:border-b-0",
+                  onRowClick
+                    ? "cursor-pointer focus-visible:outline-none"
+                    : "hover:bg-muted/40",
+                  isRowActive?.(row)
+                    ? "bg-foreground/10"
+                    : onRowClick &&
+                        "hover:bg-accent/60 focus-visible:bg-accent/60",
+                )}
+                {...(onRowClick
+                  ? {
+                      tabIndex: 0,
+                      "data-no-panel-chat-select": "",
+                      onClick: (event: ReactMouseEvent<HTMLElement>) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest("a, button")
+                        ) {
+                          return;
+                        }
+                        onRowClick(row, sortedRows, rows);
+                      },
+                      onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+                        // Keys on a link or button inside the row are theirs.
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onRowClick(row, sortedRows, rows);
+                          return;
+                        }
+                        if (
+                          event.key !== "ArrowDown" &&
+                          event.key !== "ArrowUp"
+                        )
+                          return;
+                        const offset = event.key === "ArrowDown" ? 1 : -1;
+                        const next = displayRows[i + offset];
+                        const sibling =
+                          offset === 1
+                            ? event.currentTarget.nextElementSibling
+                            : event.currentTarget.previousElementSibling;
+                        if (!next || !(sibling instanceof HTMLElement)) return;
+                        event.preventDefault();
+                        sibling.focus();
+                        if (isRowActive?.(row))
+                          onRowClick(next, sortedRows, rows);
+                      },
+                    }
+                  : {})}
+              >
+                {columns.map((col) => {
+                  const raw = row[col.key];
+                  if (col.format === "link") {
+                    const formatted = formatCell(raw, col.format);
+                    const href = col.linkKey
+                      ? stringifyValue(row[col.linkKey])
+                      : stringifyValue(raw);
+                    const safeHref = safeDashboardLinkHref(href);
+                    return (
+                      <td
+                        key={col.key}
+                        className={`${TABLE_BODY_CELL_CLASS}${sizedColumnClass(col)}`}
+                        style={bodyCellStyle(col)}
+                      >
+                        {safeHref ? (
+                          <a
+                            href={safeHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={cn(
+                              textSpanClass(col),
+                              "text-foreground underline-offset-2 hover:underline",
+                            )}
+                            title={formatted}
+                          >
+                            {formatted}
+                          </a>
+                        ) : (
+                          <span
+                            className={textSpanClass(col)}
+                            title={formatted}
+                          >
+                            {formatted}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  }
+                  const numeric = numberColumns.has(col.key);
+                  const formatted = formatCell(
+                    raw,
+                    !col.format && typeof raw === "number"
+                      ? "number"
+                      : col.format,
+                  );
+                  const content: ReactNode =
+                    col.format === "delta" ? (
+                      renderDeltaCell(raw)
+                    ) : numeric ? (
+                      formatted
+                    ) : (
+                      <span className={textSpanClass(col)} title={formatted}>
+                        {formatted}
+                      </span>
+                    );
+                  const replayHref =
+                    sessionReplays && isSessionColumn(col.key)
+                      ? sessionReplayHref(row)
+                      : null;
+                  return (
+                    <td
+                      key={col.key}
+                      className={cn(
+                        TABLE_BODY_CELL_CLASS,
+                        numeric && "text-right tabular-nums",
+                        sizedColumnClass(col),
+                      )}
+                      style={bodyCellStyle(col)}
+                    >
+                      {replayHref ? (
+                        <span className="inline-flex max-w-full flex-col gap-0.5">
+                          <span>{content}</span>
+                          <Link
+                            to={replayHref}
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            {t("sessions.watchReplay")}
+                          </Link>
+                        </span>
+                      ) : (
+                        content
+                      )}
+                    </td>
+                  );
+                })}
+                {hiddenColumns.length > 0 ? (
+                  <td className={TABLE_BODY_CELL_CLASS} />
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* Past one page; the smaller of the two keeps the size picker reachable
+          after choosing a page longer than the rows. */}
+      {sortedRows.length > Math.min(pageSize, DEFAULT_TABLE_PAGE_SIZE) && (
+        <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span>{t("common.rowsPerPage")}</span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                setPageSize(Number(value));
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="h-6 w-16 px-2 py-0 text-xs border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-1">
+            <span>
+              {page * pageSize + 1}–
+              {Math.min((page + 1) * pageSize, sortedRows.length)} of{" "}
+              {sortedRows.length}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setPage(page - 1)}
+              disabled={page === 0}
+            >
+              <IconChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setPage(page + 1)}
+              disabled={page >= pageCount - 1}
+            >
+              <IconChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function PieRenderer({
+  rows,
+  xKey,
+  yKey,
+  colors,
+  panel,
+  onDatumClick,
+}: {
+  rows: Record<string, unknown>[];
+  xKey: string;
+  yKey: string;
+  colors: string[];
+  panel: SqlPanel;
+  onDatumClick?: DatumClickHandler | undefined;
+}) {
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const xLabelFormatter = useCallback(
+    (value: unknown) => seriesNameFormatter(stringifyValue(value)),
+    [seriesNameFormatter],
+  );
+  const valueFormatter = useCallback(
+    (value: number) => formatYValue(value, panel.config?.yFormatter),
+    [panel.config?.yFormatter],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    EMPTY_DRILLDOWN_SERIES,
+    xLabelFormatter,
+    seriesNameFormatter,
+    [yKey],
+    valueFormatter,
+  );
+  const legendKeys = rows.map((row) => stringifyValue(row[xKey]));
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={legendKeys}
+      colors={colors}
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+    >
+      <ChartResponsiveContainer>
+        <PieChart>
+          <Pie
+            data={rows}
+            dataKey={yKey}
+            nameKey={xKey}
+            cx="50%"
+            cy="50%"
+            outerRadius={80}
+            label={(props: any) =>
+              `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
+            }
+            labelLine={false}
+            isAnimationActive={false}
+            style={onDatumClick ? { cursor: "pointer" } : undefined}
+            onClick={(_, index) => {
+              const datum = rowDatum(rows, index, xKey, undefined, yKey);
+              if (datum) onDatumClick?.(datum);
+            }}
+          >
+            {rows.map((_, i) => (
+              <Cell key={i} fill={colors[i % colors.length]} />
+            ))}
+          </Pie>
+          <Tooltip
+            {...CHART_TOOLTIP_PROPS}
+            content={
+              <ChartTooltip
+                seriesNameFormatter={seriesNameFormatter}
+                valueFormatter={(v) =>
+                  formatYValue(v, panel.config?.yFormatter)
+                }
+              />
+            }
+          />
+          {!usesPrometheusPresentation(panel) &&
+            shouldShowLegend(panel, rows.length) && (
+              <Legend {...CHART_LEGEND_PROPS} />
+            )}
+        </PieChart>
+      </ChartResponsiveContainer>
+    </ChartFrame>
+  );
+}
+
+const CATEGORY_TICK_FONT_SIZE = 12;
+
+const LEVEL_CATEGORY_AXIS: CategoryAxisPlan = {
+  angle: 0,
+  interval: 0,
+  height: 30,
+  labelWidth: Number.POSITIVE_INFINITY,
+};
+
+/**
+ * The axis value of a row. Recharts leaves a null x off the axis yet still draws
+ * every row, shifting later values onto the wrong labels, so null gets its own
+ * tick. Rows keep their null: a drill-down filters on the value, not this label.
+ */
+function useChartXValue(xKey: string) {
+  const noXValueLabel = useT()("sqlDashboard.noXValue");
+  return useCallback(
+    (row: Record<string, unknown>) => row[xKey] ?? noXValueLabel,
+    [xKey, noXValueLabel],
+  );
+}
+
+/** Formatted x labels when the axis holds named categories, else null. */
+function useCategoryAxisLabels(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  formatLabel: (value: unknown) => string,
+): string[] | null {
+  const xValue = useChartXValue(xKey);
+  return useMemo(
+    () =>
+      isCategoryAxis(rows.map((row) => row[xKey]))
+        ? rows.map((row) => formatLabel(xValue(row)))
+        : null,
+    [rows, xKey, xValue, formatLabel],
+  );
+}
+
+function CategoryAxisTick({
+  x,
+  y,
+  payload,
+  fill,
+  plan,
+  formatLabel,
+}: {
+  x: number | string;
+  y: number | string;
+  payload: { value?: unknown };
+  fill: string | undefined;
+  plan: CategoryAxisPlan;
+  formatLabel: (value: unknown) => string;
+}) {
+  const full = formatLabel(payload.value);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{full}</title>
+      <text
+        textAnchor={plan.angle ? "end" : "middle"}
+        transform={plan.angle ? `rotate(${plan.angle})` : undefined}
+        dy={plan.angle ? "0.35em" : "0.71em"}
+        fontSize={CATEGORY_TICK_FONT_SIZE}
+        fill={fill}
+      >
+        {trimToWidth(full, CATEGORY_TICK_FONT_SIZE, plan.labelWidth, "…")}
+      </text>
+    </g>
+  );
+}
+
+function EvenlySpacedXAxis({
+  rows,
+  dataKey,
+  formatLabel,
+  padding,
+}: {
+  rows: readonly Record<string, unknown>[];
+  dataKey: (row: Record<string, unknown>) => unknown;
+  formatLabel: (value: unknown) => string;
+  padding: { left: number; right: number };
+}) {
+  const plotWidth = usePlotArea()?.width ?? 0;
+  const ticks = useMemo(
+    () =>
+      evenTickValues(
+        rows.map(dataKey),
+        formatLabel,
+        plotWidth,
+        CATEGORY_TICK_FONT_SIZE,
+        padding,
+      ),
+    [rows, dataKey, formatLabel, plotWidth, padding],
+  );
+  return (
+    <XAxis
+      dataKey={dataKey}
+      stroke="hsl(var(--muted-foreground))"
+      fontSize={CATEGORY_TICK_FONT_SIZE}
+      tickLine={false}
+      axisLine={false}
+      tickFormatter={formatLabel}
+      padding={padding}
+      {...(ticks ? { ticks } : {})}
+    />
+  );
+}
+
+/**
+ * X axis for named categories: every name is drawn, angled and cut with an
+ * ellipsis when the plot is too narrow, since a skipped tick hides a bar's name.
+ */
+function CategoryXAxis({
+  dataKey,
+  labels,
+  formatLabel,
+}: {
+  dataKey: (row: Record<string, unknown>) => unknown;
+  labels: string[];
+  formatLabel: (value: unknown) => string;
+}) {
+  const plotArea = usePlotArea();
+  const plotWidth = plotArea?.width ?? 0;
+  const leftInset = plotArea?.x ?? 0;
+  const plan = useMemo(
+    () =>
+      plotWidth > 0
+        ? planCategoryAxis(
+            labels,
+            plotWidth,
+            leftInset,
+            CATEGORY_TICK_FONT_SIZE,
+          )
+        : LEVEL_CATEGORY_AXIS,
+    [labels, plotWidth, leftInset],
+  );
+  // A new tick function re-registers the axis with the chart store, which
+  // re-renders this component; it must only change with the plan.
+  const renderTick = useCallback(
+    (props: {
+      x: number | string;
+      y: number | string;
+      payload: { value?: unknown };
+      fill: string | undefined;
+    }) => (
+      <CategoryAxisTick
+        x={props.x}
+        y={props.y}
+        payload={props.payload}
+        fill={props.fill}
+        plan={plan}
+        formatLabel={formatLabel}
+      />
+    ),
+    [plan, formatLabel],
+  );
+  return (
+    <XAxis
+      dataKey={dataKey}
+      stroke="hsl(var(--muted-foreground))"
+      fontSize={CATEGORY_TICK_FONT_SIZE}
+      tickLine={false}
+      axisLine={false}
+      interval={plan.interval}
+      height={plan.height}
+      tick={renderTick}
+    />
+  );
+}
+
+export function BarRenderer({
+  rows,
+  xKey,
+  yKeys,
+  colors,
+  yFormatter,
+  stacked,
+  panel,
+  onDatumClick,
+}: {
+  rows: Record<string, unknown>[];
+  xKey: string;
+  yKeys: string[];
+  colors: string[];
+  yFormatter?: ChartValueFormatter | undefined;
+  stacked?: boolean;
+  panel: SqlPanel;
+  onDatumClick?: DatumClickHandler | undefined;
+}) {
+  const renderDataNoteBands = useRenderDataNoteBands();
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
+  const xValue = useChartXValue(xKey);
+  const xTooltipLabelFormatter = (value: any) =>
+    formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
+  const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const drilldownSeriesKeys = useMemo(
+    () =>
+      panel.config?.pivot
+        ? yKeys.filter((key) => !hiddenKeys.has(key))
+        : EMPTY_DRILLDOWN_SERIES,
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const drilldownValueKeys = useMemo(
+    () =>
+      panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    drilldownValueKeys,
+    valueFormatter,
+  );
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+      footer={
+        <>
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+          <EventMarkerList groups={eventGroups} />
+        </>
+      }
+    >
+      <ChartResponsiveContainer>
+        <BarChart
+          key={JSON.stringify(yKeys)}
+          data={rows}
+          margin={chartMargin.margin}
+        >
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xValue}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <EvenlySpacedXAxis
+              rows={rows}
+              dataKey={xValue}
+              formatLabel={xLabelFormatter}
+              padding={xPadding}
+            />
+          )}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+            stacked,
+          })}
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="hsl(var(--border))"
+            vertical={false}
+          />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
+          <Tooltip
+            active={eventHovered ? false : undefined}
+            {...CHART_TOOLTIP_PROPS}
+            cursor={BAR_TOOLTIP_CURSOR_PROPS}
+            labelFormatter={xTooltipLabelFormatter}
+            content={
+              <ChartTooltip
+                labelFormatter={xTooltipLabelFormatter}
+                seriesNameFormatter={seriesNameFormatter}
+                valueFormatter={valueFormatter}
+                stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
+              />
+            }
+            itemSorter={(item) => -(Number(item.value) || 0)}
+          />
+          {yKeys.map((key, i) => (
+            <Bar
+              key={key}
+              dataKey={key}
+              name={seriesNameFormatter(key)}
+              yAxisId={seriesAxisId(dualAxis, key)}
+              fill={colors[i % colors.length]}
+              radius={
+                stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
+              }
+              stackId={stacked ? "stack" : undefined}
+              hide={hiddenKeys.has(key)}
+              isAnimationActive={false}
+              {...chartSeriesClickProps(
+                rows,
+                xKey,
+                panel.config?.pivot ? key : undefined,
+                key,
+                onDatumClick,
+              )}
+            />
+          ))}
+          {renderEventMarkers(
+            eventGroups,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
+        </BarChart>
+      </ChartResponsiveContainer>
+    </ChartFrame>
+  );
+}
+
+export function ComboRenderer({
+  rows,
+  xKey,
+  yKeys,
+  colors,
+  yFormatter,
+  barKeys,
+  stacked,
+  panel,
+  onDatumClick,
+}: {
+  rows: Record<string, unknown>[];
+  xKey: string;
+  yKeys: string[];
+  colors: string[];
+  yFormatter?: ChartValueFormatter | undefined;
+  barKeys: string[];
+  stacked?: boolean;
+  panel: SqlPanel;
+  onDatumClick?: DatumClickHandler | undefined;
+}) {
+  const renderDataNoteBands = useRenderDataNoteBands();
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
+  const xValue = useChartXValue(xKey);
+  const xTooltipLabelFormatter = (value: any) =>
+    formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNoteLayout = useDataNoteLayout(
+    usePanelDataNotes(panel),
+    rows,
+    xKey,
+  );
+  const eventGroups = useEventMarkerGroups(panelEvents, rows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
+  const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const drilldownSeriesKeys = useMemo(
+    () =>
+      panel.config?.pivot
+        ? yKeys.filter((key) => !hiddenKeys.has(key))
+        : EMPTY_DRILLDOWN_SERIES,
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const drilldownValueKeys = useMemo(
+    () =>
+      panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    drilldownValueKeys,
+    valueFormatter,
+  );
+  const chartClick = useChartClick(rows, xKey, onDatumClick);
+  const barKeySet = new Set(barKeys);
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+      footer={
+        <>
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+          <EventMarkerList groups={eventGroups} />
+        </>
+      }
+    >
+      <ChartResponsiveContainer>
+        <ComposedChart
+          data={rows}
+          margin={chartMargin.margin}
+          stackOffset={stacked ? "sign" : undefined}
+          {...chartClick.props}
+        >
+          {chartClick.locator}
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xValue}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <EvenlySpacedXAxis
+              rows={rows}
+              dataKey={xValue}
+              formatLabel={xLabelFormatter}
+              padding={xPadding}
+            />
+          )}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+            stackedKeys: stacked ? barKeySet : undefined,
+          })}
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="hsl(var(--border))"
+            vertical={false}
+          />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
+          <Tooltip
+            active={eventHovered ? false : undefined}
+            {...CHART_TOOLTIP_PROPS}
+            cursor={BAR_TOOLTIP_CURSOR_PROPS}
+            labelFormatter={xTooltipLabelFormatter}
+            content={
+              <ChartTooltip
+                labelFormatter={xTooltipLabelFormatter}
+                seriesNameFormatter={seriesNameFormatter}
+                valueFormatter={valueFormatter}
+              />
+            }
+            itemSorter={(item) => -(Number(item.value) || 0)}
+          />
+          {yKeys.map((key, i) =>
+            barKeySet.has(key) ? (
+              <Bar
+                key={key}
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
+                fill={colors[i % colors.length]}
+                radius={[4, 4, 0, 0]}
+                stackId={
+                  stacked
+                    ? dualAxis.enabled
+                      ? `stack-${seriesAxisId(dualAxis, key)}`
+                      : "stack"
+                    : undefined
+                }
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  rows,
+                  xKey,
+                  panel.config?.pivot ? key : undefined,
+                  key,
+                  onDatumClick,
+                )}
+              />
+            ) : (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                dot={false}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  rows,
+                  xKey,
+                  panel.config?.pivot ? key : undefined,
+                  key,
+                  onDatumClick,
+                )}
+              />
+            ),
+          )}
+          {renderEventMarkers(
+            eventGroups,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
+        </ComposedChart>
+      </ChartResponsiveContainer>
+    </ChartFrame>
+  );
+}
+
+export function TimeSeriesRenderer({
+  rows,
+  xKey,
+  yKeys,
+  colors,
+  yFormatter,
+  chartType,
+  stacked,
+  panel,
+  onDatumClick,
+  todayKey,
+}: {
+  rows: Record<string, unknown>[];
+  xKey: string;
+  yKeys: string[];
+  colors: string[];
+  yFormatter?: ChartValueFormatter | undefined;
+  chartType: "line" | "area";
+  stacked?: boolean;
+  panel: SqlPanel;
+  onDatumClick?: DatumClickHandler | undefined;
+  /** The day drawn as partial, as `sqlChartLocalDateKey` gives it; today by default. */
+  todayKey?: string | undefined;
+}) {
+  const renderDataNoteBands = useRenderDataNoteBands();
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const xValue = useChartXValue(xKey);
+  const xTooltipLabelFormatter = (value: any) =>
+    formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const [eventHovered, setEventHovered] = useState(false);
+  const panelEvents = usePanelEvents(panel);
+  const dataNotes = usePanelDataNotes(panel);
+  const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
+    useSeriesVisibility(yKeys);
+  const drilldownSeriesKeys = useMemo(
+    () => (panel.config?.pivot ? visibleKeys : EMPTY_DRILLDOWN_SERIES),
+    [panel.config?.pivot, visibleKeys],
+  );
+  const drilldownValueKeys = useMemo(
+    () => (panel.config?.pivot ? [] : visibleKeys),
+    [panel.config?.pivot, visibleKeys],
+  );
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
+  );
+  const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
+  const { rows: chartRows, series } = useMemo(
+    () =>
+      splitPartialDay
+        ? splitCurrentDayTimeSeriesRows(rows, xKey, yKeys, todayKey)
+        : {
+            rows,
+            series: yKeys.map((key) => ({
+              key,
+              solidKey: key,
+              partialKey: null,
+            })),
+          },
+    [rows, xKey, yKeys, splitPartialDay, todayKey],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    chartRows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    drilldownValueKeys,
+    valueFormatter,
+  );
+  const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
+  const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
+  const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
+  const xPadding = useEventMarkerAxisPadding(eventGroups, chartRows, xKey);
+  const chartClick = useChartClick(chartRows, xKey, onDatumClick);
+
+  if (chartType === "line") {
+    return (
+      <ChartFrame
+        panel={panel}
+        legendKeys={yKeys}
+        colors={colors}
+        hiddenKeys={hiddenKeys}
+        onToggleLegendKey={toggleSeries}
+        onFilterLegendKey={filterSeries}
+        showCustomLegend
+        drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
+        onDatumClick={onDatumClick}
+        footer={
+          <>
+            <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+            <EventMarkerList groups={eventGroups} />
+          </>
+        }
+      >
+        <ChartResponsiveContainer>
+          <LineChart
+            data={chartRows}
+            margin={chartMargin.margin}
+            {...chartClick.props}
+          >
+            {chartClick.locator}
+            <EvenlySpacedXAxis
+              rows={chartRows}
+              dataKey={xValue}
+              formatLabel={xLabelFormatter}
+              padding={xPadding}
+            />
+            {renderChartYAxes(dualAxis, yFormatter, {
+              rows,
+              keys: visibleKeys,
+            })}
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              vertical={false}
+            />
+            {renderDataNoteBands(dataNoteLayout.shaded, {
+              rows: chartRows,
+              xKey,
+              yAxisId: dualAxis.enabled ? "left" : undefined,
+              panelId: panel.id,
+              onHoverChange: setEventHovered,
+              onLabelRows: chartMargin.onLabelRows,
+            })}
+            <Tooltip
+              active={eventHovered ? false : undefined}
+              {...CHART_TOOLTIP_PROPS}
+              labelFormatter={xTooltipLabelFormatter}
+              content={
+                <ChartTooltip
+                  labelFormatter={xTooltipLabelFormatter}
+                  seriesNameFormatter={seriesNameFormatter}
+                  valueFormatter={valueFormatter}
+                  stacked={stacked}
+                />
+              }
+              itemSorter={(item) => -(Number(item.value) || 0)}
+            />
+            {series.map((item, i) => (
+              <Line
+                key={item.solidKey}
+                type="monotone"
+                dataKey={item.solidKey}
+                name={seriesNameFormatter(item.key)}
+                yAxisId={seriesAxisId(dualAxis, item.key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                dot={false}
+                hide={hiddenKeys.has(item.key)}
+                isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  chartRows,
+                  xKey,
+                  panel.config?.pivot ? item.key : undefined,
+                  item.solidKey,
+                  onDatumClick,
+                )}
+              />
+            ))}
+            {series.map((item, i) =>
+              item.partialKey ? (
+                <Line
+                  key={item.partialKey}
+                  type="monotone"
+                  dataKey={item.partialKey}
+                  name={seriesNameFormatter(item.key)}
+                  yAxisId={seriesAxisId(dualAxis, item.key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  strokeDasharray={PARTIAL_DAY_DASH}
+                  dot={false}
+                  hide={hiddenKeys.has(item.key)}
+                  isAnimationActive={false}
+                  {...chartSeriesClickProps(
+                    chartRows,
+                    xKey,
+                    panel.config?.pivot ? item.key : undefined,
+                    item.partialKey,
+                    onDatumClick,
+                  )}
+                />
+              ) : null,
+            )}
+            {renderEventMarkers(
+              eventGroups,
+              dualAxis.enabled ? "left" : undefined,
+              setEventHovered,
+            )}
+          </LineChart>
+        </ChartResponsiveContainer>
+      </ChartFrame>
+    );
+  }
+
+  const showFill = visibleKeys.length === 1 || stacked;
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+      drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
+      onDatumClick={onDatumClick}
+      footer={
+        <>
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+          <EventMarkerList groups={eventGroups} />
+        </>
+      }
+    >
+      <ChartResponsiveContainer>
+        <AreaChart
+          key={JSON.stringify(yKeys)}
+          data={chartRows}
+          margin={chartMargin.margin}
+          {...chartClick.props}
+        >
+          {chartClick.locator}
+          {showFill && (
+            <defs>
+              {yKeys.map((key, i) => (
+                <linearGradient
+                  key={key}
+                  id={`sql-gradient-${key}`}
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop
+                    offset="5%"
+                    stopColor={colors[i % colors.length]}
+                    stopOpacity={0.3}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor={colors[i % colors.length]}
+                    stopOpacity={0}
+                  />
+                </linearGradient>
+              ))}
+            </defs>
+          )}
+          <EvenlySpacedXAxis
+            rows={chartRows}
+            dataKey={xValue}
+            formatLabel={xLabelFormatter}
+            padding={xPadding}
+          />
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: visibleKeys,
+            stacked,
+          })}
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="hsl(var(--border))"
+            vertical={false}
+          />
+          {renderDataNoteBands(dataNoteLayout.shaded, {
+            rows: chartRows,
+            xKey,
+            yAxisId: dualAxis.enabled ? "left" : undefined,
+            panelId: panel.id,
+            onHoverChange: setEventHovered,
+            onLabelRows: chartMargin.onLabelRows,
+          })}
+          <Tooltip
+            active={eventHovered ? false : undefined}
+            {...CHART_TOOLTIP_PROPS}
+            labelFormatter={xTooltipLabelFormatter}
+            content={
+              <ChartTooltip
+                labelFormatter={xTooltipLabelFormatter}
+                seriesNameFormatter={seriesNameFormatter}
+                valueFormatter={valueFormatter}
+                stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
+              />
+            }
+            itemSorter={(item) => -(Number(item.value) || 0)}
+          />
+          {series.map((item, i) => (
+            <Area
+              key={item.solidKey}
+              type="monotone"
+              dataKey={item.solidKey}
+              name={seriesNameFormatter(item.key)}
+              yAxisId={seriesAxisId(dualAxis, item.key)}
+              stroke={colors[i % colors.length]}
+              strokeWidth={2}
+              fillOpacity={showFill ? 1 : 0}
+              fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
+              stackId={stacked ? "stack" : undefined}
+              hide={hiddenKeys.has(item.key)}
+              isAnimationActive={false}
+              {...chartSeriesClickProps(
+                chartRows,
+                xKey,
+                panel.config?.pivot ? item.key : undefined,
+                item.solidKey,
+                onDatumClick,
+              )}
+            />
+          ))}
+          {series.map((item, i) =>
+            item.partialKey ? (
+              <Area
+                key={item.partialKey}
+                type="monotone"
+                dataKey={item.partialKey}
+                name={seriesNameFormatter(item.key)}
+                yAxisId={seriesAxisId(dualAxis, item.key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                strokeDasharray={PARTIAL_DAY_DASH}
+                fill="none"
+                fillOpacity={0}
+                stackId={stacked ? "partial-stack" : undefined}
+                hide={hiddenKeys.has(item.key)}
+                isAnimationActive={false}
+                {...chartSeriesClickProps(
+                  chartRows,
+                  xKey,
+                  panel.config?.pivot ? item.key : undefined,
+                  item.partialKey,
+                  onDatumClick,
+                )}
+              />
+            ) : null,
+          )}
+          {renderEventMarkers(
+            eventGroups,
+            dualAxis.enabled ? "left" : undefined,
+            setEventHovered,
+          )}
+        </AreaChart>
+      </ChartResponsiveContainer>
+    </ChartFrame>
+  );
+}
+
+export function FunnelRenderer({
+  funnel,
+  panel,
+  colors,
+  onDatumClick,
+}: {
+  funnel: DashboardFunnelRows;
+  panel: SqlPanel;
+  colors: string[];
+  onDatumClick?: DatumClickHandler | undefined;
+}) {
+  const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
+  const formatter = panel.config?.yFormatter;
+  const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
+
+  if (funnel.outcomes) {
+    return (
+      <OutcomeFunnelRenderer
+        funnel={funnel}
+        outcomes={funnel.outcomes}
+        panel={panel}
+        colors={funnelColors}
+        onDatumClick={onDatumClick}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="space-y-3 py-2"
+      role={onDatumClick ? "group" : "img"}
+      aria-label={panel.title}
+      data-dashboard-funnel="true"
+    >
+      {funnel.items.map((item, index) => {
+        const width =
+          item.value > 0 ? Math.max(2, (item.value / maxValue) * 100) : 0;
+        const dropOff =
+          item.dropOffPercent === null
+            ? null
+            : `${item.dropOffPercent < 0 ? "↑" : "↓"} ${Math.abs(item.dropOffPercent).toFixed(1)}%`;
+        return (
+          <div
+            key={`${item.label}-${index}`}
+            className={cn(
+              "space-y-1",
+              onDatumClick &&
+                "cursor-pointer rounded-sm hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+            )}
+            {...(onDatumClick
+              ? {
+                  role: "button",
+                  tabIndex: 0,
+                  onClick: () =>
+                    onDatumClick({ x: item.label, value: item.value }),
+                  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onDatumClick({ x: item.label, value: item.value });
+                    }
+                  },
+                }
+              : {})}
+          >
+            <div className="flex items-baseline justify-between gap-3 text-xs">
+              <span className="min-w-0 truncate font-medium text-foreground">
+                {item.label}
+              </span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {formatYValue(item.value, formatter)} ·{" "}
+                {item.percentOfFirst.toFixed(1)}%
+                {dropOff ? ` · ${dropOff}` : ""}
+              </span>
+            </div>
+            <div className="h-5 overflow-hidden rounded-sm bg-muted/60">
+              <div
+                className="h-full rounded-sm transition-[width]"
+                style={{
+                  width: `${width}%`,
+                  backgroundColor: funnelColors[index % funnelColors.length],
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const FUNNEL_OUTCOME_LABEL_KEYS: Record<FunnelOutcomeSegment, string> = {
+  completed: "sqlDashboard.funnelCompleted",
+  skipped: "sqlDashboard.funnelSkipped",
+  movedOn: "sqlDashboard.funnelMovedOn",
+  left: "sqlDashboard.funnelLeft",
+};
+
+function formatShare(part: number, shown: number): string {
+  return `${funnelOutcomeShare(part, shown).toFixed(1)}%`;
+}
+
+function OutcomeFunnelRenderer({
+  funnel,
+  outcomes,
+  panel,
+  colors,
+  onDatumClick,
+}: {
+  funnel: DashboardFunnelRows;
+  outcomes: DashboardFunnelOutcomeSummary;
+  panel: SqlPanel;
+  colors: string[];
+  onDatumClick?: DatumClickHandler;
+}) {
+  const t = useT();
+  const formatter = panel.config?.yFormatter;
+  const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
+  const segments = FUNNEL_OUTCOME_SEGMENTS.filter(
+    (segment) => segment !== "skipped" || !!outcomes.keys.skippedKey,
+  );
+
+  return (
+    <HoverTooltipProvider delayDuration={100}>
+      <div
+        className="py-2"
+        role="group"
+        aria-label={panel.title}
+        data-dashboard-funnel="true"
+        data-funnel-outcomes="true"
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          {segments.map((segment) => (
+            <span key={segment} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{ background: FUNNEL_OUTCOME_FILLS[segment] }}
+              />
+              {t(FUNNEL_OUTCOME_LABEL_KEYS[segment])}
+            </span>
+          ))}
+          <span className="ml-auto">{t("sqlDashboard.funnelLeftHere")}</span>
+        </div>
+        <div className="space-y-3">
+          {funnel.items.map((item, index) => {
+            const shown = t("sqlDashboard.funnelShown", {
+              count: formatYValue(item.value, formatter),
+            });
+            if (!item.outcomes) {
+              const width =
+                item.value > 0 ? Math.max(2, (item.value / maxValue) * 100) : 0;
+              return (
+                <div
+                  key={`${item.label}-${index}`}
+                  className={cn(
+                    "space-y-1",
+                    onDatumClick &&
+                      "cursor-pointer rounded-sm hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+                  )}
+                  {...(onDatumClick
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        onClick: () =>
+                          onDatumClick({ x: item.label, value: item.value }),
+                        onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onDatumClick({ x: item.label, value: item.value });
+                          }
+                        },
+                      }
+                    : {})}
+                >
+                  <div className="flex items-baseline gap-2 text-xs">
+                    <span className="min-w-0 truncate font-medium text-foreground">
+                      {item.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {shown}
+                    </span>
+                  </div>
+                  <div className="h-[18px] overflow-hidden rounded-sm bg-muted/60">
+                    <div
+                      className="h-full rounded-sm"
+                      style={{
+                        width: `${width}%`,
+                        backgroundColor: colors[index % colors.length],
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <OutcomeFunnelStage
+                key={`${item.label}-${index}`}
+                item={item}
+                outcomes={item.outcomes}
+                segments={segments}
+                shown={shown}
+                formatter={formatter}
+                onDatumClick={onDatumClick}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </HoverTooltipProvider>
+  );
+}
+
+function OutcomeFunnelStage({
+  item,
+  outcomes,
+  segments,
+  shown,
+  formatter,
+  onDatumClick,
+}: {
+  item: DashboardFunnelItem;
+  outcomes: DashboardFunnelOutcomes;
+  segments: FunnelOutcomeSegment[];
+  shown: string;
+  formatter?: ChartValueFormatter;
+  onDatumClick?: DatumClickHandler;
+}) {
+  const t = useT();
+  const optionalTag = outcomes.optional ? (
+    <Badge
+      variant="outline"
+      className="shrink-0 px-1.5 py-0 text-[10px] font-medium leading-4"
+    >
+      {t("sqlDashboard.funnelOptional")}
+    </Badge>
+  ) : null;
+
+  return (
+    <HoverTooltip>
+      <HoverTooltipTrigger asChild>
+        <div
+          tabIndex={0}
+          role={onDatumClick ? "button" : undefined}
+          className={cn(
+            "space-y-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            onDatumClick && "cursor-pointer hover:bg-muted/40",
+          )}
+          onClick={
+            onDatumClick
+              ? () => onDatumClick({ x: item.label, value: item.value })
+              : undefined
+          }
+          onKeyDown={
+            onDatumClick
+              ? (event: KeyboardEvent<HTMLDivElement>) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onDatumClick({ x: item.label, value: item.value });
+                  }
+                }
+              : undefined
+          }
+          data-funnel-stage={item.label}
+        >
+          <div className="flex items-baseline gap-2 text-xs">
+            <span className="min-w-0 truncate font-medium text-foreground">
+              {item.label}
+            </span>
+            {optionalTag}
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {shown}
+            </span>
+            <span
+              className="ml-auto shrink-0 text-sm font-semibold tabular-nums text-foreground"
+              data-funnel-left-share
+            >
+              {formatShare(outcomes.left, item.value)}
+            </span>
+          </div>
+          <div className="flex h-[18px] overflow-hidden rounded-sm bg-muted/60">
+            {segments.map((segment) =>
+              outcomes[segment] > 0 ? (
+                <div
+                  key={segment}
+                  className="h-full"
+                  data-funnel-segment={segment}
+                  style={{
+                    width: `${funnelOutcomeShare(outcomes[segment], item.value)}%`,
+                    background: FUNNEL_OUTCOME_FILLS[segment],
+                  }}
+                />
+              ) : null,
+            )}
+          </div>
+        </div>
+      </HoverTooltipTrigger>
+      <HoverTooltipContent
+        side="bottom"
+        align="start"
+        className="w-72 space-y-1 p-3 text-xs"
+      >
+        <div className="mb-2 flex items-center gap-2 font-medium">
+          <span className="min-w-0 truncate">{item.label}</span>
+          {optionalTag}
+        </div>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span>{t("sqlDashboard.funnelShownLabel")}</span>
+          <span className="ml-auto tabular-nums text-foreground">
+            {formatYValue(item.value, formatter)}
+          </span>
+        </div>
+        {segments.map((segment) => (
+          <div
+            key={segment}
+            className={`flex items-center gap-2 ${segment === "left" ? "font-semibold" : ""}`}
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-sm"
+              style={{ background: FUNNEL_OUTCOME_FILLS[segment] }}
+            />
+            <span>
+              {t(
+                segment === "left"
+                  ? "sqlDashboard.funnelLeftHere"
+                  : FUNNEL_OUTCOME_LABEL_KEYS[segment],
+              )}
+            </span>
+            <span className="ml-auto tabular-nums">
+              {formatYValue(outcomes[segment], formatter)} ·{" "}
+              {formatShare(outcomes[segment], item.value)}
+            </span>
+          </div>
+        ))}
+      </HoverTooltipContent>
+    </HoverTooltip>
+  );
+}
+
+export function HeatmapRenderer({
+  rows,
+  panel,
+  keys,
+}: {
+  rows: Record<string, unknown>[];
+  panel: SqlPanel;
+  keys: HeatmapKeys;
+}) {
+  const yFormatter = panel.config?.yFormatter;
+  const { xKey: xK, valueKey: valK, rowKey: rowK } = keys;
+
+  const { xValues, yValues, grid, stats } = useMemo(() => {
+    const xs: string[] = [];
+    const ys: string[] = [];
+    const seenX = new Set<string>();
+    const seenY = new Set<string>();
+    const g = new Map<string, number>();
+    for (const r of rows) {
+      const xv = stringifyValue(r[xK]);
+      const yv = rowK ? stringifyValue(r[rowK]) : "";
+      const v = Number(r[valK]);
+      if (!seenX.has(xv)) {
+        seenX.add(xv);
+        xs.push(xv);
+      }
+      if (!seenY.has(yv)) {
+        seenY.add(yv);
+        ys.push(yv);
+      }
+      if (Number.isFinite(v)) g.set(`${xv}\u0000${yv}`, v);
+    }
+
+    const s = new Map<string, { mean: number; std: number }>();
+    for (const xv of xs) {
+      const vals: number[] = [];
+      for (const yv of ys) {
+        const v = g.get(`${xv}\u0000${yv}`);
+        if (v != null) vals.push(v);
+      }
+      if (vals.length === 0) {
+        s.set(xv, { mean: 0, std: 0 });
+        continue;
+      }
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const variance =
+        vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+      s.set(xv, { mean, std: Math.sqrt(variance) });
+    }
+    return { xValues: xs, yValues: ys, grid: g, stats: s };
+  }, [rows, xK, valK, rowK]);
+
+  const cellColor = (xv: string, v: number | undefined) => {
+    if (v == null) return undefined;
+    const stat = stats.get(xv);
+    if (!stat) return undefined;
+    const baseline = stat.std > 0 ? stat.std : Math.abs(stat.mean) || 1;
+    const z = Math.max(-2, Math.min(2, (v - stat.mean) / baseline));
+    const intensity = Math.min(2, Math.abs(z));
+    const lightness = 90 - intensity * 25;
+    const hue = z >= 0 ? 140 : 0;
+    return `hsl(${hue}, 60%, ${lightness}%)`;
+  };
+
+  return (
+    <div className={`${HEATMAP_PANEL_MIN_HEIGHT_CLASS} overflow-x-auto`}>
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap">
+              {rowK}
+            </th>
+            {xValues.map((xv) => (
+              <th
+                key={xv}
+                className="text-right py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap"
+              >
+                {formatXLabel(xv, panel)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {yValues.map((yv) => (
+            <tr key={yv} className="border-b border-border/50">
+              <td className="py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap">
+                {yv || "—"}
+              </td>
+              {xValues.map((xv) => {
+                const v = grid.get(`${xv}\u0000${yv}`);
+                const bg = cellColor(xv, v);
+                return (
+                  <td
+                    key={xv}
+                    className="py-1.5 px-2 text-right tabular-nums whitespace-nowrap"
+                    style={bg ? { backgroundColor: bg } : undefined}
+                  >
+                    {v != null ? formatYValue(v, yFormatter) : ""}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type CalloutSeverity = "info" | "warning" | "critical";
+
+// Icons are graphics, so 3:1 against the card is enough (WCAG 1.4.11); the
+// message text stays the card's own foreground.
+const CALLOUT_SEVERITY_ICONS: Record<
+  CalloutSeverity,
+  { Icon: typeof IconInfoCircle; className: string; labelKey: string }
+> = {
+  critical: {
+    Icon: IconAlertCircle,
+    className: "text-destructive",
+    labelKey: "sqlDashboard.calloutSeverityCritical",
+  },
+  warning: {
+    Icon: IconAlertTriangle,
+    className: "text-amber-600 dark:text-amber-400",
+    labelKey: "sqlDashboard.calloutSeverityWarning",
+  },
+  info: {
+    Icon: IconInfoCircle,
+    className: "text-sky-600 dark:text-sky-400",
+    labelKey: "sqlDashboard.calloutSeverityInfo",
+  },
+};
+
+/** Rows split by thin lines, each led by its severity's icon. */
+export function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
+  const t = useT();
+  if (rows.length === 0) return null;
+
+  return (
+    <ul className="divide-y divide-border/60">
+      {rows.map((row, i) => {
+        const sevRaw = (stringifyValue(row.severity) || "info").toLowerCase();
+        const severity: CalloutSeverity =
+          sevRaw === "critical" || sevRaw === "warning" || sevRaw === "info"
+            ? (sevRaw as CalloutSeverity)
+            : "info";
+        const message = stringifyValue(row.message);
+        const { Icon, className, labelKey } = CALLOUT_SEVERITY_ICONS[severity];
+        return (
+          <li
+            key={i}
+            data-callout-severity={severity}
+            className="flex items-start gap-2.5 py-2 text-sm first:pt-0.5 last:pb-0.5"
+          >
+            <Icon
+              role="img"
+              aria-label={t(labelKey)}
+              className={cn("mt-0.5 h-4 w-4 shrink-0", className)}
+            />
+            <InlineMarkdown
+              inline
+              content={message}
+              className="min-w-0 flex-1 break-words"
+              linkClassName="text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
+              renderLink={renderDashboardMarkdownLink}
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

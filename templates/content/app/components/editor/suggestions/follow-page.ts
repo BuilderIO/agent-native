@@ -1,4 +1,20 @@
-import type { SuggestionDraftSession } from "./draft-session";
+import type {
+  ResourceSuggestion,
+  SuggestionOperation,
+} from "@agent-native/core/review";
+import { rebaseBodyEdit } from "@shared/body-rebase";
+import { canonicalizeNfm } from "@shared/nfm";
+import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
+
+import {
+  canonicalSuggestionRevision,
+  planSuggestionDraftPersistence,
+  suggestionDraftOperations,
+  suggestionOperationKey,
+  type SuggestionDraftSession,
+  type SuggestionPersistenceEntry,
+} from "./draft-session";
+import type { MarkdownSuggestionOperation } from "./markdown-operation";
 
 /** How long the draft has to sit still before it moves to a newer Page. */
 export const SUGGESTION_FOLLOW_QUIET_MS = 2000;
@@ -25,6 +41,23 @@ function pageIsNewer(
   const baseBody = bodyRevisionNumber(base.revision);
   if (pageBody !== null && baseBody !== null) return pageBody > baseBody;
   return page.updatedAt > base.updatedAt;
+}
+
+export function laterPage<
+  Page extends { revision?: string; updatedAt: string },
+>(first: Page, second: Page): Page {
+  return pageIsNewer(
+    {
+      revision: canonicalSuggestionRevision(second),
+      updatedAt: second.updatedAt,
+    },
+    {
+      revision: canonicalSuggestionRevision(first),
+      updatedAt: first.updatedAt,
+    },
+  )
+    ? second
+    : first;
 }
 
 /**
@@ -67,6 +100,101 @@ export function suggestionPageFollow(args: {
   if (quietFor < SUGGESTION_FOLLOW_QUIET_MS)
     return { kind: "wait", ms: SUGGESTION_FOLLOW_QUIET_MS - quietFor };
   return { kind: "restart" };
+}
+
+function sameEdits(
+  before: readonly MarkdownSuggestionOperation[],
+  after: readonly MarkdownSuggestionOperation[],
+) {
+  if (after.length !== before.length) return false;
+  const moved = after.values();
+  return before.every((previous) => {
+    const step = moved.next();
+    return (
+      !step.done &&
+      step.value.kind === previous.kind &&
+      step.value.before.changedText === previous.before.changedText &&
+      step.value.after.changedText === previous.after.changedText
+    );
+  });
+}
+
+function savedMarkdown(operation: SuggestionOperation) {
+  const { after } = operation;
+  return after &&
+    typeof after === "object" &&
+    "markdown" in after &&
+    typeof after.markdown === "string"
+    ? canonicalizeNfm(after.markdown)
+    : null;
+}
+
+export function carryOwnSuggestions(args: {
+  session: SuggestionDraftSession;
+  draft: string;
+  next: SuggestionDraftSession;
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>;
+  latest: (
+    id: string,
+  ) => Pick<ResourceSuggestion, "status" | "revision"> | undefined;
+  unsaved?: boolean;
+}): {
+  content: string;
+  entries: Map<string, SuggestionPersistenceEntry>;
+} | null {
+  const { session, draft, next, entries } = args;
+  const unsaved = args.unsaved === true;
+  if ((entries.size === 0 && !unsaved) || session.existingSuggestion)
+    return null;
+  for (const { suggestion } of entries.values()) {
+    const latest = args.latest(suggestion.id);
+    if (latest?.status !== "pending" || latest.revision !== suggestion.revision)
+      return null;
+  }
+  try {
+    const before = suggestionDraftOperations(session, draft);
+    const plan = planSuggestionDraftPersistence(before, entries);
+    if (
+      plan.unchanged.size + plan.amend.length !== entries.size ||
+      plan.withdraw.length > 0 ||
+      (!unsaved && plan.create.length + plan.amend.length > 0)
+    )
+      return null;
+    const base = session.initialContent ?? canonicalizeNfm(session.baseContent);
+    const current = next.initialContent ?? canonicalizeNfm(next.baseContent);
+    const content = rebaseBodyEdit(base, draft, current);
+    if (content === null) return null;
+    const after = suggestionDraftOperations(next, content);
+    if (!sameEdits(before, after)) return null;
+    const carried = new Map<string, SuggestionPersistenceEntry>();
+    const moved = after.values();
+    for (const previous of before) {
+      const step = moved.next();
+      if (step.done) return null;
+      const entry = entries.get(suggestionOperationKey(previous));
+      if (entry) {
+        const operation = step.value;
+        carried.set(suggestionOperationKey(operation), { ...entry, operation });
+      }
+    }
+    for (const { previousKey } of plan.amend) {
+      const entry = entries.get(previousKey);
+      const saved = entry ? savedMarkdown(entry.operation) : null;
+      if (!entry || saved === null) return null;
+      const savedOnNext = rebaseBodyEdit(base, saved, current);
+      if (savedOnNext === null) return null;
+      const savedBefore = suggestionDraftOperations(session, saved);
+      const savedAfter = suggestionDraftOperations(next, savedOnNext);
+      if (savedBefore.length !== 1 || !sameEdits(savedBefore, savedAfter))
+        return null;
+      for (const operation of savedAfter)
+        carried.set(suggestionOperationKey(operation), { ...entry, operation });
+    }
+    return { content, entries: carried };
+  } catch (error) {
+    if (error instanceof SuggestionFormattingMappingError) return null;
+    throw error;
+  }
 }
 
 /**

@@ -360,7 +360,7 @@ export function useNavigationState() {
 }
 ```
 
-Mantenha filtros compartilháveis ​​nos parâmetros de consulta URL. A estrutura os expõe ao agente como `<current-url>` e o agente integrado pode alterá-los com `set-search-params`; `navigation` deve conter IDs semânticos e aliases, e não uma segunda cópia da string de consulta completa.
+Mantenha filtros compartilháveis ​​nos parâmetros de consulta URL. A estrutura expõe ao agente, como `<current-url>`, as chaves que você declara em `urlQueryKeys` de `AgentSidebar` (os demais valores aparecem como `<redacted>`) e o agente integrado pode alterá-los com `set-search-params`; `navigation` deve conter IDs semânticos e aliases, e não uma segunda cópia da string de consulta completa.
 
 Para navegação no aplicativo, prefira um comando `navigate` que inclua uma mesma origem
 `path` quando o URL é conhecido. Não escreva também `__set_url__` para o mesmo movimento;

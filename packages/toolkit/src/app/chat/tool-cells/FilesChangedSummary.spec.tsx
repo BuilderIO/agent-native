@@ -46,11 +46,68 @@ describe("FilesChangedSummary", () => {
     expect(summary?.className).not.toContain("border");
     expect(summary?.className).not.toContain("rounded");
     expect(container.textContent).not.toContain("file changed");
-    expect(row).not.toBeNull();
-    expect(path?.className).toContain("flex-1");
-    expect(path?.textContent).toContain("MessageQueueDrawer.spec.tsx");
-    expect(stats?.className).toContain("ms-auto");
+    expect(row?.getAttribute("aria-expanded")).toBe("false");
+    expect(path?.getAttribute("title")).toBe(
+      "packages/toolkit/src/composer/MessageQueueDrawer.spec.tsx",
+    );
+    // The file name is its own box, so a long directory truncates first.
+    expect(path?.querySelector(".agentkit-file-path-name")?.textContent).toBe(
+      "MessageQueueDrawer.spec.tsx",
+    );
     expect(stats?.textContent).toBe("+2−0");
-    expect(stats?.querySelector(".agent-kit-tone-positive")).not.toBeNull();
+    expect(stats?.querySelector('[data-sign="added"]')?.textContent).toBe("+2");
+
+    act(() => (row as HTMLButtonElement).click());
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".agentkit-code-line"),
+        (line) => [line.textContent, line.dataset.variant ?? "context"],
+      ),
+    ).toEqual([
+      ["first", "context"],
+      ["second", "context"],
+      ["Added third", "added"],
+      ["Added fourth", "added"],
+    ]);
+  });
+
+  it("counts a same-length rewrite by its diff, and keeps each file's latest change", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const edit = (newText: string) =>
+      ({
+        type: "tool-call",
+        toolName: "edit-file",
+        structuredMeta: {
+          toolKind: "edit",
+          filePath: "src/a.ts",
+          oldText: "one\ntwo",
+          newText,
+        },
+      }) as ContentPart;
+    const parts = [
+      edit("one\nTWO"),
+      {
+        type: "tool-call",
+        toolName: "write-file",
+        structuredMeta: {
+          toolKind: "write",
+          filePath: "src/b.ts",
+          content: "x\ny\nz",
+        },
+      },
+      edit("ONE\nTWO"),
+    ] as ContentPart[];
+    act(() => {
+      root.render(<FilesChangedSummary parts={parts} />);
+    });
+    expect(
+      Array.from(
+        container.querySelectorAll("[data-agent-file-change-stats]"),
+        (stats) => stats.textContent,
+      ),
+    ).toEqual(["+2−2", "+3"]);
   });
 });

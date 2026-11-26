@@ -124,6 +124,20 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
             "Permite que uma action de mutação rode simultaneamente com outras chamadas de ferramenta no mesmo turno.",
         },
         {
+          name: "retrySafe",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            "Quando true (ou quando o predicado retorna true), uma falha após a própria escrita desta action é uma falha conhecida que o modelo pode corrigir e tentar de novo, em vez de bloquear a ferramenta pelo resto do turno atual. Reserve para actions seguras de executar de novo após qualquer erro. Uma recusa antes de qualquer escrita não precisa desta opção. Veja Escritas seguras para retentativa abaixo.",
+        },
+        {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'Marca uma escrita que o app faz por conta própria, sem gesto do usuário: ao carregar, ao montar, por timer ou como registro de experimentos e uso. Seus eventos action_started, action_completed e action_failed levam action_kind "automatic" em vez de "write", então as contagens de uso do produto a deixam de fora. Um predicado marca só as chamadas para as quais retorna true. Afeta só a analytics: nunca defina readOnly para silenciar uma escrita.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,
@@ -438,6 +452,41 @@ Uma queda de rede, uma página de erro HTML de um proxy e uma simples linha de s
 Então o status não é cosmético. Uma recusa enviada como `404` custa uma ida e volta. A mesma recusa enviada como `500`, ou lançada pura, custa quatro idas e voltas e quatro relatórios de erro duplicados.
 
 Chamadores do agente não veem o status. O agente executa `run()` em processo, então recebe a mensagem diretamente, seja qual for o tipo, como `Error running <action>: <message>`. Um `errorCode` diferente do padrão `action_failed` é anexado como `(errorCode: not_found)`, para o modelo poder ramificar sem analisar a prosa. Os `details` vêm em uma linha própria como JSON compacto, por exemplo `Error details: {"importId":"imp_1"}`, para que um id de que o modelo precisa na próxima chamada não tenha de ser escrito na mensagem. Agentes externos por MCP recebem o mesmo texto e os mesmos detalhes em `structuredContent.error`. Uma ferramenta que anuncia um schema de saída (`mcpOutputSchema: true`) retorna só o texto, porque um cliente pode validar também um resultado de erro contra esse schema. Os detalhes são limitados a 2.000 caracteres: acima disso, as entradas pequenas de nível superior são mantidas e as demais são listadas como omitidas. Segredos na mensagem e nos detalhes são removidos antes, e os disjuntores de erro repetido do agente limitam quantas vezes ele tenta de novo.
+
+## Escritas seguras para retentativa {#retry-safe}
+
+O framework classifica uma action de escrita que falhou pelas escritas que viu a chamada fazer: toda instrução SQL que, pelo texto, pode escrever e todo `fetch` que não seja GET, HEAD ou OPTIONS. Uma recusa levantada antes de qualquer uma delas, como uma edição que não encontra nada, um destino ausente ou uma recusa de validação 422, é uma falha conhecida, seja qual for a forma como é lançada: `fail()`, um `Error` simples ou um erro de biblioteca. O modelo recebe o erro, corrige seus argumentos e tenta de novo.
+
+Quando uma chamada falha depois de uma escrita que fez, o loop do agente registra um resultado desconhecido e bloqueia essa ferramenta pelo resto do **turno atual**. O modelo vê o erro, mas não consegue chamar a mesma action de novo neste turno para corrigir seus argumentos. A próxima mensagem do usuário executa a ferramenta normalmente.
+
+- Antes de uma escrita que o framework não consegue ver, como uma escrita em disco, um processo filho, uma requisição `node:http`, uma chamada ao SDK de um fornecedor ou uma função de banco de dados do próprio app que um `SELECT` chama, chame `noteExternalWrite(channel)` de `@agent-native/core/action`, por exemplo `noteExternalWrite("local-disk")`. Sem isso, uma chamada que falha depois dessa escrita parece não ter salvo nada.
+- `NoWriteError`, ou `noWrite()` de `defineActionErrors`, é uma substituição, não um requisito. Use quando a única escrita antes da recusa for uma que uma nova tentativa repete sem dano, como uma requisição que o servidor recusou com um 4xx antes de agir, ou um upload que nada referencia ainda. O framework só aceita quando nenhuma action de escrita aninhada entrou no handler da chamada. A regra para autores é o item `NoWriteError` em `.agents/skills/actions/SKILL.md`. Veja [Declarando códigos de erro](#error-codes) para `noWrite()`.
+
+Defina `retrySafe: true` (ou um predicado sobre a entrada) quando executar de novo após qualquer erro não puder duplicar nem corromper dados: cada escrita da action define um estado final, como substituir por id, de modo que repetir uma escrita que já aconteceu não muda nada. Assim, uma chamada que falha depois da própria escrita continua sendo uma falha conhecida. O modelo recebe o erro, corrige seus argumentos e tenta de novo.
+
+```ts
+export default defineAction({
+  description: "Replace a dashboard panel by id.",
+  schema: z.object({
+    dashboardId: z.string().describe("Dashboard id."),
+    panelId: z.string().describe("Panel id to replace."),
+    title: z.string().describe("New panel title."),
+  }),
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
+  retrySafe: true,
+  run: async ({ dashboardId, panelId, title }) => {
+    /* validate, then replace-by-id … */
+  },
+});
+```
+
+**Não** defina quando a action acrescenta, envia ou cobra depois da validação, exceto para entradas que carregam uma chave de idempotência à qual a action responde com o primeiro resultado. Validar primeiro não basta sozinho se uma etapa posterior já pode ter surtido efeito antes da rejeição. Mais alguns limites:
+
+- Cobre **a própria escrita desta action**. Depois que uma action aninhada que ela chama escreve, uma falha ainda registra um resultado desconhecido.
+- A aprovação MCP omite o aviso de «já executou» para uma chamada que `retrySafe` cobre.
+- Quando uma execução se recupera de um crash e emite de novo uma chamada retry-safe interrompida com a mesma entrada, essa chamada executa de novo em vez de ficar desconhecida.
+- Um prazo esgotado ou um abort depois que a action foi invocada ainda bloqueia a ferramenta pelo resto do turno atual. Só o erro retornado pela própria action é tratado como uma falha conhecida e passível de retentativa.
 
 ## Mantenha a superfície de actions pequena {#small-surface}
 

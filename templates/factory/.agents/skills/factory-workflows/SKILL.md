@@ -312,7 +312,7 @@ Connections are per provider, from `connections` in a save or
   a connect card and the turn waits for the user. Ask for one provider per
   turn. When the user says it is connected, call `get-factory-workflow` again
   to refresh `connections` and go on.
-- **Gong, Pylon, Stripe, PostHog, Builder, email:** the call returns
+- **Gong, Pylon, Stripe, PostHog, Builder, Content, email:** the call returns
   `connected: false` with `where` and `keys`. Tell the user exactly that, then
   check again when they say it is done.
 - **`unknown`:** the check itself failed; `detail` says why. Say so; do not call
@@ -517,6 +517,24 @@ provider is called. Each write is sent once; `_outcome_unknown` means check.
   `resolvedInNextRelease`. Sentry's answer must confirm it.
 - `sentry.assignIssue` (Action): `assigneeKind` `user` (`assignee` is an email),
   `team` (a lowercase slug, read first; unknown is refused) or `nobody`.
+
+## Content steps
+
+- `content.upsertRow` (Action): adds a row to an Agent-Native Content
+  collection, or updates the row whose unique key column holds `key`.
+  `collection` is the collection's link or page ID, and it needs a unique key
+  column. `values` maps column names to values; only those change, and a name
+  the collection lacks, a column it computes, or the key column is refused.
+  Gives `outcome` (`created`, `updated` or `unchanged`), `documentId`,
+  `itemId` and `url`. It does not write a row's page text.
+- It writes as the workflow's owner, through their own Content connection: a
+  connection shared with the workspace is not used, so another member's
+  workflow can never write as the person who added it. When it is missing the
+  step fails `credential_missing`, and only the owner can connect it. When
+  the user owns the workflow, call `request-workflow-connection` with
+  `content` and tell them where to add it. When someone else does, tell the
+  user the owner must connect it; `connections` and the refusal from
+  `set-factory-workflow-enabled` name the owner.
 
 ## Labels and reactions
 

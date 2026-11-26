@@ -45,6 +45,7 @@ export function DocumentPanelTabs({
   tabs,
   activeTab,
   openCommentCount = 0,
+  checksToLookAt = 0,
   plain = false,
   panelId = DOCUMENT_PAGE_PANEL_ID,
   commentsTriggerRef,
@@ -53,6 +54,7 @@ export function DocumentPanelTabs({
   tabs: DocumentPagePanelTab[];
   activeTab: DocumentPagePanelTab | null;
   openCommentCount?: number;
+  checksToLookAt?: number;
   /** A phone's header: plain 44 px buttons without the track. */
   plain?: boolean;
   panelId?: string | undefined;
@@ -107,7 +109,7 @@ export function DocumentPanelTabs({
       aria-label={t("comments.panelTabs")}
       className={cn(
         "flex shrink-0 items-center",
-        plain ? "" : "gap-0.5 rounded-lg bg-muted p-0.5",
+        plain ? "" : "gap-0.5 rounded-md bg-muted p-0.5",
       )}
       data-document-panel-tabs
     >
@@ -116,6 +118,15 @@ export function DocumentPanelTabs({
         const active = tab === activeTab;
         const shortcut = tabShortcut(tab);
         const showCount = tab === "comments" && openCommentCount > 0;
+        const showChecks = tab === "info" && checksToLookAt > 0;
+        const label = showCount
+          ? t("comments.discussionOpenCount", { count: openCommentCount })
+          : showChecks
+            ? t("pageChecks.tabWithCount", {
+                tab: tabLabels.info,
+                lookAt: t("pageChecks.lookAt", { count: checksToLookAt }),
+              })
+            : tabLabels[tab];
         return (
           <Tooltip
             key={tab}
@@ -145,13 +156,7 @@ export function DocumentPanelTabs({
                 aria-selected={active}
                 aria-controls={panelId}
                 aria-keyshortcuts={shortcut.aria}
-                aria-label={
-                  showCount
-                    ? t("comments.discussionOpenCount", {
-                        count: openCommentCount,
-                      })
-                    : tabLabels[tab]
-                }
+                aria-label={label}
                 data-document-panel-tab={tab}
                 data-comments-history-trigger={
                   tab === "comments" ? "" : undefined
@@ -163,7 +168,10 @@ export function DocumentPanelTabs({
                   "flex items-center justify-center gap-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   plain
                     ? "h-11 min-w-11 rounded-lg px-1.5"
-                    : "h-[30px] min-w-[38px] rounded-md px-2",
+                    : "h-7 min-w-[38px] rounded-sm px-2",
+                  // The track is the same 32 px as the bar's other buttons,
+                  // and its tabs fill on hover as they do.
+                  !active && !plain && "hover:bg-background/60",
                   active &&
                     (plain
                       ? "bg-muted text-foreground"
@@ -191,6 +199,16 @@ export function DocumentPanelTabs({
                     className="text-xs font-semibold tabular-nums leading-none"
                   >
                     {countLabel}
+                  </span>
+                ) : null}
+                {showChecks ? (
+                  <span
+                    aria-hidden="true"
+                    className="flex items-center gap-1 text-xs font-semibold tabular-nums leading-none text-warning-foreground"
+                    data-page-checks-tab-count
+                  >
+                    <span className="page-check-dot" data-shape="filled" />
+                    {checksToLookAt > 99 ? "99+" : checksToLookAt}
                   </span>
                 ) : null}
               </button>

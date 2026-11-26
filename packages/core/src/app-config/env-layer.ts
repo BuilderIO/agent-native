@@ -1,9 +1,18 @@
 import type { ZodType } from "zod";
 
+/**
+ * A field's own environment parser, declared as `.meta({ env, envParse })`.
+ * It receives every set value, blank included, and its result goes to the
+ * field's schema unchanged; use it when the field's type has no built-in
+ * parser below or when it must see blank values.
+ */
+export type EnvValueParser = (raw: string) => unknown;
+
 export interface EnvAlias {
   path: string[];
   env: string[];
   type: string;
+  parse?: EnvValueParser;
 }
 
 interface ZodInternals {
@@ -24,6 +33,7 @@ const WRAPPER_TYPES = new Set([
   "prefault",
   "nullable",
   "readonly",
+  "catch",
 ]);
 
 const MAX_WRAPPER_DEPTH = 10;
@@ -40,7 +50,9 @@ function unwrap(schema: unknown, path: string[]): unknown {
   );
 }
 
-function readEnvMeta(node: unknown): string[] | undefined {
+function readEnvMeta(
+  node: unknown,
+): { env: string[]; parse?: EnvValueParser } | undefined {
   const meta = (
     node as { meta?: () => Record<string, unknown> | undefined }
   ).meta?.();
@@ -49,7 +61,16 @@ function readEnvMeta(node: unknown): string[] | undefined {
   const valid = keys.filter(
     (key): key is string => typeof key === "string" && key.length > 0,
   );
-  return valid.length > 0 ? valid : undefined;
+  if (valid.length === 0) return undefined;
+  const parse = meta?.envParse;
+  if (parse !== undefined && typeof parse !== "function") {
+    throw new Error(
+      `Config env "${valid.join(", ")}" declares an envParse that is not a function.`,
+    );
+  }
+  return parse
+    ? { env: valid, parse: parse as EnvValueParser }
+    : { env: valid };
 }
 
 const aliasCache = new WeakMap<ZodType, EnvAlias[]>();
@@ -60,14 +81,14 @@ export function collectEnvAliases(schema: ZodType): EnvAlias[] {
   const aliases: EnvAlias[] = [];
 
   const visit = (node: unknown, path: string[]): void => {
-    const env = readEnvMeta(node);
+    const declared = readEnvMeta(node);
     const base = unwrap(node, path);
     const { type, shape } = internals(base).def;
 
     if (type === "object" && shape) {
-      if (env) {
+      if (declared) {
         throw new Error(
-          `Config group "${path.join(".")}" declares env "${env.join(", ")}". Only leaf fields can carry an environment alias.`,
+          `Config group "${path.join(".")}" declares env "${declared.env.join(", ")}". Only leaf fields can carry an environment alias.`,
         );
       }
       for (const [key, child] of Object.entries(shape)) {
@@ -76,7 +97,7 @@ export function collectEnvAliases(schema: ZodType): EnvAlias[] {
       return;
     }
 
-    if (env) aliases.push({ path, env, type });
+    if (declared) aliases.push({ path, type, ...declared });
   };
 
   visit(schema, []);
@@ -88,6 +109,7 @@ const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 const FALSE_VALUES = new Set(["0", "false", "no", "off"]);
 
 function parseEnvValue(raw: string, key: string, alias: EnvAlias): unknown {
+  if (alias.parse) return alias.parse(raw);
   switch (alias.type) {
     case "string":
     case "enum":
@@ -143,7 +165,7 @@ export function readEnvConfigLayer(
   for (const alias of collectEnvAliases(schema)) {
     for (const key of alias.env) {
       const raw = env[key];
-      if (raw === undefined || raw.trim() === "") continue;
+      if (raw === undefined || (raw.trim() === "" && !alias.parse)) continue;
       assign(layer, alias.path, parseEnvValue(raw, key, alias));
       break;
     }

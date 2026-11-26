@@ -78,17 +78,18 @@ export function AppLauncherMenu({
       transparent
       visible={visible}
     >
-      <Pressable
-        accessibilityLabel="Dismiss apps"
-        className="flex-1 justify-end bg-black/50"
-        onPress={onClose}
-      >
+      <View className="flex-1 justify-end bg-black/50">
+        <Pressable
+          accessibilityLabel="Dismiss apps"
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+        />
         <View
           className="px-3"
           pointerEvents="box-none"
           style={{ marginBottom: bottomOffset }}
         >
-          <Pressable className="w-full">
+          <Pressable accessible={false} className="w-full">
             {/* Opaque unless the platform can actually blur what is behind it.
                 A translucent tint alone leaves the composer legible straight
                 through the panel, which is worse than no glass at all. */}
@@ -142,7 +143,7 @@ export function AppLauncherMenu({
             </View>
           </Pressable>
         </View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }

@@ -2,7 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { assertNoInlineImageBytes } from "@agent-native/core/testing";
+import {
+  assertNoInlineImageBytes,
+  readDevActionDiscoveryFile,
+} from "@agent-native/core/testing";
 import type { Locator, Page } from "@playwright/test";
 
 import enUS from "../app/i18n/en-US";
@@ -57,19 +60,8 @@ async function queryE2eDatabase(
     // The app server owns PGlite's process lock. Use its token-authenticated,
     // loopback-only, read-only db-query route instead of opening the same files
     // from the Playwright process.
-    const discoveryPath = path.resolve(
-      process.cwd(),
-      ".agent-native",
-      "dev-server.json",
-    );
-    const discovery = JSON.parse(await readFile(discoveryPath, "utf8")) as {
-      origin?: unknown;
-      token?: unknown;
-    };
-    if (
-      typeof discovery.origin !== "string" ||
-      typeof discovery.token !== "string"
-    ) {
+    const discovery = readDevActionDiscoveryFile(process.cwd());
+    if (!discovery) {
       throw new Error("The local E2E database query bridge is unavailable.");
     }
     const origin = new URL(discovery.origin);
@@ -660,16 +652,12 @@ async function openSidebarComposer(
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible();
-  const workspaceRail = page.locator(
-    '[data-design-chrome-region="workspace-rail"]',
-  );
-  await expect(workspaceRail).toBeVisible({ timeout: 15_000 });
-  await workspaceRail
-    .getByRole("button", {
-      name: enUS.designEditor.leftRail.agent,
-      exact: true,
-    })
-    .click();
+  const agentTab = page.getByRole("tab", {
+    name: enUS.designEditor.leftTabs.agent,
+    exact: true,
+  });
+  await expect(agentTab).toBeVisible({ timeout: 15_000 });
+  await agentTab.click();
   await expect(
     page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
   ).toBeVisible({ timeout: 30_000 });

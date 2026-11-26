@@ -1,8 +1,13 @@
 import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import type { CoreSettingsPageId } from "@agent-native/core/navigation/settings-redirects";
 import type { OrgRole } from "@agent-native/core/org/types";
+import { createElement, lazy } from "react";
 import type { ComponentType, ReactNode } from "react";
 
+import type {
+  SettingsSectionDefinition,
+  SettingsSectionsProps,
+} from "../rows/schema.js";
 import type { SettingsBridge } from "./bridge.js";
 import type { SettingsPageIcon } from "./types.js";
 
@@ -95,6 +100,13 @@ export interface SettingsPageDefinition {
    * resolves these ids to this page until the redirect table owns them.
    */
   legacyTabIds?: readonly string[];
+  /**
+   * The page routes every path under it: `sub` is the rest of the path
+   * (`setup/abc/edit`) instead of a deeper path being rewritten to its parent.
+   */
+  nestedRoutes?: boolean;
+  /** Routable, but out of the nav and search, and drawn with no header title. */
+  unlisted?: boolean;
   /** Nav link to a route outside Settings instead of a page. */
   href?: string;
   /** Extra search terms for the page itself. */
@@ -109,10 +121,27 @@ export type AppSettingsPageDefinition = Omit<
   group?: "app";
 };
 
+/** A page described as settings rows instead of a component. */
+export type SchemaSettingsPageDefinition = Omit<
+  SettingsPageDefinition,
+  "component"
+> & {
+  /** The model hook runs at the page boundary, above the selected renderer. */
+  sections: (props: SettingsPageProps) => readonly SettingsSectionDefinition[];
+  component?: never;
+  presentation?: Omit<SettingsSectionsProps, "sections">;
+};
+
+const SettingsSections = lazy(() =>
+  import("../rows/SettingsSections.js").then((module) => ({
+    default: module.SettingsSections,
+  })),
+);
+
 const PAGE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function defineSettingsPage(
-  definition: SettingsPageDefinition,
+  definition: SettingsPageDefinition | SchemaSettingsPageDefinition,
 ): SettingsPageDefinition {
   if (!PAGE_ID_PATTERN.test(definition.id)) {
     throw new Error(
@@ -121,6 +150,16 @@ export function defineSettingsPage(
   }
   if (!definition.labelKey && !definition.label) {
     throw new Error(`Settings page ${definition.id} needs a labelKey or label`);
+  }
+  if ("sections" in definition) {
+    const { sections: useSections, presentation, ...page } = definition;
+    return Object.freeze({
+      ...page,
+      component: function SchemaSettingsPage(props: SettingsPageProps) {
+        const sections = useSections(props);
+        return createElement(SettingsSections, { ...presentation, sections });
+      },
+    });
   }
   return Object.freeze({ ...definition });
 }

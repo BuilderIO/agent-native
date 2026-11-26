@@ -10,6 +10,15 @@ const { state } = vi.hoisted(() => ({
   },
 }));
 
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/lib/plan-comments.js", () => ({
+  listPlanCommentRows: vi.fn(async () => []),
+  writePlanCommentRows: vi.fn(async () => undefined),
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,

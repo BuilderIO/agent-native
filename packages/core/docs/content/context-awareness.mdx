@@ -22,7 +22,7 @@ To understand what to put in which surface (AGENTS.md vs. skills vs. application
 Six patterns solve this:
 
 1. **Navigation state** — the UI writes a `navigation` key to application-state on every route change
-2. **Current URL** — the framework writes `__url__` so query params are visible and editable by the agent
+2. **Current URL** — the framework writes `__url__` so the agent sees the page path and the query params the app declares, and can edit them
 3. **Selection state** — the UI writes a `selection` key when the user focuses, selects, or multi-selects something meaningful
 4. **`view-screen`** — an action that reads application state, fetches contextual data, and returns a snapshot of what the user sees
 5. **Prompt handoff** — UI controls call `sendToAgentChat()` when a click should become an agent turn
@@ -95,7 +95,7 @@ Use different context channels for different jobs:
 | Layer                                     | Owner             | Use it for                                                                 |
 | ----------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
 | `navigation` app-state key                | UI                | Semantic route state: current view, open record, active tab, stable IDs    |
-| `__url__` app-state key                   | Framework UI      | Current pathname, search string, hash, and parsed URL query params         |
+| `__url__` app-state key                   | Framework UI      | Current pathname, hash, and query params (values only for declared keys)   |
 | `__set_url__` app-state key               | Agent / framework | One-shot URL edits from `set-search-params` and `set-url-path`             |
 | `selection` app-state key                 | UI                | Durable semantic selection: rows, blocks, shapes, assets, messages         |
 | `pending-selection-context` app-state key | UI / `AgentPanel` | One-shot selected text attached to the next chat turn, usually from Cmd+I  |
@@ -150,6 +150,8 @@ searchParams:
 </current-url>
 ```
 
+The agent sees the path and hash, but a query value only for keys the app declares: pass `urlQueryKeys` to `AgentSidebar` (exact names and `prefix*` patterns; this example declares `["f_*", "q"]`). Any other key keeps its name, and its value shows as `<redacted>`.
+
 This is the canonical layer for shareable filter state. If the user can copy a URL and come back to the same filtered list, the filter belongs in the query string. The agent can change those filters with the built-in `set-search-params` tool:
 
 ```text
@@ -158,7 +160,7 @@ set-search-params({ "params": { "f_region": "east", "q": null } })
 
 Use `navigation` only for semantic aliases that help `view-screen` fetch or summarize the right data. A dashboard might keep `navigation.dashboardId` while `__url__.searchParams` owns `f_region`, `f_dateStart`, and `q`.
 
-When `view-screen` returns a richer snapshot, it can copy important URL filters into a friendly `activeFilters` object:
+When `view-screen` returns a richer snapshot, it can copy important URL filters into a friendly `activeFilters` object. It reads the same scrubbed `__url__`, so declare those keys in `urlQueryKeys` too:
 
 ```ts
 const url = (await readAppState("__url__")) as {
@@ -362,6 +364,18 @@ framework URL tools (`set-url-path`, `set-search-params`) and URL-only filter
 changes. For commands that can arrive while chat is streaming, commit the route
 with `navigate(path, { replace: true, flushSync: true })` instead of wrapping it
 in a view transition so the address bar and visible page stay together.
+
+### Agents keep the user's view {#agent-keeps-view}
+
+The user's screen moves only when they asked to see something. This holds for every agent: the built-in chat, external agents over MCP or WebMCP, and peers over A2A (`isAgentCaller(ctx)` from `@agent-native/core`).
+
+- Reads never navigate. A read-only action that writes `navigate` during an agent call is refused at the app-state store.
+- Writes stay put by default. An agent write that writes `navigate` without `intent: "open"` is refused; call `navigateAfterWrite(navigation, { ctx, intent })` from `@agent-native/core/application-state` so an agent skips the move cleanly unless `intent` is `"open"`, or set `allowsAgentNavigation: true` on an action whose job is opening a UI.
+- Opening one item needs `intent: "open"`. `createNavigateAction()` and the app-state store enforce this by default for item ID fields (`id`, `*Id`) and detail paths with no per-app code. Pass `isDetailView` to `createNavigateAction()` only when you need custom matching.
+
+```ts
+export const navigate = createNavigateAction();
+```
 
 ## The useNavigationState hook {#use-navigation-state}
 

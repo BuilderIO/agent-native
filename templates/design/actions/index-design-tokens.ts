@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
-import type { DesignSystemData } from "../shared/api.js";
 import {
   groupDesignTokens,
   guessTokenType,
@@ -24,20 +23,26 @@ export default defineAction({
   description:
     "Index the design tokens for a design as a friendly { name, cssVar, " +
     "value, type, source } list. Parses CSS custom properties from the " +
-    "design's HTML :root block, the linked Brand Kit / design system, and " +
+    "design's HTML :root block and " +
     "the user's applied tweak selections. When multiple files declare the " +
     "same cssVar, also returns `sources` (every contributing filename) and " +
     "`sourceValues` (per-file value) if those files disagree. Each token's " +
     "`type` is the one saved when it was created (apply-design-token-edit " +
     "`type`, or a DTCG `$type` on import), else a guess from its name and " +
     "value. Also returns `groups`: tokens in panel sections (color, " +
-    "typography, spacing, radius, shadow, other) derived from each type.",
+    "typography, spacing, radius, shadow, other) derived from each type. " +
+    "Pass `compact` to leave out the per-file `sources` and `sourceValues`, " +
+    "which grow with every screen a token appears in.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
+    compact: z
+      .boolean()
+      .optional()
+      .describe("Omit each token's per-file `sources` and `sourceValues`."),
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ designId }) => {
+  run: async ({ designId, compact }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
       fail("Design not found", { errorCode: "not_found", statusCode: 404 });
@@ -109,60 +114,6 @@ export default defineAction({
       }
     }
 
-    if (design.designSystemId) {
-      const dsAccess = await resolveAccess(
-        "design-system",
-        design.designSystemId,
-      );
-
-      const [dsRow] = dsAccess
-        ? await db
-            .select({ data: schema.designSystems.data })
-            .from(schema.designSystems)
-            .where(eq(schema.designSystems.id, design.designSystemId))
-            .limit(1)
-        : [];
-
-      if (dsRow?.data) {
-        try {
-          const dsData = JSON.parse(dsRow.data) as Partial<DesignSystemData>;
-          const brandColors = dsData.colors ?? {};
-          const colorRoleMap: Record<string, string> = {
-            primary: "--color-primary",
-            secondary: "--color-secondary",
-            accent: "--color-accent",
-            background: "--color-background",
-            surface: "--color-surface",
-            text: "--color-text",
-            textMuted: "--color-text-muted",
-          };
-          for (const [role, cssVar] of Object.entries(colorRoleMap)) {
-            const v = (brandColors as Record<string, string>)[role];
-            if (v) setRawToken(cssVar, v, "Brand Kit");
-          }
-          if (dsData.borders?.radius) {
-            setRawToken("--radius", dsData.borders.radius, "Brand Kit");
-          }
-          if (dsData.spacing?.elementGap) {
-            setRawToken(
-              "--spacing-element-gap",
-              dsData.spacing.elementGap,
-              "Brand Kit",
-            );
-          }
-          if (dsData.spacing?.pagePadding) {
-            setRawToken(
-              "--spacing-page-padding",
-              dsData.spacing.pagePadding,
-              "Brand Kit",
-            );
-          }
-        } catch {
-          // Malformed JSON — skip Brand Kit overlay silently.
-        }
-      }
-    }
-
     let designData: Record<string, unknown> = {};
     try {
       designData = design.data
@@ -219,8 +170,10 @@ export default defineAction({
         value,
         type: tokenTypes[cssVar] ?? guessTokenType(cssVar, value),
         source,
-        ...(sources.length > 1 ? { sources } : {}),
-        ...(sourceValues && new Set(Object.values(sourceValues)).size > 1
+        ...(!compact && sources.length > 1 ? { sources } : {}),
+        ...(!compact &&
+        sourceValues &&
+        new Set(Object.values(sourceValues)).size > 1
           ? { sourceValues }
           : {}),
         isTweakOverride: tweakCssVars.has(cssVar),

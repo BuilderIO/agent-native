@@ -1,64 +1,65 @@
 import { inspectorFitsViewport } from "./editor-chrome";
-import type { EditorMode } from "./types";
 
 export function hasMinimalInspectorSelection({
   selectedElement,
   selectedLayerIds,
   selectedScreenGeometry,
-  motionEasingSegmentSelected = false,
 }: {
   selectedElement: unknown | null | undefined;
   selectedLayerIds: readonly unknown[];
   selectedScreenGeometry: unknown | null | undefined;
-  motionEasingSegmentSelected?: boolean;
 }): boolean {
   return (
     selectedElement != null ||
     selectedLayerIds.length > 0 ||
-    selectedScreenGeometry != null ||
-    motionEasingSegmentSelected
+    selectedScreenGeometry != null
   );
 }
 
-/**
- * Whether the right inspector is on screen. It is the Design panel: Interact
- * and Annotate have none, and neither does someone who cannot edit, because
- * the Code and Comments tabs that used to give them one are gone. Where the
- * top bar is absent the rail also carries the share controls, so it keeps its
- * place in every mode.
- */
-export function isRightInspectorVisible({
-  hostOwnsChrome,
-  isMobileViewport,
-  uiHidden,
-  initialGenerationChromeLimited,
-  responsiveInteractActive,
-  minimalUi,
-  minimalInspectorHasSelection,
-  topBarVisible,
-  mode,
-  canEdit,
-}: {
+interface RightColumnShell {
   hostOwnsChrome: boolean;
   /** Below md the docked panel is display:none and a sheet carries the inspector. */
   isMobileViewport: boolean;
   uiHidden: boolean;
   initialGenerationChromeLimited: boolean;
-  responsiveInteractActive: boolean;
   minimalUi: boolean;
-  minimalInspectorHasSelection: boolean;
-  topBarVisible: boolean;
-  mode: EditorMode;
-  canEdit: boolean;
-}): boolean {
+}
+
+function rightColumnFits(shell: RightColumnShell): boolean {
   return (
-    !hostOwnsChrome &&
-    inspectorFitsViewport({ minimalUi, isMobileViewport }) &&
-    !uiHidden &&
-    !initialGenerationChromeLimited &&
+    !shell.hostOwnsChrome &&
+    inspectorFitsViewport(shell) &&
+    !shell.uiHidden &&
+    !shell.initialGenerationChromeLimited
+  );
+}
+
+export function isCommentsPanelShown({
+  commentsPanelOpen,
+  commentsAvailable,
+  ...shell
+}: RightColumnShell & {
+  commentsPanelOpen: boolean;
+  commentsAvailable: boolean;
+}): boolean {
+  return commentsPanelOpen && commentsAvailable && rightColumnFits(shell);
+}
+
+export function isRightInspectorVisible({
+  commentsPanelShown,
+  responsiveInteractActive,
+  minimalInspectorHasSelection,
+  ...shell
+}: RightColumnShell & {
+  commentsPanelShown: boolean;
+  responsiveInteractActive: boolean;
+  minimalInspectorHasSelection: boolean;
+}): boolean {
+  if (commentsPanelShown) return true;
+  return (
+    rightColumnFits(shell) &&
     !responsiveInteractActive &&
-    (!minimalUi || minimalInspectorHasSelection) &&
-    (!topBarVisible || (mode === "edit" && canEdit))
+    (!shell.minimalUi || minimalInspectorHasSelection)
   );
 }
 
@@ -80,7 +81,7 @@ export function rightInspectorCanvasInset({
 }
 
 export const DOCKED_RIGHT_INSPECTOR_CLASSNAME =
-  "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex";
+  "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col bg-[var(--design-editor-panel-bg)] md:flex";
 
 // Stops above the bottom toolbar while the pane is too narrow to sit beside it.
 export const FLOATING_RIGHT_INSPECTOR_CLASSNAME =

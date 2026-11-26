@@ -85,16 +85,11 @@ the merged `✅` close-out after an in-review reply, which gets no second reply.
   on the strength of a local check.
 - **Once:** never post the same reply twice, and never follow up with one
   that adds nothing new.
+- **QA report value grade (`#qa-agent-native`):** append `(Report value: <1-5>/5 — <reason>)` per `references/slack-reaction-replies.md`.
 - Link the PR on the word "fix" (`<url|fix>`), never by number.
-- End with the bold line `**This was sent from a bot**` on its own line,
-  once.
+- End with `**This was sent from a bot**` on its own line, once.
 
-Don't reply at all to jokes, venting, banter, a message meant for a specific
-teammate, or a thread a person is already handling. Once a person says they
-have it, or asks the bot to stop, post nothing more in that thread. Before posting, reread the reply as the reporter: would they get it
-in five seconds, know what happens next, and feel we did the legwork? Check
-the draft before sending, not after: the first version is the one that
-notifies them, so editing it afterwards doesn't undo it.
+Don't reply to jokes, banter, messages for a specific teammate, or threads a person is already handling; once a person takes over or asks the bot to stop, post nothing more. Reread drafts as the reporter before sending (edits don't undo notifications).
 
 Good (each is the first line; the footer goes on the line below it):
 
@@ -286,7 +281,17 @@ do not claim new roots.
 
 ## 3. Fix as many as you can
 
-- Group related reports so one cause gets one fix. Give each independent
+- Group related reports so one cause gets one fix. With more than a handful
+  open, one quick planner pass (a subagent is fine) groups symptoms by root
+  cause or component, cites the source file, and makes a few work packages: one
+  PR each, every symptom an acceptance check. Skip it for top-priority items
+  and obvious single bugs; a grouping aid, not a gate.
+- Before starting a package, glance at open PRs touching the same files
+  (`gh pr list --state open --json number,title,files --limit 1000`; at
+  exactly 1000, call the list partial). Advisory, never a gate: coordinate by
+  file and keep going. Pushing to another PR still
+  needs the exact-PR authorization above.
+- Give each independent
   group a fresh subagent on your own model and effort, with disjoint files,
   or fix it in the main thread. Never hand a finished helper a new job; start
   a fresh one. The main thread plans, reviews diffs, and integrates.
@@ -309,8 +314,9 @@ do not claim new roots.
   never count. For a purely visual fix, before and after screenshots are
   evidence, not automated proof: before merging, a human must open both and
   confirm they show the reported change. Put the evidence under the report in
-  the PR's `Reports` section. A test-only change (test files, optional
-  `.changeset/`) needs only `fix-proof: test-only`.
+  the PR's `Reports` section. A test-only or docs-only change (tests, docs
+  pages, optional `.changeset/`) needs only `fix-proof: test-only` or
+  `docs-only`.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
   `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the

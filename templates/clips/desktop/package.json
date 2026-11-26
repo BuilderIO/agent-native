@@ -31,6 +31,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@sentry/browser": "10.62.0",
     "@tabler/icons-react": "catalog:",
+    "@tanstack/react-query": "^5.99.2",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-fs": "2.5.1",

@@ -90,7 +90,6 @@ import {
   last4,
   listAppSecretsForScope,
   readAppSecretMeta,
-  VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
 import {
@@ -98,6 +97,7 @@ import {
   validateUrlAllowlist,
 } from "./substitution.js";
 import { describeSecretUsage } from "./usage.js";
+import { isVaultManagedSecret } from "./vault-managed.js";
 
 export type SecretSource = "personal" | "workspace" | "vault";
 
@@ -107,12 +107,10 @@ export const SECRET_VALIDATION_UNAVAILABLE_ERROR_CODE =
 
 function secretSource(
   scope: SecretScope,
-  description: string | null | undefined,
+  meta: Pick<SecretMeta, "description" | "createdBy"> | null | undefined,
 ): SecretSource {
   if (scope === "user") return "personal";
-  return description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
-    ? "vault"
-    : "workspace";
+  return isVaultManagedSecret(meta) ? "vault" : "workspace";
 }
 
 const NOT_RESOLVED: ResolvedAliasedSecret = {
@@ -343,7 +341,7 @@ export function createListSecretsHandler() {
       const meta = await readAppSecretMeta(hit);
       base.last4 = meta?.last4 || last4(effective.value);
       base.updatedAt = meta?.updatedAt;
-      base.source = secretSource(hit.scope, meta?.description);
+      base.source = secretSource(hit.scope, meta);
       base.managedHere = hit.scope === secret.scope && hit.scopeId === scopeId;
       if (base.managedHere && secret.scope === "user") {
         const shared = await asRequestUser(
@@ -365,10 +363,7 @@ export function createListSecretsHandler() {
                 scopeId: shared.scopeId,
               })
             : null;
-          const sharedSource = secretSource(
-            shared.source,
-            sharedMeta?.description,
-          );
+          const sharedSource = secretSource(shared.source, sharedMeta);
           base.overrides = sharedSource === "vault" ? "vault" : "workspace";
         }
       }
@@ -728,7 +723,7 @@ function metaToPayload(meta: SecretMeta): AdHocSecretPayload {
     name: meta.key,
     scope: meta.scope,
     scopeId: meta.scopeId,
-    source: secretSource(meta.scope, meta.description),
+    source: secretSource(meta.scope, meta),
     description: meta.description,
     last4: meta.last4,
     urlAllowlist: meta.urlAllowlist,

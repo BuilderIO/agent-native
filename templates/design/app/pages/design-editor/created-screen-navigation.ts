@@ -30,7 +30,6 @@ export interface CreatedScreenNavigationPlan {
 export interface FocusedScreenNavigationPlan extends CreatedScreenNavigationPlan {
   editorMode: "edit";
   tool: "move";
-  drawMode: false;
   pinMode: false;
 }
 
@@ -72,7 +71,6 @@ export function getFocusedScreenNavigationPlan(args: {
     ...getCreatedScreenNavigationPlan(args),
     editorMode: "edit",
     tool: "move",
-    drawMode: false,
     pinMode: false,
   };
 }

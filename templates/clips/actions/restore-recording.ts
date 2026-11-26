@@ -97,6 +97,12 @@ async function restoreOne(id: string) {
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Restore one or more recordings from archive or trash back to the library.",
   schema: z

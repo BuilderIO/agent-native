@@ -40,6 +40,7 @@ const recording = {
   filmstripUrl: null,
   imageUrl: null,
   baseImageUrl: null,
+  richManifestUrl: null,
   kind: "video" as const,
   editsJson: "{}",
   status: "ready" as const,
@@ -88,6 +89,7 @@ beforeEach(async () => {
   await client.exec(`CREATE TABLE recordings (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, org_id TEXT, workspace_id TEXT NOT NULL, storage_mode TEXT, video_url TEXT, thumbnail_url TEXT, animated_thumbnail_url TEXT, filmstrip_url TEXT, image_url TEXT, base_image_url TEXT, edits_json TEXT NOT NULL DEFAULT '{}');
     CREATE TABLE recording_agent_frames (id TEXT PRIMARY KEY, recording_id TEXT, storage_url TEXT, storage_provider TEXT, storage_id TEXT);
     CREATE TABLE recording_browser_diagnostics (recording_id TEXT PRIMARY KEY, app_activity_blob_json TEXT);
+    CREATE TABLE recording_tracks (id TEXT PRIMARY KEY, recording_id TEXT, url TEXT);
     CREATE TABLE application_state (session_id TEXT, key TEXT, value TEXT, updated_at BIGINT, PRIMARY KEY (session_id,key));
     CREATE TABLE clips_hosted_clip_allowances (recording_id TEXT PRIMARY KEY, user_id TEXT, status TEXT, quota_bytes BIGINT);`);
   await client.exec(recordingMediaCleanupMigration);
@@ -329,6 +331,37 @@ describe("durable permanent media removal", () => {
     expect(
       objects.rows.some((row) => row.payload.includes("fake-thumbnail")),
     ).toBe(true);
+  });
+
+  it("captures a completed upload's file from its saved session", async () => {
+    // A finished track upload whose file nothing else points to yet.
+    await client.query("INSERT INTO application_state VALUES ($1,$2,$3,0)", [
+      recording.ownerEmail,
+      "resumable-session-rec-1-track-screen",
+      JSON.stringify({
+        providerId: "s3",
+        sessionId: "upload-screen",
+        providerClosed: true,
+        meta: {
+          completedUrl:
+            "https://cdn.builder.io/o/assets%2Ffake-space%2Ffeedfacefeedfacefeedfacefeedface?token=fake-track",
+        },
+        bytesUploaded: 10,
+      }),
+    ]);
+    await db.transaction((tx) => captureRecordingMediaCleanup(tx, recording));
+    const objects = await client.query<{ payload: string }>(
+      "SELECT payload FROM recording_media_cleanup_objects",
+    );
+    expect(objects.rows.some((row) => row.payload.includes("fake-track"))).toBe(
+      true,
+    );
+    const cleanup = await client.query<{ manifest: string }>(
+      "SELECT manifest FROM recording_media_cleanups",
+    );
+    expect(
+      cleanup.rows[0] && openCleanupPayload(cleanup.rows[0].manifest),
+    ).toMatchObject({ unresolvedProducer: false });
   });
 
   it("prevents attachment through an alias after deletion is claimed", async () => {

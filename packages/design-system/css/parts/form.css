@@ -1,0 +1,18 @@
+/*
+ * Part: form
+ *
+ *   <form class="form">          Base UI Form
+ *     …fields, fieldsets and the form's buttons
+ *
+ * A column of fields, a step further apart than a fieldset's, so a
+ * fieldset in it reads as one group. The fields draw their own validation.
+ */
+
+@layer components {
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+}

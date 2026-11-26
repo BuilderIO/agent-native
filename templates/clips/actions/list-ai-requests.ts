@@ -187,6 +187,7 @@ export default defineAction({
     "List pending clips AI requests and active background AI sessions for recordings the current user can access, plus ready recordings that still need an auto-generated title.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async () => {
     const email = getRequestUserEmail();
     const [{ requests, activeSessions }, titleCandidates] = await Promise.all([

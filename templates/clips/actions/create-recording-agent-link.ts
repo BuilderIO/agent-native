@@ -58,6 +58,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  mcpTool: false,
   run: async (args) => {
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) {

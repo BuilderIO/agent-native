@@ -1,0 +1,173 @@
+/*
+ * Part: progress
+ *
+ *   <div class="progress" role="progressbar"          Base UI Progress.Root
+ *        data-variant="surface|soft"
+ *        [data-color="accent|gray|danger|warning|success|info"]
+ *        [data-high-contrast] [data-radius]
+ *        [data-progressing] [data-complete] [data-indeterminate]>
+ *     <span class="progress-label">                     …Label
+ *     <span class="progress-value">                     …Value
+ *     <div class="progress-track"                       …Track
+ *          [style="--progress-duration: 5s"]>
+ *       <div class="progress-indicator">                …Indicator
+ *
+ * Radix Themes' progress on the system's scale: a 4, 6 or 8px track under
+ * its label and value, filled in the nearest `data-color`. Surface is a
+ * gray track with an edge, soft a deeper gray under a tinted fill. An
+ * indeterminate bar fills over `--progress-duration`, then pulses.
+ */
+
+@layer components {
+  .progress {
+    --_progress-height: calc(var(--space-2) * 0.75);
+    display: flex;
+    flex-wrap: wrap;
+    min-inline-size: 0;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-2);
+    width: 100%;
+  }
+
+  .progress-label,
+  .progress-value {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .progress-label {
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-default);
+  }
+
+  .progress-value {
+    margin-inline-start: auto;
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
+  }
+
+  .progress-track {
+    position: relative;
+    flex: 0 0 100%;
+    height: var(--_progress-height);
+    overflow: hidden;
+    border-radius: var(--radius-full);
+  }
+
+  .progress[data-radius]:not([data-radius="full"]) .progress-track {
+    border-radius: calc(var(--radius-factor) * var(--_progress-height) / 3);
+  }
+
+  /* The edge draws over the fill, as Radix Themes' does. */
+  .progress-track::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  .progress-indicator {
+    height: 100%;
+    border-radius: inherit;
+    transition: width var(--duration-3) var(--ease-standard);
+  }
+
+  /* ---- variants ---- */
+
+  .progress[data-variant="surface"] .progress-track {
+    background-color: var(--gray-a3);
+  }
+
+  .progress[data-variant="surface"] .progress-track::after {
+    box-shadow: inset 0 0 0 1px var(--gray-a4);
+  }
+
+  .progress[data-variant="surface"] .progress-indicator {
+    background-color: var(--accent-track);
+  }
+
+  .progress[data-variant="soft"] .progress-track {
+    background-color: var(--gray-a4);
+  }
+
+  .progress[data-variant="soft"] .progress-indicator {
+    background-color: var(--accent-8);
+    background-image: linear-gradient(var(--accent-a5), var(--accent-a5));
+  }
+
+  .progress[data-high-contrast] .progress-indicator {
+    background-color: var(--accent-12);
+    background-image: none;
+  }
+
+  /* ---- indeterminate ---- */
+
+  .progress[data-indeterminate] .progress-indicator {
+    width: 100%;
+    transform-origin: calc((1 - var(--_inline-direction, 1)) * 50%) center;
+    animation:
+      progress-fill var(--progress-duration, 5s) var(--ease-standard) both,
+      progress-pulse 2.5s var(--ease-standard) var(--progress-duration, 5s)
+        infinite alternate;
+  }
+
+  @media (forced-colors: active) {
+    .progress[data-variant] .progress-track {
+      background-color: Canvas;
+    }
+
+    .progress-track::after {
+      border: 1px solid CanvasText;
+    }
+
+    .progress[data-variant] .progress-indicator {
+      forced-color-adjust: none;
+      background: Highlight;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .progress-indicator {
+      transition: none;
+    }
+
+    .progress[data-indeterminate] .progress-indicator {
+      mask-image: repeating-linear-gradient(
+        135deg,
+        currentColor 0 var(--space-1),
+        transparent var(--space-1) var(--space-2)
+      );
+      animation: none;
+    }
+  }
+}
+
+@keyframes progress-fill {
+  0% {
+    scale: 0.01 1;
+  }
+  20% {
+    scale: 0.1 1;
+  }
+  30% {
+    scale: 0.6 1;
+  }
+  40%,
+  50% {
+    scale: 0.9 1;
+  }
+  100% {
+    scale: 1 1;
+  }
+}
+
+@keyframes progress-pulse {
+  to {
+    opacity: 0.6;
+  }
+}

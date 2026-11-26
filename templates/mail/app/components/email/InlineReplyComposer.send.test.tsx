@@ -36,6 +36,9 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("@/hooks/use-aliases", () => ({
   useAliases: () => ({ data: [] }),
 }));
+vi.mock("@/hooks/use-can-manage-storage", () => ({
+  useCanManageStorage: () => true,
+}));
 vi.mock("@/hooks/use-emails", () => ({
   useAddOptimisticReply: () => vi.fn(),
   useArchiveEmail: () => ({ mutate: mockArchiveEmail }),
@@ -58,6 +61,9 @@ vi.mock("@/lib/utils", () => ({
     values.filter(Boolean).join(" "),
 }));
 vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
+vi.mock("./AttachFromContentButton", () => ({
+  AttachFromContentButton: () => null,
+}));
 vi.mock("./ComposeEditor", async () => {
   const React = await import("react");
   return {

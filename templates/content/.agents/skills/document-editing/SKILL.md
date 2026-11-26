@@ -29,11 +29,12 @@ document operations. `.env` is loaded automatically — never manually set
 
 ### list-documents
 
-List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read.
+List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read. For the most recently edited documents, pass `--sort newest` and read the first page; request the next page only when you need more.
 
 ```bash
 pnpm action list-documents
 pnpm action list-documents --format json
+pnpm action list-documents --sort newest --limit 5
 ```
 
 ### search-documents
@@ -49,6 +50,15 @@ pnpm action search-documents --query "project plan" --format json
 
 Get a single document by ID with full content and description. MCP callers read
 the complete values from `structuredContent`; the text preview may be shortened.
+
+Agent tool calls (in the app, in automation runs, over MCP, A2A or WebMCP) get
+each property's `id`, `databaseId`, `name`, `type`, `description`, `options`
+(option `id`, `name` and `description`), `value` and `editable`, but not the
+editor's display settings, timestamps or option colors. The page body's own
+Blocks field says `valueIsContent: true` instead of repeating `content`. Other
+Blocks fields keep their `value`, and their `blocksField` is just
+`{ fieldId, revision }`; read their blocks with `list-content-database-blocks`.
+Pass `detail: "full"` for the editor's whole read; the CLI always gets it.
 
 ```bash
 pnpm action get-document --id abc123
@@ -77,9 +87,13 @@ the returned document `id`, then call `view-screen` and compare its document ID
 with the create result. Navigation is asynchronous: if `view-screen` still
 reports the previous Page, repeat `navigate` and `view-screen` up to two more
 times. Say the Page is open only after the IDs match. If they never match, say
-the Page was created but navigation could not be verified, and provide the
-stable Page link from the create result. Do not navigate for background, batch,
-or API creation unless the caller explicitly asked to open the result.
+the Page was created but navigation could not be verified. Do not navigate for
+background, batch, or API creation unless the caller explicitly asked to open
+the result.
+
+Whether or not you navigate, link every Page you created in your reply, by its
+title and the `urlPath` from the result (`[Meeting Notes](/page/<id>)`). Content
+sends a reply that leaves one out back to you once with the exact links.
 
 When the user names a workspace ("in my Foobar workspace"), pass `spaceName`
 (or a `spaceId` from `list-content-spaces`). A named workspace that does not
@@ -113,9 +127,27 @@ pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey gui
 
 Run the dry run first and tell the user each page's `status` and `notes`
 before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
-image named in `uploads` has a `url`; leave an image nobody can supply out of
-`files`, and its references become visible placeholders on the page. Other
-formats come back in `skipped` as not supported yet. Pass an
+image, PDF, or CSV named in `uploads` has a `url`; leave a file nobody can
+supply out of `files`, and its references become visible placeholders on the
+page. Images embedded as `data:` URLs are stored privately, readable by
+whoever can read the page; one whose bytes aren't the image type it names
+fails the apply with `IMPORT_IMAGE_INVALID` before any page is created. Other
+formats come back in `skipped` as not supported yet.
+
+A Notion export's files keep their paths from the zip (`Page <id>.md`,
+`Page/Subpage <id>.md`). The import strips Notion's ids from titles, nests
+each subpage under its page (`parentSourceName` in the dry run), keeps
+callouts and toggles, and points links between pages at the new pages.
+Notion's signed file links are fetched and stored on apply, images privately
+like embedded ones; one that can't be fetched stays a link that lapses, noted
+as `expiring-link-not-rehosted`. Databases are not imported yet: they come
+back in `databases` with their row count, and their CSV is kept only when a
+page links to it. A dry-run page with `alreadyImportedAt` was imported from
+the same text before and is still out of Trash; applying again makes new
+pages, so ask first. The Import dialog reads the `.zip` itself; an agent
+passes the files inside it.
+
+Pass an
 `idempotencyKey` on every apply, and reuse it only to retry the same files,
 with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
 some pages landed before a failure: its `details` name the `importId` and
@@ -149,8 +181,12 @@ pnpm action edit-document --id abc123 --find "delete me" --replace ""
 pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{"find":"also old","replace":"also new"}]'
 ```
 
-External MCP, WebMCP, tool, and A2A callers first read the document, then pass
-its `baseRevision` and one stable `idempotencyKey`. When the returned body is
+External MCP, WebMCP, tool, and A2A callers pass a `baseRevision` and one stable
+`idempotencyKey`. The base comes from `get-document` for a page you haven't read,
+from `create-document` for a page you just made, or from the previous edit's
+`receipt.revisions.after`. A receipt with outcome `applied` and
+`readback.verified` already confirms the saved body, so don't read the page again
+to check it; read it again after any other outcome or an error. When the returned body is
 literally empty, pass non-whitespace `initializeContent` instead of `find` or `edits`.
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
@@ -196,15 +232,53 @@ edit commits. Restore it before editing. A local-folder sync
 (`import-content-source`) leaves a page in Trash unchanged and lists it in
 `skipped`.
 
+### edit-table
+
+Change one table on a page without rewriting it: everything the table's row,
+column and block menus do, plus setting a cell's text. Read the page first and
+pass its `baseRevision` and a fresh `idempotencyKey`, as for `edit-document`.
+`table` numbers the page's tables from 1 in page order, counting each
+`<table>` block and Markdown pipe table, including those inside toggles,
+callouts and columns. Rows and columns also count from 1; row 1 is the header
+row when the table has one.
+
+```bash
+pnpm action edit-table --id abc123 --baseRevision "$REV" --idempotencyKey add-row-1 --table 1 \
+  --operations '[{"op":"insert-row","cells":["Gamma","**Done**"]},{"op":"set-color","row":4,"color":"green_bg"}]'
+```
+
+Operations run in order, each on the table the ones before it left:
+`insert-row` / `insert-column` (`at` is the new one's number; omit it to add at
+the end; `cells` fills it), `delete-row` / `delete-column`, `move-row` /
+`move-column` (`to` is its number after the move), `duplicate-row` /
+`duplicate-column`, `clear-row` / `clear-column` (empties cells, keeps colours),
+`set-cell` (`text` is one line of inline NFM; `<br>` breaks a line),
+`set-header-row` / `set-header-column` / `set-fit-page-width` (`value`), and
+`set-color` (a `row`, a `column`, or both for one cell; `color` is a colour or
+one ending in `_bg`, or `null` to clear). A pipe table comes back as a
+`<table>` block with the same content. The result is `edit-document`'s receipt
+plus `table`, the table's new size and settings (`null` when nothing was saved). Read the page just before
+editing: if it changed since, the edit can refuse with `STALE_BASE_REVISION`
+and `details.currentRevision`; read it again and resend. A change the table
+already has refuses that way whenever the page has moved on. A table it can't
+find exactly on the page, or whose text holds lines a table can't keep, refuses
+with `TABLE_NOT_LOCATED`; change that table with `edit-document`.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
-callers use the revisioned `edit-document` protocol for every body change.
+callers use the revisioned `edit-document` protocol for every body change. A
+script, CLI call or automation that replaces the body passes the `baseRevision`
+`get-document` returned (that read's `updatedAt` as `baseUpdatedAt` also
+works): with neither, the write refuses with `BASE_REVISION_REQUIRED` (400),
+and if the page changed since that read it fails with
+`DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
+`details.currentRevision`, and writes nothing.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"
-pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
-pnpm action update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --content "# Updated Content\n\nNew text here"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
@@ -233,6 +307,15 @@ within one cell or one frame, and make one call per cell. A `find`/`replace`
 that changes text on both sides of a cell or frame edge, adds or removes
 table rows or cells or a column, or changes a callout's icon, a toggle's
 title, or an image, fails with `suggestion_structure_unsupported`.
+
+When an edit answers a comment, as when the user asks you to address a page's
+open comments, pass that comment's `id` from `list-comments` as `commentId`, so
+its suggestion card links to the comment. Make a separate call for each comment.
+The comment must be open and on the page body: a resolved one fails with
+`SUGGESTION_COMMENT_RESOLVED`, one on a Property or in another Blocks field tab
+with `SUGGESTION_COMMENT_NOT_ON_BODY`, and an id not on the page with
+`SUGGESTION_COMMENT_NOT_FOUND`. If the edit answers such a comment anyway, leave
+`commentId` off.
 
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build
@@ -271,8 +354,12 @@ pnpm action suggest-document-edit --id abc123 \
 ### delete-document
 
 Move a page and all its sub-pages to Trash. IDs, bodies, hierarchy, and
-collection membership remain intact so the subtree can be restored. Agents pass
-the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
+collection membership remain intact so the subtree can be restored. A Trash
+root becomes eligible for automatic deletion after 30 days in Trash, counted
+from when automatic deletion started for Pages already in Trash then. A daily
+job deletes eligible roots, so deletion can come a little later. A sub-page
+trashed on its own keeps its own 30 days, and restoring a page then trashing it
+again starts its 30 days over. Agents pass the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
 idempotency key. A conflict means the page changed: read it again before
 deciding to trash it. Collection pages use `delete-content-database` instead.
 
@@ -281,8 +368,9 @@ pnpm action delete-document --id abc123 \
   --expectedUpdatedAt '<updatedAt>' --idempotencyKey '<uuid>'
 ```
 
-Restore the receipt's `trashRootId` with its `trashedAt` (also listed by
-`list-content-trash`), or permanently delete it only after it is in Trash:
+Before those 30 days pass, restore the receipt's `trashRootId` with its
+`trashedAt` (also listed by `list-content-trash`), or permanently delete it
+sooner, only after it is in Trash:
 
 ```bash
 pnpm action restore-document --id abc123 \
@@ -294,6 +382,24 @@ pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>
 Permanent deletion requires the exact `planId` and `scopeToken` returned by
 `plan-content-trash-purge`. Inspect the plan's affected and blocked items before
 executing it; if Trash changes after review, create and inspect a new plan.
+
+`list-content-trash` and a matching-mode plan (`filters.where`) take the Trash
+page's filter chips as `where`: people, workspace, location, type, and a deleted
+date range, combined with `and` or `or`. A scope-mode plan ignores filters,
+`where` included, and covers the workspace's whole Trash. One plan holds one
+workspace's pages, so emptying Trash or deleting a selection that spans
+workspaces plans once per workspace. A plan fails with `invalid_scope` in a
+workspace where you are only a viewer, even for pages you own there.
+
+The `content-trash` application state stores the chips as `where`. The
+`content-trash-purges` state holds one `purgeStarts` record per planned
+workspace: plan id, idempotency key, status (`started`, `failed`, or
+`unknown`), the plan's input, and operation id once known. `unknown` means the
+start request may have been accepted. Executing the same plan with the same key
+returns the original operation instead of starting another. Without the scope
+token, send `recover: true` with the plan id and key: it returns the operation
+that key started, fails with `start_pending` while the plan could still start
+(retry later), or with `start_expired` once it never can (plan again).
 
 ## Comments
 
@@ -308,6 +414,8 @@ On a collection page, each Blocks field tab has its own comments. Pass `fieldId`
 A thread can sit on a whole video instead of on text. Pass `blockId` with the video's `id` attribute from `get-document`'s content (`<video src="…" id="video-…">`), plus `fieldId` for a video in another tab. The thread quotes no text; people see it beside the video, and `list-comments` returns `block_id` and `block_type` on it. A video saved without an `id` has none to pass: give it a new unique `video-` id with `edit-document`, then comment with that id. `add-comment` refuses the id such a video goes by until then (`comment_block_id_unsaved`), because that id passes to another video when videos with its source are added or reordered. Each video's `id` is its own: when you copy a `<video>` line, give the copy a new unique `video-` id or none. An edit that gives a second video an id the page already uses is refused (`DOCUMENT_VIDEO_ID_SHARED`); a new page isn't checked, since no thread is on it yet. Videos that already share an id show none of its threads, and `add-comment` refuses that id (`comment_block_id_shared`); give the video you mean a new id with `edit-document` first. Never give it a `block_id` from `list-comments`; one no video carries may be a deleted video's, and reusing it moves that thread onto this video. A thread made before videos had ids quotes the word "Video"; on a page with exactly one video it shows on that video, and with more it stays on its quote.
 
 People can also start a thread on a whole image or audio clip from its Comment button. `list-comments` returns it with `block_type` `image` or `audio` and a `block_id` derived from the file and how many copies of that file come before it on the page; nothing writes that id into the content. You can't start one: `add-comment` refuses those ids (`comment_block_id_unsaved`), so quote text beside the image instead. Replacing the file, or adding or removing a copy of the same file above it, moves the id, so the thread then shows on no block or on whichever copy now has the id.
+
+A comment can carry up to five images (PNG, JPEG, GIF or WebP, 10 MB each), such as a screenshot of what a person means. `list-comments` returns them as `attachments` (`{url, name, contentType}`) on each comment. Each `url` is a private `/api/private-media/<id>` path that needs Content's sign-in, so over MCP or the CLI the result also has `privateMediaLinks`: `links` pairs each `src` (an attachment's `url`) with a `url` you can open, and every link stops working at `expiresAt`. Open them to see what the comment points at. An image loads only for people who can read the page and for its uploader, and stops loading for others once its comment is deleted or the page goes to Trash. You can't attach an image: `add-comment` and `update-comment` take only images the writer uploaded to this page from the comment box, and refuse others (`comment_image_not_attachable`). An `update-comment` without `attachments` leaves a comment's images as they are; `attachments: []` removes them.
 
 A Clip block (`<ClipEmbed recordingId="…" />`, behind the `content.clip-embed` flag) keeps its comments in Clips, so `list-comments` never returns them and every page holding that Clip shows the same ones. People see each open thread as its own card beside the Clip, at its moment of the video. `list-clip-comments` returns a Clip's open threads in the order of their moments, with replies; `add-clip-comment` starts a thread at `videoTimestampMs` (milliseconds from the start of the video) or replies with a `threadId` from that list; `resolve-clip-comment` resolves a thread, which Clips lets only the thread's author and the Clip's editors do (`clip_forbidden`). Writing needs comment access to the page. Clip comments take no `mentions` and no Ask AI, and Content sends no email for them. When the Clip's comments are off, every write fails with `clip_comments_disabled`, and so does reading for anyone but the Clip's owner.
 
@@ -420,6 +528,12 @@ Documents are **private by default**; use `share-resource` /
 
 Documents use **markdown** for content. The editor renders markdown in real time.
 
+### Inline code
+
+Text between backticks is literal, as in standard Markdown: `` `<br>` `` is the
+text `<br>`, not a line break. To break a line inside inline code, close the
+code first, as the editor writes it: `` `first`<br>`second` ``.
+
 ### Math
 
 Content renders LaTeX with KaTeX while preserving the source in NFM. Use the
@@ -443,6 +557,18 @@ $$
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
 
+### Code blocks
+
+A code block is a fenced block whose info string is its language, such as
+` ```ts `; leave the language off to have the editor guess its colors.
+
+- A block whose long lines wrap says so after its language:
+  ` ```ts {wrap="true"} `, or ` ``` {wrap="true"} ` without one. Keep the
+  attribute when rewriting the block, and add it only when the user asks for
+  wrapped lines.
+- Markdown exports keep the attribute, which other Markdown tools ignore.
+  Notion has nowhere to keep it, so a Notion-linked page keeps it locally.
+
 ### Diagrams
 
 A Mermaid diagram is a fenced code block whose language is `mermaid`. Its
@@ -454,9 +580,160 @@ source is the diagram, so it stays the editable copy.
   generate or upload (SVG, PNG, screenshot), and no other block type. Don't add
   a title or caption the source doesn't have. Swap the source out only when the
   user asks for an image instead of the diagram.
-- Content shows Mermaid code blocks as code; it doesn't draw them yet. When
-  asked to draw or show one as a diagram, say so and leave the source in place.
-  If the source has a syntax error, fix it there.
+- The editor draws a Mermaid code block as its diagram and opens the source
+  when the user clicks it, so a diagram the user asks to see only needs valid
+  source. If the source has a syntax error, the block shows it beside the
+  source; fix it there. Public pages show the source as code.
+
+### Interactive HTML
+
+An interactive HTML block is a fenced code block whose language is
+`html interactive`. Its source is a whole HTML page that runs where the block
+sits, in a frame that can reach nothing but itself:
+
+````md
+```html interactive
+<title>Tap counter</title>
+<button id="tap">0</button>
+<script>
+  tap.onclick = () => tap.textContent++;
+</script>
+```
+````
+
+- Write one when the user asks for something to click, drag or play with: a
+  calculator, an explorable chart, a small game. Keep text, tables, diagrams and
+  charts that only need reading in their own blocks. A plain `html` code block
+  stays code.
+- Give it a `<title>`. It is the block's caption, and the words of its link
+  wherever the block can't run.
+- Inline `<script>` and `<style>` work. Scripts, stylesheets and fonts load only
+  from `https://cdn.jsdelivr.net` (`/npm/<package>@<version>/<file>`; pin the
+  version). Images load from `/api/private-media/<id>`, `data:` addresses and
+  the deployment's allowed hosts.
+- Nothing else works, by design: no `fetch`, storage, cookies, parent page,
+  popups, dialogs, nested frames or links to other pages. Keep state in
+  variables.
+- The block is as tall as its content, up to 1,000px, and scrolls past that; it
+  also opens full screen, so make the layout fill what it is given and follow
+  `prefers-color-scheme`.
+- Change it with small `edit-document` find/replace edits, like any text. The
+  page runs the new version as soon as the edit saves.
+- A write that adds or changes a block that can't work is refused with
+  `INTERACTIVE_HTML_BLOCK_REFUSED`, which says what to change. Nothing is saved,
+  so fix the block and send the whole write again.
+- "Make this button blue" means the selected block: `view-screen` returns its
+  `interactiveBlock` with `title`, `blockId`, and `number`, which counts the
+  page's `html interactive` fences from 1.
+- `get-document` and `pull-document` list the page's `interactiveBlocks`, each
+  with the `url` that opens it full screen. Give people that `url`, and match a
+  block link a person gives you to its `blockId` there. They list the page's
+  body; a block in another Blocks field runs but has no link.
+- A block runs on its own on pages its reader owns. Other readers, public ones
+  included, click Run.
+- HTML and PDF exports and Builder get the caption linked to the block. That link
+  is how a body pulled back from Builder finds its block again. Markdown keeps
+  the source. For Notion, see `notion-integration`.
+
+### Analytics charts
+
+An `<AnalyticsChart … />` block is a copy of one Analytics dashboard panel (a
+line, area, bar, combo, pie or funnel chart, a metric, or a table) with the
+rows Analytics returned for the editor who added or last refreshed it, drawn
+with the dashboard's own chart. Readers see only those numbers; Content never queries a data source, and the
+block links back to the panel. When people paste a panel's copied link
+(Copy link on the panel in Analytics) into a page they can edit, Content does
+the same steps below for them.
+
+To add one, call `capture-analytics-chart` with `documentId` and the panel's
+`link` (or `dashboardId`, `panelId` and `filters`). It checks you can edit
+the page, has Analytics run the panel as you, and returns
+`analyticsChartTag`. Put that tag in the page with `edit-document` as its own
+block, exactly as returned; never write or change an `AnalyticsChart` tag's
+data by hand. To refresh a chart, call it again with `purpose: "refresh"` and
+the chart's `id` from `get-document` as `blockId`, then replace the old tag
+with the new one.
+
+Saving the page records which dashboards its charts come from, so each
+dashboard's Cited in list in Analytics shows the page.
+`list-analytics-chart-citations` with a `dashboardId` lists the pages you can
+open that hold its charts.
+
+Who can open the page and who can open the dashboard can differ:
+
+- `needs_confirmation` means more people can open the page than the
+  dashboard. Tell the person, and call again with
+  `acknowledgeWiderAudience: true` only if they agree.
+- `analytics_chart_wider_than_dashboard` means the copy can't go in this page:
+  the page is public and the dashboard isn't, or the panel is a table (tables
+  list named customers and accounts) and the page reaches more people than the
+  dashboard. Don't work around it; narrow the page's sharing or ask the person
+  to share the dashboard more widely in Analytics.
+- Sharing a page more widely asks first when it holds charts from narrower
+  dashboards. Sharing it, moving it into a space, or duplicating it is
+  refused (`analytics_table_wider_than_dashboard`) when a table would reach
+  more people than its dashboard. A share with someone outside the
+  organization counts as reaching everyone.
+- `analytics_chart_unreadable` means the page holds an `AnalyticsChart` tag
+  that no longer reads as a chart, so it can't be shared more widely. Ask the
+  person to remove it or add the chart again from Analytics.
+- `analytics_chart_too_large` means the copy is too long to hand you as a tag.
+  Ask the person to paste the panel's link into the page instead.
+
+Analytics refusals (`analytics_refused`, such as a dashboard the person can't
+open) come back with Analytics' own reason; pass it on.
+
+### Link cards
+
+A `<LinkCard app="design" url="…" />` block shows a link to a design, a
+Slides deck, or a Clips recording (`app` is `design`, `slides` or `clips`) as
+a card. The page stores only the app and the link. Each reader's card asks the
+owning app for the item's title as that reader, so someone who can't open the
+item sees the app's name and the link, and Markdown, HTML and PDF exports
+carry the plain link. When people paste such a link alone on a line of a page
+they can edit, Content makes the card for them; a link to one Design screen
+becomes a pinned picture instead (see Design screens), and a link that carries
+a token or key, such as a Clips agent link, stays a plain link. To add a card,
+write the tag with `edit-document` as its own block; never put a title in it.
+
+### Design screens
+
+A `<DesignScreen … />` block is a picture of one Design screen at one width,
+as Design rendered it for the editor who pinned or last refreshed it, stamped
+with when and by whom, and linked back to the screen. The picture is one of
+the page's private images, so it loads only for people who can open the page.
+Readers who can open the design also see when the screen changed in Design
+since the picture and how many open comments it has. When people paste a
+screen's copied link (Copy link on the screen in Design) into a page they can
+edit, Content does the same steps below for them.
+
+To add one, call `capture-design-screen` with `documentId` and the screen's
+`link` (or `designId` and `screenId`), and a `width` only when the person asks
+for one. It checks you can edit the page, has Design render the screen as you,
+keeps the picture with the page, and returns `designScreenTag`. Put that tag
+in the page with `edit-document` as its own block, exactly as returned; never
+write or change a `DesignScreen` tag by hand, and never point its picture at
+another image. To refresh a screen, read its tag with `get-document` and call
+it again with `purpose: "refresh"`, the tag's `id` as `blockId`, its
+`design.id` as `designId`, and its `screen.id` and `screen.width` as
+`screenId` and `width`, then replace the old tag with the new one.
+
+- `design_screen_board_link` means the link opens a whole board. Ask for one
+  screen's link (Copy link on that screen).
+- `needs_confirmation` means more people can open the page than the design.
+  Tell the person, and call again with `acknowledgeWiderAudience: true` only
+  if they agree.
+- `design_screen_wider_than_design` means the page is public and the design
+  isn't, so the screen can't be pinned there. Don't work around it; narrow the
+  page's sharing or ask the person to share the design more widely in Design.
+- Sharing a page more widely asks first when it pins screens from narrower
+  designs; it never refuses for them.
+- `design_screen_storage_unavailable` means Content has nowhere private to
+  keep the picture. Pass the message on: the person connects file storage in
+  Settings.
+
+Design refusals (`design_refused`, such as a design the person can't open or
+a screen with live effects) come back with Design's own reason; pass it on.
 
 ## Parent-Child Hierarchy
 
@@ -514,6 +791,9 @@ failures stop the run.
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
 | "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Import my Notion export"    | Pass the zip's files with their paths; dry run, report losses and `databases`, then apply     |
+| "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
+| "Pin this Design screen"     | `capture-design-screen --documentId ... --link ...`, then `edit-document` with the tag         |
 | "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.

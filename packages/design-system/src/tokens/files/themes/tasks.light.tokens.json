@@ -1,0 +1,391 @@
+{
+  "color": {
+    "background": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1, 1, 1],
+        "alpha": 1,
+        "hex": "#ffffff"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "0 0% 100%"
+        }
+      }
+    },
+    "foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.09, 0.096667, 0.11],
+        "alpha": 1,
+        "hex": "#17191c"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 10%"
+        }
+      }
+    },
+    "card": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1, 1, 1],
+        "alpha": 1,
+        "hex": "#ffffff"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "0 0% 100%"
+        }
+      }
+    },
+    "card-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.09, 0.096667, 0.11],
+        "alpha": 1,
+        "hex": "#17191c"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 10%"
+        }
+      }
+    },
+    "popover": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1, 1, 1],
+        "alpha": 1,
+        "hex": "#ffffff"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "0 0% 100%"
+        }
+      }
+    },
+    "popover-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.09, 0.096667, 0.11],
+        "alpha": 1,
+        "hex": "#17191c"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 10%"
+        }
+      }
+    },
+    "primary": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.101961, 0.439216, 0.921569],
+        "alpha": 1,
+        "hex": "#1a70eb"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 15%"
+        }
+      }
+    },
+    "primary-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1.0, 1.0, 1.0],
+        "alpha": 1,
+        "hex": "#ffffff"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "0 0% 100%"
+        }
+      }
+    },
+    "secondary": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.945, 0.948333, 0.955],
+        "alpha": 1,
+        "hex": "#f1f2f4"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 95%"
+        }
+      }
+    },
+    "secondary-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.135, 0.145, 0.165],
+        "alpha": 1,
+        "hex": "#22252a"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 15%"
+        }
+      }
+    },
+    "muted": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.945, 0.948333, 0.955],
+        "alpha": 1,
+        "hex": "#f1f2f4"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 95%"
+        }
+      }
+    },
+    "muted-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.4275, 0.4425, 0.4725],
+        "alpha": 1,
+        "hex": "#6d7178"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 5% 45%"
+        }
+      }
+    },
+    "accent": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.945, 0.948333, 0.955],
+        "alpha": 1,
+        "hex": "#f1f2f4"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 95%"
+        }
+      }
+    },
+    "accent-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.135, 0.145, 0.165],
+        "alpha": 1,
+        "hex": "#22252a"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 15%"
+        }
+      }
+    },
+    "destructive": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.9739, 0.4461, 0.4461],
+        "alpha": 1,
+        "hex": "#f87272"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "0 91% 71%"
+        }
+      }
+    },
+    "destructive-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.98, 0.98, 0.98],
+        "alpha": 1,
+        "hex": "#fafafa"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "0 0% 98%"
+        }
+      }
+    },
+    "border": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.89, 0.896667, 0.91],
+        "alpha": 1,
+        "hex": "#e3e5e8"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 90%"
+        }
+      }
+    },
+    "input": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.89, 0.896667, 0.91],
+        "alpha": 1,
+        "hex": "#e3e5e8"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 90%"
+        }
+      }
+    },
+    "ring": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.101961, 0.439216, 0.921569],
+        "alpha": 1,
+        "hex": "#1a70eb"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 40%"
+        }
+      }
+    },
+    "sidebar-background": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.967, 0.969, 0.973],
+        "alpha": 1,
+        "hex": "#f7f7f8"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 97%"
+        }
+      }
+    },
+    "sidebar-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.4275, 0.4425, 0.4725],
+        "alpha": 1,
+        "hex": "#6d7178"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 5% 45%"
+        }
+      }
+    },
+    "sidebar-primary": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.101961, 0.439216, 0.921569],
+        "alpha": 1,
+        "hex": "#1a70eb"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 15%"
+        }
+      }
+    },
+    "sidebar-primary-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1.0, 1.0, 1.0],
+        "alpha": 1,
+        "hex": "#ffffff"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "0 0% 100%"
+        }
+      }
+    },
+    "sidebar-accent": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.945, 0.948333, 0.955],
+        "alpha": 1,
+        "hex": "#f1f2f4"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 95%"
+        }
+      }
+    },
+    "sidebar-accent-foreground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.135, 0.145, 0.165],
+        "alpha": 1,
+        "hex": "#22252a"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 15%"
+        }
+      }
+    },
+    "sidebar-border": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.89, 0.896667, 0.91],
+        "alpha": 1,
+        "hex": "#e3e5e8"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 90%"
+        }
+      }
+    },
+    "sidebar-ring": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.101961, 0.439216, 0.921569],
+        "alpha": 1,
+        "hex": "#1a70eb"
+      },
+      "$extensions": {
+        "com.agent-native": {
+          "hsl": "220 10% 40%"
+        }
+      }
+    }
+  },
+  "radius": {
+    "$type": "number",
+    "$value": 8,
+    "$extensions": {
+      "com.agent-native": {
+        "unit": "rem"
+      }
+    }
+  }
+}

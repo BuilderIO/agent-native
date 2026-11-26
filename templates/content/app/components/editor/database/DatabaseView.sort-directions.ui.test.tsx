@@ -118,32 +118,22 @@ describe("sort directions named for the column", () => {
       latest.sorts = sorts;
       return (
         <DatabaseActiveConstraintsBar
-          documentId="database-document"
-          items={[]}
           searchQuery=""
           sorts={sorts}
           filters={[]}
-          filterMode="and"
           properties={properties}
+          filterFields={[]}
+          filterState={{ mode: "and", items: [], pinned: {} }}
           constraintCount={sorts.length}
           forceShow
-          addFilterOpen={false}
           openSortIndex={openSortIndex}
-          openFilterIndex={null}
-          advancedFilterOpen={false}
           hasPersonalQueryChanges={false}
           savePending={false}
-          onAddFilterOpenChange={() => {}}
           onSortOpenIndexChange={setOpenSortIndex}
-          onFilterOpenIndexChange={() => {}}
-          onAdvancedFilterOpenChange={() => {}}
           onClearSearch={() => {}}
           onRemoveSort={() => {}}
-          onRemoveFilter={() => {}}
           onSortsChange={setSorts}
-          onFiltersChange={() => {}}
-          onFilterModeChange={() => {}}
-          onFilterGroupModeChange={() => {}}
+          onFilterStateChange={() => {}}
           onClearAll={() => {}}
           onResetPersonalChanges={() => {}}
           onSaveForEveryone={() => {}}

@@ -19,8 +19,6 @@ vi.mock("./schema.js", () => ({
   designTemplateShares: {
     resourceId: "designTemplateShares.resourceId",
   },
-  designSystems: { id: "designSystems.id" },
-  designSystemShares: { resourceId: "designSystemShares.resourceId" },
 }));
 
 import "./index.js";
@@ -39,19 +37,22 @@ describe("design share registration", () => {
       .map(([value]) => value)
       .find((value) => value.type === "design");
 
-  it("registers a capability-aware public role without ambient editor access", () => {
+  it("registers a capability role and no ambient public editor access", async () => {
     const registration = designRegistration();
 
     expect(registration).toBeDefined();
-    expect(registration.publicAccessRole).toBeTypeOf("function");
-    expect(
-      registration.publicAccessRole(
+    expect(registration.publicAccessRole).toBeUndefined();
+    expect(registration.capabilityAccessRole).toBeTypeOf("function");
+    await expect(
+      registration.capabilityAccessRole(
         {
           id: "design_1",
           data: JSON.stringify({ sourceType: "localhost" }),
+          ownerEmail: "alice@example.com",
+          visibility: "private",
         },
-        {},
+        { authCapability: "capability:visual-edit:design:design_1" },
       ),
-    ).toBe("viewer");
+    ).resolves.toBeUndefined();
   });
 });

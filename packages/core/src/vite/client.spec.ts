@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
@@ -24,12 +25,14 @@ import {
   _getReactRouterAliases,
   _installReactRouterVirtualInvalidationMirror,
   _mirrorReactRouterVirtualInvalidation,
+  _nitroDevEnvironmentClosePlugin,
   _nitroModuleGraphSignature,
   _resolveNitroSsrServiceEntry,
   _nitroStartupGate,
   _nitroStartupRecovery,
   _persistent5xxRecovery,
   agentNative,
+  agentNativeStateFsDeny,
   defaultViteWatchIgnored,
   defineConfig,
   isFrameworkDynamicDevPath,
@@ -92,6 +95,336 @@ function repositoryRoot(): string {
   }
   return directory;
 }
+
+describe("Nitro dev server lifecycle", () => {
+  // Without a Nitro environment, a restart or close the lifecycle plugin lets
+  // through goes straight to Vite's own.
+  function lifecycleServer() {
+    const vite = {
+      close: vi.fn(async () => {}),
+      listen: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+    };
+    const server = {
+      ...vite,
+      config: { inlineConfig: {}, logger: { warn: vi.fn(), error: vi.fn() } },
+      environments: {},
+    };
+    _nitroDevEnvironmentClosePlugin().configureServer?.(server as never);
+    return { server, vite };
+  }
+
+  it("restarts through Vite while the server is open", async () => {
+    const { server, vite } = lifecycleServer();
+
+    await server.restart();
+
+    expect(vite.restart).toHaveBeenCalledOnce();
+  });
+
+  it("does not restart a server an explicit close is shutting down", async () => {
+    const { server, vite } = lifecycleServer();
+
+    const closing = server.close();
+    await server.restart();
+    await closing;
+
+    expect(vite.restart).not.toHaveBeenCalled();
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Nitro dev database lifecycle requests", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function nitroWorkerServer() {
+    const pluginListeners = new Map<string, Set<(payload?: unknown) => void>>();
+    const emit = (event: string, data?: unknown) => {
+      for (const listener of [...(pluginListeners.get(event) ?? [])]) {
+        listener(data);
+      }
+    };
+    let workerListeners: Map<string, (data?: unknown) => void> | undefined;
+    const held: Array<() => void> = [];
+    const requests: Array<{
+      event: string;
+      requestId?: string;
+      delivered: boolean;
+    }> = [];
+    const worker = {
+      acknowledge: true,
+      load() {
+        const reply = (event: string) => (data?: unknown) => {
+          const requestId =
+            typeof data === "object" &&
+            data !== null &&
+            "requestId" in data &&
+            typeof data.requestId === "string"
+              ? data.requestId
+              : undefined;
+          if (requestId === undefined) return;
+          const acknowledge = () =>
+            queueMicrotask(() => emit(event, { requestId }));
+          if (worker.acknowledge) acknowledge();
+          else held.push(acknowledge);
+        };
+        workerListeners = new Map([
+          [
+            "agent-native:dev-database-close",
+            reply("agent-native:dev-database-closed"),
+          ],
+          [
+            "agent-native:dev-database-resume",
+            reply("agent-native:dev-database-resumed"),
+          ],
+          [
+            "agent-native:dev-database-ready-check",
+            () => worker.announceReady(),
+          ],
+        ]);
+        worker.announceReady();
+      },
+      announceReady() {
+        queueMicrotask(() => emit("agent-native:dev-database-ready"));
+      },
+      releaseHeld() {
+        for (const acknowledge of held.splice(0)) acknowledge();
+      },
+    };
+    const hot = {
+      on(event: string, listener: (payload?: unknown) => void) {
+        const listeners = pluginListeners.get(event) ?? new Set();
+        listeners.add(listener);
+        pluginListeners.set(event, listeners);
+      },
+      off(event: string, listener: (payload?: unknown) => void) {
+        pluginListeners.get(event)?.delete(listener);
+      },
+      send(payload: {
+        type?: string;
+        event: string;
+        data?: { requestId?: string };
+      }) {
+        const listener =
+          payload.type === "custom"
+            ? workerListeners?.get(payload.event)
+            : undefined;
+        requests.push({
+          event: payload.event,
+          ...(payload.data?.requestId === undefined
+            ? {}
+            : { requestId: payload.data.requestId }),
+          delivered: listener !== undefined,
+        });
+        listener?.(payload.data);
+      },
+    };
+    const vite = {
+      close: vi.fn(async () => {}),
+      listen: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+    };
+    const logger = { warn: vi.fn(), error: vi.fn() };
+    const server = {
+      ...vite,
+      config: { inlineConfig: {}, logger },
+      environments: {
+        nitro: { devServer: { closed: false, ready: true }, hot },
+      },
+    };
+    _nitroDevEnvironmentClosePlugin().configureServer?.(server as never);
+    const closeRequests = () =>
+      requests.filter(
+        (request) => request.event === "agent-native:dev-database-close",
+      );
+    const pluginListenerCount = () =>
+      [...pluginListeners.values()].reduce(
+        (total, listeners) => total + listeners.size,
+        0,
+      );
+    return {
+      closeRequests,
+      hot,
+      logger,
+      pluginListenerCount,
+      requests,
+      server,
+      vite,
+      worker,
+    };
+  }
+
+  it("holds a restart's cleanup request until the new worker's listeners are ready", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, requests, server, vite, worker } =
+      nitroWorkerServer();
+
+    const restarting = server.restart();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(requests).toEqual([
+      { event: "agent-native:dev-database-ready-check", delivered: false },
+    ]);
+    expect(vite.restart).not.toHaveBeenCalled();
+
+    worker.load();
+    await restarting;
+
+    expect(closeRequests()).toEqual([
+      {
+        event: "agent-native:dev-database-close",
+        requestId: expect.any(String),
+        delivered: true,
+      },
+    ]);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(vite.restart).toHaveBeenCalledOnce();
+  });
+
+  it("gets a ready worker's acknowledgement to its first request", async () => {
+    vi.useFakeTimers();
+    const { logger, pluginListenerCount, requests, server, vite, worker } =
+      nitroWorkerServer();
+    worker.load();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await server.close();
+
+    expect(pluginListenerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    expect(requests).toEqual([
+      { event: "agent-native:dev-database-ready-check", delivered: true },
+      {
+        event: "agent-native:dev-database-close",
+        requestId: expect.any(String),
+        delivered: true,
+      },
+    ]);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("gives a worker that becomes ready late the full acknowledgement wait", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, server, vite, worker } = nitroWorkerServer();
+    worker.acknowledge = false;
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(4_000);
+    worker.load();
+    await vi.advanceTimersByTimeAsync(4_000);
+    worker.releaseHeld();
+    await closing;
+
+    expect(closeRequests()).toHaveLength(1);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("sends its request once when the worker reports ready again before acknowledging", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, server, worker } = nitroWorkerServer();
+    worker.load();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.acknowledge = false;
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.announceReady();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.releaseHeld();
+    await closing;
+
+    expect(closeRequests()).toHaveLength(1);
+  });
+
+  it("sends one request to a worker that becomes ready after an attempt timed out", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, server, worker } = nitroWorkerServer();
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(5_000);
+    worker.load();
+    await closing;
+
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect(closeRequests()).toHaveLength(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("gives up on a worker that never becomes ready after the bounded attempts", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, requests, server, vite } =
+      nitroWorkerServer();
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await closing;
+
+    expect(logger.warn.mock.calls.map(([message]) => message)).toEqual(
+      Array.from({ length: 3 }, () =>
+        expect.stringContaining(
+          "did not report database cleanup listeners ready",
+        ),
+      ),
+    );
+    expect(logger.error).toHaveBeenCalledOnce();
+    expect(logger.error.mock.calls[0]?.[0]).toContain(
+      "not acknowledged after 3 attempts",
+    );
+    expect(requests).toHaveLength(3);
+    expect(closeRequests()).toEqual([]);
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("gives up on a ready worker that never acknowledges, naming the missing acknowledgement", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, server, vite, worker } = nitroWorkerServer();
+    worker.load();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.acknowledge = false;
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await closing;
+
+    expect(logger.warn.mock.calls.map(([message]) => message)).toEqual(
+      Array.from({ length: 3 }, () =>
+        expect.stringContaining("did not acknowledge database cleanup"),
+      ),
+    );
+    expect(logger.error).toHaveBeenCalledOnce();
+    const sent = closeRequests();
+    expect(sent).toHaveLength(3);
+    expect(new Set(sent.map((request) => request.requestId)).size).toBe(1);
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("reports a hot channel that cannot send without waiting for a timeout", async () => {
+    vi.useFakeTimers();
+    const { hot, logger, pluginListenerCount, server, vite } =
+      nitroWorkerServer();
+    hot.send = () => {
+      throw new Error("worker channel closed");
+    };
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(pluginListenerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledOnce();
+    expect(logger.error.mock.calls[0]?.[0]).toContain("worker channel closed");
+    await closing;
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+});
 
 describe("Nitro dev startup recovery", () => {
   it("requires a continuous 5xx streak before restarting after a long idle", () => {
@@ -1734,6 +2067,42 @@ describe("route warmup config", () => {
     }
   });
 
+  it("lets an app carry its own build id and commit instead of the build's", () => {
+    vi.stubEnv("DEPLOY_ID", "workspace-build");
+    vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "a".repeat(40));
+    const pinned = "B".repeat(40);
+
+    try {
+      const config = defineConfig({
+        buildId: ` ${pinned} `,
+        commitSha: pinned,
+      });
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify(pinned),
+      );
+      expect(config.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify(pinned.toLowerCase()),
+      );
+
+      const buildIdOnly = defineConfig({ buildId: "mount-build" });
+      expect(buildIdOnly.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("mount-build"),
+      );
+      expect(buildIdOnly.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify("a".repeat(40)),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses a blank build id or a partial commit instead of falling back", () => {
+    expect(() => defineConfig({ buildId: "  " })).toThrow(/buildId/);
+    expect(() => defineConfig({ commitSha: "abc123" })).toThrow(
+      /full 40-character commit SHA/,
+    );
+  });
+
   it("enables viewport React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(
@@ -1747,6 +2116,139 @@ describe("route warmup config", () => {
       selector: 'a[data-an-prefetch="render"][href]',
       maxConcurrent: 8,
     });
+  });
+
+  it("applies workspace cache keys after router environment hooks in resolved config", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (p) => p?.name === "agent-native-rolldown-input-fix",
+      )!;
+      const config = await resolveConfig(
+        {
+          configFile: false,
+          envFile: false,
+          plugins: [
+            plugin,
+            {
+              name: "router-environment-fixture",
+              configEnvironment(name, environment) {
+                if (name === "client") {
+                  return {
+                    build: {
+                      rollupOptions: {
+                        output: [
+                          {
+                            entryFileNames: () =>
+                              "assets/home-client-loader-[hash].js",
+                          },
+                        ],
+                      },
+                    },
+                  };
+                }
+              },
+            },
+          ],
+        },
+        "build",
+      );
+      const output = config.environments.client.build.rolldownOptions.output;
+      expect(Array.isArray(output)).toBe(true);
+      expect((output as any)[0].entryFileNames({})).toBe(
+        "assets/home-client-loader-[hash:16].js",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("preserves router entry suffixes while retiring its default cache keys", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (p) => p?.name === "agent-native-rolldown-input-fix",
+      );
+      const config = {
+        build: {
+          rolldownOptions: {
+            output: {
+              entryFileNames: ({ name }: { name: string }) =>
+                `assets/${name}-client-loader-[hash].js`,
+            },
+          },
+        },
+      };
+      (plugin!.configEnvironment as Function)("client", config);
+      expect(
+        config.build.rolldownOptions.output.entryFileNames({ name: "home" }),
+      ).toBe("assets/home-client-loader-[hash:16].js");
+      const ssr = {
+        build: { rolldownOptions: { output: { entryFileNames: "server.js" } } },
+      };
+      (plugin!.configEnvironment as Function)("ssr", ssr);
+      expect(ssr.build.rolldownOptions.output.entryFileNames).toBe("server.js");
+      const legacy = {
+        build: {
+          rollupOptions: {
+            output: { entryFileNames: "assets/legacy-[hash:8].js" },
+          },
+        },
+      };
+      (plugin!.configEnvironment as Function)("client", legacy);
+      expect(
+        (
+          legacy.build.rollupOptions.output
+            .entryFileNames as unknown as Function
+        )({}),
+      ).toBe("assets/legacy-[hash:16].js");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives workspace modules fresh app-local cache keys after shared redirects", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const config = defineConfig();
+      expect(config.build?.rolldownOptions?.output).toMatchObject({
+        entryFileNames: "assets/[name]-[hash:16].js",
+        chunkFileNames: "assets/[name]-[hash:16].js",
+        assetFileNames: "assets/[name]-[hash:16][extname]",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(defineConfig().build?.rolldownOptions?.output).toBeUndefined();
+  });
+
+  it("warms workspace routes on intent without competing with initial app data", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const config = defineConfig();
+      const warmup = JSON.parse(
+        String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+      );
+      expect(warmup).toMatchObject({
+        strategy: "intent",
+        data: true,
+        modules: true,
+      });
+      const explicit = defineConfig({ routeWarmup: "viewport" });
+      expect(
+        JSON.parse(
+          String(explicit.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+        ).strategy,
+      ).toBe("viewport");
+      const disabled = defineConfig({ routeWarmup: false });
+      expect(
+        JSON.parse(
+          String(disabled.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+        ).strategy,
+      ).toBe("off");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("allows apps to choose a route warmup strategy in one Vite config place", () => {
@@ -2632,6 +3134,198 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("binds the dev server to loopback while AUTH_DISABLED is on", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const serverHost = async (host?: string) => {
+      const previousCwd = process.cwd();
+      process.chdir(path.join(repositoryRoot(), "templates/chat"));
+      try {
+        const config = await configPlugin.config(
+          host === undefined ? {} : { server: { host } },
+          { command: "serve", mode: "development" },
+        );
+        return config.server.host;
+      } finally {
+        process.chdir(previousCwd);
+      }
+    };
+
+    vi.stubEnv("AUTH_DISABLED", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    vi.stubEnv("FUSION_POD_UID", "");
+    try {
+      expect(await serverHost()).toBe("::");
+      vi.stubEnv("AUTH_DISABLED", "true");
+      expect(await serverHost()).toBe("127.0.0.1");
+      expect(await serverHost("0.0.0.0")).toBe("0.0.0.0");
+      vi.stubEnv("FUSION_POD_UID", "pod-1");
+      expect(await serverHost()).toBe("::");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("denies the served roots' .agent-native state, scoped to those roots", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const previousCwd = process.cwd();
+    const chatRoot = path.join(repositoryRoot(), "templates/chat");
+    let config: { server: { fs: { deny: string[] } } };
+    process.chdir(chatRoot);
+    try {
+      config = await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+    expect(config.server.fs.deny).toEqual(
+      expect.arrayContaining(agentNativeStateFsDeny(chatRoot, ["."])),
+    );
+    expect(config.server.fs.deny).not.toContain("**/.agent-native/**");
+
+    const home = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-fs-deny-")),
+    );
+    try {
+      for (const appRoot of [
+        path.join(home, "app"),
+        path.join(home, ".agent-native", "workspaces", "app"),
+        path.join(home, "a|b (c) [d] {e} !f +g @h"),
+      ]) {
+        fs.mkdirSync(path.join(appRoot, ".agent-native"), { recursive: true });
+        fs.writeFileSync(
+          path.join(appRoot, ".agent-native", "dev-server.json"),
+          JSON.stringify({ token: "secret" }),
+        );
+        fs.writeFileSync(path.join(appRoot, "public.txt"), "visible");
+        const discoveryPath = devActionDiscoveryFilePath(appRoot);
+        fs.mkdirSync(path.dirname(discoveryPath), { recursive: true });
+        fs.writeFileSync(discoveryPath, JSON.stringify({ token: "secret" }));
+        for (const dataDir of ["data/pglite", "db/custom"]) {
+          fs.mkdirSync(path.join(appRoot, dataDir), { recursive: true });
+          fs.writeFileSync(path.join(appRoot, dataDir, "PG_VERSION"), "secret");
+        }
+        const server = await createServer({
+          configFile: false,
+          root: appRoot,
+          logLevel: "silent",
+          server: {
+            host: "127.0.0.1",
+            port: 0,
+            fs: {
+              allow: [appRoot, path.dirname(path.dirname(discoveryPath))],
+              deny: agentNativeStateFsDeny(appRoot, ["."], {
+                databaseUrl: "pglite:./db/custom",
+              }),
+            },
+          },
+        });
+        try {
+          await server.listen();
+          const address = server.httpServer?.address();
+          if (!address || typeof address !== "object") {
+            throw new Error("Vite did not bind a port.");
+          }
+          const get = (pathname: string) =>
+            fetch(`http://127.0.0.1:${address.port}${encodeURI(pathname)}`);
+
+          expect(
+            await (await get(`/@fs${appRoot}/public.txt?raw`)).text(),
+          ).toContain("visible");
+          for (const pathname of [
+            `/@fs${appRoot}/.agent-native/dev-server.json?raw`,
+            `/@fs${appRoot}/.agent-native/dev-server.json?import&raw`,
+            `/@fs${appRoot}/.agent-native/dev-server.json`,
+            "/.agent-native/dev-server.json?raw",
+            "/.agent-native/dev-server.json",
+            `/@fs${fs.realpathSync(discoveryPath)}?raw`,
+            `/@fs${appRoot}/data/pglite/PG_VERSION?raw`,
+            `/@fs${appRoot}/db/custom/PG_VERSION?raw`,
+            "/data/pglite/PG_VERSION",
+          ]) {
+            const response = await get(pathname);
+            expect(await response.text()).not.toContain("secret");
+          }
+        } finally {
+          await server.close();
+          fs.rmSync(discoveryPath, { force: true });
+        }
+      }
+
+      const appRoot = path.join(home, "nested-root-app");
+      const viteRoot = path.join(appRoot, "web");
+      fs.mkdirSync(path.join(viteRoot, ".agent-native"), { recursive: true });
+      fs.writeFileSync(
+        path.join(viteRoot, ".agent-native", "state.json"),
+        "secret",
+      );
+      fs.writeFileSync(path.join(viteRoot, "public.txt"), "visible");
+      const server = await createServer({
+        configFile: false,
+        root: viteRoot,
+        logLevel: "silent",
+        server: {
+          host: "127.0.0.1",
+          port: 0,
+          fs: {
+            allow: ["."],
+            deny: agentNativeStateFsDeny(appRoot, ["."], { root: "web" }),
+          },
+        },
+      });
+      try {
+        await server.listen();
+        const address = server.httpServer?.address();
+        if (!address || typeof address !== "object") {
+          throw new Error("Vite did not bind a port.");
+        }
+        const get = (pathname: string) =>
+          fetch(`http://127.0.0.1:${address.port}${encodeURI(pathname)}`);
+        expect(await (await get("/public.txt?raw")).text()).toContain(
+          "visible",
+        );
+        for (const pathname of [
+          "/.agent-native/state.json?raw",
+          `/@fs${viteRoot}/.agent-native/state.json?raw`,
+        ]) {
+          expect(await (await get(pathname)).text()).not.toContain("secret");
+        }
+      } finally {
+        await server.close();
+      }
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves the app's aliases before its own, so one can replace an @/ module", async () => {
+    const plugins = flatPlugins(
+      agentNative({
+        aliases: { "@/design-system": "/tmp/alternate/design-system.ts" },
+      }),
+    );
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const previousCwd = process.cwd();
+    let config: { resolve: { alias: { find: unknown }[] } };
+    process.chdir(path.join(repositoryRoot(), "templates/chat"));
+    try {
+      config = await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    const finds = config.resolve.alias.map((alias) => alias.find);
+    expect(finds.indexOf("@/design-system")).toBeGreaterThanOrEqual(0);
+    expect(finds.indexOf("@/design-system")).toBeLessThan(finds.indexOf("@"));
+  });
+
   it("leaves build.sourcemap off and adds no Sentry plugin without upload config", async () => {
     const previous = {
       SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
@@ -2716,6 +3410,64 @@ describe("agentNative Vite plugin preset", () => {
       dir: "/deps",
       sourcemap: false,
     });
+  });
+
+  it("serves optimized dependencies without Vite's inline identity maps", async () => {
+    const root = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "an-dep-sourcemaps-"),
+    );
+    const dep = path.join(root, "node_modules", "fixture-dep");
+    fs.mkdirSync(dep, { recursive: true });
+    fs.writeFileSync(
+      path.join(dep, "package.json"),
+      JSON.stringify({ name: "fixture-dep", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(dep, "index.js"), 'module.exports = "dep";\n');
+    fs.writeFileSync(
+      path.join(root, "app.ts"),
+      'import value from "fixture-dep"; console.log(value);\n',
+    );
+
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const config = await configPlugin.config(
+      {},
+      { command: "serve", mode: "development" },
+    );
+    const server = await createServer({
+      root,
+      configFile: false,
+      server: { host: "127.0.0.1", port: 0, ws: false },
+      plugins: plugins.filter(
+        (p) => p?.name === "agent-native:no-served-dep-sourcemaps",
+      ),
+      optimizeDeps: {
+        ...config.optimizeDeps,
+        noDiscovery: true,
+        include: ["fixture-dep"],
+      },
+    });
+
+    try {
+      await server.listen();
+      const origin = server.resolvedUrls?.local[0];
+      expect(origin).toBeDefined();
+      const request = { headers: { "sec-fetch-dest": "script" } };
+      const app = await fetch(new URL("/app.ts", origin), request);
+      expect(app.status).toBe(200);
+      const source = await app.text();
+      expect(source).toContain("sourceMappingURL=data:");
+      const depUrl = source.match(/"([^"]+\/fixture-dep\.js\?v=[^"]+)"/)?.[1];
+      expect(depUrl).toBeDefined();
+      const dependency = await fetch(new URL(String(depUrl), origin), request);
+      expect(dependency.status).toBe(200);
+      const code = await dependency.text();
+      expect(code).toContain('module.exports = "dep"');
+      expect(code).not.toContain("sourceMappingURL=");
+    } finally {
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("does not re-emit Vite's deprecated rollupOptions alias", async () => {
@@ -2931,7 +3683,9 @@ describe("app changelog raw imports", () => {
   });
 
   it("picks up a CHANGELOG.md created after the dev server first served it", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-")),
+    );
     const routesDir = path.join(root, "app", "routes");
     fs.mkdirSync(routesDir, { recursive: true });
     fs.writeFileSync(
@@ -3061,7 +3815,9 @@ describe("app changelog raw imports", () => {
 
 describe("Vite runtime data watcher", () => {
   it("ignores database writes while continuing to watch source edits", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-"));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-")),
+    );
     const database = path.join(root, ".data", "base", "5", "16453");
     const source = path.join(root, "app.ts");
     const bridgeDir = path.join(root, ".generated", "bridge");
@@ -3976,7 +4732,8 @@ describe("Vite SSR optional dependencies", () => {
       );
 
       expect(config.ssr.external).toContain("prettier");
-      expect(config.ssr.external).toContain("xlsx");
+      // oracle-change: xlsx is now a bundled ingestion parser, so an installed copy is bundled rather than left external
+      expect(config.ssr.external).not.toContain("xlsx");
       expect(config.ssr.external).toContain("@sentry/node");
       expect(config.ssr.external).not.toContain("@opentelemetry/api");
       expect(config.build.rolldownOptions.external).toContain("prettier");
@@ -4014,15 +4771,16 @@ describe("Vite SSR optional dependencies", () => {
       );
       const missingPeers = getMissingCoreOptionalPeers(appRoot);
       expect(missingPeers).toContain("prettier");
-      expect(missingPeers).toContain("xlsx");
       expect(missingPeers).toContain("@sentry/node");
       expect(missingPeers).not.toContain("@opentelemetry/api");
       for (const peer of [
         "fast-xml-parser",
         "jszip",
+        "mammoth",
         "officeparser",
         "pdf-parse",
         "pdfjs-dist",
+        "xlsx",
       ]) {
         expect(missingPeers).not.toContain(peer);
       }
@@ -4552,6 +5310,18 @@ describe("local-core dev aliases and router dedupe", () => {
     const dedupe = _getClientDedupe(tmpDir);
     expect(dedupe).toContain("react-router");
     expect(dedupe).toContain("react-router/dom");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("dedupes sonner when the app depends on it", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ dependencies: { sonner: "^2.0.7" } }),
+    );
+
+    expect(_getClientDedupe(tmpDir)).toContain("sonner");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

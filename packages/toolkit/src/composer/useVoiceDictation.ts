@@ -781,6 +781,7 @@ export function useVoiceDictation(
       let capturing = false;
       let fatal = false;
       let lastError: string | undefined;
+      const consumedFinalResults = new Set<number>();
 
       recognition.onaudiostart = () => {
         capturing = true;
@@ -812,7 +813,10 @@ export function useVoiceDictation(
           const result = event.results[i];
           const text = result[0]?.transcript ?? "";
           if (result.isFinal) {
-            speechTranscriptRef.current += text;
+            if (!consumedFinalResults.has(i)) {
+              consumedFinalResults.add(i);
+              speechTranscriptRef.current += text;
+            }
           } else {
             interim += text;
           }

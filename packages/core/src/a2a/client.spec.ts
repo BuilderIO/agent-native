@@ -2075,7 +2075,7 @@ describe("A2AClient", () => {
     expect(jose.decodeJwt(calls[3]!.token)).not.toHaveProperty("org_id");
   });
 
-  it("does not sign an unscoped peer token when an org ID has no domain", async () => {
+  it("signs a personal-scope peer token when an org ID has no domain", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
     const authorizationHeaders: Array<string | null> = [];
     vi.stubGlobal(
@@ -2087,7 +2087,7 @@ describe("A2AClient", () => {
         if (init?.method !== "POST") {
           return new Response("not found", { status: 404 });
         }
-        return completedResponse(JSON.parse(String(init.body)), "unscoped");
+        return completedResponse(JSON.parse(String(init.body)), "personal");
       }),
     );
 
@@ -2097,7 +2097,45 @@ describe("A2AClient", () => {
         userEmail: "alice@example.test",
         orgId: "sender-org-row",
       }),
-    ).resolves.toBe("unscoped");
+    ).resolves.toBe("personal");
+    const tokens = authorizationHeaders
+      .filter((header): header is string => Boolean(header))
+      .map((header) => header.replace(/^Bearer\s+/i, ""));
+    expect(tokens.length).toBeGreaterThan(0);
+    for (const token of tokens) {
+      const { payload } = await jose.jwtVerify(
+        token,
+        new TextEncoder().encode("global-a2a-secret"),
+      );
+      expect(payload).toMatchObject({ sub: "alice@example.test" });
+      expect(payload).not.toHaveProperty("org_domain");
+      expect(payload).not.toHaveProperty("org_id");
+    }
+  });
+
+  it("sends no peer token for a domainless org without a deployment secret", async () => {
+    delete process.env.A2A_SECRET;
+    const authorizationHeaders: Array<string | null> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        authorizationHeaders.push(
+          new Headers(init?.headers).get("authorization"),
+        );
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        return completedResponse(JSON.parse(String(init.body)), "unsigned");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        userEmail: "alice@example.test",
+        orgId: "sender-org-row",
+      }),
+    ).resolves.toBe("unsigned");
     expect(authorizationHeaders.filter(Boolean)).toEqual([]);
   });
 

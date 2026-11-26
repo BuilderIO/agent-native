@@ -93,6 +93,7 @@ export default defineAction({
   description:
     "Remove an owned screen history item and trash its footage recordings, including footage an export is still reserving. Removing an item that is already removed returns it unchanged.",
   schema: z.object({ id: z.string() }),
+  mcpTool: false,
   run: async ({ id }) => {
     const item = await loadOwnedRecordingContextItem(id);
     if (item.status === "removed") return item;

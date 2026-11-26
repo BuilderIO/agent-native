@@ -11,6 +11,10 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
+import {
+  MemoryTombstoneError,
+  readMirroredMemory,
+} from "@agent-native/core/resources/shared-memory";
 import { createPtyWebSocketServer } from "@agent-native/core/terminal/pty-server";
 import {
   getDesktopVisibleApps,
@@ -52,6 +56,7 @@ const BUILDER_GATEWAY_RELAY_ROOT = "/desktop-builder";
 const BUILDER_GATEWAY_RELAY_PUBLIC_KEY = "desktop-relay";
 const BUILDER_MESSAGES_PATH = "/_agent-native/builder/desktop/messages";
 const BUILDER_STATUS_PATH = "/_agent-native/connection-status/builder";
+const DISPATCH_SESSION_PATH = "/_agent-native/auth/session";
 const BUILDER_PROVISION_PATH = "/_agent-native/builder/provision";
 const DESKTOP_TERMINAL_INFO_ROOT = "/desktop-terminal-info";
 const RELAY_ALLOWED_PREFIX = "/_agent-native/";
@@ -82,7 +87,6 @@ const DESKTOP_APP_MCP_AUTH_TIMEOUT_MS = 10_000;
 interface RelayState {
   port: number;
   secret: string;
-  builderSecret: string;
 }
 
 interface RelayPath {
@@ -92,7 +96,22 @@ interface RelayPath {
 
 let relayPromise: Promise<RelayState> | null = null;
 let relayServer: Server | null = null;
+// Read per request, never captured: a runner holding an older value is refused.
+let builderRelayBearer = randomBytes(32).toString("base64url");
+// The Dispatch session the current bearer was issued for. Cookie values rotate
+// within one account, so the account is the identity and the fingerprint only
+// short-circuits the lookup.
+interface BuilderRelaySession {
+  fingerprint: string;
+  account: string;
+}
+type DispatchAccountRead =
+  | { state: "account"; email: string }
+  | { state: "signed-out" }
+  | { state: "unreadable" };
+let builderRelaySession: BuilderRelaySession | null = null;
 let resolveBuilderDispatchApp: (() => DesktopIdentityApp | null) | undefined;
+let lastBuilderRelayAccountKey: string | null = null;
 let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
   null;
 let ipcRegistered = false;
@@ -150,18 +169,39 @@ const TERMINAL_MCP_REQUEST_HEADERS = new Set([
   "accept",
   "cache-control",
   "content-type",
+  "if-none-match",
   "last-event-id",
+  "mcp-method",
+  "mcp-name",
   "mcp-protocol-version",
   "mcp-session-id",
 ]);
+const TERMINAL_MCP_PARAM_HEADER_PATTERN =
+  /^mcp-param-[!#$%&'*+\-.^_`|~0-9a-z]+$/;
 const TERMINAL_MCP_RESPONSE_HEADERS = new Set([
   "cache-control",
   "content-type",
+  "etag",
   "last-event-id",
   "location",
+  "mcp-protocol-version",
   "mcp-session-id",
   "retry-after",
+  "vary",
+  "www-authenticate",
 ]);
+
+export function shouldForwardTerminalMcpRequestHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    TERMINAL_MCP_REQUEST_HEADERS.has(lower) ||
+    TERMINAL_MCP_PARAM_HEADER_PATTERN.test(lower)
+  );
+}
+
+export function shouldForwardTerminalMcpResponseHeader(name: string): boolean {
+  return TERMINAL_MCP_RESPONSE_HEADERS.has(name.toLowerCase());
+}
 
 function headerValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value.join(", ") : value;
@@ -180,7 +220,7 @@ export interface DesktopTerminalMcpRegistration {
   bearerToken: string;
 }
 
-const PI_TERMINAL_EXTENSION_SOURCE = String.raw`
+export const PI_TERMINAL_EXTENSION_SOURCE = String.raw`
 export default function (pi) {
   const rawServers = process.env.AGENT_NATIVE_TERMINAL_MCP_SERVERS || "{}";
   const servers = JSON.parse(rawServers);
@@ -343,12 +383,25 @@ export default function (pi) {
     };
   }
 
+  function readSharedPersonalMemoryPrompt() {
+    const promptFile = process.env.AGENT_NATIVE_MEMORY_PROMPT_FILE;
+    if (!promptFile) return "";
+    try {
+      return require("node:fs").readFileSync(promptFile, "utf8");
+    } catch (error) {
+      if (error && error.code === "ENOENT") return "";
+      console.error("[desktop-chat] Could not read shared memory:", error);
+      return "";
+    }
+  }
+
   pi.on("before_agent_start", (event) => ({
     systemPrompt:
       event.systemPrompt +
       "\n\nThis Pi session is embedded in Agent-Native desktop. The active app context is exposed by the agent-native-desktop MCP server. Available MCP servers: " +
       serverNames.join(", ") +
-      (activeContext ? ". Current context: " + activeContext : "."),
+      (activeContext ? ". Current context: " + activeContext : ".") +
+      readSharedPersonalMemoryPrompt(),
   }));
 
   pi.registerTool({
@@ -507,7 +560,7 @@ export class DesktopTerminalMcpRelay {
     try {
       const headers = new Headers();
       for (const [name, value] of Object.entries(request.headers)) {
-        if (!TERMINAL_MCP_REQUEST_HEADERS.has(name.toLowerCase())) continue;
+        if (!shouldForwardTerminalMcpRequestHeader(name)) continue;
         const normalized = headerValue(value);
         if (normalized) headers.set(name, normalized);
       }
@@ -885,9 +938,11 @@ async function createDesktopTerminalSession(
   let piExtensionPath: string | undefined;
   let codexHome: string | undefined;
   let closed = false;
+  const memoryOwner = await bindDesktopSessionMemoryOwner();
   const close = async () => {
     if (closed) return;
     closed = true;
+    memoryOwner.release();
     removeDesktopTerminalConfig(claudeConfigPath);
     removeDesktopTerminalConfig(piExtensionPath);
     removeDesktopTerminalHome(codexHome);
@@ -971,6 +1026,10 @@ async function createDesktopTerminalSession(
         piExtensionPath,
       ),
       environment: {
+        ...desktopTerminalMemoryEnvironment(
+          memoryOwner.file,
+          memoryOwner.memoryDir,
+        ),
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
@@ -985,6 +1044,7 @@ async function createDesktopTerminalSession(
       },
       cwd: resolveDesktopTerminalCwd(appConfig?.localPath),
       onClose: close,
+      bindTerminate: memoryOwner.bindTerminate,
     };
   } catch (error) {
     await close();
@@ -1372,8 +1432,15 @@ function builderUnavailable(error: string): CodeAgentBuilderConnectionResult {
   return { state: "unavailable", error };
 }
 
-export async function getDesktopBuilderConnectionStatus(
+export function getDesktopBuilderConnectionStatus(
   connectAttemptId?: string,
+): Promise<CodeAgentBuilderConnectionResult> {
+  return checkBuilderConnection(connectAttemptId);
+}
+
+async function checkBuilderConnection(
+  connectAttemptId: string | undefined,
+  observeCookieHeader?: (cookieHeader: string) => void,
 ): Promise<CodeAgentBuilderConnectionResult> {
   const identityApp = resolveBuilderDispatchApp?.();
   if (!isTrustedBuilderDispatchApp(identityApp)) {
@@ -1398,6 +1465,7 @@ export async function getDesktopBuilderConnectionStatus(
       "Sign in to Agent-Native Desktop to use Builder.io.",
     );
   }
+  observeCookieHeader?.(cookieHeader);
 
   try {
     const statusResponse = await fetch(statusUrl, {
@@ -1642,12 +1710,354 @@ export async function openDesktopBuilderConnect(
   }
 }
 
+function sessionFingerprint(cookieHeader: string): string {
+  return createHash("sha256").update(cookieHeader).digest("hex");
+}
+
+async function readDispatchAccount(
+  identityApp: DesktopIdentityApp,
+  cookieHeader: string,
+): Promise<DispatchAccountRead> {
+  try {
+    const response = await fetch(
+      new URL(DISPATCH_SESSION_PATH, identityApp.origin),
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Cookie: cookieHeader,
+          Origin: identityApp.origin,
+          Referer: `${identityApp.origin}/`,
+          "x-agent-native-preview-origin": identityApp.origin,
+          "X-Agent-Native-Session-Check": "cookie-only",
+        },
+        cache: "no-store",
+        redirect: "manual",
+        signal: AbortSignal.timeout(DESKTOP_APP_MCP_AUTH_TIMEOUT_MS),
+      },
+    );
+    if (
+      !response.ok &&
+      (response.status >= 500 ||
+        response.status === 408 ||
+        response.status === 429)
+    ) {
+      return { state: "unreadable" };
+    }
+    if (!response.ok) return { state: "signed-out" };
+    const body: unknown = await response.json();
+    const email =
+      body && typeof body === "object" && "email" in body ? body.email : null;
+    return typeof email === "string" && email.trim()
+      ? { state: "account", email: email.trim().toLowerCase() }
+      : { state: "signed-out" };
+  } catch {
+    return { state: "unreadable" };
+  }
+}
+
+type DispatchSessionVerdict =
+  | "same"
+  | "different"
+  | "signed-out"
+  | "unverifiable";
+
+// Decides from the cookie header itself, the same one a request would forward,
+// so no owner note has to land first.
+async function compareDispatchSession(
+  identityApp: DesktopIdentityApp,
+  bound: BuilderRelaySession,
+  cookieHeader: string,
+): Promise<DispatchSessionVerdict> {
+  if (sessionFingerprint(cookieHeader) === bound.fingerprint) return "same";
+  const read = await readDispatchAccount(identityApp, cookieHeader);
+  if (read.state === "unreadable") return "unverifiable";
+  if (read.state === "signed-out") return "signed-out";
+  return read.email === bound.account ? "same" : "different";
+}
+
+// Hands the current bearer to a session only when it is the session the bearer
+// already serves; any other session first rotates it, so earlier runners are
+// refused rather than carried over.
+const memoryOwnerFiles = new Map<string, string>();
+let currentMemoryAccount: string | null = null;
+
+const memorySessions = new Set<(account: string | null) => void>();
+const memorySessionTerminators = new Map<string, () => void>();
+
+function terminateMemorySession(file: string): void {
+  console.error(
+    "[desktop-chat] Ending a terminal whose memory access cannot be revoked",
+  );
+  const terminate = memorySessionTerminators.get(file);
+  memorySessionTerminators.delete(file);
+  terminate?.();
+}
+
+export function setDesktopMemoryAccount(rawAccount: string | null): void {
+  const account = rawAccount?.trim().toLowerCase() || null;
+  currentMemoryAccount = account;
+  const failures: unknown[] = [];
+  for (const [file, owner] of [...memoryOwnerFiles]) {
+    if (owner === account) continue;
+    try {
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+    } catch (error) {
+      failures.push(error);
+      try {
+        fs.writeFileSync(file, "");
+      } catch (blankError) {
+        failures.push(blankError);
+        terminateMemorySession(file);
+      }
+    }
+  }
+  for (const rebind of [...memorySessions]) {
+    try {
+      rebind(account);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) {
+    console.error(
+      "[desktop-chat] Could not fully switch the shared memory account:",
+      new AggregateError(failures),
+    );
+  }
+}
+
+export function sweepStaleMemoryOwnerFiles(): void {
+  for (const dir of ["memory-owners", "memory-roots"]) {
+    fs.rmSync(path.join(app.getPath("userData"), dir), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
+export function desktopTerminalMemoryEnvironment(
+  promptFile: string,
+  memoryDir?: string,
+): {
+  AGENT_NATIVE_MEMORY_PROMPT_FILE: string;
+  AGENT_NATIVE_MEMORY_DIR: string;
+} {
+  return {
+    AGENT_NATIVE_MEMORY_PROMPT_FILE: promptFile,
+    AGENT_NATIVE_MEMORY_DIR: memoryDir ?? "",
+  };
+}
+
+function desktopMemoryDir(): string {
+  return path.join(app.getPath("userData"), "memory");
+}
+
+async function renderMemoryPrompt(account: string): Promise<string> {
+  const index = await readMirroredMemory(
+    account,
+    "memory/MEMORY.md",
+    desktopMemoryDir(),
+  );
+  const content = index.state === "present" ? index.content.trim() : "";
+  if (!content || content === "# Memory Index") return "";
+  return `\n\n<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n${content}\n</resource>`;
+}
+
+export async function bindDesktopSessionMemoryOwner(): Promise<{
+  file: string;
+  memoryDir: string | undefined;
+  release: () => void;
+  bindTerminate: (terminate: () => void) => void;
+}> {
+  const file = path.join(
+    app.getPath("userData"),
+    "memory-owners",
+    randomUUID(),
+  );
+  let account = currentMemoryAccount;
+  let memoryDir: string | undefined;
+  try {
+    memoryDir = path.join(
+      app.getPath("userData"),
+      "memory-roots",
+      randomUUID(),
+    );
+    fs.mkdirSync(memoryDir, { recursive: true });
+  } catch (error) {
+    memoryDir = undefined;
+    console.error("[desktop-chat] Could not create the memory root:", error);
+  }
+  const grant = (owner: string) => {
+    if (!memoryDir) return;
+    try {
+      const target = path.join(desktopMemoryDir(), encodeURIComponent(owner));
+      fs.mkdirSync(target, { recursive: true });
+      fs.mkdirSync(memoryDir, { recursive: true });
+      fs.symlinkSync(
+        target,
+        path.join(memoryDir, encodeURIComponent(owner)),
+        "junction",
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+      console.error("[desktop-chat] Could not link the memory root:", error);
+    }
+  };
+  let ended = false;
+  const end = () => {
+    ended = true;
+    terminateMemorySession(file);
+  };
+  const revoke = () => {
+    if (!memoryDir) return;
+    try {
+      for (const entry of fs.readdirSync(memoryDir)) {
+        fs.rmSync(path.join(memoryDir, entry), {
+          recursive: true,
+          force: true,
+        });
+      }
+    } catch (error) {
+      const failures = [error];
+      try {
+        fs.rmSync(memoryDir, { recursive: true, force: true });
+      } catch (rootError) {
+        failures.push(rootError);
+        end();
+      }
+      throw new AggregateError(failures, "Could not revoke the memory root");
+    }
+  };
+  if (account) grant(account);
+  let released = false;
+  const refresh = async () => {
+    if (!account) return;
+    const bound = account;
+    let prompt: string;
+    try {
+      prompt = await renderMemoryPrompt(bound);
+    } catch (error) {
+      if (error instanceof MemoryTombstoneError) {
+        fs.rmSync(file, { force: true });
+        memoryOwnerFiles.delete(file);
+        return;
+      }
+      console.error(
+        "[desktop-chat] Could not read shared memory; keeping the last prompt:",
+        error,
+      );
+      return;
+    }
+    if (released || currentMemoryAccount !== bound) return;
+    if (!prompt) {
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+      return;
+    }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, prompt, { mode: 0o600 });
+    memoryOwnerFiles.set(file, bound);
+  };
+  let refreshes: Promise<void> = Promise.resolve();
+  const scheduleRefresh = () => {
+    refreshes = refreshes.then(() =>
+      refresh().catch((error) =>
+        console.error("[desktop-chat] Could not refresh memory:", error),
+      ),
+    );
+    return refreshes;
+  };
+  let watcher: fs.FSWatcher | undefined;
+  const watch = () => {
+    try {
+      fs.mkdirSync(desktopMemoryDir(), { recursive: true });
+      watcher = fs.watch(desktopMemoryDir(), { recursive: true }, () => {
+        void scheduleRefresh();
+      });
+      watcher.on("error", () => watcher?.close());
+    } catch (error) {
+      console.error("[desktop-chat] Could not watch shared memory:", error);
+    }
+  };
+  const rebind = (next: string | null) => {
+    if (released || ended) return;
+    if (account && account !== next) {
+      end();
+      try {
+        revoke();
+      } finally {
+        account = null;
+        watcher?.close();
+        watcher = undefined;
+      }
+      return;
+    }
+    if (!next) return;
+    if (!account) {
+      account = next;
+      watch();
+    }
+    grant(next);
+    void scheduleRefresh();
+  };
+  if (account) watch();
+  memorySessions.add(rebind);
+  await scheduleRefresh();
+  return {
+    file,
+    memoryDir,
+    bindTerminate: (terminate) => {
+      memorySessionTerminators.set(file, terminate);
+      if (ended) terminate();
+    },
+    release: () => {
+      released = true;
+      memorySessionTerminators.delete(file);
+      if (memoryDir) fs.rmSync(memoryDir, { recursive: true, force: true });
+      memorySessions.delete(rebind);
+      watcher?.close();
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+    },
+  };
+}
+
+function bindBuilderRelaySession(next: BuilderRelaySession): void {
+  const current = builderRelaySession;
+  if (
+    current !== null &&
+    current.fingerprint !== next.fingerprint &&
+    current.account !== next.account
+  ) {
+    rotateDesktopBuilderRelayBearer();
+  }
+  builderRelaySession = next;
+  setDesktopMemoryAccount(next.account);
+}
+
+const SETUP_SESSION_REFUSALS: Record<
+  Exclude<DispatchSessionVerdict, "same">,
+  string
+> = {
+  different:
+    "The Desktop account changed while Builder.io was starting. Start the chat again.",
+  "signed-out": "Sign in to Agent-Native Desktop to use Builder.io.",
+  unverifiable:
+    "Could not verify the signed-in Dispatch account. Start the chat again.",
+};
+
 export async function getDesktopBuilderGatewayRunnerEnvironment(): Promise<{
   status: CodeAgentBuilderConnectionResult;
   env?: NodeJS.ProcessEnv;
   error?: string;
 }> {
-  const connection = await getDesktopBuilderConnectionStatus();
+  const setupBearer = builderRelayBearer;
+  let statusCookieHeader = "";
+  const connection = await checkBuilderConnection(undefined, (cookieHeader) => {
+    statusCookieHeader = cookieHeader;
+  });
   if (
     connection.state === "unavailable" ||
     connection.state === "disconnected"
@@ -1667,8 +2077,58 @@ export async function getDesktopBuilderGatewayRunnerEnvironment(): Promise<{
           : "Could not start the Desktop Builder relay.",
     };
   }
+
+  // The session the status request ran under is the one this bearer is issued
+  // for. Its account is read now, before anything can replace the cookies.
+  const identityApp = resolveBuilderDispatchApp?.();
+  if (!isTrustedBuilderDispatchApp(identityApp) || !statusCookieHeader) {
+    return {
+      status: connection,
+      error: "The signed-in Dispatch session is unavailable.",
+    };
+  }
+  const issuedRead = await readDispatchAccount(identityApp, statusCookieHeader);
+  if (issuedRead.state !== "account") {
+    return {
+      status: connection,
+      error: "Could not confirm your Builder.io account. Start the chat again.",
+    };
+  }
+  const issued: BuilderRelaySession = {
+    fingerprint: sessionFingerprint(statusCookieHeader),
+    account: issuedRead.email,
+  };
+  let currentCookieHeader: string;
+  try {
+    currentCookieHeader = await readCookieHeaderForUrl(
+      identityApp.session,
+      new URL(BUILDER_MESSAGES_PATH, identityApp.origin).toString(),
+    );
+  } catch {
+    return {
+      status: connection,
+      error: "Could not read the signed-in Dispatch session.",
+    };
+  }
+  const verdict = currentCookieHeader
+    ? await compareDispatchSession(identityApp, issued, currentCookieHeader)
+    : "signed-out";
+  if (verdict !== "same") {
+    return { status: connection, error: SETUP_SESSION_REFUSALS[verdict] };
+  }
+  if (builderRelayBearer !== setupBearer) {
+    return {
+      status: connection,
+      error:
+        "The Desktop account changed while Builder.io was starting. Start the chat again.",
+    };
+  }
+  bindBuilderRelaySession({
+    ...issued,
+    fingerprint: sessionFingerprint(currentCookieHeader),
+  });
   const relayBaseUrl = new URL(
-    `${BUILDER_GATEWAY_RELAY_ROOT}/${relay.builderSecret}`,
+    `${BUILDER_GATEWAY_RELAY_ROOT}/${builderRelayBearer}`,
     `http://127.0.0.1:${relay.port}`,
   );
   return {
@@ -1678,10 +2138,36 @@ export async function getDesktopBuilderGatewayRunnerEnvironment(): Promise<{
       // BuilderEngine uses these only to pass its local credential preflight.
       // The private value is a per-process loopback bearer, and the relay strips
       // both fields before forwarding to Dispatch.
-      BUILDER_PRIVATE_KEY: relay.builderSecret,
+      BUILDER_PRIVATE_KEY: builderRelayBearer,
       BUILDER_PUBLIC_KEY: BUILDER_GATEWAY_RELAY_PUBLIC_KEY,
     },
   };
+}
+
+// A runner started for the previous Desktop owner keeps the old bearer, so its
+// next request is refused instead of being forwarded with the new owner's cookies.
+export function rotateDesktopBuilderRelayBearer(): void {
+  builderRelayBearer = randomBytes(32).toString("base64url");
+  builderRelaySession = null;
+  setDesktopMemoryAccount(null);
+}
+
+// Only a real account replacing a different real account rotates the bearer.
+// No-account and unreadable keys leave the Dispatch session untouched, so the
+// same account returning after them keeps its runners. The bound session, not
+// this note, is what decides whether a request is forwarded.
+export function noteDesktopBuilderRelayOwner(owner: string | null): void {
+  if (owner === null || owner === "no-account") {
+    setDesktopMemoryAccount(null);
+    return;
+  }
+  const previous = lastBuilderRelayAccountKey;
+  lastBuilderRelayAccountKey = owner;
+  if (previous !== null && previous !== owner)
+    rotateDesktopBuilderRelayBearer();
+  if (owner.startsWith("account:")) {
+    setDesktopMemoryAccount(owner.slice("account:".length));
+  }
 }
 
 export async function closeDesktopChatRelay(): Promise<void> {
@@ -1699,8 +2185,8 @@ async function proxyBuilderGatewayRequest(
   response: ServerResponse,
   pathname: string,
   searchParams: URLSearchParams,
-  builderSecret: string,
 ): Promise<void> {
+  const builderSecret = builderRelayBearer;
   if (
     !isLoopbackAddress(request.socket.remoteAddress) ||
     pathname !== `${BUILDER_GATEWAY_RELAY_ROOT}/${builderSecret}/messages`
@@ -1746,6 +2232,10 @@ async function proxyBuilderGatewayRequest(
     identityApp.session,
     targetUrl.toString(),
   );
+  if (builderSecret !== builderRelayBearer) {
+    sendError(request, response, 404, "Builder relay route not found");
+    return;
+  }
   if (!cookieHeader) {
     sendError(
       request,
@@ -1755,6 +2245,35 @@ async function proxyBuilderGatewayRequest(
     );
     return;
   }
+  const bound = builderRelaySession;
+  const verdict = bound
+    ? await compareDispatchSession(identityApp, bound, cookieHeader)
+    : "different";
+  if (builderSecret !== builderRelayBearer) {
+    sendError(request, response, 404, "Builder relay route not found");
+    return;
+  }
+  if (verdict !== "same") {
+    if (verdict === "signed-out") {
+      sendError(
+        request,
+        response,
+        401,
+        "Sign in to Agent-Native Desktop to use Builder.io.",
+      );
+    } else if (verdict === "unverifiable") {
+      sendError(
+        request,
+        response,
+        503,
+        "Could not verify the signed-in Dispatch account.",
+      );
+    } else {
+      sendError(request, response, 404, "Builder relay route not found");
+    }
+    return;
+  }
+  if (bound) bound.fingerprint = sessionFingerprint(cookieHeader);
 
   await proxyRequestToTarget(request, response, {
     appId: identityApp.id,
@@ -1775,7 +2294,6 @@ function ensureRelay(): Promise<RelayState> {
   if (relayPromise) return relayPromise;
 
   const secret = randomUUID().replaceAll("-", "");
-  const builderSecret = randomBytes(32).toString("base64url");
   relayPromise = new Promise<RelayState>((resolve, reject) => {
     const server = createServer((request, response) => {
       let parsed: URL;
@@ -1816,7 +2334,6 @@ function ensureRelay(): Promise<RelayState> {
           response,
           parsed.pathname,
           parsed.searchParams,
-          builderSecret,
         ).catch((error) => {
           console.warn("[desktop-builder] relay request failed:", error);
           sendError(request, response, 502, RELAY_FAILURE_MESSAGE);
@@ -1848,7 +2365,7 @@ function ensureRelay(): Promise<RelayState> {
           console.warn("[desktop-chat] could not close the relay", error);
         });
       });
-      resolve({ port: address.port, secret, builderSecret });
+      resolve({ port: address.port, secret });
     });
   }).catch((error) => {
     relayPromise = null;
@@ -1865,6 +2382,7 @@ export function registerDesktopChatIpc(
   } = {},
 ): void {
   if (ipcRegistered) return;
+  sweepStaleMemoryOwnerFiles();
   captureActiveBrowserScreenshot = options.captureActiveBrowserScreenshot;
   resolveBuilderDispatchApp = options.resolveBuilderDispatchApp;
   ipcRegistered = true;

@@ -48,20 +48,20 @@ pnpm dev
 
 ### التصميمات
 
-| الإجراء                   | ما يفعله                                                          |
-| ------------------------- | ----------------------------------------------------------------- |
-| `create-design`           | إنشاء صدفة التصميم الفارغة                                        |
-| `generate-design`         | كتابة محتوى ملف HTML/JSX الذي تم إنشاؤه                           |
-| `edit-design`             | إجراء تعديل بحث/استبدال دقيق على ملف موجود                        |
-| `update-design`           | تحديث بيانات تصميم الوصفية، مثل عنوانه أو نظام التصميم المرتبط به |
-| `get-design`              | قراءة تصميم واحد بحسب المعرّف                                     |
-| `list-designs`            | سرد التصميمات التي يمكن الوصول إليها                              |
-| `duplicate-design`        | نسخ تصميم وملفاته                                                 |
-| `delete-design`           | حذف تصميم                                                         |
-| `apply-tweaks`            | استمرار قيم أقراص التعديل المباشر                                 |
-| `present-design-variants` | حفظ بضعة اتجاهات كشاشات وإظهار منتقي المقارنة جنبًا إلى جنب       |
-| `show-design-questions`   | إظهار طبقة تراكب الأسئلة التوضيحية لمطالبة غامضة                  |
-| `generate-screens`        | إنشاء أكثر من شاشة واحدة دفعة واحدة                               |
+| الإجراء                   | ما يفعله                                                    |
+| ------------------------- | ----------------------------------------------------------- |
+| `create-design`           | إنشاء صدفة التصميم الفارغة                                  |
+| `generate-design`         | كتابة محتوى ملف HTML/JSX الذي تم إنشاؤه                     |
+| `edit-design`             | إجراء تعديل بحث/استبدال دقيق على ملف موجود                  |
+| `update-design`           | تحديث بيانات تصميم الوصفية، مثل عنوانه                      |
+| `get-design`              | قراءة تصميم واحد بحسب المعرّف                               |
+| `list-designs`            | سرد التصميمات التي يمكن الوصول إليها                        |
+| `duplicate-design`        | نسخ تصميم وملفاته                                           |
+| `delete-design`           | حذف تصميم                                                   |
+| `apply-tweaks`            | استمرار قيم أقراص التعديل المباشر                           |
+| `present-design-variants` | حفظ بضعة اتجاهات كشاشات وإظهار منتقي المقارنة جنبًا إلى جنب |
+| `show-design-questions`   | إظهار طبقة تراكب الأسئلة التوضيحية لمطالبة غامضة            |
+| `generate-screens`        | إنشاء أكثر من شاشة واحدة دفعة واحدة                         |
 
 ### الملفات
 
@@ -81,22 +81,15 @@ pnpm dev
 | `save-design-as-template`     | حفظ التصميم الحالي كقالب قابل لإعادة الاستخدام        |
 | `delete-design-template`      | حذف قالب محفوظ                                        |
 
-### أنظمة التصميم واستيراد العلامة التجارية
+### استيراد العلامة التجارية
 
-| الإجراء                            | ما يفعله                                                                                                                    |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `create-design-system`             | إنشاء نظام تصميم من الصفر، أو من إعداد مسبق عام مثل Material 3 أو Carbon أو Primer                                          |
-| `update-design-system`             | تحديث رموز نظام تصميم أو إعداداته                                                                                           |
-| `get-design-system`                | قراءة نظام تصميم واحد بحسب المعرّف                                                                                          |
-| `list-design-systems`              | سرد أنظمة التصميم التي يمكن الوصول إليها                                                                                    |
-| `delete-design-system`             | حذف نظام تصميم                                                                                                              |
-| `set-default-design-system`        | ضبط نظام التصميم الذي يكون الافتراضي للحساب                                                                                 |
-| `analyze-brand-assets`             | استخراج الألوان والطباعة ومراجع الشعار من أصول العلامة التجارية المرفوعة                                                    |
-| `import-from-url`                  | سحب الألوان والطباعة ومراجع الشعار المحسوبة من موقع إلكتروني مباشر                                                          |
-| `index-design-system-with-builder` | فهرسة نظام تصميم من كود متصل، أو مستودع GitHub، أو ملفات تصميم، بما في ذلك `.fig`، عبر Builder DSI (يتطلب اتصال Builder.io) |
-| `import-design-tokens`             | استيراد رموز التصميم مباشرة                                                                                                 |
-| `import-document`                  | استخراج إشارة العلامة التجارية من ملف DOCX أو PPTX أو PDF مرفوع                                                             |
-| `import-design-project`            | بدء نظام تصميم من تصميم أو نظام تصميم موجود                                                                                 |
+| الإجراء                 | ما يفعله                                                                 |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `analyze-brand-assets`  | استخراج الألوان والطباعة ومراجع الشعار من أصول العلامة التجارية المرفوعة |
+| `import-from-url`       | سحب الألوان والطباعة ومراجع الشعار المحسوبة من موقع إلكتروني مباشر       |
+| `import-design-tokens`  | استيراد رموز التصميم مباشرة                                              |
+| `import-document`       | استخراج إشارة العلامة التجارية من ملف DOCX أو PPTX أو PDF مرفوع          |
+| `import-design-project` | استخراج رموز التصميم من تصميم موجود                                      |
 
 ### Figma
 
@@ -139,15 +132,12 @@ pnpm dev
 | `go-to-main-component`        | الانتقال إلى أقدم نسخة من مكوّن كنقطة مرجعية      |
 | `open-component-source`       | فتح موقع مصدر مكوّن                               |
 
-### الحركة والشادرات
+### الشادرات
 
-| الإجراء                  | ما يفعله                                                  |
-| ------------------------ | --------------------------------------------------------- |
-| `get-motion-timeline`    | قراءة الجدول الزمني لحركة عنصر                            |
-| `apply-motion-edit`      | إضافة أو تحرير إطار مفتاحي على جدول زمني للحركة           |
-| `remove-motion-timeline` | إزالة جدول زمني للحركة                                    |
-| `get-shader`             | فحص التعريفات الأصلية وبيانات التأثيرات المحفوظة          |
-| `edit-native-shader`     | تطبيق التأثيرات الأصلية أو تحريرها أو اعتمادها أو إزالتها |
+| الإجراء              | ما يفعله                                                  |
+| -------------------- | --------------------------------------------------------- |
+| `get-shader`         | فحص التعريفات الأصلية وبيانات التأثيرات المحفوظة          |
+| `edit-native-shader` | تطبيق التأثيرات الأصلية أو تحريرها أو اعتمادها أو إزالتها |
 
 تستخدم تأثيرات WebGPU الأصلية لغة WGSL. يبدأ الإنشاء المخصص باستخدام `edit-native-shader` مع `define-definition`، ثم `get-shader` لقراءة `executionHash` المحفوظ، ثم `approve-definition` باستخدام `expectedExecutionHash` نفسه، وأخيرًا `apply` باستخدام معرّف التعريف وإصداره الدقيقين. يتطلب كل تعديل `designId` و`fileId` و`expectedVersionHash` الحالية. يجب إعادة قراءة التجزئة بعد كل كتابة. لا يؤدي التحقق من المخطط على CPU إلى تجميع كود GPU، لذا يجب فحص معاينة Design. تظل تأثيرات GLSL المحفوظة سابقًا قابلة للعرض والإزالة.
 
@@ -155,10 +145,7 @@ pnpm dev
 
 | الإجراء                  | ما يفعله                                                                         |
 | ------------------------ | -------------------------------------------------------------------------------- |
-| `run-design-audit`       | فحص شاشة بحثًا عن مشكلات إمكانية الوصول والتباين والانحراف بين الشاشات           |
-| `apply-a11y-fix`         | تطبيق إصلاح تلقائي لنتيجة تدقيق                                                  |
 | `take-design-screenshot` | عرض الشاشة في متصفح حقيقي والتحقق من الفيضان، والصور المعطلة، وأخطاء وحدة التحكم |
-| `get-design-review`      | قراءة نتائج إمكانية الوصول والفروق البصرية المخزَّنة مؤقتًا                      |
 
 ### ملاحظات المراجعة
 
@@ -206,7 +193,6 @@ pnpm dev
 | `deploy-builder-app`           | نشر فرع fusion إلى عنوان URL حقيقي                          |
 | `get-builder-deploy-status`    | التحقق من حالة عملية نشر                                    |
 | `create-design-branch`         | إنشاء فرع جديد لتصميم مدعوم بـ fusion                       |
-| `get-design-branch-diff`       | مقارنة فرع fusion بإصدار سابق                               |
 | `deploy-design-preview`        | نشر معاينة لتصميم مدعوم بـ fusion                           |
 | `migrate-inline-design-to-app` | تحويل نموذج أولي مضمَّن إلى تطبيق مدعوم بـ fusion           |
 | `connect-builder-app`          | بدء تدفق اتصال OAuth الخاص بـ Builder.io                    |
@@ -248,29 +234,28 @@ HTML مضمّنة.
 ## نموذج البيانات
 
 تعيش جميع البيانات في SQL عبر Drizzle ORM. المخطط:
-`templates/design/server/db/schema.ts`. تحمل التصميمات وأنظمة التصميم معيار
+`templates/design/server/db/schema.ts`. تحمل التصميمات معيار
 `ownableColumns` وجدول مشاركات إطار عمل مطابق، بحيث تنسجم مع نموذج المشاركة
 لكل مستخدم / لكل مؤسسة.
 
 يغطي الجدول أدناه الموارد الأساسية القابلة للملكية: التصميمات، والملفات،
-والقوالب، والإصدارات، وأنظمة التصميم.
+والقوالب، والإصدارات.
 
-| الجدول                                   | ما يحمله                                                                                                                                     |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | مشروع تصميم — `title`، و`description`، و`project_type` (`prototype` / `other`)، وكتلة `data` من نوع JSON، ورابط `design_system_id` الاختياري |
-| `design_files`                           | ملفات فردية تنتمي إلى تصميم (`filename`، و`content`، و`file_type` بقيمة افتراضية `html`)                                                     |
-| `design_templates`                       | بيانات وصفية لقالب قابل لإعادة الاستخدام، وأبعاد، وقيم افتراضية، ومرجع تصميم المصدر، وعدد الطبقات المقفلة                                    |
-| `design_template_files`                  | ملفات قالب مأخوذة كلقطة، تُنسخ إلى تصميم عادي قابل للتحرير عندما يبدأ المستخدم من قالب                                                       |
-| `design_template_shares`                 | جدول مشاركات إطار العمل لاكتشاف القوالب الخاصة، والخاصة بالمؤسسة، والمشتركة صراحة، والعامة                                                   |
-| `design_versions`                        | لقطات `snapshot` في نقطة زمنية معينة لتصميم مع `label` اختياري، للتاريخ والتراجع                                                             |
-| `design_systems`                         | رموز علامة تجارية قابلة لإعادة الاستخدام — `data` (الألوان/الطباعة/التباعد)، و`assets`، و`custom_instructions`، وعلامة `is_default`          |
-| `design_shares` / `design_system_shares` | جداول مشاركات إطار العمل التي تربط المبادئ الأساسية (المستخدمين أو المؤسسات) بالأدوار (عارض، محرر، مشرف)                                     |
+| الجدول                   | ما يحمله                                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `designs`                | مشروع تصميم — `title`، و`description`، و`project_type` (`prototype` / `other`)، وكتلة `data` من نوع JSON  |
+| `design_files`           | ملفات فردية تنتمي إلى تصميم (`filename`، و`content`، و`file_type` بقيمة افتراضية `html`)                  |
+| `design_templates`       | بيانات وصفية لقالب قابل لإعادة الاستخدام، وأبعاد، وقيم افتراضية، ومرجع تصميم المصدر، وعدد الطبقات المقفلة |
+| `design_template_files`  | ملفات قالب مأخوذة كلقطة، تُنسخ إلى تصميم عادي قابل للتحرير عندما يبدأ المستخدم من قالب                    |
+| `design_template_shares` | جدول مشاركات إطار العمل لاكتشاف القوالب الخاصة، والخاصة بالمؤسسة، والمشتركة صراحة، والعامة                |
+| `design_versions`        | لقطات `snapshot` في نقطة زمنية معينة لتصميم مع `label` اختياري، للتاريخ والتراجع                          |
+| `design_shares`          | جدول مشاركات إطار العمل الذي يربط المبادئ الأساسية (المستخدمين أو المؤسسات) بالأدوار (عارض، محرر، مشرف)   |
 
 <DataModel
   id="doc-block-design11"
   title="نموذج بيانات Design"
   summary={
-    "يملك التصميم ملفاته ولقطاته ذات الإصدار، ويرتبط اختياريًا بنظام تصميم قابل لإعادة الاستخدام. كل من التصميمات والأنظمة قابل للتملك، ولكل منهما جدول مشاركات إطار عمل."
+    "يملك التصميم ملفاته ولقطاته ذات الإصدار. وهو قابل للامتلاك وله جدول مشاركات خاص بإطار العمل."
   }
   entities={[
     {
@@ -301,12 +286,6 @@ HTML مضمّنة.
           name: "data",
           type: "json",
           note: "يبدأ كـ {}",
-        },
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
-          nullable: true,
         },
       ],
     },
@@ -357,37 +336,6 @@ HTML مضمّنة.
       ],
     },
     {
-      id: "systems",
-      name: "design_systems",
-      note: "رموز علامة تجارية قابلة لإعادة الاستخدام (قابل للتملك)",
-      fields: [
-        {
-          name: "id",
-          type: "id",
-          pk: true,
-        },
-        {
-          name: "data",
-          type: "json",
-          note: "colors / typography / spacing",
-        },
-        {
-          name: "assets",
-          type: "json",
-          nullable: true,
-        },
-        {
-          name: "custom_instructions",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "is_default",
-          type: "boolean",
-        },
-      ],
-    },
-    {
       id: "design_shares",
       name: "design_shares",
       note: "جدول مشاركات الإطار",
@@ -396,23 +344,6 @@ HTML مضمّنة.
           name: "design_id",
           type: "id",
           fk: "designs.id",
-        },
-        {
-          name: "role",
-          type: "text",
-          note: "viewer / editor / admin",
-        },
-      ],
-    },
-    {
-      id: "system_shares",
-      name: "design_system_shares",
-      note: "جدول مشاركات الإطار",
-      fields: [
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
         },
         {
           name: "role",
@@ -434,19 +365,8 @@ HTML مضمّنة.
       kind: "1-n",
     },
     {
-      from: "systems",
-      to: "designs",
-      kind: "1-n",
-      label: "يُطبَّق على",
-    },
-    {
       from: "designs",
       to: "design_shares",
-      kind: "1-n",
-    },
-    {
-      from: "systems",
-      to: "system_shares",
       kind: "1-n",
     },
   ]}
@@ -456,20 +376,16 @@ HTML مضمّنة.
 صفًا فارغًا (`data: "{}"`)، ثم يكتب `generate-design` ملفات HTML/JSX
 المستقلة الفعلية. يأتي العنصر المُنشأ، والمصدر القابل للتحرير، وكل عملية
 تصدير، كلها من نفس HTML، لذا لا يوجد تنسيق "نموذج أولي بالذكاء الاصطناعي"
-منفصل لترجمته. يوفر نظام تصميم مرتبط الرموز و`custom_instructions` التي
-يلتزم بها الوكيل في كل عملية إنشاء.
+منفصل لترجمته.
 
-تدعم سبعة جداول أخرى ميزات مغطاة في مواضع أخرى من هذه الصفحة بدلاً من نموذج
+تدعم ستة جداول أخرى ميزات مغطاة في مواضع أخرى من هذه الصفحة بدلاً من نموذج
 الموارد الأساسي: يدعم `design_localhost_connections`
 و`design_localhost_write_grants` [استيراد التطبيق
 المحلي](/docs/template-design-features#import)، ويدعم `component_index`
 [قسم المكوّن في تبويب Design](/docs/template-design-features#design-tab)،
-ويدعم `motion_timeline` الجدول الزمني القابل للتحرير لحركة كل عنصر (لوحة
-Motion في المحرر)، ويحمل `design_state` حالات بديلة مسماة، وبيانات ثابتة،
+ويحمل `design_state` حالات بديلة مسماة، وبيانات ثابتة،
 والتقاطات من تطبيق مباشر لتصميم، ويدعم `design_fusion_edits` قائمة انتظار
-تعديلات fusion الموضحة تحت [بناء التطبيق الكامل](#full-app-building) أعلاه،
-ويخزّن `design_review_snapshot` مؤقتًا نتائج إمكانية الوصول والفرق البصري
-وراء `get-design-review`، الموضح تحت [الجودة](#quality) أعلاه.
+تعديلات fusion الموضحة تحت [بناء التطبيق الكامل](#full-app-building) أعلاه.
 
 تعليقات وسلاسل المراجعة المخزَّنة (`get-review-feedback`،
 و`resolve-review-thread`، وبقيتها) ليست جدولاً خاصًا بـ Design على الإطلاق:
@@ -492,7 +408,7 @@ Motion في المحرر)، ويحمل `design_state` حالات بديلة مس
   filename="templates/design/actions/save-design-as-template.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
   }
   annotations={[
     {
@@ -582,23 +498,19 @@ Motion في المحرر)، ويحمل `design_state` حالات بديلة مس
     },
     { path: "app/routes/templates.tsx", note: "صفحة القوالب" },
     {
-      path: "app/routes/design-systems.tsx",
-      note: "قائمة أنظمة التصميم. ينشئ design-systems_.setup.tsx واحدًا",
-    },
-    {
       path: "app/routes/visual-edit.tsx",
       note: "مسار الهبوط لجسر التطبيق المحلي /visual-edit",
     },
     {
       path: "server/db/schema.ts",
-      note: "مخطط Drizzle للتصميمات، والملفات، والإصدارات، والأنظمة، والمشاركات، بالإضافة إلى 7 جداول ميزات",
+      note: "مخطط Drizzle للتصميمات، والملفات، والإصدارات، والمشاركات، بالإضافة إلى 7 جداول ميزات",
     },
     {
       path: ".agents/skills/design-generation/SKILL.md",
       note: "تدفق إنشاء من 5 مراحل، ومعيار الجودة الجمالية",
     },
     {
-      path: ".agents/skills/design-systems/SKILL.md",
+      path: ".agents/skills/design-tokens/SKILL.md",
       note: "رموز العلامة التجارية، واستيراد/قراءة/لصق Figma",
     },
     {
@@ -616,8 +528,8 @@ Motion في المحرر)، ويحمل `design_state` حالات بديلة مس
 
 Design قالب كامل وقابل للاستنساخ. بعض أفكار التوسيع العملية:
 
-- "أضف نظام تصميم للتجارة الإلكترونية قابل لإعادة الاستخدام باستخدام رموزنا
-  ومكونات نموذجية."
+ومكونات نموذجية."
+
 - "أضف خطوة تصدير ترفع ملف ZIP إلى نظام المراجعة الداخلي لدينا."
 - "دعني ألصق HTML حالي لصفحة هبوط واطلب من الوكيل ثلاث نسخ أقوى."
 - "أضف مكتبة مطالبات محفوظة لملخصات صفحة المنتج، ولوحة التحكم، وشاشة
@@ -642,6 +554,6 @@ Design قالب كامل وقابل للاستنساخ. بعض أفكار الت
 - [**الإجراءات**](/docs/actions-overview) — نظام الإجراءات الذي يُبنى عليه
   هذا القالب
 - [**المشاركة**](/docs/sharing) — نموذج منح المشاركة الذي يستخدمه
-  `design_shares` و`design_system_shares`
+  `design_shares`
 - [**الامتدادات**](/docs/extensions) — صندوق الرمل وواجهات برمجة الجسر وراء
   فتحة امتداد المحرر

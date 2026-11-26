@@ -1,6 +1,6 @@
 import { fail, type WriteReceipt } from "@agent-native/core/action";
+import { clipHead } from "@agent-native/toolkit/dashboard/panel-render-contract";
 
-import { clipHead } from "../../shared/panel-render-contract";
 import {
   describePanelOutcome,
   type PanelWriteVerdict,

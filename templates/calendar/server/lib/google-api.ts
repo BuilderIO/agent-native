@@ -86,7 +86,11 @@ export function createOAuth2Client(
         const desc = (data as any).error_description;
         const detail =
           code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
-        throw new Error(`OAuth token refresh failed: ${detail}`);
+        throw new GoogleApiError(
+          res.status,
+          `OAuth token refresh failed: ${detail}`,
+          typeof code === "string" ? code : undefined,
+        );
       }
       const typed = data as {
         access_token: string;
@@ -104,12 +108,31 @@ export function createOAuth2Client(
 
 export class GoogleApiError extends Error {
   readonly status: number;
+  readonly reason: string | undefined;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, reason?: string) {
     super(`Google API error (${status}): ${message}`);
     this.name = "GoogleApiError";
     this.status = status;
+    this.reason = reason;
   }
+}
+
+function googleApiErrorFromData(
+  status: number,
+  data: unknown,
+  fallback: string,
+): GoogleApiError {
+  const failure = data as {
+    error?: { message?: unknown; errors?: Array<{ reason?: unknown }> };
+  } | null;
+  const message = failure?.error?.message;
+  const reason = failure?.error?.errors?.[0]?.reason;
+  return new GoogleApiError(
+    status,
+    typeof message === "string" ? message : fallback,
+    typeof reason === "string" ? reason : undefined,
+  );
 }
 
 export function isGoogleNotFoundError(error: unknown): boolean {
@@ -117,6 +140,22 @@ export function isGoogleNotFoundError(error: unknown): boolean {
     (error instanceof GoogleApiError && error.status === 404) ||
     (error instanceof Error && /^Google API error \(404\):/.test(error.message))
   );
+}
+
+export function isGooglePreconditionFailedError(error: unknown): boolean {
+  return (
+    (error instanceof GoogleApiError && error.status === 412) ||
+    (error instanceof Error && /^Google API error \(412\):/.test(error.message))
+  );
+}
+
+export function isGoogleRequestRejectedError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const status =
+    error instanceof GoogleApiError
+      ? error.status
+      : Number(/^Google API error \((\d{3})\):/.exec(error.message)?.[1]);
+  return status >= 400 && status < 500 && status !== 408;
 }
 
 export function isGoogleEventAbsentError(error: unknown): boolean {
@@ -143,14 +182,24 @@ export async function googleFetch(
 
   if (res.status === 204) return null;
 
-  const data = await res.json();
+  const data = await res.json().catch((error: unknown) => {
+    if (!res.ok) throw new GoogleApiError(res.status, res.statusText);
+    throw error;
+  });
 
   if (!res.ok) {
     const msg =
       (data as any)?.error?.message ||
       (data as any)?.error_description ||
       res.statusText;
-    throw new GoogleApiError(res.status, msg);
+    const reason = (
+      data as { error?: { errors?: Array<{ reason?: unknown }> } } | null
+    )?.error?.errors?.[0]?.reason;
+    throw new GoogleApiError(
+      res.status,
+      msg,
+      typeof reason === "string" ? reason : undefined,
+    );
   }
 
   return data;
@@ -320,45 +369,63 @@ export function calendarGetEvent(
   );
 }
 
+interface EventWriteParams {
+  sendUpdates?: string | undefined;
+  conferenceDataVersion?: number | undefined;
+  supportsAttachments?: boolean | undefined;
+  ifMatch?: string | undefined;
+}
+
+function eventWrite(
+  method: "PATCH" | "PUT",
+  params: EventWriteParams | undefined,
+) {
+  const { ifMatch, ...query } = params ?? {};
+  return {
+    query: qs(query),
+    init: {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(ifMatch ? { "If-Match": ifMatch } : {}),
+      },
+    },
+  };
+}
+
 export function calendarPatchEvent(
   accessToken: string,
   calendarId: string,
   eventId: string,
   body: any,
-  params?: {
-    sendUpdates?: string;
-    conferenceDataVersion?: number;
-    supportsAttachments?: boolean;
-  },
+  params?: EventWriteParams,
   signal?: AbortSignal,
 ) {
+  const { query, init } = eventWrite("PATCH", params);
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${query}`,
     accessToken,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal,
-    },
+    { ...init, body: JSON.stringify(body), ...(signal ? { signal } : {}) },
   );
 }
+
+export type CalendarEventListParams = {
+  timeMin?: string;
+  timeMax?: string;
+  q?: string;
+  singleEvents?: boolean;
+  showDeleted?: boolean;
+  orderBy?: string;
+  maxResults?: number;
+  pageToken?: string | undefined;
+  eventTypes?: string[];
+  syncToken?: string;
+};
 
 export function calendarListEvents(
   accessToken: string,
   calendarId: string,
-  params: {
-    timeMin?: string;
-    timeMax?: string;
-    q?: string;
-    singleEvents?: boolean;
-    showDeleted?: boolean;
-    orderBy?: string;
-    maxResults?: number;
-    pageToken?: string;
-    eventTypes?: string[];
-    syncToken?: string;
-  } = {},
+  params: CalendarEventListParams = {},
   signal?: AbortSignal,
 ) {
   return googleFetch(
@@ -366,6 +433,93 @@ export function calendarListEvents(
     accessToken,
     { signal },
   );
+}
+
+export async function calendarBatchListEvents(
+  accessToken: string,
+  requests: Array<{ calendarId: string; params: CalendarEventListParams }>,
+): Promise<Array<PromiseSettledResult<unknown>>> {
+  if (requests.length === 0) return [];
+  if (requests.length > 100)
+    throw new Error("Too many calendar reads in one batch");
+  const boundary = `batch_${crypto.randomUUID()}`;
+  const body =
+    requests
+      .map(
+        ({ calendarId, params }, index) =>
+          `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <${index}>\r\n\r\nGET /calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${qs({ ...params, supportsAttachments: true })} HTTP/1.1\r\n\r\n`,
+      )
+      .join("") + `--${boundary}--\r\n`;
+  const response = await fetch("https://www.googleapis.com/batch/calendar/v3", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/mixed; boundary=${boundary}`,
+    },
+    body,
+    signal: googleRequestSignal(),
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    let data: unknown;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new GoogleApiError(
+        response.status,
+        response.statusText || "Calendar batch failed",
+      );
+    }
+    throw googleApiErrorFromData(
+      response.status,
+      data,
+      response.statusText || "Calendar batch failed",
+    );
+  }
+  const match = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(
+    response.headers.get("content-type") ?? "",
+  );
+  const responseBoundary = match?.[1] ?? match?.[2];
+  if (!responseBoundary)
+    throw new Error("Calendar batch response has no boundary");
+  const parts = raw
+    .split(`--${responseBoundary}`)
+    .slice(1)
+    .filter((part) => !part.startsWith("--") && part.trim());
+  if (parts.length !== requests.length)
+    throw new Error("Calendar batch response is incomplete");
+  return parts.map((part, index): PromiseSettledResult<unknown> => {
+    const headerEnd = part.indexOf("\r\n\r\n");
+    const responseId = /^Content-ID:\s*<?response-(\d+)>?\s*$/im.exec(
+      part.slice(0, headerEnd),
+    )?.[1];
+    if (responseId === undefined || Number(responseId) !== index)
+      throw new Error("Calendar batch response does not match its requests");
+    const message = headerEnd < 0 ? "" : part.slice(headerEnd + 4);
+    const bodyStart = message.indexOf("\r\n\r\n");
+    const status = /^HTTP\/\d(?:\.\d)?\s+(\d{3})/i.exec(message)?.[1];
+    if (!status || bodyStart < 0)
+      throw new Error("Invalid calendar batch response");
+    const code = Number(status);
+    const content = message.slice(bodyStart + 4).trim();
+    let data: unknown;
+    try {
+      data = JSON.parse(content);
+    } catch (error) {
+      if (code < 400) throw error;
+      return {
+        status: "rejected",
+        reason: new GoogleApiError(code, "Calendar read failed"),
+      };
+    }
+    if (code >= 400) {
+      return {
+        status: "rejected",
+        reason: googleApiErrorFromData(code, data, "Calendar read failed"),
+      };
+    }
+    return { status: "fulfilled", value: data };
+  });
 }
 
 export function calendarListCalendars(
@@ -427,20 +581,13 @@ export function calendarUpdateEvent(
   calendarId: string,
   eventId: string,
   body: any,
-  params?: {
-    sendUpdates?: string;
-    conferenceDataVersion?: number;
-    supportsAttachments?: boolean;
-  },
+  params?: EventWriteParams,
 ) {
+  const { query, init } = eventWrite("PUT", params);
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs(params ?? {})}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${query}`,
     accessToken,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
+    { ...init, body: JSON.stringify(body) },
   );
 }
 
@@ -449,11 +596,15 @@ export function calendarDeleteEvent(
   calendarId: string,
   eventId: string,
   sendUpdates?: string,
+  ifMatch?: string,
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${qs({ sendUpdates })}`,
     accessToken,
-    { method: "DELETE" },
+    {
+      method: "DELETE",
+      ...(ifMatch ? { headers: { "If-Match": ifMatch } } : {}),
+    },
   );
 }
 

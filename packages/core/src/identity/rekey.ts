@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { jwtVerify } from "jose";
 
 import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
+import { sql } from "../db/sql.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -167,6 +168,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "tool_hidden_extensions", column: "owner_email" },
   { table: "tool_consents", column: "viewer_email", mode: "viewer-consent" },
   { table: "integration_identity_links", column: "user_email" },
+  { table: "integration_user_grants", column: "owner_email" },
   {
     table: "workspace_user_groups",
     column: "member_emails_json",
@@ -210,6 +212,11 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   {
     table: "mcp_action_approvals",
     column: "approver_email",
+    offboard: "retain",
+  },
+  {
+    table: "mcp_script_calls",
+    column: "owner_email",
     offboard: "retain",
   },
   // A missing connect-token row reads as "not revoked", so revoke, never delete.
@@ -323,6 +330,12 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.actor_email",
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
+  // Per-turn grants, chat-turn admissions and mint counters expire within minutes; they lapse instead of rekeying.
+  "mcp_turn_grants.owner_email",
+  "mcp_chat_turn_admissions.owner",
+  "mcp_chat_turn_mints.owner",
+  // Creator attribution on a Vault key, kept as written; the key is owned by its scope.
+  "app_secrets.created_by",
   "agent_review_comments.created_by",
   "agent_human_review_summaries.created_by",
   "organizations.created_by",
@@ -371,6 +384,56 @@ function appIdentityRegistry(): Map<string, AppIdentityColumn> {
   return (appIdentityGlobal[APP_IDENTITY_COLUMNS_KEY] ??= new Map());
 }
 
+const FIRST_PARTY_APP_IDENTITY_COLUMNS: readonly AppIdentityColumn[] = [
+  {
+    table: "dispatch_identity_links",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    reason:
+      "A linked chat identity acts as its owner; transferring it would let the departed member act as the successor.",
+  },
+  {
+    table: "dispatch_link_tokens",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    reason:
+      "An unclaimed link token binds a chat identity to its owner; the successor mints their own.",
+  },
+  {
+    table: "identity_sso_authorization_code",
+    column: "email",
+    emailChange: "delete",
+    offboard: "delete",
+    reason:
+      "Unconsumed single-use code that asserts this address to an app; the member signs in again.",
+  },
+  {
+    table: "identity_sso_bootstrap",
+    column: "email",
+    emailChange: "delete",
+    offboard: "delete",
+    reason:
+      "Unconsumed single-use sign-in bootstrap for this address; the member signs in again.",
+  },
+  ...[
+    "dispatch_destinations",
+    "dispatch_dreams",
+    "dispatch_link_tokens",
+    "vault_secrets",
+    "workspace_resources",
+  ].map(
+    (table): AppIdentityColumn => ({
+      table,
+      column: "created_by",
+      emailChange: "retain",
+      offboard: "retain",
+      reason: "Creator attribution; ownership is owner_email.",
+    }),
+  ),
+];
+
 const samePolicy = (a: AppIdentityColumn, b: AppIdentityColumn) =>
   JSON.stringify({ ...a, reason: "" }) === JSON.stringify({ ...b, reason: "" });
 
@@ -387,9 +450,17 @@ export function registerIdentityColumns(
     ...IDENTITY_REKEY_COLUMNS.map(({ table, column }) => `${table}.${column}`),
     ...IDENTITY_REKEY_IGNORED_COLUMNS,
   ]);
+  const firstParty = new Map(
+    FIRST_PARTY_APP_IDENTITY_COLUMNS.map((entry) => [
+      `${entry.table}.${entry.column}`,
+      entry,
+    ]),
+  );
   const registry = appIdentityRegistry();
   for (const entry of columns) {
     const key = `${entry.table}.${entry.column}`;
+    const builtIn = firstParty.get(key);
+    if (builtIn && samePolicy(builtIn, entry)) continue;
     const identifiers = [entry.table, entry.column];
     if (entry.orgScope) {
       identifiers.push(entry.orgScope.column);
@@ -416,7 +487,7 @@ export function registerIdentityColumns(
       throw new Error(
         `Identity column ${key} is secret-scoped; it can only be rekeyed or retained on email change and deleted or retained on offboard.`,
       );
-    if (core.has(key))
+    if (core.has(key) || builtIn)
       throw new Error(
         `Identity column ${key} is owned by the framework registry and cannot be redeclared by an app.`,
       );
@@ -460,7 +531,10 @@ export function resolveIdentityColumns(
 ): IdentityColumn[] {
   const entries: IdentityColumn[] = [
     ...IDENTITY_REKEY_COLUMNS,
-    ...[...appIdentityRegistry().values()].map(
+    ...[
+      ...FIRST_PARTY_APP_IDENTITY_COLUMNS,
+      ...appIdentityRegistry().values(),
+    ].map(
       ({ reason: _reason, mode, ...entry }): IdentityColumn =>
         mode === "secret-scope" ? { ...entry, mode } : entry,
     ),
@@ -525,14 +599,16 @@ export function assertIdentityColumnRows(
   return resolveIdentityColumns(rows);
 }
 
+export const IDENTITY_SCHEMA_COLUMNS_QUERY = sql`
+  SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = 'public'
+  ORDER BY table_name, column_name
+`;
+
 export async function assertIdentityColumnsRegistered(
   db: IdentityRekeyDb,
 ): Promise<IdentityColumn[]> {
-  const rows = await db.unsafe(
-    `SELECT table_name, column_name FROM information_schema.columns
-     WHERE table_schema = 'public'
-     ORDER BY table_name, column_name`,
-  );
+  const rows = await db.unsafe(IDENTITY_SCHEMA_COLUMNS_QUERY.sql);
   return resolveIdentityColumns(rows);
 }
 

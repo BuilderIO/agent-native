@@ -13,6 +13,7 @@ import {
   isNull,
   or,
 } from "@agent-native/core/db/schema";
+import { staleMirrorCollector } from "@agent-native/core/resources/shared-memory";
 import {
   organizationIdFromResourceOwner,
   resourceGetByPath,
@@ -2706,10 +2707,11 @@ async function savePersonalMemory(proposal: DreamProposalRow) {
     "",
   ].join("\n");
 
+  const stale = staleMirrorCollector();
   await resourcePut(owner, targetPath, fileContent, "text/markdown", {
     createdBy: "agent",
     metadata: { dreamId: proposal.dreamId, proposalId: proposal.id },
-  });
+  }).catch(stale.absorb);
 
   const existingIndex = await resourceGetByPath(owner, MEMORY_INDEX_PATH);
   const index = existingIndex?.content ?? "# Memory Index\n";
@@ -2729,12 +2731,19 @@ async function savePersonalMemory(proposal: DreamProposalRow) {
   await resourcePut(owner, MEMORY_INDEX_PATH, updatedIndex, "text/markdown", {
     createdBy: "agent",
     metadata: { dreamId: proposal.dreamId, proposalId: proposal.id },
-  });
+  }).catch(stale.absorb);
+  let mirrorError: Error | undefined;
+  try {
+    stale.finish();
+  } catch (error) {
+    mirrorError = error instanceof Error ? error : new Error(String(error));
+  }
 
   return {
     resourcePath: targetPath,
     indexPath: MEMORY_INDEX_PATH,
     indexLineCount: updatedIndex.split("\n").length,
+    mirrorError,
   };
 }
 
@@ -2988,11 +2997,19 @@ async function requestDreamProposalApproval(proposal: DreamProposalRow) {
 async function applyDreamProposalDirect(
   proposal: DreamProposalRow,
   actor = currentOwnerEmail(),
+  options: { warnOnMirrorError?: boolean } = {},
 ) {
   const db = getDb();
   let result: unknown;
+  let mirrorError: Error | undefined;
   if (proposal.targetType === "personal-memory") {
-    result = await savePersonalMemory(proposal);
+    const saved = await savePersonalMemory(proposal);
+    ({ mirrorError } = saved);
+    result = {
+      resourcePath: saved.resourcePath,
+      indexPath: saved.indexPath,
+      indexLineCount: saved.indexLineCount,
+    };
   } else if (proposal.targetType === "shared-learnings") {
     result = await appendSharedLearning(proposal);
   } else if (proposal.targetType.startsWith("workspace-")) {
@@ -3028,9 +3045,12 @@ async function applyDreamProposalDirect(
     },
   });
 
+  if (mirrorError && !options.warnOnMirrorError) throw mirrorError;
+
   return {
     proposal: serializeProposal((await getProposalRow(proposal.id))!),
     result,
+    ...(mirrorError ? { warning: mirrorError.message } : {}),
   };
 }
 
@@ -3044,7 +3064,9 @@ export async function applyApprovedDreamProposal(
   if (!["pending", "approval_requested"].includes(proposal.status)) {
     throw new Error("Only pending dream proposals can be applied");
   }
-  return applyDreamProposalDirect(proposal, actor);
+  return applyDreamProposalDirect(proposal, actor, {
+    warnOnMirrorError: true,
+  });
 }
 
 export async function applyDreamProposal(proposalId: string) {

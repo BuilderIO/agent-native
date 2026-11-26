@@ -10,6 +10,11 @@ import {
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import {
+  liveRecordingComments,
+  reviewComments,
+  storedVideoTimestampMs,
+} from "../server/lib/recording-comments.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { ownerEmailMatches } from "../server/lib/recordings.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
@@ -99,7 +104,7 @@ function transcriptMatch(
 
 export default defineAction({
   description:
-    "Search recordings by title, description, transcript text, or comments, including recordings in the caller's Trash. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user.",
+    "Search recordings by title, description, transcript text, or comments, including recordings in the caller's Trash. Transcript and comment matches include timestamps for jumping to the matching moment. Public/unlisted recordings are searchable only when owned by or previously viewed by the current user. Read-only search: to filter the Library UI to matching clips call navigate with view='library' and search='<query>', or call navigate with view='recording' and recordingId to open a single matching clip.",
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -209,9 +214,9 @@ export default defineAction({
 
     const commentRows = await db
       .select({
-        recordingId: schema.recordingComments.recordingId,
-        content: schema.recordingComments.content,
-        videoTimestampMs: schema.recordingComments.videoTimestampMs,
+        recordingId: reviewComments.resourceId,
+        content: reviewComments.body,
+        anchorJson: reviewComments.anchorJson,
         id: schema.recordings.id,
         title: schema.recordings.title,
         description: schema.recordings.description,
@@ -226,13 +231,14 @@ export default defineAction({
         createdAt: schema.recordings.createdAt,
         updatedAt: schema.recordings.updatedAt,
       })
-      .from(schema.recordingComments)
+      .from(reviewComments)
       .innerJoin(
         schema.recordings,
-        eq(schema.recordingComments.recordingId, schema.recordings.id),
+        eq(reviewComments.resourceId, schema.recordings.id),
       )
       .where(
         and(
+          liveRecordingComments(),
           agentRecordingAccessFilter(
             schema.recordings,
             schema.recordingShares,
@@ -251,7 +257,7 @@ export default defineAction({
               ),
             ),
           ),
-          sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
+          sql`lower(${reviewComments.body}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
       .limit(args.limit);
@@ -284,7 +290,7 @@ export default defineAction({
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       snippet: buildSnippet(r.content, args.query) ?? r.content,
-      matchMs: Math.max(0, Math.floor(r.videoTimestampMs ?? 0)),
+      matchMs: Math.max(0, Math.floor(storedVideoTimestampMs(r.anchorJson))),
     }));
 
     const transcriptById = new Map<

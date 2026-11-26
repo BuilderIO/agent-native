@@ -26,6 +26,10 @@ import {
 } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import DesktopIdentityGate from "./components/DesktopIdentityGate.js";
+import {
+  OnboardingHostSlot,
+  type DesktopOnboardingHost,
+} from "./components/OnboardingHostSlot.js";
 import WindowControls, {
   CollapsedMacWindowControls,
 } from "./components/WindowControls.js";
@@ -40,7 +44,21 @@ function safeDesktopOpenPath(path: string | undefined): string | undefined {
   return trimmed;
 }
 
-export default function App() {
+const NO_ONBOARDING_HOSTS: readonly DesktopOnboardingHost[] = [];
+
+function optionalDesktopAppConfig():
+  | Partial<Window["electronAPI"]["appConfig"]>
+  | undefined {
+  return (window as { electronAPI?: Partial<Window["electronAPI"]> })
+    .electronAPI?.appConfig;
+}
+
+export default function App({
+  onboardingHosts = NO_ONBOARDING_HOSTS,
+}: {
+  /** Onboarding a build shows over a chat-first app; none upstream. */
+  onboardingHosts?: readonly DesktopOnboardingHost[];
+} = {}) {
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [workspaceAppList, setWorkspaceAppList] =
     useState<DesktopWorkspaceAppListResult>();
@@ -57,6 +75,7 @@ export default function App() {
     new Map<string, DesktopAppRuntimeStatus["state"]>(),
   );
   const [activeChatFirstAppId, setActiveChatFirstAppId] = useState("");
+  const [identityEpoch, setIdentityEpoch] = useState(0);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
     runId?: string;
@@ -145,12 +164,16 @@ export default function App() {
     const handleStatusChange = (status: DesktopIdentityStatus) => {
       if (!mounted) return;
       childIdentityFailureRef.current = false;
+      setIdentityEpoch((epoch) => epoch + 1);
       setDesktopIdentityStatus(status);
       rememberDesktopIdentityStatus(status);
       void refreshWorkspaceAppList();
       void refreshEnvironmentLane();
     };
     const unsubscribe = identity.onStatusChange(handleStatusChange);
+    const unsubscribeAccount = identity.onAccountChange(() => {
+      if (mounted) setIdentityEpoch((epoch) => epoch + 1);
+    });
     void identity
       .getStatus()
       .then(handleStatusChange)
@@ -160,6 +183,7 @@ export default function App() {
     return () => {
       mounted = false;
       unsubscribe();
+      unsubscribeAccount();
     };
   }, [refreshWorkspaceAppList, refreshEnvironmentLane]);
 
@@ -447,6 +471,32 @@ export default function App() {
     });
   }, [activeChatFirstAppId, chatFirstPreviewRequest?.appId]);
 
+  const buildingAppId = chatFirstPreviewRequest?.appId;
+  useEffect(() => {
+    const load = optionalDesktopAppConfig()?.load;
+    if (!buildingAppId || !load) return;
+    let cancelled = false;
+    let ticks = 0;
+    const refresh = async () => {
+      ticks += 1;
+      try {
+        const next = await load();
+        if (cancelled) return;
+        setApps((current) =>
+          JSON.stringify(current) === JSON.stringify(next) ? current : next,
+        );
+      } catch {
+        // coercion-ok: the next tick retries; the list keeps its last value.
+      }
+      if (ticks >= 180) window.clearInterval(timer);
+    };
+    const timer = window.setInterval(() => void refresh(), 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [buildingAppId]);
+
   if (loading) {
     return (
       <div
@@ -521,6 +571,13 @@ export default function App() {
           }
         />
       </div>
+
+      <OnboardingHostSlot
+        hosts={onboardingHosts}
+        activeAppId={activeChatFirstAppId}
+        signedIn={desktopIdentityStatus === "signed-in"}
+        identityEpoch={identityEpoch}
+      />
 
       {showSettings ? (
         <AppSettings

@@ -3,11 +3,47 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-19
+
+### Fixed
+
+- New signups from the private-plan access gate now include automatic Builder.io setup alongside the sign-in page.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+## 2026-11-17
+
+### Fixed
+
+- Images added to a plan are stored privately and load only for people who can open the plan, instead of at a public link anyone holding it could open.
+
+## 2026-11-16
+
+### Fixed
+
+- A plan's images are no longer kept by shared caches, so they reach only people who can open the plan.
+
 ## 2026-11-09
 
 ### Improved
 
+- Share controls use a consistent compact layout.
 - More save failures now say why, such as being offline or lacking permission.
+
+### Fixed
+
+- When someone else types in the paragraph you're typing in, your cursor stays after your own last letter, so your words no longer get mixed into theirs.
+
+## 2026-11-08
+
+### Fixed
+
+- Deleting a block or emptying a block of text in a plan now saves, instead of the block coming back or "Couldn't save" stopping later edits from saving too.
+  Undo after deleting a block brings back what was in it, including in columns and tabs, instead of an empty block of the same kind.
 
 ## 2026-11-05
 

@@ -1,6 +1,9 @@
 import {
   applyTargetedReplace,
   analyzeRegexSource,
+  describeCandidateKinds,
+  editRemovedTextMessage,
+  findEditThatRemovedText,
   findTargetedMatches,
   wrapDiagnosticSnippet,
   type TargetedAmbiguousMatch,
@@ -149,13 +152,26 @@ export async function applySlideContentEdits(
 ): Promise<SlideContentPatchResult> {
   let content = currentContent;
   const applied: string[] = [];
+  const contentBeforeEachEdit: string[] = [];
   try {
     for (const edit of edits) {
+      contentBeforeEachEdit.push(content);
       const result = applyEdit(content, edit);
       content = result.content;
       applied.push(result.summary);
     }
   } catch (error) {
+    const failedIndex = contentBeforeEachEdit.length - 1;
+    const searchText = literalSearchText(edits[failedIndex]);
+    const removerIndex =
+      searchText === null || content.includes(searchText)
+        ? null
+        : findEditThatRemovedText(contentBeforeEachEdit, searchText);
+    if (removerIndex !== null) {
+      throw new SlideContentEditError(
+        editRemovedTextMessage(failedIndex, removerIndex),
+      );
+    }
     if (error instanceof SlideContentEditError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new SlideContentEditError(message);
@@ -167,6 +183,15 @@ export async function applySlideContentEdits(
   }
 
   return { content, applied, formatted: format, changed };
+}
+
+function literalSearchText(edit: SlideContentEdit | undefined): string | null {
+  if (!edit) return null;
+  if (edit.op === undefined || edit.op === "replace") return edit.find ?? null;
+  if (edit.op === "insert-before" || edit.op === "insert-after") {
+    return edit.marker;
+  }
+  return null;
 }
 
 export async function formatSlideHtml(content: string): Promise<string> {
@@ -839,7 +864,7 @@ function throwLiteralMatchFailure(
 ): never {
   if (result.reason === "ambiguous") {
     throw new SlideContentEditError(
-      `${op} ${formatAmbiguousMatches(result.matches)}`,
+      `${op} ${formatAmbiguousMatches(result.matches, result.matchCount)}`,
     );
   }
   if (result.reason === "invalid_occurrence") {
@@ -874,20 +899,26 @@ function formatCandidates(candidates: TargetedCandidate[]): string {
   const lines = candidates
     .map(
       (c) =>
-        `line ${c.line}${c.whitespaceOnly ? " (whitespace only)" : ""}: ${c.text}`,
+        `line ${c.line}${c.escaped ? " (escaped)" : c.whitespaceOnly ? " (whitespace only)" : c.excerpt ? " (incomplete excerpt)" : ""}: ${c.text}`,
     )
     .join("\n");
-  const whitespaceOnly = candidates.some((c) => c.whitespaceOnly)
-    ? "\nA candidate marked (whitespace only) is the slide text this edit matches against, with different whitespace: copy it exactly."
-    : "";
-  return `${whitespaceOnly}\nClosest matches in the current slide:\n${wrapDiagnosticSnippet(lines)}`;
+  const kinds = describeCandidateKinds(candidates);
+  return `${kinds ? `\n${kinds}` : ""}\nClosest matches in the current slide:\n${wrapDiagnosticSnippet(lines)}`;
 }
 
-function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
-  const lines = matches.map((m) => `line ${m.line}: ${m.snippet}`).join("\n");
+function formatAmbiguousMatches(
+  matches: TargetedAmbiguousMatch[],
+  matchCount: number,
+): string {
+  const lines = matches
+    .map((m) => `occurrence ${m.occurrence}, line ${m.line}: ${m.snippet}`)
+    .join("\n");
+  const omitted = matchCount - matches.length;
   return (
-    `matched ${matches.length} places; pass occurrence to pick one, or add ` +
-    `more surrounding context so it matches exactly one location:\n${wrapDiagnosticSnippet(lines)}`
+    `matched ${matchCount} places; pass occurrence to pick one, or add ` +
+    `more surrounding context so it matches exactly one location:` +
+    (omitted > 0 ? ` ${omitted} matches omitted.` : "") +
+    `\n${wrapDiagnosticSnippet(lines)}`
   );
 }
 

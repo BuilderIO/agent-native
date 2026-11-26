@@ -1,0 +1,86 @@
+/*
+ * Part: badge
+ *
+ *   <span class="badge"
+ *         data-variant="solid|soft|surface|outline"
+ *         [data-color="accent|gray|danger|warning|success|info"]
+ *         [data-high-contrast] [data-radius] [data-dot]>
+ *
+ * Radix Themes' badge on the system's scale: xs, sm and md are 16, 20 and
+ * 24px tall. Like Button, a variant decides how the nearest `data-color`
+ * applies. A dot is a 6px circle in the solid color, its label kept for
+ * assistive technology.
+ */
+
+@layer components {
+  .badge {
+    --_radius: var(--radius-2);
+
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-1);
+    box-sizing: border-box;
+    height: var(--control-height-2);
+    padding: 0 var(--space-2);
+    border-radius: max(
+      calc(var(--_radius) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
+    corner-shape: var(--corner-shape, round);
+    font-size: var(--control-font-size-2);
+    line-height: var(--control-line-height-2);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+  }
+
+  .badge svg {
+    flex-shrink: 0;
+    width: var(--control-icon-size-1);
+    height: var(--control-icon-size-1);
+  }
+
+  /* ---- variants ---- */
+
+  .badge[data-variant="solid"] {
+    background-color: var(--accent-solid);
+    color: var(--accent-contrast);
+  }
+
+  .badge[data-variant="soft"] {
+    background-color: var(--accent-a3);
+    color: var(--accent-text);
+  }
+
+  .badge[data-variant="surface"] {
+    background-color: var(--accent-surface);
+    box-shadow: inset 0 0 0 1px var(--accent-a6);
+    color: var(--accent-text);
+  }
+
+  .badge[data-variant="outline"] {
+    box-shadow: inset 0 0 0 1px var(--accent-a8);
+    color: var(--accent-text);
+  }
+
+  .badge[data-high-contrast]:not([data-variant="solid"]) {
+    color: var(--accent-12);
+  }
+
+  .badge[data-variant="solid"][data-high-contrast] {
+    background-color: var(--accent-12);
+    color: var(--accent-1);
+  }
+
+  /* The label is still read, at no size and no color. */
+  .badge[data-dot] {
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    overflow: hidden;
+    box-shadow: none;
+    background-color: var(--accent-solid);
+    color: transparent;
+    font-size: 0;
+  }
+}

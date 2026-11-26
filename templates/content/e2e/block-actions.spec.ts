@@ -95,6 +95,21 @@ test.describe("block menu", () => {
     await expect(page.locator(`${EDITOR} h3`)).toHaveText("First line.");
   });
 
+  test("inserts an empty line above a block, ready to type in, and it's saved", async ({
+    page,
+  }) => {
+    const id = await openPage(page, "Block insert above");
+    const menu = await openMenu(page, block(page, "Second line."));
+
+    await menu.getByRole("menuitem", { name: "Insert block above" }).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await page.keyboard.type("Between");
+
+    await expect
+      .poll(savedContent(page, id))
+      .toMatch(/First line\.\nBetween\nSecond line\./);
+  });
+
   test("reaches Turn into from the keyboard", async ({ page }) => {
     await openPage(page, "Block turn into keys");
     await openMenu(page, block(page, "Second line."));
@@ -257,47 +272,62 @@ test.describe("block menu", () => {
   });
 });
 
-test.describe("block menu on a touch screen", () => {
+test.describe("block menu on a phone", () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
-  test("taps turn a block into a heading and colour another", async ({
+  test("opens as a bottom sheet whose taps turn a block into a heading and colour another", async ({
     page,
   }) => {
     const id = await openPage(page, "Block touch");
-    const menu = page.getByRole("menu", { name: "Block actions" });
+    const sheet = page.getByRole("dialog", { name: "Block actions" });
 
     await block(page, "First line.").tap();
     await page.locator(GRIP).tap();
-    await expect(menu).toBeVisible();
+    await expect(sheet).toBeVisible();
+    await expect(page.getByRole("menu")).toHaveCount(0);
     // The phone's keyboard stays down until the search is tapped.
-    await expect(menu.getByRole("textbox")).not.toBeFocused();
-    await expect(menu.getByRole("menuitem", { name: /^Duplicate/ })).toHaveText(
-      "Duplicate",
-      { useInnerText: true },
+    await expect(sheet.getByRole("textbox")).not.toBeFocused();
+    // Rows a finger can hit, along the bottom of the screen.
+    const duplicate = sheet.getByRole("button", { name: "Duplicate" });
+    await expect(duplicate).toHaveText("Duplicate", { useInnerText: true });
+    const row = await duplicate.boundingBox();
+    expect(row?.height).toBeGreaterThanOrEqual(44);
+    // Once it has slid up, its bottom is the screen's.
+    await expect
+      .poll(async () => {
+        const box = await sheet.boundingBox();
+        return box && Math.round(box.y + box.height);
+      })
+      .toBe(844);
+
+    await sheet.getByRole("button", { name: "Turn into" }).tap();
+    await expect(sheet.getByRole("radio", { name: "Text" })).toHaveAttribute(
+      "aria-checked",
+      "true",
     );
-    await menu.getByRole("menuitem", { name: "Turn into" }).tap();
-    await page.getByRole("menuitemradio", { name: "Heading 2" }).tap();
+    await sheet.getByRole("radio", { name: "Heading 2" }).tap();
+    await expect(sheet).toHaveCount(0);
     await expect(page.locator(`${EDITOR} h2`)).toHaveText("First line.");
+    // The heading is ready to type in, from the end of its text.
+    await expect(page.locator(EDITOR)).toBeFocused();
+    await page.keyboard.type("!");
+    await expect(page.locator(`${EDITOR} h2`)).toHaveText("First line.!");
 
     await block(page, "Second line.").tap();
     await page.locator(GRIP).tap();
-    await menu.getByRole("menuitem", { name: "Color" }).tap();
-    // With no room beside the menu, the colours slide over it, on screen.
-    const colors = page.getByRole("menu").filter({
-      has: page.getByRole("menuitemradio", { name: "Red text" }),
-    });
-    await expect
-      .poll(async () => {
-        const box = await colors.boundingBox();
-        return box && box.x >= 0 && box.x + box.width <= 390;
-      })
-      .toBe(true);
-    await page.getByRole("menuitemradio", { name: "Red text" }).tap();
+    await sheet.getByRole("button", { name: "Color" }).tap();
+    await sheet.getByRole("button", { name: "Back" }).tap();
+    await expect(
+      sheet.getByRole("button", { name: "Insert block above" }),
+    ).toBeVisible();
+    await sheet.getByRole("button", { name: "Color" }).tap();
+    await sheet.getByRole("radio", { name: "Red text" }).tap();
+    await expect(sheet).toHaveCount(0);
     await expect(
       page.locator(`${EDITOR} p[data-notion-color="red"]`),
     ).toHaveText("Second line.");
 
-    await expect.poll(savedContent(page, id)).toContain("## First line.");
+    await expect.poll(savedContent(page, id)).toContain("## First line.!");
     await expect.poll(savedContent(page, id)).toContain("red");
   });
 });

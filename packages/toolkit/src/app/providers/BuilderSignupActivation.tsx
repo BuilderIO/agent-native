@@ -1,12 +1,19 @@
 import { track } from "@agent-native/core/client/analytics";
 import {
   activateBuilderSignupAssignment,
+  hasPendingBuilderSignupAssignment,
   startBuilderSignupActivation,
 } from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import { Button } from "../../ui/button.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -16,7 +23,10 @@ import {
 } from "../onboarding/first-run-startup-gate-context.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 
-const attempts = new Map<string, Promise<unknown>>();
+const attempts = new Map<
+  string,
+  ReturnType<typeof activateBuilderSignupAssignment>
+>();
 
 // Runs a pending Builder signup activation for the signed-in user and reports
 // whether it is still in progress. Anything outside the cover that opens UI,
@@ -32,11 +42,13 @@ export function useBuilderSignupActivation(
 } {
   const queryClient = useQueryClient();
   const attemptKey = `${experimentId}:${userId}`;
+  const refreshedConnection = useRef<string | undefined>(undefined);
   const recoveryAttempts = useRef(new Map<string, number>());
   const [activation, setActivation] = useState<{
     userId: string;
     status: "running" | "checking" | "paused" | "settled";
     failedAt?: number;
+    refreshReadiness?: boolean;
   }>();
   const eligibility = useQuery({
     queryKey: ["builder-signup-eligibility", experimentId, userId],
@@ -51,6 +63,19 @@ export function useBuilderSignupActivation(
         ? 2000
         : false,
   });
+  useEffect(() => {
+    if (
+      userId &&
+      refreshedConnection.current !== attemptKey &&
+      (eligibility.data === "connected" ||
+        (activation?.userId === userId && activation.refreshReadiness))
+    ) {
+      refreshedConnection.current = attemptKey;
+      // Provider readiness is cached outside React Query and may have been
+      // checked before the signup callback finished saving credentials.
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, [activation, attemptKey, eligibility.data, userId]);
   useEffect(() => {
     if (eligibility.error && userId) {
       void track("builder_signup_experiment_client_failed", {
@@ -78,10 +103,19 @@ export function useBuilderSignupActivation(
       });
       attempts.set(attemptKey, attempt);
     }
-    const settle = () =>
+    const settle = (
+      status: Awaited<ReturnType<typeof activateBuilderSignupAssignment>>,
+    ) => {
       setActivation((current) =>
-        current?.userId === userId ? { userId, status: "settled" } : current,
+        current?.userId === userId
+          ? {
+              userId,
+              status: "settled",
+              refreshReadiness: status === "connected",
+            }
+          : current,
       );
+    };
     void attempt.then(settle, (error: unknown) => {
       if (attempts.get(attemptKey) === attempt) attempts.delete(attemptKey);
       void track("builder_signup_experiment_client_failed", {
@@ -114,9 +148,11 @@ export function useBuilderSignupActivation(
     if (
       (activation?.status === "checking" || activation?.status === "paused") &&
       activation.userId === userId &&
-      eligibility.data === "disabled"
+      (eligibility.data === "disabled" || eligibility.data === "connected")
     ) {
-      setActivation({ userId, status: "settled" });
+      // A previously confirmed activation can finish while the browser is
+      // paused. Refresh even if its recent-completion signal has expired.
+      setActivation({ userId, status: "settled", refreshReadiness: true });
       void queryClient.invalidateQueries();
     } else if (
       activation?.status === "checking" &&
@@ -218,7 +254,8 @@ export function BuilderSignupActivationCover({
         {children}
       </div>
       {activating ? (
-        <div className="fixed inset-0 z-50 flex gap-4 bg-background p-4">
+        // Above the first-run gate's cover, which waits under this one.
+        <div className="fixed inset-0 z-[110] flex gap-4 bg-background p-4">
           <span role="status" className="sr-only">
             {t("agentChat.common.loading")}
           </span>
@@ -239,7 +276,9 @@ export function BuilderSignupActivationCover({
       ) : statusError ? (
         <div
           role="alert"
-          className="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
+          // Above the first-run gate's cover, which stays up while an unknown
+          // eligibility defers onboarding.
+          className="fixed bottom-4 right-4 z-[110] flex max-w-sm flex-col items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
         >
           {retryContent}
         </div>
@@ -248,22 +287,40 @@ export function BuilderSignupActivationCover({
   );
 }
 
+const subscribeToNothing = () => () => {};
+
+function useHostEnrolled(hostedHosts: readonly string[] | undefined) {
+  return useSyncExternalStore(
+    subscribeToNothing,
+    () =>
+      hostedHosts === undefined ||
+      hostedHosts.includes(window.location.hostname.toLowerCase()) ||
+      hasPendingBuilderSignupAssignment(),
+    () => hostedHosts === undefined,
+  );
+}
+
 export function BuilderSignupStartupGate({
   experimentId,
+  hostedHosts,
   suppressSurface,
+  cover,
+  appSurface,
   children,
 }: {
   experimentId?: string;
+  hostedHosts?: readonly string[];
   suppressSurface: boolean;
+  cover?: ReactNode;
+  appSurface?: ReactNode;
   children: ReactNode;
 }) {
   const { session } = useSession();
+  const enrolled = useHostEnrolled(hostedHosts) && Boolean(experimentId);
   const { activating, resolving, statusError, retryStatus } =
     useBuilderSignupActivation(
-      experimentId && session?.emailVerified === true
-        ? session.userId
-        : undefined,
-      experimentId ?? "disabled",
+      enrolled && session?.emailVerified === true ? session.userId : undefined,
+      (enrolled && experimentId) || "disabled",
     );
   return (
     <BuilderSignupActivationCover
@@ -274,6 +331,8 @@ export function BuilderSignupStartupGate({
       <FirstRunOnboardingStartupGate
         suppressSurface={suppressSurface}
         deferSurface={resolving || activating}
+        cover={cover}
+        appSurface={appSurface}
       >
         {children}
       </FirstRunOnboardingStartupGate>

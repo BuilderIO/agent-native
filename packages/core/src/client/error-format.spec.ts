@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
@@ -29,6 +29,8 @@ function interpolate(
   options: Record<string, unknown> = {},
 ): string {
   const messages: Record<string, string> = {
+    "agentChat.errorMessages.writeOutcomeUnknown":
+      "Ich habe die Aktion angehalten. Prüfe vor einem erneuten Versuch, welche Änderungen gespeichert wurden.",
     "agentChat.errorMessages.builderAuthentication":
       "Builder hat die verbundenen Anmeldedaten abgelehnt.",
     "agentChat.errorMessages.providerAuthentication":
@@ -49,6 +51,26 @@ function interpolate(
 }
 
 describe("formatChatErrorText", () => {
+  it.each(["call_app_action", "save-deck", "update-record"])(
+    "keeps uncertain-write warnings readable for %s without losing diagnostics",
+    (tool) => {
+      const raw = `I stopped before running ${tool} again. An earlier attempt may have already saved changes and I could not confirm the result. Check what was saved, then reply "continue" and I will verify it before doing anything else.`;
+      const message =
+        "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.";
+      expect(normalizeChatError(raw, "write_tool_outcome_unknown")).toEqual({
+        message,
+        details: raw,
+      });
+      expect(
+        formatChatErrorText(raw, undefined, "write_tool_outcome_unknown"),
+      ).toBe(`Error: ${message}`);
+      expect(normalizeChatError(raw, "unrecognized_error").message).toBe(raw);
+      expect(localizeKnownChatErrorText(`Error: ${message}`, interpolate)).toBe(
+        "Fehler: Ich habe die Aktion angehalten. Prüfe vor einem erneuten Versuch, welche Änderungen gespeichert wurden.",
+      );
+    },
+  );
+
   const agentNativeUpgradeUrl =
     "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
@@ -70,6 +92,24 @@ describe("formatChatErrorText", () => {
         "This space has not enabled the LLM gateway. A space admin can enable it in Account settings.",
       ),
     ).toContain(`[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`);
+  });
+
+  it("offers no credits or upgrade link where commercial surfaces are hidden", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      for (const [message, code] of [
+        ["Monthly credits limit reached.", "credits-limit-monthly"],
+        ["Something failed upstream.", undefined],
+      ] as const) {
+        const text = formatChatErrorText(message, agentNativeUpgradeUrl, code);
+        expect(text).not.toContain(agentNativeUpgradeUrl);
+        expect(text).not.toMatch(/Add credits/i);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows quota copy and an upgrade CTA without error language", () => {
@@ -159,6 +199,17 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).toMatch(/was not retried/i);
   });
 
+  it("explains a request the model did not read and keeps the gateway text as details", () => {
+    const raw =
+      'Model "gpt-test" did not read the request (the provider reported no input tokens). Retrying the same request will not help; reduce the request size, for example the number or size of tool definitions.';
+    const normalized = normalizeChatError(raw, "request_not_read");
+
+    expect(normalized.message).toBe(
+      "The model could not read this request because it was too large or complex, for example too many tools, so it was not retried. Start a new chat or pick a different model.",
+    );
+    expect(normalized.details).toBe(raw);
+  });
+
   it("normalizes provider rate limits without exposing raw status-only text", () => {
     const normalized = normalizeChatError(
       "429 status code (no body)",
@@ -171,21 +222,62 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).not.toContain("no body");
   });
 
-  it("normalizes overloaded provider JSON payloads without exposing raw details in the message", () => {
-    const raw =
-      '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
-    const normalized = normalizeChatError(raw);
+  it.each([
+    "http_413",
+    "rate_limit_exceeded",
+    "invalid_request",
+    "invalid_request_error",
+  ])(
+    "keeps the provider's token budget in the visible error for %s",
+    (code) => {
+      const message =
+        "Request too large on tokens per minute (TPM): Limit 8000, Requested 8700.";
+      expect(normalizeChatError(message, code).message).toBe(message);
+    },
+  );
 
-    expect(normalized.message).toBe(
-      "The model provider is overloaded right now. Wait a moment, then retry.",
-    );
-    expect(normalized.details).toBe(raw);
-    expect(normalized.message).not.toContain("request_id");
-    expect(normalized.message).not.toContain("overloaded_error");
-    expect(formatChatErrorText(raw)).toBe(
-      "Error: The model provider is overloaded right now. Wait a moment, then retry.",
-    );
-  });
+  it.each([
+    ["", undefined],
+    ["529 ", undefined],
+    ["Error: 529 ", "http_529"],
+    ["HTTP 529 ", "runtime_error"],
+  ])(
+    "normalizes overloaded provider JSON with prefix %j and code %j without exposing raw details in the message",
+    (prefix, code) => {
+      const raw =
+        prefix +
+        '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
+      const normalized = normalizeChatError(raw, code);
+
+      expect(normalized.message).toBe(
+        "The model provider is overloaded right now. Wait a moment, then retry.",
+      );
+      expect(normalized.details).toBe(raw);
+      expect(normalized.message).not.toContain("request_id");
+      expect(normalized.message).not.toContain("overloaded_error");
+      expect(formatChatErrorText(raw, undefined, code)).toBe(
+        "Error: The model provider is overloaded right now. Wait a moment, then retry.",
+      );
+    },
+  );
+
+  it.each(["api_error", "internal_server_error"])(
+    "shows a readable message for a %s provider payload",
+    (type) => {
+      const raw = JSON.stringify({
+        type: "error",
+        error: { type, message: "Internal server error" },
+        request_id: "req_example",
+      });
+      expect(normalizeChatError(raw)).toEqual({
+        message: "Internal server error",
+        details: raw,
+      });
+      expect(formatChatErrorText(raw, undefined, type)).toBe(
+        "Error: Internal server error",
+      );
+    },
+  );
 
   it("normalizes a bare-403 transient rejection instead of the credential-rejected copy", () => {
     const normalized = normalizeChatError(
@@ -433,11 +525,11 @@ describe("Builder gateway internal-error envelope", () => {
     ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
   });
 
-  it("is recognized by its envelope on any accompanying code", () => {
+  it("recognizes the envelope when the gateway sends no specific error code", () => {
     const reported =
       "Sorry, this was caused by an internal error. " +
       "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
-    const normalized = normalizeChatError(reported, "invalid_request");
+    const normalized = normalizeChatError(reported, "builder_gateway_error");
 
     expect(normalized.message).not.toContain("ERROR ID");
     expect(normalized.message).toContain("model gateway");
@@ -455,6 +547,20 @@ describe("Builder gateway internal-error envelope", () => {
 });
 
 describe("malformed provider request", () => {
+  it.each(["invalid_request", "invalid_request_error"])(
+    "shows request rejection for %s even with a generic gateway envelope",
+    (code) => {
+      const raw =
+        "Sorry, this was caused by an internal error. " +
+        "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
+      const normalized = normalizeChatError(raw, code);
+
+      expect(normalized.message).toMatch(/rejected this request as malformed/i);
+      expect(normalized.message).not.toContain("ERROR ID");
+      expect(normalized.details).toBe(raw);
+    },
+  );
+
   it("gives a typed attachment rejection smaller and supported-format guidance", () => {
     const normalized = normalizeChatError(
       "Invalid 'input[0].content[1].image_url': image size exceeds limit.",

@@ -125,6 +125,8 @@ Chaque ressource partageable reçoit un bouton de partage dans son en-tête. Cli
 
 Les changements de visibilité sont enregistrés immédiatement. Un type de ressource dont le contenu passe facilement inaperçu peut demander d'abord une confirmation : les chats définissent `confirmOrgVisibility: true` dans leur déclaration, donc passer un chat de `Private` à `Organization` attend que la personne confirme. Annuler ou Échap conserve l'accès actuel. Si l'enregistrement échoue, la boîte de dialogue affiche l'erreur et la personne peut réessayer. La confirmation existe uniquement dans l'UI de partage : l'agent et tout autre appelant modifient donc toujours la visibilité directement via `set-resource-visibility`, et la politique de partage de la ressource décide toujours de ce qui est autorisé.
 
+Un type de ressource peut aussi emmener des ressources liées quand il devient public ou cesse de l'être. Content enregistre `publicFollowers`, qui renvoie les sous-pages d'une page : rendre la page publique les rend publiques aussi, et la rendre de nouveau privée ou réservée à l'organisation emmène celles qui sont encore publiques. Les ressources liées que l'appelant ne peut pas gérer gardent leur propre réglage, tout le changement est enregistré ou échoue d'un bloc, et `set-resource-visibility` renvoie dans `followersChanged` combien ont suivi. La boîte de dialogue de partage indique combien sont publiques avec la ressource quand l'app passe `publicFollowersLabel` à `ShareButton`. Un changement qui en emmènerait plus de `MAX_PUBLIC_FOLLOWERS` (500) est refusé.
+
 Le bouton de partage est une importation unique :
 
 ```tsx

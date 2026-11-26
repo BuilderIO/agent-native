@@ -54,6 +54,8 @@ function projectTimeChoice(result: unknown) {
 }
 
 export default defineAction({
+  mcpTool: true,
+  readOnly: true,
   description: "Check available time slots for a given date",
   schema: z.object({
     date: z
@@ -67,6 +69,11 @@ export default defineAction({
       .describe("Minimum slot duration in minutes (default: 30)"),
   }),
   http: false,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   chatUI: {
     renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
     when: (_args, result) => projectTimeChoice(result) !== null,

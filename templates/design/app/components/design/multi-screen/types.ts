@@ -50,6 +50,7 @@ export interface ScreenFile {
   heightMode?: ScreenHeightMode;
   url?: string;
   previewUrl?: string;
+  tunnelUrl?: string;
   bridgeUrl?: string;
   codeLayerSource?: CodeLayerSource;
   connectionId?: string;
@@ -99,7 +100,6 @@ export type MultiScreenCanvasTool =
   | "pen"
   | "hand"
   | "comment"
-  | "draw"
   | "scale";
 
 export interface CanvasToolProps {

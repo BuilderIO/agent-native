@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const orgState = vi.hoisted(() => ({
   value: { orgId: "org-1", orgName: "Acme", role: "member" as string },
+  pending: false,
 }));
 
 const skillChoices = vi.hoisted(() => ({
@@ -16,7 +17,13 @@ const skillChoices = vi.hoisted(() => ({
   setMark: vi.fn(async () => {}),
 }));
 
-vi.mock("../../../chat/index.js", () => ({ PromptComposer: () => null }));
+vi.mock("../../../chat/index.js", () => ({
+  PromptComposer: ({ onSubmit }: { onSubmit: (text: string) => void }) => (
+    <button type="button" onClick={() => onSubmit("Review a query")}>
+      Send skill description
+    </button>
+  ),
+}));
 vi.mock(
   "@agent-native/core/client/resources/use-skill-choices",
   async (importOriginal) => ({
@@ -42,10 +49,10 @@ vi.mock("../../../resources/ResourceEditor.js", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org/hooks", () => ({
-  useOrg: () => ({ data: orgState.value, isLoading: false }),
-}));
-vi.mock("@agent-native/core/client/org/hooks", () => ({
-  useOrg: () => ({ data: orgState.value, isLoading: false }),
+  useOrg: () => ({
+    data: orgState.pending ? undefined : orgState.value,
+    isLoading: orgState.pending,
+  }),
 }));
 vi.mock("../../../org/workspace-app-links.js", () => ({
   useOrgSwitcherAppLinks: () => ({
@@ -125,17 +132,19 @@ const trees: Record<string, TreeNode[]> = {
   ],
 };
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-  const url = String(input);
-  const scope = new URL(url, "http://app.test").searchParams.get("scope");
-  const body = url.startsWith("/_agent-native/resources/tree")
-    ? { tree: trees[scope ?? ""] ?? [] }
-    : {};
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-});
+const fetchMock = vi.fn(
+  async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    const scope = new URL(url, "http://app.test").searchParams.get("scope");
+    const body = url.startsWith("/_agent-native/resources/tree")
+      ? { tree: trees[scope ?? ""] ?? [] }
+      : {};
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+);
 
 let container: HTMLDivElement;
 let root: Root;
@@ -207,6 +216,7 @@ function groupIds() {
 
 beforeEach(() => {
   orgState.value = { orgId: "org-1", orgName: "Acme", role: "member" };
+  orgState.pending = false;
   skillChoices.value = {};
   skillChoices.setSwitch.mockClear();
   skillChoices.setMark.mockClear();
@@ -308,11 +318,98 @@ describe("Memory page", () => {
 });
 
 describe("Skills page", () => {
+  it("uses a recoverable removal for a personal skill when the host has Trash", async () => {
+    const priorTree = trees.personal;
+    const skill = leaf("skills/review/SKILL.md", "me@example.test", {
+      kind: "skill",
+    });
+    trees.personal = [skill];
+    try {
+      await renderPage(() => <SkillsSettingsPage trashRemovedSkills />);
+      const trigger = group("personal").querySelector<HTMLButtonElement>(
+        'button[aria-label="More actions"]',
+      );
+      if (!trigger) throw new Error("More actions menu is missing");
+      await act(async () => {
+        trigger.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      });
+      const remove = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((item) => item.textContent === "Remove");
+      if (!remove) throw new Error("Remove action is missing");
+      await act(async () => remove.click());
+      const confirm = Array.from(
+        document.querySelectorAll<HTMLButtonElement>(
+          '[role="alertdialog"] button',
+        ),
+      ).find((button) => button.textContent === "Remove");
+      if (!confirm) throw new Error("Remove confirmation is missing");
+      await act(async () => confirm.click());
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/_agent-native/resources/${skill.resource?.id}?trashSkill=true`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    } finally {
+      trees.personal = priorTree;
+    }
+  });
+
+  it("passes the description and personal scope to the host's chat handoff", async () => {
+    const onDescribe = vi.fn(async () => {});
+    await renderPage(() => <SkillsSettingsPage onDescribe={onDescribe} />);
+
+    const menu = groupButtons("personal").find((button) =>
+      button.textContent.includes("Add skill"),
+    );
+    if (!menu) throw new Error("Add skill menu is missing");
+    await act(async () => {
+      menu.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    });
+    const describe = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent.includes("Describe it to the agent"));
+    if (!describe) throw new Error("Describe skill action is missing");
+    await act(async () => describe.click());
+
+    const send = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Send skill description",
+    );
+    if (!send) throw new Error("The description composer is missing");
+    await act(async () => send.click());
+    expect(onDescribe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Create a skill: Review a query",
+        context: expect.stringContaining("as a personal resource"),
+        submit: true,
+      }),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("loads Skills with read-only queries while the organization is loading", async () => {
+    orgState.pending = true;
+    await renderPage(SkillsSettingsPage);
+
+    const resourceRequests = fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith("/_agent-native/resources"),
+    );
+    expect(resourceRequests).toHaveLength(3);
+    for (const [url, init] of resourceRequests) {
+      expect(init?.method ?? "GET").toBe("GET");
+      expect(
+        new URL(String(url), "http://app.test").searchParams.get(
+          "seedDefaults",
+        ),
+      ).toBe("false");
+    }
+  });
+
   it.each(["personal", "shared"] as const)(
     "preserves existing skills when uploading different named SKILL.md files to %s",
     async (scope) => {
       orgState.value.role = "owner";
-      const originalTree = trees[scope];
+      const priorTree = trees[scope];
       const stored = new Map<string, string>([
         ["skills/uploaded-skill/SKILL.md", "Existing generic skill"],
         ["skills/create-skill/SKILL.md", "Existing named skill"],
@@ -390,7 +487,7 @@ describe("Skills page", () => {
           ],
         ]);
       } finally {
-        trees[scope] = originalTree;
+        trees[scope] = priorTree;
       }
     },
   );

@@ -32,6 +32,7 @@ export default defineAction({
       .nullish()
       .describe("Parent folder id for nesting — omit for root"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

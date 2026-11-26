@@ -11,11 +11,33 @@ describe("Clips shared navigation", () => {
     expect(pathFromCommand({ view: "shared" })).toBe("/shared");
   });
 
-  it("describes and maps the From Content list", () => {
+  it("sends the old From Content list to the Library's filter", () => {
     expect(stateFromLocation("/from-content", "")).toEqual({
-      view: "from-content",
+      view: "library",
+      filters: "source=content",
     });
-    expect(pathFromCommand({ view: "from-content" })).toBe("/from-content");
+    expect(pathFromCommand({ view: "from-content" })).toBe(
+      "/library?source=content",
+    );
+  });
+
+  it("describes and maps the Library's filter", () => {
+    expect(
+      stateFromLocation("/library", "?q=demo&source=all&r=madeBy:equals:agent"),
+    ).toEqual({
+      view: "library",
+      search: "demo",
+      filters: "source=all&r=madeBy:equals:agent",
+    });
+    expect(stateFromLocation("/library", "?source=clips")).toEqual({
+      view: "library",
+    });
+    expect(
+      pathFromCommand({
+        view: "library",
+        filters: "r=madeBy:equals:agent&r=typo:equals:x",
+      }),
+    ).toBe("/library?r=madeBy:equals:agent");
   });
 
   it("describes the focused viewer panel and requested timestamp", () => {
@@ -141,5 +163,96 @@ describe("Clips shared navigation", () => {
         panel: "debug",
       }),
     ).toBe("/r/recording-1?panel=debug");
+  });
+
+  it("carries library and space search terms into ?q= URLs and round-trips them", () => {
+    expect(pathFromCommand({ view: "library", search: "onboarding" })).toBe(
+      "/library?q=onboarding",
+    );
+    expect(stateFromLocation("/library", "?q=onboarding")).toEqual({
+      view: "library",
+      search: "onboarding",
+    });
+
+    expect(
+      pathFromCommand({
+        view: "library",
+        folderId: "folder/1",
+        search: "pricing demo",
+      }),
+    ).toBe("/library/folder/folder%2F1?q=pricing+demo");
+    expect(
+      stateFromLocation("/library/folder/folder%2F1", "?q=pricing+demo"),
+    ).toEqual({
+      view: "library",
+      folderId: "folder/1",
+      search: "pricing demo",
+    });
+
+    expect(
+      pathFromCommand({
+        view: "space",
+        spaceId: "team space",
+        search: "onboarding",
+      }),
+    ).toBe("/spaces/team%20space?q=onboarding");
+    expect(stateFromLocation("/spaces/team%20space", "?q=onboarding")).toEqual({
+      view: "space",
+      spaceId: "team space",
+      search: "onboarding",
+    });
+
+    expect(
+      pathFromCommand({
+        view: "space",
+        spaceId: "team space",
+        folderId: "folder/1",
+        search: "onboarding",
+      }),
+    ).toBe("/spaces/team%20space/folder/folder%2F1?q=onboarding");
+    expect(
+      stateFromLocation(
+        "/spaces/team%20space/folder/folder%2F1",
+        "?q=onboarding",
+      ),
+    ).toEqual({
+      view: "space",
+      spaceId: "team space",
+      folderId: "folder/1",
+      search: "onboarding",
+    });
+
+    expect(pathFromCommand({ view: "library", search: "   " })).toBe(
+      "/library",
+    );
+    expect(stateFromLocation("/library", "?q=%20%20")).toEqual({
+      view: "library",
+    });
+
+    expect(
+      pathFromCommand({ view: "from-content", search: "onboarding" }),
+    ).toBe("/library?source=content&q=onboarding");
+    expect(stateFromLocation("/from-content", "?q=onboarding")).toEqual({
+      view: "library",
+      filters: "source=content",
+      search: "onboarding",
+    });
+    expect(
+      stateFromLocation("/library", "?source=content&q=onboarding"),
+    ).toEqual({
+      view: "library",
+      filters: "source=content",
+      search: "onboarding",
+    });
+
+    for (const view of ["shared", "archive", "trash", "screenshots"] as const) {
+      expect(pathFromCommand({ view, search: "onboarding" })).toBe(
+        `/${view}?q=onboarding`,
+      );
+      expect(stateFromLocation(`/${view}`, "?q=onboarding")).toEqual({
+        view,
+        search: "onboarding",
+      });
+    }
   });
 });

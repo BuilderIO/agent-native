@@ -491,6 +491,29 @@ describe("CommandMenu", () => {
     expect(document.body.textContent).not.toContain("Create a project");
   });
 
+  it("shows an app's own Settings hint in place of the platform chord", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          settingsShortcutHint={
+            <>
+              <kbd>G</kbd>
+              <kbd>S</kbd>
+            </>
+          }
+        />,
+      );
+    });
+
+    const settingsItem = [
+      ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+    ].find((item) => item.textContent?.startsWith("Settings"));
+    expect(settingsItem?.textContent).toBe("SettingsGS");
+  });
+
   it("closes the menu and opens Settings from the Settings row", () => {
     const onOpenChange = vi.fn();
     const requests: Array<{ page?: string }> = [];
@@ -1282,6 +1305,49 @@ describe("CommandMenu", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it("leaves Cmd+K to a field that takes it for itself", () => {
+    const fieldHandled = vi.fn();
+
+    function ShortcutHarness() {
+      const [open, setOpen] = React.useState(false);
+      useCommandMenuShortcut(() => setOpen(true), {
+        allowContentEditable: true,
+      });
+      return (
+        <>
+          <div
+            contentEditable
+            data-command-menu-shortcut="own"
+            onKeyDown={(event) => fieldHandled(event.defaultPrevented)}
+          >
+            Comment
+          </div>
+          <span>{open ? "open" : "closed"}</span>
+        </>
+      );
+    }
+
+    act(() => {
+      root.render(<ShortcutHarness />);
+    });
+
+    const field = document.querySelector("[contenteditable=true]");
+    expect(field).toBeTruthy();
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      field?.dispatchEvent(event);
+    });
+
+    expect(document.body.textContent).toContain("closed");
+    expect(fieldHandled).toHaveBeenCalledWith(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it("orders app groups and commands by their explicit positions", () => {
     renderAppCommands({
       groups: [
@@ -1445,6 +1511,7 @@ describe("CommandMenu", () => {
               page: {
                 id: "tools",
                 title: "Tools",
+                placeholder: "Find a tool…",
                 groups: [
                   {
                     id: "tool-actions",
@@ -1467,6 +1534,8 @@ describe("CommandMenu", () => {
       ],
     });
 
+    const rootPlaceholder =
+      document.querySelector<HTMLInputElement>("[cmdk-input]")?.placeholder;
     search("tools alias");
     const parentRow = document.querySelector<HTMLElement>(
       '[cmdk-item][data-value="app-command:main:open-tools"]',
@@ -1478,6 +1547,7 @@ describe("CommandMenu", () => {
 
     const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
     expect(input).toBeTruthy();
+    expect(input?.placeholder).toBe("Find a tool…");
     const backRow = document.querySelector<HTMLElement>(
       '[data-testid="command-menu-page-back"]',
     );
@@ -1487,6 +1557,7 @@ describe("CommandMenu", () => {
     act(() => backRow!.click());
 
     expect(input?.value).toBe("tools alias");
+    expect(input?.placeholder).toBe(rootPlaceholder);
     expect(document.activeElement).toBe(input);
     expect(document.body.textContent).toContain("Open tools");
     expect(document.body.textContent).not.toContain("Refresh data");
@@ -1509,6 +1580,7 @@ describe("CommandMenu", () => {
     });
 
     expect(input?.value).toBe("tools alias");
+    expect(input?.placeholder).toBe(rootPlaceholder);
     expect(document.body.textContent).toContain("Open tools");
     expect(document.body.textContent).not.toContain("Refresh data");
   });
@@ -2502,6 +2574,8 @@ describe("CommandMenu", () => {
     );
   });
 
+  // oracle-change: removed a duplicate of the next test, same renderResultsHasItems false case with the same empty-state assertion
+
   it("uses result presence for opaque components that render no rows", () => {
     function EmptyResults() {
       return null;
@@ -2559,25 +2633,6 @@ describe("CommandMenu", () => {
 
     expect(document.body.textContent).toContain("Live result");
     expect(document.querySelector('[role="status"]')).toBeNull();
-  });
-
-  it("uses the render-results presence signal for components that render no rows", () => {
-    function EmptyLiveResults() {
-      return null;
-    }
-
-    renderAppCommands({
-      groups: [],
-      renderResults: () => <EmptyLiveResults />,
-      renderResultsHasItems: () => false,
-      emptyState: "No matching records",
-    });
-
-    search("missing");
-
-    expect(document.querySelector('[role="status"]')?.textContent).toContain(
-      "No matching records",
-    );
   });
 
   it("uses the explicit list's rows instead of the default result signal", () => {
@@ -2895,5 +2950,136 @@ describe("CommandMenu", () => {
     expect(document.body.querySelector('[role="dialog"]')).toBe(
       portalContainer.querySelector('[role="dialog"]'),
     );
+  });
+
+  it("runs a keep-open command without closing and returns focus to the search field", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      groups: [
+        {
+          id: "scope",
+          order: 1,
+          commands: [
+            {
+              id: "search-here",
+              order: 1,
+              label: "Search in this page",
+              closeOnSelect: false,
+              onSelect,
+            },
+          ],
+        },
+      ],
+    });
+
+    const row = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:scope:search-here"]',
+    );
+    expect(row).toBeTruthy();
+    act(() => row!.click());
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(document.activeElement).toBe(document.querySelector("[cmdk-input]"));
+  });
+
+  it("shows an app adornment in the search field and lets the app handle input keys first", () => {
+    const onInputKeyDown = vi.fn((event: React.KeyboardEvent) => {
+      if (event.key === "Tab") event.preventDefault();
+    });
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          initialSelection="none"
+          inputAdornment={<span data-testid="scope-chip">In Roadmap</span>}
+          onInputKeyDown={onInputKeyDown}
+        >
+          <CommandMenu.Group heading="Pages">
+            <CommandMenu.Item value="roadmap" onSelect={() => undefined}>
+              Roadmap
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    const wrapper = input?.closest("[cmdk-input-wrapper]");
+    expect(wrapper?.querySelector('[data-testid="scope-chip"]')).toBeTruthy();
+    expect(wrapper?.querySelector("svg")).toBeTruthy();
+
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(onInputKeyDown).toHaveBeenCalledOnce();
+
+    // An arrow key the app leaves alone still turns on selection.
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(onInputKeyDown).toHaveBeenCalledTimes(2);
+    expect(
+      document
+        .querySelector('[cmdk-item][data-value="roadmap"]')
+        ?.getAttribute("aria-disabled"),
+    ).not.toBe("true");
+  });
+
+  it("tells custom content which row is highlighted", () => {
+    const seen: string[] = [];
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          showSettingsCommand={false}
+          showSignOutCommand={false}
+          renderContent={({ renderList, selectedValue }) => {
+            seen.push(selectedValue);
+            return (
+              <>
+                {renderList(
+                  <CommandMenu.Group heading="Pages">
+                    <CommandMenu.Item value="page:a" onSelect={() => undefined}>
+                      Alpha
+                    </CommandMenu.Item>
+                    <CommandMenu.Item value="page:b" onSelect={() => undefined}>
+                      Beta
+                    </CommandMenu.Item>
+                  </CommandMenu.Group>,
+                )}
+                <output data-testid="preview">{selectedValue}</output>
+              </>
+            );
+          }}
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+
+    const preview = () =>
+      document.querySelector('[data-testid="preview"]')?.textContent;
+    expect(preview()).toBe("page:a");
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(preview()).toBe("page:b");
+    expect(seen).toContain("page:b");
   });
 });

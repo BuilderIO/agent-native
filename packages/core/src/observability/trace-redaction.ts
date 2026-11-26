@@ -42,12 +42,16 @@ const SENSITIVE_FIELD_SUFFIXES = [
   "webhookurl",
 ];
 
-const SLACK_WEBHOOK_URL_PATTERN =
-  /https?:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+/gi;
-const DISCORD_WEBHOOK_URL_PATTERN =
-  /https?:\/\/discord\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/gi;
+// Starts at the label word, not the name run before it: a run-first pattern
+// restarts at every boundary of `a.a.a.a...` and rescans the run each time.
 const LABELED_WEBHOOK_URL_PATTERN =
-  /(\b[A-Za-z0-9_.-]*webhook[_ -]?url\b["']?\s*[:=]\s*["']?)(https?:\/\/[^\s"'<>()[\]{}]+)/gi;
+  /(webhook[_ -]?url\b["']?\s*[:=]\s*["']?)(https?:\/\/[^\s"'<>()[\]{}]+)/gi;
+
+function trailingPunctuationStart(value: string): number {
+  let end = value.length;
+  while (end > 0 && ".,;!?".includes(value.charAt(end - 1))) end -= 1;
+  return end;
+}
 
 function isSensitiveFieldName(field: string): boolean {
   return field.split(/[.:/\[\]]+/).some((part) => {
@@ -65,16 +69,11 @@ export function redactCapturedString(
   value: string,
   options: { truncated?: boolean } = {},
 ): string {
-  return redactToolErrorMessage(value, options)
-    .replace(
-      LABELED_WEBHOOK_URL_PATTERN,
-      (_match, prefix: string, rawUrl: string) => {
-        const trailingPunctuation = rawUrl.match(/[.,;!?]+$/)?.[0] ?? "";
-        return `${prefix}[REDACTED]${trailingPunctuation}`;
-      },
-    )
-    .replace(DISCORD_WEBHOOK_URL_PATTERN, "[REDACTED]")
-    .replace(SLACK_WEBHOOK_URL_PATTERN, "[REDACTED]");
+  return redactToolErrorMessage(value, options).replace(
+    LABELED_WEBHOOK_URL_PATTERN,
+    (_match, prefix: string, rawUrl: string) =>
+      `${prefix}[REDACTED]${rawUrl.slice(trailingPunctuationStart(rawUrl))}`,
+  );
 }
 
 function redactWalk(value: unknown, seen: WeakSet<object>): unknown {

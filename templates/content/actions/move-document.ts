@@ -16,7 +16,10 @@ import {
 } from "../server/lib/documents.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertSourceAllowsPageEdit,
+  linkedNestedLocalFile,
+} from "./_document-source.js";
 import { movePageToSpace } from "./_move-page-to-space.js";
 import {
   documentsPositionScope,
@@ -244,7 +247,7 @@ function documentMoveResult(doc: typeof schema.documents.$inferSelect) {
 
 export default defineAction({
   description:
-    "Move a document to a parent and/or position in the page tree. Pass spaceId to move the page and all its sub-pages into another Content space: the caller becomes the owner, access resets to the destination's (org-wide for an organization space, private otherwise, or the new parent's sharing), and existing shares and public access are removed. Pages containing collections, collection rows, local-folder files, and Notion- or Builder-linked pages cannot change space.",
+    "Move a document to a parent and/or position in the page tree. Pass spaceId to move the page and all its sub-pages into another Content space: the caller becomes the owner, access resets to the destination's (org-wide for an organization space, private otherwise, or the new parent's sharing), and existing shares and public access are removed. Collections in the moved pages, including a collection moved by its own page id, go with them in place, keeping their ids, rows, properties, values, row order and views. Refused with a reason: a page or collection with webhooks; a collection linked to an outside source or related to a collection that isn't moving; a collection row without its collection; local-folder files; and Notion- or Builder-linked pages.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     parentId: z
@@ -401,6 +404,24 @@ export default defineAction({
             await assertDocumentMutationAccess(id, "editor", "id")
           ).resource;
           assertEditableDocument(current);
+          if (
+            args.parentId !== undefined &&
+            args.parentId !== current.parentId
+          ) {
+            const linked = await tx
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
+              .where(
+                and(eq(schema.documents.id, id), linkedNestedLocalFile(tx)),
+              )
+              .limit(1);
+            if (linked.length > 0) {
+              throw new ActionContractError(
+                "This page follows a file in a local subfolder, so it stays in that folder.",
+                { errorCode: "LOCAL_FOLDER_FILE_MOVE", statusCode: 409 },
+              );
+            }
+          }
           if (
             current.ownerEmail !== ownerEmail ||
             current.spaceId !== existing.spaceId ||

@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -74,10 +75,19 @@ function assertEffectiveRangeOrdered(
 }
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
+  needsApproval: ({ dryRun }, ctx) => !dryRun && isOutsideAgentCall(ctx),
   searchHints: [
     "reschedule meetings",
     "move several meetings",
     "bulk edit events",
+    "push meetings back",
+    "delay or shift events later",
   ],
   description:
     "Update many calendar events in one call. Use shiftMinutes or one shared start/end range with ids or filters; never loop update-event per event. Call once with dryRun true to preview every match, then once more without dryRun to apply the same change.",
@@ -367,6 +377,7 @@ export default defineAction({
             {
               account: { ownerEmail, accountEmail },
               sendUpdates: args.sendUpdates,
+              expectedRevision: event.revision,
             },
           );
           return {

@@ -30,6 +30,73 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var wheelReadTimer = null;
     var wheelSeq = 0;
     var hostAnswersWheels = false;
+    var frozenAnimationTargets = /* @__PURE__ */ new Set();
+    var frozenAnimationSlots = /* @__PURE__ */ new Set();
+    function managedAnimationNames(rules, names) {
+      for (var i = 0; i < rules.length; i++) {
+        var rule = rules[i];
+        if (rule.type === CSSRule.KEYFRAMES_RULE)
+          names.add(rule.name);
+        else if (rule.type === CSSRule.STYLE_RULE) {
+          for (var name of rule.style.animationName.split(","))
+            if (name.trim() && name.trim() !== "none") names.add(name.trim());
+        } else if ("cssRules" in rule)
+          managedAnimationNames(rule.cssRules, names);
+      }
+    }
+    function animationTargetSelector(element) {
+      var parts = [];
+      for (var current = element; current.parentElement; current = current.parentElement) {
+        var index = 1;
+        for (var sibling = current.previousElementSibling; sibling; sibling = sibling.previousElementSibling)
+          index++;
+        parts.unshift("*:nth-child(" + index + ")");
+      }
+      return ":root" + (parts.length ? ">" + parts.join(">") : "");
+    }
+    function animationSafetyRules() {
+      var managed = /* @__PURE__ */ new Set();
+      var styles = document.querySelectorAll("style[data-agent-native-motion]");
+      for (var i = 0; i < styles.length; i++) {
+        var sheet = styles[i].sheet;
+        if (sheet) managedAnimationNames(sheet.cssRules, managed);
+      }
+      var output = "";
+      var inspected = /* @__PURE__ */ new Set();
+      frozenAnimationTargets.clear();
+      frozenAnimationSlots.clear();
+      for (var animation of document.getAnimations()) {
+        if (!(animation instanceof CSSAnimation)) continue;
+        var effect = animation.effect;
+        if (!effect || !effect.target) continue;
+        var target = effect.target;
+        if (!target.isConnected || target.getRootNode() !== document || target.closest("[data-agent-native-edit-overlay]"))
+          continue;
+        var pseudo = effect.pseudoElement;
+        var selector = animationTargetSelector(target) + (pseudo || "");
+        if (inspected.has(selector)) continue;
+        inspected.add(selector);
+        var style = getComputedStyle(target, pseudo);
+        var names = style.animationName.split(",");
+        var iterations = style.animationIterationCount.split(",");
+        var durations = style.animationDuration.split(",");
+        var suppressed = names.map(function(name, index) {
+          return managed.has(name.trim()) || iterations[index % iterations.length].trim() === "infinite";
+        });
+        if (!suppressed.some(function(value) {
+          return value;
+        }))
+          continue;
+        frozenAnimationTargets.add(target);
+        frozenAnimationSlots.add(selector);
+        output += selector + "{animation-name:" + names.map(function(name, index) {
+          return suppressed[index] ? "none" : name;
+        }).join(",") + "!important;animation-duration:" + names.map(function(_name, index) {
+          return suppressed[index] ? "0s" : durations[index % durations.length];
+        }).join(",") + "!important}";
+      }
+      return output;
+    }
     function syncEditingSafetyStyle() {
       var currentStyle = freezeStyle || document.querySelector(
         "style[data-agent-native-editing-safety-style]"
@@ -39,18 +106,86 @@ export const embeddedWheelBridgeScript: string = `"use strict";
           currentStyle.parentNode.removeChild(currentStyle);
         }
         freezeStyle = null;
+        frozenAnimationTargets.clear();
+        frozenAnimationSlots.clear();
         return;
       }
-      if (currentStyle && currentStyle.isConnected) {
-        freezeStyle = currentStyle;
-        return;
-      }
-      freezeStyle = document.createElement("style");
+      freezeStyle = currentStyle || document.createElement("style");
       freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
-      freezeStyle.textContent = "html,body{animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{animation:none!important;transition:none!important}";
-      (document.head || document.documentElement).appendChild(freezeStyle);
+      var css = "html,body{transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{transition:none!important}";
+      if (freezeStyle.sheet) freezeStyle.sheet.disabled = true;
+      try {
+        css += animationSafetyRules();
+        if (freezeStyle.textContent !== css) freezeStyle.textContent = css;
+        if (!freezeStyle.isConnected) document.head.appendChild(freezeStyle);
+      } finally {
+        if (freezeStyle.sheet) freezeStyle.sheet.disabled = false;
+      }
     }
     syncEditingSafetyStyle();
+    function inlineAnimationDeclarations(value) {
+      return (value || "").split(";").filter(function(declaration) {
+        return /^\\s*(?:--[\\w-]+|(?:-webkit-)?animation(?:-[\\w-]+)?)\\s*:/.test(
+          declaration
+        );
+      }).join(";");
+    }
+    function containsFrozenAnimationTarget(root) {
+      return Array.from(frozenAnimationTargets).some(function(element) {
+        return root.contains(element);
+      });
+    }
+    new MutationObserver(function(records) {
+      var changed = records.some(function(record) {
+        var target = record.target instanceof Element ? record.target : record.target.parentElement;
+        var style = target && target.closest("style");
+        if (style) return style !== freezeStyle;
+        if (record.type === "attributes") {
+          if (!target || target.closest("[data-agent-native-edit-overlay]"))
+            return false;
+          if (record.attributeName === "style")
+            return inlineAnimationDeclarations(record.oldValue) !== inlineAnimationDeclarations(target.getAttribute("style"));
+          return target.getAnimations({ subtree: true }).length > 0 || containsFrozenAnimationTarget(target);
+        }
+        if (target && containsFrozenAnimationTarget(target)) return true;
+        if (Array.from(record.removedNodes).some(function(node) {
+          return node instanceof Element && containsFrozenAnimationTarget(node);
+        }))
+          return true;
+        return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node) {
+          return node instanceof Element && node !== freezeStyle && (node.matches("style") || !!node.querySelector("style") || node.getAnimations({ subtree: true }).length > 0);
+        });
+      });
+      if (changed) syncEditingSafetyStyle();
+    }).observe(document.documentElement, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      attributeOldValue: true
+    });
+    window.addEventListener("resize", syncEditingSafetyStyle);
+    document.addEventListener(
+      "animationstart",
+      function(event) {
+        var target = event.target;
+        if (editingSafetyEnabled && target instanceof Element && !frozenAnimationSlots.has(
+          animationTargetSelector(target) + (event.pseudoElement || "")
+        ) && getComputedStyle(target, event.pseudoElement || null).animationIterationCount.split(",").some(function(count) {
+          return count.trim() === "infinite";
+        }))
+          syncEditingSafetyStyle();
+      },
+      true
+    );
+    document.addEventListener(
+      "load",
+      function(event) {
+        if (event.target instanceof HTMLLinkElement) syncEditingSafetyStyle();
+      },
+      true
+    );
     function clamp(value, limit) {
       var number = Number(value) || 0;
       if (number > limit) return limit;

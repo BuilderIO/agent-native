@@ -1,4 +1,7 @@
+import { intelligenceMessagesByLocale } from "../lib/intelligence-i18n";
+
 const messages = {
+  intelligence: intelligenceMessagesByLocale["zh-TW"].intelligence,
   common: {
     saving: "正在儲存",
     incompleteTranscript: "逐字稿不完整。因隱私保護而隱藏的段落數：{{count}}。",
@@ -30,6 +33,7 @@ const messages = {
     toggleTheme: "切換主題",
   },
   navigation: {
+    intelligence: "智慧資訊",
     collapseSidebar: "收合側邊欄",
     expandSidebar: "展開側邊欄",
     brand: "Brain",
@@ -303,6 +307,12 @@ const messages = {
     quarantineSource: "來源 {{source}}",
   },
   sources: {
+    googleCalendarId: "日曆 ID",
+    googleMailQuery: "Gmail 搜尋",
+    googleDriveFileIds: "Google Drive 檔案 ID",
+    googlePrivateSource: "匯入內容僅供連線帳戶擁有者存取。",
+    googleConnectionRequired: "選擇已連線的 Google 帳戶。",
+    googleDriveFileIdsHint: "每行輸入一個 Google 文件或純文字檔案 ID。",
     eyebrow: "來源",
     title: "來源設定",
     description: "連線 Brain 可以學習的認可地點，然後根據需要進行同步和審查。",
@@ -311,6 +321,7 @@ const messages = {
     emptyTitle: "連線 Brain 的第一個來源",
     emptyDetail:
       "新增已核准的 Slack 通道、Granola Team-space 來源、GitHub 儲存庫、Clips 匯出、手動匯入或簽名的 Webhook。",
+    rotationConflictDetail: "來源已變更。請重新載入頁面，然後重試權杖輪換。",
     actionFailedTitle: "來源操作失敗",
     actionFailedDetail: "檢查來源憑證、通道允許清單和最新的同步錯誤。",
     advancedTitle: "進階來源程式碼控制",
@@ -435,13 +446,25 @@ const messages = {
     manualSync: "手動同步",
     manualImportTitle: "將文件匯入 {{source}}",
     manualImportDescription:
-      "選取 Markdown 或純文字的資料夾或檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
+      "選取 Markdown 或純文字檔案。匯入內容遵循此來源的存取設定。",
+    manualImportKind: "匯入類型",
+    manualImportDocument: "文件",
+    manualImportTranscript: "會議逐字稿",
     chooseMarkdownFolder: "選取資料夾",
     importMarkdownFiles: "匯入文件",
+    manualImportConcurrent: "匯入時擷取內容已變更。請重新匯入。",
+    manualImportScreeningUnavailable:
+      "Brain 無法檢查這次匯入。內容未儲存，也未加入佇列。請在檢查服務可用後重試。",
+    distillationHandoffCancelled: "蒸餾任務交接已在送達前取消。",
+    distillationDeliveryUnknown:
+      "蒸餾任務是否送達尚未確認。重試前請檢查是否已有部分工作。",
     companyContextUpload: "上傳公司脈絡",
     companyContextAdminOnly: "只有組織擁有者和管理員可以上傳公司脈絡。",
     companyContextOpenFailed: "無法開啟公司脈絡上傳。請再試一次。",
     manualImportNoFiles: "未選取文件",
+    importCaptureTime: "記錄時間（選填）",
+    importTranscript: "此檔案是逐字稿",
+    importParticipants: "參與者，以逗號分隔（僅儲存人數，不授予存取權）",
     manualImportFilesSelected: "已選取 {{count}} 份文件",
     manualImportFileLimit:
       "支援 .md、.markdown 和 .txt。每次匯入上限為 100 個檔案和 400 萬個字元。",
@@ -625,6 +648,9 @@ const messages = {
       connect: "Connect",
     },
     defaultTitle: {
+      google_calendar: "Google 日曆",
+      gmail: "Gmail 郵件",
+      google_drive: "Google Drive 檔案",
       slack: "Slack 知識管道",
       granola: "Granola 團隊筆記",
       zoom: "Zoom 會議逐字稿",

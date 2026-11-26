@@ -10,6 +10,7 @@ import {
   recordAgentToolCall,
   recordGenAiChat,
   recordHttpServerRequest,
+  recordUnreadableSyncEvent,
 } from "./metrics.js";
 import {
   type ObservabilityProvider,
@@ -372,6 +373,32 @@ describe("recordActionChangeMarkerFailure", () => {
         attributes: { "error.type": "TypeError" },
       },
     ]);
+  });
+});
+
+describe("recordUnreadableSyncEvent", () => {
+  it("counts one skipped sync event by cause on a described counter", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordUnreadableSyncEvent("threw");
+
+    expect(meterProvider.recorded).toEqual([
+      {
+        instrument: "agent_native.sync.unreadable_events",
+        value: 1,
+        attributes: { cause: "threw" },
+      },
+    ]);
+    expect(
+      meterProvider.created.find(
+        (instrument) =>
+          instrument.name === "agent_native.sync.unreadable_events",
+      )?.options,
+    ).toEqual({
+      description:
+        "Sync events a poll skipped because their access check failed or timed out, or their row could not be read.",
+    });
   });
 });
 

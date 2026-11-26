@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assertFirstPartyAnalyticsBigQuerySql,
@@ -11,6 +11,7 @@ import {
   scopedAnalyticsSql,
 } from "./first-party-analytics.js";
 import { buildPanel } from "./first-party-metric-catalog.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -81,16 +82,19 @@ async function event(
   );
 }
 
+beforeAll(async () => {
+  db = await PGlite.create("memory://");
+});
+afterAll(async () => {
+  await db.close();
+});
 beforeEach(async () => {
   now = Date.now();
   nextId = 0;
-  db = await PGlite.create("memory://");
+  await resetPublicSchema(db);
   await db.query(
     `CREATE TABLE analytics_events (id text, event_name text, timestamp text, event_date text, app text, template text, properties text, user_id text, user_key text, anonymous_id text, hostname text, received_at text)`,
   );
-});
-afterEach(async () => {
-  await db.close();
 });
 
 describe("Design Builder signup experiment metrics", () => {

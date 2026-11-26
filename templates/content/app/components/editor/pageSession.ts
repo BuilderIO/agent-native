@@ -37,6 +37,8 @@ export interface PageSaveResult {
     | "abandoned"
     | "pending_preservation"
     | "pending_collaboration_flush";
+  writtenTitle?: string;
+  titleRefused?: true;
   recoveryDraft?: {
     title: string;
     content: string;

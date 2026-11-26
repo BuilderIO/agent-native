@@ -63,6 +63,7 @@ function normalizeDesignQuestions(
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Show a Claude Design-style question form in the Design editor. This is " +
     "the in-app Design agent's intake step for non-trivial new prompts — the " +

@@ -6,15 +6,6 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   existingDesignFiles: [] as Array<{ filename: string }>,
   existingDesignRows: [] as Array<{ data: string | null }>,
-  recordGenerationCreativeContext: vi.fn(),
-  resolveGenerationCreativeContext: vi.fn(
-    async (input: { contextModeOverride?: "off" }) => ({
-      contextMode: input.contextModeOverride === "off" ? "off" : "auto",
-      contextPackId: null,
-      reuseLabels: [],
-      results: [],
-    }),
-  ),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -66,11 +57,6 @@ vi.mock("@agent-native/core/server", () => ({
     to?: string;
   }) =>
     `/_agent-native/open?app=${args.app}&view=${args.view}&designId=${args.params?.designId ?? ""}&to=${encodeURIComponent(args.to ?? "")}`,
-}));
-
-vi.mock("@agent-native/creative-context/server", () => ({
-  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
-  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
 }));
 
 const track = vi.hoisted(() => vi.fn());

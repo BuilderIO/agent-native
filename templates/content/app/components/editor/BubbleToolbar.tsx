@@ -9,11 +9,13 @@ import {
   IconCode,
   IconLink,
   IconMessageCircle,
+  IconPencil,
 } from "@tabler/icons-react";
 import {
   NodeSelection,
   Plugin,
   PluginKey,
+  TextSelection,
   type EditorState,
 } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
@@ -35,10 +37,16 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  selectedListItem,
+  turnSelectedListItemInto,
+  type TurnIntoTarget,
+} from "./block-actions";
+import {
   captureAnchor,
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import { isDrawnCodeBlock } from "./extensions/CodeBlockNode";
 import { rangeTouchesToggleTitle } from "./extensions/NotionExtensions";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
@@ -46,13 +54,16 @@ export type CommentRange = { from: number; to: number };
 
 export interface BubbleToolbarProps {
   editor: Editor;
-  onComment?: (
-    quotedText: string,
-    offsetTop: number,
-    anchor?: CommentTextAnchor,
-    range?: CommentRange,
-    suggestionId?: string,
-  ) => void;
+  onComment?:
+    | ((
+        quotedText: string,
+        offsetTop: number,
+        anchor?: CommentTextAnchor,
+        range?: CommentRange,
+        suggestionId?: string,
+      ) => void)
+    | undefined;
+  onSuggestEdit?: (() => void) | undefined;
 }
 
 // Suggested text exists only in the author's draft, so a page comment anchored
@@ -85,7 +96,22 @@ type SelectionFillRange = {
   to: number;
 };
 
-type TextStyle = "paragraph" | 1 | 2 | 3 | 4 | 5 | 6;
+type ListStyle = "bulletList" | "orderedList" | "taskList";
+type TextStyle = "paragraph" | 1 | 2 | 3 | 4 | 5 | 6 | ListStyle;
+
+function isListStyle(name: string): name is ListStyle {
+  return name === "bulletList" || name === "orderedList" || name === "taskList";
+}
+
+const TEXT_STYLE_TARGETS: Partial<Record<TextStyle, TurnIntoTarget>> = {
+  paragraph: "text",
+  1: "heading1",
+  2: "heading2",
+  3: "heading3",
+  bulletList: "bulletedList",
+  orderedList: "numberedList",
+  taskList: "todoList",
+};
 type ColorAttribute = "color" | "bgColor";
 type ColorName =
   | "gray"
@@ -153,6 +179,8 @@ export function selectionHasColorableText(
   return hasText;
 }
 
+const COMPACT_BUTTON = "max-[419px]:p-[5px]";
+
 type ToolbarAction = {
   icon: React.ElementType;
   title: string;
@@ -198,6 +226,7 @@ function BubbleActionButton({ item }: { item: ToolbarAction }) {
           aria-label={title}
           className={cn(
             "p-2 rounded",
+            COMPACT_BUTTON,
             isActive()
               ? "bg-accent text-accent-foreground"
               : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
@@ -258,6 +287,9 @@ export function setSelectionNotionSpanAttribute(
 }
 
 function activeTextStyle(editor: Editor): TextStyle {
+  const item = selectedListItem(editor.state.selection);
+  const list = item && editor.state.doc.resolve(item.pos).parent.type.name;
+  if (list && isListStyle(list)) return list;
   for (const level of [1, 2, 3, 4, 5, 6] as const) {
     if (editor.isActive("heading", { level })) return level;
   }
@@ -276,9 +308,11 @@ function selectionIncludesBubbleToolbarExcludedNode(
   // Selected cells are a rectangle, not the text between from and to: that
   // range also crosses the cells beside them.
   if (state.selection instanceof CellSelection) return true;
+  // A selected Mermaid block is its drawing, which has no text to format.
   if (
     state.selection instanceof NodeSelection &&
-    BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name)
+    (BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name) ||
+      isDrawnCodeBlock(state.selection.node))
   ) {
     return true;
   }
@@ -381,10 +415,8 @@ export function shouldShowReadOnlyCommentBubble({
 export function ReadOnlyCommentBubble({
   editor,
   onComment,
-}: {
-  editor: Editor;
-  onComment: NonNullable<BubbleToolbarProps["onComment"]>;
-}) {
+  onSuggestEdit,
+}: Pick<BubbleToolbarProps, "editor" | "onComment" | "onSuggestEdit">) {
   const t = useT();
   const [pluginKey] = useState(
     () => new PluginKey("contentReadOnlyCommentBubble"),
@@ -402,20 +434,36 @@ export function ReadOnlyCommentBubble({
         className="flex items-center gap-0.5"
         onMouseDown={(e) => e.preventDefault()}
       >
-        <BubbleActionButton
-          item={{
-            icon: IconMessageCircle,
-            title: t("editor.comment"),
-            action: createCommentFromSelection,
-            isActive: () => false,
-          }}
-        />
+        {onComment ? (
+          <BubbleActionButton
+            item={{
+              icon: IconMessageCircle,
+              title: t("editor.comment"),
+              action: createCommentFromSelection,
+              isActive: () => false,
+            }}
+          />
+        ) : null}
+        {onSuggestEdit ? (
+          <BubbleActionButton
+            item={{
+              icon: IconPencil,
+              title: t("editor.suggestEdit"),
+              action: onSuggestEdit,
+              isActive: () => false,
+            }}
+          />
+        ) : null}
       </div>
     </BubbleMenu>
   );
 }
 
-export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
+export function BubbleToolbar({
+  editor,
+  onComment,
+  onSuggestEdit,
+}: BubbleToolbarProps) {
   const t = useT();
   const [bubbleMenuKey] = useState(() => new PluginKey("contentBubbleToolbar"));
   const [showLinkInput, setShowLinkInput] = useState(false);
@@ -536,6 +584,24 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       menuLabel: "H4",
       label: t("editor.heading4"),
     },
+    {
+      value: "bulletList" as const,
+      shortLabel: t("editor.slash.bulletedList"),
+      menuLabel: "•",
+      label: t("editor.slash.bulletedList"),
+    },
+    {
+      value: "orderedList" as const,
+      shortLabel: t("editor.slash.numberedList"),
+      menuLabel: "1.",
+      label: t("editor.slash.numberedList"),
+    },
+    {
+      value: "taskList" as const,
+      shortLabel: t("editor.slash.todoList"),
+      menuLabel: "[]",
+      label: t("editor.slash.todoList"),
+    },
   ];
   const selectedTextStyle =
     textStyles.find((style) => style.value === textStyle) ??
@@ -551,13 +617,39 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const applyTextStyle = (style: TextStyle) => {
     const chain = toolbarEditChain(editor);
     if (!chain) return;
-    if (textStyleSelection.current) {
-      chain.setTextSelection(textStyleSelection.current);
+    const saved = textStyleSelection.current;
+    const target = TEXT_STYLE_TARGETS[style];
+    const tr = editor.state.tr;
+    if (saved) {
+      const size = tr.doc.content.size;
+      tr.setSelection(
+        TextSelection.create(
+          tr.doc,
+          Math.min(saved.from, size),
+          Math.min(saved.to, size),
+        ),
+      );
     }
-    if (style === "paragraph") {
-      chain.setNode("paragraph").focus().run();
+    if (
+      target &&
+      selectedListItem(tr.selection) &&
+      turnSelectedListItemInto(tr, target)
+    ) {
+      editor.view.dispatch(tr);
+      editor.commands.focus();
     } else {
-      chain.setHeading({ level: style }).focus().run();
+      if (saved) chain.setTextSelection(saved);
+      if (style === "paragraph") {
+        chain.setNode("paragraph").focus().run();
+      } else if (style === "bulletList") {
+        chain.toggleBulletList().focus().run();
+      } else if (style === "orderedList") {
+        chain.toggleOrderedList().focus().run();
+      } else if (style === "taskList") {
+        chain.toggleTaskList().focus().run();
+      } else {
+        chain.setHeading({ level: style }).focus().run();
+      }
     }
     textStyleApplied.current = true;
     setTextStyle(style);
@@ -848,13 +940,23 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },
+    ...(onComment || onSuggestEdit ? [{ type: "divider" as const }] : []),
     ...(onComment
       ? [
-          { type: "divider" as const },
           {
             icon: IconMessageCircle,
             title: t("editor.comment"),
             action: createCommentFromSelection,
+            isActive: () => false,
+          },
+        ]
+      : []),
+    ...(onSuggestEdit
+      ? [
+          {
+            icon: IconPencil,
+            title: t("editor.suggestEdit"),
+            action: onSuggestEdit,
             isActive: () => false,
           },
         ]
@@ -882,8 +984,13 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleSetLink();
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSetLink();
+              }
               if (e.key === "Escape") {
+                e.preventDefault();
                 setShowLinkInput(false);
                 setLinkUrl("");
               }
@@ -945,7 +1052,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                     <button
                       type="button"
                       aria-label={`${t("editor.slash.turnInto")}: ${selectedTextStyle.label}`}
-                      className="flex h-8 min-w-14 items-center justify-between gap-1 rounded px-2 text-sm font-medium text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground"
+                      className="flex h-8 min-w-14 items-center justify-between gap-1 rounded px-2 text-sm font-medium text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground max-[419px]:h-[26px] max-[419px]:min-w-0 max-[419px]:px-[5px]"
                     >
                       <span>{selectedTextStyle.shortLabel}</span>
                       <IconChevronDown size={14} strokeWidth={2} />
@@ -1042,7 +1149,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                       type="button"
                       aria-label={t("editor.color.label")}
                       className={cn(
-                        "flex size-8 items-center justify-center rounded text-sm font-semibold text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground",
+                        "flex size-8 items-center justify-center rounded text-sm font-semibold text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground max-[419px]:size-[26px]",
                         colorOpen && "bg-accent text-accent-foreground",
                       )}
                     >

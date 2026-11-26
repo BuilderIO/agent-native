@@ -8,6 +8,8 @@ import {
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
   EXTERNAL_EMBED_WINDOW_KEY,
+  STALE_CHUNK_NAVIGATING_AT_KEY,
+  STALE_CHUNK_RELOAD_AT_KEY,
 } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   createRouteChunkRecoveryState,
@@ -30,6 +32,7 @@ function createFakeWindow(
     lockReload?: boolean;
     sessionStorageGetterThrows?: boolean;
     sessionStorageThrows?: boolean;
+    onLine?: boolean;
     userAgent?: string;
     viteDevRecovery?: boolean;
   } = {},
@@ -105,6 +108,7 @@ function createFakeWindow(
     sessionStorage,
     navigator: {
       userAgent: opts.userAgent ?? "Mozilla/5.0",
+      onLine: opts.onLine ?? true,
     },
     console: {
       error: vi.fn(),
@@ -519,6 +523,152 @@ describe("route chunk recovery", () => {
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
   });
 
+  it("stays on the current page while offline and navigates to the clicked target once online", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
+      createFakeWindow(undefined, { onLine: false });
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: {
+        tagName: "A",
+        href: "https://example.com/dispatch/new-app?x=1#top",
+        hasAttribute: () => false,
+        getAttribute: () => null,
+        parentElement: null,
+      },
+    } as unknown as MouseEvent);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/new-app.js",
+      ),
+      preventDefault,
+    } as unknown as PromiseRejectionEvent);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(fakeWindow.sessionStorage.setItem).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+
+    dispatchWindow("online", new Event("online"));
+    expect(fakeLocation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://example.com/dispatch/new-app?x=1#top",
+    );
+  });
+
+  function offlineClick(
+    harness: ReturnType<typeof createFakeWindow>,
+    href: string,
+  ) {
+    rememberRouteChunkRecoveryNavigation(href, harness.fakeWindow);
+    harness.dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/x.js",
+      ),
+      preventDefault: vi.fn(),
+    } as unknown as PromiseRejectionEvent);
+  }
+
+  it("retries only the latest offline click", () => {
+    const harness = createFakeWindow(undefined, { onLine: false });
+    installRouteChunkRecovery(harness.fakeWindow);
+
+    offlineClick(harness, "https://example.com/dispatch/a");
+    offlineClick(harness, "https://example.com/dispatch/b");
+    harness.dispatchWindow("online", new Event("online"));
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://example.com/dispatch/b",
+    );
+  });
+
+  it("drops the pending retry when the user navigated elsewhere while offline", () => {
+    const harness = createFakeWindow(undefined, { onLine: false });
+    installRouteChunkRecovery(harness.fakeWindow);
+
+    offlineClick(harness, "https://example.com/dispatch/a");
+    harness.fakeLocation.href = "https://example.com/dispatch/loaded";
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(harness.originalReload).not.toHaveBeenCalled();
+  });
+
+  it("reloads the document instead of assigning when the retry target is the current page with a fragment", () => {
+    const harness = createFakeWindow("https://example.com/dispatch/apps#top", {
+      onLine: false,
+    });
+
+    expect(reloadForStaleChunk(harness.fakeWindow, 1_000)).toBe(true);
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.originalReload).toHaveBeenCalledOnce();
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+  });
+
+  it("never queues an offline retry inside an external embed", () => {
+    const harness = createFakeWindow(undefined, { onLine: false });
+    (harness.fakeWindow as unknown as Record<string, unknown>)[
+      EXTERNAL_EMBED_WINDOW_KEY
+    ] = { origin: "https://app.example.com" };
+
+    expect(reloadForStaleChunk(harness.fakeWindow, 1_000)).toBe(false);
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(harness.originalReload).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(harness.fakeWindow)).toEqual({
+      reason: "external-embed",
+    });
+  });
+
+  it("reports desktop exhaustion instead of arming an offline retry", () => {
+    const harness = createFakeWindow(undefined, {
+      onLine: false,
+      userAgent: "Mozilla/5.0 AgentNativeDesktop/1.0",
+    });
+
+    expect(reloadForStaleChunk(harness.fakeWindow, 1_000)).toBe(false);
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(harness.originalReload).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(harness.fakeWindow)).toEqual({
+      reason: "desktop",
+    });
+  });
+
+  it("arms the retry from the console hook when reload cannot be patched offline", () => {
+    const harness = createFakeWindow(undefined, {
+      onLine: false,
+      lockReload: true,
+    });
+    installRouteChunkRecovery(harness.fakeWindow);
+    rememberRouteChunkRecoveryNavigation(
+      "https://example.com/dispatch/a",
+      harness.fakeWindow,
+    );
+
+    harness.fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/a.js`, reloading page...",
+    );
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(harness.fakeWindow)).toBeUndefined();
+    harness.dispatchWindow("online", new Event("online"));
+    expect(harness.fakeLocation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://example.com/dispatch/a",
+    );
+  });
+
   it("recovers global dynamic import errors using the intended target", () => {
     const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
       createFakeWindow();
@@ -857,7 +1007,7 @@ describe("route chunk recovery", () => {
     expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
     expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
 
-    expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
+    expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(true);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
 
     expect(reloadForStaleChunk(fakeWindow, 20_000)).toBe(true);
@@ -1027,15 +1177,93 @@ describe("route chunk recovery", () => {
       expect(dispatchEvent).not.toHaveBeenCalled();
     });
 
-    it("reports exactly once when the reload cooldown blocks it", () => {
-      const { fakeWindow } = createFakeWindow();
+    it("stays silent for chunks that fail while this page's own recovery reload is unloading", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
       const dispatchEvent = vi.fn();
       (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
         dispatchEvent;
 
       expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
-      expect(reloadForStaleChunk(fakeWindow, 2_000)).toBe(false);
-      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, 1_050)).toBe(true);
+      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(true);
+
+      expect(fakeLocation.assign).toHaveBeenCalledOnce();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+      expect(dispatchEvent).not.toHaveBeenCalled();
+    });
+
+    it("keeps suppressing through the full cooldown but not past it", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
+      expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+      expect(reloadForStaleChunk(fakeWindow, 11_000)).toBe(true);
+      expect(fakeLocation.assign).toHaveBeenCalledOnce();
+      expect(reloadForStaleChunk(fakeWindow, 11_001)).toBe(true);
+      expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+    });
+
+    it("reports exhaustion when the navigating marker is stale or malformed", () => {
+      const stale = createFakeWindow();
+      const win = stale.fakeWindow as unknown as Record<string, unknown>;
+      win[STALE_CHUNK_RELOAD_AT_KEY] = 999_900;
+      win[STALE_CHUNK_NAVIGATING_AT_KEY] = 1_000;
+      expect(reloadForStaleChunk(stale.fakeWindow, 1_000_000)).toBe(false);
+      expect(readStaleChunkRecoveryExhausted(stale.fakeWindow)).toEqual({
+        reason: "cooldown",
+      });
+
+      const malformed = createFakeWindow();
+      const mWin = malformed.fakeWindow as unknown as Record<string, unknown>;
+      mWin[STALE_CHUNK_RELOAD_AT_KEY] = 1_000;
+      mWin[STALE_CHUNK_NAVIGATING_AT_KEY] = "1000";
+      expect(reloadForStaleChunk(malformed.fakeWindow, 1_050)).toBe(false);
+    });
+
+    it("clears the navigating marker when both navigation attempts throw", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
+      fakeLocation.assign.mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      Object.defineProperty(fakeLocation, "href", {
+        configurable: true,
+        get: () => "https://example.com/dispatch/apps",
+        set: () => {
+          throw new Error("blocked");
+        },
+      });
+
+      expect(() => reloadForStaleChunk(fakeWindow, 1_000)).toThrow("blocked");
+      expect(
+        (fakeWindow as unknown as Record<string, unknown>)[
+          STALE_CHUNK_NAVIGATING_AT_KEY
+        ],
+      ).toBeUndefined();
+      expect(reloadForStaleChunk(fakeWindow, 1_050)).toBe(false);
+    });
+
+    it("falls back to href assignment when assign throws once", () => {
+      const { fakeWindow, fakeLocation } = createFakeWindow();
+      fakeLocation.assign.mockImplementation(() => {
+        throw new Error("assign blocked");
+      });
+
+      expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+      expect(fakeLocation.href).toContain(CHUNK_RECOVERY_QUERY_PARAM);
+    });
+
+    it("reports exactly once when a reloaded page still hits the cooldown", () => {
+      const first = createFakeWindow();
+      expect(reloadForStaleChunk(first.fakeWindow, Date.now())).toBe(true);
+      const recoveryUrl = first.fakeLocation.assign.mock.calls[0]?.[0];
+
+      const { fakeWindow } = createFakeWindow(recoveryUrl);
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+      installRouteChunkRecovery(fakeWindow);
+
+      expect(reloadForStaleChunk(fakeWindow, Date.now())).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, Date.now())).toBe(false);
 
       expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
         reason: "cooldown",

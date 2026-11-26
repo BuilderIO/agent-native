@@ -2,18 +2,40 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as React from "react";
 
 import { cn } from "../utils.js";
+import {
+  useFocusReturn,
+  FocusReturnScope,
+  useNativeTriggerRef,
+} from "./focus-return.js";
 import { useInModalLayer } from "./modal-layer.js";
+
+const PopoverModalContext = React.createContext(false);
 
 // Modal inside a dialog or sheet: its content joins the scroll lock's allowed layers, so the wheel scrolls it.
 function Popover({
   modal,
+  children,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   const inModalLayer = useInModalLayer();
-  return <PopoverPrimitive.Root modal={modal ?? inModalLayer} {...props} />;
+  const resolvedModal = modal ?? inModalLayer;
+  return (
+    <PopoverModalContext.Provider value={resolvedModal}>
+      <PopoverPrimitive.Root modal={resolvedModal} {...props}>
+        <FocusReturnScope>{children}</FocusReturnScope>
+      </PopoverPrimitive.Root>
+    </PopoverModalContext.Provider>
+  );
 }
 
-const PopoverTrigger = PopoverPrimitive.Trigger;
+const PopoverTrigger = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>
+>((props, ref) => {
+  const triggerRef = useNativeTriggerRef(ref);
+  return <PopoverPrimitive.Trigger {...props} ref={triggerRef} />;
+});
+PopoverTrigger.displayName = PopoverPrimitive.Trigger.displayName;
 
 const PopoverAnchor = PopoverPrimitive.Anchor;
 
@@ -33,13 +55,33 @@ const PopoverContent = React.forwardRef<
       sideOffset = 4,
       portalled = true,
       container,
+      onCloseAutoFocus,
+      onFocusOutside,
+      onInteractOutside,
       ...props
     },
     ref,
   ) => {
+    const focusReturn = useFocusReturn(ref);
+    const modal = React.useContext(PopoverModalContext);
+    const interactedOutside = React.useRef(false);
     const content = (
       <PopoverPrimitive.Content
-        ref={ref}
+        ref={focusReturn.ref}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          if (!modal && !event.defaultPrevented)
+            interactedOutside.current = true;
+        }}
+        onFocusOutside={(event) => {
+          onFocusOutside?.(event);
+          focusReturn.focusOutside(event, modal);
+        }}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          if (!interactedOutside.current) focusReturn.close(event, true);
+          interactedOutside.current = false;
+        }}
         align={align}
         sideOffset={sideOffset}
         className={cn(

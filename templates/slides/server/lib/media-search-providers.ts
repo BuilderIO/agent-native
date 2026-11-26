@@ -99,9 +99,10 @@ export async function searchProviderImages(
   const normalizedQuery = query.trim();
   if (!normalizedQuery) throw new Error("Image search requires a query.");
 
-  const [apiKey, searchEngineId] = await Promise.all([
+  const [apiKey, searchEngineId, searchUrl] = await Promise.all([
     runtime.resolveSecret("GOOGLE_API_KEY"),
     runtime.resolveSecret("GOOGLE_SEARCH_CX"),
+    runtime.resolveSecret("GOOGLE_SEARCH_URL"),
   ]);
   if (!apiKey || !searchEngineId) {
     throw new Error(
@@ -118,7 +119,7 @@ export async function searchProviderImages(
     safe: "active",
   });
   const response = await runtime.fetch(
-    `${GOOGLE_IMAGE_SEARCH_URL}?${params}`,
+    `${searchUrl || GOOGLE_IMAGE_SEARCH_URL}?${params}`,
     fetchOptions(),
   );
   if (!response.ok) {

@@ -48,7 +48,10 @@ const mocks = vi.hoisted(() => {
       updatedAt: "designs.updatedAt",
     },
     snapshots,
-    design: { liveCollaborationEnabled: false },
+    design: {
+      liveCollaborationEnabled: false,
+      data: JSON.stringify({ screenMetadata: {} }),
+    },
     assertAccess: vi.fn(),
     currentAccess: vi.fn(() => ({
       userEmail: "owner@example.test",
@@ -82,6 +85,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
+  getRequestContext: () => ({ requestOrigin: "https://design.example.test" }),
 }));
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ conditions })),
@@ -141,11 +145,56 @@ describe("visual-edit collaboration preference", () => {
         { designId: "design-one" },
         { caller: "frontend" },
       ),
-    ).toEqual({ designId: "design-one", enabled: false });
+    ).toMatchObject({
+      designId: "design-one",
+      enabled: false,
+      previews: [],
+      shareUrl: expect.any(String),
+    });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design-one",
       "viewer",
+    );
+  });
+
+  it("returns tunnel mappings to viewers only while live previews are enabled", async () => {
+    const data = JSON.stringify({
+      screenMetadata: {
+        home: { tunnelUrl: "https://demo.ngrok-free.app" },
+        inline: { title: "No mapping" },
+      },
+    });
+    const run = async (role: string, enabled: boolean) => {
+      mocks.assertAccess.mockResolvedValueOnce({
+        role,
+        resource: { liveCollaborationEnabled: enabled, data },
+      });
+      return (
+        await getCollaborationAction.run(
+          { designId: "design-one" },
+          { caller: "frontend" },
+        )
+      ).previews;
+    };
+    const mapping = [
+      { fileId: "home", tunnelUrl: "https://demo.ngrok-free.app" },
+    ];
+    expect(await run("viewer", false)).toEqual([]);
+    expect(await run("viewer", true)).toEqual(mapping);
+    expect(await run("owner", false)).toEqual(mapping);
+    expect(await run("editor", false)).toEqual(mapping);
+  });
+
+  it("returns an absolute link targeting the shared visual-edit canvas", async () => {
+    const result = await getCollaborationAction.run(
+      { designId: "design-one" },
+      { caller: "frontend" },
+    );
+    const url = new URL(result.shareUrl);
+    expect(url.origin).toBe("https://design.example.test");
+    expect(url.searchParams.get("to")).toBe(
+      "/visual-edit/design-one?share=1&editorView=overview",
     );
   });
 

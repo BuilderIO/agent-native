@@ -16,6 +16,7 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) {

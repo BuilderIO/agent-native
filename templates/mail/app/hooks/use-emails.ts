@@ -6,6 +6,7 @@ import {
   surfaceMutationError,
 } from "@agent-native/core/client/write-failure";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
+import { composeAttachmentLink } from "@shared/compose-attachments";
 import {
   gmailCooldownFromError,
   gmailReadState,
@@ -44,6 +45,7 @@ import {
   findInboxThreadIdByMessageId,
   forgetInboxMutation,
   INBOX_THREADS_QUERY_KEY,
+  inboxThreadShowsRead,
   invalidateInboxThreads,
   markInboxThreadReadOptimistic,
   removeInboxThreadsOptimistic,
@@ -75,6 +77,7 @@ import {
 } from "@/lib/thread-cache";
 import { bodyToHtml } from "@/lib/utils";
 
+import type { LabelEmailResult } from "../../actions/label-email";
 import type { MoveEmailResult } from "../../actions/move-email";
 
 const EMAIL_PAGE_SIZE = 25;
@@ -397,7 +400,7 @@ export function useAddOptimisticReply() {
               filename: att.originalName,
               mimeType: att.mimeType,
               size: att.size,
-              url: att.url,
+              url: composeAttachmentLink(att),
             })),
           }
         : {}),
@@ -1563,26 +1566,24 @@ export function useMarkRead() {
       const previousThread = resolvedThreadId
         ? getCachedThread(resolvedThreadId, resolvedAccountEmail)
         : undefined;
-      const previousReadState =
-        previousThread?.find((message) => message.id === id)?.isRead ??
-        target?.isRead;
-      const mutationVersion = beginReadMutation(
+      const previousReadState = optimisticBooleanState(
         id,
-        previousReadState ?? target?.isRead,
-        isRead,
+        "isRead",
+        previousThread?.find((message) => message.id === id)?.isRead ??
+          target?.isRead,
       );
+      const inboxThreadId = resolvedThreadId ?? id;
+      const inboxRowChanges = isRead
+        ? previousReadState === false
+        : previousReadState === true || inboxThreadShowsRead(qc, inboxThreadId);
+      const mutationVersion = beginReadMutation(id, previousReadState, isRead);
       const readIntent = resolvedThreadId
         ? beginThreadReadIntent(resolvedThreadId)
         : undefined;
       setOptimisticOverride(id, { isRead });
-      const inboxMutationId =
-        previousReadState !== undefined && previousReadState !== isRead
-          ? adjustInboxThreadUnreadOptimistic(
-              qc,
-              resolvedThreadId ?? id,
-              isRead ? -1 : 1,
-            )
-          : undefined;
+      const inboxMutationId = inboxRowChanges
+        ? adjustInboxThreadUnreadOptimistic(qc, inboxThreadId, isRead ? -1 : 1)
+        : undefined;
       const restartThread = resolvedThreadId
         ? supersedeCachedThreadFetch(resolvedThreadId, resolvedAccountEmail)
         : false;
@@ -2861,6 +2862,63 @@ export class MoveEmailPartialFailure extends Error {
   }
 }
 
+export class LabelEmailPartialFailure extends Error {
+  constructor(readonly result: LabelEmailResult) {
+    super("Some email threads could not be labeled");
+    this.name = "LabelEmailPartialFailure";
+  }
+}
+
+type LabelEmailVars = Omit<MoveEmailVars, "removeLabel" | "suppressionToken">;
+
+export function useLabelEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (variables: LabelEmailVars) => {
+      const result = await callAction("label-email", variables);
+      if (result.status === "partial")
+        throw new LabelEmailPartialFailure(result);
+      return result;
+    },
+    onSettled: (_result, _error, { id, threadId, threadIds }) => {
+      const threads = (threadIds ?? threadId ?? id)
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      for (const thread of new Set(threads)) invalidateCachedThread(thread);
+      return Promise.all(
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY].map((key) =>
+          qc.invalidateQueries({ queryKey: key }),
+        ),
+      );
+    },
+  });
+}
+
+export function useCreateLabel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (variables: { name: string; accountEmails?: string[] }) =>
+      callAction("create-label", variables),
+    onSuccess: (result) => {
+      qc.setQueriesData<{ labels: Label[]; errors: unknown[] }>(
+        { queryKey: LABELS_QUERY_KEY },
+        (current) =>
+          current && !current.labels.some(({ id }) => id === result.label.id)
+            ? {
+                ...current,
+                labels: [
+                  ...current.labels,
+                  { ...result.label, unreadCount: 0, totalCount: 0 },
+                ],
+              }
+            : current,
+      );
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY }),
+  });
+}
+
 export function useSaveDraft() {
   const qc = useQueryClient();
   return useMutation({
@@ -2899,14 +2957,14 @@ export function useSendEmail() {
   return useMutation({
     mutationFn: (data: {
       to: string;
-      cc?: string;
-      bcc?: string;
+      cc?: string | undefined;
+      bcc?: string | undefined;
       subject: string;
       body: string;
-      replyToId?: string;
-      replyToThreadId?: string;
-      accountEmail?: string;
-      attachments?: ComposeAttachment[];
+      replyToId?: string | undefined;
+      replyToThreadId?: string | undefined;
+      accountEmail?: string | undefined;
+      attachments?: ComposeAttachment[] | undefined;
     }) =>
       apiFetch<{
         id: string;
@@ -2969,7 +3027,7 @@ export function useSendEmail() {
                 filename: att.originalName,
                 mimeType: att.mimeType,
                 size: att.size,
-                url: att.url,
+                url: composeAttachmentLink(att),
               })),
             }
           : {}),

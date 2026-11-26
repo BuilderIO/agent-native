@@ -1841,14 +1841,14 @@ describe("session replay", () => {
       startedAt: expect.any(String),
       endedAt: new Date(eventTimestamp).toISOString(),
       durationMs: expect.any(Number),
-      url: "https://app.agent-native.com/all?code=%3Credacted%3E&q=%3Credacted%3E&keep=1",
+      url: "https://app.agent-native.com/all?code=%3Credacted%3E&q=%3Credacted%3E&keep=%3Credacted%3E",
       properties: { route: "/all?token=%3Credacted%3E&q=%3Credacted%3E" },
     });
     expect(Date.parse(body.startedAt)).toBeLessThanOrEqual(
       Date.parse(body.endedAt),
     );
     expect(body.events[0].data.href).toBe(
-      "https://app.agent-native.com/path?token=%3Credacted%3E&q=%3Credacted%3E&ok=1",
+      "https://app.agent-native.com/path?token=%3Credacted%3E&q=%3Credacted%3E&ok=%3Credacted%3E",
     );
     expect(body.events[0].data.source).toBe(
       "/oauth/callback?code=%3Credacted%3E",
@@ -2300,7 +2300,7 @@ describe("session replay", () => {
       srcset: "https://cdn.example.test/hero-2x.png?token=signed-image-2x 2x",
     });
     expect(anchor.attributes.href).toBe(
-      "/oauth/callback?p=%3Credacted%3E&token=%3Credacted%3E&keep=1",
+      "/oauth/callback?p=%3Credacted%3E&token=%3Credacted%3E&keep=%3Credacted%3E",
     );
     expect(script.attributes.src).toBe(
       "https://app.example.test/runtime.js?token=%3Credacted%3E",

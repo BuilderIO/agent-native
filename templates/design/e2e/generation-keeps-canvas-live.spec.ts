@@ -91,6 +91,6 @@ test("canvas stays drawable while the first screen is generating", async ({
   await expect(page.locator("[data-generating-screen-ghost]")).toBeVisible();
 
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Layers", exact: true }).click();
+  await page.getByRole("tab", { name: "File", exact: true }).click();
   await expect(rectangleLayer).toBeVisible();
 });

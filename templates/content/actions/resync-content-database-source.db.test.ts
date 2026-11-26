@@ -4609,6 +4609,244 @@ it("lets only one overlapping worker claim and finish the same Builder body job"
   expect(remainingQueue).toEqual([]);
 });
 
+async function seedBuilderBodyHydrationJobs(args: {
+  name: string;
+  count: number;
+  attempts?: number;
+  lastAttemptedAt?: string | null;
+  itemStatus?: "pending" | "hydrating";
+}) {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const model = `collection-${args.name}`;
+  const sourceId = `src_${args.name}`;
+  const databaseId = `db_${args.name}`;
+  const databaseDocId = `doc_db_${args.name}`;
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: args.name,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: args.name,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: model,
+    sourceTable: model,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const positions = Array.from({ length: args.count }, (_, index) => index + 1);
+  for (let offset = 0; offset < positions.length; offset += 40) {
+    const rows = positions.slice(offset, offset + 40).map((position) => {
+      const entryId = `entry-${args.name}-${position}`;
+      const sourceValues = {
+        "data.title": `${args.name} ${position}`,
+        "data.url": `/${args.name}-${position}`,
+        lastUpdated: "2026-01-01T00:00:00.000Z",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: `Body ${position} for ${args.name}.`,
+      };
+      return {
+        position,
+        documentId: `doc_${args.name}_${position}`,
+        itemId: `item_${args.name}_${position}`,
+        entryId,
+        sourceValues,
+        entry: {
+          id: entryId,
+          model,
+          title: `${args.name} ${position}`,
+          urlPath: `/${args.name}-${position}`,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          sourceValues,
+        },
+      };
+    });
+    await db.insert(schema.documents).values(
+      rows.map((row) => ({
+        id: row.documentId,
+        ownerEmail: OWNER,
+        parentId: databaseDocId,
+        title: row.entry.title,
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      rows.map((row) => ({
+        id: row.itemId,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: row.documentId,
+        position: row.position,
+        bodyHydrationStatus: args.itemStatus ?? "pending",
+        bodyHydrationError: null,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseSourceRows).values(
+      rows.map((row) => ({
+        id: `row_${args.name}_${row.position}`,
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: row.itemId,
+        documentId: row.documentId,
+        sourceRowId: row.entryId,
+        sourceQualifiedId: `builder-cms://${model}/${row.entryId}`,
+        sourceDisplayKey: row.entry.title,
+        sourceValuesJson: JSON.stringify(row.sourceValues),
+        provenance: "Builder CMS read adapter",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseBodyHydrationQueue).values(
+      rows.map((row) => ({
+        id: `queue_${args.name}_${row.position}`,
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: row.itemId,
+        documentId: row.documentId,
+        sourceRowId: row.entryId,
+        sourceTable: model,
+        sourceEntryJson: JSON.stringify(row.entry),
+        priority: 10,
+        attempts: args.attempts ?? 0,
+        lastAttemptedAt: args.lastAttemptedAt ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+  return { sourceId, databaseId };
+}
+
+it("says when a Builder body job held by a run that stopped can be retried", async () => {
+  const claimedAt = new Date(Date.now() - 30_000).toISOString();
+  const { sourceId } = await seedBuilderBodyHydrationJobs({
+    name: "hydration-held-claim",
+    count: 1,
+    attempts: 1,
+    lastAttemptedAt: claimedAt,
+    itemStatus: "hydrating",
+  });
+
+  const result = await hydrateQueuedBodies({
+    sourceId,
+    limit: 600,
+    preloadBodies: true,
+  });
+
+  expect(result).toMatchObject({
+    processed: 0,
+    succeeded: 0,
+    remaining: 1,
+    ready: 0,
+    nextAttemptAt: new Date(Date.parse(claimedAt) + 2 * 60_000).toISOString(),
+  });
+});
+
+it("hands Builder body jobs it hasn't started back to the queue when a run runs out of time", async () => {
+  const db = getDb();
+  const count = 80;
+  const { sourceId, databaseId } = await seedBuilderBodyHydrationJobs({
+    name: "hydration-run-budget",
+    count,
+  });
+
+  const first = await hydrateQueuedBodies({
+    sourceId,
+    limit: 600,
+    runBudgetMs: 0,
+  });
+  const queued = await db
+    .select({
+      attempts: schema.contentDatabaseBodyHydrationQueue.attempts,
+      lastAttemptedAt: schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+    })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+  const pendingItems = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, databaseId),
+        eq(schema.contentDatabaseItems.bodyHydrationStatus, "pending"),
+      ),
+    );
+
+  expect(first.succeeded).toBe(1);
+  expect(first).toMatchObject({
+    processed: first.succeeded,
+    failed: 0,
+    remaining: count - first.succeeded,
+    ready: count - first.succeeded,
+    nextAttemptAt: null,
+  });
+  expect(queued).toHaveLength(count - first.succeeded);
+  expect(
+    queued.every((job) => job.attempts === 0 && job.lastAttemptedAt === null),
+  ).toBe(true);
+  expect(pendingItems).toHaveLength(count - first.succeeded);
+
+  const second = await hydrateQueuedBodies({ sourceId, limit: 600 });
+
+  expect(second).toMatchObject({
+    succeeded: count - first.succeeded,
+    remaining: 0,
+  });
+});
+
+it("passes over Builder body jobs another run holds when picking jobs to run", async () => {
+  const db = getDb();
+  const claimedAt = new Date(Date.now() - 30_000).toISOString();
+  const { sourceId } = await seedBuilderBodyHydrationJobs({
+    name: "hydration-skip-held",
+    count: 2,
+  });
+  await db
+    .update(schema.contentDatabaseBodyHydrationQueue)
+    .set({ priority: 0, attempts: 1, lastAttemptedAt: claimedAt })
+    .where(
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.id,
+        "queue_hydration-skip-held_1",
+      ),
+    );
+  await db
+    .update(schema.contentDatabaseItems)
+    .set({ bodyHydrationStatus: "hydrating" })
+    .where(eq(schema.contentDatabaseItems.id, "item_hydration-skip-held_1"));
+
+  const result = await hydrateQueuedBodies({
+    sourceId,
+    limit: 1,
+    preloadBodies: true,
+  });
+
+  expect(result).toMatchObject({
+    processed: 1,
+    succeeded: 1,
+    remaining: 1,
+    ready: 0,
+    nextAttemptAt: new Date(Date.parse(claimedAt) + 2 * 60_000).toISOString(),
+  });
+});
+
 it("bulk-persists pristine first-attempt Builder bodies without per-row reads", async () => {
   builderReadMock.calls = [];
   builderReadMock.singleEntryCalls = [];
@@ -5891,6 +6129,116 @@ it("lets an empty body Builder published replace a saved body through hydration"
   expect(values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
   expect(values).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
 });
+
+it.each([
+  { status: "error", retryable: 1, retryTerminal: undefined, read: true },
+  { status: "error", retryable: 0, retryTerminal: undefined, read: false },
+  { status: "error", retryable: 0, retryTerminal: true, read: true },
+  {
+    status: "unavailable",
+    retryable: 0,
+    retryTerminal: undefined,
+    read: false,
+  },
+  { status: "unavailable", retryable: 0, retryTerminal: true, read: true },
+])(
+  "reads a failed body again for its article: $status, $retryable retryable, $retryTerminal terminal",
+  async ({ status, retryable, retryTerminal, read }) => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const key = `retry_terminal_${status}_${retryable}_${retryTerminal ?? false}`;
+    const databaseDocId = `doc_db_${key}`;
+    const documentId = `doc_${key}`;
+    const itemId = `item_${key}`;
+    const sourceId = `src_${key}`;
+
+    await db.insert(schema.documents).values([
+      {
+        id: databaseDocId,
+        ownerEmail: OWNER,
+        title: "DB retry terminal",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: documentId,
+        ownerEmail: OWNER,
+        parentId: databaseDocId,
+        title: "Retry terminal",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.contentDatabases).values({
+      id: `db_${key}`,
+      ownerEmail: OWNER,
+      documentId: databaseDocId,
+      title: "DB retry terminal",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId: `db_${key}`,
+      sourceType: "builder-cms",
+      sourceName: "collection-explicit-retry",
+      sourceTable: "collection-explicit-retry",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId: `db_${key}`,
+      documentId,
+      position: 0,
+      bodyHydrationStatus: status,
+      bodyHydrationError: "Content could not construct a Builder body.",
+      bodyHydrationReason: "conversion_failed",
+      bodyHydrationProviderStatus: "local_source_record",
+      bodyHydrationAttemptCount: 5,
+      bodyHydrationRetryable: retryable,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: `row_${key}`,
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: itemId,
+      documentId,
+      sourceRowId: "entry_explicit_retry",
+      sourceQualifiedId:
+        "builder-cms://collection-explicit-retry/entry_explicit_retry",
+      sourceDisplayKey: "Retry terminal",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Explicit retry",
+        "data.url": "/blog/explicit-retry",
+        lastUpdated: "2026-01-01T00:00:00.000Z",
+      }),
+      provenance: "Builder CMS read adapter",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await hydrateQueuedBodies({
+      sourceId,
+      documentId,
+      limit: 1,
+      retryFailed: true,
+      retryTerminal,
+    });
+
+    expect(result).toMatchObject({ succeeded: read ? 1 : 0, failed: 0 });
+    const [item] = await db
+      .select({ status: schema.contentDatabaseItems.bodyHydrationStatus })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.id, itemId));
+    expect(item.status).toBe(read ? "hydrated" : status);
+  },
+);
 
 it("explicitly retries a terminal retryable Builder hydration while preserving evidence until processing", async () => {
   const db = getDb();

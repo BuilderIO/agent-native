@@ -1,3 +1,5 @@
+import { MODEL_REFUSAL_CODE } from "../agent/engine/error-detail.js";
+import { EngineError } from "../agent/engine/types.js";
 import { completeText } from "./complete-text.js";
 
 export interface ChatTitleRequest {
@@ -33,10 +35,9 @@ export function chatTitleRequestFromBody(
   };
 }
 
-/** A 3-6 word tab title for a chat's first message. Throws when the model call fails. */
 export async function generateChatTitle(
   request: ChatTitleRequest,
-): Promise<string> {
+): Promise<string | null> {
   // Strip hidden context and mention markup before title generation.
   // Never let injected prompt context become a visible tab label.
   const cleanMessage = request.message
@@ -55,7 +56,16 @@ export async function generateChatTitle(
     maxOutputTokens: 30,
     temperature: 0,
     timeoutMs: 10_000,
+  }).catch((error: unknown) => {
+    if (
+      error instanceof EngineError &&
+      error.errorCode === MODEL_REFUSAL_CODE
+    ) {
+      return null;
+    }
+    throw error;
   });
+  if (result === null) return null;
   return result.text
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\s+/g, " ")

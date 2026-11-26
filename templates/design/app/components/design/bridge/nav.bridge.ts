@@ -1,5 +1,5 @@
 /**
- * Navigation bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Navigation bridge — injected into every Edit canvas iframe. Interact's document carries only the theme, links and tweaks bridges.
  * Interact uses interact-links.bridge.ts instead, which takes far less.
  *
  * A prototype lives in a `srcdoc` iframe, so a plain

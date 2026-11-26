@@ -3,9 +3,11 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getAccessibleCapture, serializeCapture } from "../server/lib/brain.js";
+import { publicSourceTitle } from "../server/lib/capture-sanitization.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  withheldPassageCount,
+  withOmissionReceipt,
 } from "../server/lib/search-index-contracts.js";
 import {
   redactSensitiveText,
@@ -35,14 +37,22 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id, includeRawContent }) => {
     const access = await getAccessibleCapture(id);
     if (!access) return { capture: null };
     const capture = {
       ...serializeCapture(access.capture),
-      withheldPassages: withheldZoomPassageCount(
-        parseCaptureMetadata(access.capture.metadataJson),
+      withheldPassages: withheldPassageCount(
+        parseCaptureMetadata(
+          withOmissionReceipt(
+            access.capture.metadataJson,
+            access.capture.content,
+            access.capture.kind,
+          ),
+        ),
         access.source.provider,
+        access.capture.kind,
       ),
     };
     if (includeRawContent) {
@@ -55,7 +65,10 @@ export default defineAction({
         },
         source: {
           id: access.source.id,
-          title: access.source.title,
+          title: publicSourceTitle(
+            access.source.title,
+            capture.withheldPassages,
+          ),
           provider: access.source.provider,
         },
         accessRole: access.role,
@@ -74,7 +87,9 @@ export default defineAction({
       },
       source: {
         id: access.source.id,
-        title: redactSensitiveText(access.source.title),
+        title: redactSensitiveText(
+          publicSourceTitle(access.source.title, capture.withheldPassages),
+        ),
         provider: access.source.provider,
       },
       accessRole: access.role,

@@ -89,7 +89,9 @@ import {
   readGitHubBlobTexts,
   readGitHubBranchHead,
   readGitHubFolderTree,
+  readGitHubPullRequests,
   readGitHubRenames,
+  searchGitHubPullRequests,
 } from "./github-source-client";
 
 const target = { owner: "acme", repo: "site" };
@@ -478,5 +480,127 @@ describe("Reading many files at once", () => {
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     budget.abort();
     await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+  });
+});
+
+describe("Pull request searches", () => {
+  const node = {
+    number: 12,
+    title: "Fix the header",
+    url: "https://github.com/acme/site/pull/12",
+    isDraft: false,
+    state: "OPEN",
+    createdAt: "2026-11-01T00:00:00Z",
+    updatedAt: "2026-11-02T00:00:00Z",
+    closedAt: null,
+    author: { login: "octocat" },
+    repository: { name: "site", owner: { login: "acme" } },
+  };
+  const pageInfo = { hasNextPage: false, endCursor: null };
+
+  it("reads a whole answer and its count", async () => {
+    github.response = {
+      status: 200,
+      json: { data: { search: { issueCount: 1, pageInfo, nodes: [node] } } },
+    };
+    await expect(
+      searchGitHubPullRequests({}, "is:open", 50),
+    ).resolves.toMatchObject({ total: 1, pullRequests: [{ number: 12 }] });
+  });
+
+  it("refuses a search answered only in part, so no row moves to Trash on it", async () => {
+    for (const json of [
+      // No count, so there's no telling what it left out.
+      { data: { search: { pageInfo, nodes: [node] } } },
+      // A count beside errors, as when one repository couldn't be searched.
+      {
+        data: { search: { issueCount: 1, pageInfo, nodes: [node] } },
+        errors: [{ message: "Resource protected by SAML enforcement" }],
+      },
+    ]) {
+      github.response = { status: 200, json };
+      await expect(
+        searchGitHubPullRequests({}, "is:open", 50),
+      ).rejects.toMatchObject({ code: "unavailable" });
+    }
+  });
+});
+
+describe("Reading pull requests by number", () => {
+  const node = {
+    number: 12,
+    title: "Fix the header",
+    url: "https://github.com/acme/site/pull/12",
+    isDraft: false,
+    state: "OPEN",
+    createdAt: "2026-11-01T00:00:00Z",
+    updatedAt: "2026-11-02T00:00:00Z",
+    closedAt: null,
+    author: { login: "octocat" },
+    repository: { name: "site", owner: { login: "acme" } },
+  };
+  const refs = [
+    { owner: "acme", repo: "site", number: 12 },
+    { owner: "acme", repo: "gone", number: 1 },
+  ];
+
+  it("reads one GitHub can't find as null and keeps the rest", async () => {
+    github.response = {
+      status: 200,
+      json: {
+        data: { r0: { pullRequest: node }, r1: null },
+        errors: [{ type: "NOT_FOUND", path: ["r1"], message: "Not found" }],
+      },
+    };
+    await expect(readGitHubPullRequests({}, refs)).resolves.toMatchObject([
+      { number: 12 },
+      null,
+    ]);
+  });
+
+  it("reads GitHub's MERGED state as merged and CLOSED as closed", async () => {
+    github.response = {
+      status: 200,
+      json: {
+        data: {
+          r0: {
+            pullRequest: {
+              ...node,
+              state: "MERGED",
+              closedAt: "2026-11-03T00:00:00Z",
+            },
+          },
+          r1: {
+            pullRequest: {
+              ...node,
+              number: 1,
+              state: "CLOSED",
+              closedAt: "2026-11-03T00:00:00Z",
+              repository: { name: "gone", owner: { login: "acme" } },
+            },
+          },
+        },
+      },
+    };
+    await expect(readGitHubPullRequests({}, refs)).resolves.toMatchObject([
+      { number: 12, state: "merged" },
+      { number: 1, state: "closed" },
+    ]);
+  });
+
+  it("refuses an answer with any other error, since a pull request it left null may still be there", async () => {
+    github.response = {
+      status: 200,
+      json: {
+        data: { r0: { pullRequest: node }, r1: null },
+        errors: [
+          { type: "FORBIDDEN", path: ["r1"], message: "SAML enforcement" },
+        ],
+      },
+    };
+    await expect(readGitHubPullRequests({}, refs)).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("SAML enforcement"),
+    });
   });
 });

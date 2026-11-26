@@ -39,9 +39,21 @@ export type ScreenCaptureDisplayOptions = {
 export function screenCaptureDisplayOptions(
   displaySurface: ScreenCaptureSurface,
   wantsMic: boolean,
+  nativeResolution?: { width: number; height: number },
 ): ScreenCaptureDisplayOptions {
+  const video = screenCaptureVideoConstraints(displaySurface);
+  if (displaySurface === "monitor" && nativeResolution) {
+    video.width = {
+      ideal: nativeResolution.width,
+      max: nativeResolution.width,
+    };
+    video.height = {
+      ideal: nativeResolution.height,
+      max: nativeResolution.height,
+    };
+  }
   return {
-    video: screenCaptureVideoConstraints(displaySurface),
+    video,
     audio: wantsMic,
     selfBrowserSurface: displaySurface === "browser" ? "include" : "exclude",
     surfaceSwitching: "include",

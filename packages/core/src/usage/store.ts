@@ -1,4 +1,5 @@
 import { getAppConfig } from "../app-config/index.js";
+import { commercialSurfacesHidden } from "../client/app-config.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -71,12 +72,29 @@ export const UNKNOWN_USAGE_BILLING: UsageBillingMode = {
   source: "unknown",
 };
 
+/**
+ * The billing mode as this deployment presents it. Where commercial surfaces
+ * are hidden (`billing.commercialSurfaces: "hide"`), credit and mixed billing
+ * read as plain spend, so no surface downstream can render a credit unit.
+ */
+export function deploymentUsageBilling(
+  billing: UsageBillingMode,
+): UsageBillingMode {
+  if (
+    commercialSurfacesHidden() &&
+    (billing.unit === "builder-credits" || billing.unit === "mixed")
+  ) {
+    return USD_USAGE_BILLING;
+  }
+  return billing;
+}
+
 export function usageBillingForEngine(
   engineName: string | null | undefined,
 ): UsageBillingMode {
-  return engineName === "builder"
-    ? BUILDER_CREDIT_USAGE_BILLING
-    : USD_USAGE_BILLING;
+  return deploymentUsageBilling(
+    engineName === "builder" ? BUILDER_CREDIT_USAGE_BILLING : USD_USAGE_BILLING,
+  );
 }
 
 export function builderCreditsFromCostCents(cents: number): number {

@@ -43,6 +43,7 @@ export function useLabState(lab: LabReference): {
     undefined,
     {
       enabled: status === "authenticated",
+      batchInitial: true,
     },
   );
   const state = query.data?.[key];
@@ -69,13 +70,14 @@ export function useLabState(lab: LabReference): {
 /**
  * Whether a lab is on. Until the server answers, a definition reads as its
  * `defaultEnabled`; a bare key reads as on, so UI behind a lab that may be
- * enabled doesn't disappear while loading.
+ * enabled doesn't disappear while loading. A bare key has no default to fall
+ * back on, so once the read fails it reads as off.
  */
 export function useLab(lab: LabReference): boolean {
   const state = useLabState(lab);
   if (state.isStateError) return false;
-  if (state.isSuccess || typeof lab !== "string") return state.enabled;
-  return true;
+  if (state.source !== null || typeof lab !== "string") return state.enabled;
+  return !state.isSuccess && !state.isError;
 }
 
 export function useLabs(): LabValues {
@@ -93,6 +95,7 @@ export function useLabStates(): LabStates {
     undefined,
     {
       enabled: status === "authenticated",
+      batchInitial: true,
     },
   );
   return query.data ?? {};

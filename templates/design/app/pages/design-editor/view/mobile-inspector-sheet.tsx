@@ -1,4 +1,5 @@
 import { IconAdjustmentsHorizontal } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 import { EditPanel } from "@/components/design/EditPanel";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,7 @@ export function renderMobileInspectorSheet({
   >;
 }) {
   const { hostOwnsChrome, mode, t } = editorCore;
-  const { minimalUi, motionDockOpen } = editorHistory;
+  const { minimalUi } = editorHistory;
   const { initialGenerationChromeLimited } = editorLiveEditsAndPresence;
   const { uiHidden } = editorContentAndComponents;
 
@@ -48,7 +49,7 @@ export function renderMobileInspectorSheet({
       !initialGenerationChromeLimited &&
       mode === "edit" &&
       !editPanelProps.readOnly ? (
-        <Sheet modal={!motionDockOpen}>
+        <Sheet>
           <SheetTrigger asChild>
             <Button
               type="button"
@@ -62,23 +63,7 @@ export function renderMobileInspectorSheet({
           </SheetTrigger>
           <SheetContent
             side="right"
-            onInteractOutside={(event) => {
-              if (motionDockOpen) event.preventDefault();
-            }}
-            className={
-              motionDockOpen
-                ? "w-[min(max(240px,48vw),360px)] overflow-hidden p-0 md:hidden"
-                : "w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
-            }
-            showOverlay={!motionDockOpen}
-            style={
-              motionDockOpen
-                ? {
-                    bottom: "var(--design-motion-dock-height, 0px)",
-                    height: "auto",
-                  }
-                : undefined
-            }
+            className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{t("editPanel.properties")}</SheetTitle>
@@ -90,5 +75,36 @@ export function renderMobileInspectorSheet({
         </Sheet>
       ) : null}
     </>
+  );
+}
+
+export function MobileCommentsSheet({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
+      >
+        <SheetHeader className="sr-only">
+          <SheetTitle>{title}</SheetTitle>
+        </SheetHeader>
+        <div className="flex h-full min-h-0 flex-col pt-8">{children}</div>
+      </SheetContent>
+    </Sheet>
   );
 }

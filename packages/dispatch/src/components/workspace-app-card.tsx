@@ -248,7 +248,7 @@ export function WorkspaceAppCard({
           className,
         )}
       >
-        <AppIcon id={app.id} name={app.name} size="sm" />
+        <AppIcon id={app.id} name={app.name} icon={app.icon} size="sm" />
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold text-foreground">
             {app.name}

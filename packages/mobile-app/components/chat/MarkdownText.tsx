@@ -1,5 +1,6 @@
-import { Platform, Text, View } from "react-native";
+import { Linking, Platform, Text, View } from "react-native";
 
+import { useAppPanelLink } from "./AppPanelLinkContext";
 import {
   FadeInStaggeredIfStreaming,
   TextFadeInStaggeredIfStreaming,
@@ -99,23 +100,35 @@ function parseBlocks(source: string): Block[] {
 }
 
 type InlineToken =
+  | { kind: "link"; text: string; url: string }
   | { kind: "plain"; text: string }
   | { kind: "bold"; text: string }
   | { kind: "italic"; text: string }
   | { kind: "code"; text: string };
 
-const INLINE_PATTERN = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
+const INLINE_PATTERN =
+  /(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+|`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
 
-function parseInline(text: string): InlineToken[] {
+function parseInline(text: string, linksOnly = false): InlineToken[] {
   const tokens: InlineToken[] = [];
   let lastIndex = 0;
-  for (const match of text.matchAll(INLINE_PATTERN)) {
+  const pattern = linksOnly
+    ? /(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+)/g
+    : INLINE_PATTERN;
+  for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0;
     if (index > lastIndex) {
       tokens.push({ kind: "plain", text: text.slice(lastIndex, index) });
     }
     const raw = match[0]!;
-    if (raw.startsWith("`")) {
+    const link = raw.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+    const linkText = link?.[1];
+    const linkUrl = link?.[2];
+    if (linkText && linkUrl) {
+      tokens.push({ kind: "link", text: linkText, url: linkUrl });
+    } else if (/^https?:\/\//.test(raw)) {
+      tokens.push({ kind: "link", text: raw, url: raw });
+    } else if (raw.startsWith("`")) {
       tokens.push({ kind: "code", text: raw.slice(1, -1) });
     } else if (raw.startsWith("**")) {
       tokens.push({ kind: "bold", text: raw.slice(2, -2) });
@@ -130,22 +143,45 @@ function parseInline(text: string): InlineToken[] {
   return tokens;
 }
 
-function InlineText({
+export function InlineText({
   text,
   className,
   startIndex = 0,
+  linksOnly = false,
 }: {
   text: string;
   className?: string;
   startIndex?: number;
+  linksOnly?: boolean;
 }) {
-  const tokens = parseInline(text);
+  const onOpenLink = useAppPanelLink();
+  const tokens = parseInline(text, linksOnly);
   let cumulativeLength = startIndex;
   return (
     <Text className={className ?? "text-text-light text-[15px] leading-5.5"}>
       {tokens.map((token, index) => {
         const tokenStart = cumulativeLength;
         cumulativeLength += token.text.length;
+        if (token.kind === "link") {
+          return (
+            <Text
+              key={index}
+              accessibilityRole="link"
+              className="text-accent-blue underline"
+              onPress={() => {
+                if (onOpenLink) {
+                  onOpenLink(token.url);
+                  return;
+                }
+                void Linking.openURL(token.url).catch(() =>
+                  console.warn("[chat] link could not be opened"),
+                );
+              }}
+            >
+              {token.text}
+            </Text>
+          );
+        }
         if (token.kind === "bold") {
           return (
             <Text key={index} className="font-bold text-foreground">

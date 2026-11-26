@@ -82,6 +82,105 @@ async function childPositions(parentId: string) {
   return rows as { id: string; position: number }[];
 }
 
+describe("move-document linked folders", () => {
+  async function linkedFile(args: {
+    path: string;
+    parentId?: string | null;
+    linked?: boolean;
+    mode?: string;
+    kind?: string;
+    rootPath?: string;
+    wrongItem?: boolean;
+  }) {
+    const db = getDb();
+    const databaseId = nextId("files");
+    const sourceId = nextId("source");
+    const itemId = nextId("item");
+    const id = await createDocument({ parentId: args.parentId });
+    await db
+      .update(schema.documents)
+      .set({
+        sourceMode: args.mode ?? "local-files",
+        sourceKind: args.kind ?? "file",
+        sourcePath: args.path,
+        sourceRootPath: args.rootPath ?? "vault",
+      })
+      .where(eq(schema.documents.id, id));
+    await db.insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "local-folder",
+      sourceName: "vault",
+      sourceTable: "vault",
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: id,
+    });
+    if (args.linked !== false) {
+      await db.insert(schema.contentDatabaseSourceRows).values({
+        id: nextId("row"),
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: args.wrongItem ? nextId("stale-item") : itemId,
+        documentId: id,
+        sourceRowId: args.path,
+        sourceQualifiedId: `local-folder://vault/${args.path}`,
+        sourceDisplayKey: args.path,
+      });
+    }
+    return id;
+  }
+
+  it("refuses to reparent linked nested files, including files already moved, without changing their parent", async () => {
+    const oldParent = await createDocument({});
+    const target = await createDocument({});
+    for (const parentId of [null, oldParent]) {
+      const id = await linkedFile({ path: "notes/today.md", parentId });
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          moveDocumentAction.run({ id, parentId: target }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "LOCAL_FOLDER_FILE_MOVE" });
+      const [saved] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      expect(saved.parentId).toBe(parentId);
+    }
+  });
+
+  it("allows position-only ordering and moves of top-level, unlinked, or mismatched source files", async () => {
+    const target = await createDocument({});
+    const nested = await linkedFile({ path: "notes/today.md" });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      moveDocumentAction.run({ id: nested, position: 0 }),
+    );
+    for (const args of [
+      { path: "readme.md" },
+      { path: "notes/unlinked.md", linked: false },
+      { path: "notes/wrong-root.md", rootPath: "another-vault" },
+      { path: "notes/wrong-kind.md", kind: "folder" },
+      { path: "notes/wrong-mode.md", mode: "database" },
+      { path: "notes/stale-membership.md", wrongItem: true },
+      { path: "notes/../invalid.md" },
+    ]) {
+      const id = await linkedFile(args);
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id, parentId: target }),
+      );
+      const [saved] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      expect(saved.parentId).toBe(target);
+    }
+  });
+});
+
 describe("move-document position race", () => {
   it("rejects a parent in another Content space", async () => {
     const id = await createDocument({ spaceId: "space-one" });

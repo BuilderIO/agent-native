@@ -8,6 +8,7 @@ import type * as Y from "yjs";
 import type { ElementInfo } from "@/components/design/types";
 
 import type { DesignDataOperation } from "./data-operations";
+import { undoRedoOrderKind, type UndoRedoOrderKind } from "./editor-state";
 import { captureHistorySelectionSources } from "./history-identity";
 
 export const MAX_DESIGN_UNDO_STACK = 50;
@@ -516,16 +517,16 @@ export function applyGeometryHistoryDiff(
   return next;
 }
 
-export function removeRecentUndoRedoOrderKinds<T extends string>(
+export function removeRecentUndoRedoOrderKinds<T extends UndoRedoOrderKind>(
   order: T[],
-  kind: T,
+  kind: string,
   count: number,
 ): T[] {
   if (count <= 0) return order;
   const next = [...order];
   let remaining = count;
   for (let index = next.length - 1; index >= 0 && remaining > 0; index -= 1) {
-    if (next[index] !== kind) continue;
+    if (undoRedoOrderKind(next[index]) !== kind) continue;
     next.splice(index, 1);
     remaining -= 1;
   }
@@ -721,10 +722,9 @@ export function partitionContentHistoryEntry(
   return { available, remainder };
 }
 
-export function restoreFileContentHistoryOrderToken<T extends string>(
-  order: T[],
-  remainderExists: boolean,
-): void {
+export function restoreFileContentHistoryOrderToken<
+  T extends string | UndoRedoOrderKind,
+>(order: T[], remainderExists: boolean): void {
   if (remainderExists) order.push("file-content" as T);
 }
 
@@ -774,7 +774,9 @@ export interface ContentHistoryReservation {
   cancel: () => void;
 }
 
-export function reserveLinkedComponentContentHistory<T extends string>(args: {
+export function reserveLinkedComponentContentHistory<
+  T extends string | UndoRedoOrderKind,
+>(args: {
   stack: RefObject<ContentHistoryEntry[]>;
   selections: RefObject<(GeometryHistorySelection | undefined)[]>;
   order: RefObject<T[]>;

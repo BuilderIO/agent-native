@@ -313,7 +313,8 @@ describe("recorder action events", () => {
         errorCode: "forbidden_scope",
         data: {
           method: "GET",
-          error: "Action list-folders failed: Missing scope",
+          // oracle-change: recorder text uses the same safe message as the UI.
+          error: "Something went wrong. Try again.",
         },
       },
     ]);

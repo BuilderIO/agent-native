@@ -48,6 +48,22 @@ export function findTableByIndex(
   return result;
 }
 
+export function tableIndexAt(doc: ProseMirrorNode, tablePos: number) {
+  let currentIndex = -1;
+  let result = -1;
+
+  doc.descendants((node, pos) => {
+    if (result >= 0) return false;
+    if (node.type.name !== "table") return !node.isTextblock;
+
+    currentIndex += 1;
+    if (pos === tablePos) result = currentIndex;
+    return true;
+  });
+
+  return result;
+}
+
 function tableNodeAt(doc: ProseMirrorNode, tablePos: number) {
   const table = doc.nodeAt(tablePos);
   if (!table) throw new Error(`No table at position ${tablePos}`);
@@ -370,6 +386,204 @@ export function deleteTableRow(
 ) {
   removeRow(tr, tableRect(tr.doc, table.pos), rowIndex);
   return tr;
+}
+
+export type TableAxis = "row" | "column";
+
+export interface TableSpan {
+  start: number;
+  end: number;
+}
+
+export function tableMoveGaps(table: ProseMirrorNode, axis: TableAxis) {
+  const map = TableMap.get(table);
+  const covered = new Set<number>();
+  for (const cellPos of new Set(map.map)) {
+    const cell = map.findCell(cellPos);
+    const [start, end] =
+      axis === "row" ? [cell.top, cell.bottom] : [cell.left, cell.right];
+    for (let gap = start + 1; gap < end; gap += 1) covered.add(gap);
+  }
+  const size = axis === "row" ? map.height : map.width;
+  return Array.from({ length: size + 1 }, (_, gap) => gap).filter(
+    (gap) => !covered.has(gap),
+  );
+}
+
+export function tableMoveBlock(
+  table: ProseMirrorNode,
+  axis: TableAxis,
+  span: TableSpan,
+): TableSpan {
+  const gaps = tableMoveGaps(table, axis);
+  return {
+    start: Math.max(...gaps.filter((gap) => gap <= span.start)),
+    end: Math.min(...gaps.filter((gap) => gap >= span.end)),
+  };
+}
+
+export function tableMoveChangesOrder(block: TableSpan, gap: number) {
+  return gap < block.start || gap > block.end;
+}
+
+export function movedBlockStart(block: TableSpan, gap: number) {
+  return gap < block.start ? gap : gap - (block.end - block.start);
+}
+
+function keepHeaders(
+  tr: Transaction,
+  tablePos: number,
+  headers: TableHeaders,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+) {
+  if (!(axis === "row" ? headers.row : headers.column)) return;
+  if (block.start !== 0 && gap !== 0) return;
+  setTableHeaders(
+    tr,
+    { node: tableNodeAt(tr.doc, tablePos), pos: tablePos },
+    headers,
+  );
+}
+
+function childOffset(node: ProseMirrorNode, index: number) {
+  let offset = 0;
+  for (let child = 0; child < index; child += 1) {
+    offset += node.child(child).nodeSize;
+  }
+  return offset;
+}
+
+export type TakenTableBlock =
+  | { axis: "row"; at: number; rows: Fragment }
+  | {
+      axis: "column";
+      parts: { row: number; at: number; cells: Fragment }[];
+    };
+
+export function takeTableBlock(
+  tr: Transaction,
+  table: TableAt,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+): TakenTableBlock {
+  const contentPos = table.pos + 1;
+  if (axis === "row") {
+    const from = childOffset(table.node, block.start);
+    const to = childOffset(table.node, block.end);
+    tr.delete(contentPos + from, contentPos + to);
+    return {
+      axis,
+      at: movedBlockStart(block, gap),
+      rows: table.node.content.cut(from, to),
+    };
+  }
+
+  const map = TableMap.get(table.node);
+  const firstStep = tr.steps.length;
+  const mapped = (pos: number) => tr.mapping.slice(firstStep).map(pos);
+  const parts: { row: number; at: number; cells: Fragment }[] = [];
+  table.node.forEach((row, rowOffset, rowIndex) => {
+    let from = -1;
+    let to = -1;
+    let at = -1;
+    row.forEach((_cell, cellOffset, cellIndex) => {
+      const { left } = map.findCell(rowOffset + 1 + cellOffset);
+      if (left >= block.start && left < block.end) {
+        if (from < 0) from = cellIndex;
+        to = cellIndex + 1;
+      } else if (at < 0 && left >= gap) {
+        at = cellIndex;
+      }
+    });
+    if (from < 0) return;
+    if (at < 0) at = row.childCount;
+
+    const rowPos = contentPos + rowOffset + 1;
+    const start = childOffset(row, from);
+    const end = childOffset(row, to);
+    tr.delete(mapped(rowPos + start), mapped(rowPos + end));
+    parts.push({
+      row: rowIndex,
+      at: at > from ? at - (to - from) : at,
+      cells: row.content.cut(start, end),
+    });
+  });
+  return { axis, parts };
+}
+
+export function putTableBlock(
+  tr: Transaction,
+  tablePos: number,
+  taken: TakenTableBlock,
+) {
+  if (taken.axis === "row") {
+    const table = tableNodeAt(tr.doc, tablePos);
+    tr.insert(tablePos + 1 + childOffset(table, taken.at), taken.rows);
+    return tr;
+  }
+  for (const part of taken.parts) {
+    const table = tableNodeAt(tr.doc, tablePos);
+    const rowPos = tablePos + 1 + childOffset(table, part.row) + 1;
+    tr.insert(rowPos + childOffset(table.child(part.row), part.at), part.cells);
+  }
+  return tr;
+}
+
+export function finishTableMove(
+  tr: Transaction,
+  tablePos: number,
+  before: ProseMirrorNode,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+) {
+  const columns = axis === "column" ? getColumnMeta(before) : [];
+  if (columns.length > 0) {
+    while (columns.length < TableMap.get(before).width) columns.push({});
+    const moved = columns.splice(block.start, block.end - block.start);
+    columns.splice(movedBlockStart(block, gap), 0, ...moved);
+    const isEmpty = (column: ColumnMeta | undefined) =>
+      !column?.color && !column?.width;
+    while (columns.length > 0 && isEmpty(columns[columns.length - 1])) {
+      columns.pop();
+    }
+    setColumnMeta(tr, tablePos, columns);
+  }
+  keepHeaders(tr, tablePos, getTableHeaders(before), axis, block, gap);
+  return tr;
+}
+
+function moveTableBlock(
+  tr: Transaction,
+  table: TableAt,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+) {
+  if (!tableMoveChangesOrder(block, gap)) return tr;
+  putTableBlock(tr, table.pos, takeTableBlock(tr, table, axis, block, gap));
+  return finishTableMove(tr, table.pos, table.node, axis, block, gap);
+}
+
+export function moveTableRows(
+  tr: Transaction,
+  table: TableAt,
+  block: TableSpan,
+  gap: number,
+) {
+  return moveTableBlock(tr, table, "row", block, gap);
+}
+
+export function moveTableColumns(
+  tr: Transaction,
+  table: TableAt,
+  block: TableSpan,
+  gap: number,
+) {
+  return moveTableBlock(tr, table, "column", block, gap);
 }
 
 /**

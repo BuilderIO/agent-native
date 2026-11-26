@@ -111,7 +111,10 @@ describe("useSession", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(container.textContent).toBe("person@example.comperson@example.com");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(1);
-    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(
+      true,
+      expect.any(String),
+    );
     expect(analyticsMocks.setSentryUser).toHaveBeenCalledWith(
       {
         id: "user-1",
@@ -159,9 +162,9 @@ describe("useSession", () => {
       new MessageEvent("message", {
         data: {
           type: "agentNative.frameOrigin",
-          origin: "https://host.example",
+          origin: "https://dispatch.agent-native.com",
         },
-        origin: "https://host.example",
+        origin: "https://dispatch.agent-native.com",
         source: parentWindow as Window,
       }),
     );
@@ -179,7 +182,7 @@ describe("useSession", () => {
           type: "agentNative.authState",
           data: { status: "unauthenticated" },
         },
-        "https://host.example",
+        "https://dispatch.agent-native.com",
       );
     } finally {
       if (parentDescriptor) {
@@ -219,7 +222,10 @@ describe("useSession", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).toBe("recovered@example.com");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledOnce();
-    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(
+      true,
+      expect.any(String),
+    );
   });
 
   it("does not treat an unknown session error as signed out", async () => {
@@ -274,7 +280,10 @@ describe("useSession", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).toBe("retry@example.com");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledOnce();
-    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(
+      true,
+      expect.any(String),
+    );
   });
 
   it("keeps retrying an instantly-failing endpoint for the whole time budget", async () => {
@@ -465,7 +474,10 @@ describe("useSession", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(container.textContent).toBe("signed-outsigned-out");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledOnce();
-    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(false);
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(
+      false,
+      expect.any(String),
+    );
   });
 
   it("revalidates a cached session after logout invalidates it", async () => {
@@ -582,9 +594,9 @@ describe("useSession", () => {
       new MessageEvent("message", {
         data: {
           type: "agentNative.frameOrigin",
-          origin: "https://host.example",
+          origin: "https://dispatch.agent-native.com",
         },
-        origin: "https://host.example",
+        origin: "https://dispatch.agent-native.com",
         source: parentWindow as Window,
       }),
     );
@@ -601,7 +613,7 @@ describe("useSession", () => {
           type: "agentNative.authState",
           data: { status: "unauthenticated" },
         },
-        "https://host.example",
+        "https://dispatch.agent-native.com",
       );
     } finally {
       if (parentDescriptor) {
@@ -1684,6 +1696,331 @@ describe("sessionReadIdentityStatus", () => {
     await reads.answerAs("user-a");
 
     expect(module.sessionReadIdentityStatus(headRead)).toBe("stale");
+  });
+});
+
+describe("what the session status event says caused it", () => {
+  async function flushSessionRead() {
+    // fixed-sleep-ok: one macrotask settles the mocked session fetch and its publish.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  type SessionModule = Awaited<ReturnType<typeof freshSessionModule>>;
+
+  async function mountFresh(fetchMock: ReturnType<typeof vi.fn>) {
+    const module = await freshSessionModule();
+    vi.stubGlobal("fetch", fetchMock);
+    await mountProbe(module);
+    return module;
+  }
+
+  async function mountProbe(module: SessionModule) {
+    function Probe() {
+      const { session, isLoading } = module.useSession();
+      return <>{isLoading ? "loading" : (session?.email ?? "signed-out")}</>;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await flushSessionRead();
+    });
+  }
+
+  function signedInThenOut() {
+    return vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ userId: "u", email: "u@x.test" }))
+      .mockResolvedValue(jsonResponse({ error: "Not authenticated" }));
+  }
+
+  async function settle(fn: () => void) {
+    await act(async () => {
+      fn();
+      await flushSessionRead();
+    });
+  }
+
+  it("says load for the page's first read", async () => {
+    await mountFresh(signedInThenOut());
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledExactlyOnceWith(
+      true,
+      "load",
+    );
+  });
+
+  it("keeps load on a retry of the first read", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "u", email: "u@x.test" }),
+        ),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledExactlyOnceWith(
+      true,
+      "load",
+    );
+  });
+
+  it("keeps load when a return to the tab joins the first read before its retry", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "u", email: "u@x.test" }),
+        ),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledExactlyOnceWith(
+      true,
+      "load",
+    );
+  });
+
+  it("keeps load when the page's first answer comes on a return to the tab after its reads gave up", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    let backendUp = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        backendUp
+          ? jsonResponse({ userId: "u", email: "u@x.test" })
+          : new Response(null, { status: 503 }),
+      ),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40_000);
+    });
+    expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
+
+    backendUp = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledExactlyOnceWith(
+      true,
+      "load",
+    );
+  });
+
+  it("says focus when a return to the tab re-reads a stale answer", async () => {
+    await mountFresh(signedInThenOut());
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+
+    await settle(() => window.dispatchEvent(new Event("focus")));
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "focus",
+    );
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("says focus when the tab becomes visible again with a stale answer", async () => {
+    await mountFresh(signedInThenOut());
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+
+    try {
+      await settle(() => document.dispatchEvent(new Event("visibilitychange")));
+    } finally {
+      delete (document as { visibilityState?: string }).visibilityState;
+    }
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "focus",
+    );
+  });
+
+  it("says expired when a component mounts after the answer's lifetime", async () => {
+    const module = await mountFresh(signedInThenOut());
+    vi.spyOn(Date, "now").mockReturnValue(now + 45_000);
+    function Late() {
+      module.useSession();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Late />);
+      await flushSessionRead();
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "expired",
+    );
+  });
+
+  it("says expired for a mount's read after a return to the tab nothing was showing the session for", async () => {
+    const module = await mountFresh(signedInThenOut());
+    await act(async () => {
+      root.render(<></>);
+    });
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    await settle(() => window.dispatchEvent(new Event("focus")));
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(1);
+    function Late() {
+      module.useSession();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Late />);
+      await flushSessionRead();
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "expired",
+    );
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("says auth_change for a sign-in or sign-out in this tab", async () => {
+    const module = await mountFresh(signedInThenOut());
+
+    await settle(() => void module.notifySessionInvalidated());
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "auth_change",
+    );
+  });
+
+  it("keeps load when a sign-in change lands before the page's first answer", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValue(jsonResponse({ error: "Not authenticated" })),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      void module.notifySessionInvalidated();
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledExactlyOnceWith(
+      false,
+      "load",
+    );
+  });
+
+  it("says auth_change for another tab's sign-in or sign-out", async () => {
+    await mountFresh(signedInThenOut());
+
+    await settle(() =>
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "agent-native:session-invalidated",
+        }),
+      ),
+    );
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "auth_change",
+    );
+  });
+
+  it("says auth_change when sign-out starts", async () => {
+    const module = await mountFresh(signedInThenOut());
+
+    module.beginSignOut();
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "auth_change",
+    );
+  });
+
+  it("says unauthorized when a 401 sends it back to the server", async () => {
+    const module = await mountFresh(signedInThenOut());
+
+    await settle(() => module.recheckSessionAfterUnauthorized());
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "unauthorized",
+    );
+  });
+
+  it("says transport_change when requests move to another transport", async () => {
+    await mountFresh(signedInThenOut());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ userId: "e", email: "e@x.test" })),
+    );
+
+    await settle(() =>
+      window.dispatchEvent(new Event(FETCH_TRANSPORT_CHANGED_EVENT)),
+    );
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      true,
+      "transport_change",
+    );
   });
 });
 

@@ -1,0 +1,18 @@
+/*
+ * Part: context-menu
+ *
+ *   <div class="context-menu-trigger">          Base UI ContextMenu.Trigger
+ *
+ * Everything else a context menu draws is the menu part's: its popup, rows
+ * and submenus are `.menu-*`, with the same `data-variant`,
+ * `data-color` and `data-high-contrast` on the popup and `data-color` on a
+ * row. menu.css is their one stylesheet.
+ */
+
+@layer components {
+  /* A long press opens the menu, so the system's own press callout stays out
+     of its way. */
+  .context-menu-trigger {
+    -webkit-touch-callout: none;
+  }
+}

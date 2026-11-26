@@ -28,6 +28,10 @@ import { requestAllowsConsentCategory } from "../server/consent-route.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
+  refusesLocalDevCredential,
+} from "../server/local-dev-identity.js";
 import { serializeMcpSignupAttributionCookie } from "../server/mcp-signup-attribution.js";
 import {
   ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
@@ -443,6 +447,13 @@ function protectedResourcePathFromRequest(
   }
   pathname = pathname.replace(/\/+$/, "");
   if (!pathname || pathname === "/") return undefined;
+  // RFC 9728 inserts the whole resource path after the well-known segment, so
+  // a mounted app (resource /dispatch/mcp) is asked about /dispatch/mcp.
+  const issuer = getMcpOAuthIssuer(event);
+  const basePath = issuer ? new URL(issuer).pathname.replace(/\/+$/, "") : "";
+  if (basePath && pathname.startsWith(`${basePath}/`)) {
+    pathname = pathname.slice(basePath.length);
+  }
   return (
     [
       MCP_PUBLIC_ROUTE_PREFIX,
@@ -1113,6 +1124,14 @@ async function handleAuthorize(
     return appendSetCookies(response, setCookies);
   }
 
+  if (refusesLocalDevCredential(session.email, event)) {
+    return oauthError(
+      "access_denied",
+      LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
+      403,
+    );
+  }
+
   const scope = normalizeOAuthScope(params.scope);
   if (!scope) {
     return redirectWithOAuthError({
@@ -1349,6 +1368,9 @@ async function handleAuthorizationCodeGrant(
     return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
   }
   if (!row) return oauthError("invalid_grant", "Invalid or expired code");
+  if (refusesLocalDevCredential(row.ownerEmail, event)) {
+    return oauthError("invalid_grant", LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE);
+  }
   if (row.clientId !== clientId || row.redirectUri !== redirectUri) {
     return oauthError("invalid_grant", "Code was issued to another client");
   }
@@ -1433,6 +1455,9 @@ async function handleRefreshTokenGrant(
     return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
   }
   if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
+  if (refusesLocalDevCredential(existing.ownerEmail, event)) {
+    return oauthError("invalid_grant", LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE);
+  }
   if (existing.clientId !== clientId) {
     return oauthError(
       "invalid_grant",

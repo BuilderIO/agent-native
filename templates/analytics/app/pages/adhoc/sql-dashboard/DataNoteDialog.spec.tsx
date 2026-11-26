@@ -22,11 +22,15 @@ vi.mock("@/components/dashboard/annotation-mutations", async (actual) => ({
   useDeleteDataNote: () => ({ mutate: mocks.remove }),
 }));
 
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { i18nCatalog } from "../../../i18n";
 import { DataNoteDialog, type DataNoteDraft } from "./DataNoteDialog";
-import type { DashboardAnnotations, SqlPanel } from "./types";
 
 const panels: SqlPanel[] = [
   {

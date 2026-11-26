@@ -55,6 +55,27 @@ describe("get-builder-referral-info action", () => {
     expect(getBuilderReferralInfoMock).not.toHaveBeenCalled();
   });
 
+  it("returns no referral data where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      await expect(
+        getBuilderReferralInfo.run(
+          {},
+          {
+            caller: "frontend",
+            userEmail: "owner@example.com",
+            orgId: "org-1",
+          },
+        ),
+      ).resolves.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(getBuilderReferralInfoMock).not.toHaveBeenCalled();
+  });
+
   it("returns only the referral data for the connected Builder workspace", async () => {
     await expect(
       getBuilderReferralInfo.run(
@@ -113,4 +134,8 @@ describe("get-builder-referral-info action", () => {
     ).rejects.toThrow("Only organization owners and admins");
     expect(getBuilderReferralInfoMock).not.toHaveBeenCalled();
   });
+});
+
+it("keeps get-builder-referral-info in the app, off MCP", () => {
+  expect(getBuilderReferralInfo.mcpTool).toBe(false);
 });

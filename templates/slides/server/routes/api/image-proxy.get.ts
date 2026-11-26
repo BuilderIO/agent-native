@@ -498,6 +498,11 @@ export default defineEventHandler(async (event) => {
     "Cache-Control",
     publicShare ? "private, no-store" : "private, max-age=3600",
   );
-  event.node?.res?.setHeader("Access-Control-Allow-Origin", "*");
+  event.node?.res?.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; sandbox",
+  );
+  event.node?.res?.setHeader("X-Content-Type-Options", "nosniff");
+  event.node?.res?.setHeader("Content-Disposition", "inline");
   return result.body;
 });

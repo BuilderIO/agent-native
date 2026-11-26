@@ -5,14 +5,10 @@ import {
   tryCallActionKeepalive,
   readClientAppState,
 } from "@agent-native/core/client/hooks";
+import { clearEmbedAuthToken } from "@agent-native/core/client/host";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import {
-  parseCreativeContexts,
-  useCreativeContexts,
-  useCreativeContextState,
-} from "@agent-native/creative-context/client";
 import { type CodeLayerSource } from "@shared/code-layer";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { LayoutGrid } from "@shared/layout-grid";
@@ -25,15 +21,13 @@ import {
 } from "@shared/node-rewrite";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { VisualEditHandoffRecord } from "@shared/visual-edit-handoff";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { type DocumentColorSourceFile } from "@/components/design/EditPanel";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
-import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
-import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import { isHostedInProcess } from "@/host/design-host-channel";
 import { recordSaveReplayOutcomes } from "@/lib/canvas-outcome-tracking";
@@ -58,8 +52,11 @@ import {
   liveDesignSaveWriterSources,
   waitForDesignSaveWriterRelease,
 } from "@/lib/design-save-outbox-writers";
-import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { createLatestReadGate } from "@/lib/latest-read-gate";
+import {
+  clearVisualEditBoardClaimSecret,
+  readVisualEditBoardClaimSecret,
+} from "@/lib/visual-edit-board-claim";
 
 import type {
   LiveScreenSnapshot,
@@ -209,7 +206,6 @@ export function useEditorFilesAndSaving({
     canEditDesign,
     publicVisualEdit,
     visualEditSnapshotPublicationState,
-    creativeContextLab,
     canEditDesignRef,
     canPersistDesignSourceRef,
     rawServerFilesByIdRef,
@@ -249,10 +245,6 @@ export function useEditorFilesAndSaving({
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
-  const [promptDesignSystemId, setPromptDesignSystemId] = useState<
-    string | null | undefined
-  >(undefined);
-  const creativeContextEnabled = creativeContextLab.enabled;
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
   // screen (same document at each viewport width); hiding keeps the chips
@@ -876,10 +868,15 @@ export function useEditorFilesAndSaving({
   const {
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     setTweakSelections,
     tweakSelections,
     tweaks,
+    pendingTweakChanges,
+    persistedTweakSelectionsRevision,
+    tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
     applyTweaksAsync,
@@ -894,16 +891,6 @@ export function useEditorFilesAndSaving({
     t,
     warnChangesWillRetry,
   });
-  const systemsEnabled = useDesignSystemWorkflows();
-  const {
-    designSystems,
-    defaultSystem,
-    isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn && showPrompt && systemsEnabled);
-  const designSystemOptions = useMemo(
-    () => designSystemPickerOptions(designSystems),
-    [designSystems],
-  );
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -920,17 +907,54 @@ export function useEditorFilesAndSaving({
     if (postAuthSaveRef.current === key) return;
     postAuthSaveRef.current = key;
 
-    duplicateDesignMutation
-      .mutateAsync({ id, title: design.title } as any)
-      .then((result: any) => {
-        if (!result?.id) throw new Error("Missing copied design id");
-        const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
-        void navigate(`/design/${result.id}${nextSearch}`, { replace: true });
+    const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
+    const copyIntoAccount = () =>
+      duplicateDesignMutation
+        .mutateAsync({ id, title: design.title })
+        .then((result: unknown) => {
+          const copiedId = (result as { id?: unknown } | null)?.id;
+          if (typeof copiedId !== "string" || !copiedId) {
+            throw new Error("Missing copied design id");
+          }
+          clearEmbedAuthToken();
+          void navigate(`/design/${copiedId}${nextSearch}`, { replace: true });
+        })
+        .catch((error) => {
+          postAuthSaveRef.current = null;
+          reportWriteFailure(error, {
+            label: t("designEditor.toasts.saveCopyError"),
+          });
+        });
+
+    // A board this tab built signed out moves into the account instead of
+    // being copied. Any other board, or a refused claim, falls back to a copy.
+    const storedClaim = readVisualEditBoardClaimSecret(id);
+    if (storedClaim.status !== "found") {
+      void copyIntoAccount();
+      return;
+    }
+    callAction("claim-visual-edit-board", {
+      designId: id,
+      claimSecret: storedClaim.secret,
+    })
+      .then(() => {
+        clearVisualEditBoardClaimSecret(id);
+        // The board's capability is no longer this tab's identity; a full
+        // load reads the design again with the new owner's access.
+        clearEmbedAuthToken();
+        window.location.replace(
+          `${appBasePath()}/design/${encodeURIComponent(id)}${nextSearch}`,
+        );
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
+        if ((error as { status?: unknown } | null)?.status === 403) {
+          clearVisualEditBoardClaimSecret(id);
+          void copyIntoAccount();
+          return;
+        }
         postAuthSaveRef.current = null;
         reportWriteFailure(error, {
-          label: t("designEditor.toasts.saveCopyError"),
+          label: t("designEditor.toasts.claimBoardError"),
         });
       });
   }, [
@@ -945,74 +969,12 @@ export function useEditorFilesAndSaving({
     t,
   ]);
 
-  const creativeContextsQuery = useCreativeContexts(
-    {},
-    { enabled: creativeContextEnabled },
-  );
-  const creativeContextState = useCreativeContextState({
-    enabled: creativeContextEnabled,
-  });
-  const creativeContextOptions = useMemo(
-    () =>
-      parseCreativeContexts(creativeContextsQuery.data)
-        .filter((context) => context.memberCount > 0)
-        .map((context) => ({ id: context.id, name: context.name })),
-    [creativeContextsQuery.data],
-  );
-  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
-  const handleCreativeContextChange = useCallback(
-    (contextId: string | null) => {
-      creativeContextPersistRef.current = creativeContextState
-        .setState({
-          ...creativeContextState.state,
-          contextMode: "auto",
-          selectedContextId: contextId,
-          pinnedPackId: null,
-        })
-        .catch((error) => {
-          reportWriteFailure(error, {
-            label: t("creativeContext.stateSaveFailed"),
-          });
-          throw error;
-        });
-    },
-    [creativeContextState, t],
-  );
-  const resolvePromptDesignSystemId = useCallback(() => {
-    if (design?.designSystemId) return design.designSystemId;
-    if (!systemsEnabled) return null;
-    if (
-      defaultSystem &&
-      isDesignSystemUsableForGeneration(defaultSystem.data)
-    ) {
-      return defaultSystem.id;
-    }
-    return (
-      designSystems.find((system) =>
-        isDesignSystemUsableForGeneration(system.data),
-      )?.id ?? null
-    );
-  }, [defaultSystem, design?.designSystemId, designSystems, systemsEnabled]);
-
-  const selectedPromptDesignSystemId = !systemsEnabled
-    ? (design?.designSystemId ?? null)
-    : promptDesignSystemId === undefined
-      ? designSystemsLoading
-        ? undefined
-        : resolvePromptDesignSystemId()
-      : promptDesignSystemId;
-
   const handlePromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && !canEditDesign) return;
       setShowPrompt(open);
-      if (open) {
-        setPromptDesignSystemId(design?.designSystemId ?? undefined);
-      } else {
-        setPromptDesignSystemId(undefined);
-      }
     },
-    [canEditDesign, design?.designSystemId],
+    [canEditDesign],
   );
 
   const handleTweakPromptOpenChange = useCallback(
@@ -1702,9 +1664,18 @@ export function useEditorFilesAndSaving({
   const visualEditPendingQuery = useActionQuery<{
     designId: string;
     pendingEditCount: number;
-    status: "ready" | "empty";
+    status: "ready" | "suggested" | "empty";
     prompt: string;
+    records: VisualEditHandoffRecord[];
+    suggestion: {
+      trusted: false;
+      authorEmail: string | null;
+      text: string;
+    } | null;
     revision: number | null;
+    publisherId: string | null;
+    tweakSelectionsRevision: number | null;
+    canClear: boolean;
     updatedAt: string | null;
   }>(
     "get-visual-edit-pending",
@@ -1727,6 +1698,15 @@ export function useEditorFilesAndSaving({
     visualEditPendingQuery.data?.status === "ready" &&
     visualEditPendingQuery.data.pendingEditCount > 0 &&
     Boolean(visualEditPendingQuery.data.prompt);
+  const remoteVisualEditSuggestion =
+    canEditDesign &&
+    visualEditPendingQuery.data?.status === "suggested" &&
+    visualEditPendingQuery.data.suggestion?.text
+      ? {
+          ...visualEditPendingQuery.data.suggestion,
+          revision: visualEditPendingQuery.data.revision,
+        }
+      : null;
   useEffect(() => {
     const marker = pendingVisualEditReloadedHandoffRef.current;
     if (
@@ -1952,9 +1932,6 @@ export function useEditorFilesAndSaving({
     showTweakPrompt,
     setShowTweakPrompt,
     tweakPromptAnchorRef,
-    promptDesignSystemId,
-    setPromptDesignSystemId,
-    creativeContextEnabled,
     breakpointFramesHidden,
     setBreakpointFramesHidden,
     setPatchProof,
@@ -1974,19 +1951,16 @@ export function useEditorFilesAndSaving({
     flushPendingFileContentSavesForBackground,
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     tweakSelections,
     tweaks,
-    designSystemsLoading,
-    designSystemOptions,
+    pendingTweakChanges,
+    persistedTweakSelectionsRevision,
+    tweakMutationsEnabled,
     editorPreferences,
     setEditorPreferences,
-    creativeContextsQuery,
-    creativeContextState,
-    creativeContextOptions,
-    creativeContextPersistRef,
-    handleCreativeContextChange,
-    selectedPromptDesignSystemId,
     handlePromptOpenChange,
     handleTweakPromptOpenChange,
     handleRequestTweaks,
@@ -2025,6 +1999,7 @@ export function useEditorFilesAndSaving({
     editorShareUrl,
     visualEditPendingQuery,
     remoteVisualEditPending,
+    remoteVisualEditSuggestion,
     handleScreenExternalContentSnapshot,
     handleScreenRuntimeLayerSnapshot,
     getScreenRootComputedStylesCallback,

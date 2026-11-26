@@ -4,6 +4,7 @@ import { z } from "zod";
 import { grantSecretsToApp } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Grant multiple Dispatch vault secrets to a workspace app in manual vault access mode. Admin only. Existing active grants are skipped.",
   http: { method: "POST" },

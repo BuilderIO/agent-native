@@ -456,7 +456,7 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
 
     await saveImportedDesignFiles({
       designId: "design-1",
-      sourceType: "creative-context-clone",
+      sourceType: "native-clone",
       preserveExactContent: true,
       files: [
         {

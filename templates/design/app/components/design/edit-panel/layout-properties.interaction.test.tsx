@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -22,56 +23,6 @@ import {
 } from "./layout-properties";
 
 describe("LayoutContextProperties interactions", () => {
-  it("exposes width and height motion keyframes beside their size controls", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    const onToggle = vi.fn();
-    const element = {
-      tagName: "span",
-      classes: [],
-      computedStyles: { display: "block", width: "120px", height: "80px" },
-      inlineStyles: { width: "120px", height: "80px" },
-      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
-      isFlexChild: false,
-      isFlexContainer: false,
-      isGridContainer: false,
-      hasOwnText: true,
-      childElementCount: 0,
-      sourceId: "motion-size",
-    } as ElementInfo;
-
-    await act(async () => {
-      root.render(
-        <LayoutContextProperties
-          element={element}
-          onStyleChange={vi.fn()}
-          motionKeyframeContext={{
-            hasTimeline: true,
-            keyframedProperties: [],
-            onToggle,
-          }}
-        />,
-      );
-    });
-
-    const widthDiamond = container.querySelector<HTMLButtonElement>(
-      'button[data-motion-css-property="width"]',
-    );
-    const heightDiamond = container.querySelector<HTMLButtonElement>(
-      'button[data-motion-css-property="height"]',
-    );
-    expect(widthDiamond).not.toBeNull();
-    expect(heightDiamond).not.toBeNull();
-
-    await act(async () => widthDiamond?.click());
-    await act(async () => heightDiamond?.click());
-    expect(onToggle.mock.calls).toEqual([["width"], ["height"]]);
-
-    await act(async () => root.unmount());
-    container.remove();
-  });
-
   it("Resize to fit lands the frame and the children it freezes as one layout edit", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -847,11 +798,15 @@ describe("LayoutContextProperties interactions", () => {
     const heading = section?.querySelector(".design-sidebar-section-title");
     expect(heading?.textContent).toBe("editPanel.sections.layout");
     expect(heading?.closest("button")).toBeNull();
-    expect(section?.textContent).toContain("editPanel.labels.width");
-    expect(section?.textContent).toContain("editPanel.labels.height");
+    // oracle-change: ENG-14616 drops the visible Width/Height labels; the W and H fields keep their names.
+    expect(section?.textContent).not.toContain("editPanel.labels.width");
+    // oracle-change: ENG-14616 drops the visible Width/Height labels; the W and H fields keep their names.
+    expect(section?.textContent).not.toContain("editPanel.labels.height");
     expect(section?.textContent).not.toContain("editPanel.labels.flexGrow");
-    expect(section?.querySelector('button[aria-label^="W "]')).not.toBeNull();
-    expect(section?.querySelector('button[aria-label^="H "]')).not.toBeNull();
+    // oracle-change: ENG-14616 makes a fixed W/H an editable token combobox, so the field is an input named "W size in pixels" instead of a sizing-mode button.
+    expect(section?.querySelector('[aria-label^="W "]')).not.toBeNull();
+    // oracle-change: ENG-14616 makes a fixed W/H an editable token combobox, so the field is an input named "H size in pixels" instead of a sizing-mode button.
+    expect(section?.querySelector('[aria-label^="H "]')).not.toBeNull();
 
     const advanced = container.querySelector<HTMLButtonElement>(
       'button[aria-label="editPanel.layoutContext.flexChild"]',

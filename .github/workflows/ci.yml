@@ -4,7 +4,7 @@ on:
   # No `branches` filter: a stacked PR targets its parent PR's branch, and the
   # required checks must report on it too.
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, synchronize, reopened]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      changelog_only: ${{ steps.scope.outputs.changelog_only }}
       full: ${{ steps.scope.outputs.full }}
       lint: ${{ steps.scope.outputs.lint }}
       has_reports: ${{ steps.feedback.outputs.has_reports }}
@@ -64,13 +65,11 @@ jobs:
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
+      storybook_tests: ${{ steps.scope.outputs.storybook_tests }}
       changeset: ${{ steps.scope.outputs.changeset }}
       verify_execution_lease: ${{ steps.scope.outputs.verify_execution_lease }}
       core_mutation: ${{ steps.scope.outputs.core_mutation }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
-      lanes_matrix: ${{ steps.lanes.outputs.matrix }}
-      has_tests: ${{ steps.lanes.outputs.has_tests }}
-      core_test_files: ${{ steps.lanes.outputs.core_test_files }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -88,9 +87,6 @@ jobs:
           scripts/ci-change-scope.test.ts
           scripts/ci-change-scope-renames.test.ts
           scripts/ci-build-workspaces.test.ts
-
-      - name: Test fast-test lane planner
-        run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
 
       - name: Classify changed paths
         id: scope
@@ -115,21 +111,45 @@ jobs:
           fi
           node --experimental-strip-types --no-warnings "$RUNNER_TEMP/feedback-proof-gate/feedback-fix-proof.ts" --has-reports >> "$GITHUB_OUTPUT"
 
+  test-plan:
+    name: Plan fast-test lanes
+    needs: change-scope
+    if: needs.change-scope.outputs.full == 'true' || needs.change-scope.outputs.fast_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      lanes_matrix: ${{ steps.lanes.outputs.matrix }}
+      has_tests: ${{ steps.lanes.outputs.has_tests }}
+      core_test_files: ${{ steps.lanes.outputs.core_test_files }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Test fast-test lane planner
+        run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
+
       # Full planning only reads manifests and counts files. Targeted planning
       # runs `pnpm list` and `vitest list --changed`, so it needs an install.
       - name: Install dependencies for targeted lane planning
-        if: steps.scope.outputs.full != 'true' && steps.scope.outputs.fast_tests == 'true'
+        if: needs.change-scope.outputs.full != 'true'
         uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
 
       - name: Partition test packages into sharded lanes
         id: lanes
-        if: steps.scope.outputs.full == 'true' || steps.scope.outputs.fast_tests == 'true'
         env:
-          CI_FULL: ${{ steps.scope.outputs.full }}
-          TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 8
+          CI_FULL: ${{ needs.change-scope.outputs.full }}
+          TARGETED_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
+          LANES: 12
+          CI_MIN_PACKAGE_SHARDS: '{"@agent-native/toolkit":2}'
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -148,6 +168,9 @@ jobs:
     if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Require a successful change scope
         env:
@@ -201,7 +224,7 @@ jobs:
                 lint_files+=("$file")
                 ;;
             esac
-          done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
+          done < <(git diff --name-only --no-renames -z "$CI_BASE_SHA...$CI_HEAD_SHA")
 
           if ((${#format_files[@]} > 0)); then
             pnpm exec oxfmt --check --no-error-on-unmatched-pattern "${format_files[@]}"
@@ -219,6 +242,34 @@ jobs:
       - name: Enforce package bump policy
         if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
+
+      - name: Start PostgreSQL for navigation proof
+        if: needs.change-scope.outputs.has_reports == 'true' && contains(github.event.pull_request.body, 'query-content-database-items.navigation.postgres.integration.test.ts')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/feedback-proof-docker.XXXXXX")"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          docker logout ghcr.io
+          rm -rf "$DOCKER_CONFIG"
+          trap - EXIT
+          unset DOCKER_CONFIG GH_TOKEN
+          docker run --pull=never -d --name feedback-proof-postgres \
+            -e POSTGRES_DB=content_navigation_test -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -p 127.0.0.1:5432:5432 ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          for attempt in {1..30}; do
+            if docker exec feedback-proof-postgres pg_isready -h 127.0.0.1 -U postgres -d content_navigation_test; then
+              echo 'CONTENT_NAVIGATION_POSTGRES_URL=postgres://postgres@127.0.0.1:5432/content_navigation_test' >> "$GITHUB_ENV"
+              echo 'CONTENT_NAVIGATION_POSTGRES_REQUIRED=1' >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs feedback-proof-postgres
+          exit 1
 
       - name: Re-run feedback fix proofs
         if: needs.change-scope.outputs.has_reports == 'true'
@@ -240,23 +291,33 @@ jobs:
   typecheck:
     name: Typecheck
     needs: change-scope
-    if: needs.change-scope.outputs.typecheck == 'true'
+    if: >-
+      needs.change-scope.outputs.typecheck == 'true' ||
+      (needs.change-scope.outputs.typecheck == 'false' && needs.change-scope.outputs.changelog_only == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Verify Typecheck is outside the changelog-only scope
+        if: needs.change-scope.outputs.typecheck == 'false' && needs.change-scope.outputs.changelog_only == 'true'
+        run: echo 'Complete Git diff contains only changelog Markdown entries.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        if: needs.change-scope.outputs.typecheck == 'true'
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
+        if: needs.change-scope.outputs.typecheck == 'true'
         with:
           restore-dist-cache: "true"
 
       - name: Build core declarations before dependent typechecks
-        if: needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}')
+        if: >-
+          needs.change-scope.outputs.typecheck == 'true' &&
+          (needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}'))
         run: pnpm --filter @agent-native/core run build
 
       - name: Typecheck affected workspaces
+        if: needs.change-scope.outputs.typecheck == 'true'
         env:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
@@ -273,7 +334,7 @@ jobs:
 
   test-rest:
     name: Fast tests ${{ matrix.lane }}
-    needs: change-scope
+    needs: [change-scope, test-plan]
     if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -282,7 +343,7 @@ jobs:
       VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
+      matrix: ${{ fromJSON(needs.test-plan.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -293,16 +354,18 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
+        id: pw_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: playwright-unit-v2-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
-          pnpm exec playwright install --only-shell --force chromium
-          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+          pnpm exec playwright install --only-shell chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
@@ -323,6 +386,15 @@ jobs:
           --exclude "**/*.perf.spec.ts"
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
+
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -381,8 +453,8 @@ jobs:
 
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
-    needs: change-scope
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.change-scope.outputs.has_tests == 'true'
+    needs: [change-scope, test-plan]
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.test-plan.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -390,7 +462,7 @@ jobs:
       VITEST_CONCURRENCY: "100%"
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.change-scope.outputs.lanes_matrix) }}
+      matrix: ${{ fromJSON(needs.test-plan.outputs.lanes_matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -401,16 +473,18 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
+        id: pw_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: playwright-unit-v2-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
-          pnpm exec playwright install --only-shell --force chromium
-          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+          pnpm exec playwright install --only-shell chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
@@ -420,7 +494,7 @@ jobs:
         env:
           CORE_SHARD: ${{ matrix.coreShard }}
           CORE_TEST_MODE: ${{ matrix.coreMode }}
-          CORE_TEST_FILES: ${{ needs.change-scope.outputs.core_test_files }}
+          CORE_TEST_FILES: ${{ needs.test-plan.outputs.core_test_files }}
         run: |
           set -euo pipefail
           args=(run --dir src --shard="$CORE_SHARD" --passWithNoTests)
@@ -451,6 +525,15 @@ jobs:
             --exclude "**/create-e2e.spec.ts"
           )
           pnpm --filter @agent-native/core exec vitest "${args[@]}"
+
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -645,7 +728,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'home-system-selection' && 40 || (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
+    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -748,15 +831,6 @@ jobs:
             exit 2
           fi
           pnpm exec playwright test "$landing_page_spec" --workers=1 --retries=0 --trace on
-
-      - name: Run Home design-system selection regressions
-        if: matrix.shard == 'home-system-selection'
-        working-directory: templates/design
-        timeout-minutes: 28
-        env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          E2E_AI_SIDEBAR_LOOPBACK: "1"
-        run: pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on
 
       - name: Run vertical auto-layout held-guide regression
         if: ${{ matrix.shard == 'autolayout-vertical-center-trailing' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/autolayout-drag-drop-matrix.spec.ts') }}
@@ -963,6 +1037,7 @@ jobs:
     needs:
       [
         change-scope,
+        test-plan,
         docs,
         test-rest,
         test-targeted,
@@ -980,7 +1055,8 @@ jobs:
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           FAST_TESTS: ${{ needs.change-scope.outputs.fast_tests }}
-          HAS_TESTS: ${{ needs.change-scope.outputs.has_tests }}
+          TEST_PLAN_RESULT: ${{ needs.test-plan.result }}
+          HAS_TESTS: ${{ needs.test-plan.outputs.has_tests }}
           DOCS_RESULT: ${{ needs.docs.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
@@ -1031,6 +1107,10 @@ jobs:
             require_boolean "Fast tests" "$FAST_TESTS"
             require_boolean "docs-only" "$DOCS_ONLY"
 
+            if [[ "$CI_FULL" == "true" || "$FAST_TESTS" == "true" ]] && [[ "$DOCS_ONLY" != "true" ]]; then
+              require_success "Plan fast-test lanes" "$TEST_PLAN_RESULT"
+            fi
+
             if [[ "$PRE_AUTH_REPLAY_E2E" == "true" ]]; then
               require_success "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT"
             elif [[ "$PRE_AUTH_REPLAY_E2E" == "false" ]]; then
@@ -1064,7 +1144,7 @@ jobs:
               require_skipped "Docs checks" "$DOCS_RESULT" "ran outside its selected paths"
               if [[ "$CI_FULL" == "true" ]]; then
                 if [[ "$HAS_TESTS" != "true" ]]; then
-                  record_failure "Determine change scope" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
+                  record_failure "Plan fast-test lanes" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
                 fi
                 require_success "Fast tests (test-rest matrix)" "$TEST_REST_RESULT"
                 require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
@@ -1085,7 +1165,7 @@ jobs:
                       success_message="No affected workspace has a test script; targeted fast tests were skipped."
                       ;;
                     *)
-                      record_failure "Determine change scope" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
+                      record_failure "Plan fast-test lanes" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
                       ;;
                   esac
                 fi
@@ -1180,6 +1260,7 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_block_action_test"
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_navigation_test"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
@@ -1208,10 +1289,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           pnpm test:content-db-postgres
+          pnpm --filter content exec vitest run actions/query-content-database-items.navigation.postgres.integration.test.ts
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
+          pnpm --filter content exec vitest --run actions/patch-database-items.db.test.ts --config vitest.config.ts
           pnpm test:content-db-two-connections
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
+          CONTENT_NAVIGATION_POSTGRES_REQUIRED: "1"
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
           CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 
@@ -1480,7 +1565,9 @@ jobs:
       # uploaded anything. So the job with the latest start time ran the group,
       # and among equal start times the lowest attempt is the one that ran it.
       # A page that fails mid-pagination would leave a list that can miss the
-      # newest attempts, so only a complete list reaches the merge.
+      # newest attempts, so only a complete list reaches the merge. Keep
+      # per_page=25 because GitHub's jobs endpoint returns HTTP 502 on
+      # per_page=100 once a full run accumulates multiple attempts.
       - name: Read the attempt that last ran each group
         id: jobs
         continue-on-error: true
@@ -1489,11 +1576,21 @@ jobs:
           JOBS_FILE: .tmp/content-convergence-jobs.tsv
         run: |
           mkdir -p .tmp
-          gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
-            --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
-            > "$JOBS_FILE.partial"
-          mv "$JOBS_FILE.partial" "$JOBS_FILE"
+          for attempt in 1 2 3 4; do
+            if gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=25" \
+              --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
+              > "$JOBS_FILE.partial" 2> "$JOBS_FILE.err"; then
+              mv "$JOBS_FILE.partial" "$JOBS_FILE"
+              exit 0
+            fi
+            cat "$JOBS_FILE.err" >&2
+            if [ "$attempt" -lt 4 ] && grep -qE 'HTTP 5[0-9]{2}' "$JOBS_FILE.err"; then
+              sleep $((attempt * 5))
+              continue
+            fi
+            exit 1
+          done
 
       - name: Merge Content convergence group reports
         id: merge
@@ -1804,12 +1901,43 @@ jobs:
           pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
           ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
 
+  storybook-tests:
+    name: Storybook story tests
+    needs: change-scope
+    if: needs.change-scope.outputs.storybook_tests == 'true'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/storybook-tests.yml
+    secrets:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      STORYBOOK_NETLIFY_SITE_ID: ${{ secrets.STORYBOOK_NETLIFY_SITE_ID }}
+
   brain-evals:
     name: Brain evals
     needs: change-scope
     if: needs.change-scope.outputs.brain_evals == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_DB: brain_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d brain_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -1825,6 +1953,13 @@ jobs:
       - name: Block privacy leaks and false positives
         if: ${{ !cancelled() }}
         run: pnpm test:brain-privacy-evals
+
+      - name: Run Brain PostgreSQL write and locking tests
+        if: ${{ !cancelled() }}
+        run: pnpm --filter brain test:db-postgres
+        env:
+          BRAIN_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/brain_test
+          BRAIN_POSTGRES_REQUIRED: "1"
 
   build:
     name: Build artifacts
@@ -1893,6 +2028,7 @@ jobs:
           BUILD_REQUIRED: ${{ needs.change-scope.outputs.build }}
           BUILD_RESULT: ${{ needs.build.result }}
           TYPECHECK_REQUIRED: ${{ needs.change-scope.outputs.typecheck }}
+          CHANGELOG_ONLY: ${{ needs.change-scope.outputs.changelog_only }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           GUARDS_REQUIRED: ${{ needs.change-scope.outputs.guards }}
           GUARDS_RESULT: ${{ needs.guards.result }}
@@ -1932,6 +2068,7 @@ jobs:
           require_selector "Docs build" "$DOCS_ONLY" || status=1
           require_selector "Build artifacts" "$BUILD_REQUIRED" || status=1
           require_selector "Typecheck" "$TYPECHECK_REQUIRED" || status=1
+          require_selector "Changelog-only" "$CHANGELOG_ONLY" || status=1
           require_selector "Security guards" "$GUARDS_REQUIRED" || status=1
 
           build_selected=false
@@ -1939,7 +2076,11 @@ jobs:
             build_selected=true
           fi
           require_result "Build artifacts" "$build_selected" "$BUILD_RESULT" || status=1
-          require_result "Typecheck" "$TYPECHECK_REQUIRED" "$TYPECHECK_RESULT" || status=1
+          typecheck_selected=false
+          if [[ "$TYPECHECK_REQUIRED" == "true" || ( "$TYPECHECK_REQUIRED" == "false" && "$CHANGELOG_ONLY" == "true" ) ]]; then
+            typecheck_selected=true
+          fi
+          require_result "Typecheck" "$typecheck_selected" "$TYPECHECK_RESULT" || status=1
           require_result "Security guards" "$GUARDS_REQUIRED" "$GUARDS_RESULT" || status=1
           exit "$status"
 
@@ -2216,6 +2357,7 @@ jobs:
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/otel build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
@@ -2324,7 +2466,7 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
-      - name: Run owned mutants with the complete original test scope
+      - name: Run this worker's mutants against every spec selected for their files
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: pnpm mutation:changed --shard '${{ matrix.index }}' '${{ matrix.count }}'
@@ -2395,44 +2537,70 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
+          restore-dist-cache: "true"
 
       - name: Test production deploy concurrency guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:netlify-prebuilt-workflow
 
       - name: Test serverless function size baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:function-size-baseline
 
       - name: Test AgentKit stream ownership guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:agentkit-stream-ownership
 
       - name: Test untracked-imports guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-untracked-imports
 
       - name: Test deferred server counts guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-deferred-server-counts
 
       - name: Test mobile build path guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:mobile-build-paths
 
       - name: Test bare pnpm spawn guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-bare-pnpm-spawn
 
+      - name: Test recursive copy links guard
+        if: needs.change-scope.outputs.full == 'true'
+        run: pnpm test:recursive-copy-links
+
       - name: Test single S3 signer guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:single-s3-signer
 
       - name: Test source-reading tests guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-source-reading-tests
 
       - name: Test legacy MCP hint baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-new-legacy-mcp-hints
 
+      - name: Test DB tool scoping guard
+        if: needs.change-scope.outputs.full == 'true'
+        run: pnpm test:db-tool-scoping
+
+      - name: Test MCP parity baseline guard
+        if: needs.change-scope.outputs.full == 'true'
+        run: pnpm test:no-new-mcp-parity-gaps
+
       - name: Test blocker-safe module names guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:blocker-safe-module-names
 
       - name: Test strictness ratchet guards
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:strictness-guards
 
       - name: Test Neon transfer alert and offline backtest
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:neon-transfer-alert
 
       - name: Build packages for source-backed guards
@@ -2440,6 +2608,7 @@ jobs:
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
           pnpm --filter @agent-native/otel build
@@ -2467,25 +2636,7 @@ jobs:
         if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}
         env:
           SCRIPT_TESTS: ${{ needs.change-scope.outputs.script_tests }}
-        run: |
-          set -euo pipefail
-          node_tests=()
-          vitest_tests=()
-          while IFS= read -r file; do
-            if grep -q -E "from ['\"]vitest['\"]" "$file"; then
-              vitest_tests+=("$file")
-            else
-              node_tests+=("$file")
-            fi
-          done < <(node -e 'for (const file of JSON.parse(process.env.SCRIPT_TESTS)) console.log(file)')
-          status=0
-          if ((${#node_tests[@]} > 0)); then
-            pnpm exec tsx --test "${node_tests[@]}" || status=1
-          fi
-          if ((${#vitest_tests[@]} > 0)); then
-            pnpm exec vitest run "${vitest_tests[@]}" || status=1
-          fi
-          exit "$status"
+        run: node --experimental-strip-types scripts/ci-run-script-tests.ts
 
       # Source-only template checks: no DB, browser, network, or secrets.
       - name: Template route matrix (fails on drift)

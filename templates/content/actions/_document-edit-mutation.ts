@@ -26,6 +26,7 @@ import {
   parseDocumentRevisionToken,
 } from "../server/lib/document-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 export {
   documentContentHash,
@@ -300,6 +301,7 @@ async function performDocumentBodyMutation(
     >;
     ctx: ActionRunContext;
     db?: Db;
+    currentBaseOnly?: boolean | undefined;
   } & DocumentBodyMutation,
   observation: { staleBase: "true" | "false" | "unknown" },
 ): Promise<DocumentEditMutationResult> {
@@ -426,6 +428,19 @@ async function performDocumentBodyMutation(
       documentContentHash(preflightDocument.content ?? "") === base.contentHash;
     if (preflightDocument)
       observation.staleBase = preflightHasCurrentBase ? "false" : "true";
+    if (args.currentBaseOnly && !preflightHasCurrentBase) {
+      conflict(
+        "STALE_BASE_REVISION",
+        "The page changed after this revision; read it again before editing.",
+        {
+          expectedRevision: args.baseRevision,
+          currentRevision: documentRevisionToken(
+            preflightDocument.bodyRevision,
+            preflightDocument.content,
+          ),
+        },
+      );
+    }
     const preflightBaseContent = preflightHasCurrentBase
       ? (preflightDocument.content ?? "")
       : preflightDocument
@@ -481,6 +496,19 @@ async function performDocumentBodyMutation(
         document?.bodyRevision === base.revision &&
         documentContentHash(document.content ?? "") === base.contentHash;
       if (document) observation.staleBase = hasCurrentBase ? "false" : "true";
+      if (args.currentBaseOnly && !hasCurrentBase) {
+        conflict(
+          "STALE_BASE_REVISION",
+          "The page changed after this revision; read it again before editing.",
+          {
+            expectedRevision: args.baseRevision,
+            currentRevision: documentRevisionToken(
+              document.bodyRevision,
+              document.content,
+            ),
+          },
+        );
+      }
       const baseContent = hasCurrentBase
         ? (document.content ?? "")
         : document
@@ -506,6 +534,11 @@ async function performDocumentBodyMutation(
         baseContent,
       );
       const { resolved } = validated;
+      assertInteractiveHtmlBlocks(
+        args.ctx,
+        validated.beforeContent,
+        resolved.content,
+      );
 
       if (
         initializationContent !== undefined &&
@@ -914,6 +947,7 @@ async function mutateLiveCopyDocumentBody(input: {
     input.initializeContent,
     baseContent ?? undefined,
   );
+  assertInteractiveHtmlBlocks(input.ctx, beforeContent, resolved.content);
   const rebase: ContentLiveCopyRebaseInput = {
     base: beforeContent,
     candidate: resolved.content,

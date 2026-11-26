@@ -254,6 +254,14 @@ esté presente. Los resultados heredados sin identificador deben reutilizar el m
 `app` y `taskId`; nunca reenvíe `ask_app` para recuperarse, porque el envío puede duplicar el trabajo. Los errores
 permanentes de autenticación, de no encontrado y de protocolo siguen siendo errores.
 
+Un `taskHandle` caduca una hora después de que `ask_app` lo devuelva. Cuando
+`ask_app_status` rechace un identificador por no válido o caducado, siga
+consultando la misma tarea con el `app` y el `taskId` del resultado de
+`ask_app` y sin `taskHandle`; el mensaje de error también lo indica. Sin el
+identificador, la llamada de estado vuelve a localizar la aplicación mediante el
+descubrimiento, por lo que solo funciona mientras la aplicación siga siendo
+detectable.
+
 ## Autenticación {#authentication}
 
 El punto final MCP admite MCP OAuth remoto estándar más el respaldo de token de portador existente:

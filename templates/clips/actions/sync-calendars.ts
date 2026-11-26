@@ -27,9 +27,10 @@ import {
   recordCalendarFetchSuccess,
   resolveCalendarAccessToken,
   shouldMarkNeedsReauth,
+  storedCalendarId,
 } from "../server/lib/calendar-event-meetings.js";
+import { listEnabledCalendarEvents } from "../server/lib/calendar-sources.js";
 import {
-  listEvents,
   pickJoinUrl,
   type CalendarEvent,
 } from "../server/lib/google-calendar-client.js";
@@ -54,6 +55,7 @@ export default defineAction({
       ),
     allAccounts: z.boolean().default(false),
   }),
+  mcpTool: false,
   run: async (args) => {
     const db = getDb();
     const where = args.allAccounts
@@ -99,15 +101,17 @@ export default defineAction({
           continue;
         }
 
-        const { items } = await listEvents({
-          accessToken,
-          calendarId: "primary",
-          timeMin,
-          timeMax,
-          maxResults: 250,
-        });
+        const { items, error: calendarError } = await listEnabledCalendarEvents(
+          {
+            account,
+            accessToken,
+            timeMin,
+            timeMax,
+            maxResults: 250,
+          },
+        );
 
-        for (const ev of items) {
+        for (const { calendarId, event: ev } of items) {
           if (!ev.id) continue;
           if (ev.status === "cancelled") {
             await db
@@ -145,6 +149,7 @@ export default defineAction({
             await db
               .update(schema.calendarEvents)
               .set({
+                calendarId: storedCalendarId(calendarId),
                 title: ev.summary ?? "",
                 description: ev.description ?? "",
                 start: startIso,
@@ -162,6 +167,7 @@ export default defineAction({
               id: randomUUID(),
               calendarAccountId: account.id,
               externalId: ev.id,
+              calendarId: storedCalendarId(calendarId),
               title: ev.summary ?? "",
               description: ev.description ?? "",
               start: startIso,
@@ -180,13 +186,22 @@ export default defineAction({
           perAccountEvents += 1;
         }
 
-        try {
-          await recordCalendarFetchSuccess(account);
-        } catch (writeErr: any) {
-          console.warn(
-            `[sync-calendars] failed to update account ${account.id} after success:`,
-            writeErr?.message ?? writeErr,
+        if (calendarError) {
+          const failure = await recordCalendarFetchError(
+            account,
+            calendarError,
+            { needsReauth: false },
           );
+          errors.push({ accountId: account.id, error: failure.error });
+        } else {
+          try {
+            await recordCalendarFetchSuccess(account);
+          } catch (writeErr) {
+            console.warn(
+              `[sync-calendars] failed to update account ${account.id} after success:`,
+              writeErr instanceof Error ? writeErr.message : writeErr,
+            );
+          }
         }
 
         try {

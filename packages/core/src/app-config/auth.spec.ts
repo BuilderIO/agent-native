@@ -4,6 +4,30 @@ import { z } from "zod";
 import { authConfig } from "./auth.js";
 import { readEnvConfigLayer } from "./env-layer.js";
 
+describe("federated identity admission configuration", () => {
+  it("keeps existing-account-only admission opt-in", () => {
+    expect(authConfig.parse({}).identitySsoExistingAccountsOnly).toBe(false);
+    expect(
+      authConfig.parse({ identitySsoExistingAccountsOnly: true })
+        .identitySsoExistingAccountsOnly,
+    ).toBe(true);
+    expect(
+      authConfig.parse({ identitySsoExistingAccountsOnly: false })
+        .identitySsoExistingAccountsOnly,
+    ).toBe(false);
+  });
+
+  it.each(["true", "false", 1, null])(
+    "rejects an invalid policy value %s",
+    (value) => {
+      expect(
+        authConfig.safeParse({ identitySsoExistingAccountsOnly: value })
+          .success,
+      ).toBe(false);
+    },
+  );
+});
+
 const schema = z.object({ auth: authConfig.prefault({}) });
 
 describe("previous encryption key configuration", () => {
@@ -24,5 +48,21 @@ describe("previous encryption key configuration", () => {
     expect(() =>
       authConfig.parse({ previousSecretEncryptionKeys: [""] }),
     ).toThrow();
+  });
+});
+
+describe("Builder preview local development configuration", () => {
+  it("stays off unless the opt-in variable is set", () => {
+    expect(
+      schema.parse(readEnvConfigLayer(schema, {})).auth
+        .allowBuilderPreviewLocalDev,
+    ).toBe(false);
+    expect(
+      schema.parse(
+        readEnvConfigLayer(schema, {
+          AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV: "1",
+        }),
+      ).auth.allowBuilderPreviewLocalDev,
+    ).toBe(true);
   });
 });

@@ -21,7 +21,9 @@ import {
   getUserLabState,
   getUserLabStates,
   getUserLabs,
+  getUserLabsShowAll,
   normalizeLabValues,
+  setUserLabsShowAll,
   setUserLab,
   setUserLabStates,
 } from "./store.js";
@@ -179,6 +181,18 @@ describe("user labs", () => {
       mixed: false,
     });
     expect(mocks.getOrgSetting).toHaveBeenCalledTimes(2);
+  });
+
+  it("isolates transient legacy failures for ordinary lab callers", async () => {
+    registerLabs([{ key: "clips.resilient", legacyFlagKeys: ["capture"] }]);
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.getSetting.mockRejectedValue(
+      Object.assign(new Error("Database unavailable"), {
+        code: "CONNECT_TIMEOUT",
+      }),
+    );
+    const states = await getUserLabStates("alice@example.com");
+    expect(states["clips.resilient"]).toEqual({ error: "legacy-unavailable" });
   });
 
   it("surfaces unreadable preferences instead of substituting legacy state", async () => {
@@ -347,5 +361,139 @@ describe("user labs", () => {
       "design.builder": true,
     });
     expect(persisted).toBe(true);
+  });
+
+  function storeSettingsInMemory(
+    rows: Record<string, Record<string, unknown> | null>,
+  ) {
+    mocks.getUserSetting.mockImplementation(
+      async (_email: string, key: string) => rows[key] ?? null,
+    );
+    mocks.mutateUserSetting.mockImplementation(
+      async (
+        _email: string,
+        key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) => {
+        rows[key] = await updater(rows[key] ?? null);
+        return rows[key];
+      },
+    );
+  }
+
+  it("clears a saved choice from both setting keys, so the lab reads as its default again", async () => {
+    const rows: Record<string, Record<string, unknown> | null> = {
+      labs: { "clips.editor": true, "clips.meetings": false },
+      experiments: { "clips.editor": true, "clips.meetings": true },
+    };
+    storeSettingsInMemory(rows);
+
+    const states = await setUserLabStates(
+      "alice@example.com",
+      "clips.editor",
+      null,
+    );
+
+    expect(states["clips.editor"]).toEqual({
+      enabled: false,
+      source: "default",
+      mixed: false,
+    });
+    expect(states["clips.meetings"]).toEqual({
+      enabled: false,
+      source: "choice",
+      mixed: false,
+    });
+    expect(rows).toEqual({
+      labs: { "clips.meetings": false },
+      experiments: { "clips.meetings": true },
+    });
+    await expect(
+      getUserLabState("alice@example.com", "clips.editor"),
+    ).resolves.toEqual({ enabled: false, source: "default", mixed: false });
+  });
+
+  it("follows a later rollout of the lab's legacy flags once its choice is cleared", async () => {
+    registerLabs([{ key: "clips.resilient", legacyFlagKeys: ["capture"] }]);
+    const rows: Record<string, Record<string, unknown> | null> = {
+      labs: { "clips.resilient": false },
+    };
+    storeSettingsInMemory(rows);
+    mocks.getOrgSetting.mockImplementation(async (_org, key) =>
+      key === "feature-flag:capture" ? { mode: "on" } : null,
+    );
+    const scope = { orgId: "org-1" };
+    await expect(
+      getUserLabState("alice@example.com", "clips.resilient", scope),
+    ).resolves.toEqual({ enabled: false, source: "choice", mixed: false });
+
+    await setUserLabStates("alice@example.com", "clips.resilient", null, scope);
+
+    await expect(
+      getUserLabState("alice@example.com", "clips.resilient", scope),
+    ).resolves.toEqual({
+      enabled: true,
+      source: "legacy",
+      legacyValues: { capture: true },
+      mixed: false,
+    });
+  });
+
+  it("leaves the former setting key alone when it never held the cleared lab", async () => {
+    const rows: Record<string, Record<string, unknown> | null> = {
+      labs: { "clips.editor": true },
+      experiments: { "clips.meetings": true },
+    };
+    storeSettingsInMemory(rows);
+
+    await setUserLabStates("alice@example.com", "clips.editor", null);
+
+    expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(1);
+    expect(rows.experiments).toEqual({ "clips.meetings": true });
+  });
+});
+
+describe("show all labs", () => {
+  it("turns on labs without a choice and keeps an explicit off", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      __showAll: true,
+      "clips.meetings": false,
+    });
+
+    expect(await getUserLabStates("alice@example.com")).toEqual({
+      "clips.editor": { enabled: true, source: "all", mixed: false },
+      "clips.meetings": { enabled: false, source: "choice", mixed: false },
+    });
+    expect(await getUserLabsShowAll("alice@example.com")).toBe(true);
+    expect(normalizeLabValues({ __showAll: true })).toEqual({
+      "clips.editor": true,
+      "clips.meetings": true,
+    });
+  });
+
+  it("is off unless it was saved", async () => {
+    mocks.getUserSetting.mockResolvedValue({ "clips.editor": true });
+    expect(await getUserLabsShowAll("alice@example.com")).toBe(false);
+  });
+
+  it("saves and clears the switch without touching lab choices", async () => {
+    let saved: Record<string, unknown> | null = { "clips.meetings": false };
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.mutateUserSetting.mockImplementation(async (_e, _k, fn) => {
+      saved = await fn(saved);
+    });
+
+    const on = await setUserLabsShowAll("alice@example.com", true);
+    expect(saved).toEqual({ "clips.meetings": false, __showAll: true });
+    expect(on["clips.editor"]).toMatchObject({ enabled: true, source: "all" });
+
+    const off = await setUserLabsShowAll("alice@example.com", false);
+    expect(saved).toEqual({ "clips.meetings": false });
+    expect(off["clips.editor"]).toMatchObject({
+      enabled: false,
+      source: "default",
+    });
   });
 });

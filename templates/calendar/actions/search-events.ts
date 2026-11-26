@@ -7,6 +7,7 @@ import { calendarEventMatchesQuery } from "./event-search.js";
 import { resolveCalendarEventRange } from "./list-events.js";
 
 export default defineAction({
+  mcpTool: true,
   searchHints: ["find a meeting", "look up an event"],
   description:
     "Convenience search for calendar events by title, attendees, organizer, location, or description inside an explicit date range. For arbitrary Google Calendar API queries, all-calendar discovery, provider-native filters, or custom pagination, use provider-api-catalog/provider-api-docs/provider-api-request with provider=google_calendar.",
@@ -25,6 +26,11 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   run: async (args) => {
     const email = getRequestUserEmail();
@@ -68,6 +74,7 @@ export default defineAction({
       location: e.location || undefined,
       accountEmail: e.accountEmail || undefined,
       googleEventId: e.googleEventId || undefined,
+      revision: e.revision || undefined,
       htmlLink: e.htmlLink || undefined,
       attendees: e.attendees || [],
       conferenceData: e.conferenceData || undefined,

@@ -1,8 +1,14 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
-import { sanitizeReviewCommentMetadata } from "../attachments.js";
-import { reviewAuthorNameFromContext } from "../identity.js";
+import {
+  assertReviewCommentHasContent,
+  sanitizeReviewCommentMetadata,
+} from "../attachments.js";
+import {
+  reviewActorKindFromContext,
+  reviewAuthorNameFromContext,
+} from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
   notifyReviewComment,
@@ -22,7 +28,7 @@ import {
   ReviewThreadNotOpenError,
   reviewCommentIdForClientOperation,
 } from "../store.js";
-import type { ReviewActorKind, ReviewResourceContext } from "../types.js";
+import type { ReviewResourceContext } from "../types.js";
 
 const mentionSchema = z.object({
   label: z.string().min(1),
@@ -34,7 +40,9 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   commentId: z.string().min(1),
-  body: z.string().min(1),
+  body: z
+    .string()
+    .describe("Inline Markdown; may be empty when the reply has an image"),
   authorName: z.string().nullable().optional(),
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
   mentions: z.array(mentionSchema).optional(),
@@ -55,6 +63,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const scope = {
@@ -111,6 +120,8 @@ export default defineAction({
         errorCode: "thread_not_open",
       });
     }
+    const metadata = await sanitizeReviewCommentMetadata(args.metadata);
+    assertReviewCommentHasContent(args.body, metadata);
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
       ...extractReviewMentions(args.body),
@@ -143,13 +154,13 @@ export default defineAction({
       body: args.body,
       authorEmail: actionCtx?.userEmail ?? null,
       authorName: args.authorName ?? reviewAuthorNameFromContext(actionCtx),
-      createdBy: actorKindFromContext(actionCtx),
+      createdBy: reviewActorKindFromContext(actionCtx),
       resolutionTarget: null,
       mentions,
       ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
       orgId: access.orgId ?? actionCtx?.orgId ?? null,
       visibility: normalizeReviewVisibility(access.visibility),
-      metadata: await sanitizeReviewCommentMetadata(args.metadata),
+      metadata,
     };
     const resource = {
       resourceType: args.resourceType,
@@ -219,13 +230,3 @@ export default defineAction({
     },
   },
 });
-
-function actorKindFromContext(
-  ctx: ReviewResourceContext | undefined,
-): ReviewActorKind {
-  const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || caller === "tool") {
-    return "agent";
-  }
-  return ctx?.userEmail ? "human" : "system";
-}

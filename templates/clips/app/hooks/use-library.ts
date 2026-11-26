@@ -4,6 +4,11 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
+import type { FilterCounts } from "@agent-native/toolkit/app/filters";
+import {
+  libraryFilterCounts,
+  type LibraryFilterCounts,
+} from "@shared/library-filters";
 import type { RecordingKind } from "@shared/recording-kind";
 import {
   useInfiniteQuery,
@@ -71,6 +76,8 @@ export interface ListRecordingsArgs {
   spaceId?: string | null;
   tag?: string | null;
   search?: string | null;
+  source?: "clips" | "content" | "all";
+  filters?: string;
   sort?: "recent" | "views" | "oldest";
   limit?: number;
   offset?: number;
@@ -262,24 +269,65 @@ export function useInfiniteRecordings(
   return query;
 }
 
-export function useRecordingsCount(
-  args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
-  options: { enabled?: boolean } = {},
+function useRecordingsCountQuery<T>(
+  args: Omit<ListRecordingsArgs, "limit" | "offset">,
+  options: { enabled?: boolean },
+  select: (data: unknown) => T | undefined,
 ) {
   const normalizedArgs = Object.fromEntries(
     Object.entries(args).filter(([, value]) => value != null),
   );
-  return useActionQuery<number>(
+  return useActionQuery<T | undefined>(
     "list-recordings",
     { ...normalizedArgs, countOnly: true } as any,
     {
-      select: (data: any) =>
-        typeof data?.total === "number" ? data.total : undefined,
+      select,
       retry: false,
       throwOnError: false,
-      enabled: options.enabled,
+      enabled: options.enabled ?? true,
     },
   );
+}
+
+function selectRecordingsTotal(data: unknown): number | undefined {
+  return typeof data === "object" &&
+    data !== null &&
+    "total" in data &&
+    typeof data.total === "number"
+    ? data.total
+    : undefined;
+}
+
+export function useRecordingsCount(
+  args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
+  options: { enabled?: boolean } = {},
+) {
+  return useRecordingsCountQuery(args, options, selectRecordingsTotal);
+}
+
+export interface LibraryFilterSummary {
+  counts: FilterCounts;
+  tags: string[];
+}
+
+function selectLibraryFilterSummary(
+  data: unknown,
+): LibraryFilterSummary | undefined {
+  if (typeof data !== "object" || data === null || !("counts" in data)) {
+    return undefined;
+  }
+  const tags = "tags" in data && Array.isArray(data.tags) ? data.tags : [];
+  return {
+    counts: libraryFilterCounts(data.counts as LibraryFilterCounts),
+    tags: tags.filter((tag): tag is string => typeof tag === "string"),
+  };
+}
+
+export function useLibraryFilterSummary(
+  args: Omit<ListRecordingsArgs, "limit" | "offset">,
+  options: { enabled?: boolean } = {},
+) {
+  return useRecordingsCountQuery(args, options, selectLibraryFilterSummary);
 }
 
 export interface SearchHit {

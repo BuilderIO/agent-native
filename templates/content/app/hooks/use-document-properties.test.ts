@@ -1,4 +1,8 @@
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import {
+  MutationObserver,
+  QueryClient,
+  QueryObserver,
+} from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const useActionMutation = vi.hoisted(() => vi.fn());
@@ -7,6 +11,8 @@ const useQueryClient = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  actionErrorMessage: (error: { actionMessage?: string }) =>
+    error.actionMessage,
   useActionMutation,
   useActionQuery,
 }));
@@ -27,8 +33,10 @@ import {
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
   useDocumentProperties,
+  useSetBlocksFieldFreezeRule,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
+  type SetBlocksFieldFreezeRuleRequest,
 } from "./use-document-properties";
 import { documentPropertiesQueryKey } from "./use-documents";
 
@@ -211,7 +219,7 @@ describe("useUpdateDatabaseItems", () => {
     useActionMutation.mockImplementation((_name, options) => options);
   });
 
-  it("refreshes active filtered memberships without fetching inactive or unrelated results", async () => {
+  it("refreshes active filtered memberships and the Files sidebar without fetching inactive or unrelated results", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
     });
@@ -239,28 +247,38 @@ describe("useUpdateDatabaseItems", () => {
       "query-content-database-items",
       { documentId: "other-database", tableQuery: { filters: ["matching"] } },
     ] as const;
-    const reads = [boundedKey, legacyKey, inactiveKey, unrelatedKey].map(
-      (queryKey) => {
-        const queryFn = vi.fn(async () => returnedPage);
-        queryClient.setQueryData(queryKey, { items: [] });
-        const observer = new QueryObserver(queryClient, { queryKey, queryFn });
-        return { queryKey, queryFn, observer };
-      },
-    );
-    const subscriptions = [reads[0], reads[1], reads[3]].map(({ observer }) =>
-      observer.subscribe(() => {}),
-    );
+    const sidebarKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "database-1", limit: 50, navigation: { parentId: null } },
+    ] as const;
+    const reads = [
+      boundedKey,
+      legacyKey,
+      inactiveKey,
+      unrelatedKey,
+      sidebarKey,
+    ].map((queryKey) => {
+      const queryFn = vi.fn(async () => returnedPage);
+      queryClient.setQueryData(queryKey, { items: [] });
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn });
+      return { queryKey, queryFn, observer };
+    });
+    const subscriptions = reads
+      .filter((_, index) => index !== 2)
+      .map(({ observer }) => observer.subscribe(() => {}));
 
     try {
       useUpdateDatabaseItems("database-page");
       const mutation = useActionMutation.mock.calls.find(
         ([name]) => name === "update-database-items",
       )![1];
-      mutation.onSuccess();
+      mutation.onSuccess({ databaseId: "database-1" });
 
       await vi.waitFor(() => {
         expect(queryClient.getQueryData(boundedKey)).toEqual(returnedPage);
         expect(queryClient.getQueryData(legacyKey)).toEqual(returnedPage);
+        expect(queryClient.getQueryData(sidebarKey)).toEqual(returnedPage);
       });
       expect(reads[0].queryFn).toHaveBeenCalledTimes(1);
       expect(reads[1].queryFn).toHaveBeenCalledTimes(1);
@@ -897,6 +915,55 @@ describe("useSetDocumentProperty", () => {
     );
   });
 
+  it("rereads the collection's Files sidebar after a saved value, except a Blocks field's", () => {
+    const queryClient = {
+      cancelQueries: vi.fn(),
+      getQueriesData: vi.fn(() => []),
+      getQueryState: vi.fn(),
+      setQueriesData: vi.fn(),
+      setQueryData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+    useSetDocumentProperty("row-1", "database-1", "database-page-1");
+    const options = useActionMutation.mock.lastCall?.[1];
+    const rereadsSidebar = (databaseId: string) =>
+      queryClient.invalidateQueries.mock.calls.some(
+        ([filters]) =>
+          filters.queryKey[1] === "query-content-database-items" &&
+          filters.predicate?.({
+            queryKey: [
+              "action",
+              "query-content-database-items",
+              { databaseId, limit: 50, navigation: { parentId: null } },
+            ],
+          }) === true,
+      );
+
+    options.onSuccess(
+      {
+        properties: [
+          { definition: { id: "stage", type: "select" }, value: "done" },
+        ],
+      },
+      { documentId: "row-1", propertyId: "stage", value: "done" },
+    );
+    expect(rereadsSidebar("database-1")).toBe(true);
+    expect(rereadsSidebar("database-2")).toBe(false);
+
+    queryClient.invalidateQueries.mockClear();
+    options.onSuccess(
+      {
+        properties: [
+          { definition: { id: "notes", type: "blocks" }, value: [] },
+        ],
+      },
+      { documentId: "row-1", propertyId: "notes", value: [] },
+    );
+    expect(rereadsSidebar("database-1")).toBe(false);
+  });
+
   it("refetches the field revision after a rejected stale write", () => {
     const queryClient = {
       cancelQueries: vi.fn(),
@@ -1352,5 +1419,153 @@ describe("useSetDocumentProperty", () => {
     );
     expect(queryClient.getQueryState(baseKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(pageKey)?.isInvalidated).toBe(true);
+  });
+});
+
+describe("useSetBlocksFieldFreezeRule", () => {
+  beforeEach(() => {
+    useActionMutation.mockReset();
+    useQueryClient.mockReset();
+    toastError.mockReset();
+  });
+
+  it("sends rule changes in click order and keeps a later click when an earlier one fails", async () => {
+    const queryClient = new QueryClient();
+    const key = [
+      "action",
+      "list-document-properties",
+      { documentId: "row-1", databaseId: "database-1" },
+    ];
+    queryClient.setQueryData(key, {
+      documentId: "row-1",
+      databaseId: "database-1",
+      properties: [
+        {
+          definition: { id: "spec", type: "blocks", options: {} },
+          value: "",
+        },
+      ],
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetBlocksFieldFreezeRule("row-1", "database-1", "database-page-1");
+
+    expect(useActionMutation).toHaveBeenCalledWith(
+      "set-blocks-field-freeze-rule",
+      expect.objectContaining({
+        scope: { id: "content-column-rules:database-1" },
+      }),
+    );
+    const options = useActionMutation.mock.lastCall?.[1];
+    const approved = {
+      databaseId: "database-1",
+      propertyId: "spec",
+      rule: { propertyId: "status", optionIds: ["approved"] },
+    };
+    const both = {
+      ...approved,
+      rule: { propertyId: "status", optionIds: ["approved", "published"] },
+    };
+    await options.onMutate(approved);
+    await options.onMutate(both);
+    options.onError(
+      Object.assign(
+        new Error(
+          "Action set-blocks-field-freeze-rule failed: The Spec tab's rule changed.",
+        ),
+        { actionMessage: "The Spec tab's rule changed." },
+      ),
+      approved,
+    );
+
+    expect(
+      queryClient.getQueryData<{
+        properties: Array<{
+          definition: { options: { blocks?: { freezeWhen?: unknown } } };
+        }>;
+      }>(key)?.properties[0]?.definition.options.blocks?.freezeWhen,
+    ).toEqual(both.rule);
+    expect(toastError).toHaveBeenCalledWith(expect.any(String), {
+      description: "The Spec tab's rule changed.",
+    });
+  });
+
+  it("rereads the rule only after the last queued change lands", async () => {
+    const queryClient = new QueryClient();
+    const key = [
+      "action",
+      "list-document-properties",
+      { documentId: "row-1", databaseId: "database-1" },
+    ];
+    queryClient.setQueryData(key, {
+      documentId: "row-1",
+      databaseId: "database-1",
+      properties: [
+        {
+          definition: { id: "spec", type: "blocks", options: {} },
+          value: "",
+        },
+      ],
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+    useSetBlocksFieldFreezeRule("row-1", "database-1", "database-page-1");
+    const options = useActionMutation.mock.lastCall?.[1];
+    // Each request waits until the test lets it finish.
+    const waiting: Array<() => void> = [];
+    let started = 0;
+    const finishNext = () => waiting.shift()?.();
+    const click = (optionIds: string[]) =>
+      new MutationObserver<
+        { ok: true },
+        Error,
+        SetBlocksFieldFreezeRuleRequest
+      >(queryClient, {
+        ...options,
+        mutationFn: () =>
+          new Promise((resolve) => {
+            started += 1;
+            waiting.push(() => resolve({ ok: true }));
+          }),
+      }).mutate({
+        databaseId: "database-1",
+        propertyId: "spec",
+        rule: { propertyId: "status", optionIds },
+      });
+    const shownRule = () =>
+      queryClient.getQueryData<{
+        properties: Array<{
+          definition: { options: { blocks?: { freezeWhen?: unknown } } };
+        }>;
+      }>(key)?.properties[0]?.definition.options.blocks?.freezeWhen;
+    const rereads = () =>
+      invalidate.mock.calls.filter(
+        ([filters]) =>
+          JSON.stringify(filters?.queryKey) === JSON.stringify(key),
+      ).length;
+    const last = {
+      propertyId: "status",
+      optionIds: ["approved", "published", "archived"],
+    };
+
+    const clicks = [
+      click(["approved"]),
+      click(["approved", "published"]),
+      click(last.optionIds),
+    ];
+    // Changes go one at a time, and every click shows at once.
+    await vi.waitFor(() => expect(started).toBe(1));
+    expect(shownRule()).toEqual(last);
+    finishNext();
+    await vi.waitFor(() => expect(started).toBe(2));
+    finishNext();
+    await vi.waitFor(() => expect(started).toBe(3));
+    expect(rereads()).toBe(0);
+    expect(shownRule()).toEqual(last);
+    finishNext();
+    await Promise.all(clicks);
+    expect(rereads()).toBe(1);
   });
 });

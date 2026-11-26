@@ -1,10 +1,15 @@
 import type { AgentWidget } from "@agent-native/agentkit/protocol";
 import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
+  normalizeAgentTeamProgressResult,
 } from "@agent-native/core/action-ui";
 
-import { AgentWidgetView } from "../../agentkit/react/components.js";
+import {
+  AgentWidgetView,
+  agentRunTaskIds,
+} from "../../agentkit/react/components.js";
 import {
   useAgentKit,
   useAgentThread,
@@ -39,7 +44,18 @@ export function AgentKitActionWidget({
 
   if (!tool) return <AgentWidgetView value={widget} threadId={threadId} />;
 
-  const resultJson = tool.output;
+  // The run's task group already shows its tasks, so the card keeps the rest.
+  let resultJson = tool.output;
+  const teamTasks =
+    widget.kind === ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER
+      ? normalizeAgentTeamProgressResult(resultJson)?.tasks
+      : undefined;
+  if (teamTasks?.length && tool.runId) {
+    const runTaskIds = agentRunTaskIds(thread.events, tool.runId);
+    const untracked = teamTasks.filter((task) => !runTaskIds.has(task.taskId));
+    if (untracked.length === 0) return null;
+    if (untracked.length < teamTasks.length) resultJson = { tasks: untracked };
+  }
   const messageId = thread.widgetMessageIds[widget.id];
   const attachedChangeWidgets =
     widget.kind === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER && messageId
@@ -86,11 +102,11 @@ export function AgentKitActionWidget({
     toolName: tool.name,
     args: asRecord(tool.input) ?? {},
     resultText:
-      typeof tool.output === "string"
-        ? tool.output
-        : tool.output === undefined
+      typeof resultJson === "string"
+        ? resultJson
+        : resultJson === undefined
           ? undefined
-          : JSON.stringify(tool.output),
+          : JSON.stringify(resultJson),
     resultJson,
     ...(relatedResults.length > 1 ? { relatedResults } : {}),
     widgetId: widget.id,

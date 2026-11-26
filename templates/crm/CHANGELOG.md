@@ -1,5 +1,17 @@
 # CRM changelog
 
+## 2026-11-24
+
+### Added
+
+- Agents and MCP/A2A callers can now log calls, meetings, and emails on a CRM record's timeline.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
 ## 2026-11-05
 
 ### Improved

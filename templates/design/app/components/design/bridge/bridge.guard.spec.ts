@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import {
   existsSync,
   readdirSync,
@@ -50,6 +49,10 @@ declare global {
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const designRoot = resolve(__dirname, "../../../..");
 import { AUTHORED_INLINE_STYLE_PROPERTIES } from "../edit-panel/interaction-state-helpers";
+
+// oracle-change: removed source-text greps (controller inlining, drag scheduler, isAbsolutePrimitiveContainer parity) and the tsc case that pnpm typecheck already runs on bridge/tsconfig.json
+// oracle-change(templates/design/app/components/design/bridge/editor-drag-preview.bridge.spec.ts): string grep of the generated bridge script only
+// oracle-change(templates/design/app/components/design/bridge/spacing-indicator-tick-length.bridge.spec.ts): padding-interaction.bridge.spec.ts asserts the same padding tick length in a browser
 
 const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
@@ -595,6 +598,7 @@ describe("source vector stroke overlay reconciliation", () => {
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
+    "../../../../shared/design-tool-markers",
     "../../../../shared/export-image-source",
     "../../../../shared/srcset",
     "./native-region-export",
@@ -605,6 +609,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/relative-position-containing-block",
     "../../../../shared/source-equivalent-selector",
     "../../../../shared/svg-shape-offset",
+    "../../../../shared/visual-layers",
   ],
   // The source-equivalent selector walker is shared with the parent canvas, which resolves
   // the selectors the bridge builds, so both sides skip the same siblings.
@@ -898,30 +903,6 @@ describe("bridge source files", () => {
 });
 
 describe("editor chrome shared gesture controller", () => {
-  it("inlines the controller into the iframe runtime for both move and resize", () => {
-    const source = readFileSync(
-      join(bridgeDir, "editor-chrome.bridge.ts"),
-      "utf-8",
-    );
-
-    expect(source).toContain(
-      'from "@agent-native/toolkit/canvas-interactions"',
-    );
-    expect(source).toContain("bridgeMoveController.pointerMove");
-    expect(source).toContain("bridgeMoveController.pointerUp");
-    expect(source).toContain("bridgeResizeController.pointerMove");
-    expect(source).toContain("bridgeResizeController.pointerUp");
-
-    expect(editorChromeBridgeScript).toContain(
-      "function createCanvasGestureController",
-    );
-    expect(editorChromeBridgeScript).toContain("bridgeMoveController");
-    expect(editorChromeBridgeScript).toContain("bridgeResizeController");
-    expect(editorChromeBridgeScript).not.toContain(
-      "@agent-native/toolkit/canvas-interactions",
-    );
-  });
-
   it(
     "does not preview or commit a selected-box click, then commits one real drag",
     { timeout: 30_000 },
@@ -1165,29 +1146,6 @@ describe("editor chrome shared gesture controller", () => {
     },
   );
 });
-
-it(
-  "bridge tsconfig — tsc -p bridge/tsconfig.json exits clean",
-  { timeout: 30_000 },
-  () => {
-    const tsconfigPath = join(bridgeDir, "tsconfig.json");
-    let output = "";
-    let failed = false;
-    try {
-      output = execSync(`pnpm exec tsc --noEmit -p "${tsconfigPath}"`, {
-        cwd: designRoot,
-        encoding: "utf-8",
-        stdio: "pipe",
-      });
-    } catch (err: unknown) {
-      failed = true;
-      const e = err as { stdout?: string; stderr?: string; message?: string };
-      output = (e.stdout ?? "") + (e.stderr ?? "") + (e.message ?? "");
-    }
-
-    expect(failed, `bridge tsconfig type-check failed:\n${output}`).toBe(false);
-  },
-);
 
 it("keeps cancel cleanup compatible with held modifiers", () => {
   const bridge = readFileSync(
@@ -1516,6 +1474,13 @@ describe("generated bridge modules", () => {
   const bridgeFiles = getBridgeFiles();
 
   for (const filename of bridgeFiles) {
+    it(`${filename} generated script has no literal closing script tag`, () => {
+      // source-read-ok: The bridge is injected as an inline <script>; a literal closing tag in its text ends it early.
+      expect(readFileSync(generatedPath(filename), "utf-8")).not.toMatch(
+        /<\/script/i,
+      );
+    });
+
     it(`${filename} → .generated/bridge/${filename.replace(".bridge.ts", ".generated.ts")} is up to date`, async () => {
       const outPath = generatedPath(filename);
 
@@ -17825,7 +17790,6 @@ const NON_PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Shift+C toggle comments", key: "C", code: "KeyC", shift: true },
   { name: "Shift+L arrow tool", key: "L", code: "KeyL", shift: true },
   { name: "Shift+N previous frame", key: "N", code: "KeyN", shift: true },
-  { name: "Shift+Y draw tool", key: "Y", code: "KeyY", shift: true },
   { name: "O ellipse tool", key: "o", code: "KeyO" },
   { name: "L line tool", key: "l", code: "KeyL" },
   { name: "I eyedropper", key: "i", code: "KeyI" },
@@ -20134,98 +20098,6 @@ it(
     }
   },
 );
-
-it("keeps isAbsolutePrimitiveContainer identical in both bridges", () => {
-  const extract = (filename: string) => {
-    const source = readFileSync(join(bridgeDir, filename), "utf-8");
-    const start = source.indexOf(
-      "  function isAbsolutePrimitiveContainer(el: Element | null): boolean {",
-    );
-    expect(
-      start,
-      `${filename} defines isAbsolutePrimitiveContainer`,
-    ).toBeGreaterThan(-1);
-    const end = source.indexOf("\n  }\n", start);
-    return source.slice(start, end);
-  };
-
-  expect(extract("hit-test.bridge.ts")).toBe(
-    extract("editor-chrome.bridge.ts"),
-  );
-});
-
-it("coalesces free-drag target and overlay work", () => {
-  const bridge = readFileSync(
-    join(bridgeDir, "editor-chrome.bridge.ts"),
-    "utf-8",
-  );
-  const start = bridge.indexOf("var currentAutoLayoutTarget:");
-  const end = bridge.indexOf(
-    "function restoreSourceDragPosition(): void {",
-    start,
-  );
-  expect(start).toBeGreaterThan(-1);
-  expect(end).toBeGreaterThan(start);
-  const freeDragLoop = bridge.slice(start, end);
-
-  expect(freeDragLoop).toContain(
-    "scheduleAutoLayoutTargetResolution(ev, snapResult)",
-  );
-  expect(freeDragLoop).toContain("scheduleRefreshOverlays()");
-  expect(freeDragLoop).not.toContain(
-    `currentAutoLayoutTarget = !bridgeSpaceKeyPressed
-          ? autoLayoutInsertionTargetForPoint(`,
-  );
-  expect(freeDragLoop).not.toContain(`      refreshOverlays();
-`);
-
-  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
-  expect(pointerUp).toContain("autoLayoutInsertionTargetForPoint(");
-  expect(pointerUp).toContain(
-    "currentAutoLayoutTarget = finalAutoLayoutTarget;",
-  );
-});
-
-it("snapshots drag modifiers before queued target resolution", () => {
-  const bridge = readFileSync(
-    join(bridgeDir, "editor-chrome.bridge.ts"),
-    "utf-8",
-  );
-  const start = bridge.indexOf("var pendingAutoLayoutTargetPoint:");
-  const end = bridge.indexOf(
-    "// Client px per CSS px for this element.",
-    start,
-  );
-  expect(start).toBeGreaterThan(-1);
-  expect(end).toBeGreaterThan(start);
-  const dragScheduler = bridge.slice(start, end);
-
-  expect(dragScheduler).toMatch(
-    /spaceKeyPressed:\s*[\s\S]*bridgeSpaceKeyPressed/,
-  );
-  expect(dragScheduler).toMatch(
-    /ignoreAutoLayoutKeyPressed:\s*[\s\S]*bridgeIgnoreAutoLayoutKeyPressed/,
-  );
-  expect(dragScheduler).toContain("if (point.spaceKeyPressed)");
-  expect(dragScheduler).toContain("isIgnoreAutoLayoutChordForDragPoint(point)");
-  expect(dragScheduler).toContain("dragChromeSuppressed = true");
-  expect(dragScheduler).toContain("hideSnapGuides()");
-  expect(dragScheduler).toContain("hideSizeBadge()");
-  expect(dragScheduler).toContain("hideConstraintGuides()");
-  expect(dragScheduler).toContain("showSnapGuides(");
-  expect(dragScheduler).toContain("showConstraintGuides(dragEl)");
-  expect(dragScheduler).not.toContain("isIgnoreAutoLayoutChord(point)");
-
-  const moveStart = bridge.indexOf("        if (!bridgeSpaceKeyPressed) {");
-  const moveEnd = bridge.indexOf("// Snap guides only make sense", moveStart);
-  expect(moveStart).toBeGreaterThan(-1);
-  expect(moveEnd).toBeGreaterThan(moveStart);
-  expect(bridge.slice(moveStart, moveEnd)).toContain("hideInsertionGuide()");
-
-  const pointerUp = bridge.slice(bridge.indexOf("function onUp(ev)"));
-  expect(pointerUp).toContain("isIgnoreAutoLayoutChord(ev)");
-  expect(bridge).toContain("cancelAutoLayoutTargetResolution();");
-});
 
 it("keeps the authored inline-style key list in sync with the bridge", () => {
   const bridge = readFileSync(

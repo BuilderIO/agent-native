@@ -1,6 +1,10 @@
+import type { H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { signInternalToken } from "../integrations/internal-token.js";
+import {
+  signInternalToken,
+  verifyDispatchedTurnInitiator,
+} from "../integrations/internal-token.js";
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -21,6 +25,15 @@ import {
   resolveDurableBackgroundDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+
+const isLoopbackRequestMock = vi.hoisted(() =>
+  vi.fn((_event: H3Event) => false),
+);
+
+vi.mock("../server/loopback.js", async (importActual) => ({
+  ...(await importActual<typeof import("../server/loopback.js")>()),
+  isLoopbackRequest: isLoopbackRequestMock,
+}));
 
 /**
  * The single gate that decides whether a long agent-chat turn is routed through
@@ -645,11 +658,14 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
     });
 
     it("allows an unsigned dispatch in local dev (SQL claim is the guard)", () => {
+      const event = {} as H3Event;
+      isLoopbackRequestMock.mockReturnValueOnce(true);
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
-        true,
+        event,
       );
+      expect(isLoopbackRequestMock).toHaveBeenCalledWith(event);
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error("expected ok");
       expect(r.runId).toBe(RUN_ID);
@@ -659,6 +675,16 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
+      );
+      expect(r).toMatchObject({ ok: false, status: 503, runId: RUN_ID });
+    });
+
+    it("refuses an unsigned dispatch whose request is not local (fail closed)", () => {
+      isLoopbackRequestMock.mockReturnValueOnce(false);
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        undefined,
+        {} as H3Event,
       );
       expect(r).toMatchObject({ ok: false, status: 503, runId: RUN_ID });
     });
@@ -697,5 +723,49 @@ describe("extractProcessRunId (diagnostic runId parse without auth)", () => {
     expect(
       extractProcessRunId({ [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: 5 } }),
     ).toBeNull();
+  });
+});
+
+describe("backgroundRunInitiatorMarker", () => {
+  const owner = {
+    email: "owner@example.com",
+    authUserId: "owner-user-id",
+    orgId: "org-1",
+    orgScope: null,
+    anonymous: false,
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("signs the initiator for exactly the dispatched run", async () => {
+    vi.stubEnv("A2A_SECRET", "test-dispatch-secret");
+    const { backgroundRunInitiatorMarker } =
+      await import("./durable-background.js");
+    const { initiatorSignature } = backgroundRunInitiatorMarker("run-1", owner);
+
+    expect(
+      verifyDispatchedTurnInitiator("run-1", owner, initiatorSignature),
+    ).toBe(true);
+    expect(
+      verifyDispatchedTurnInitiator("run-2", owner, initiatorSignature),
+    ).toBe(false);
+    expect(
+      verifyDispatchedTurnInitiator(
+        "run-1",
+        { ...owner, email: "other@example.com" },
+        initiatorSignature,
+      ),
+    ).toBe(false);
+  });
+
+  it("adds nothing without a dispatch secret or initiator", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const { backgroundRunInitiatorMarker } =
+      await import("./durable-background.js");
+    expect(backgroundRunInitiatorMarker("run-1", owner)).toEqual({});
+    vi.stubEnv("A2A_SECRET", "test-dispatch-secret");
+    expect(backgroundRunInitiatorMarker("run-1", null)).toEqual({});
   });
 });

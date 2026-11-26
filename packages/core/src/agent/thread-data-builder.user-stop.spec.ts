@@ -163,3 +163,102 @@ describe("folding a run the user stopped", () => {
     );
   });
 });
+
+describe("folding a run stopped at what the user's browser showed", () => {
+  it("saves the reply only up to the last event the browser showed", () => {
+    const folded = foldStoppedRun([
+      { seq: 0, event: { type: "text", text: "1. The ocean covers most " } },
+      { seq: 1, event: { type: "text", text: "of Earth." } },
+      { seq: 2, event: { type: "thinking", text: "Now mangroves." } },
+      { seq: 3, event: { type: "text", text: "\n2. Mangrove forests grow" } },
+      { seq: 4, event: { type: "clear" } },
+      { seq: 5, event: { type: "done", reason: "user", shownThroughSeq: 1 } },
+    ]);
+
+    expect(storedMessages(folded).at(-1).content).toEqual([
+      { type: "text", text: "1. The ocean covers most of Earth." },
+    ]);
+  });
+
+  it("keeps a tool call the run made after that point", () => {
+    const folded = foldStoppedRun([
+      { seq: 0, event: { type: "text", text: "Looking it up." } },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          id: "call-1",
+          tool: "search-notes",
+          input: { query: "ocean" },
+        },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_done",
+          id: "call-1",
+          tool: "search-notes",
+          result: "3 notes",
+        },
+      },
+      { seq: 3, event: { type: "text", text: "Found three no" } },
+      { seq: 4, event: { type: "done", reason: "user", shownThroughSeq: 0 } },
+    ]);
+
+    expect(storedMessages(folded).at(-1).content).toEqual([
+      { type: "text", text: "Looking it up." },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "search-notes",
+        result: "3 notes",
+      }),
+    ]);
+  });
+
+  it("cuts the reply after a message the user sent into the run", () => {
+    const turn = buildAssistantTurnSegments(
+      [
+        { seq: 0, event: { type: "text", text: "Checking the deck." } },
+        {
+          seq: 1,
+          event: {
+            type: "user_message",
+            message: {
+              id: "queued-1",
+              text: "Use the blue theme",
+              createdAt: "2026-10-24T10:00:05.000Z",
+            },
+            continuationMessageId: "run-stop:after:queued-1",
+          },
+        },
+        { seq: 2, event: { type: "text", text: "Switching to blue." } },
+        { seq: 3, event: { type: "text", text: " Slide two is" } },
+        {
+          seq: 4,
+          event: { type: "done", reason: "user", shownThroughSeq: 2 },
+        },
+      ],
+      "run-stop",
+      { turnId: "turn-stop" },
+    );
+
+    expect(turn.assistant?.content).toEqual([
+      { type: "text", text: "Checking the deck." },
+    ]);
+    expect(turn.steered).toHaveLength(1);
+    expect(turn.steered[0]?.assistant?.content).toEqual([
+      { type: "text", text: "Switching to blue." },
+    ]);
+  });
+
+  it("saves no text when the browser had shown nothing yet", () => {
+    const folded = foldStoppedRun([
+      { seq: 0, event: { type: "text", text: "1. The ocean covers most " } },
+      { seq: 1, event: { type: "done", reason: "user", shownThroughSeq: -1 } },
+    ]);
+
+    expect(
+      storedMessages(folded).map((message: { role: string }) => message.role),
+    ).toEqual(["user"]);
+  });
+});

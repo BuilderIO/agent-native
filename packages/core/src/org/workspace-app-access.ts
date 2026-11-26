@@ -1,7 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 
 import { canonicalA2AAudience } from "../a2a/audience.js";
-import { isLoopbackAddress } from "../a2a/auth-policy.js";
 import {
   signA2AOrgMemberDelegationToken,
   signA2AToken,
@@ -13,6 +12,7 @@ import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/deployment-protection.js";
+import { isLoopbackHostname } from "../server/loopback.js";
 import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
@@ -145,6 +145,17 @@ export function isStandaloneDispatchRuntime(): boolean {
 
 function configuredWorkspaceDirectory(): string | null {
   const workspace = getAppConfig().workspace;
+  if (workspace.appAccessStore === "database") {
+    if (!isHostedWorkspaceRuntime() || workspace.authMode !== "shared") {
+      throw new Error(
+        "Database app access requires a shared workspace runtime.",
+      );
+    }
+    // A single-database workspace uses the same authoritative rows directly.
+    // Returning null selects the existing app/member/share checks below; it
+    // never turns a registry read into an unconditional access grant.
+    return null;
+  }
   const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
   if (orgDirectoryUrl) return orgDirectoryUrl;
 
@@ -157,7 +168,7 @@ function configuredWorkspaceDirectory(): string | null {
 
   try {
     const url = new URL(gatewayUrl);
-    if (!isLoopbackAddress(url.hostname.replace(/^\[|\]$/g, ""))) {
+    if (!isLoopbackHostname(url.hostname.replace(/^\[|\]$/g, ""))) {
       return gatewayUrl;
     }
     const basePath = url.pathname.replace(/\/+$/, "");
@@ -283,6 +294,54 @@ function configuredWorkspaceApp(appId: string): {
   };
 }
 
+/**
+ * Org access rows for apps this deployment does not build.
+ *
+ * In a workspace deployment the deploy decides which apps exist, so a row for
+ * anything else is a leftover from an older build and shows up as a dead link
+ * (a hosted workspace still offered a removed app, answering 404, after that app was removed). With no
+ * configured catalog — a single-app deployment — nothing is filtered.
+ */
+export function unbuiltWorkspaceAppIds(
+  ids: Iterable<string>,
+  configured: ReadonlyArray<{ id: string }> = listConfiguredWorkspaceApps(),
+): string[] {
+  if (configured.length === 0) return [];
+  const known = new Set(configured.map((entry) => entry.id));
+  return [...ids].filter((id) => !known.has(id));
+}
+
+export function listConfiguredWorkspaceApps(): Array<{
+  id: string;
+  name: string;
+  description: string | null;
+  path: string;
+}> {
+  const apps =
+    workspaceAppsFromManifest(getAppConfig().workspace.appsJson) ?? [];
+  return apps.flatMap((entry) => {
+    const id = entry.id.trim();
+    const meta = configuredWorkspaceAppMetadata(id);
+    return meta ? [{ id, ...meta }] : [];
+  });
+}
+
+// Metadata for a deployment-configured workspace app, or null when the id is
+// not in the manifest. Never throws: a manifest entry without full metadata
+// must not turn an access check into a 500.
+function configuredWorkspaceAppMetadata(appId: string): {
+  name: string;
+  description: string | null;
+  path: string;
+} | null {
+  try {
+    return configuredWorkspaceApp(appId);
+    // coercion-ok: incomplete manifest entry is reported as unconfigured, per contract above
+  } catch {
+    return null;
+  }
+}
+
 async function hostedWorkspaceAppAccess(
   appId: string,
   context: WorkspaceAppAccessContext,
@@ -375,7 +434,7 @@ async function resolveHostedWorkspaceAppAuth(
       requestContext?.a2aIdentityAssurance === "org-member";
     const orgDomain = orgId ? await cachedOrgDomain(orgId) : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
-    if (orgId && !normalizedOrgDomain) {
+    if (orgId && !normalizedOrgDomain && delegatedMember) {
       return workspaceAppAccessUnavailable("org-domain-missing", { audience });
     }
     stage = "token-signing-failed";
@@ -437,6 +496,7 @@ async function resolveHostedWorkspaceAppAuth(
         audience,
         extraClaims: {
           jti: randomUUID(),
+          ...(orgId && !normalizedOrgDomain ? { org_id: orgId } : {}),
         },
       });
     }
@@ -802,15 +862,10 @@ async function isActiveWorkspaceOrgMember(
   return membership.active;
 }
 
-async function claimWorkspaceAppOrganization(
+async function registerConfiguredWorkspaceApp(
   db: DbExec,
   appId: string,
-  orgId: string,
-  member: WorkspaceOrgMember,
 ): Promise<boolean> {
-  if (member.role !== "owner" && member.role !== "admin") {
-    return false;
-  }
   const configuredApp = configuredWorkspaceApp(appId);
   if (configuredApp) {
     const now = Date.now();
@@ -828,7 +883,22 @@ async function claimWorkspaceAppOrganization(
         now,
       ],
     });
+    invalidateMemberOrgCaches();
+    return true;
   }
+  return false;
+}
+
+async function claimWorkspaceAppOrganization(
+  db: DbExec,
+  appId: string,
+  orgId: string,
+  member: WorkspaceOrgMember,
+): Promise<boolean> {
+  if (member.role !== "owner" && member.role !== "admin") {
+    return false;
+  }
+  await registerConfiguredWorkspaceApp(db, appId);
   const claim = await db.execute({
     sql: `UPDATE workspace_apps SET org_id = ?
           WHERE id = ? AND org_id IS NULL
@@ -941,26 +1011,52 @@ export async function checkWorkspaceAppAccess(
   );
   if (hostedAccess !== null) return hostedAccess;
 
+  // One line per denial naming the branch that denied, so the next person (or the
+  // next session) reads the answer instead of adding a fourth hypothesis. 11/5: a
+  // fresh account's first action on a configured app was denied and three different
+  // upstream repairs changed nothing, because none of them was the denying branch.
+  // No email or ids in the line: the app, the branch, and whether an org id and a
+  // row were present are enough to reproduce it.
+  const deny = (branch: string, extra: Record<string, unknown> = {}): false => {
+    try {
+      console.warn(
+        `[workspace-access] deny ${normalizedAppId} branch=${branch} ${JSON.stringify(extra)}`,
+      );
+      // coercion-ok: diagnostic log must never change the denial result
+    } catch {}
+    return false;
+  };
+
   try {
     const db = getDbExec();
-    const app = await cachedWorkspaceAppRow(db, normalizedAppId);
+    let app = await cachedWorkspaceAppRow(db, normalizedAppId);
     if (!app) {
       const orgId = context.orgId?.trim() || null;
-      if (!orgId) return false;
+      if (!orgId) return deny("no-row-no-org", { row: false, org: false });
       const member = await loadWorkspaceOrgMember(db, orgId, email);
       if (
         !member ||
         !(await isActiveWorkspaceOrgMember(member, orgId, email))
       ) {
-        return false;
+        return deny("no-row-not-a-member", { row: false, org: true });
       }
       const role = effectiveOrgMemberRole(member.role, orgId, email);
-      return role
-        ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
-            ...member,
-            role,
-          })
-        : false;
+      if (
+        role === "member" &&
+        (await registerConfiguredWorkspaceApp(db, normalizedAppId))
+      ) {
+        // A concurrent insert may have won with a private or owned row.
+        app = await cachedWorkspaceAppRow(db, normalizedAppId);
+        if (!app)
+          return deny("no-row-after-registration", { row: false, org: true });
+      } else {
+        return role
+          ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+              ...member,
+              role,
+            })
+          : false;
+      }
     }
 
     const ownerEmail = normalizedEmail(
@@ -980,7 +1076,33 @@ export async function checkWorkspaceAppAccess(
 
     if (sameOrg && !orgEnabled) return false;
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
-    if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
+    // A deployment-configured workspace app (from AGENT_NATIVE_WORKSPACE_APPS_JSON)
+    // is the workspace's own app, shared by every organization, not a resource
+    // one org owns exclusively. A registered app another org claimed stays
+    // open to any active member; app data stays scoped to the caller's
+    // organization and user. The claiming org keeps ownership for access
+    // administration.
+    const sharedConfiguredApp =
+      !sameOrg &&
+      !!resourceOrgId &&
+      configuredWorkspaceAppMetadata(normalizedAppId) !== null;
+    // A deployment-configured app is the workspace's own app, shared by every
+    // organization — the app switcher lists it as mode "all" for a caller whose org
+    // does not exist yet, and a fresh account's first click lands here before boot
+    // has created its personal org. Measured 11/5 (branch=row-shape, row=true,
+    // org=false, sharedConfiguredApp=true): requiring an org id denied exactly that
+    // caller while every later call allowed them. The caller is already
+    // authenticated at this point; only an app this deployment does not configure
+    // still needs the org and membership checks below.
+    if (sharedConfiguredApp && !orgId) return true;
+    if ((!sameOrg && !canClaimCallerOrg && !sharedConfiguredApp) || !orgId)
+      return deny("row-shape", {
+        row: true,
+        org: !!orgId,
+        sameOrg,
+        canClaim: canClaimCallerOrg,
+        sharedConfiguredApp,
+      });
 
     const member = await cachedWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
@@ -989,6 +1111,12 @@ export async function checkWorkspaceAppAccess(
     const memberRole = effectiveOrgMemberRole(member.role, orgId, email);
     if (!memberRole) return false;
     if (canClaimCallerOrg) {
+      if (
+        memberRole === "member" &&
+        configuredWorkspaceApp(normalizedAppId) !== null
+      ) {
+        return true;
+      }
       if (
         !(await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
           ...member,

@@ -11,13 +11,27 @@ import {
 } from "../server/request-context.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import {
+  WORKSPACE_APP_CHAT_SCOPE,
+  WORKSPACE_APP_CHAT_TTL_SECONDS,
+} from "../shared/workspace-app-chat-capability.js";
+import {
+  INVALID_ASK_APP_TASK_HANDLE_ERROR,
   signAskAppTaskHandle,
   verifyAskAppTaskHandle,
 } from "./ask-app-task-handle.js";
-import type { MCPConfig } from "./build-server.js";
+import type { MCPConfig, MCPCallerIdentity } from "./build-server.js";
+import { mcpChatTurnOwner } from "./chat-turn-scope.js";
+import {
+  hasMcpChatTurnApps,
+  mintMcpChatTurnMetadata,
+} from "./chat-turn-store.js";
 import { embedApp } from "./embed-app.js";
 import { frameworkMcpTool } from "./framework-tools.js";
-import { fetchOrgApps, type OrgApp } from "./org-directory.js";
+import {
+  fetchOrgApps,
+  fetchOrgAppsResult,
+  type OrgApp,
+} from "./org-directory.js";
 
 type Params = Record<
   string,
@@ -47,6 +61,7 @@ function currentAppId(config: MCPConfig): string {
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
+const ASK_APP_CHAT_TURN_MAX_INLINE_WAIT_MS = 24_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -202,10 +217,16 @@ function askAppIssuerAudience(requestMeta?: AskAppRequestMeta): string | null {
 }
 
 function boundedAskAppWaitMs(raw: unknown): number {
-  if (raw == null || raw === "") return ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  // A verified user's chat turn waits a little longer so a read finishes inline.
+  const chatTurn = hasMcpChatTurnApps() && mcpChatTurnOwner() !== undefined;
+  const maximum = chatTurn
+    ? ASK_APP_CHAT_TURN_MAX_INLINE_WAIT_MS
+    : ASK_APP_MAX_INLINE_WAIT_MS;
+  const fallback = chatTurn ? maximum : ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  if (raw == null || raw === "") return fallback;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return ASK_APP_DEFAULT_INLINE_WAIT_MS;
-  return Math.max(0, Math.min(ASK_APP_MAX_INLINE_WAIT_MS, Math.trunc(parsed)));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(maximum, Math.trunc(parsed)));
 }
 
 function isExplicitAsyncAsk(raw: unknown): boolean {
@@ -483,8 +504,10 @@ async function submitAskAppA2ATask(
     issuerAudience,
     message,
   );
+  const chatTurn = await mintMcpChatTurnMetadata(route.app);
   const task = await client.send(
     {
+      ...(chatTurn ? { metadata: chatTurn } : {}),
       role: "user",
       parts: [{ type: "text", text: message }],
     },
@@ -682,14 +705,106 @@ async function resolveTargetAppOrigin(
   }
 }
 
+// "unavailable" means a sibling might own this URL but the app lists could not
+// be read; a URL under this app's own base path is never a sibling's.
+function normalizedHttpUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return `${url.origin}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    // coercion-ok: callers treat an unparseable URL as belonging to no sibling app.
+    return null;
+  }
+}
+
+async function resolveWorkspaceAppForUrl(
+  config: MCPConfig,
+  rawTarget: string,
+): Promise<{ appUrl: string; relUrl: string } | "unavailable" | null> {
+  if (!/^https?:\/\//i.test(rawTarget)) return null;
+  const rawUrl = normalizedHttpUrl(rawTarget);
+  if (!rawUrl) return null;
+  const ownBase = getConfiguredAppBasePath();
+  if (ownBase) {
+    const { pathname } = new URL(rawUrl);
+    if (pathname === ownBase || pathname.startsWith(`${ownBase}/`)) return null;
+  }
+  const selfId = currentAppId(config);
+  const candidates: string[] = [];
+  let unavailable = false;
+  try {
+    const { resolveWorkspace } = await import("./workspace-resolve.js");
+    const ws = await resolveWorkspace();
+    if (ws.isWorkspace) {
+      for (const app of ws.apps) {
+        if (app.id.toLowerCase() !== selfId) candidates.push(app.url);
+      }
+    }
+  } catch {
+    unavailable = true;
+  }
+  const directory = await fetchOrgAppsResult({ selfId });
+  if (directory.status === "available") {
+    for (const app of directory.apps) candidates.push(app.url);
+  } else if (directory.reason !== "not-configured") {
+    unavailable = true;
+  }
+  // Longest first, so a root-mounted app cannot shadow a path-mounted sibling.
+  const appUrls = candidates
+    .map((candidate) => normalizedHttpUrl(candidate)?.replace(/\/+$/, ""))
+    .filter((appUrl): appUrl is string => !!appUrl)
+    .sort((a, b) => b.length - a.length);
+  for (const appUrl of appUrls) {
+    if (!rawUrl.startsWith(appUrl)) continue;
+    const rest = rawUrl.slice(appUrl.length);
+    if (rest && !/^[/?#]/.test(rest)) continue;
+    return { appUrl, relUrl: rest.startsWith("/") ? rest : `/${rest}` };
+  }
+  return unavailable ? "unavailable" : null;
+}
+
+// MCP hosts only let the app view frame and fetch the MCP server's own origin,
+// so only apps mounted on that origin can be embedded.
+async function startCrossAppEmbed(
+  targetAppUrl: string,
+  relUrl: string,
+  chrome: string | undefined,
+): Promise<{ startUrl: string; targetPath: string; expiresAt: number } | null> {
+  const { getRequestContext } = await import("../server/request-context.js");
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
+  const { getEmbedSessionOrigin } =
+    await import("../server/embed-request-origin.js");
+  const embedOrigin = getEmbedSessionOrigin();
+  if (!ownerEmail || !embedOrigin) return null;
+  let sameOrigin = false;
+  try {
+    sameOrigin = new URL(targetAppUrl).origin === new URL(embedOrigin).origin;
+  } catch {
+    sameOrigin = false;
+  }
+  if (!sameOrigin) return null;
+  const targetPath = withMcpChatBridgeParam(relUrl);
+  const { createEmbedHandoffStartUrl } =
+    await import("../server/embed-handoff.js");
+  const started = await createEmbedHandoffStartUrl({
+    targetAppUrl,
+    targetPath,
+    ownerEmail,
+    orgId: ctx?.orgId,
+    chrome,
+  });
+  return started ? { ...started, targetPath } : null;
+}
+
 function listAppsTool(
   config: MCPConfig,
   requestMeta?: { origin?: string },
 ): ActionEntry {
   return {
     tool: tool(
-      "List the workspace apps and their URLs. Use this to discover which " +
-        "apps exist before opening or asking one. In a single-app project " +
+      "List the workspace apps and their ids and URLs. In a single-app project " +
         "this returns just that app. When an org directory is configured " +
         "this also includes the org's deployed sibling apps.",
     ),
@@ -772,7 +887,7 @@ function listAppsTool(
   };
 }
 
-function openAppTool(config: MCPConfig): ActionEntry {
+function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -780,7 +895,8 @@ function openAppTool(config: MCPConfig): ActionEntry {
           "focused route/component. No side " +
           "effects — returns a URL the user can click to land in the running UI. " +
           "Set embed:true when a UI-capable MCP host should render the live app " +
-          "or focused route/component inline. Omit view and path to land on the " +
+          "or focused route/component inline; another workspace app on this " +
+          "server's origin embeds unless embed is false. Omit view and path to land on the " +
           "app's home page. Omit app to open this app.",
         {
           app: { type: "string", description: "App id, e.g. 'mail'" },
@@ -821,6 +937,9 @@ function openAppTool(config: MCPConfig): ActionEntry {
       const app = requestedApp || currentAppId(config);
       const view = String(args.view ?? "").trim();
       const path = safeAppPath(args.path) || (view ? null : "/");
+      if (args.path != null && !safeAppPath(args.path)) {
+        throw new Error("path must be a safe app-relative route");
+      }
       let params: Record<string, string | number | boolean> | undefined;
       const raw = args.params;
       if (raw && typeof raw === "object") {
@@ -834,6 +953,12 @@ function openAppTool(config: MCPConfig): ActionEntry {
       }
       const embeddedParam = params?.embed;
       const chromeParam = params?.chrome;
+      const embedChosen =
+        args.embed != null ||
+        embeddedParam === true ||
+        embeddedParam === false ||
+        embeddedParam === "true" ||
+        embeddedParam === "false";
       let embed =
         (args.embed == null && !requestedApp && !view && !args.path) ||
         args.embed === true ||
@@ -874,7 +999,26 @@ function openAppTool(config: MCPConfig): ActionEntry {
         : buildDeepLink({ app, view, params });
       const sameAppUrl = path ? withConfiguredBasePath(relUrl) : relUrl;
 
-      const targetApp = await resolveTargetAppOrigin(config, app);
+      let targetApp = await resolveTargetAppOrigin(config, app);
+      if (
+        !targetApp &&
+        requestedApp &&
+        requestedApp.toLowerCase() !== currentAppId(config)
+      ) {
+        const apps = await fetchOrgApps({ selfId: currentAppId(config) });
+        const match = apps.find(
+          (candidate) =>
+            candidate.id.toLowerCase() === requestedApp.toLowerCase(),
+        );
+        if (match) targetApp = { origin: match.url, id: match.id };
+      }
+      if (
+        requestedApp &&
+        requestedApp.toLowerCase() !== currentAppId(config).toLowerCase() &&
+        !targetApp
+      ) {
+        throw new Error(`Unknown or unavailable app "${requestedApp}"`);
+      }
       const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;
@@ -882,6 +1026,18 @@ function openAppTool(config: MCPConfig): ActionEntry {
       let embedStartUrl: string | undefined;
       let embedTargetPath: string | undefined;
       let embedExpiresAt: number | undefined;
+
+      if (targetApp && (embed || !embedChosen)) {
+        const started = inlineMcpApps
+          ? await startCrossAppEmbed(targetApp.origin, relUrl, chrome)
+          : null;
+        embed = !!started;
+        if (started) {
+          embedStartUrl = started.startUrl;
+          embedTargetPath = started.targetPath;
+          embedExpiresAt = started.expiresAt;
+        }
+      }
 
       if (embed && !targetApp) {
         const { getRequestContext } =
@@ -892,8 +1048,11 @@ function openAppTool(config: MCPConfig): ActionEntry {
           await import("../server/embed-request-origin.js");
         const embedOrigin = getEmbedSessionOrigin();
         if (ownerEmail && embedOrigin) {
-          const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-            await import("../server/embed-session.js");
+          const {
+            normalizeEmbedTargetPath,
+            createEmbedSessionTicket,
+            FULL_APP_EMBED_SCOPE,
+          } = await import("../server/embed-session.js");
           const { buildEmbedStartPath } =
             await import("../server/embed-route.js");
           const targetPath = normalizeEmbedTargetPath(
@@ -905,7 +1064,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
               ownerEmail,
               orgId: ctx?.orgId,
               targetPath,
-              scope: chrome ?? null,
+              scope: embedScopeForChrome(chrome, FULL_APP_EMBED_SCOPE),
             });
             const startPath = buildEmbedStartPath(ticket.ticket);
             embedStartUrl = new URL(startPath, embedOrigin).toString();
@@ -953,11 +1112,14 @@ function openAppTool(config: MCPConfig): ActionEntry {
   };
 }
 
-function createEmbedSessionTool(): ActionEntry {
+function createEmbedSessionTool(
+  config: MCPConfig,
+  identity?: MCPCallerIdentity,
+): ActionEntry {
   return {
     tool: {
       ...tool(
-        "MCP Apps helper: create a one-time browser embed session for a same-origin app URL. Usually called by an MCP App iframe, not directly by the model.",
+        "Create a one-time browser embed session for a same-origin app URL, used by embedded MCP App views.",
         {
           url: {
             type: "string",
@@ -968,6 +1130,16 @@ function createEmbedSessionTool(): ActionEntry {
             type: "string",
             description: "Same-origin app-relative path to embed.",
           },
+          ...(identity?.firstPartyMcp === true &&
+          Number.isSafeInteger(identity.workspaceAppChatIssuedAtMs)
+            ? {
+                runtime: {
+                  type: "string",
+                  enum: ["workspace-app-chat"],
+                  description: "Server-to-server workspace chat authority.",
+                },
+              }
+            : {}),
           chrome: {
             type: "string",
             enum: ["full", "minimal"],
@@ -997,8 +1169,40 @@ function createEmbedSessionTool(): ActionEntry {
         );
       }
 
+      const chat = args.runtime === "workspace-app-chat";
+      const chatGrantIssuedAtMs = identity?.workspaceAppChatIssuedAtMs;
+      if (args.runtime !== undefined && !chat)
+        throw new Error("Unknown embed runtime.");
+      if (
+        chat &&
+        (identity?.firstPartyMcp !== true ||
+          identity.identityAssurance !== "user" ||
+          identity.userEmail?.trim().toLowerCase() !==
+            ownerEmail.toLowerCase() ||
+          identity.orgId === undefined ||
+          (identity.orgId ?? undefined) !== ctx?.orgId ||
+          !Number.isSafeInteger(chatGrantIssuedAtMs))
+      ) {
+        throw new Error(
+          "Chat runtime requires a verified scoped MCP user credential.",
+        );
+      }
+      if (chat && ctx?.orgId) {
+        const { isOrgMember } = await import("../org/membership.js");
+        if (
+          !(await isOrgMember(ctx.orgId, ownerEmail, {
+            requireOrganizationMetadata: true,
+          }))
+        ) {
+          throw new Error(
+            "Chat runtime requires current workspace membership.",
+          );
+        }
+      }
+
+      const embedSession = await import("../server/embed-session.js");
       const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-        await import("../server/embed-session.js");
+        embedSession;
       const { buildEmbedStartPath } = await import("../server/embed-route.js");
       const { getEmbedSessionOrigin } =
         await import("../server/embed-request-origin.js");
@@ -1009,6 +1213,28 @@ function createEmbedSessionTool(): ActionEntry {
           : typeof args.path === "string"
             ? args.path
             : "";
+      // The chat runtime only grants this app's own routes.
+      const sibling = chat
+        ? null
+        : await resolveWorkspaceAppForUrl(config, rawTarget);
+      if (sibling === "unavailable") {
+        throw new Error(
+          "create_embed_session could not look up the workspace apps; try again.",
+        );
+      }
+      if (sibling) {
+        const started = await startCrossAppEmbed(
+          sibling.appUrl,
+          sibling.relUrl,
+          typeof args.chrome === "string" ? args.chrome : undefined,
+        );
+        if (!started) {
+          throw new Error(
+            "create_embed_session cannot embed this workspace app from here.",
+          );
+        }
+        return started;
+      }
       const targetPath = normalizeEmbedTargetPath(rawTarget, embedOrigin);
       if (!targetPath) {
         throw new Error(
@@ -1016,14 +1242,46 @@ function createEmbedSessionTool(): ActionEntry {
         );
       }
       if (!embedOrigin) {
+        if (chat)
+          throw new Error("Chat runtime requires a trusted app origin.");
         return { url: targetPath, targetPath, embed: false };
       }
 
+      if (chat) {
+        const { signEmbedSessionToken, resolveEmbedSessionTokenForOrigin } =
+          embedSession;
+        const token = signEmbedSessionToken({
+          ownerEmail,
+          ...(ctx?.orgId === undefined ? {} : { orgId: ctx.orgId }),
+          targetPath,
+          audienceHost: embedOrigin,
+          scope: WORKSPACE_APP_CHAT_SCOPE,
+          ttlSeconds: WORKSPACE_APP_CHAT_TTL_SECONDS,
+          ...(chatGrantIssuedAtMs === undefined
+            ? {}
+            : { ticketCreatedAtMs: chatGrantIssuedAtMs }),
+        });
+        const claims = await resolveEmbedSessionTokenForOrigin(
+          token,
+          embedOrigin,
+        );
+        if (!claims)
+          throw new Error("Workspace chat grant was revoked or expired.");
+        return {
+          runtime: "workspace-app-chat",
+          token,
+          targetPath,
+          expiresAt: claims.exp * 1000,
+        };
+      }
       const ticket = await createEmbedSessionTicket({
         ownerEmail,
         orgId: ctx?.orgId,
         targetPath,
-        scope: typeof args.chrome === "string" ? args.chrome : null,
+        scope: embedScopeForChrome(
+          typeof args.chrome === "string" ? args.chrome : undefined,
+          embedSession.FULL_APP_EMBED_SCOPE,
+        ),
       });
       const startPath = buildEmbedStartPath(ticket.ticket);
       const startUrl = new URL(startPath, embedOrigin).toString();
@@ -1040,6 +1298,15 @@ function createEmbedSessionTool(): ActionEntry {
         : null;
     },
   };
+}
+
+// A panel shows the app's own UI to its owner, so it carries that owner's UI
+// authority unless the caller asked for the stripped-down minimal view.
+function embedScopeForChrome(
+  chrome: string | undefined,
+  fullAppScope: string,
+): string | null {
+  return chrome === "minimal" ? chrome : fullAppScope;
 }
 
 async function routeAskOverA2A(
@@ -1086,7 +1353,9 @@ async function routeAskOverA2A(
   const auth = await resolveA2ACallerAuth({
     audience: canonicalA2AAudience(origin),
   });
+  const chatTurn = await mintMcpChatTurnMetadata(id);
   const response = await callAgent(origin, message, {
+    ...(chatTurn ? { metadata: chatTurn } : {}),
     apiKey: auth.apiKey,
     userEmail: auth.userEmail,
     orgId: auth.orgId,
@@ -1151,19 +1420,16 @@ function askAppTool(
 ): ActionEntry {
   return {
     tool: tool(
-      "Send a natural-language message to an app's AI agent and get its " +
-        "response. A completed response is an agent claim, not proof of a " +
-        "write; it includes verification:'unverified'. Prefer host page WebMCP or cataloged direct action tools for " +
-        "known, bounded current-app work. Use this when direct tools are " +
-        "unavailable or the task needs the app agent's interpretation, full " +
-        "skills, instructions, tools, and context for investigation, diagnosis, " +
-        "multi-step work, or changes. In a " +
-        "single-app project the 'app' " +
-        "param is optional (defaults to this app). When 'app' names a " +
-        "different workspace app it is routed there over A2A; the result's " +
-        "'routedVia' field reports whether it ran cross-app or locally. " +
-        "On hosted MCP, long tasks may return a durable taskHandle instead of " +
-        "a final response; pass that handle to ask_app_status until completed.",
+      "Send a natural-language message to an app's AI agent and return its " +
+        "response. Completed responses include verification:'unverified' because " +
+        "they reflect the agent's report rather than a direct verified write. " +
+        "Runs the app agent with its full skills, instructions, tools, and " +
+        "context for multi-step or open-ended work (unlike direct single-action " +
+        "tools). In a single-app project the 'app' parameter is optional " +
+        "(defaults to this app); when 'app' names another workspace app it " +
+        "routes over A2A and reports 'routedVia'. On hosted MCP, long-running " +
+        "tasks may return a durable taskHandle whose status can be checked " +
+        "with ask_app_status.",
       {
         app: {
           type: "string",
@@ -1313,11 +1579,10 @@ function askAppStatusTool(
 ): ActionEntry {
   return {
     tool: tool(
-      "Poll a durable ask_app task and return its current status or final response. " +
+      "Return the current status or final response of a durable ask_app task. " +
         "If a transient status read stays unavailable after bounded retries, the " +
-        "result preserves the app and taskId with statusRead 'unavailable' and a " +
-        "poll instruction. Retry ask_app_status for that same task; never resubmit " +
-        "ask_app as status-read recovery because that can duplicate work.",
+        "result preserves the app and taskId with statusRead 'unavailable' so " +
+        "the same task can be polled again without duplicating work.",
       {
         app: {
           type: "string",
@@ -1359,7 +1624,7 @@ function askAppStatusTool(
           (suppliedTaskId && suppliedTaskId !== verified.taskId) ||
           (suppliedApp && suppliedApp !== verified.route.app.toLowerCase())
         ) {
-          throw new Error("Invalid or expired ask_app task handle.");
+          throw new Error(INVALID_ASK_APP_TASK_HANDLE_ERROR);
         }
         return fetchAskAppA2ATask(
           verified.route,
@@ -1518,12 +1783,13 @@ function createWorkspaceAppTool(): ActionEntry {
 export function getBuiltinCrossAppTools(
   config: MCPConfig,
   requestMeta?: AskAppRequestMeta,
+  identity?: MCPCallerIdentity,
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
-    open_app: openAppTool(config),
+    open_app: openAppTool(config, requestMeta?.inlineMcpApps === true),
     ...(requestMeta?.inlineMcpApps === true
-      ? { create_embed_session: createEmbedSessionTool() }
+      ? { create_embed_session: createEmbedSessionTool(config, identity) }
       : {}),
     ask_app: askAppTool(config, requestMeta),
     ask_app_status: askAppStatusTool(config, requestMeta),

@@ -8,6 +8,7 @@ import {
   resourceGetByPath,
   resourceList,
   resourcePut,
+  resourcePutIfSnapshot,
   type Resource,
   type ResourceMeta,
   type ResourceVisibility,
@@ -44,11 +45,22 @@ async function resolveResourceForScope(
   const options = optionsForScope(scope);
   const resource = await resourceGetByPath(owner, path, options);
   if (resource) return { resource, owner };
-  if (scope.scope !== "org") return null;
+  const legacy = await legacyOrganizationFile(scope, path);
+  return legacy ? { resource: legacy, owner: SHARED_OWNER } : null;
+}
 
-  const legacy = await resourceGetByPath(SHARED_OWNER, path, options);
+async function legacyOrganizationFile(
+  scope: WorkspaceFilesScope,
+  path: string,
+): Promise<Resource | null> {
+  if (scope.scope !== "org") return null;
+  const legacy = await resourceGetByPath(
+    SHARED_OWNER,
+    path,
+    optionsForScope(scope),
+  );
   return legacy && isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
-    ? { resource: legacy, owner: SHARED_OWNER }
+    ? legacy
     : null;
 }
 
@@ -142,6 +154,48 @@ export function toWorkspaceFileCard(
   };
 }
 
+function assertFitsFileLimit(
+  path: string,
+  content: string,
+  maxFileBytes = MAX_FILE_BYTES,
+): void {
+  const limit = Math.min(maxFileBytes, SAVE_TO_FILE_MAX_BYTES);
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes > limit) {
+    throw new Error(
+      `File "${path}" would be ${(bytes / 1024 / 1024).toFixed(2)} MB, which exceeds the ${(limit / 1024 / 1024).toFixed(0)} MB per-file limit.`,
+    );
+  }
+}
+
+function workspaceWriteOptions(
+  scope: WorkspaceFilesScope,
+  path: string,
+  legacy: Resource | null,
+) {
+  return {
+    createdBy: legacy?.createdBy ?? "agent",
+    visibility: legacy ? legacy.visibility : visibilityForPath(path),
+    ...(legacy
+      ? {
+          threadId: legacy.threadId,
+          runId: legacy.runId,
+          expiresAt: legacy.expiresAt,
+        }
+      : {}),
+    metadata: workspaceFileMetadata(scope),
+  };
+}
+
+async function removeOverriddenLegacyFile(
+  legacy: Resource | null,
+): Promise<boolean> {
+  if (legacy && typeof legacy.metadata === "string") {
+    return resourceDeleteIfCurrent(legacy);
+  }
+  return true;
+}
+
 export async function writeWorkspaceFile(
   scope: WorkspaceFilesScope,
   path: string,
@@ -153,59 +207,21 @@ export async function writeWorkspaceFile(
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
   await assertCanMutateWorkspaceFile(scope, path);
 
-  const legacy =
-    scope.scope === "org"
-      ? await resourceGetByPath(SHARED_OWNER, path, optionsForScope(scope))
-      : null;
-  const legacyOrganizationResource =
-    scope.scope === "org" &&
-    legacy &&
-    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
-      ? legacy
-      : null;
-
-  const maxFileBytes = Math.min(
-    opts?.maxFileBytes ?? MAX_FILE_BYTES,
-    SAVE_TO_FILE_MAX_BYTES,
-  );
-  const bytes = Buffer.byteLength(content, "utf8");
-  if (bytes > maxFileBytes) {
-    throw new Error(
-      `File "${path}" would be ${(bytes / 1024 / 1024).toFixed(2)} MB, which exceeds the ${(maxFileBytes / 1024 / 1024).toFixed(0)} MB per-file limit.`,
-    );
-  }
+  const legacy = await legacyOrganizationFile(scope, path);
+  assertFitsFileLimit(path, content, opts?.maxFileBytes);
 
   const resource = await resourcePut(
     ownerForScope(scope),
     path,
     content,
     contentType,
-    {
-      createdBy: legacyOrganizationResource?.createdBy ?? "agent",
-      visibility: legacyOrganizationResource
-        ? legacyOrganizationResource.visibility
-        : visibilityForPath(path),
-      ...(legacyOrganizationResource
-        ? {
-            threadId: legacyOrganizationResource.threadId,
-            runId: legacyOrganizationResource.runId,
-            expiresAt: legacyOrganizationResource.expiresAt,
-          }
-        : {}),
-      metadata: workspaceFileMetadata(scope),
-    },
+    workspaceWriteOptions(scope, path, legacy),
   );
-
-  if (
-    scope.scope === "org" &&
-    legacyOrganizationResource &&
-    typeof legacyOrganizationResource.metadata === "string"
-  ) {
-    await resourceDeleteIfCurrent(legacyOrganizationResource);
-  }
-
+  await removeOverriddenLegacyFile(legacy);
   return resourceToMeta(resource);
 }
+
+const APPEND_ATTEMPTS = 5;
 
 export async function appendWorkspaceFile(
   scope: WorkspaceFilesScope,
@@ -215,10 +231,36 @@ export async function appendWorkspaceFile(
 ): Promise<WorkspaceFileMeta> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
+  await assertCanMutateWorkspaceFile(scope, path);
 
-  const existing = await resolveResourceForScope(scope, path);
-  const newContent = existing ? existing.resource.content + text : text;
-  return writeWorkspaceFile(scope, path, newContent, contentType);
+  const owner = ownerForScope(scope);
+  for (let attempt = 0; attempt < APPEND_ATTEMPTS; attempt += 1) {
+    const current = await resourceGetByPath(
+      owner,
+      path,
+      optionsForScope(scope),
+    );
+    const legacy = await legacyOrganizationFile(scope, path);
+    const content = ((current ?? legacy)?.content ?? "") + text;
+    assertFitsFileLimit(path, content);
+    const written = await resourcePutIfSnapshot({
+      previous: current,
+      owner,
+      path,
+      content,
+      mimeType: contentType,
+      options: workspaceWriteOptions(scope, path, legacy),
+    });
+    if (!written) continue;
+    const legacyKept = !(await removeOverriddenLegacyFile(legacy));
+    if (legacyKept && (await resourceDeleteIfCurrent(written.resource))) {
+      continue;
+    }
+    return resourceToMeta(written.resource);
+  }
+  throw new Error(
+    `Nothing was appended to "${path}": it kept changing while the append ran. Append again.`,
+  );
 }
 
 export async function readWorkspaceFile(

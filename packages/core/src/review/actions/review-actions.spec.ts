@@ -30,6 +30,7 @@ const rawClient = {
 };
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -38,6 +39,33 @@ vi.mock("../notifications.js", () => ({
   notifyReviewComment,
   notifyReviewCommentWithReceipt,
 }));
+
+// No upload provider: Builder's image CDN is the one source images come from.
+vi.mock("../../file-upload/registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../file-upload/registry.js")>()),
+  getActiveFileUploadProviderForRequest: vi.fn(async () => null),
+}));
+
+// Runs once after an action reads a comment, as a write landing between that
+// read and the action's save would.
+const afterCommentRead = vi.hoisted(() => ({
+  run: null as null | (() => Promise<void>),
+}));
+vi.mock("../store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../store.js")>();
+  return {
+    ...actual,
+    getReviewCommentById: async (
+      ...args: Parameters<typeof actual.getReviewCommentById>
+    ) => {
+      const comment = await actual.getReviewCommentById(...args);
+      const run = afterCommentRead.run;
+      afterCommentRead.run = null;
+      await run?.();
+      return comment;
+    },
+  };
+});
 
 const createReviewCommentAction = (await import("./create-review-comment.js"))
   .default;
@@ -79,11 +107,13 @@ const {
   consumeReviewFeedback,
   deleteReviewComment,
   ensureReviewTables,
+  getReviewCommentById,
   insertReviewComment,
   insertReviewReply,
   finishReviewNotificationDelivery,
   queryReviewComments,
   resolveReviewThread,
+  setReviewCommentReaction,
   upsertReviewStatus,
 } = await import("../store.js");
 
@@ -95,7 +125,8 @@ const { __resetStoreLedgerSnapshotForTests } =
   await import("../../db/store-registry.js");
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  afterCommentRead.run = null;
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();
@@ -299,6 +330,166 @@ afterEach(async () => {
   __resetReviewableResourcesForTests();
   await pglite.close();
   vi.clearAllMocks();
+});
+
+it("keeps the agent's reactions apart from the person it works for", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const resource = { resourceType: "doc", resourceId: "private" };
+  const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+  const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+  const react = (ctx: typeof person, active: boolean) =>
+    reactToReviewCommentAction.run(
+      { ...resource, commentId: root.id, reaction: "👍", active },
+      ctx,
+    );
+
+  await react(person, true);
+  await react(agent, true);
+  await react(person, false);
+
+  const asPerson = await listReviewCommentsAction.run(resource, person);
+  expect(asPerson.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: false },
+  ]);
+  const asAgent = await listReviewCommentsAction.run(resource, agent);
+  expect(asAgent.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: true },
+  ]);
+});
+
+it("toggles a reaction when active is left out, whatever the case of the email", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const resource = { resourceType: "doc", resourceId: "private" };
+  const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+  await setReviewCommentReaction({
+    commentId: root.id,
+    actorEmail: "Editor@Example.com",
+    reaction: "👍",
+    active: true,
+  });
+  const toggle = () =>
+    reactToReviewCommentAction.run(
+      { ...resource, commentId: root.id, reaction: "👍" },
+      person,
+    );
+
+  const listed = await listReviewCommentsAction.run(resource, person);
+  expect(listed.discussion.reactions[root.id]).toEqual([
+    { reaction: "👍", count: 1, reactedByMe: true },
+  ]);
+  expect(await toggle()).toMatchObject({ active: false });
+  expect(
+    (await listReviewCommentsAction.run(resource, person)).discussion.reactions[
+      root.id
+    ],
+  ).toEqual([]);
+  expect(await toggle()).toMatchObject({ active: true });
+  expect(await toggle()).toMatchObject({ active: false });
+});
+
+it("adds a reaction once whatever the case of the email it was saved under", async () => {
+  const root = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const react = (actorEmail: string) =>
+    setReviewCommentReaction({
+      commentId: root.id,
+      actorEmail,
+      reaction: "👍",
+      active: true,
+    });
+  await react("Editor@Example.com");
+  await react(EDITOR_EMAIL);
+  const { rows } = await pglite.query(
+    "SELECT actor_email FROM agent_review_comment_reactions WHERE comment_id = $1",
+    [root.id],
+  );
+  expect(rows).toEqual([{ actor_email: "Editor@Example.com" }]);
+});
+
+it("lets a resource choose who may resolve its threads", async () => {
+  registerReviewableResource({
+    type: "deck",
+    resolveAccess: () => ({
+      role: "commenter",
+      ownerEmail: OWNER_EMAIL,
+      orgId: null,
+      visibility: "private",
+    }),
+    comments: { resolveRole: "commenter" },
+  });
+  const commenter = { userEmail: COMMENTER_EMAIL, caller: "frontend" };
+  const onDoc = await insertReviewComment({
+    resourceType: "doc",
+    resourceId: "private",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+  const onDeck = await insertReviewComment({
+    resourceType: "deck",
+    resourceId: "deck-1",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "doc", resourceId: "private", threadId: onDoc.threadId },
+      commenter,
+    ),
+  ).rejects.toThrow();
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "deck", resourceId: "deck-1", threadId: onDeck.threadId },
+      commenter,
+    ),
+  ).resolves.toMatchObject({ resolved: true });
+});
+
+it("refuses to resolve a thread on a resource whose comments the app writes", async () => {
+  const message = "Deck comments are written with the deck's own actions.";
+  registerReviewableResource({
+    type: "deck",
+    resolveAccess: () => ({
+      role: "owner",
+      ownerEmail: OWNER_EMAIL,
+      orgId: null,
+      visibility: "private",
+    }),
+    comments: { resolveRole: "viewer" },
+    commentsWrittenByApp: message,
+  });
+  const onDeck = await insertReviewComment({
+    resourceType: "deck",
+    resourceId: "deck-1",
+    body: "Review",
+    ownerEmail: OWNER_EMAIL,
+  });
+
+  await expect(
+    resolveReviewThreadAction.run(
+      { resourceType: "deck", resourceId: "deck-1", threadId: onDeck.threadId },
+      { userEmail: OWNER_EMAIL, caller: "frontend" },
+    ),
+  ).rejects.toThrow(message);
+  const { rows } = await pglite.query(
+    "SELECT status FROM agent_review_comments WHERE id = $1",
+    [onDeck.id],
+  );
+  expect(rows).toEqual([{ status: "open" }]);
 });
 
 describe("review actions", () => {
@@ -570,6 +761,287 @@ describe("review actions", () => {
     ).rejects.toThrow();
   });
 
+  it("takes a comment or reply that's only an image, and refuses one with nothing in it", async () => {
+    const image = {
+      url: "https://cdn.builder.io/api/v1/image/shot",
+      name: "shot.png",
+      contentType: "image/png",
+    };
+    const root = await createReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        body: "",
+        metadata: { attachments: [image] },
+      },
+      { userEmail: COMMENTER_EMAIL },
+    );
+    expect(root.body).toBe("");
+    expect(root.metadata).toEqual({ attachments: [image] });
+    const reply = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        commentId: root.id,
+        body: "  ",
+        metadata: { attachments: [image] },
+      },
+      { userEmail: COMMENTER_EMAIL },
+    );
+    expect(reply.metadata).toEqual({ attachments: [image] });
+
+    // An image the checks drop leaves nothing to send.
+    await expect(
+      createReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          body: " ",
+          metadata: {
+            attachments: [
+              {
+                url: "https://tracker.example/pixel.png",
+                name: "pixel.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        },
+        { userEmail: COMMENTER_EMAIL },
+      ),
+    ).rejects.toMatchObject({ statusCode: 400, errorCode: "empty_comment" });
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          body: "",
+        },
+        { userEmail: COMMENTER_EMAIL },
+      ),
+    ).rejects.toMatchObject({ errorCode: "empty_comment" });
+  });
+
+  it("lets an author change a comment's images, keeping the rest of its metadata", async () => {
+    const first = {
+      url: "https://cdn.builder.io/api/v1/image/first",
+      name: "first.png",
+      contentType: "image/png",
+    };
+    const second = {
+      url: "https://cdn.builder.io/api/v1/image/second",
+      name: "second.png",
+    };
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: { layerName: "Hero", attachments: [first] },
+    });
+    const edit = (
+      args: Partial<Parameters<typeof updateReviewCommentAction.run>[0]>,
+      userEmail = COMMENTER_EMAIL,
+    ) =>
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          ...args,
+        },
+        { userEmail },
+      );
+
+    const swapped = await edit({
+      attachments: [
+        second,
+        { url: "https://tracker.example/pixel.png", name: "pixel.png" },
+      ],
+    });
+    expect(swapped.body).toBe("Look");
+    expect(swapped.metadata).toEqual({
+      layerName: "Hero",
+      attachments: [second],
+    });
+
+    // With an image left, the text can go.
+    const imageOnly = await edit({ body: "" });
+    expect(imageOnly.body).toBe("");
+
+    await expect(edit({ attachments: [] })).rejects.toMatchObject({
+      errorCode: "empty_comment",
+    });
+    const textOnly = await edit({ body: "Look again", attachments: [] });
+    expect(textOnly.metadata).toEqual({ layerName: "Hero" });
+
+    // Images are the author's to change, as the text is.
+    await expect(edit({ attachments: [first] }, EDITOR_EMAIL)).rejects.toThrow(
+      /Not allowed/,
+    );
+  });
+
+  it("keeps an image the comment already has when no upload provider would accept it now", async () => {
+    // Stored while an S3 provider was set up, which this server no longer has.
+    const stored = {
+      url: "https://uploads.s3.amazonaws.com/review/stored.png",
+      name: "stored.png",
+      contentType: "image/png",
+      provider: "s3",
+    };
+    const added = {
+      url: "https://cdn.builder.io/api/v1/image/added",
+      name: "added.png",
+      contentType: "image/png",
+    };
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: {
+        attachments: [
+          stored,
+          {
+            url: "https://cdn.builder.io/api/v1/image/old",
+            name: "old.png",
+          },
+        ],
+      },
+    });
+
+    const edited = await updateReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        commentId: root.id,
+        attachments: [
+          stored,
+          added,
+          // A new one from that provider is still checked, and refused.
+          {
+            url: "https://uploads.s3.amazonaws.com/review/new.png",
+            name: "new.png",
+            provider: "s3",
+          },
+        ],
+      },
+      { userEmail: COMMENTER_EMAIL },
+    );
+    expect(edited.metadata).toEqual({ attachments: [stored, added] });
+  });
+
+  it("keeps an image no comment list shows when an edit changes the others, counting it toward five", async () => {
+    // Stored under an upload provider this server no longer has, so the list
+    // leaves it out and no editor has it to send back.
+    const unseen = {
+      url: "https://uploads.s3.amazonaws.com/review/unseen.png",
+      name: "unseen.png",
+      contentType: "image/png",
+      provider: "s3",
+    };
+    const shown = {
+      url: "https://cdn.builder.io/api/v1/image/shown",
+      name: "shown.png",
+      contentType: "image/png",
+    };
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: { attachments: [unseen, shown] },
+    });
+    const edit = (attachments: { url: string; name: string }[]) =>
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          attachments,
+        },
+        { userEmail: COMMENTER_EMAIL },
+      );
+
+    const edited = await edit([]);
+    expect(edited.metadata).toEqual({ attachments: [unseen] });
+
+    await expect(
+      edit(
+        Array.from({ length: 5 }, (_, index) => ({
+          url: `https://cdn.builder.io/api/v1/image/${index}`,
+          name: `${index}.png`,
+        })),
+      ),
+    ).rejects.toMatchObject({ statusCode: 400, errorCode: "too_many_images" });
+  });
+
+  it("refuses an image edit sent with no revision when another edit lands before it saves", async () => {
+    const image = (name: string) => ({
+      url: `https://cdn.builder.io/api/v1/image/${name}`,
+      name: `${name}.png`,
+    });
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: { attachments: [image("first")] },
+    });
+    const edit = (attachments: { url: string; name: string }[]) =>
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          attachments,
+        },
+        { userEmail: COMMENTER_EMAIL },
+      );
+    // Another tab adds an image after this edit has read the comment.
+    afterCommentRead.run = async () => {
+      await edit([image("first"), image("meanwhile")]);
+    };
+
+    await expect(edit([image("first"), image("mine")])).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "revision_conflict",
+    });
+    const saved = await getReviewCommentById(
+      root.id,
+      { userEmail: COMMENTER_EMAIL },
+      { bypassScope: true },
+    );
+    expect(saved?.metadata).toEqual({
+      attachments: [image("first"), image("meanwhile")],
+    });
+  });
+
+  it("refuses an edit with more images than a comment keeps, before checking any", () => {
+    const images = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        url: `https://cdn.builder.io/api/v1/image/${index}`,
+        name: `${index}.png`,
+      }));
+    const args = (count: number) => ({
+      resourceType: "doc",
+      resourceId: "public",
+      commentId: "comment-1",
+      attachments: images(count),
+    });
+    expect(updateReviewCommentAction.schema.safeParse(args(5)).success).toBe(
+      true,
+    );
+    expect(updateReviewCommentAction.schema.safeParse(args(6)).success).toBe(
+      false,
+    );
+  });
+
   it("moves a pin at the revision its mover read", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
@@ -672,6 +1144,126 @@ describe("review actions", () => {
         { userEmail: EDITOR_EMAIL },
       ),
     ).rejects.toThrow("Review comment not found");
+  });
+
+  it("refuses a delete that would take someone else's comment when asked to, checking again as the thread locks", async () => {
+    const resource = { resourceType: "doc", resourceId: "private" };
+    const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+    const insert = (
+      body: string,
+      authorEmail: string,
+      root?: { id: string; threadId: string },
+    ) =>
+      insertReviewComment({
+        ...resource,
+        ...(root ? { threadId: root.threadId, parentCommentId: root.id } : {}),
+        body,
+        authorEmail,
+        ownerEmail: OWNER_EMAIL,
+      });
+    const remove = (commentId: string, onlyOwnComments?: boolean) =>
+      deleteReviewCommentAction.run(
+        {
+          ...resource,
+          commentId,
+          ...(onlyOwnComments ? { onlyOwnComments } : {}),
+        },
+        agent,
+      );
+
+    const theirs = await insert("Someone else's", OWNER_EMAIL);
+    await expect(remove(theirs.id, true)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "approval_required",
+    });
+
+    const own = await insert("The agent's", EDITOR_EMAIL);
+    afterCommentRead.run = async () => {
+      await insert("A late reply", OWNER_EMAIL, own);
+    };
+    await expect(remove(own.id, true)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "approval_required",
+    });
+    expect(
+      (await getReviewCommentById(own.id, {}, { bypassScope: true }))?.status,
+    ).toBe("open");
+
+    await expect(remove(own.id)).resolves.toMatchObject({ deleted: true });
+    expect(
+      (await getReviewCommentById(theirs.id, {}, { bypassScope: true }))
+        ?.status,
+    ).toBe("open");
+  });
+
+  it("asks an agent for approval before it deletes anyone else's comment where the policy says so", async () => {
+    registerReviewableResource({
+      type: "deck",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: OWNER_EMAIL,
+        orgId: null,
+        visibility: "private",
+      }),
+      comments: { agentDeleteApproval: true },
+    });
+    const resource = { resourceType: "deck", resourceId: "deck-1" };
+    const insert = (
+      body: string,
+      authorEmail: string,
+      root?: { id: string; threadId: string },
+    ) =>
+      insertReviewComment({
+        ...resource,
+        ...(root ? { threadId: root.threadId, parentCommentId: root.id } : {}),
+        body,
+        authorEmail,
+        ownerEmail: OWNER_EMAIL,
+      });
+    const agent = { userEmail: EDITOR_EMAIL, caller: "tool" };
+    const person = { userEmail: EDITOR_EMAIL, caller: "frontend" };
+    const args = (commentId: string) => ({ ...resource, commentId });
+    const needsApproval = deleteReviewCommentAction.needsApproval as (
+      args: unknown,
+      ctx: unknown,
+    ) => Promise<boolean>;
+
+    const theirs = await insert("Someone else's", OWNER_EMAIL);
+    const own = await insert("The agent's", EDITOR_EMAIL);
+    const answered = await insert("The agent's, answered", EDITOR_EMAIL);
+    await insert("Someone else's reply", OWNER_EMAIL, answered);
+
+    await expect(needsApproval(args(theirs.id), agent)).resolves.toBe(true);
+    await expect(needsApproval(args(answered.id), agent)).resolves.toBe(true);
+    await expect(needsApproval(args(own.id), agent)).resolves.toBe(false);
+    await expect(needsApproval(args(theirs.id), person)).resolves.toBe(false);
+    await expect(
+      needsApproval(
+        { resourceType: "doc", resourceId: "private", commentId: theirs.id },
+        agent,
+      ),
+    ).resolves.toBe(false);
+
+    for (const comment of [theirs, answered]) {
+      await expect(
+        deleteReviewCommentAction.run(args(comment.id), agent),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "approval_required",
+      });
+    }
+    await expect(
+      deleteReviewCommentAction.run(args(own.id), agent),
+    ).resolves.toMatchObject({ deleted: true });
+    await expect(
+      deleteReviewCommentAction.run(args(theirs.id), {
+        ...agent,
+        approvedToolCallKey: "approved-1",
+      }),
+    ).resolves.toMatchObject({ deleted: true });
+    await expect(
+      deleteReviewCommentAction.run(args(answered.id), person),
+    ).resolves.toMatchObject({ deleted: true });
   });
 
   it("marks multiple review threads read in one authorized action", async () => {

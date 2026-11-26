@@ -36,6 +36,13 @@ describe("resolveEditorChrome", () => {
     });
   });
 
+  it("opens a standalone design in minimal UI when the launch URL requests it", () => {
+    expect(
+      resolveEditorChrome({ ...standalone, minimalUiRequested: true })
+        .minimalUiByDefault,
+    ).toBe(true);
+  });
+
   it.each([
     ["with embed auth", { embedded: true }],
     ["without embed auth", { embedded: false }],

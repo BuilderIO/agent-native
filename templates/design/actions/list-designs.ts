@@ -23,7 +23,9 @@ export default defineAction({
     "List design projects accessible to the current user. Pass page and " +
     "pageSize for pagination; omitted values use the first bounded page. " +
     "Set includeAll only for a lightweight UI picker; it returns the first " +
-    "bounded picker page. Returns optional HTML previews.",
+    "bounded picker page. Returns optional HTML previews. This only reads: " +
+    "to also show the user the matches, call navigate with view=list and " +
+    "search set to the same text.",
   schema: z.object({
     page: z.coerce
       .number()
@@ -120,7 +122,6 @@ export default defineAction({
         title: schema.designs.title,
         description: schema.designs.description,
         projectType: schema.designs.projectType,
-        designSystemId: schema.designs.designSystemId,
         visibility: schema.designs.visibility,
         ownerEmail: schema.designs.ownerEmail,
         createdAt: schema.designs.createdAt,
@@ -199,7 +200,6 @@ export default defineAction({
         title: row.title,
         description: row.description,
         projectType: row.projectType,
-        designSystemId: row.designSystemId,
         visibility: row.visibility,
         ownerEmail: row.ownerEmail,
         ownerName: resolveUserProfileName(

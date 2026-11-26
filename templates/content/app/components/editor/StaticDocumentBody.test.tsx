@@ -18,6 +18,14 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => `${locale.prefix}${key}`,
 }));
+// A Mermaid drawing arrives after the editor mounts; until then its block
+// holds the box the stand-in draws.
+vi.mock("@agent-native/toolkit/app/blocks", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/blocks")
+  >()),
+  useMermaidRender: () => ({ mounted: true }),
+}));
 
 import {
   NODE_VIEWS_LAID_OUT_BY_RENDER_HTML,
@@ -75,12 +83,38 @@ const BODY = [
   "",
   '<audio src="https://x.com/a.mp3">My audio</audio>',
   "",
+  "```mermaid",
+  "flowchart LR",
+  "  A --> B",
+  "```",
+  "",
+  "```mermaid",
+  "```",
+  "",
+  "```html interactive",
+  "<title>Tap counter</title>",
+  "```",
+  "",
+  "```html interactive",
+  "```",
+  "",
+  "```ts",
+  "const plain = true;",
+  "```",
+  "",
   "- [ ] Task open",
   "",
   "Last paragraph.",
 ].join("\n");
 
-const LABELS = { imageBroken: "editor.media.imageBroken" };
+const LABELS = {
+  imageBroken: "editor.media.imageBroken",
+  mermaidSource: "editor.mermaid.source",
+  interactiveHtmlUntitled: "editor.interactiveHtml.untitled",
+  interactiveHtmlRunHint: "editor.interactiveHtml.runHint",
+  interactiveHtmlRun: "editor.interactiveHtml.run",
+  runInteractiveHtml: false,
+};
 
 const IMAGE_BODY = [
   "Before.",
@@ -93,7 +127,7 @@ const IMAGE_BODY = [
 // Icons, and controls the stylesheet takes out of the flow, take no part in
 // where a block sits.
 const OUT_OF_FLOW =
-  "svg, input[type=file], .media-block__toolbar, .media-block__resize-handle, .media-block__alt-badge, [style*='position: absolute']";
+  "svg, input[type=file], .media-block__toolbar, .media-block__resize-handle, .media-block__alt-badge, .sr-only, [style*='position: absolute']";
 
 const laidOut = (element: Element) =>
   !element.matches(OUT_OF_FLOW) &&
@@ -172,6 +206,7 @@ describe("the static document body", () => {
     createElement(StaticDocumentBody, {
       schema: getContentEditorSchema(),
       content: IMAGE_BODY,
+      runInteractiveHtml: false,
     });
   const imageEditor = () =>
     createElement(VisualEditor, {
@@ -218,6 +253,7 @@ describe("the static document body", () => {
         createElement(StaticDocumentBody, {
           schema: getContentEditorSchema(),
           content: "Recovered snapshot.",
+          runInteractiveHtml: false,
         }),
       );
       expect(container.querySelector('[role="alert"]')).toBeNull();
@@ -288,11 +324,29 @@ describe("the static document body", () => {
     expect(blocks(staticBody).map(shape)).toEqual(blocks(editor).map(shape));
   });
 
+  it("offers Run only where the editor's block won't run on its own", async () => {
+    const storedBody = (runInteractiveHtml: boolean) =>
+      createElement(StaticDocumentBody, {
+        schema: getContentEditorSchema(),
+        content: "```html interactive\n<title>Tap counter</title>\n```",
+        runInteractiveHtml,
+      });
+    const waiting = () =>
+      container.querySelector(".content-interactive-html__waiting");
+
+    await show(storedBody(false));
+    expect(waiting()?.textContent).toContain("editor.interactiveHtml.run");
+    await show(storedBody(true));
+    expect(waiting()).toBeNull();
+    expect(container.textContent).toContain("Tap counter");
+  });
+
   it("labels and sizes the tables it draws, as the editor does", async () => {
     await show(
       createElement(StaticDocumentBody, {
         schema: getContentEditorSchema(),
         content: ["| Name | Role |", "| --- | --- |", "| Priya | |"].join("\n"),
+        runInteractiveHtml: false,
       }),
     );
 
@@ -319,6 +373,7 @@ describe("the static document body", () => {
       createElement(StaticDocumentBody, {
         schema: getContentEditorSchema(),
         content,
+        runInteractiveHtml: false,
       }),
     );
     const standIn = empty();

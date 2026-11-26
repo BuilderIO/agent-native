@@ -8,12 +8,18 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
+import {
+  assertVisualEditBoardFileSize,
+  assertVisualEditCapabilityDesign,
+  visualEditCapabilityFileScope,
+} from "../server/lib/visual-edit-capability.js";
 import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
@@ -37,7 +43,7 @@ const errors = defineActionErrors(
   "design_not_found",
   "screen_not_renameable",
   "invalid_content_override",
-  "filename_taken",
+  "name_taken",
   "screen_changed",
 );
 
@@ -168,6 +174,7 @@ export default defineAction({
         });
       }
     }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ id, name, requestSource, contentOverrides }) => {
     const db = getDb();
 
@@ -184,7 +191,9 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.id, id),
-          accessFilter(schema.designs, schema.designShares),
+          visualEditCapabilityFileScope(
+            accessFilter(schema.designs, schema.designShares),
+          ),
         ),
       )
       .limit(1);
@@ -195,7 +204,11 @@ export default defineAction({
       });
     }
 
+    assertVisualEditCapabilityDesign(scopedFile.designId);
     await assertAccess("design", scopedFile.designId, "editor");
+    for (const override of contentOverrides) {
+      assertVisualEditBoardFileSize(override.content);
+    }
 
     const overrideIds = new Set<string>();
     for (const override of contentOverrides) {
@@ -268,10 +281,16 @@ export default defineAction({
               (file) => file.id !== id && file.filename === nextFilename,
             );
             if (collision) {
-              return errors.noWrite(
-                `File "${nextFilename}" already exists in design ${scopedFile.designId}`,
-                "filename_taken",
-                { statusCode: 409 },
+              const taken = new Set(
+                currentFiles
+                  .filter((file) => file.id !== id)
+                  .map((file) => file.filename),
+              );
+              throw nameTaken(
+                "screen",
+                nextFilename,
+                nextFreeName(nextFilename, taken),
+                { noWrite: true },
               );
             }
 
@@ -344,6 +363,7 @@ export default defineAction({
               const updates: Record<string, unknown> = { updatedAt };
               if (filenameChanged) updates.filename = nextFilename;
               if (contentChanged) {
+                assertVisualEditBoardFileSize(nextContent);
                 updates.content = nextContent;
                 updates.contentOperationSource = null;
                 updates.contentOperationRevision = null;

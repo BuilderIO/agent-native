@@ -60,6 +60,7 @@ export const bookingAttendees = table("booking_attendees", {
   name: text("name").notNull(),
   timezone: text("timezone"),
   locale: text("locale"),
+  position: integer("position"),
   noShow: boolean("no_show").notNull().default(false),
   createdAt: text("created_at").notNull(),
 });

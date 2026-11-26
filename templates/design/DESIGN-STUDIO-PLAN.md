@@ -1,5 +1,7 @@
 # Code-Native Design Studio — Canonical Implementation Plan
 
+> Note: the Motion timeline feature (dock, keyframes, `*-motion-*` actions, `motion_timeline` editing) was removed from Design. Motion sections below are historical.
+
 > Converged plan, merged from two independent passes (Claude + Codex) and their
 > cross-reviews. This is the single source of truth; implement from this doc.
 >

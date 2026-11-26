@@ -131,6 +131,11 @@ function printHelp(): void {
 
 Start a lazy template gateway for framework repo development.
 
+When agent-native.json declares deployment.workspace, runs
+\`agent-native workspace-dev\` for that workspace's apps instead, unless
+--apps, --all, --desktop, --electron, --dry-run or --watch-core-dist is
+passed.
+
 Usage:
   node scripts/dev-lazy.ts [options]
 
@@ -1882,11 +1887,62 @@ async function main(): Promise<void> {
   listen(requestedGatewayPort);
 }
 
+const DEV_LAZY_ONLY_FLAGS = [
+  "--apps",
+  "--all",
+  "--desktop",
+  "--electron",
+  "--dry-run",
+  "--watch-core-dist",
+];
+
+export function shouldUseWorkspaceDev(
+  root: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const configPath = path.join(root, "agent-native.json");
+  if (!fs.existsSync(configPath)) return false;
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    deployment?: { workspace?: unknown };
+  };
+  if (!config.deployment?.workspace) return false;
+  if (readBooleanEnv(env.WORKSPACE_WATCH_CORE_DIST) === true) return false;
+  return !args.some((arg) =>
+    DEV_LAZY_ONLY_FLAGS.some(
+      (flag) => arg === flag || arg.startsWith(`${flag}=`),
+    ),
+  );
+}
+
+function runWorkspaceDev(): void {
+  const pnpm = pnpmCommand([
+    "exec",
+    "tsx",
+    "packages/core/src/cli/index.ts",
+    "workspace-dev",
+    ...argv,
+    ...(shouldOpen ? [] : ["--no-open"]),
+  ]);
+  const child = spawn(pnpm.command, pnpm.args, {
+    cwd: ROOT,
+    shell: pnpm.shell,
+    stdio: "inherit",
+    detached: process.platform !== "win32",
+  });
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.once(sig, () => killChildProcessTree(child, sig));
+  }
+  child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+}
+
 const isDirectRun =
   process.argv[1] !== undefined &&
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
-if (isDirectRun) {
+if (isDirectRun && shouldUseWorkspaceDev(ROOT, argv)) {
+  runWorkspaceDev();
+} else if (isDirectRun) {
   void main().catch((err) => {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);

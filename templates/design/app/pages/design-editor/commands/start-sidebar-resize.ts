@@ -6,30 +6,35 @@ import type {
 } from "react";
 
 import {
+  resolveInspectorWidth,
+  snapInspectorDragWidth,
+} from "@/pages/design-editor/inspector-width";
+import {
   resolveLeftSidebarWidth,
   snapLeftSidebarDragWidth,
 } from "@/pages/design-editor/left-sidebar-width";
-import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface StartSidebarResizeArgs {
-  activeLeftPanel: DesignLeftPanel | null;
   leftSidebarContentRef: RefObject<HTMLDivElement | null>;
   leftSidebarWidth: number;
   rightSidebarContentRef: RefObject<HTMLDivElement | null>;
   rightSidebarWidth: number;
   setLeftSidebarWidth: Dispatch<SetStateAction<number>>;
   setRightSidebarWidth: Dispatch<SetStateAction<number>>;
+  commitLeftSidebarWidth: (width: number) => void;
+  commitRightSidebarWidth: (width: number) => void;
 }
 
 export function runStartSidebarResize(
   {
-    activeLeftPanel,
     leftSidebarContentRef,
     leftSidebarWidth,
     rightSidebarContentRef,
     rightSidebarWidth,
     setLeftSidebarWidth,
     setRightSidebarWidth,
+    commitLeftSidebarWidth,
+    commitRightSidebarWidth,
   }: StartSidebarResizeArgs,
   side: "left" | "right",
   event: ReactPointerEvent<HTMLDivElement>,
@@ -40,9 +45,11 @@ export function runStartSidebarResize(
   const startX = event.clientX;
   const startWidth =
     side === "left"
-      ? resolveLeftSidebarWidth(leftSidebarWidth, activeLeftPanel)
-      : rightSidebarWidth;
+      ? resolveLeftSidebarWidth(leftSidebarWidth)
+      : resolveInspectorWidth(rightSidebarWidth);
   const setWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
+  const commitWidth =
+    side === "left" ? commitLeftSidebarWidth : commitRightSidebarWidth;
   const target =
     side === "left"
       ? leftSidebarContentRef.current
@@ -71,8 +78,8 @@ export function runStartSidebarResize(
       side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
     const next =
       side === "left"
-        ? snapLeftSidebarDragWidth(startWidth + delta, activeLeftPanel)
-        : Math.min(390, Math.max(240, startWidth + delta));
+        ? snapLeftSidebarDragWidth(startWidth + delta)
+        : snapInspectorDragWidth(startWidth + delta);
     if (next === latestWidth) return;
     latestWidth = next;
     if (target) {
@@ -98,7 +105,7 @@ export function runStartSidebarResize(
     document.body.style.cursor = previousCursor;
     document.body.style.userSelect = previousUserSelect;
     if (target) target.style.transition = previousTransition;
-    setWidth(latestWidth);
+    commitWidth(latestWidth);
   };
 
   dragShield.addEventListener("pointermove", handleMove);

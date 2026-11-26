@@ -1,0 +1,45 @@
+/*
+ * Part: app-shell
+ *
+ *   <div class="app-shell" [data-sidebar-collapsed] [data-mobile]>
+ *     <nav class="sidebar">                 the navigation column (sidebar.css)
+ *     <main class="app-shell-canvas">       the page
+ *     <aside class="app-shell-agent">       the agent panel
+ *
+ * A full-height row: navigation at the start, the canvas taking the rest,
+ * the agent panel at the end. Panel widths sit on the 8px grid.
+ */
+
+@layer components {
+  .app-shell {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    background-color: var(--surface-app);
+    color: var(--fg-default);
+  }
+
+  .app-shell-canvas {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    background-color: var(--surface-canvas);
+  }
+
+  .app-shell-agent {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    width: 360px;
+    min-height: 0;
+    border-inline-start: 1px solid var(--line-subtle);
+    background-color: var(--surface-app);
+  }
+
+  .app-shell[data-mobile] .app-shell-agent {
+    display: none;
+  }
+}

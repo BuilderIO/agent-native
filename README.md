@@ -62,6 +62,10 @@ export default defineAction({
 
 The agent receives `hello` as a tool. React calls the same function with `useActionQuery("hello", { name: "Alex" })`. Agent-Native also exposes it through HTTP, MCP, A2A, and the CLI.
 
+Actions may set `persistInChatHistory: false` for sensitive results. Live tool calls and the current UI retain their values, while durable chat, trace and audit payloads omit the private content and its derived assistant output. Later requests use the server's sanitized thread history; unavailable projections return a retryable error. Browser caching is controlled separately with `persistInBrowser: false`. The current model invocation still receives the tool result. Private turns skip Context Xray transformation and manifest persistence. This policy does not erase historical records.
+
+Private approvals retain an opaque server approval ID, with server-keyed argument checks. Pending approvals created before this format or before a server encryption-key rotation require a new approval. An interrupted turn that already dispatched a private tool cannot safely reconstruct its omitted input and result, so automatic recovery stops and requires a new turn. A verified approval-only pause that did not execute remains resumable.
+
 ## Included
 
 - **[Agent chat](https://agent-native.com/docs/agent-surfaces?utm_source=github&utm_medium=referral&utm_content=readme):** Let people delegate work, ask questions, and review results in the same UI.
@@ -85,6 +89,12 @@ Review the onboarding screens alongside Home at desktop, tablet, and mobile
 sizes, adjust a button's color or spacing directly, then ask Claude to apply the
 pending edits to your source. See the [Visual Edit guide](./skills/visual-edit/README.md)
 for the full walkthrough and sharing details.
+
+To bring an effect or section from another site into yours, use `/remix` in your
+repo: `/remix add the stripe hero animation to ours but make it blue`. It
+rebuilds the behavior in original code with typed props or CSS knobs. To pick
+visually, ask `/remix in Design, the stripe hero into my homepage` and select
+source and destination on the canvas. See the [Remix guide](./skills/remix/README.md).
 
 Bring your LLM, SQL database, tools, and infrastructure. Everything you build stays yours.
 
@@ -278,6 +288,7 @@ Explore the [full app gallery](https://agent-native.com/apps?utm_source=github&u
 
 - Read the [documentation](https://agent-native.com/docs?utm_source=github&utm_medium=referral&utm_content=readme).
 - Join [Discord](https://discord.gg/qm82StQ2NC) to ask questions, share what you're building, and get help.
+- The CLI collects anonymous usage data. [Telemetry](https://agent-native.com/docs/telemetry?utm_source=github&utm_medium=referral&utm_content=readme) lists what it sends and how to turn it off.
 
 ## Contributing
 

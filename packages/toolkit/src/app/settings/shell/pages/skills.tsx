@@ -1,9 +1,11 @@
+import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconBolt } from "@tabler/icons-react";
 import { useMemo } from "react";
 
 import type { ResourceSettingsGroupConfig } from "../../../resources/index.js";
 import { resolveSettingsAppIdentity } from "../app-identity.js";
+import type { SettingsPageProps } from "../registry.js";
 import {
   AddSkillMenu,
   ResourceSettingsPage,
@@ -12,7 +14,13 @@ import {
   useOrganizationResourceAccess,
 } from "./resource-settings-page.js";
 
-export default function SkillsSettingsPage() {
+export default function SkillsSettingsPage({
+  onDescribe,
+  trashRemovedSkills,
+}: Partial<Pick<SettingsPageProps, "pageId">> & {
+  onDescribe?: (message: AgentChatMessage) => Promise<void>;
+  trashRemovedSkills?: boolean;
+} = {}) {
   const t = useT();
   const { ref, open } = useOpenResourceRef();
   const { canEditOrg, orgName, hasOrg } = useOrganizationResourceAccess();
@@ -32,7 +40,12 @@ export default function SkillsSettingsPage() {
         emptyTitle: t("agentChat.settingsResources.skills.emptyTitle"),
         emptyDescription: t("agentChat.settingsResources.skills.empty"),
         emptyAction: (
-          <AddSkillMenu scope="personal" placement="empty" onCreated={open} />
+          <AddSkillMenu
+            scope="personal"
+            placement="empty"
+            onCreated={open}
+            onDescribe={onDescribe}
+          />
         ),
         action: (
           <AddSkillMenu
@@ -44,6 +57,7 @@ export default function SkillsSettingsPage() {
                 : undefined
             }
             onCreated={open}
+            onDescribe={onDescribe}
           />
         ),
       },
@@ -59,7 +73,12 @@ export default function SkillsSettingsPage() {
         emptyIcon: IconBolt,
         emptyTitle: t("agentChat.settingsResources.skills.orgEmpty"),
         emptyAction: (
-          <AddSkillMenu scope="shared" placement="empty" onCreated={open} />
+          <AddSkillMenu
+            scope="shared"
+            placement="empty"
+            onCreated={open}
+            onDescribe={onDescribe}
+          />
         ),
         action: canEditOrg ? (
           <AddSkillMenu
@@ -67,6 +86,7 @@ export default function SkillsSettingsPage() {
             placement="group"
             label={t("agentChat.settingsResources.skills.addForEveryone")}
             onCreated={open}
+            onDescribe={onDescribe}
           />
         ) : undefined,
       },
@@ -83,12 +103,18 @@ export default function SkillsSettingsPage() {
     dispatchGroup,
     hasOrg,
     isOrgAdmin,
+    onDescribe,
     open,
     orgName,
     t,
   ]);
 
   return (
-    <ResourceSettingsPage view="skills" groups={groups} openResourceRef={ref} />
+    <ResourceSettingsPage
+      view="skills"
+      groups={groups}
+      openResourceRef={ref}
+      trashRemovedSkills={trashRemovedSkills}
+    />
   );
 }

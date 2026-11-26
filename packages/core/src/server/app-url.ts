@@ -5,7 +5,12 @@ import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
-import { resolveDeployEnvironment } from "./deploy-environment.js";
+import { hasHostedInvocationMarker } from "../db/server-runtime.js";
+import {
+  isExplicitLocalDeployEnvironment,
+  resolveDeployEnvironment,
+  resolveDeployPlatform,
+} from "./deploy-environment.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
 
 let cachedPkgName: string | undefined | null = null;
@@ -37,7 +42,11 @@ function firstConfiguredUrl(keys: readonly string[]): string | undefined {
 }
 
 function firstConfiguredPublicUrl(keys: readonly string[]): string | undefined {
-  const allowLoopback = !isHostedRuntime();
+  const allowLoopback =
+    !isHostedRuntime() ||
+    (isExplicitLocalDeployEnvironment() &&
+      resolveDeployPlatform() === "node" &&
+      !hasHostedInvocationMarker());
   for (const key of keys) {
     const value = process.env[key];
     if (!value) continue;
@@ -87,7 +96,9 @@ function isLoopbackUrl(value: string | undefined): boolean {
   try {
     const hostname = new URL(value).hostname.toLowerCase();
     return (
-      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]"
     );
   } catch {
     return false;

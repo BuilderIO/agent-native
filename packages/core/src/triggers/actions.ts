@@ -19,7 +19,14 @@ import {
   listRemoteDevicesForOwner,
 } from "../integrations/remote-devices-store.js";
 import { describeCron, effectiveTimezone } from "../jobs/cron.js";
-import { queueAutomationRunNow } from "../jobs/run-now.js";
+import {
+  resourceTargetsHost,
+  setsExecutionTarget,
+} from "../jobs/execution-target.js";
+import {
+  authorizeAutomationRunNow,
+  queueAutomationRunNow,
+} from "../jobs/run-now.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
@@ -581,17 +588,65 @@ const VALID_ACTIONS = [
   "run-now",
 ] as const;
 
+async function existingTargetsHost(
+  args: Record<string, unknown>,
+  context: ActionRunContext | undefined,
+  appId?: string,
+): Promise<boolean> {
+  if (!context?.userEmail) return false;
+  const resourceId =
+    typeof args.resource_id === "string" ? args.resource_id : undefined;
+  const path =
+    args.action === "run-now" && typeof args.path === "string"
+      ? args.path.trim()
+      : undefined;
+  const name = typeof args.name === "string" ? args.name : undefined;
+  const scope = optionalAutomationScope(args.scope);
+  const orgId = context.orgId ?? getRequestOrgId();
+  try {
+    const access = await authorizeAutomationRunNow({
+      userEmail: context.userEmail,
+      ...(orgId !== undefined ? { orgId } : {}),
+      ...(appId !== undefined ? { appId } : {}),
+      ...(resourceId !== undefined ? { resourceId } : {}),
+      ...(scope !== undefined ? { scope } : {}),
+      ...(path ? { path } : name ? { name } : {}),
+    });
+    return resourceTargetsHost(access.resource.content);
+  } catch {
+    // coercion-ok: an unreadable target asks for approval
+    return true;
+  }
+}
+
 export function createAutomationToolEntries(
   getCurrentUser: () => string,
   appId?: string,
 ): Record<string, ActionEntry> {
   return frameworkMcpTools({
     "manage-automations": {
-      needsApproval: (args, context) =>
-        isOutsideAutomationOrigin(context) &&
-        args.action !== "list" &&
-        args.action !== "list-events" &&
-        args.action !== "list-hosts",
+      needsApproval: async (args, context) => {
+        if (
+          isOutsideAutomationOrigin(context) &&
+          args.action !== "list" &&
+          args.action !== "list-events" &&
+          args.action !== "list-hosts"
+        ) {
+          return true;
+        }
+        if (args.action === "define" || args.action === "update") {
+          if (setsExecutionTarget(args, "snake")) return true;
+          return args.action === "update"
+            ? existingTargetsHost(args, context, appId)
+            : false;
+        }
+        if (args.action === "run-now") {
+          return existingTargetsHost(args, context, appId);
+        }
+        return false;
+      },
+      allowPersistentApproval: false,
+      mcpTool: "search",
       chatUI: {
         renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
         when: (args, result) => {

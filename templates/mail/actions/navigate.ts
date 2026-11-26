@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { getDecisionsStatus } from "@agent-native/core/decisions";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import {
@@ -16,7 +19,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (inbox, starred, sent, drafts, scheduled, archive, trash, draft-queue, settings)",
+        "View to navigate to (inbox, starred, sent, drafts, archive, trash, draft-queue, settings). Drafts also lists scheduled emails and drafts teammates requested; scheduled, and draft-queue without queuedDraftId, open Drafts",
       ),
     tab: z
       .string()
@@ -50,7 +53,7 @@ export default defineAction({
       .enum(MAIL_SETTINGS_SECTIONS)
       .optional()
       .describe(
-        "Settings to open: general, a Mail › General tab (drafting, snippets, rules for inbox rules, ai-filter, gmail-filters, aliases, tracking), slack for Channels › Slack, or members",
+        "Settings to open: general, a Mail › General tab (reading, drafting, snippets, rules for inbox rules, ai-filter, gmail-filters, aliases, tracking), slack for Channels › Slack, or members",
       ),
     queuedDraftId: z
       .string()
@@ -62,8 +65,10 @@ export default defineAction({
       .describe(
         "Compose draft ID to reopen — opens the inbox so the compose panel auto-shows the matching compose-<id> draft",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     if (args.sort === "priority") {
       const ownerEmail = getRequestUserEmail();

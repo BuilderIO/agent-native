@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,6 +28,8 @@ import {
   PENDING_TEXT_EDIT_TIMEOUT_MS,
   PENDING_TEXT_INTERCEPT_CAP_MS,
 } from "./pending-text-edit";
+
+// oracle-change: removed a DesignCanvas.tsx source grep for text-edit owner registration; the capture behaviour cases remain
 
 const unregisterAll: Array<() => void> = [];
 
@@ -700,14 +701,4 @@ describe("pending text capture", () => {
     expect(second).toHaveBeenCalledExactlyOnceWith("text-5", undefined);
     expect(first).not.toHaveBeenCalled();
   });
-});
-
-it("only DesignCanvas's primary frame registers as a text-edit owner", () => {
-  const source = readFileSync("app/components/design/DesignCanvas.tsx", "utf8");
-  expect(source).toMatch(
-    /if \(previewFrameId\) return;\s+const owner = screenId;[\s\S]{0,400}?registerTextEditOwner\(\s*owner,/,
-  );
-  expect(source).toContain(
-    "capturedOwnerRef.current = previewFrameId ? null : (screenId ?? null);",
-  );
 });

@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "Aucune modification de design n'a été enregistrée lors de ce tour.",
+  },
   journeyCanvas: {
     observedSessionReference: "Référence de session observée",
     sessionsOfAll: "{count} sessions · {percent} du total",
@@ -76,150 +80,6 @@ export default {
     htmlLanguage: "fr-FR",
   },
   composer: { menu: { integrations: "Intégrations" } },
-  creativeContext: {
-    title: "Bibliothèque",
-    description:
-      "Un contexte créatif réutilisable pour rester cohérent d’un travail à l’autre.",
-    modeLabel: "Utiliser le contexte créatif",
-    automatic: "Automatique",
-    automaticDescription:
-      "Laisser l’agent choisir les sources et le pack les plus pertinents.",
-    off: "Désactivé",
-    offDescription: "Créer sans appliquer le contexte créatif enregistré.",
-    activePack: "Pack de contexte actuel",
-    noActivePack: "Aucun pack de contexte n’a encore été utilisé ici.",
-    pinned: "Épinglé",
-    pin: "Épingler",
-    unpin: "Désépingler",
-    sourcesTitle: "Sources",
-    sourcesDescription:
-      "Références, documents et travaux antérieurs disponibles pour réutilisation.",
-    searchTitle: "Rechercher le contexte",
-    searchDescription:
-      "Retrouver les détails exacts avant de réutiliser une affirmation, un style ou une décision.",
-    searchPlaceholder: "Rechercher le contexte créatif",
-    searchPrompt: "Recherchez dans les sources de cette bibliothèque.",
-    noResults: "Aucun contexte correspondant.",
-    resultsLabel: "Résultats : {{count}}",
-    noSourcesTitle: "Aucun contexte créatif",
-    noSourcesDescription:
-      "Connectez une source ou demandez à l’agent de capturer un contexte réutilisable.",
-    connectSources: "Ouvrir les connexions",
-    refresh: "Actualiser",
-    refreshing: "Actualisation…",
-    refreshed: "Actualisation lancée",
-    refreshFailed: "Impossible d’actualiser cette source.",
-    itemsLabel: "Éléments : {{count}}",
-    discoveredItems: "Découverts : {{count}}",
-    selectedItems: "Sélectionnés : {{count}}",
-    selectAll: "Tout sélectionner",
-    clearSelection: "Effacer",
-    packsTitle: "Packs de contexte",
-    noPacks: "Aucun pack de contexte n’a encore été assemblé.",
-    loading: "Chargement du contexte créatif…",
-    unavailable: "Le contexte créatif est indisponible pour le moment.",
-    stateSaveFailed:
-      "Impossible d’enregistrer la préférence de contexte créatif.",
-    sourceError: "À vérifier",
-    personal: "Personnel",
-    organization: "Organisation",
-    addSource: "Ajouter une source",
-    addToContext: "Ajouter au contexte…",
-    sourceName: "Nom de la source",
-    sourceReference: "Référence de la source",
-    preview: "Aperçu",
-    startImport: "Démarrer l’importation",
-    importing: "Importation…",
-    importComplete: "Importation terminée",
-    importFailed: "Échec de l’importation",
-    brandDnaTitle: "Contexte de marque inféré",
-    publishedBrandContext: "Contexte de marque publié",
-    applyBrandContext: "Appliquer comme contexte de ma marque",
-    applyingBrandContext: "Application du contexte de marque…",
-    brandContextPublished: "Contexte de marque publié",
-    restrictedItems: "Éléments restreints : {{count}}",
-    unknownAccess: "Accès inconnu",
-    reviewRestricted: "Examiner les éléments restreints",
-    approve: "Approuver",
-    exclude: "Exclure",
-    packDetails: "Détails",
-    influence: "Influence",
-    cancel: "Fermer",
-    saveFailed: "Impossible d’enregistrer ces modifications.",
-    updateAvailable: "Mise à jour disponible",
-    submitUpdate: "Envoyer la mise à jour",
-    submittingUpdate: "Envoi…",
-    submitUpdateTitle: "Envoyer la dernière version ?",
-    submitUpdateDescription:
-      "Capturez la version actuelle de « {{name}} » et soumettez-la à la politique d’approbation de ce contexte. Elle peut être publiée auprès d’un public plus large.",
-    submitUpdateFailed: "Impossible d’envoyer la dernière version.",
-    chooseFiles: "Choisir des fichiers",
-    chooseFolder: "Choisir un dossier",
-    dropFiles: "Déposez ici des fichiers PPTX, DOCX, PDF ou image.",
-    promoteToOrganization: "Partager avec l’organisation",
-    promotionDescription:
-      "Confirmez le conteneur exact et l’inventaire importé avant de partager cette copie gouvernée.",
-    promotionComplete: "Partagé avec l’organisation.",
-    manage: "Gérer la source",
-    pause: "Suspendre",
-    restore: "Restaurer",
-    delete: "Supprimer",
-    sourcePaused: "Source suspendue.",
-    sourceRestored: "Source restaurée.",
-    deleteSourceTitle: "Supprimer la source ?",
-    deleteSourceDescription:
-      "{{name}} disparaîtra immédiatement. Son contexte importé sera purgé en arrière-plan.",
-    deletionQueued:
-      "Source supprimée. Le contexte importé est en cours de purge.",
-    curateItems: "Organiser les éléments",
-    exemplar: "Exemple",
-    ignore: "Ignorer",
-    deprecated: "Obsolète",
-    star: "Ajouter aux favoris",
-    unstar: "Retirer des favoris",
-    deprecate: "Déprécier",
-    colors: "Couleurs",
-    fonts: "Polices",
-    layouts: "Exemples de mise en page",
-    voice: "Ton",
-    generateWithContext: "Générer avec ce contexte",
-    chooseConnection: "Choisir une connexion d’espace de travail",
-    setupConnection: "Connectez ce fournisseur avant d’importer une source.",
-    connectProvider: "Connecter le fournisseur",
-    choosePresentations: "Choisir des présentations",
-    googlePickerDescription:
-      "Choisissez les présentations accessibles à cette connexion. Aucun accès à l’ensemble de Drive n’est demandé.",
-    suggestions: "Examiner les suggestions",
-    logo: "Logo canonique",
-    share: {
-      title: "Contexte créatif",
-      documentation: "Documentation de Creative Context",
-      tabLabel: "Contexte",
-      pendingResource: "Ressource en attente",
-      publishedResource: "Ressource publiée",
-      canonical: "Canonique",
-      reference: "Référence",
-      pendingReview: "Révision en attente",
-      published: "Publié",
-      withdraw: "Retirer",
-      requestChanges: "Demander des modifications",
-      remove: "Supprimer",
-      chooseContext: "Choisir un contexte",
-      selectedResources: "{{count}} ressources sélectionnées",
-      noContexts: "Aucun contexte n'est encore disponible.",
-      purpose: "Objectif",
-      reviewerNote: "Note pour les réviseurs",
-      submit: "Envoyer",
-      broaderPublication:
-        "Ce contexte est partagé plus largement que cette ressource. La publication crée une copie gouvernée disponible pour l'audience du contexte.",
-      newContextName: "Nom du nouveau contexte",
-      new: "Nouveau",
-      partialSubmission:
-        "{{submitted}} envoyées ; {{failed}} n'ont pas pu être envoyées.",
-      resourceSubmitted: "{{count}} ressource envoyée.",
-      resourcesSubmitted: "{{count}} ressources envoyées.",
-    },
-  },
   root: {
     commandActions: "Actions",
     commandSearch: "Rechercher",
@@ -231,8 +91,6 @@ export default {
     brand: "Design",
     home: "Accueil",
     templates: "Modèles",
-    designSystems: "Systèmes de design",
-    setupDesignSystem: "Configurer le système de design",
     agent: "Agent",
     settings: "Paramètres",
     openNavigation: "Ouvrir la navigation",
@@ -249,7 +107,6 @@ export default {
     retry: "Réessayer",
     steps: {
       createDesign: "Créez votre premier design",
-      addBrand: "Ajoutez votre marque",
       useRealData: "Utilisez vos données réelles",
       shareFeedback: "Partagez pour recueillir des retours",
       inviteTeammate: "Invitez un collègue",
@@ -266,15 +123,6 @@ export default {
     labFullAppBuilding: "Création d’applications complètes",
     labFullAppBuildingDescription:
       "Essayez de créer des applications fonctionnelles à partir de vos designs avec Builder.",
-    labDesignReviewTools: "Outils de révision des designs",
-    labDesignReviewToolsDescription:
-      "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
-    labMotion: "Animation",
-    labMotionDescription:
-      "Créez et modifiez des animations par images clés dans vos designs.",
-    labAnnotate: "Annoter",
-    labAnnotateDescription:
-      "Dessinez sur vos designs et envoyez vos annotations à l’agent.",
     mcpAbout:
       "Connectez Design à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Design pour vous : créer des designs et les modifier. Elle ne voit que ce que vous pouvez voir.",
   },
@@ -416,7 +264,7 @@ export default {
     pageHelpDescription:
       "Modifiez la typographie, l'espacement, le dimensionnement, les bordures et remplissez ce que vous sélectionnez. Valeurs par défaut de la page ci-dessous.",
     sections: {
-      page: "Écran",
+      page: "Page",
       canvas: "Canevas",
       typography: "Typographie",
       autoLayout: "Mise en page auto",
@@ -519,6 +367,8 @@ export default {
       blur: "Flou",
       spread: "Diffusion",
       rotation3d: "Rotation 3D",
+      constraints: "Contraintes",
+      absolutePosition: "Position absolue",
       rotationX: "Rotation X",
       rotationY: "Rotation Y",
       perspective: "Perspective",
@@ -573,7 +423,7 @@ export default {
       addRecordRow: "Ajouter {{item}}",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "Supprimer {{item}} {{index}}",
-      selectElementFirst: "Sélectionnez d'abord un élément d'écran",
+      selectElementFirst: "Sélectionnez d’abord un élément de la page",
       selectCanvasElementFirst:
         "Sélectionnez d'abord un élément sur le canevas",
       saveFailed: "Impossible d'enregistrer le shader",
@@ -854,10 +704,6 @@ export default {
       resetOverrideTooltip:
         "Efface la substitution de cet état et utilise la valeur par défaut",
     },
-    motionKeyframe: {
-      addTooltip: "Ajouter une image clé",
-      removeTooltip: "Supprimer l'image clé",
-    },
     breakpointOverride: {
       overriddenTooltip: "Remplacé à ce point de rupture",
       overriddenAtTooltip: "Remplacé à {{width}}px",
@@ -1003,11 +849,11 @@ export default {
     screenSource: {
       title: "Source",
       url: "URL",
-      urlLabel: "URL de l’écran",
+      urlLabel: "URL de la page",
       urlPlaceholder: "/plans ou http://localhost:5173/plans",
       update: "Mettre à jour",
       chooseLocalApp: "Choisir une app locale",
-      remove: "Supprimer l’écran",
+      remove: "Supprimer la page",
     },
     borderStyleOptions: {
       none: "Aucun",
@@ -1019,6 +865,10 @@ export default {
     exportPreview: {
       rendering: "Génération de l'aperçu…",
       failed: "Aperçu indisponible",
+      noPreview: "Aucun écran à prévisualiser",
+      externalPreview: "L'aperçu nécessite l'app en direct",
+      readOnlyPreview: "Aperçu indisponible en lecture seule",
+      selectionUnresolved: "Sélection introuvable sur cet écran",
     },
     framePresets: {
       title: "Cadre",
@@ -1052,7 +902,38 @@ export default {
     },
   },
   designEditor: {
-    sourceLoadFailed: "Impossible de charger cet écran.",
+    livePreview: {
+      share: "Partager l’aperçu en direct",
+      instructions:
+        "Collez une URL HTTPS publique d’aperçu pour votre application, par exemple un tunnel ngrok ou cloudflared. Votre machine conserve localhost ; les autres peuvent voir l’aperçu public ou suggérer des modifications sur la capture publiée.",
+      tunnelUrl: "URL publique d’aperçu",
+      enableCollaboration:
+        "Activer la collaboration en direct pour toutes les personnes ayant accès au design",
+      save: "Enregistrer",
+      unavailable: "Aperçu en direct indisponible — instantané affiché",
+      live: "Aperçu en direct",
+      openLive: "Ouvrir l’aperçu en direct sur {{hostname}}",
+      suggest: "Suggérer sur la capture",
+      localOnly: "Aperçu en direct uniquement sur la machine du propriétaire",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript est désactivé ; le contenu dynamique peut manquer.",
+      captureAction: "Capturer une image statique",
+      capturePrompt:
+        "Capturez l’écran et le DOM de cette URL de référence publique et ajoutez-les comme écran de référence statique à ce canevas. Indiquez qu’il s’agit d’une capture, pas d’une page en direct.",
+      unavailable: "Cette page peut bloquer les cadres ou ne pas avoir chargé.",
+      load: "Charger une copie de référence",
+      label: "Copie de référence · page publique, lecture seule",
+      noBridge: "Connectez un pont local pour charger une copie publique.",
+      snapshot: "Utiliser la capture publiée",
+      capture: "Demandez à l’agent une capture d’écran et du DOM.",
+      failed: "Échec de la copie. Capturez l’écran et le DOM.",
+      loading: "Chargement de la copie de référence…",
+      original: "Essayer la page originale",
+    },
+
+    sourceLoadFailed: "Impossible de charger cette page.",
     selectionPublishFailed:
       "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",
     liveCollaboration: {
@@ -1103,6 +984,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Sélectionner un calque",
+      layerKinds: {
+        webgl: "Canevas · WebGL",
+        canvas: "Canevas",
+        video: "Vidéo",
+        image: "Image",
+        svg: "Graphique SVG",
+        embed: "Intégration",
+        background: "Arrière-plan",
+        effect: "Effet",
+      },
       goToMain: "Accéder au composant principal",
       restore: "Restaurer le composant",
       swap: "Permuter l’instance",
@@ -1161,6 +1052,19 @@ export default {
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
     },
+    leftTabs: {
+      label: "Panneau latéral",
+      agent: "Agent",
+      file: "Fichier",
+      library: "Bibliothèque",
+    },
+    columnHead: {
+      comments: "Commentaires",
+      unreadComments: "Commentaires non lus",
+      resizeLeftPanel: "Redimensionner le panneau gauche",
+      resizeInspector: "Redimensionner l’inspecteur",
+      whatsNew: "Nouveautés",
+    },
     breakpointBar: {
       base: "Base",
       editBaseWidth: "Modifier la largeur de base",
@@ -1193,7 +1097,7 @@ export default {
       themeSystem: "Système",
       themeSystemHint:
         "Affiche le design tel qu'il a été créé (utilise le réglage du système)",
-      screen: "Écran",
+      screen: "Page",
       back: "Précédent",
       forward: "Suivant",
       reload: "Recharger l'aperçu",
@@ -1204,397 +1108,8 @@ export default {
       zoomFit: "Ajusté au canevas",
       zoomFitOption: "Ajuster",
       exit: "Quitter l'aperçu adaptatif",
-      noScreens: "Ce design n'a aucun écran à prévisualiser.",
-      unknownScreen: "Cet écran ne fait pas partie de ce design.",
-    },
-    motion: {
-      openDock: "Animation",
-      animations: "Animations",
-      code: {
-        list: "Liste",
-        code: "Code",
-        format: "Format du code",
-        css: "CSS",
-        data: "Données",
-        styles: "Styles",
-        keyframes: "Images clés",
-        copy: "Copier",
-        copyAll: "Tout copier",
-        copied: "Copié",
-        copyFailed: "Copie impossible",
-        showMore: "Afficher plus",
-        openInTimeline: "Ouvrir dans la timeline",
-        nothingToList: "Aucune ligne d’animation à lister",
-        nothingToShow: "Aucune animation à afficher sous forme de code",
-        unavailable: "Impossible d’afficher le code de cette animation",
-      },
-      pathEditAmbiguous:
-        "Ce calque comporte plusieurs animations de position, son tracé ne peut donc pas être modifié sans ambiguïté.",
-      pathEditPositionConflict:
-        "Ce calque a déjà une autre animation de position, son tracé ne peut donc pas être courbé.",
-      positionStyleConflict:
-        "Ce calque a déjà une animation de position qui ne peut pas être combinée avec une autre.",
-      animationStyles: {
-        title: "Animations",
-        createTitle: "Créer un nouveau style d’animation",
-        addAnimation: "Ajouter une animation",
-        animation: "Animation",
-        distance: "Distance",
-        amount: "Valeur",
-        axis: "Axe",
-        axisBoth: "Les deux",
-        axisX: "X",
-        axisY: "Y",
-        startWidth: "Largeur de départ",
-        endWidth: "Largeur d’arrivée",
-        startHeight: "Hauteur de départ",
-        endHeight: "Hauteur d’arrivée",
-        delay: "Délai",
-        easing: "Progression",
-        editCurve: "Modifier la courbe de progression",
-        showEasingCurveEditor: "Afficher l’éditeur de courbe de progression",
-        bezier: "Bézier",
-        curvePreview: "Aperçu de la courbe",
-        flipCurve: "Inverser la courbe",
-        easingPicker: {
-          presets: "Préréglages",
-          libraries: "Bibliothèques",
-          newVariable: "Nouvelle variable",
-          searchPlaceholder: "Rechercher des variables d’accélération",
-          variableSet: "Ensemble de variables",
-          allLibraries: "Toutes les bibliothèques",
-          noVariables: "Aucune variable",
-          noResults: "Aucun résultat",
-        },
-        easingVariable: {
-          title: "Nouvelle variable d’accélération",
-          collection: "Collection",
-          name: "Nom",
-          value: "Valeur",
-          create: "Créer",
-          cancel: "Annuler",
-          duplicateName:
-            "Une variable portant ce nom existe déjà dans cette collection.",
-        },
-        settle: "Stabilisation",
-        slideIn: "Glisser vers l’intérieur",
-        slideOut: "Glisser vers l’extérieur",
-        scaleIn: "Agrandir à l’entrée",
-        scaleOut: "Réduire à la sortie",
-        rotateIn: "Pivoter à l’entrée",
-        rotateOut: "Pivoter à la sortie",
-        resizeIn: "Redimensionner à l’entrée",
-        resizeOut: "Redimensionner à la sortie",
-        fadeIn: "Apparition",
-        fadeOut: "Disparition",
-        custom: "Personnalisé",
-        toLeft: "Vers la gauche",
-        toRight: "Vers la droite",
-        toTop: "Vers le haut",
-        toBottom: "Vers le bas",
-        toTopLeft: "Vers le haut à gauche",
-        toTopRight: "Vers le haut à droite",
-        toBottomLeft: "Vers le bas à gauche",
-        toBottomRight: "Vers le bas à droite",
-        fromLeft: "Depuis la gauche",
-        fromRight: "Depuis la droite",
-        fromTop: "Depuis le haut",
-        fromBottom: "Depuis le bas",
-        fromTopLeft: "Depuis le coin supérieur gauche",
-        fromTopRight: "Depuis le coin supérieur droit",
-        fromBottomLeft: "Depuis le coin inférieur gauche",
-        fromBottomRight: "Depuis le coin inférieur droit",
-        clockwise: "Sens horaire",
-        counterclockwise: "Sens antihoraire",
-        easingPresets: {
-          hold: "Maintien",
-          linear: "Linéaire",
-          easeIn: "Accélération au début",
-          easeOut: "Accélération à la fin",
-          easeInOut: "Accélération au début et à la fin",
-          easeInBack: "Recul au début",
-          easeOutBack: "Recul à la fin",
-          easeInOutBack: "Recul au début et à la fin",
-          gentle: "Doux",
-          quick: "Rapide",
-          bouncy: "Rebondissant",
-          slow: "Lent",
-        },
-        text: "Texte",
-        position: "Position",
-        scale: "Échelle",
-        rotation: "Rotation",
-        size: "Taille",
-        opacity: "Opacité",
-        path: "Trajectoire",
-        close: "Fermer",
-        hide: "Masquer",
-        show: "Afficher",
-        removeAnimation: "Supprimer l’animation",
-        noAnimations: "Ajouter une animation",
-        searchPlaceholder: "Rechercher",
-        search: "Rechercher des styles d’animation",
-        filter: "Filtrer les styles d’animation",
-        list: "Styles d’animation",
-        all: "Tout",
-        basic: "Basique",
-        enter: "Entrée",
-        cycle: "Cycle",
-        exit: "Sortie",
-        create: "Créer un style",
-        apply: "Appliquer le style",
-        empty: "Aucun style d’animation",
-        noResults: "Aucun style correspondant",
-        target: "Cible",
-        name: "Nom",
-        category: "Catégorie",
-        description: "Description",
-        cancel: "Annuler",
-        save: "Enregistrer le style",
-        createDescription:
-          "Enregistrer les pistes de mouvement de la cible sélectionnée comme style réutilisable.",
-        unsupportedSequence:
-          "Ce style ne peut pas être appliqué, car des segments de même propriété se chevauchent ou ne se rejoignent pas.",
-        tooMany: "Un style peut inclure jusqu’à 24 animations.",
-        limit: "Cette conception a atteint la limite de 64 styles d’animation.",
-      },
-      builtInRecipes: {
-        tempo: { fast: "Rapide", medium: "Moyen", slow: "Lent" },
-        enter: {
-          recipe01: "Arrivée Builder 01",
-          recipe02: "Arrivée Builder 02",
-          recipe03: "Arrivée Builder 03",
-          recipe04: "Arrivée Builder 04",
-          recipe05: "Arrivée Builder 05",
-          recipe06: "Arrivée Builder 06",
-          recipe07: "Arrivée Builder 07",
-          recipe08: "Arrivée Builder 08",
-          recipe09: "Arrivée Builder 09",
-          recipe10: "Arrivée Builder 10",
-          recipe11: "Arrivée Builder 11",
-          recipe12: "Arrivée Builder 12",
-        },
-        cycle: {
-          recipe01: "Boucle Builder 01",
-          recipe02: "Boucle Builder 02",
-          recipe03: "Boucle Builder 03",
-          recipe04: "Boucle Builder 04",
-          recipe05: "Boucle Builder 05",
-          recipe06: "Boucle Builder 06",
-          recipe07: "Boucle Builder 07",
-          recipe08: "Boucle Builder 08",
-          recipe09: "Boucle Builder 09",
-          recipe10: "Boucle Builder 10",
-          recipe11: "Boucle Builder 11",
-          recipe12: "Boucle Builder 12",
-        },
-        exit: {
-          recipe01: "Départ Builder 01",
-          recipe02: "Départ Builder 02",
-          recipe03: "Départ Builder 03",
-          recipe04: "Départ Builder 04",
-          recipe05: "Départ Builder 05",
-          recipe06: "Départ Builder 06",
-          recipe07: "Départ Builder 07",
-          recipe08: "Départ Builder 08",
-          recipe09: "Départ Builder 09",
-          recipe10: "Départ Builder 10",
-          recipe11: "Départ Builder 11",
-          recipe12: "Départ Builder 12",
-        },
-      },
-      tabLabel: "Mouvement",
-      transform: "Transformation",
-      layout: "Mise en page",
-      dimensions: "Dimensions",
-      audio: "Audio",
-      addAudio: "Ajouter un audio",
-      uploadingAudio: "Importation audio en cours",
-      volume: "Volume",
-      muteAudio: "Couper le son",
-      unmuteAudio: "Activer le son",
-      removeAudio: "Supprimer l’audio",
-      playbackError: "Échec de la lecture audio",
-      audioDurationUnavailable: "La durée audio n’a pas pu être lue",
-      audioUploadFailed: "Échec de l’importation audio",
-      unsupportedAudio: "Choisir un fichier audio",
-      splitAudioAtPlayhead: "Diviser l’audio à la tête de lecture",
-      origin: "Origine",
-      currentTimeSeconds: "Temps actuel en secondes",
-      durationSeconds: "Durée en secondes",
-      timeFormat: "Format de l’heure : {{unit}}",
-      changeTimeFormat: "Modifier le format de l’heure",
-      milliseconds: "Millisecondes",
-      seconds: "Secondes",
-      timelineZoom: "Zoom de la timeline ({{percent}} %)",
-      timelineZoomLevel: "Niveau de zoom de la timeline",
-      timelineScrubber: "Curseur de la timeline",
-      timelineDescription:
-        "Timeline des images clés. {{tracks}} pistes, {{keyframes}} images clés. Utilisez les flèches ou Espace + glisser pour faire défiler, pincez ou utilisez Cmd/Ctrl + molette pour zoomer, faites glisser les images clés pour les déplacer, utilisez Maj/Cmd pour en sélectionner plusieurs et double-cliquez pour en ajouter.",
-      size: "Taille",
-      sourceReadUnavailable:
-        "Motion ne peut pas lire cette animation sans en modifier le comportement.",
-      sourceWriteUnavailable:
-        "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
-      unresolvedStylesheets:
-        "Résolvez les styles externes ou générés à l’exécution avant de modifier ou d’ajouter Motion.",
-      sourceConflict:
-        "La source Motion a changé alors que cette timeline contenait des modifications non enregistrées. Rechargez le code pour les abandonner et utiliser la source actuelle.",
-      reloadFromSource: "Recharger le code",
-      dockLabel: "Panneau de mouvement",
-      collapseDock: "Réduire le panneau de mouvement",
-      expandAllTracks: "Développer toutes les pistes",
-      collapseAllTracks: "Réduire toutes les pistes",
-      play: "Lecture",
-      pause: "Pause",
-      resetPlayhead: "Réinitialiser la tête de lecture",
-      reset: "Réinitialiser",
-      addKeyframeAtPlayhead: "Ajouter une image clé à la tête de lecture",
-      addKeyframeAtPlayheadForProperty:
-        "Ajouter une image clé à la tête de lecture ({{property}})",
-      selectPropertyRowFirst: "Sélectionnez d'abord une ligne de propriété",
-      currentTimeMs: "Temps actuel en ms",
-      currentTimeLabel: "Temps actuel",
-      duration: "Durée",
-      durationMs: "Durée en ms",
-      editAnimation: "Modifier l’animation",
-      type: "Type",
-      startTimeMs: "Heure de début en ms",
-      playbackMode: "Mode de lecture : {{mode}}",
-      playbackModeButton: "Lire {{mode}}",
-      playback: "Lecture : {{mode}}",
-      loop: "Boucle",
-      once: "Une fois",
-      pingPong: "Aller-retour",
-      toggleAutoKeyframe: "Activer/désactiver les images clés automatiques",
-      addOrRemoveKeyframe: "Ajouter ou supprimer une image clé",
-      previousKeyframe: "Image clé précédente",
-      toggleLayerVisibility: "Activer/désactiver la visibilité du calque",
-      toggleAnimationVisibility:
-        "Activer ou désactiver la visibilité de l’animation",
-      autoKeyframe: "Image clé automatique",
-      savingMotion: "Enregistrement du mouvement",
-      emptyStateAnimate: "Animer",
-      emptyStatePickProperty:
-        ". Choisissez une propriété pour ajouter la première piste.",
-      emptyStateNoSelection:
-        "Sélectionnez un élément sur le canevas, puis ajoutez une piste pour l'animer.",
-      addMotion: "Ajouter une animation",
-      addMenu: {
-        strokeColor: "Couleur du contour",
-        strokeWeight: "Épaisseur du contour",
-        readyMade: "Style d’animation",
-        outermostFrame:
-          "Les frames de premier niveau ne peuvent pas être animées",
-        allStylesAdded: "Cette sélection a déjà tous les styles d’animation",
-      },
-      text: "Texte",
-      textAnimation: {
-        title: "Animation du texte",
-        remove: "Supprimer l’animation du texte",
-        addPropertyTrack: "Ajouter une piste de propriété",
-        removePropertyTrack: "Supprimer la piste de propriété",
-        unit: "Unité",
-        direction: "Direction",
-        stagger: "Décalage (ms)",
-        property: "Propriété",
-        duration: "Durée (ms)",
-        keyframeValue: "Valeur de l’image clé",
-        keyframeEase: "Accélération de l’image clé",
-        easePlaceholder: "ease-out",
-        units: {
-          character: "Caractère",
-          word: "Mot",
-          line: "Ligne",
-          paragraph: "Paragraphe",
-        },
-        directions: {
-          forward: "En avant",
-          reverse: "En arrière",
-        },
-        properties: {
-          opacity: "Opacité",
-          translate: "Translation",
-          scale: "Échelle",
-          rotate: "Rotation",
-          filter: "Flou",
-        },
-      },
-      nativePathTrim: {
-        startAtBeginning: "Début au départ",
-        endAtBeginning: "Fin au départ",
-        startAtEnd: "Début à l’arrivée",
-        endAtEnd: "Fin à l’arrivée",
-      },
-      nativeTextStagger: {
-        create: "Décalage du texte",
-        animationDirection: "Direction",
-        enter: "Entrée",
-        exit: "Sortie",
-        grouping: "Chaque",
-        order: "Ordre",
-        overlap: "Chevauchement",
-        ignoreSpaces: "Ignorer les espaces",
-        positionDirection: "Direction du déplacement",
-        rotationDirection: "Sens de rotation",
-        orderOptions: {
-          leftToRight: "De gauche à droite",
-          rightToLeft: "De droite à gauche",
-          centerOut: "Du centre vers l’extérieur",
-          random: "Aléatoire",
-          topToBottom: "De haut en bas",
-          bottomToTop: "De bas en haut",
-        },
-        effects: {
-          position: "Position",
-          rotation: "Rotation",
-          scale: "Échelle",
-          opacity: "Opacité",
-          blur: "Flou",
-          distance: "Distance",
-          amount: "Valeur",
-        },
-      },
-      textStaggerControls: {
-        settings: "Paramètres",
-        effects: "Effets",
-        addEffect: "Ajouter un effet",
-        crop: "Recadrer",
-        showDetails: "Afficher les détails",
-        hideDetails: "Masquer les détails",
-        removeEffect: "Supprimer l’effet",
-        effectNames: {
-          move: "Déplacer",
-          growShrink: "Agrandir ou réduire",
-          spin: "Tourner",
-          fade: "Fondu",
-          soften: "Adoucir",
-        },
-      },
-      selectElementFirst: "Sélectionnez d'abord un élément sur le canevas",
-      animateLayer: "Animer « {{label}} »",
-      more: "Plus",
-      addKeyframe: "Ajouter une image clé",
-      trackExists:
-        "Une piste « {{property}} » existe déjà pour {{label}}. Modifiez ses images clés dans la chronologie.",
-      recipeDoesNotFit:
-        "Il n’y a pas assez de place pour ajouter cette animation à la position actuelle de la timeline.",
-      textSyncUnsupported:
-        "Ces réglages de mouvement du texte ne peuvent pas être synchronisés.",
-      textPropertyAlreadyAnimated:
-        "Une animation de texte dans le code contrôle déjà cette propriété.",
-      layerAnimationSpan: "Plage d'animation de {{label}}",
-      keyframeAt: "Image clé à {{ms}}ms",
-      deleteKeyframe: "Supprimer l'image clé",
-      segmentEasing: "Accélération du segment : {{ease}}",
-      curveTab: "Courbe",
-      springTab: "Ressort",
-      customBezier: "Bézier personnalisée",
-      customSpring: "Ressort personnalisé",
-      bounce: "Rebond",
-      bezierCurveEditor: "Éditeur de courbe de Bézier",
-      springCurvePreview: "Aperçu de la courbe de ressort",
-      defaultEase: "Par défaut",
+      noScreens: "Ce design n’a aucune page à prévisualiser.",
+      unknownScreen: "Cette page ne fait pas partie de ce design.",
     },
     applyToSource: "Appliquer à la source",
     applyToSourcePath: "Appliquer à la source ({{path}})",
@@ -1652,10 +1167,16 @@ export default {
         opacity: "Opacité",
       },
       editColor: "Modifier la couleur de {{name}}",
+      field: {
+        open: "Jetons",
+        detach: "Détacher le jeton",
+        primitives: "Primitives {{group}}",
+        loading: "Chargement des jetons…",
+      },
     },
     import: {
       description:
-        "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
+        "Importez du HTML du presse-papiers Figma ou du HTML autonome comme pages Design.",
       figmaUrlLabel: "URL de frame ou de fichier Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Jeton d’accès Figma",
@@ -1720,13 +1241,27 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
+        "Collez ou importez du HTML autonome. Design l’enregistre comme une nouvelle page sans l’injecter dans l’interface de cet éditeur.",
       allSupportedFiles: "Tous les fichiers pris en charge",
       githubDescription:
-        "Bientôt : importer des écrans et composants directement depuis un dépôt.",
+        "Bientôt : importez des pages et des composants directement depuis un dépôt.",
       localDescription:
         "Connectez n’importe quelle app locale en cours d’exécution avec /visual-edit.",
       warningsToast: "Import terminé avec avertissements",
+      pasteUnreadable: "Impossible de lire les calques copiés.",
+      pasteInexact: "Détails non collés à l’identique : {{count}}",
+      pasteLayerTypes:
+        "Types de calque {{tool}} collés comme cadres simples : {{count}}",
+      pasteImagePlaceholders:
+        "Images collées comme espaces réservés : {{count}}. {{tool}} ne copie pas les données d’image.",
+      pasteImagesLinked:
+        "Images toujours liées à {{tool}} : {{count}}. Elles n’ont pas pu être copiées dans votre stockage de fichiers.",
+      pasteImagesUnsaved:
+        "Images qui risquent de ne plus se charger car leur enregistrement n’a pas été confirmé : {{count}}",
+      pasteNeedsEditAccess:
+        "Vous avez besoin d’un accès en modification pour coller dans ce design.",
+      pastePartialImport:
+        "Le collage a échoué et certaines pages ont peut-être été créées. Vérifiez vos pages.",
       figmaSuccess: "Collage Figma importé",
       htmlSuccess: "HTML importé",
       uploadSuccess: "Fichier importé",
@@ -1737,6 +1272,8 @@ export default {
         notHtml: "Collez ou choisissez du HTML valide à importer.",
         importFailed: "Échec de l’import",
         figmaPasteFailed: "Échec de l’import du collage Figma",
+        paperPasteFailed: "Échec de l'import du collage Paper",
+        wonderPasteFailed: "Échec de l’import du collage Wonder",
         uploadFailed: "Échec du téléversement",
         invalidFigFile: "Choisissez un fichier se terminant par .fig.",
         unsupportedFileType: "Choisissez un fichier .fig, .html ou .htm.",
@@ -1772,21 +1309,21 @@ export default {
     signInToRequestAccessTitle: "Connectez-vous pour demander l’accès",
     signInToRequestAccessDescription:
       "Connectez-vous ou créez un compte pour demander l’accès au propriétaire.",
-    signInOrSignUp: "Se connecter ou s’inscrire",
     accessCheckFailed: "Impossible de vérifier l’accès à cette création.",
     retryAccessCheck: "Réessayer",
     saveAsTemplate: "Enregistrer comme modèle…",
     saveTemplateDescription:
-      "Capturez les écrans, dimensions, valeurs par défaut et calques verrouillés comme point de départ réutilisable.",
+      "Enregistrez les pages, dimensions, valeurs par défaut et calques verrouillés actuels comme point de départ réutilisable.",
     templateName: "Nom du modèle",
     templateDescription: "Description",
     templateCategory: "Catégorie",
     templateSnapshotSummary:
-      "{{screens}} écran(s) · {{locks}} calque(s) verrouillé(s) seront conservés",
+      "{{screens}} page(s) · {{locks}} calque(s) verrouillé(s) seront conservés",
     saveTemplate: "Enregistrer le modèle",
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
     appMenu: {
+      backToDashboard: "Retour au tableau de bord",
       file: "Fichier",
       preferences: "Préférences",
       newDesign: "Nouveau design",
@@ -1830,12 +1367,10 @@ export default {
     shareEditorLinkDescription:
       "Toute personne ayant acces peut ouvrir ce design dans l'editeur.",
     modes: {
-      annotate: "Annoter",
       comment: "Commentaire",
       edit: "Modifier",
-      draw: "Dessiner",
       interact: "Interact",
-      screens: "Écrans",
+      screens: "Pages",
     },
     topBar: {
       modeDesign: "Conception",
@@ -1846,7 +1381,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "Page",
       shapes: "Formes",
       rect: "Rectangle",
       line: "Ligne",
@@ -1869,7 +1404,7 @@ export default {
       categoriesLabel: "Catégories de raccourcis",
       empty: "Aucun raccourci ne correspond à « {{query}} »",
       codeContext: "Code",
-      screenContext: "Écrans",
+      screenContext: "Page",
       nudgeAmount: {
         title: "Valeur de déplacement",
         small: "Petit déplacement",
@@ -1918,7 +1453,6 @@ export default {
         arrange: "Organiser",
         components: "Composants",
         layout: "Mise en page",
-        code: "Code",
       },
       commands: {
         showShortcuts: "Raccourcis clavier",
@@ -1932,7 +1466,6 @@ export default {
         scaleTool: "Scale",
         eyedropper: "Pipette",
         commentTool: "Épingler un commentaire",
-        drawTool: "Dessiner",
         showLayers: "Calques",
         showAssets: "Ressources",
         toggleUi: "Afficher ou masquer l'interface",
@@ -1957,8 +1490,8 @@ export default {
         enterSelection: "Sélection",
         nextSibling: "Sélection →",
         previousSibling: "← Sélection",
-        nextScreen: "Écrans →",
-        previousScreen: "← Écrans",
+        nextScreen: "Page suivante",
+        previousScreen: "Page précédente",
         toggleLayoutGrids: "Afficher ou masquer les grilles de mise en page",
         toggleRulers: "Afficher ou masquer les règles",
         nudge: "Move",
@@ -2011,10 +1544,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "Revenir à l’écran actuel",
-    openScreenOverview: "Ouvrir l’aperçu des écrans",
-    currentScreen: "Écran actuel",
-    screenOverview: "Aperçu des écrans",
+    returnToCurrentScreen: "Revenir à la page actuelle",
+    openScreenOverview: "Ouvrir la vue d’ensemble des pages",
+    currentScreen: "Page actuelle",
+    screenOverview: "Vue d’ensemble des pages",
     devicePreview: "Aperçu de l’appareil",
     devices: {
       responsive: "Sensible",
@@ -2044,14 +1577,13 @@ export default {
     downloadSvg: "Télécharger SVG",
     downloadFigmaSvg: "Télécharger pour Figma (SVG)",
     downloadZip: "Télécharger ZIP",
-    downloadPdfAllScreens: "Télécharger PDF (tous les écrans)",
+    downloadPdfAllScreens: "Télécharger le PDF (toutes les pages)",
     publishApp: "Publier l'app",
     exportOptions: "Options d'exportation",
     exportHtml: "Exporter HTML",
     exportPdf: "Exporter PDF",
     copyCodingHandoff: "Copier le transfert de code",
     designTools: "Outils Design",
-    drawOnCanvas: "Dessiner sur toile",
     dropCommentPin: "Déposer l'épingle de commentaire",
     presentInThisTab: "Dans cet onglet",
     presentFullscreen: "Plein écran",
@@ -2116,13 +1648,14 @@ export default {
       verified: "Écriture source vérifiée ; retour arrière disponible",
       rollback: "Revenir",
       keep: "Garder",
-      selectorMissing: "L’élément sélectionné n’existe plus dans cet écran.",
+      selectorMissing:
+        "L’élément sélectionné n’a aucune correspondance modifiable dans le code source de cette page. Si un composant l’affiche, appliquez la modification via l’agent.",
       noRenderedBox:
         "Le calque sélectionné n’a aucune boîte rendue ; la modification de style n’a pas été appliquée.",
       clientRenderedShell:
-        "Cet écran est rendu côté client ; le HTML qu’il fournit ne contient donc aucun balisage d’application à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
+        "Cette page est rendue côté client, donc le HTML servi ne contient aucun balisage d’app à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
       snapshotNotLoaded:
-        "Le code source de cet écran n’est pas encore chargé ; la modification n’a donc pas été écrite. Attendez la fin du chargement de l’écran, puis réessayez.",
+        "Le code source de cette page n’est pas encore chargé, la modification n’a donc pas été écrite. Attendez la fin du chargement de la page et réessayez.",
       selectorAmbiguous:
         "Cet élément est l’une des {{count}} instances identiques dans le code source ; la modification n’a donc pas été écrite. Demandez à l’agent de la limiter à cette instance.",
       status: {
@@ -2137,6 +1670,7 @@ export default {
       applyAria: "Appliquer les modifications visuelles de style en attente",
       applyButton: "Appliquer les styles",
       applySharedEdits: "Appliquer les modifications",
+      reviewSuggestion: "Examiner la suggestion",
       previewLabel: "Aperçu visuel en attente",
       applyDesignUpdates: "Appliquer les mises à jour du design",
       applying: "Application…",
@@ -2145,6 +1679,7 @@ export default {
       copyPrompt: "Copier le prompt vers votre agent",
       copyAgentPrompt: "Copier le prompt de l’agent",
       copyFullPrompt: "Copier le prompt complet",
+      clearEdits: "Effacer les modifications",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:
         "Appliquez les modifications visuelles de style en attente à la source.",
@@ -2160,6 +1695,11 @@ export default {
       copiedToastDescription:
         "Collez-le dans votre agent de programmation et demandez-lui d’appliquer les modifications visuelles.",
       abortedToast: "Aperçu en attente supprimé",
+      clearedToast: "Modifications en attente effacées",
+      localPreviewsClearedToast:
+        "Les aperçus locaux ont été effacés ; les modifications en attente d’une autre personne restent inchangées.",
+      clearFailedToast:
+        "Impossible d’effacer les modifications en attente. Réessayez.",
       interactBlocked:
         "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",
       leaveTitle: "Appliquer les mises à jour avant de quitter ?",
@@ -2171,18 +1711,18 @@ export default {
       leave: "Quitter sans appliquer",
     },
     addLocalhostScreen: {
-      title: "Ajouter un écran depuis votre application",
+      title: "Ajouter une page de votre app",
       description:
         "Choisissez une route à ajouter comme nouveau cadre, ou saisissez un chemin.",
       searchPlaceholder: "Rechercher des routes…",
       noRoutes: "Aucune route correspondante",
       noDiscoveredRoutes:
-        "Aucune route détectée dans cette application. Saisissez un chemin pour ajouter un écran.",
+        "Aucune route n’a été trouvée pour cette app. Saisissez un chemin pour ajouter une page.",
       useCustomPath: "Ajouter « {{path}} »",
       viewportDesktop: "Bureau",
       viewportMobile: "Mobile",
-      added: "Écran ajouté",
-      addFailed: "Impossible d’ajouter l’écran",
+      added: "Page ajoutée",
+      addFailed: "Impossible d’ajouter la page",
     },
     localhostConsent: {
       approvedTitle: "Approuvé — relancez la modification",
@@ -2239,13 +1779,26 @@ export default {
       "agent-structural-edit": "Agent requis pour déplacer la structure",
     },
     toasts: {
-      annotationSendError:
-        "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
+      unknownCollaborator: "un collaborateur",
+      supersededVisualEditSuggestion:
+        "Une suggestion précédente de {{authorEmail}} a été remplacée. Texte d’origine : {{text}}",
       visualEditPendingConflict:
         "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",
       clipboardBlocked: "Presse-papiers bloqué",
+      pasteMediaTooMany_one:
+        "{{count}} fichier n’a pas été collé. Vous pouvez coller jusqu’à {{limit}} fichiers à la fois.",
+      pasteMediaTooMany_many:
+        "{{count}} fichiers n’ont pas été collés. Vous pouvez coller jusqu’à {{limit}} fichiers à la fois.",
+      pasteMediaTooMany_other:
+        "{{count}} fichiers n’ont pas été collés. Vous pouvez coller jusqu’à {{limit}} fichiers à la fois.",
+      pasteMediaTooLarge_one:
+        "{{count}} fichier n’a pas été collé, car il dépasse {{limitMb}} Mo.",
+      pasteMediaTooLarge_many:
+        "{{count}} fichiers n’ont pas été collés, car ils dépassent {{limitMb}} Mo.",
+      pasteMediaTooLarge_other:
+        "{{count}} fichiers n’ont pas été collés, car ils dépassent {{limitMb}} Mo.",
       htmlCreateError: "Impossible de créer le téléchargement HTML",
       htmlDownloaded: "HTML téléchargé",
       htmlExportError: "Impossible d’exporter HTML",
@@ -2255,7 +1808,7 @@ export default {
       zipCreateError: "Impossible de créer le téléchargement ZIP",
       zipDownloaded: "ZIP téléchargé",
       zipExportError: "Impossible d’exporter ZIP",
-      openScreenPng: "Ouvrez un écran avant d’exporter PNG",
+      openScreenPng: "Ouvrez une page avant d’exporter en PNG",
       pngCreateError: "Impossible de créer le téléchargement PNG",
       pngDownloaded: "PNG téléchargé",
       pngCopied: "PNG copié dans le presse-papiers",
@@ -2283,8 +1836,8 @@ export default {
         "L’export est indisponible, car le moteur de rendu n’a pas pu démarrer. Réessayez plus tard.",
       pdfExportError: "Impossible d’exporter le PDF",
       pdfDownloaded: "PDF téléchargé",
-      pdfAllScreensDownloaded: "PDF téléchargé (tous les écrans)",
-      openScreenSvg: "Ouvrez un écran avant d’exporter SVG",
+      pdfAllScreensDownloaded: "PDF téléchargé (toutes les pages)",
+      openScreenSvg: "Ouvrez une page avant d’exporter en SVG",
       svgDownloaded: "SVG téléchargé",
       svgExportError: "Impossible d’exporter SVG",
       figmaSvgCopied: "Copié en tant que SVG Figma",
@@ -2295,16 +1848,16 @@ export default {
       figmaSvgWriteError: "Impossible de copier le SVG dans le presse-papiers",
       figmaSvgRenderError: "Impossible de créer le SVG Figma",
       figmaSvgExportError: "Impossible d’exporter le SVG Figma",
-      screenDuplicated: "Écran dupliqué",
-      screenDuplicateError: "Impossible de dupliquer l’écran",
+      screenDuplicated: "Page dupliquée",
+      screenDuplicateError: "Impossible de dupliquer la page",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "Propriétés copiées",
       propsPasted: "Propriétés collées",
-      primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
+      primitiveInsertFailed: "Impossible d’ajouter ce calque à la page",
       designStateLiveScreen:
-        "Les états de design ne peuvent pas être prévisualisés sur un écran en direct — son contenu est l'application en cours d'exécution, pas un document.",
+        "Les états de design ne peuvent pas être prévisualisés sur une page en direct : son contenu est l’app en cours d’exécution, pas un document.",
       layerMoveFailed: "Impossible de déplacer ce calque",
       groupFillApplyFailed:
         "Impossible d’appliquer ce remplissage à tous les calques du groupe.",
@@ -2316,12 +1869,15 @@ export default {
         "Double-cliquez sur une ligne du canevas pour modifier son texte",
       eyedropperUnsupported:
         "La pipette n'est pas prise en charge par ce navigateur",
+      claimBoardError: "Impossible de déplacer ce tableau dans votre compte",
       saveCopyError: "Impossible d'enregistrer une copie de ce design",
-      auditRunFailed: "Impossible d'executer l'audit de design",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
       tweakConflict:
         "Les réglages ont été modifiés ailleurs. Actualisez le design avant de réessayer.",
+      tweakBaselineUnreadable:
+        "La référence enregistrée des réglages est illisible. Les modifications sont suspendues jusqu’à la réparation des données du design.",
+      resetTweakBaseline: "Réinitialiser la référence",
       tweakSaveNotDurable:
         "Les réglages ne sont pas encore enregistrés. Gardez cet onglet ouvert et réessayez.",
       undoSkippedConcurrentEdit:
@@ -2329,12 +1885,10 @@ export default {
       redoSkippedConcurrentEdit:
         "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
       saveConflict:
-        "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
-      versionHistoryUnavailable:
-        "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
+        "Cette page a été modifiée ailleurs. Votre dernière modification n’a pas été enregistrée.",
       removeAutoLayoutFailed: "Impossible de supprimer l'auto layout",
       autoLayoutScreensUnsupported:
-        "Ajouter une disposition automatique ne s'applique pas aux écrans",
+        "L’ajout de la mise en page automatique ne s’applique pas aux pages",
       booleanSubtractUnsupported:
         "Sélectionnez des rectangles ou des ellipses adjacents avec un remplissage uni pour les soustraire.",
       booleanSubtractFailed: "Impossible de soustraire ces calques.",
@@ -2344,9 +1898,9 @@ export default {
         "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
       sourceLocationSnapshotFailed:
         "Impossible de vérifier les emplacements du code source de cet aperçu.",
-      screenSourceUpdated: "Source de l’écran mise à jour",
+      screenSourceUpdated: "Source de la page mise à jour",
       screenSourceUpdateFailed:
-        "Impossible de mettre à jour la source de l’écran",
+        "Impossible de mettre à jour la source de la page",
       vectorEditUnsupported:
         "L’édition vectorielle n’est pas disponible pour cette forme ou transformation.",
       imageUploading: "Import de l’image…",
@@ -2361,8 +1915,7 @@ export default {
         "Les remplissages multiples ou d'image ne peuvent pas encore devenir un contour",
       alignNeedsTwoLayers:
         "Sélectionnez au moins deux calques pour les aligner",
-      alignNeedsTwoScreens:
-        "Sélectionnez au moins deux écrans pour les aligner",
+      alignNeedsTwoScreens: "Sélectionnez au moins deux pages pour les aligner",
       layoutUnmeasurable:
         "Impossible de mesurer un calque sélectionné. Vérifiez qu'il est visible sur le canevas et réessayez.",
       layoutAutoLayoutChildren:
@@ -2412,11 +1965,11 @@ export default {
   },
   layersPanel: {
     title: "Calques",
-    screens: "Écrans",
-    resizeScreens: "Redimensionner la section des écrans",
-    allScreens: "Tous les écrans",
+    screens: "Pages",
+    components: "Composants",
+    resizeScreens: "Redimensionner la section des pages",
     thumbnail: "Miniature",
-    addScreen: "Ajouter un écran",
+    addScreen: "Ajouter une page",
     searchPlaceholder: "Rechercher des calques",
     empty: "Aucun calque",
     noMatches: "Aucun calque correspondant",
@@ -2465,7 +2018,7 @@ export default {
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion après plusieurs tentatives.",
       connectionNotConfirmed:
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion. Le serveur de développement local est-il toujours en cours d’exécution ?",
-      permissionPromptTitle: "Connecter vos écrans locaux",
+      permissionPromptTitle: "Connectez vos pages locales",
       permissionPromptDescription:
         "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
       permissionPromptNoPrompt: "Aucune invite Chrome ?",
@@ -2475,15 +2028,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "Les identifiants de l’aperçu local ne sont pas disponibles",
       previewCredentialsUnavailableDescription:
-        "Reconnectez la connexion localhost de cet écran dans l’inspecteur, puis réessayez.",
+        "Reconnectez la connexion localhost de cette page dans l’inspecteur, puis réessayez.",
       publicPreviewUnavailableDescription:
-        "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce design comme collaborateur pour voir cet écran.",
+        "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce Design en tant que collaborateur pour voir cette page.",
       previewCredentialsRetry: "Réessayer les identifiants",
     },
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "Ajouter le point de rupture {{label}} ({{width}}px) à tous les écrans",
+      "Ajouter le point de rupture {{label}} ({{width}}px) à toutes les pages",
     preparingLiveEditor: "Préparation de l'éditeur en direct…",
     duplicate: "Dupliquer",
     fork: "Créer une branche",
@@ -2576,11 +2129,6 @@ export default {
     startWithAi: "Commencer avec l'IA",
     startWithAiHint: "Décrivez une page et obtenez un premier jet à modifier.",
     startBlankCanvasHint: "Dessinez-la vous-même avec cadres, formes et texte.",
-    designSystem: "Système Design",
-    noDesignSystem: "Aucun système de conception",
-    designSystemIndexing: "Indexation…",
-    newDesignSystem: "Nouveau",
-    createDesignSystem: "Créer un système de design",
     template: "Modèle",
     blank: "Vierge",
     builtIn: "Intégré",
@@ -2590,8 +2138,6 @@ export default {
     yourTemplates: "Vos modèles",
     builtInTemplates: "Modèles intégrés",
     templatePromptPlaceholder: "Décrivez comment adapter {{title}}...",
-    reskinTemplatePrompt:
-      "Appliquez le système de design {{system}} à {{title}} en préservant sa structure et ses calques verrouillés.",
     addAttachment: "Ajouter",
     removeAttachment: "Supprimer {{name}}",
     uploadFile: "Télécharger le fichier",
@@ -2600,15 +2146,6 @@ export default {
     pickAssetDescription: "Parcourir ou générer des images",
   },
   visualEditor: {
-    typeAnnotation: "Tapez l'annotation...",
-    typeAnnotationFancy: "Tapez l'annotation…",
-    typeAnywhere: "Tapez n'importe où",
-    typeAnywhereOnCanvas: "Tapez n'importe où sur la toile",
-    clearAll: "Tout effacer",
-    exitDrawMode: "Quitter le mode dessin",
-    undoStroke: "Annuler le trait",
-    redoStroke: "Refaire le trait",
-    tellAgentWhatToDo: "Dites à l’agent quoi faire…",
     clickToDropCommentPin:
       "Cliquez n'importe où pour déposer une épingle de commentaire",
     editDesign: "Modifier la conception",
@@ -2623,12 +2160,7 @@ export default {
     saveRetrying:
       "Impossible d’enregistrer vos modifications. Nouvelle tentative automatique en cours.",
     saving: "Enregistrement...",
-    clearedAllAnnotations: "Toutes les annotations ont été effacées",
-    annotationsDiscardedOnViewChange:
-      "{{count}} annotation(s) non envoyée(s) ont été abandonnées lorsque vous avez quitté cette vue.",
-    undo: "Annuler",
     send: "Envoyer",
-    sendingDrawing: "Envoi…",
     commentSent: "Commentaire envoyé",
     comment: "Commentaire",
     annotationQueue: "File d’annotations",
@@ -2684,22 +2216,16 @@ export default {
       "Saisissez une URL valide de cadre ou de fichier figma.com.",
     tooMany: "Choisissez jusqu’à 20 références.",
     invalidWebsiteUrl: "Saisissez une URL HTTP ou HTTPS valide.",
-    createSystem: "Créer un système de design",
-    noSystems:
-      "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
-    searchSystems: "Rechercher des systèmes de design…",
     searchDesigns: "Rechercher des designs…",
     searchPresentations: "Rechercher des présentations…",
     searchPages: "Rechercher des pages…",
     searchDesign: "Rechercher un design…",
-    useDesignSystem: "Utiliser un système de design",
     notReady:
       "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
     search: "Rechercher du contexte…",
     loadFailed: "Impossible de charger cette référence.",
     retry: "Réessayer",
     empty: "Aucune référence correspondante.",
-    none: "Aucun",
     design: "Références de design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
@@ -2757,8 +2283,6 @@ export default {
       design: {
         portfolioHome:
           "Concevez un portfolio avec présentation, projets, profil et contact, dans un ton éditorial soigné.",
-        designSystem:
-          "Créez un guide de design avec tokens, composants et notes d’usage, dans un ton documentaire précis.",
         bankingApp:
           "Créez l’accueil d’une banque mobile avec solde, opérations et épargne, dans un ton calme et fiable.",
         travelBooking:
@@ -2977,7 +2501,6 @@ export default {
       },
       design: {
         portfolioHome: "portfolio de designer",
-        designSystem: "guide de design",
         bankingApp: "l’accueil d’une banque mobile",
         travelBooking: "recherche de voyage",
         coffeeShop: "boutique d’un café",
@@ -3056,10 +2579,10 @@ export default {
     openDesign: "Ouvrir Design",
     templatesCta: "Parcourir les modeles",
     previewLabel: "Apercu local",
-    layoutLabel: "Mise en page prete a enregistrer",
+    layoutLabel: "Mise en page prête à être enregistrée",
   },
   templatesPage: {
-    previewEmpty: "Ce modèle ne contient aucun écran à prévisualiser.",
+    previewEmpty: "Ce modèle ne contient aucune page prévisualisable.",
     loading: "Chargement des modèles",
     title: "Modèles",
     description:
@@ -3108,8 +2631,6 @@ export default {
   },
   routeTitles: {
     notFound: "Introuvable - Design",
-    designSystems: "Systèmes de conception",
-    designSystemSetup: "Configuration du système de conception",
     designEditor: "Éditeur Design",
     designTemplates: "Modèles Design",
     toolDesign: "Outil — Design",
@@ -3120,281 +2641,13 @@ export default {
     teamDesign: "Équipe - Design",
     visualEdit: "Edition visuelle - Design",
   },
-  designSystemSetup: {
-    importedBrand: "Marque importée",
-    figmaCreateSuccess: "Système de conception créé à partir de Figma",
-    figmaCreateError: "Impossible de créer le système de conception",
-    backToDesignSystems: "Retour aux systèmes de conception",
-    otherSources: "Autre",
-    otherSourcesDescription:
-      "Connectez-vous depuis un site web, du code, des fichiers ou un système de conception existant.",
-    chooseSourcePrompt: "Choisissez une source à configurer",
-    continue: "Continuer jusqu'à la génération",
-    starting: "Démarrage…",
-    githubIndexStarted: "L’indexation GitHub a démarré",
-    designMdIndexStarted: "L’indexation de design.md a démarré",
-    designMdUpload: "Importer design.md",
-    designMdHelp: "Importez les consignes design.md dans Builder DSI",
-    title: "Configurez votre système de conception",
-    description:
-      "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
-    figmaParsingTitle: "Démarrage de l’indexation Builder DSI...",
-    figmaParsingDescription:
-      "Builder extraira les jetons, composants, ressources et consignes d’utilisation",
-    figmaDecodeFailed: "Échec du décodage : {{error}}",
-    uploadFig: "Connecter Figma avec un fichier .fig",
-    figmaSaveLocalCopy:
-      "Importez une copie locale Figma : File -> Save local copy",
-    websiteUrl: "Site Web URL",
-    add: "Ajouter",
-    githubRepository: "référentiel GitHub",
-    githubRef: "Branche, tag ou commit (facultatif)",
-    githubPaths: "Fichiers ou dossiers, séparés par des virgules (facultatif)",
-    privateRepoPrefix:
-      "Les dépôts privés nécessitent un jeton à granularité fine enregistré sous",
-    privateRepoSuffix: "avec accès en lecture au contenu.",
-    localCodeFiles: "Connecter des fichiers de code",
-    dropCodeFiles:
-      "Déposez ici CSS, config Tailwind, fichiers de thème ou design.md",
-    codeFilePatterns:
-      "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
-    documents: "Documents & présentations",
-    documentsHelp:
-      "PPTX, DOCX, PDF, XLSX – guides de marque, pitch decks, documents de style",
-    visualReferences: "Captures d'écran et références visuelles",
-    visualReferencesHelp:
-      "Captures d'écran de produits, tableaux d'humeur, images d'inspiration",
-    assets: "Logos, polices et autres actifs",
-    assetsHelp: "Logos SVG, polices.woff2, fichiers d'actifs de marque",
-    designSystem: "Système de conception",
-    designProject: "Projet de conception",
-    companyPlaceholder:
-      "par ex. Acme Corp - Nous construisons des outils de développement pour les équipes modernes...",
-    notesPlaceholder:
-      "par ex. Nous préférons un thème sombre avec un contraste élevé. Notre marque utilise Poppins pour les titres et DM Sans pour le corps. Gardez les coins arrondis à 12px...",
-    customInstructionsPlaceholder:
-      "par ex. Incluez toujours un système de navigation supérieur collant. Préférez les citations éditoriales aux statistiques des héros. N'utilisez jamais d'arrière-plans dégradés. Les logos vont toujours en bas à gauche...",
-    designSystemName: "Nom du système de conception",
-    brandNamePlaceholder: "Nom de la marque",
-    extractedSummary:
-      "Extrait des nœuds {{nodes}}, des dégradés {{gradients}}, des images {{images}}",
-    previewColors: "Couleurs",
-    signatureGradients: "Dégradés signature",
-    previewTypography: "Typographie",
-    headingsLabel: "Rubriques:",
-    bodyLabel: "Corps:",
-    brandBrief: "Présentation de la marque",
-    brandBriefHelp:
-      "Cela guide chaque conception générée avec ce système. Affinez-le à tout moment après la création.",
-    creating: "Création...",
-    createDesignSystem: "Créer un système de conception",
-    chooseDifferentFile: "Choisissez un autre fichier",
-    figmaThumbnailAlt: "vignette du fichier Figma",
-    errors: {
-      chooseFig:
-        "Veuillez choisir un fichier.fig (dans Figma: Fichier -> Enregistrer la copie locale).",
-      parseFig:
-        "Impossible de lancer l’indexation Builder pour ce fichier Figma.",
-      enterWebsite: "Entrez un site Web URL avant de l'ajouter.",
-      websiteProtocol:
-        "Le site Web URLs doit commencer par http:// ou https://.",
-      enterGithub: "Entrez un référentiel GitHub URL avant de l'ajouter.",
-      githubUrl:
-        "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
-      githubIndex:
-        "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
-      nameConflict:
-        "Un système de design porte déjà ce nom. Choisissez un autre nom, puis réessayez.",
-      chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
-      readDesignMd: "Impossible de lire ce fichier Markdown.",
-      designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
-      designMdIndex:
-        "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
-      noSources:
-        "Ajoutez au moins une source avant de générer un système de conception.",
-    },
-    sections: {
-      figma: {
-        title: "Connecter Figma",
-        description:
-          "Importez un .fig et Builder DSI indexera les jetons, composants, ressources et consignes de marque dans un système de design réutilisable.",
-      },
-      company: {
-        title: "Entreprise / Marque",
-        description: "Nom, description et site Web",
-      },
-      code: {
-        title: "Connecter le code",
-        description:
-          "Les dépôts GitHub, fichiers de code locaux ou design.md sont indexés par Builder DSI.",
-      },
-      designMd: {
-        title: "Importer design.md",
-        description:
-          "Utilisez un fichier design.md comme source du système de conception",
-      },
-      designFiles: {
-        title: "Fichiers de référence",
-        description:
-          "Documents, captures d’écran et ressources de marque enrichissent le contexte Builder DSI",
-      },
-      importExisting: {
-        title: "Importer depuis un existant",
-        description:
-          "Créer un système de conception ou extraire des jetons d'un projet",
-      },
-      notes: {
-        title: "Notes complémentaires",
-        description:
-          "Préférences de conception, contraintes, directives de marque",
-      },
-      customInstructions: {
-        title: "Instructions personnalisées",
-        description:
-          "Enregistré avec le système de conception. Réappliqué chaque fois que l'agent l'utilise pour générer une conception.",
-      },
-    },
-    colorLabels: {
-      accent: "Accent",
-      primary: "Primaire",
-      secondary: "Secondaire",
-      background: "Arrière-plan",
-      surface: "Surface",
-      text: "Texte",
-      muted: "En sourdine",
-    },
-    codeIndexingEnterpriseOnly:
-      "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
-  },
-  designSystems: {
-    comingSoonTitle: "Les systèmes de conception arrivent bientôt",
-    waitlist: {
-      join: "Rejoindre la liste d’attente",
-      joining: "Inscription…",
-      joined: "Vous êtes sur la liste d’attente",
-      error: "Impossible de rejoindre la liste d’attente. Réessayez.",
-      unavailable:
-        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
-    },
-    deleteError: "Impossible de supprimer le système de conception",
-    updateSuccess: "Système de conception mis à jour",
-    updateError: "Impossible de mettre à jour le système de conception",
-    bulkDeleteError:
-      "Impossible de supprimer les systèmes de conception sélectionnés",
-    selectedLabel: "choisi",
-    yoursTitle: "Vos systèmes de conception",
-    newCardDescription: "Configurez votre marque",
-    defaultBadge: "Défaut",
-    selectAria: "Sélectionnez {{title}}",
-    currentlyDefault: "Actuellement par défaut",
-    moreActionsAria: "Plus de propositions pour {{title}}",
-    showcase: {
-      title: "Points de départ prêts pour la production",
-      description:
-        "Utilisez une copie reliée à ses sources d’un système de conception public reconnu. Chaque copie inclut de vrais jetons, échelles typographiques, espacements, formes, états et attributions.",
-      useTemplate: "Utiliser ce système",
-      adding: "Ajout...",
-      openSource: "Ouvrir la documentation source de {{title}}",
-      license: "Licence source : {{license}}",
-      addSuccess: "Système de conception ajouté",
-      addError: "Impossible d’ajouter le système de conception",
-      descriptions: {
-        material3:
-          "Rôles clairs de base de Google, échelle Roboto, espacement de 4 dp et système de formes Material.",
-        carbon:
-          "Thème White d’IBM Carbon v11, typographie IBM Plex, rôles colorimétriques d’entreprise et espacement 2/4/8.",
-        primer:
-          "Jetons clairs de GitHub Primer, Mona Sans, densité compacte pour outils et espacement adaptatif.",
-      },
-    },
-    actions: {
-      done: "Fait",
-      select: "Sélectionner",
-      new: "Nouveau système de conception",
-      clearAll: "Effacer tous les systèmes de conception",
-      selectAll: "Sélectionnez tous les systèmes de conception",
-      clearSelection: "Effacer la sélection",
-      delete: "Supprimer",
-      setDefault: "Définir par défaut",
-      cancel: "Annuler",
-    },
-    deleteDialog: {
-      title: "Supprimer le système de conception?",
-      description:
-        "Cela supprimera définitivement ce système de conception et le dissociera de toutes les conceptions qui l'utilisent. Cette action ne peut pas être annulée.",
-      bulkTitle: "Supprimer les systèmes de conception {{count}}?",
-      bulkDescription:
-        "Cela supprimera définitivement les systèmes de conception {{count}} et les dissociera de toutes les conceptions qui les utilisent. Cette action ne peut pas être annulée.",
-    },
-    details: {
-      description:
-        "Examinez les jetons enregistrés et mettez à jour les détails que les agents utilisent lorsqu'ils appliquent ce système de conception.",
-      titleLabel: "Titre",
-      descriptionLabel: "Description",
-      customInstructionsTitle: "Instructions personnalisées",
-      customInstructionsDescription:
-        "Un guidage durable que l'agent réutilise chaque fois que ce système est lié à une conception.",
-      noCustomInstructions:
-        "Aucune instruction personnalisée n'a encore été enregistrée.",
-      useAsStartingPoint: "Utiliser comme point de départ",
-      saving: "Économie...",
-      saveChanges: "Enregistrer les modifications",
-    },
-    preview: {
-      title: "Aperçu",
-      description:
-        "Ce système de conception est géré par Builder Design System Intelligence. Ouvrez le projet associé pour voir le système de conception complet, y compris tous les jetons, composants et conseils d’utilisation.",
-    },
-    tokenPreview: {
-      title: "Aperçu du jeton",
-      description:
-        "Un instantané des couleurs, du type, de l'espacement et des ressources actuellement stockés.",
-      colors: "Couleurs",
-      noColors: "Aucun jeton de couleur enregistré.",
-      typography: "Typographie",
-      details: "Détails",
-      spacing: "Espacement",
-      borders: "Frontières",
-      defaults: "Valeurs par défaut",
-      logos: "Logos",
-      assets: "Actifs",
-      savedCount: "{{count}} enregistré",
-      namedTokens: "Jetons nommés",
-      colorLabels: {
-        primary: "Primaire",
-        secondary: "Secondaire",
-        accent: "Accent",
-        background: "Arrière-plan",
-        surface: "Surface",
-        text: "Texte",
-        mutedText: "Texte masqué",
-      },
-      typeLabels: {
-        headingFont: "Police de titre",
-        bodyFont: "Police du corps",
-        headingWeight: "Poids du cap",
-        bodyWeight: "Poids corporel",
-      },
-    },
-    empty: {
-      title: "Créez votre premier système de conception",
-      description:
-        "Maintenez une image de marque cohérente dans toutes vos créations avec des couleurs, une typographie et des ressources partagées.",
-    },
-    tierLimitTitle: "Limite de systèmes de design atteinte",
-    tierLimitDescription:
-      "Vous avez atteint la limite de systèmes de design de votre forfait Builder. Passez à un forfait Builder supérieur pour en créer un autre.",
-    tierLimitDescriptionWithCount:
-      "Vous utilisez {{current}} sur {{max}} systèmes de design de votre forfait Builder {{plan}}. Passez à un forfait supérieur pour en créer un autre.",
-    tierLimitUpgrade: "Changer de forfait Builder",
-  },
   review: {
     comments: "Commentaires",
     commentsTab: "Commentaires · {{count}}",
     commentsTitle: "Commentaires de révision",
     commentNumber: "Commentaire de révision {{count}}",
-    thisScreen: "Cet écran",
-    allScreens: "Tous les écrans",
+    thisScreen: "Cette page",
+    allScreens: "Toutes les pages",
     signInToComment: "Connectez-vous pour commenter",
     panelTitle: "Retours",
     placeholder: "Laissez un commentaire…",
@@ -3448,6 +2701,18 @@ export default {
     addEmoji: "Ajouter un emoji",
     mention: "Mentionner quelqu’un",
     noMentions: "Aucune personne trouvée",
+    format: {
+      toolbar: "Mise en forme",
+      bold: "Gras",
+      italic: "Italique",
+      strike: "Barré",
+      code: "Code en ligne",
+      link: "Lien",
+      linkField: "Adresse du lien",
+      linkPlaceholder: "Collez un lien",
+      applyLink: "Appliquer le lien",
+      removeLink: "Supprimer le lien",
+    },
     mentionsFailed: "Impossible de charger les personnes",
     reopen: "Rouvrir",
     reopening: "Réouverture…",
@@ -3473,6 +2738,10 @@ export default {
     markedUnread: "Marqué comme non lu",
     markUnreadFailed: "Impossible de marquer comme non lu",
     attachImage: "Joindre une image",
+    removeImage: "Retirer l’image",
+    imageUploadFailed: "Impossible d’envoyer l’image",
+    editChanged:
+      "Ce commentaire a changé depuis que vous avez commencé à le modifier. Enregistrez à nouveau pour le remplacer.",
     searching: "Recherche…",
     reactionFailed: "Impossible de modifier la réaction",
     moveFailed: "Impossible de déplacer le commentaire",
@@ -3520,6 +2789,8 @@ export default {
       fallbackName: "IA",
       setupRequired: "Connectez un modèle d’IA pour utiliser les agents",
       startFailed: "Impossible de démarrer l’agent",
+      hostChatUnconfirmed:
+        "Impossible de confirmer que le message a atteint le chat hôte. Vérifiez ce chat avant de réessayer.",
       cancelFailed: "Impossible d’arrêter l’agent",
       busy: "Un agent travaille déjà sur cette discussion",
       error: {
@@ -3529,7 +2800,7 @@ export default {
         permission: "Vous n’avez plus accès à la modification",
         threadUnavailable: "Cette discussion n’est plus ouverte",
         targetChanged: "Le design a changé pendant le travail de l’agent",
-        applyUnavailable: "Un agent ne peut pas modifier cet écran",
+        applyUnavailable: "Un agent ne peut pas modifier cette page",
         applyIncomplete:
           "Le design a été modifié, mais la discussion n’a pas été résolue. Vérifiez la modification.",
         cancelledAfterEdit:

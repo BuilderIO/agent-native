@@ -1,5 +1,6 @@
 /**
- * Tweak bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Tweak bridge — injected into every Edit canvas iframe. Interact documents carry
+ * interact-tweaks.bridge.ts instead.
  *
  * Injected in every Edit mode so the parent's postMessage (`tweak-values`) can update CSS
  * custom properties on the iframe's :root regardless of which editor mode is

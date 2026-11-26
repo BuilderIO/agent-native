@@ -9,23 +9,26 @@ import {
   IconTool,
   IconX,
   IconClipboardList,
-  IconAlertCircle,
+  IconAlertTriangle,
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type UseEditorOptions } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import React, {
+  createContext,
+  useContext,
   useState,
   useRef,
   useEffect,
   useLayoutEffect,
   useCallback,
+  useId,
   useImperativeHandle,
   useMemo,
 } from "react";
@@ -48,7 +51,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
-import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import { ComposerNotice } from "./composer-notice.js";
@@ -72,6 +74,7 @@ import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
 import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
+import { modelMenuRoom } from "./model-menu-room.js";
 import {
   curateModelPickerRows,
   filterModelGroupsForAgent,
@@ -79,15 +82,11 @@ import {
   resolvePreferredAgentModel,
 } from "./model-selection.js";
 import {
-  hasModelDetails,
-  RecommendedBadge,
-  ModelDetailsCard,
-} from "./ModelPickerParts.js";
-import {
   createPastedAttachmentFile,
   readClipboardPaste,
   shouldConvertClipboardToAttachment,
 } from "./pasted-text.js";
+import { COMPOSER_POPOVER_SURFACE_CLASS } from "./popover-surface.js";
 import {
   AGENT_CHAT_INSERT_REFERENCE_EVENT,
   AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
@@ -155,6 +154,8 @@ function stableJson(value: unknown): string {
   }
   return JSON.stringify(value) ?? "null";
 }
+
+const workspacePickerReference = Symbol("workspacePickerReference");
 
 const attachmentFileInstances = new WeakMap<object, number>();
 let nextAttachmentFileInstance = 0;
@@ -251,6 +252,7 @@ export interface ComposerTextReference {
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
+export type ComposerEnterSubmitMode = "default" | "plain";
 
 export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
@@ -320,6 +322,35 @@ export function canRemoveVoicePreview(options: {
     return false;
   }
   return options.currentText === options.previewText;
+}
+
+// The editor can be cleared or edited (message sent, draft replaced) while
+// dictation is live, leaving the stored anchor past the end of the document.
+function isVoicePreviewIntact(
+  ed: Editor,
+  anchor: number,
+  previewText: string,
+): boolean {
+  const documentSize = ed.state.doc.content.size;
+  if (!previewText) {
+    return (
+      anchor >= 1 &&
+      anchor <= documentSize &&
+      ed.state.selection.empty &&
+      ed.state.selection.from === anchor
+    );
+  }
+  const end = anchor + previewText.length;
+  const currentText =
+    anchor >= 1 && end <= documentSize
+      ? ed.state.doc.textBetween(anchor, end, "", "\n")
+      : "";
+  return canRemoveVoicePreview({
+    documentSize,
+    anchor,
+    previewText,
+    currentText,
+  });
 }
 
 export function getComposerSendTooltipKey(
@@ -532,10 +563,11 @@ function referenceFromComposerReference(
     name: ref.label,
     source: ref.source || "",
     refType: ref.refType,
-    refId: ref.refId || undefined,
-    slotKey: ref.slotKey,
-    slotLabel: ref.slotLabel,
-    metadata: ref.metadata,
+    // Chip attrs default to null; the run protocol rejects null optionals.
+    ...(ref.refId ? { refId: ref.refId } : {}),
+    ...(ref.slotKey ? { slotKey: ref.slotKey } : {}),
+    ...(ref.slotLabel ? { slotLabel: ref.slotLabel } : {}),
+    ...(ref.metadata ? { metadata: ref.metadata } : {}),
   };
 }
 
@@ -654,16 +686,23 @@ export function getOversizedDocumentAttachmentError(
   return null;
 }
 
+/** What a plain Enter does in the composer; Mod+Enter always sends. */
+export type ComposerEnterKey = "send" | "newline";
+
+export const ComposerEnterKeyContext = createContext<ComposerEnterKey>("send");
+
 export function getComposerSubmitIntentForEnterKey(
   event: Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey">,
   isMac: boolean,
+  enterKey: ComposerEnterKey = "send",
 ): ComposerSubmitIntent | null {
   if (event.key !== "Enter" || event.shiftKey) return null;
 
   const queuedModifierPressed = isMac ? event.metaKey : event.ctrlKey;
   if (queuedModifierPressed) return "immediate";
 
-  if (!event.metaKey && !event.ctrlKey) return "immediate";
+  if (enterKey === "send" && !event.metaKey && !event.ctrlKey)
+    return "immediate";
 
   return null;
 }
@@ -772,6 +811,45 @@ function readComposerDraft(value: string): {
   return { html: parsed.html, slotReferences: parsed.slotReferences };
 }
 
+/**
+ * Drafts are written to localStorage so a refresh keeps the prompt. They are
+ * only read back inside the browser-tab session that wrote them: sessionStorage
+ * survives a reload, so a refresh restores the prompt, while a new tab, a later
+ * session or another account sharing the profile starts empty. Without that
+ * boundary a draft typed once resurfaced as somebody else's text in a fresh
+ * panel.
+ */
+const COMPOSER_DRAFT_SESSION_PREFIX = "an-composer-draft-session:";
+
+function composerDraftSessionKey(draftKey: string): string {
+  return `${COMPOSER_DRAFT_SESSION_PREFIX}${draftKey}`;
+}
+
+function markComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.setItem(composerDraftSessionKey(draftKey), "1");
+  } catch {
+    // coercion-ok: without sessionStorage the draft still restores (see below).
+  }
+}
+
+function forgetComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.removeItem(composerDraftSessionKey(draftKey));
+  } catch {
+    // coercion-ok: nothing to forget when sessionStorage is unavailable.
+  }
+}
+
+function composerDraftBelongsToThisSession(draftKey: string): boolean {
+  try {
+    return sessionStorage.getItem(composerDraftSessionKey(draftKey)) === "1";
+  } catch {
+    // coercion-ok: a browser without sessionStorage keeps the old restore.
+    return true;
+  }
+}
+
 function writeComposerDraft(
   draftKey: string | null,
   html: string,
@@ -781,6 +859,7 @@ function writeComposerDraft(
   try {
     if (!html.trim() && slotReferences.length === 0) {
       localStorage.removeItem(draftKey);
+      forgetComposerDraftSession(draftKey);
     } else if (slotReferences.length > 0) {
       localStorage.setItem(
         draftKey,
@@ -793,6 +872,8 @@ function writeComposerDraft(
     } else {
       localStorage.setItem(draftKey, html);
     }
+    if (html.trim() || slotReferences.length > 0)
+      markComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: Browser storage is optional and can be unavailable or full.
   }
@@ -864,6 +945,7 @@ function clearComposerDraft(
       return;
     }
     localStorage.removeItem(draftKey);
+    forgetComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
   }
@@ -1135,7 +1217,7 @@ function ComposerChip({
   return (
     <span
       data-agent-composer-slot={slot}
-      className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 text-xs font-medium text-foreground"
+      className="inline-flex h-6 items-center gap-1 rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-muted/50 px-1.5 text-xs font-medium text-foreground"
     >
       <Icon className="h-3 w-3 text-muted-foreground" />
       {label}
@@ -1143,7 +1225,7 @@ function ComposerChip({
         type="button"
         onClick={onRemove}
         aria-label={removeLabel}
-        className="-my-1 -me-1.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+        className="-my-1 -me-1.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground"
       >
         <IconX aria-hidden="true" className="h-3 w-3" />
       </button>
@@ -1178,6 +1260,10 @@ export interface TiptapComposerProps {
   conversationStarted?: boolean;
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
+  /** Enable inline rich-text marks and links. Defaults to false. */
+  richTextEnabled?: boolean;
+  /** Text inserted between blocks and hard breaks when submitting. Defaults to a newline. */
+  textBlockSeparator?: string;
   disabled?: boolean;
   /** Unset preserves generic references; false excludes inactive chats; true reports sidebar readiness. */
   isReferenceTarget?: boolean;
@@ -1185,6 +1271,8 @@ export interface TiptapComposerProps {
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
+  /** `plain` submits only an unmodified Enter; the default keeps generic chat key behavior. */
+  enterSubmitMode?: ComposerEnterSubmitMode;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Show progress in the send control while a pre-submit check is running. */
@@ -1318,6 +1406,11 @@ export interface TiptapComposerProps {
   planCommand?: boolean;
   /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /**
+   * Give dictation a global mod+d accelerator (default false). Hosts that bind Cmd+D to their own
+   * action leave it off, since an unconditional window listener would swallow that shortcut.
+   */
+  dictationShortcut?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
   /** Starts voice chat from the empty Send slot in place of the provider's default start. */
@@ -1344,6 +1437,18 @@ export interface TiptapComposerProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  /**
+   * Show the chevron after the model name (default true). A host with a compact trigger
+   * can turn it off without losing the menu.
+   */
+  modelSelectorChevron?: boolean;
+  /**
+   * Name the selection in the trigger even while the selected provider is unset (default false).
+   * The picker keeps the connect rows, so setup is still reachable, but the trigger keeps the
+   * model name instead of a setup label.
+   */
+  modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -1409,7 +1514,7 @@ export interface TiptapComposerProps {
    * host-context launcher without full-mode actions. `"hidden"` suppresses
    * the launcher unless the host explicitly provides `contextMenuItems`.
    */
-  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "attach-only" | "terminal" | "hidden";
   /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
   /**
@@ -1533,26 +1638,49 @@ export function focusComposerEditorWhenVisible(
 
 export function createTiptapComposerExtensions(
   getPlaceholder: () => string | undefined,
+  richTextEnabled = false,
 ) {
+  const blockTextExtensions = new Set([
+    "blockquote",
+    "bulletList",
+    "code",
+    "heading",
+    "orderedList",
+  ]);
+  const starterKit = richTextEnabled
+    ? StarterKit.extend({
+        addExtensions() {
+          return (this.parent?.() ?? []).map((extension) =>
+            blockTextExtensions.has(extension.name)
+              ? extension.extend({
+                  addKeyboardShortcuts: () => ({}),
+                })
+              : extension,
+          );
+        },
+      })
+    : StarterKit;
   return [
-    StarterKit.configure({
-      heading: false,
+    starterKit.configure({
+      heading: richTextEnabled ? { levels: [1, 2, 3, 4, 5, 6] } : false,
       horizontalRule: false,
-      bulletList: false,
-      orderedList: false,
-      listItem: false,
-      listKeymap: false,
-      blockquote: false,
+      bulletList: richTextEnabled ? {} : false,
+      orderedList: richTextEnabled ? {} : false,
+      listItem: richTextEnabled ? {} : false,
+      listKeymap: richTextEnabled ? {} : false,
+      blockquote: richTextEnabled ? {} : false,
       codeBlock: false,
-      strike: false,
-      italic: false,
-      bold: false,
-      code: false,
+      strike: richTextEnabled ? {} : false,
+      italic: richTextEnabled ? {} : false,
+      bold: richTextEnabled ? {} : false,
+      code: richTextEnabled ? {} : false,
       dropcursor: false,
       gapcursor: false,
-      link: false,
+      link: richTextEnabled
+        ? { markdownLinks: true, openOnClick: false }
+        : false,
       trailingNode: false,
-      underline: false,
+      underline: richTextEnabled ? {} : false,
     }),
     Placeholder.configure({
       placeholder: () => getPlaceholder() ?? "",
@@ -1564,6 +1692,91 @@ export function createTiptapComposerExtensions(
     SkillReference,
     MentionReference,
   ];
+}
+
+function normalizeComposerContentForProfile(
+  content: JSONContent,
+  richTextEnabled: boolean,
+): JSONContent {
+  if (richTextEnabled) return content;
+
+  const paragraphs: JSONContent[] = [];
+  const textBlockNames = new Set(["paragraph", "heading", "codeBlock"]);
+  const inlineNodeNames = new Set([
+    "hardBreak",
+    "fileReference",
+    "mentionReference",
+    "skillReference",
+  ]);
+
+  const collectInline = (node: JSONContent): JSONContent[] => {
+    if (node.type === "text") {
+      return node.text ? [{ type: "text", text: node.text }] : [];
+    }
+    if (node.type && inlineNodeNames.has(node.type)) {
+      return [
+        {
+          type: node.type,
+          ...(node.attrs ? { attrs: node.attrs } : {}),
+        },
+      ];
+    }
+    return (node.content ?? []).flatMap(collectInline);
+  };
+
+  const collectBlocks = (node: JSONContent) => {
+    if (node.type && textBlockNames.has(node.type)) {
+      paragraphs.push({
+        type: "paragraph",
+        content: (node.content ?? []).flatMap(collectInline),
+      });
+      return;
+    }
+    for (const child of node.content ?? []) collectBlocks(child);
+  };
+
+  collectBlocks(content);
+  return {
+    type: "doc",
+    content: paragraphs.length > 0 ? paragraphs : [{ type: "paragraph" }],
+  };
+}
+
+type ComposerProfileHandoff = {
+  content: JSONContent;
+  ownerKey: string;
+  targetRichTextEnabled: boolean;
+  sourceEditor: Editor;
+};
+
+type MigratedComposerProfile = {
+  editor: Editor;
+  ownerKey: string;
+};
+
+function getComposerProfileOwnerKey(options: {
+  draftKey: string | null;
+  initialText?: string | undefined;
+  initialTextKey?: string | number | undefined;
+}): string {
+  return JSON.stringify([
+    options.draftKey,
+    options.initialTextKey ?? options.initialText ?? null,
+  ]);
+}
+
+function useRichTextProfileEditor(
+  options: UseEditorOptions,
+  richTextEnabled: boolean,
+) {
+  const editor = useEditor(options, [richTextEnabled]);
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    // Tiptap skips its default setOptions pass when deps are nonempty and
+    // unchanged, so refresh event handlers and editorProps on host rerenders.
+    editor.setOptions({ ...options, editable: editor.isEditable });
+  });
+  return editor;
 }
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
@@ -1700,9 +1913,7 @@ export const MODEL_SELECTOR_POPOVER_STYLE = {
 
 type ModelPickerSection = "more" | "effort" | "image" | "agent" | "mode";
 const MODEL_PICKER_STACK_BELOW_PX = 544;
-// The shared menu primitives as they come; only the stacking order and a
-// scrollable height are added, since the composer sits above app overlays.
-const MODEL_SELECTOR_MENU_CLASS = "z-[9999] overflow-y-auto";
+const MODEL_SELECTOR_MENU_CLASS = COMPOSER_POPOVER_SURFACE_CLASS;
 const MODEL_PICKER_TWO_LINE_ITEM_CLASS = "flex-col items-start gap-0 py-1.5";
 
 /**
@@ -1866,10 +2077,6 @@ interface ModelPickerRow {
   model: string;
   engine: string;
   label: string;
-  /** The card's title: the row's name without a provider suffix. */
-  cardName: string;
-  /** Marked with the Recommended badge (Auto). */
-  recommended?: boolean;
   description?: ComposerModelDescription | undefined;
   identity: string;
   recommendedRank?: number | undefined;
@@ -1892,12 +2099,15 @@ function ModelSelector({
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  modelSelectorChevron = true,
   open: controlledOpen,
   onChange,
   onEffortChange,
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
+  modelTriggerNamesSelectionOnly = false,
+  modelTriggerLabel,
   onConnectProvider,
   onConnectLocalRuntime,
   terminalModeControl,
@@ -1923,10 +2133,13 @@ function ModelSelector({
   agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
+  modelSelectorChevron?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
   onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
+  modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   terminalModeControl?: ComposerTerminalModeControl;
@@ -1938,7 +2151,6 @@ function ModelSelector({
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate;
-  const formatNumber = adapters.formatNumber;
   const reasoning = adapters.models?.reasoning;
   const engineNames = useMemo(
     () => engines.map((group) => group.engine),
@@ -2054,11 +2266,41 @@ function ModelSelector({
   );
   const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
 
+  // The model menu sits above its trigger, but the reply box extends further up than the trigger
+  // does, so a 6px offset let the menu cover the box. On open, clear the whole
+  // composer root instead of only the button.
+  const [modelMenuOffset, setModelMenuOffset] = useState(6);
+  // The space above the trigger is what the menu may occupy. A menu taller than that overflows back
+  // over the reply box (re-measured at 102px of overlap with a hit test landing
+  // inside the menu), so the room is measured on open and the menu is capped to it: it scrolls inside
+  // the cap instead of covering the box or flipping underneath it.
+  const [modelMenuMaxHeight, setModelMenuMaxHeight] = useState<number | null>(
+    null,
+  );
+  const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // Measured on every open, whichever path opened it: the keyboard and screen-reader path flips the
+  // controlled `open` prop with a bare click, so Radix's onOpenChange never fires for it.
+  const measureModelMenuRoom = useCallback(() => {
+    const trigger = modelTriggerRef.current;
+    if (!trigger) return;
+    const root = trigger.closest(".agent-composer-root");
+    const room = modelMenuRoom({
+      triggerTop: trigger.getBoundingClientRect().top,
+      composerTop: root ? root.getBoundingClientRect().top : null,
+    });
+    setModelMenuOffset(room.offset);
+    setModelMenuMaxHeight(room.maxHeight);
+  }, []);
+  const handleModelMenuOpenChange = (next: boolean) => {
+    setPickerOpen(next);
+    if (next) measureModelMenuRoom();
+  };
+  useEffect(() => {
+    if (open) measureModelMenuRoom();
+  }, [open, measureModelMenuRoom]);
   const [openSection, setOpenSection] = useState<ModelPickerSection | null>(
     null,
   );
-  const [highlightedRow, setHighlightedRow] = useState<string | null>(null);
-  const [moreSide, setMoreSide] = useState<"left" | "right">("right");
   const sectionTriggerRefs = useRef<
     Partial<Record<ModelPickerSection, HTMLDivElement | null>>
   >({});
@@ -2068,7 +2310,6 @@ function ModelSelector({
       if (controlledOpen === undefined) setInternalOpen(nextOpen);
       if (!nextOpen) {
         setOpenSection(null);
-        setHighlightedRow(null);
       }
       onModelSelectorOpenChange?.(nextOpen);
     },
@@ -2141,7 +2382,6 @@ function ModelSelector({
               model: candidate,
               engine: group.engine,
               label,
-              cardName: label,
               description,
               identity: description?.catalogId ?? candidate,
               recommendedRank: description?.recommended
@@ -2181,8 +2421,6 @@ function ModelSelector({
             model: "auto",
             engine: autoModelGroup.engine,
             label: t("agentChat.composer.auto", { defaultValue: "Auto" }),
-            cardName: t("agentChat.composer.auto", { defaultValue: "Auto" }),
-            recommended: description?.recommended === true,
             description,
             identity: "auto",
           };
@@ -2233,13 +2471,22 @@ function ModelSelector({
   );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
-  const selectedModelButtonLabel = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
-    : model === "auto" && autoRow
-      ? autoRow.label
-      : (selectedModelDisplayName ??
-        selectedModelDescription?.shortName ??
-        selectedModelFriendlyName);
+  // An empty selection is "no override", which is the engine default the picker
+  // lists as Auto; reading it through the model description instead printed the
+  // catalogue's generic "Default model" entry while a host resolved its
+  // selection. Both spellings of "nothing chosen" read Auto here, and the Auto
+  // row's own label wins when it has one.
+  // `modelTriggerNamesSelectionOnly` opts out of the setup label; the picker keeps its setup rows.
+  const selectedModelButtonLabel =
+    modelTriggerLabel ??
+    (selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : model === "auto" || model === ""
+        ? (autoRow?.label ??
+          t("agentChat.composer.auto", { defaultValue: "Auto" }))
+        : (selectedModelDisplayName ??
+          selectedModelDescription?.shortName ??
+          selectedModelFriendlyName));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2270,8 +2517,7 @@ function ModelSelector({
   }
 
   // Two menus side by side need about 34rem; below that a submenu cannot
-  // clear the viewport on either side, so the sections stack in one menu and
-  // the model card, which needs the same room, stays hidden.
+  // clear the viewport on either side, so the sections stack in one menu.
   const stacked =
     open &&
     typeof window !== "undefined" &&
@@ -2308,17 +2554,19 @@ function ModelSelector({
                         defaultValue: "Use Builder.io",
                       })}
                 </span>
-                <span className="block agent-kit-caption-copy text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
+                {adapters.builder?.creditsOffered?.() !== false ? (
+                  <span className="block agent-kit-caption-copy text-muted-foreground">
+                    {t("agentPanel.builderModelCredits", {
+                      defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                    })}
+                  </span>
+                ) : null}
               </DropdownMenuItem>
             </BuilderConnectPopover>
             {!onConnectProvider && builderFlow.error && (
               <p
                 role="alert"
-                className="px-2 pb-2 agent-kit-caption-copy text-destructive"
+                className="px-2 pb-2 agent-kit-caption-copy agent-kit-tone-warning"
               >
                 {builderFlow.error}
               </p>
@@ -2378,7 +2626,7 @@ function ModelSelector({
             >
               <span className="min-w-0 flex-1 truncate">{agent.label}</span>
               {statusLabel ? (
-                <span className="ms-auto max-w-[6rem] shrink-0 truncate agent-kit-micro-copy text-muted-foreground/70">
+                <span className="ms-auto max-w-[6rem] shrink-0 truncate agent-kit-micro-copy text-muted-foreground">
                   {statusLabel}
                 </span>
               ) : null}
@@ -2449,90 +2697,25 @@ function ModelSelector({
 
   const renderModelRow = (
     row: ModelPickerRow,
-    cardSide: "left" | "right",
-    options: { shortcut?: number; section?: ModelPickerSection } = {},
+    options: { shortcut?: number } = {},
   ) => {
-    const { shortcut, section } = options;
+    const { shortcut } = options;
     const selected = isSelectedRow(row);
-    const details = hasModelDetails(row.description)
-      ? row.description
-      : undefined;
-    const cardOpen = !stacked && details && highlightedRow === row.key;
-    const cardId = `${row.key}-card`;
-    const item = (
+    return (
       <DropdownMenuItem
         key={row.key}
         role="menuitemradio"
         aria-checked={selected}
-        aria-describedby={cardOpen ? cardId : undefined}
+        // Digits 1-9 pick these rows; announced, not printed beside every name.
+        aria-keyshortcuts={shortcut === undefined ? undefined : `${shortcut}`}
         data-agent-composer-model-row={row.model}
         onSelect={() => selectModel(row.model, row.engine)}
-        onFocus={(event) => {
-          setHighlightedRow(row.key);
-          // A submenu row's card goes on the far side of its submenu.
-          const side = event.currentTarget
-            .closest("[data-agent-composer-model-panel]")
-            ?.getAttribute("data-side");
-          if (side === "left" || side === "right") setMoreSide(side);
-        }}
-        onBlur={() =>
-          setHighlightedRow((current) => (current === row.key ? null : current))
-        }
       >
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate">{row.label}</span>
-          {row.recommended ? <RecommendedBadge t={t} /> : null}
-        </span>
-        {shortcut !== undefined ? (
-          // One trailing column: the current row's check takes the place of
-          // its number, at the same width, so no row shifts.
-          <DropdownMenuShortcut>
-            {selected ? <IconCheck aria-hidden="true" /> : shortcut}
-          </DropdownMenuShortcut>
-        ) : (
-          <DropdownMenuTrailing>
-            {selected ? <IconCheck aria-hidden="true" /> : null}
-          </DropdownMenuTrailing>
-        )}
+        <span className="min-w-0 flex-1 truncate">{row.label}</span>
+        <DropdownMenuTrailing>
+          {selected ? <IconCheck aria-hidden="true" /> : null}
+        </DropdownMenuTrailing>
       </DropdownMenuItem>
-    );
-    if (!details || stacked) return item;
-    return (
-      <Popover key={row.key} open={Boolean(cardOpen)}>
-        <PopoverAnchor asChild>{item}</PopoverAnchor>
-        <PopoverContent
-          id={cardId}
-          role="tooltip"
-          side={cardSide}
-          align="start"
-          sideOffset={8}
-          collisionPadding={8}
-          // The card describes the focused row; focus stays in the menu.
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onCloseAutoFocus={(event) => event.preventDefault()}
-          // The card is the top layer, so it receives the Escape meant for
-          // the menu under it: close that menu, one level at a time.
-          onEscapeKeyDown={(event) => {
-            if (!section) {
-              setPickerOpen(false);
-              return;
-            }
-            event.preventDefault();
-            setHighlightedRow(null);
-            setOpenSection(null);
-            sectionTriggerRefs.current[section]?.focus();
-          }}
-          data-agent-native-composer-popover="true"
-          className="pointer-events-none z-[9999]"
-        >
-          <ModelDetailsCard
-            name={row.cardName}
-            description={details}
-            t={t}
-            formatNumber={formatNumber}
-          />
-        </PopoverContent>
-      </Popover>
     );
   };
 
@@ -2572,24 +2755,20 @@ function ModelSelector({
                 defaultValue: "No OpenAI models configured",
               })}
             </span>
-            <span className="shrink-0 agent-kit-caption-copy text-muted-foreground/70">
+            <span className="shrink-0 agent-kit-caption-copy text-muted-foreground">
               Configure
             </span>
           </DropdownMenuItem>
         )}
       {shortcutRows.map((row, index) =>
-        renderModelRow(row, "left", { shortcut: index + 1 }),
+        renderModelRow(row, { shortcut: index + 1 }),
       )}
     </>
   );
 
   const moreItems =
     moreRows.length > 0 ? (
-      <>
-        {moreRows.map((row) =>
-          renderModelRow(row, moreSide, stacked ? {} : { section: "more" }),
-        )}
-      </>
+      <>{moreRows.map((row) => renderModelRow(row))}</>
     ) : null;
 
   const imageItems =
@@ -2651,11 +2830,8 @@ function ModelSelector({
                 setPickerOpen(false);
               }}
             >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate">{effortLabel(level)}</span>
-                {level === providerDefaultEffort ? (
-                  <RecommendedBadge t={t} />
-                ) : null}
+              <span className="min-w-0 flex-1 truncate">
+                {effortLabel(level)}
               </span>
               <DropdownMenuTrailing>
                 {selected ? <IconCheck aria-hidden="true" /> : null}
@@ -2788,10 +2964,11 @@ function ModelSelector({
     effectiveEffort !== "auto";
 
   return (
-    <DropdownMenu open={open} onOpenChange={setPickerOpen}>
+    <DropdownMenu open={open} onOpenChange={handleModelMenuOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          ref={modelTriggerRef}
           data-agent-composer-slot="model-button"
           // Screen readers in browse mode activate with a bare click,
           // which the menu trigger ignores because it opens on pointer
@@ -2818,7 +2995,7 @@ function ModelSelector({
                 })}: ${effortValueLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-[var(--agentkit-composer-model-min-width,min(8rem,100%))] max-w-[var(--agentkit-composer-model-max-width,none)] shrink items-center gap-1 overflow-hidden rounded-[var(--agentkit-composer-control-radius,var(--radius-md))] px-[var(--agentkit-composer-toolbar-control-padding-inline,0.5rem)] py-1 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-[var(--agentkit-composer-model-min-width,min(8rem,100%))] max-w-[var(--agentkit-composer-model-max-width,none)] shrink items-center gap-1 overflow-hidden rounded-[var(--agentkit-composer-control-radius,var(--agent-kit-radius-xs,0.25rem))] px-[var(--agentkit-composer-toolbar-control-padding-inline,0.5rem)] py-1 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground aria-expanded:bg-accent/50 aria-expanded:text-foreground"
         >
           <span className="agent-composer-model-name min-w-0 truncate text-foreground">
             {selectedAgentOption?.icon ? (
@@ -2843,20 +3020,29 @@ function ModelSelector({
               {effortLabel(effectiveEffort)}
             </span>
           )}
-          <IconChevronDown
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 opacity-60"
-          />
+          {modelSelectorChevron && (
+            <IconChevronDown
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 opacity-60"
+            />
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"
         align="end"
-        sideOffset={6}
+        sideOffset={modelMenuOffset}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
         className={MODEL_SELECTOR_MENU_CLASS}
-        style={MODEL_SELECTOR_POPOVER_STYLE}
+        style={
+          modelMenuMaxHeight === null
+            ? MODEL_SELECTOR_POPOVER_STYLE
+            : {
+                ...MODEL_SELECTOR_POPOVER_STYLE,
+                maxHeight: `${modelMenuMaxHeight}px`,
+              }
+        }
         onKeyDown={(event) => {
           if (
             event.altKey ||
@@ -2967,10 +3153,13 @@ function TiptapComposerSurface({
   replyPlaceholder,
   conversationStarted = false,
   ariaLabel,
+  richTextEnabled = false,
+  textBlockSeparator = "\n",
   disabled = false,
   isReferenceTarget,
   contextControlsDisabled = false,
   submissionDisabled = false,
+  enterSubmitMode = "default",
   sendButtonDisabled = false,
   sendButtonBusy = false,
   submitting = false,
@@ -3013,6 +3202,7 @@ function TiptapComposerSurface({
   onSlashCommand,
   planCommand = false,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  dictationShortcut = false,
   voiceChatEnabled = true,
   onVoiceChatStart,
   selectedModel,
@@ -3022,6 +3212,7 @@ function TiptapComposerSurface({
   modelSelectorOpen,
   availableModels,
   modelListLoading,
+  modelSelectorChevron = true,
   onModelChange,
   onEffortChange,
   availableAgents,
@@ -3031,6 +3222,8 @@ function TiptapComposerSurface({
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled,
+  modelTriggerNamesSelectionOnly,
+  modelTriggerLabel,
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
@@ -3097,6 +3290,10 @@ function TiptapComposerSurface({
     id: string;
   } | null>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
+  const mentionListboxId = useId();
+  const [activeMentionOptionId, setActiveMentionOptionId] = useState<
+    string | undefined
+  >(undefined);
   const composerRuntime = useComposerRuntime();
   const lastComposerRuntimeSyncRef = useRef<{
     text: string;
@@ -3225,6 +3422,8 @@ function TiptapComposerSurface({
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
+  const enterSubmitModeRef = useRef(enterSubmitMode);
+  enterSubmitModeRef.current = enterSubmitMode;
   const onSubmitStartRef = useRef(onSubmitStart);
   onSubmitStartRef.current = onSubmitStart;
   const onOptimisticAttachmentsChangeRef = useRef(
@@ -3235,6 +3434,9 @@ function TiptapComposerSurface({
   onEscapeRef.current = onEscape;
   const onRecallLastMessageRef = useRef(onRecallLastMessage);
   onRecallLastMessageRef.current = onRecallLastMessage;
+  const enterKey = useContext(ComposerEnterKeyContext);
+  const enterKeyRef = useRef(enterKey);
+  enterKeyRef.current = enterKey;
 
   const {
     items: mentionItems,
@@ -3459,6 +3661,15 @@ function TiptapComposerSurface({
     hasDraftScope || initialText === undefined
       ? getComposerDraftKey(draftScope)
       : null;
+  const profileOwnerKey = getComposerProfileOwnerKey({
+    draftKey,
+    initialText,
+    initialTextKey,
+  });
+  const profileOwnerKeyRef = useRef(profileOwnerKey);
+  profileOwnerKeyRef.current = profileOwnerKey;
+  const editorContentOwnerKeyRef = useRef(profileOwnerKey);
+  const editorContentDraftKeyRef = useRef(draftKey);
   const draftKeyRef = useRef(draftKey);
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
@@ -3707,6 +3918,9 @@ function TiptapComposerSurface({
         if (draftKeyRef.current !== key || draftEditorRef.current !== ed) {
           return;
         }
+        if (profileEditorRef.current !== ed || !isComposerEditorUsable(ed)) {
+          return;
+        }
         persistComposerDraft(key, ed, slotReferencesRef.current);
       }, COMPOSER_DRAFT_SAVE_DELAY_MS);
     },
@@ -3734,11 +3948,62 @@ function TiptapComposerSurface({
   const applyingInitialContentRef = useRef(false);
   const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
+  const richTextEnabledRef = useRef(richTextEnabled);
+  richTextEnabledRef.current = richTextEnabled;
+  const editorProfileRef = useRef(richTextEnabled);
+  const profileEditorRef = useRef<Editor | null>(null);
+  const profileChangeContentRef = useRef<ComposerProfileHandoff | null>(null);
+  const profileMigratedEditorRef = useRef<MigratedComposerProfile | null>(null);
 
-  const editor = useEditor({
-    extensions: createTiptapComposerExtensions(() => placeholderRef.current),
+  const editorOptions = {
+    extensions: createTiptapComposerExtensions(
+      () => placeholderRef.current,
+      richTextEnabled,
+    ),
+    ...(richTextEnabled
+      ? { enableInputRules: ["bold", "italic", "link", "strike"] }
+      : {}),
+    ...(richTextEnabled ? { enablePasteRules: false } : {}),
     immediatelyRender: false,
     editable: !editorLocked,
+    onDestroy: () => {
+      profileEditorRef.current = null;
+    },
+    onBeforeCreate: ({ editor: createdEditor }) => {
+      profileMigratedEditorRef.current = null;
+      const handoff = profileChangeContentRef.current;
+      profileChangeContentRef.current = null;
+      const canMigrate = Boolean(
+        !handoff ||
+        (handoff.ownerKey === profileOwnerKeyRef.current &&
+          handoff.targetRichTextEnabled === richTextEnabledRef.current &&
+          handoff.sourceEditor !== createdEditor &&
+          editorProfileRef.current !== richTextEnabledRef.current),
+      );
+      if (handoff && canMigrate) {
+        createdEditor.setOptions({
+          content: normalizeComposerContentForProfile(
+            handoff.content,
+            richTextEnabledRef.current,
+          ),
+        });
+        editorContentOwnerKeyRef.current = handoff.ownerKey;
+        editorContentDraftKeyRef.current = draftKeyRef.current;
+        profileMigratedEditorRef.current = {
+          editor: createdEditor,
+          ownerKey: handoff.ownerKey,
+        };
+      } else {
+        editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+        editorContentDraftKeyRef.current = draftKeyRef.current;
+      }
+      profileEditorRef.current = createdEditor;
+      editorProfileRef.current = richTextEnabledRef.current;
+    },
+    onCreate: ({ editor: createdEditor }) => {
+      profileEditorRef.current = createdEditor;
+      editorProfileRef.current = richTextEnabledRef.current;
+    },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
@@ -3781,12 +4046,13 @@ function TiptapComposerSurface({
         setSelectedContextItemKey(null);
       }
     },
-    onFocus,
-    onBlur,
+    ...(onFocus ? { onFocus } : {}),
+    ...(onBlur ? { onBlur } : {}),
     editorProps: {
       attributes: {
         "aria-label": ariaLabel ?? resolvedPlaceholder,
         "aria-multiline": "true",
+        "aria-autocomplete": "list",
         // Context controls can be off while the editor still takes a draft.
         "aria-disabled": String(editorLocked),
         role: "textbox",
@@ -3794,8 +4060,10 @@ function TiptapComposerSurface({
         "data-agent-composer-slot": "editor-input",
         // Page-level paste listeners defer to a composer that claims pastes.
         ...(onPasteContext ? { "data-claims-paste": "true" } : {}),
+        // Each paragraph takes its direction from its first letter; an empty
+        // draft keeps the page's direction for the placeholder.
         class:
-          "agent-composer-prosemirror flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
+          "agent-composer-prosemirror [&>*]:[unicode-bidi:plaintext] flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
       },
       handleDOMEvents: {
         compositionstart: () => {
@@ -3843,9 +4111,11 @@ function TiptapComposerSurface({
         if (!attachmentsEnabled) {
           if (event.clipboardData?.files.length) {
             event.preventDefault();
-            const pastedText = readClipboardPaste(event.clipboardData).text;
-            if (pastedText) {
-              view.pasteText(pastedText, new Event("paste") as ClipboardEvent);
+            const paste = readClipboardPaste(event.clipboardData);
+            if (richTextEnabled && paste.html) {
+              view.pasteHTML(paste.html, new Event("paste") as ClipboardEvent);
+            } else if (paste.text) {
+              view.pasteText(paste.text, new Event("paste") as ClipboardEvent);
             }
             return true;
           }
@@ -3974,7 +4244,22 @@ function TiptapComposerSurface({
           // plain text: Enter submits it and a late result changes nothing.
           const highlighted =
             pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
-          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
+          // Likewise a "/" with no matching command or skill (a typed path) is
+          // plain text, so Enter submits instead of being swallowed.
+          const command =
+            pop.type === "/" ? popoverRef.current?.getSelectedCommand() : null;
+          const idx = popoverRef.current?.getSelectedIndex() ?? 0;
+          const skill =
+            pop.type === "/"
+              ? filteredSkillsRef.current[
+                  idx - filteredCommandsRef.current.length
+                ]
+              : undefined;
+          if (
+            event.key === "Enter" &&
+            (event.shiftKey ||
+              (pop.type === "@" ? !highlighted : !command && !skill))
+          ) {
             closePopover();
           } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
             event.preventDefault();
@@ -3982,22 +4267,12 @@ function TiptapComposerSurface({
             return true;
           } else if (event.key === "Enter") {
             event.preventDefault();
-            const idx = popoverRef.current?.getSelectedIndex() ?? 0;
-            const currentCommands = filteredCommandsRef.current;
-            const currentSkills = filteredSkillsRef.current;
             if (pop.type === "@") {
               const item = popoverRef.current?.getSelectedMention();
               if (item) selectMention(view, pop, item);
             } else if (pop.type === "/") {
-              const cmd = popoverRef.current?.getSelectedCommand();
-              if (cmd) {
-                executeCommand(view, pop, cmd);
-              } else {
-                const skillIdx = idx - currentCommands.length;
-                if (currentSkills[skillIdx]) {
-                  selectSkill(view, pop, currentSkills[skillIdx]);
-                }
-              }
+              if (command) executeCommand(view, pop, command);
+              else if (skill) selectSkill(view, pop, skill);
             }
             return true;
           }
@@ -4090,12 +4365,35 @@ function TiptapComposerSurface({
         // Submit on Enter. Shift+Enter inserts a newline and keeps the
         // composer scrolled to the caret.
         // Cmd+Enter on macOS / Ctrl+Enter elsewhere steers the active run.
-        if (event.key === "Enter" && event.shiftKey) {
+        if (
+          event.key === "Enter" &&
+          (event.shiftKey ||
+            (enterKeyRef.current === "newline" &&
+              !event.metaKey &&
+              !event.ctrlKey))
+        ) {
           event.preventDefault();
           return insertComposerHardBreakAndScrollIntoView(view);
         }
 
-        const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
+        if (
+          event.key === "Enter" &&
+          enterSubmitModeRef.current === "plain" &&
+          (event.altKey || event.ctrlKey || event.metaKey) &&
+          !(
+            enterKeyRef.current === "newline" &&
+            !event.altKey &&
+            (isMac ? event.metaKey : event.ctrlKey)
+          )
+        ) {
+          return false;
+        }
+
+        const submitIntent = getComposerSubmitIntentForEnterKey(
+          event,
+          isMac,
+          enterKeyRef.current,
+        );
         if (submitIntent) {
           event.preventDefault();
           void submitComposer(
@@ -4183,14 +4481,61 @@ function TiptapComposerSurface({
         return false;
       },
     },
-  });
+  } satisfies UseEditorOptions;
+  const editor = useRichTextProfileEditor(editorOptions, richTextEnabled);
+  useLayoutEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    if (
+      profileEditorRef.current === editor &&
+      editorContentOwnerKeyRef.current !== profileOwnerKeyRef.current
+    ) {
+      // Save against the previous owner's key before a profile change can
+      // destroy this editor and its pending debounce. The next scope's normal
+      // initializer will then load its own draft without receiving this one.
+      persistComposerDraft(
+        editorContentDraftKeyRef.current,
+        editor,
+        slotReferencesRef.current,
+      );
+    }
+    if (editorProfileRef.current === richTextEnabled) {
+      profileChangeContentRef.current = null;
+      return;
+    }
+    if (
+      profileEditorRef.current === editor &&
+      editorContentOwnerKeyRef.current === profileOwnerKeyRef.current
+    ) {
+      profileChangeContentRef.current = {
+        content: editor.getJSON(),
+        ownerKey: profileOwnerKeyRef.current,
+        targetRichTextEnabled: richTextEnabled,
+        sourceEditor: editor,
+      };
+    } else {
+      profileChangeContentRef.current = null;
+    }
+  }, [editor, profileOwnerKey, richTextEnabled]);
+
+  // Tiptap builds its decorations once, so a placeholder that changes while the composer is mounted
+  // (an instructional hint that cycles, or a mode/thread switch) keeps painting the old string.
+  // An empty transaction re-runs the decorations without touching the document.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, resolvedPlaceholder]);
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     draftEditorRef.current = editor;
     const flush = () => {
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      if (
+        profileEditorRef.current === editor &&
+        isComposerEditorUsable(editor)
+      ) {
+        persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      }
     };
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
@@ -4198,7 +4543,13 @@ function TiptapComposerSurface({
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("beforeunload", flush);
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      if (
+        profileEditorRef.current === editor &&
+        editorProfileRef.current === richTextEnabledRef.current &&
+        isComposerEditorUsable(editor)
+      ) {
+        persistComposerDraft(draftKey, editor, slotReferencesRef.current);
+      }
       if (draftEditorRef.current === editor) draftEditorRef.current = null;
     };
   }, [cancelScheduledDraftPersist, draftKey, editor]);
@@ -4622,11 +4973,22 @@ function TiptapComposerSurface({
   // --- Live voice transcription: text appears in the editor as the user speaks ---
   const voiceAnchorRef = useRef<number | null>(null);
   const prevVoiceInsertRef = useRef("");
-
   const handleLiveUpdate = useCallback(
     (finalText: string, interimText: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+
+      if (
+        voiceAnchorRef.current != null &&
+        !isVoicePreviewIntact(
+          ed,
+          voiceAnchorRef.current,
+          prevVoiceInsertRef.current,
+        )
+      ) {
+        voiceAnchorRef.current = null;
+        prevVoiceInsertRef.current = "";
+      }
 
       if (voiceAnchorRef.current == null) {
         const { from } = ed.state.selection;
@@ -4659,9 +5021,14 @@ function TiptapComposerSurface({
     (text: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+      let anchor = voiceAnchorRef.current;
+      if (
+        anchor != null &&
+        !isVoicePreviewIntact(ed, anchor, prevVoiceInsertRef.current)
+      ) {
+        anchor = null;
+      }
       const formattedText = formatVoiceTranscriptForComposer(text);
-
-      const anchor = voiceAnchorRef.current;
       if (anchor != null) {
         const prevLen = prevVoiceInsertRef.current.length;
         if (formattedText) {
@@ -4675,8 +5042,6 @@ function TiptapComposerSurface({
             .deleteRange({ from: anchor, to: anchor + prevLen })
             .run();
         }
-        voiceAnchorRef.current = null;
-        prevVoiceInsertRef.current = "";
       } else if (formattedText) {
         const { from } = ed.state.selection;
         const prevChar =
@@ -4687,6 +5052,8 @@ function TiptapComposerSurface({
           .insertContent((needsLead ? " " : "") + formattedText)
           .run();
       }
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
     },
     [editor],
   );
@@ -4783,19 +5150,7 @@ function TiptapComposerSurface({
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
       if (isComposerEditorUsable(editor) && prevLen > 0) {
-        const documentSize = editor.state.doc.content.size;
-        const currentText =
-          anchor >= 1 && anchor + prevLen <= documentSize
-            ? editor.state.doc.textBetween(anchor, anchor + prevLen, "", "\n")
-            : "";
-        if (
-          canRemoveVoicePreview({
-            documentSize,
-            anchor,
-            previewText: prevVoiceInsertRef.current,
-            currentText,
-          })
-        ) {
+        if (isVoicePreviewIntact(editor, anchor, prevVoiceInsertRef.current)) {
           editor
             .chain()
             .deleteRange({ from: anchor, to: anchor + prevLen })
@@ -4810,18 +5165,21 @@ function TiptapComposerSurface({
   const voiceChatActiveRef = useRef(false);
   voiceChatActiveRef.current = voiceChat !== null;
 
-  // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
-  // while recording. Scoped to avoid firing when focus is outside the app.
+  // Global shortcut: Cmd/Ctrl + D toggles dictation (taking the browser's
+  // bookmark accelerator). Opt-in through `dictationShortcut`, because a host
+  // can bind Cmd+D to its own action (for example duplicating blocks) and this
+  // listener would take the key from it. Escape below is not part of that
+  // opt-in: it only ends a recording the person chose to start.
   useEffect(() => {
-    if (!voiceEnabled || !voice.supported) return;
+    if (!voiceEnabled || !voice.supported || !dictationShortcut) return;
     const handler = (e: KeyboardEvent) => {
       // e.key can be undefined on some trusted keydown events (autofill/IME
       // quirks) — seen crashing in production (AGENT-NATIVE-BROWSER-S).
       const isToggleCombo =
         typeof e.key === "string" &&
-        e.key.toLowerCase() === "m" &&
-        e.shiftKey &&
+        e.key.toLowerCase() === "d" &&
         (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
         !e.altKey;
       if (isToggleCombo) {
         // A page that has already used the key keeps it.
@@ -4835,6 +5193,15 @@ function TiptapComposerSurface({
         }
         return;
       }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [voiceEnabled, voice, dictationShortcut]);
+
+  // Escape cancels a dictation or its start, on every host that shows dictation.
+  useEffect(() => {
+    if (!voiceEnabled || !voice.supported) return;
+    const handler = (e: KeyboardEvent) => {
       if (
         e.key === "Escape" &&
         (voice.state === "recording" || voice.state === "starting")
@@ -4877,13 +5244,13 @@ function TiptapComposerSurface({
       } else if (node.type.name === "skillReference") {
         textParts.push(`/${node.attrs.name}`);
       } else if (node.type.name === "hardBreak") {
-        textParts.push("\n");
+        textParts.push(textBlockSeparator);
       } else if (
-        node.type.name === "paragraph" &&
+        node.isTextblock &&
         textParts.length > 0 &&
-        textParts[textParts.length - 1] !== "\n"
+        textParts[textParts.length - 1] !== textBlockSeparator
       ) {
-        textParts.push("\n");
+        textParts.push(textBlockSeparator);
       }
     });
     const rawText = textParts.join("").trim();
@@ -4901,25 +5268,7 @@ function TiptapComposerSurface({
           source: node.attrs.source || "codebase",
         });
       } else if (node.type.name === "mentionReference") {
-        const refType = node.attrs.refType;
-        references.push({
-          type:
-            refType === "file"
-              ? "file"
-              : refType === "agent"
-                ? "agent"
-                : refType === "custom-agent"
-                  ? "custom-agent"
-                  : "mention",
-          path: node.attrs.refPath || "",
-          name: node.attrs.label,
-          source: node.attrs.source,
-          refType: node.attrs.refType,
-          refId: node.attrs.refId,
-          slotKey: node.attrs.slotKey,
-          slotLabel: node.attrs.slotLabel,
-          metadata: node.attrs.metadata,
-        });
+        references.push(referenceFromComposerReference(node.attrs));
       } else if (node.type.name === "skillReference") {
         references.push({
           type: "skill",
@@ -4931,7 +5280,7 @@ function TiptapComposerSurface({
     });
 
     return { text, references };
-  }, [editor]);
+  }, [editor, textBlockSeparator]);
 
   const referencesSignatureRef = useRef("");
   useEffect(() => {
@@ -6319,6 +6668,7 @@ function TiptapComposerSurface({
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     if (initialText !== undefined) return;
+    if (profileMigratedEditorRef.current?.editor === editor) return;
     if (previousDraftKeyRef.current !== draftKey) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
@@ -6328,6 +6678,14 @@ function TiptapComposerSurface({
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     initialTextSyncCompleteRef.current = true;
+    const pendingMigration = profileMigratedEditorRef.current;
+    if (
+      pendingMigration?.editor === editor &&
+      pendingMigration.ownerKey !== profileOwnerKeyRef.current
+    ) {
+      editor.commands.clearContent(false);
+      profileMigratedEditorRef.current = null;
+    }
     const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
     previousDraftKeyRef.current = draftKey;
     if (draftKeyChanged) {
@@ -6357,9 +6715,31 @@ function TiptapComposerSurface({
         });
       if (!suppressInitialTextChange) onTextChangeRef.current?.("");
     }
+    const migratedProfile = profileMigratedEditorRef.current;
+    if (
+      migratedProfile?.editor === editor &&
+      migratedProfile.ownerKey === profileOwnerKeyRef.current
+    ) {
+      const { text } = extractComposerPayload();
+      initialTextKeyRef.current = initialTextKey ?? initialText;
+      hasCheckedInitialDraftRef.current = true;
+      editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+      editorContentDraftKeyRef.current = draftKey;
+      setEditorHasText(
+        composerDocumentHasContent(editor.state.doc) ||
+          slotReferencesRef.current.length > 0,
+      );
+      composerRuntime.setText(text);
+      if (!suppressInitialTextChange) onTextChangeRef.current?.(text);
+      scheduleComposerDraftPersist(editor);
+      profileMigratedEditorRef.current = null;
+      return;
+    }
+    editorContentOwnerKeyRef.current = profileOwnerKeyRef.current;
+    editorContentDraftKeyRef.current = draftKey;
     const key = initialTextKey ?? initialText;
     let saved: string | null = null;
-    if (draftKey) {
+    if (draftKey && composerDraftBelongsToThisSession(draftKey)) {
       try {
         saved = localStorage.getItem(draftKey);
       } catch {
@@ -6439,6 +6819,7 @@ function TiptapComposerSurface({
     composerRuntime,
     draftKey,
     editor,
+    extractComposerPayload,
     initialText,
     initialTextKey,
     initialTextOverridesSavedDraft,
@@ -6478,6 +6859,18 @@ function TiptapComposerSurface({
     });
   }, [editor, editorLocked]);
 
+  // The editor ignores attributes it did not set, so these follow the panel without a re-render.
+  const mentionPanelOpen = popover !== null;
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    const dom = editor.view.dom;
+    if (mentionPanelOpen) dom.setAttribute("aria-controls", mentionListboxId);
+    else dom.removeAttribute("aria-controls");
+    if (mentionPanelOpen && activeMentionOptionId)
+      dom.setAttribute("aria-activedescendant", activeMentionOptionId);
+    else dom.removeAttribute("aria-activedescendant");
+  }, [editor, mentionPanelOpen, mentionListboxId, activeMentionOptionId]);
+
   const launchersDisabled = disabled || contextControlsDisabled;
 
   const contextLauncherItems = useMemo(() => {
@@ -6492,9 +6885,13 @@ function TiptapComposerSurface({
     };
     visit(contextMenuItems ?? []);
     const pickerFor = (filter?: { referenceType: string; source: string }) => {
-      const available = new Map<string, MentionItem>();
       return {
         identityScope: "workspace" as const,
+        ...(filter
+          ? {
+              refreshKey: JSON.stringify([filter.source, filter.referenceType]),
+            }
+          : {}),
         presentation: { type: "dialog" as const, mode: "action" as const },
         searchPlaceholder: t("agentChat.composer.menu.searchWorkspace", {
           defaultValue: "Search workspace…",
@@ -6535,10 +6932,10 @@ function TiptapComposerSurface({
           );
           if (signal.aborted)
             throw new DOMException("The operation was aborted.", "AbortError");
-          available.clear();
-          for (const item of entries) available.set(item.id, item);
+          const available = new Map(entries.map((item) => [item.id, item]));
           return {
             items: Array.from(available.values()).map((item) => ({
+              [workspacePickerReference]: item,
               id: item.id,
               title: item.label,
               ...(item.description === undefined
@@ -6566,8 +6963,11 @@ function TiptapComposerSurface({
             })),
           };
         },
-        onSelect: (item: { id: string }) => {
-          const reference = available.get(item.id);
+        onSelect: (item: {
+          id: string;
+          [workspacePickerReference]?: MentionItem;
+        }) => {
+          const reference = item[workspacePickerReference];
           if (!reference)
             throw new Error(
               t("agentChat.composer.contextLoadFailed", {
@@ -6696,7 +7096,7 @@ function TiptapComposerSurface({
           {slotReferences.map((ref) => (
             <span
               key={ref.slotKey}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-0.5 agent-kit-caption-copy font-medium text-foreground shadow-sm"
+              className="inline-flex h-5 max-w-full items-center gap-1 rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-background px-2 text-xs leading-4 font-medium text-foreground shadow-sm"
             >
               <MentionItemMedia
                 media={ref.media}
@@ -6723,7 +7123,7 @@ function TiptapComposerSurface({
                   defaultValue: "Remove {{name}} reference",
                   name: slotReferenceTitle(ref),
                 })}
-                className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX aria-hidden="true" className="h-3 w-3" />
               </button>
@@ -6738,7 +7138,7 @@ function TiptapComposerSurface({
                 data-state={
                   selectedContextItemKey === item.key ? "selected" : undefined
                 }
-                className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 agent-kit-caption-copy font-medium text-foreground ${
+                className={`inline-flex h-5 max-w-full items-center gap-1 rounded-[var(--agent-kit-radius-xs,0.25rem)] border px-2 text-xs leading-4 font-medium text-foreground ${
                   selectedContextItemKey === item.key
                     ? "border-ring bg-accent ring-2 ring-ring/40"
                     : "border-border bg-muted/50"
@@ -6752,16 +7152,20 @@ function TiptapComposerSurface({
                     className="size-3 shrink-0 animate-spin motion-reduce:animate-none text-muted-foreground"
                   />
                 ) : item.status === "error" ? (
-                  <IconAlertCircle
+                  <IconAlertTriangle
                     aria-label={t("agentChat.composer.contextError", {
                       defaultValue: "Context failed",
                     })}
-                    className="size-3 shrink-0 text-destructive"
+                    className="size-3 shrink-0 text-[hsl(var(--agent-kit-warning))]"
                   />
                 ) : (
                   <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
                 )}
                 <span className="min-w-0 truncate">{item.title}</span>
+                {/* A title attribute only reaches a pointer, so the reason is read here. */}
+                {item.status === "error" && item.statusMessage ? (
+                  <span className="sr-only">{item.statusMessage}</span>
+                ) : null}
                 {onRemoveContextItem && item.removable !== false ? (
                   <button
                     type="button"
@@ -6774,7 +7178,7 @@ function TiptapComposerSurface({
                       defaultValue: "Remove {{name}} context",
                       name: item.title,
                     })}
-                    className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="-my-1 -me-1.5 flex size-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <IconX aria-hidden="true" className="h-3 w-3" />
                   </button>
@@ -6790,7 +7194,7 @@ function TiptapComposerSurface({
                         defaultValue: "Retry {{name}} context",
                         name: item.title,
                       })}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="flex size-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:bg-accent hover:text-foreground"
                     >
                       <IconRefresh aria-hidden="true" className="size-3.5" />
                     </button>
@@ -6800,6 +7204,11 @@ function TiptapComposerSurface({
                       defaultValue: "Retry {{name}} context",
                       name: item.title,
                     })}
+                    {item.statusMessage ? (
+                      <span className="block text-muted-foreground">
+                        {item.statusMessage}
+                      </span>
+                    ) : null}
                   </TooltipContent>
                 </Tooltip>
               ) : null}
@@ -6958,11 +7367,14 @@ function TiptapComposerSurface({
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
+            modelSelectorChevron={modelSelectorChevron}
             onChange={onModelChange!}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}
             onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
+            modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
+            modelTriggerLabel={modelTriggerLabel}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             terminalModeControl={terminalModeControl}
@@ -6982,6 +7394,7 @@ function TiptapComposerSurface({
                 isMac={isMac}
                 disabled={disabled}
                 voiceChat={voiceChatEnabled}
+                showShortcut={dictationShortcut}
               />
             )}
             {stopButton ? (
@@ -7027,6 +7440,8 @@ function TiptapComposerSurface({
         onSelectSkill={handleSelectSkill}
         onSelectCommand={handleSelectCommand}
         onClose={closePopover}
+        listboxId={mentionListboxId}
+        onActiveOptionChange={setActiveMentionOptionId}
       />
     </>
   );

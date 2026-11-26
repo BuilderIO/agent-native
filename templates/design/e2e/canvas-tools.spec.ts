@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import {
   type APIRequestContext,
   type Frame,
@@ -6,19 +7,19 @@ import {
 } from "@playwright/test";
 
 import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../app/pages/design-editor/left-sidebar-width";
-import { ANNOTATE_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import {
   dragCanvasByText,
   designFrame,
-  enableLab,
   enterDirectMode,
   gotoEditor,
   installBridge,
+  must,
   pickFrameMode,
   selectByText,
   openAppMenuSubmenu,
+  openPageOverview,
   selectTool,
   type ToolbarTool,
 } from "./helpers";
@@ -119,22 +120,15 @@ test.beforeEach(async ({ app, page }, workerInfo) => {
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-let restoreAnnotateLab: (() => Promise<void>) | undefined;
-
-test.afterEach(async () => {
-  await restoreAnnotateLab?.();
-  restoreAnnotateLab = undefined;
-});
-
 function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
 }
 
-function modeButton(
-  page: Page,
-  mode: "annotate" | "edit" | "interact",
-): Locator {
-  return page.locator(`[data-design-top-bar] [data-design-mode="${mode}"]`);
+function modeButton(page: Page, mode: "edit" | "interact"): Locator {
+  const label = mode === "edit" ? "Edit" : "Interact";
+  return page.locator(
+    `[data-design-bottom-toolbar] button[aria-label="${label}"]`,
+  );
 }
 
 function roundedBox(
@@ -978,18 +972,26 @@ async function insertTextByDrag(
     "aria-pressed",
     "true",
   );
-  await dragBetween(
-    page,
-    {
-      x: cardBox.x + cardBox.width * 0.28,
-      y: cardBox.y + cardBox.height * 0.28,
-    },
-    {
-      x: cardBox.x + cardBox.width * 0.64,
-      y: cardBox.y + cardBox.height * 0.38,
-    },
-  );
+  await dragBetween(page, ...textDragPoints(cardBox));
   await replaceActiveText(page, text);
+}
+
+function textDragPoints(cardBox: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): [{ x: number; y: number }, { x: number; y: number }] {
+  return [
+    {
+      x: Math.round(cardBox.x + cardBox.width * 0.28),
+      y: Math.round(cardBox.y + cardBox.height * 0.28),
+    },
+    {
+      x: Math.round(cardBox.x + cardBox.width * 0.64),
+      y: Math.round(cardBox.y + cardBox.height * 0.38),
+    },
+  ];
 }
 
 async function waitForScreenDeletion(page: Page): Promise<void> {
@@ -1095,13 +1097,7 @@ function expectPathStartsInsideViewBox(vector: VectorPrimitiveSummary): void {
 }
 
 async function restoreHome(page: Page): Promise<void> {
-  const allScreens = page.getByRole("button", {
-    name: "All screens",
-    exact: true,
-  });
-  if (await allScreens.isVisible()) {
-    await allScreens.click();
-  }
+  await openPageOverview(page);
   await homeLayerRow(page).click();
   await expect(toolButton(page, "Move")).toHaveAttribute(
     "aria-pressed",
@@ -1210,21 +1206,21 @@ test("top bar modes toggle the editor mode buttons", async ({ page }) => {
     "aria-pressed",
     "false",
   );
-  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
-  await expect(modeButton(page, "annotate")).toHaveCount(0);
 
   await modeButton(page, "interact").click();
   await expect(
-    page.locator("[data-design-top-bar] [data-design-interact-route]"),
+    page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
-  // Interact has no bottom toolbar; the canvas tools return with Design.
+  // oracle-change: Interact keeps the bottom toolbar for its mode switch and zoom; only the tool groups leave, and return with Design.
   const toolbarGroups = () =>
     page
       .locator("[data-design-bottom-toolbar] [data-design-toolbar-group]")
       .evaluateAll((groups) =>
         groups.map((group) => group.getAttribute("data-design-toolbar-group")),
       );
-  await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
+  await expect.poll(toolbarGroups).toEqual([]);
   await modeButton(page, "edit").click();
   await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
@@ -1244,22 +1240,16 @@ test("top bar modes toggle the editor mode buttons", async ({ page }) => {
 test("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
   page,
 }) => {
-  const railBox = await page
-    .getByRole("navigation", { name: "Design workspace" })
-    .boundingBox();
+  // oracle-change: the workspace rail is gone; the left column (File tab with the Layers panel) opens at its default width.
+  const leftBox = await page.locator("[data-design-left-column]").boundingBox();
   const layersBox = await page
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
-  // The rail is 7 baseline units (`--design-chrome-rail-width`); the Layers
-  // panel opens at its default width beside it.
-  expect(railBox?.width).toBe(56);
-  expect(layersBox).not.toBeNull();
+  expect(leftBox?.width).toBe(DEFAULT_LEFT_SIDEBAR_WIDTH);
+  const layers = must(layersBox, "Layers panel");
+  const left = must(leftBox, "left column");
   expect(
-    Math.abs(
-      layersBox!.x +
-        layersBox!.width -
-        (railBox!.width + DEFAULT_LEFT_SIDEBAR_WIDTH),
-    ),
+    Math.abs(layers.x + layers.width - (left.x + left.width)),
   ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
@@ -1309,11 +1299,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   expect(
     Math.abs(dialogBox!.x + dialogBox!.width / 2 - viewport.width / 2),
   ).toBeLessThanOrEqual(1);
-  // The 13 canvas categories, then Code.
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
-  await expect(
-    dialog.locator("[data-shortcuts-category]").last(),
-  ).toHaveAttribute("data-shortcuts-category", "code");
+  // oracle-change: the Code category was removed with the Monaco editor, leaving the 13 canvas categories
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
   await expect(
     dialog.locator('[data-shortcut-section="essential"] [data-shortcut-id]'),
   ).toHaveCount(3);
@@ -1348,7 +1335,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     "No shortcuts match “zzzzzz”",
   );
   await search.fill("");
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
+  // oracle-change: the Code category was removed with the Monaco editor, leaving 13 categories
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
 
   // A category click scrolls the one list to that section.
   const list = dialog.locator("[data-shortcuts-list]");
@@ -1376,10 +1364,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     "true",
   );
 
+  // oracle-change: the Monaco code editor was removed from Design, so its shortcuts section and tests are gone
   await dialog.locator('[data-shortcuts-category="edit"]').click();
-  await expect(
-    dialog.locator('[data-code-shortcut-id="workbench.save"]'),
-  ).toBeVisible();
   // oracle-change: nudge fields moved out of this dialog into their own popup, covered by the nudge amount popup test below.
 
   await page.keyboard.press("Escape");
@@ -1487,103 +1473,6 @@ test("keyboard shortcuts dialog fits a narrow window and stacks its categories",
   );
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
-});
-
-test("overview Annotate draws around screens with stable iframes and stroke undo redo", async ({
-  page,
-}) => {
-  // Annotate is behind a lab; the lab is read when the editor loads.
-  restoreAnnotateLab = await enableLab(page, ANNOTATE_LAB.key);
-  await gotoEditor(page, designId);
-  const shell = screenShell(page, "Home");
-  const iframe = shell.locator("iframe[data-design-preview-iframe]").first();
-  await expect(iframe).toBeVisible();
-  await installIframePaintProbe(iframe, "stable-overview-paint");
-  await iframe.evaluate((element) => {
-    const frame = element as HTMLIFrameElement & { __annotateLoads?: number };
-    frame.dataset.annotateIdentity = "stable-overview-frame";
-    frame.__annotateLoads = 0;
-    frame.addEventListener("load", () => {
-      frame.__annotateLoads = (frame.__annotateLoads ?? 0) + 1;
-    });
-  });
-  const readIframeIdentity = () =>
-    iframe.evaluate((element) => {
-      const frame = element as HTMLIFrameElement & {
-        __annotateLoads?: number;
-      };
-      return {
-        identity: frame.dataset.annotateIdentity,
-        loads: frame.__annotateLoads,
-      };
-    });
-
-  await modeButton(page, "annotate").click();
-  await expect(modeButton(page, "annotate")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(shell).toBeVisible();
-  await expect(page.locator("[data-draw-overlay]")).toBeVisible();
-  await expect.poll(readIframeIdentity).toEqual({
-    identity: "stable-overview-frame",
-    loads: 0,
-  });
-  await expectIframePaintStable(page, "stable-overview-paint");
-
-  const drawCanvas = page.locator("[data-draw-canvas]");
-  const canvasBox = await drawCanvas.boundingBox();
-  const shellBox = await shell.boundingBox();
-  if (!canvasBox || !shellBox) throw new Error("missing overview draw bounds");
-  const x = Math.max(canvasBox.x + 24, shellBox.x - 48);
-  const y = Math.max(canvasBox.y + 80, shellBox.y + 60);
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x + 28, y + 18, { steps: 6 });
-  await page.mouse.up();
-  const strokeArea = { x: x - 6, y: y - 6, width: 40, height: 30 };
-  await expect
-    .poll(() => inkIn(page, strokeArea), "the stroke is painted")
-    .toBeGreaterThan(0);
-  const drawnInk = await inkIn(page, strokeArea);
-
-  const undo = page.locator('[data-testid="draw-undo"]');
-  const redo = page.locator('[data-testid="draw-redo"]');
-  await expect(undo).toBeEnabled();
-  await undo.click();
-  await expect(undo).toBeDisabled();
-  await expect(redo).toBeEnabled();
-  await expect
-    .poll(() => inkIn(page, strokeArea), "undo erases the stroke")
-    .toBe(0);
-  await redo.click();
-  await expect(undo).toBeEnabled();
-  await expect(redo).toBeDisabled();
-  await expect
-    .poll(() => inkIn(page, strokeArea), "redo repaints the same stroke")
-    .toBe(drawnInk);
-
-  await expect.poll(readIframeIdentity).toEqual({
-    identity: "stable-overview-frame",
-    loads: 0,
-  });
-  await expectIframePaintStable(page, "stable-overview-paint");
-  await page.keyboard.press("Escape");
-  await expect(page.locator("[data-draw-overlay]")).toHaveAttribute(
-    "aria-hidden",
-    "true",
-  );
-  await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
-  await expect(modeButton(page, "annotate")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
-  await expect(shell).toBeVisible();
-  await expect.poll(readIframeIdentity).toEqual({
-    identity: "stable-overview-frame",
-    loads: 0,
-  });
-  await expectIframePaintStable(page, "stable-overview-paint");
 });
 
 test("overview pan and cursor-anchored zoom retain a continuously painted iframe", async ({
@@ -2147,9 +2036,11 @@ test("drag text creates bounded text the size of the drag", async ({
 
   const primitive = await waitForTextPrimitive(page, "index.html", text);
   expect(primitive.display).toBe("flex");
+  // oracle-change: the expected size is the drag the mouse actually made. Mouse events truncate to whole pixels, and one pixel is over 3 canvas px at this zoom, so 36% x 10% of the card was only within 2px when the card happened to sit on a whole pixel (it moved when the top bar went away).
+  const [from, to] = textDragPoints(cardBox);
   const expected = {
-    width: (0.36 * cardBox.width) / scale,
-    height: (0.1 * cardBox.height) / scale,
+    width: (to.x - from.x) / scale,
+    height: (to.y - from.y) / scale,
   };
   expect(
     Math.abs(parseFloat(primitive.width) - expected.width),
@@ -3045,8 +2936,8 @@ test("frame drawn left of the first screen creates a new screen", async ({
   const filesBeforeFrame = await designFiles(page);
   const screenCountBeforeFrame = htmlScreenFiles(filesBeforeFrame).length;
 
-  await pickFrameMode(page, "Screen");
-  await expect(toolButton(page, "Screen")).toHaveAttribute(
+  await pickFrameMode(page, "Page");
+  await expect(toolButton(page, "Page")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -3694,7 +3585,6 @@ test("single-screen undo does not consume overview history", async ({
     .toBe(aboutRectanglesBefore + 1);
 
   const sidebar = page.locator("aside").first();
-  const allScreens = sidebar.getByRole("button", { name: "All screens" });
   const homeScreen = sidebar
     .getByRole("button", { name: "Home", exact: true })
     .first();
@@ -3703,7 +3593,14 @@ test("single-screen undo does not consume overview history", async ({
   await homeScreen.click();
   await expect(selectedLayerRow(page)).toContainText("Home");
   await modeButton(page, "interact").click();
-  await expect(homeScreen).toHaveAttribute("aria-current", "page");
+  // oracle-change: Interact has no Pages list, so the current-row check moves to the Interact screen shell, which must be Home.
+  await expect(
+    page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
+  ).toHaveCount(1);
+  await expect(screenShell(page, "Home")).toHaveAttribute(
+    "data-screen-interact-mode",
+    "true",
+  );
 
   await pressPrimaryShortcut(page, "z");
   await page.waitForTimeout(300);
@@ -3711,8 +3608,8 @@ test("single-screen undo does not consume overview history", async ({
     aboutRectanglesBefore + 1,
   );
 
-  await allScreens.click();
-  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  // oracle-change: the All screens row is gone, so the overview is entered from Interact through the View menu and its current-row check is dropped.
+  await openPageOverview(page);
   await expect(screenShell(page, "About")).toBeVisible();
   await pressPrimaryShortcut(page, "z");
   await expect

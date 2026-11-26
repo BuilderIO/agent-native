@@ -66,8 +66,7 @@ uniformly through one class-vs-media decision:
   `<style data-agent-native-breakpoints>` block as
   `@media (max-width: <bound>px)` rules targeting the element's
   `data-agent-native-node-id`. The block is deterministic (wider buckets
-  first so narrower ranges win by source order) and readable/editable in the
-  Code panel.
+  first so narrower ranges win by source order).
 
 Other targeting options:
 
@@ -78,6 +77,14 @@ Other targeting options:
   edits only (mobile-first `md:text-lg`). Still supported for documents
   authored mobile-first; prefer `activeFrameWidthPx` for breakpoint-bar
   parity.
+
+`deleteNode` follows the editor's Delete. With `activeFrameWidthPx` (or
+`maxWidthPx`) on a frame narrower than the base it hides the layer at that
+width (scoped `display: none`, result message "Hidden at viewport widths <= N px")
+and the layer stays in the document. On the base frame, with no scope, or in a
+design with no breakpoint set it removes the layer at every width. A legacy
+`activeBreakpoint` prefix has no hide form, so a delete scoped that way is
+refused with no write.
 
 When the design has no breakpoint set, `activeFrameWidthPx` falls back to
 the legacy min-width prefix behaviour for class edits. When the active frame

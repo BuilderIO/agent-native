@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import type { DashboardFilter } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -26,7 +27,6 @@ import { i18nCatalog } from "@/i18n";
 import { useSqlQuery } from "@/lib/sql-query";
 
 import { DashboardFilterBar } from "./DashboardFilterBar";
-import type { DashboardFilter } from "./types";
 import { useFilterSearchParams } from "./use-filter-search-params";
 
 const mocks = vi.hoisted(() => ({ callAction: vi.fn() }));

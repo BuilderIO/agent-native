@@ -1,0 +1,23 @@
+Changed files:
+  search.tsx  (input 4)
+
+Sites transformed:
+  button     0
+  badge      0
+  input      4
+  text-area  0
+  skeleton   0
+  spinner    0
+  toast      0
+
+Shims:
+
+Not transformed (1 sites), by reason:
+  [input] type="checkbox" isn't a text field (1)
+    checkbox.tsx:4
+
+Transformed, needs a look (1 sites), by reason:
+  [input] className sets a height (h-7) that now fights the size prop (1)
+    search.tsx:11
+
+Test mocks of a legacy module (0):

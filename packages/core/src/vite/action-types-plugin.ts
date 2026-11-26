@@ -3,6 +3,8 @@ import path from "path";
 
 import type { Plugin, ViteDevServer } from "vite";
 
+import { scanActionDir, type ActionFileEntry } from "../server/action-files.js";
+
 const ACTION_REGISTRY_REFRESH_DELAY_MS = 300;
 
 const SKIP_FILES = new Set([
@@ -41,6 +43,14 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "set-lab",
     specifier: "@agent-native/core/labs/actions/set-lab",
+  },
+  {
+    name: "get-labs-show-all",
+    specifier: "@agent-native/core/labs/actions/get-labs-show-all",
+  },
+  {
+    name: "set-labs-show-all",
+    specifier: "@agent-native/core/labs/actions/set-labs-show-all",
   },
   {
     name: "get-chatgpt-subscription-status",
@@ -475,44 +485,24 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   },
 ];
 
-function isRuntimeSourceFile(filename: string): boolean {
-  if (!/\.(ts|js)$/.test(filename)) return false;
-  if (/\.d\.ts$/.test(filename)) return false;
-  if (/\.(test|spec)\.(ts|js)$/.test(filename)) return false;
-  return true;
-}
-
-function scanActionFiles(actionsDir: string): string[] {
-  let files: string[];
-  try {
-    files = fs.readdirSync(actionsDir);
-  } catch {
-    return [];
-  }
-  return files.filter((f) => {
-    if (!isRuntimeSourceFile(f)) return false;
-    const name = f.replace(/\.(ts|js)$/, "");
-    if (name.startsWith("_")) return false;
-    if (SKIP_FILES.has(name)) return false;
+function scanActionFiles(actionsDir: string): ActionFileEntry[] {
+  return scanActionDir(actionsDir, SKIP_FILES).filter(({ relPath }) => {
     try {
-      const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
+      const content = fs.readFileSync(path.join(actionsDir, relPath), "utf-8");
       const reexportsDefaultAction =
         /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
       const exportsActionFactory =
         /export\s+default\s+(?:(?:create|define)[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
           content,
         );
-      if (
-        !content.includes("defineAction") &&
-        !reexportsDefaultAction &&
-        !exportsActionFactory
-      ) {
-        return false;
-      }
+      return (
+        content.includes("defineAction") ||
+        reexportsDefaultAction ||
+        exportsActionFactory
+      );
     } catch {
       return false;
     }
-    return true;
   });
 }
 
@@ -632,25 +622,22 @@ function generateActionArtifacts(
     ? scanActionFiles(workspaceActionsDir)
     : [];
 
-  const templateActionNames = new Set<string>(
-    actionFiles.map((f) => f.replace(/\.(ts|js)$/, "")),
-  );
+  const templateActionNames = new Set<string>(actionFiles.map((f) => f.name));
   const registeredActionNames = new Set(templateActionNames);
 
-  const actionSources = actionFiles.map((f) => {
-    const name = f.replace(/\.(ts|js)$/, "");
-    return {
-      name,
-      relPath: `${relActionsDir}/${name}`,
-    };
-  });
+  const actionSources = actionFiles.map(({ name, relPath }) => ({
+    name,
+    relPath: `${relActionsDir}/${relPath.replace(/\.(ts|js)$/, "")}`,
+  }));
 
   if (workspaceActionsDir) {
-    for (const f of workspaceActionFiles) {
-      const name = f.replace(/\.(ts|js)$/, "");
+    for (const { name, relPath: fileRel } of workspaceActionFiles) {
       if (registeredActionNames.has(name)) continue;
       const relPath = path
-        .relative(outDir, path.join(workspaceActionsDir, name))
+        .relative(
+          outDir,
+          path.join(workspaceActionsDir, fileRel.replace(/\.(ts|js)$/, "")),
+        )
         .replace(/\\/g, "/");
       actionSources.push({ name, relPath });
       registeredActionNames.add(name);

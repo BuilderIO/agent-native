@@ -12,6 +12,8 @@ import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
+export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
+
 export interface AgentNativeJsonSchema {
   type?: string | string[];
   description?: string;
@@ -411,6 +413,17 @@ export function isUnknownWriteCause(
  */
 export type ToolErrorClass = "input_invalid" | "rejected";
 
+/** One action a peer app paused on until a person approves it there. */
+export interface A2APeerApproval {
+  id: string;
+  tool: string;
+  url: string;
+}
+
+/** The widget a paused peer call shows while it waits on the person's approval in that app. */
+export const AGENT_CALL_APPROVAL_WIDGET_KIND =
+  "agent-native/agent-call-approval";
+
 type AgentChatEventPayload =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
@@ -436,6 +449,7 @@ type AgentChatEventPayload =
         | "tool_use"
         | "max_tokens"
         | "stop_sequence"
+        | "refusal"
         | "error";
       errorCode?: string;
     }
@@ -460,6 +474,7 @@ type AgentChatEventPayload =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      navigationKeys?: string[];
       /** The call was skipped without executing or serving a result. */
       notExecuted?: true;
       /** Compact action write evidence retained even when `result` is truncated. */
@@ -475,6 +490,8 @@ type AgentChatEventPayload =
        * continued turn replays a committed call only for the same identity.
        */
       argumentsHash?: string;
+      /** Keyed HMAC identity for deterministic replay of a committed private tool call. */
+      privateReplayIdentity?: string;
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;
@@ -502,6 +519,8 @@ type AgentChatEventPayload =
        * server-side approval record binds it with `approvalKeyWithArguments`.
        */
       argumentsHash?: string;
+      /** The question the approval card asks; omitted for the generic one. */
+      label?: string;
       allowPersistentApproval?: false;
       toolCallId?: string;
       askId?: string;
@@ -523,6 +542,12 @@ type AgentChatEventPayload =
       taskId?: string;
       durationMs?: number;
       terminalCode?: string;
+      /**
+       * Set on a "pending" call whose peer paused for a person to approve one
+       * action in the peer app. `url` is that app's approval page, on the
+       * peer's own origin; continuing `taskId` afterwards picks up the result.
+       */
+      approval?: A2APeerApproval;
     }
   | {
       type: "agent_call_progress";
@@ -549,6 +574,7 @@ type AgentChatEventPayload =
       taskId: string;
       threadId: string;
       description: string;
+      name?: string;
       status: "running" | "completed" | "errored";
     }
   | {
@@ -566,6 +592,13 @@ type AgentChatEventPayload =
       type: "done";
       reason?: "user" | "loop_breaker" | "action_settled";
       message?: string;
+      /**
+       * On a user's Stop: the last event of the run their browser had shown,
+       * or -1 for none. The saved reply keeps no text or reasoning written
+       * after it.
+       */
+      shownThroughSeq?: number;
+      durationMs?: number;
     }
   | {
       type: "error";
@@ -634,6 +667,16 @@ export const CONTINUATION_REASONS = [
 ] as const;
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
+
+/**
+ * `tool_done.errorCode` for a call whose tool name does not exist. Nothing ran
+ * and the model self-corrects from the error, so chat UIs hide the cell.
+ */
+export const UNKNOWN_TOOL_ERROR_CODE = "unknown_tool";
+
+export const RESPONSE_GUARD_RICH_EVENT_NAMESPACE =
+  "agent-native.response-guard";
+export const RESPONSE_GUARD_DRAFT_KEPT_EVENT = "draft_kept_after_failure";
 
 export function isContinuationTerminalReason(reason: unknown): boolean {
   return (

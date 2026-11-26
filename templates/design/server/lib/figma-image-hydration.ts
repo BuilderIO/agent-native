@@ -14,6 +14,10 @@ import { uploadFile } from "@agent-native/core/file-upload";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
+import {
+  decodeFigImages,
+  type DecodedFigImage,
+} from "../../shared/fig-file-decoder.js";
 import { getDb, schema } from "../db/index.js";
 import {
   readLiveSourceFile,
@@ -21,7 +25,6 @@ import {
   type SourceWorkspaceFile,
 } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
-import { decodeFigImages, type DecodedFigImage } from "./fig-file-decoder.js";
 
 const DATA_IMAGE_REF_ATTR_RE = /\sdata-figma-image-ref="([^"]*)"/;
 

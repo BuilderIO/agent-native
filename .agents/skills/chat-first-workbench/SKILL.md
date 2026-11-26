@@ -65,6 +65,27 @@ validated app-relative path or view.
 - Cloud handoff is a future execution-residence seam. Do not claim that a local
   run has moved to a worker until a durable worker snapshot and readback exist.
 
+## Manifest routing and suggestions
+
+Resolve intent from each accessible app's `AppCapabilityManifest` using its
+canonical intents, entity nouns, and negative disambiguators. Resolve targets
+to declared screen routes and params, with live pane context from
+`view-screen`. `navigationMode` can open an explicit target, reveal a result
+in context, or keep the existing pane. A background result keeps the visible
+pane. Apply a valid route directly without typing a search into the UI.
+
+Use realtime `useDbSync({ realtime: { reason } })` for panes whose visible
+data must reflect changes from other clients or actors. A manual edit or
+selection becomes context for the following chat turn without a reload.
+
+An `ActionSuggestion` carries `id`, `kind`, `trigger`, `label`, `rationale`,
+`appId`, and typed `execution`. Render only proposals backed by a declared
+capability and current permission. Interpret action name and params,
+customization target and edit spec, or the new-app domain spec according to
+the execution type. The user's acceptance triggers execution through the
+existing action or creation workflow. Refresh the view according to its
+navigation mode and surface any failure on the suggestion.
+
 ## Verification
 
 Test the disabled path and the enabled path separately. For the enabled path,

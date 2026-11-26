@@ -10,7 +10,11 @@ state: "approved_shape"
 publicness: "public"
 availability: "external_host"
 dependencies: ["content.embed.surface", "content.embed.host-grant"]
-related_features: ["content.feature.work-on-content-inside-another-application"]
+related_features:
+  [
+    "content.feature.work-on-content-inside-another-application",
+    "content.feature.use-content-from-chatgpt",
+  ]
 roadmap_boundary: "feature"
 acceptance_summary: "An MCP App integration adapts the canonical embed mount and host-grant contract to compatible hosts, preserves viewer-scoped actions and receipts, and fails clearly when host capabilities are absent."
 proof_requirements:

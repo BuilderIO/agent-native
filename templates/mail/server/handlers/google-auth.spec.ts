@@ -1,7 +1,11 @@
+import { resolveNativeAuthCopy } from "@agent-native/core/shared";
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createOAuthSession: vi.fn(),
+  recordBuilderSignupBinding: vi.fn(),
+  hasGoogleAuthIdentity: vi.fn(),
   decodeOAuthState: vi.fn(),
   disconnect: vi.fn(),
   encodeOAuthState: vi.fn(),
@@ -46,6 +50,8 @@ vi.mock("h3", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   createOAuthSession: mocks.createOAuthSession,
+  recordBuilderSignupBinding: mocks.recordBuilderSignupBinding,
+  hasGoogleAuthIdentity: mocks.hasGoogleAuthIdentity,
   decodeOAuthState: mocks.decodeOAuthState,
   encodeOAuthState: mocks.encodeOAuthState,
   ensureGoogleAuthIdentity: mocks.ensureGoogleAuthIdentity,
@@ -61,6 +67,9 @@ vi.mock("@agent-native/core/server", () => ({
   matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  resolveLocaleFromRequest: (options: { acceptLanguage?: string | null }) => ({
+    locale: options.acceptLanguage ?? "en-US",
+  }),
   registerDesktopExchange: mocks.registerDesktopExchange,
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
@@ -111,9 +120,14 @@ function createEvent(
   return { query, headers, method };
 }
 
+function asEvent(event: ReturnType<typeof createEvent>) {
+  return event as unknown as H3Event;
+}
+
 describe("Mail Google auth-url handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.hasGoogleAuthIdentity.mockResolvedValue(false);
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
@@ -208,7 +222,7 @@ describe("Mail Google auth-url handlers", () => {
 
     await expect(
       handleGoogleCallback(
-        createEvent({ code: "google-code", state: "inner-state" }) as any,
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
       ),
     ).resolves.toBe("signed-in");
 
@@ -248,7 +262,7 @@ describe("Mail Google auth-url handlers", () => {
 
     await expect(
       handleGoogleCallback(
-        createEvent({ code: "google-code", state: "inner-state" }) as any,
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
       ),
     ).resolves.toBe("signed-in");
 
@@ -260,6 +274,202 @@ describe("Mail Google auth-url handlers", () => {
       }),
     );
     expect(mocks.ensureGoogleAuthIdentity).not.toHaveBeenCalled();
+  });
+
+  describe("automatic Builder setup binding", () => {
+    const signIn = async (
+      profile: Record<string, unknown>,
+      isNewUser: boolean,
+      builderSignupAttemptId: string | undefined = "attempt-0123456789",
+    ) => {
+      mocks.decodeOAuthState.mockReturnValue({
+        ok: true,
+        redirectUri:
+          "https://mail.agent-native.com/_agent-native/google/callback",
+        owner: undefined,
+        addAccount: false,
+        builderSignupAttemptId,
+      });
+      mocks.resolveOAuthOwner.mockResolvedValue({
+        owner: undefined,
+        hasProductionSession: false,
+      });
+      mocks.exchangeCode.mockResolvedValue("new@example.com");
+      mocks.createOAuthSession.mockResolvedValue({ sessionToken: "session" });
+      mocks.getClient.mockResolvedValue({
+        email: "new@example.com",
+        accessToken: "gmail-access-token",
+      });
+      mocks.googleFetch.mockResolvedValue(profile);
+      mocks.ensureGoogleAuthIdentity.mockResolvedValue(isNewUser);
+      mocks.oauthCallbackResponse.mockReturnValue("signed-in");
+      await handleGoogleCallback(
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
+      );
+    };
+
+    it("binds the signup attempt for a new verified Google identity", async () => {
+      await signIn({ id: "google-user-id", verified_email: true }, true);
+      expect(mocks.recordBuilderSignupBinding).toHaveBeenCalledWith(
+        expect.anything(),
+        "attempt-0123456789",
+        "google",
+        "new@example.com",
+        { email: "new@example.com", token: "session", emailVerified: true },
+      );
+    });
+
+    it("does not bind an existing user signing in again", async () => {
+      await signIn({ id: "google-user-id", verified_email: true }, false);
+      expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
+    });
+
+    it("does not bind when Google has not verified the email", async () => {
+      await signIn({ id: "google-user-id", verified_email: false }, true);
+      expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        "the profile client fails",
+        () => mocks.getClient.mockRejectedValue(new Error("unavailable")),
+      ],
+      [
+        "the profile request fails",
+        () => mocks.googleFetch.mockRejectedValue(new Error("unavailable")),
+      ],
+      [
+        "the profile has no account id",
+        () => mocks.googleFetch.mockResolvedValue({ verified_email: true }),
+      ],
+    ])(
+      "asks to retry instead of signing in when %s during a signup",
+      async (_, fail) => {
+        mocks.decodeOAuthState.mockReturnValue({
+          ok: true,
+          redirectUri:
+            "https://mail.agent-native.com/_agent-native/google/callback",
+          owner: undefined,
+          addAccount: false,
+          builderSignupAttemptId: "attempt-0123456789",
+        });
+        mocks.resolveOAuthOwner.mockResolvedValue({
+          owner: undefined,
+          hasProductionSession: false,
+        });
+        mocks.exchangeCode.mockResolvedValue("new@example.com");
+        mocks.getClient.mockResolvedValue({
+          email: "new@example.com",
+          accessToken: "gmail-access-token",
+        });
+        fail();
+        await handleGoogleCallback(
+          asEvent(createEvent({ code: "google-code", state: "inner-state" })),
+        );
+        expect(mocks.createOAuthSession).not.toHaveBeenCalled();
+        expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
+        expect(mocks.oauthErrorPage).toHaveBeenCalledWith(
+          "We couldn't connect. Please try again.",
+        );
+      },
+    );
+
+    it("still signs in a user already linked to Google when the profile cannot be read", async () => {
+      mocks.decodeOAuthState.mockReturnValue({
+        ok: true,
+        redirectUri:
+          "https://mail.agent-native.com/_agent-native/google/callback",
+        owner: undefined,
+        addAccount: false,
+        builderSignupAttemptId: "attempt-0123456789",
+      });
+      mocks.resolveOAuthOwner.mockResolvedValue({
+        owner: undefined,
+        hasProductionSession: false,
+      });
+      mocks.exchangeCode.mockResolvedValue("existing@example.com");
+      mocks.getClient.mockRejectedValue(new Error("unavailable"));
+      mocks.hasGoogleAuthIdentity.mockResolvedValue(true);
+      mocks.createOAuthSession.mockResolvedValue({ sessionToken: "session" });
+      mocks.oauthCallbackResponse.mockReturnValue("signed-in");
+      await expect(
+        handleGoogleCallback(
+          asEvent(createEvent({ code: "google-code", state: "inner-state" })),
+        ),
+      ).resolves.toBe("signed-in");
+      expect(mocks.hasGoogleAuthIdentity).toHaveBeenCalledWith(
+        "existing@example.com",
+      );
+      expect(mocks.recordBuilderSignupBinding).not.toHaveBeenCalled();
+      expect(mocks.oauthErrorPage).not.toHaveBeenCalled();
+    });
+
+    it("asks to retry when the profile and the identity lookup both fail", async () => {
+      mocks.decodeOAuthState.mockReturnValue({
+        ok: true,
+        redirectUri:
+          "https://mail.agent-native.com/_agent-native/google/callback",
+        owner: undefined,
+        addAccount: false,
+        builderSignupAttemptId: "attempt-0123456789",
+      });
+      mocks.resolveOAuthOwner.mockResolvedValue({
+        owner: undefined,
+        hasProductionSession: false,
+      });
+      mocks.exchangeCode.mockResolvedValue("new@example.com");
+      mocks.getClient.mockRejectedValue(new Error("unavailable"));
+      mocks.hasGoogleAuthIdentity.mockRejectedValue(new Error("db down"));
+      await handleGoogleCallback(
+        asEvent(createEvent({ code: "google-code", state: "inner-state" })),
+      );
+      expect(mocks.createOAuthSession).not.toHaveBeenCalled();
+      expect(mocks.oauthErrorPage).toHaveBeenCalledWith(
+        "We couldn't connect. Please try again.",
+      );
+    });
+
+    it("shows the retry message in the request's language", async () => {
+      mocks.decodeOAuthState.mockReturnValue({
+        ok: true,
+        redirectUri:
+          "https://mail.agent-native.com/_agent-native/google/callback",
+        owner: undefined,
+        addAccount: false,
+        builderSignupAttemptId: "attempt-0123456789",
+      });
+      mocks.resolveOAuthOwner.mockResolvedValue({
+        owner: undefined,
+        hasProductionSession: false,
+      });
+      mocks.exchangeCode.mockResolvedValue("new@example.com");
+      mocks.getClient.mockRejectedValue(new Error("unavailable"));
+      await handleGoogleCallback(
+        asEvent(
+          createEvent(
+            { code: "google-code", state: "inner-state" },
+            { "accept-language": "de-DE" },
+          ),
+        ),
+      );
+      expect(mocks.oauthErrorPage).toHaveBeenCalledWith(
+        resolveNativeAuthCopy("de-DE").failedToConnect,
+      );
+      expect(resolveNativeAuthCopy("de-DE").failedToConnect).not.toBe(
+        resolveNativeAuthCopy("en-US").failedToConnect,
+      );
+    });
+
+    it("carries the signup attempt into OAuth state", async () => {
+      await getGoogleAuthUrl(
+        asEvent(createEvent({ builder_signup_attempt: "attempt-0123456789" })),
+      );
+      expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          builderSignupAttemptId: "attempt-0123456789",
+        }),
+      );
+    });
   });
 
   it("returns a JSON auth URL for verifier-bound add-account sign-in", async () => {

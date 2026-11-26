@@ -175,14 +175,9 @@ export class App {
         response.status() >= 400 &&
         !isAwarenessSequenceReset(response)
       ) {
-        const motionTimeline422 =
-          response.status() === 422 &&
-          url.pathname.endsWith("/_agent-native/actions/get-motion-timeline");
         this.failures.push({
           kind: `http ${response.status()}`,
-          detail: `${response.request().method()} ${url.pathname}${
-            motionTimeline422 ? ` ${await response.text()}` : ""
-          }`,
+          detail: `${response.request().method()} ${url.pathname}`,
         });
       }
     });

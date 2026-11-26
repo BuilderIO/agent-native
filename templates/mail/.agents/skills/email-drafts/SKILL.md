@@ -140,7 +140,9 @@ first, update only `autocompleteEnabled`, and re-read to verify persistence.
 2. **UI polling sees the change** — invalidates the `compose-drafts` React Query cache
 3. **Compose panel re-renders** — shows the updated draft as a tab, switches to it if new
 
-A person may be typing in a draft while you update it. `save_conflict` means it changed after your read and nothing was saved: redo your edit on `details.current` with `details.currentRevision`. Never tell the user the edit landed until an `update` succeeds.
+A person may be typing in a draft while you update it. `save_conflict` means it changed after your read and nothing was saved, in Mail or in Gmail: redo your edit on `details.current` with `details.currentRevision`. Never tell the user the edit landed until an `update` succeeds. A `delete` or `delete-all` that answers `draft_busy` found the draft changing under it and left it in place: delete it again.
+
+An `update` saves Mail's copy first, then brings the draft's mailbox copy (its Gmail draft, or a local one) up to date from what Mail stored. `mailboxSync` in the result says how that went. `pending` means Mail's copy is saved but the mailbox copy is behind, for example while Gmail is cooling down (`retryAfterMs`); Mail's copy is the one that sends, and the next save of the draft catches the mailbox copy up. Don't redo the edit for it. Send the same update again only if the user needs Gmail's copy right now, after any `retryAfterMs`. The exception is `errorCode` `draft_alias_unknown`: the draft names a saved group that no longer exists, and its mailbox copy stays behind until the recipients change. Tell the user, or replace the group with the addresses they want. With `errorCode` `draft_attachments_unconfirmed`, Gmail saved the draft but Mail couldn't confirm where its Gmail files moved; the next update finds them again, so send the same update once more before sending the draft. With `unrecordedGmailDraftId`, Gmail saved the update as that draft but Mail's copy couldn't record its ID, so the draft's next save can leave an extra copy in Gmail's drafts: don't retry the update for it, and tell the user they can delete the older Gmail copy once the draft is sent or saved again.
 
 The compose panel opens automatically when any compose draft exists. When the last draft is deleted, the panel closes.
 
@@ -287,7 +289,8 @@ failure. This preference does not apply to new messages or forwards.
 
 ## Scheduled Sends
 
-Scheduled sends use job ids prefixed `scheduled-`; `send-scheduled-email-now`
+Scheduled sends appear in their own section of Drafts, soonest first; there is
+no separate Scheduled page. They use job ids prefixed `scheduled-`; `send-scheduled-email-now`
 and `cancel-scheduled-email` both strip that prefix internally before looking
 up the job — pass the id as shown to the user either way.
 

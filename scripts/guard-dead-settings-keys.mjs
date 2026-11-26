@@ -44,6 +44,26 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
+import {
+  diffBaseCommit,
+  requireAddedLines,
+  removedLines,
+  readCommitFile,
+} from "./lib/changed-lines.mjs";
+
+const added = process.argv.includes("--diff")
+  ? requireAddedLines(REPO_ROOT, "guard-dead-settings-keys")
+  : null;
+
+const base = added ? diffBaseCommit(REPO_ROOT) : null;
+const removed = added ? removedLines(REPO_ROOT) : null;
+if (added && (!base || !removed)) {
+  console.error(
+    "guard-dead-settings-keys: could not determine removed exemption context",
+  );
+  process.exit(2);
+}
+
 const KNOWN_DEAD_KEYS = [
   {
     template: "brain",
@@ -71,6 +91,7 @@ function templates() {
 function zodSchemaKeys(source) {
   const start = source.indexOf("schema: z.object({");
   if (start === -1) return [];
+  const offset = source.slice(0, start).split("\n").length - 1;
   const lines = source.slice(start).split("\n");
   const keys = [];
   let depth = 0;
@@ -85,7 +106,7 @@ function zodSchemaKeys(source) {
     }
     if (before === baseline) {
       const match = line.match(/^ {4}([A-Za-z_]\w*)\s*:/);
-      if (match) keys.push({ key: match[1], line });
+      if (match) keys.push({ key: match[1], line, index: offset + index });
     }
     if (depth < baseline) break;
   }
@@ -98,9 +119,12 @@ function prefsTypeKeys(source) {
   );
   if (!block) return [];
   const keys = [];
-  for (const line of block[1].split("\n")) {
+  const offset =
+    source.slice(0, block.index + block[0].indexOf(block[1])).split("\n")
+      .length - 1;
+  for (const [index, line] of block[1].split("\n").entries()) {
     const match = line.match(/^ {2}([A-Za-z_]\w*)\??\s*:/);
-    if (match) keys.push({ key: match[1], line });
+    if (match) keys.push({ key: match[1], line, index: offset + index });
   }
   return keys;
 }
@@ -151,9 +175,12 @@ function hasReader(template, key, declaringFile) {
       ],
       { encoding: "utf8" },
     );
-  } catch {
-    // grep exits 1 when nothing matches at all.
-    return false;
+  } catch (error) {
+    if (error.status === 1) return false;
+    console.error(
+      "guard-dead-settings-keys: could not inspect current readers",
+    );
+    process.exit(2);
   }
 
   return output
@@ -167,6 +194,61 @@ function hasReader(template, key, declaringFile) {
     );
 }
 
+function hadReaderAtBase(template, key, declaringFile) {
+  const templateRoot = path.join(REPO_ROOT, "templates", template);
+  let output;
+  try {
+    output = execFileSync(
+      "git",
+      [
+        "grep",
+        "-l",
+        "-F",
+        "-e",
+        key,
+        base,
+        "--",
+        `:(glob)templates/${template}/**/*.ts`,
+        `:(glob)templates/${template}/**/*.tsx`,
+      ],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    );
+  } catch (error) {
+    if (error.status === 1) return false;
+    console.error(
+      "guard-dead-settings-keys: could not inspect the base readers",
+    );
+    process.exit(2);
+  }
+  return output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .some((entry) => {
+      const file = path.resolve(REPO_ROOT, entry.slice(base.length + 1));
+      return (
+        file !== path.resolve(declaringFile) &&
+        isReaderPath(path.relative(templateRoot, file))
+      );
+    });
+}
+
+function waivedKeysAtBase(file, kind) {
+  const entry = removed?.get(path.resolve(file));
+  if (!entry || entry.created) return new Set();
+  const source = readCommitFile(REPO_ROOT, base, entry.oldPath);
+  const lines = source.split("\n");
+  const keys = kind === "zod" ? zodSchemaKeys(source) : prefsTypeKeys(source);
+  return new Set(
+    keys
+      .filter(
+        ({ line, index }) =>
+          OPT_OUT.test(line) || OPT_OUT.test(lines[index - 1] ?? ""),
+      )
+      .map(({ key }) => key),
+  );
+}
+
 const failures = [];
 const knownSeen = new Set();
 
@@ -176,8 +258,8 @@ for (const template of templates()) {
     const lines = source.split("\n");
     const keys = kind === "zod" ? zodSchemaKeys(source) : prefsTypeKeys(source);
 
-    for (const { key, line } of keys) {
-      const index = lines.indexOf(line);
+    const waivedAtBase = waivedKeysAtBase(file, kind);
+    for (const { key, line, index } of keys) {
       const previous = index > 0 ? lines[index - 1] : "";
       if (OPT_OUT.test(line) || OPT_OUT.test(previous)) continue;
 
@@ -190,16 +272,42 @@ for (const template of templates()) {
         continue;
       }
 
-      if (!hasReader(template, key, file)) {
+      if (
+        !hasReader(template, key, file) &&
+        (!added ||
+          added.get(path.resolve(file))?.has(index + 1) ||
+          hadReaderAtBase(template, key, file) ||
+          waivedAtBase.has(key))
+      ) {
         failures.push({ template, key, file: path.relative(REPO_ROOT, file) });
       }
     }
   }
 }
 
-const staleKnown = KNOWN_DEAD_KEYS.filter(
-  (entry) => !knownSeen.has(`${entry.template}.${entry.key}`),
-);
+const baselineKeysInChangedDeclarations = new Set();
+for (const entry of removed?.values() ?? []) {
+  if (entry.created) continue;
+  const declaration =
+    /^templates\/([^/]+)\/(actions\/set-settings\.ts|shared\/[^/]+-prefs\.ts)$/.exec(
+      entry.oldPath,
+    );
+  if (!declaration) continue;
+  const [, template, relative] = declaration;
+  const source = readCommitFile(REPO_ROOT, base, entry.oldPath);
+  const keys = relative.startsWith("actions/")
+    ? zodSchemaKeys(source)
+    : prefsTypeKeys(source);
+  for (const { key } of keys)
+    baselineKeysInChangedDeclarations.add(`${template}.${key}`);
+}
+const staleKnown = KNOWN_DEAD_KEYS.filter((entry) => {
+  const key = `${entry.template}.${entry.key}`;
+  return (
+    !knownSeen.has(key) &&
+    (!added || baselineKeysInChangedDeclarations.has(key))
+  );
+});
 
 if (failures.length === 0 && staleKnown.length === 0) {
   console.log("guard-dead-settings-keys: OK");

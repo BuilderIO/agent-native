@@ -74,6 +74,7 @@ function mockModules(opts: {
     isDeployPreview: vi.fn(() => false),
   }));
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => {
       const execute = vi.fn(async () => ({ rows: [] }));
       return {

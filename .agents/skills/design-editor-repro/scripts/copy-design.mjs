@@ -82,7 +82,6 @@ async function importDesign(ctx, design) {
   const created = await action(ctx, "create-design", {
     title: `${COPY_PREFIX}${design.title}`,
     projectType: design.projectType ?? "prototype",
-    designSystemId: null,
   });
   const fileIds = new Map();
   for (const file of design.files) {

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.227.0",
+  "version": "0.235.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -139,6 +139,13 @@
       "import": "./dist/dashboard/*.js",
       "default": "./dist/dashboard/*.js"
     },
+    "./app/dashboard-charts/*": {
+      "types": "./dist/app/dashboard-charts/*.d.ts",
+      "browser": "./dist/app/dashboard-charts/*.js",
+      "development": "./dist/app/dashboard-charts/*.js",
+      "import": "./dist/app/dashboard-charts/*.js",
+      "default": "./dist/app/dashboard-charts/*.js"
+    },
     "./data-grid": {
       "types": "./dist/data-grid/index.d.ts",
       "browser": "./dist/data-grid/index.js",
@@ -236,6 +243,20 @@
       "development": "./dist/context-ui/index.js",
       "import": "./dist/context-ui/index.js",
       "default": "./dist/context-ui/index.js"
+    },
+    "./craft": {
+      "types": "./dist/craft/index.d.ts",
+      "browser": "./dist/craft/index.js",
+      "development": "./dist/craft/index.js",
+      "import": "./dist/craft/index.js",
+      "default": "./dist/craft/index.js"
+    },
+    "./craft/*": {
+      "types": "./dist/craft/*.d.ts",
+      "browser": "./dist/craft/*.js",
+      "development": "./dist/craft/*.js",
+      "import": "./dist/craft/*.js",
+      "default": "./dist/craft/*.js"
     },
     "./design-tweaks": {
       "types": "./dist/design-tweaks/index.d.ts",
@@ -374,6 +395,8 @@
     "./agent-native.eject.json": "./agent-native.eject.json",
     "./migration-manifest.json": "./migration-manifest.json",
     "./styles.css": "./dist/styles.css",
+    "./craft-tokens.css": "./dist/app/styles/craft-tokens.css",
+    "./app/styles/craft-tokens.css": "./dist/app/styles/craft-tokens.css",
     "./chat-history.css": "./dist/chat-history.css",
     "./editor.css": "./dist/editor.css",
     "./app/auth": {
@@ -444,6 +467,13 @@
       "development": "./dist/app/feedback/index.js",
       "import": "./dist/app/feedback/index.js",
       "default": "./dist/app/feedback/index.js"
+    },
+    "./app/filters": {
+      "types": "./dist/app/filters/index.d.ts",
+      "browser": "./dist/app/filters/index.js",
+      "development": "./dist/app/filters/index.js",
+      "import": "./dist/app/filters/index.js",
+      "default": "./dist/app/filters/index.js"
     },
     "./app/integrations": {
       "types": "./dist/app/integrations/index.d.ts",
@@ -630,13 +660,18 @@
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "typecheck:spec": "tsc -p tsconfig.spec.json",
+    "storybook": "storybook dev --port 6006 --no-open",
+    "storybook:build": "storybook build --output-dir ../../.tmp/storybook-static",
+    "test:storybook": "vitest run --config vitest.storybook.config.ts",
     "test": "vitest --run --dir src --passWithNoTests"
   },
   "dependencies": {
     "@agent-native/agentkit": "workspace:^",
+    "@agent-native/design-system": "workspace:^",
     "@assistant-ui/react": "catalog:",
     "@assistant-ui/store": "catalog:",
     "@assistant-ui/tap": "catalog:",
+    "@base-ui/react": "^1.9.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@fontsource-variable/geist": "^5.3.0",
@@ -675,6 +710,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-bubble-menu": "catalog:",
+    "@tiptap/extension-code": "catalog:",
     "@tiptap/extension-code-block-lowlight": "catalog:",
     "@tiptap/extension-collaboration": "catalog:",
     "@tiptap/extension-collaboration-caret": "catalog:",
@@ -729,12 +765,21 @@
     "@agent-native/core": "workspace:^",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
+    "@storybook/addon-a11y": "10.6.7",
+    "@storybook/addon-docs": "10.6.7",
+    "@storybook/addon-mcp": "10.6.7",
+    "@storybook/addon-vitest": "10.6.7",
+    "@storybook/react-vite": "10.6.7",
+    "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "^5.99.2",
     "@testing-library/react": "16.3.3",
     "@types/culori": "^4.0.1",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/browser": "4.1.9",
+    "@vitest/browser-playwright": "4.1.9",
     "@webgpu/types": "0.1.74",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
@@ -745,12 +790,15 @@
     "playwright": "catalog:",
     "react-i18next": "17.0.8",
     "react-router": "catalog:",
+    "storybook": "10.6.7",
+    "tailwindcss": "catalog:",
+    "typescript": "6.0.3",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.227.0-0",
+    "@agent-native/core": ">=0.235.0-0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",

@@ -172,19 +172,54 @@ async function pasteSvgFile(
 const SVG_FILE =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 
-const FIGMA_PASTED_FRAME = {
-  title: "Synthetic imported frame",
-  width: 104,
-  height: 72,
-  content: `<!doctype html><html><head></head><body><div data-agent-native-node-id="synthetic-imported-frame" data-agent-native-layer-name="Synthetic imported frame" data-an-primitive="frame" style="position:absolute;left:613px;top:417px;width:104px;height:72px;background-color:#4A70C8"></div></body></html>`,
-  wrapsLooseNode: false,
-  origin: { x: 613, y: 417 },
-  sourceOffset: { x: 31, y: 27 },
-};
+// A copy from another design app whose clipboard is plain JSON, so the spec
+// drives the shared paste handler without needing a real app's scene data.
+const PASTED_FRAME_COPY_HTML = `<!doctype html><html><body><!-- wonder-clipboard:${Buffer.from(
+  JSON.stringify({
+    version: "1",
+    payload: {
+      nodes: [
+        {
+          source: {
+            label: "Synthetic imported frame",
+            type: "frame",
+            tagName: "div",
+            style: {
+              layout: {
+                width: 104,
+                height: 72,
+                left: 613,
+                top: 417,
+                position: "absolute",
+              },
+              fills: [
+                {
+                  type: "solid",
+                  color: {
+                    value: {
+                      r: 74,
+                      g: 112,
+                      b: 200,
+                      alpha: 1,
+                      mode: "rgb",
+                      scale: "int255",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          metadata: { bounds: { width: 104, height: 72 } },
+          globalX: 613,
+          globalY: 417,
+          children: [],
+        },
+      ],
+    },
+  }),
+).toString("base64")} --></body></html>`;
 
-const FIGMA_CLIPBOARD_HTML = `<!doctype html><html><body><svg width="104" height="72"><rect width="104" height="72" fill="#4A70C8"/></svg><!--(figmeta)${Buffer.from(JSON.stringify({ fileKey: "e2e-synthetic-file", selectedNodeData: "1:7|1|0" })).toString("base64")}(/figmeta)--></body></html>`;
-
-async function pasteFigmaClipboard(page: Page) {
+async function pasteDesignAppCopy(page: Page) {
   return page.locator("body").evaluate((body, html) => {
     const transfer = new DataTransfer();
     transfer.setData("text/html", html);
@@ -195,7 +230,18 @@ async function pasteFigmaClipboard(page: Page) {
     });
     body.dispatchEvent(event);
     return event.defaultPrevented;
-  }, FIGMA_CLIPBOARD_HTML);
+  }, PASTED_FRAME_COPY_HTML);
+}
+
+/** Action requests made to the server's import endpoints while a paste runs. */
+function trackImportRequests(page: Page) {
+  const urls: string[] = [];
+  page.on("request", (request) => {
+    if (/\/_agent-native\/actions\/import-/.test(request.url())) {
+      urls.push(request.url());
+    }
+  });
+  return urls;
 }
 
 async function fillHexInspector(page: Page, expectedHex: string) {
@@ -705,41 +751,20 @@ test("pasting a 17 by 9 SVG keeps the selected layer at its copied size", async 
     });
   await expect(selectedLayer).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("17");
   await expect(
-    page.getByRole("textbox", { name: "H size in pixels" }),
+    page.getByRole("combobox", { name: "H size in pixels" }),
   ).toHaveValue("9");
 });
 
-test("Figma frame paste uses the live Design scene and updates the selected frame inspector", async ({
+test("pasting a frame from another design app lands in the selected container without a server import", async ({
   app,
   page,
 }) => {
   const content = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main style="position:relative;width:640px;height:480px"><section data-agent-native-node-id="target-container" data-agent-native-layer-name="Target container" data-an-primitive="frame" style="position:absolute;left:80px;top:90px;width:260px;height:180px;background:#eeeeee"><div data-agent-native-node-id="old-child" data-agent-native-layer-name="Old child" style="position:absolute;left:8px;top:8px;width:24px;height:20px;background:#ff0000"></div></section></main></body></html>`;
   const { designId, screenId } = await createDesign(app, content);
-  const pasteRequests: Array<Record<string, unknown>> = [];
-  await page.route(
-    "**/_agent-native/actions/import-figma-clipboard",
-    async (route) => {
-      const request = route.request().postDataJSON() as Record<string, unknown>;
-      pasteRequests.push(request);
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          layers: [FIGMA_PASTED_FRAME],
-          plan: {
-            kind: "layers",
-            fileId: screenId,
-            selector: '[data-agent-native-node-id="target-container"]',
-            positions: [{ x: 31, y: 27 }],
-          },
-          warnings: [],
-        }),
-      });
-    },
-  );
+  const importRequests = trackImportRequests(page);
 
   await gotoEditor(page, designId);
   await expandAllLayers(page);
@@ -750,48 +775,40 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
   await targetRow.locator("[data-layer-row-button]").click();
   await expect(targetRow).toHaveAttribute("aria-selected", "true");
 
-  expect(await pasteFigmaClipboard(page)).toBe(true);
-  await expect.poll(() => pasteRequests.length).toBe(1);
-  expect(pasteRequests[0]).toMatchObject({
-    designId,
-    pasteScene: {
-      container: {
-        fileId: screenId,
-        selector: '[data-agent-native-node-id="target-container"]',
-        width: 260,
-        height: 180,
-      },
-    },
-  });
+  expect(await pasteDesignAppCopy(page)).toBe(true);
 
   const pasted = designFrame(page, screenId).locator(
     '[data-agent-native-layer-name="Synthetic imported frame"]',
   );
   await expect(pasted).toHaveCount(1);
-  await expect
-    .poll(() =>
-      pasted.evaluate((element) => {
-        const style = (element as HTMLElement).style;
-        return {
-          parent: element.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          left: style.left,
-          top: style.top,
-          width: style.width,
-          height: style.height,
-          backgroundColor: getComputedStyle(element).backgroundColor,
-        };
-      }),
-    )
-    .toEqual({
-      parent: "target-container",
-      left: "31px",
-      top: "27px",
-      width: "104px",
-      height: "72px",
-      backgroundColor: "rgb(74, 112, 200)",
+  const placement = () =>
+    pasted.evaluate((element) => {
+      const style = (element as HTMLElement).style;
+      return {
+        parent: element.parentElement?.getAttribute(
+          "data-agent-native-node-id",
+        ),
+        left: Number.parseFloat(style.left),
+        top: Number.parseFloat(style.top),
+        width: style.width,
+        height: style.height,
+        backgroundColor: getComputedStyle(element).backgroundColor,
+      };
     });
+  await expect
+    .poll(async () => (await placement()).parent)
+    .toBe("target-container");
+  const placed = await placement();
+  expect(placed).toMatchObject({
+    width: "104px",
+    height: "72px",
+    backgroundColor: "rgb(74, 112, 200)",
+  });
+  // Inside the 260x180 container, wherever the planner put it.
+  expect(placed.left).toBeGreaterThanOrEqual(0);
+  expect(placed.left).toBeLessThanOrEqual(260 - 104);
+  expect(placed.top).toBeGreaterThanOrEqual(0);
+  expect(placed.top).toBeLessThanOrEqual(180 - 72);
 
   const pastedRow = page
     .getByRole("treeitem")
@@ -799,10 +816,10 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
     .first();
   await expect(pastedRow).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("104");
   await expect(
-    page.getByRole("textbox", { name: "H size in pixels" }),
+    page.getByRole("combobox", { name: "H size in pixels" }),
   ).toHaveValue("72");
   await fillHexInspector(page, "4A70C8");
 
@@ -818,59 +835,34 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
   await reloadedRow.locator("[data-layer-row-button]").click();
   await expect(reloadedRow).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("104");
   await expect(
-    page.getByRole("textbox", { name: "H size in pixels" }),
+    page.getByRole("combobox", { name: "H size in pixels" }),
   ).toHaveValue("72");
   await fillHexInspector(page, "4A70C8");
-  await expect
-    .poll(() =>
-      designFrame(page, screenId)
-        .locator('[data-agent-native-layer-name="Synthetic imported frame"]')
-        .evaluate((element) => ({
-          parent: element.parentElement?.getAttribute(
-            "data-agent-native-node-id",
-          ),
-          left: (element as HTMLElement).style.left,
-          top: (element as HTMLElement).style.top,
-        })),
-    )
-    .toEqual({ parent: "target-container", left: "31px", top: "27px" });
+  expect(await placement()).toMatchObject({
+    parent: "target-container",
+    left: placed.left,
+    top: placed.top,
+  });
+  // Pasting into a screen is decoded and planned in the browser.
+  expect(importRequests).toEqual([]);
 });
 
-test("Figma paste plans can insert a frame into the Design board and persist it", async ({
+test("pasting a frame onto the Design board creates it as a screen in one import and persists it", async ({
   app,
   page,
 }) => {
-  const { designId, screenId } = await createDesign(app);
-  const boardFileId = await createBoardSurface(page, designId);
+  const { designId } = await createDesign(app);
+  await createBoardSurface(page, designId);
   const screenBefore = await app.savedNodes(designId);
-  const pasteRequests: Array<Record<string, unknown>> = [];
-  await page.route(
-    "**/_agent-native/actions/import-figma-clipboard",
-    async (route) => {
-      const request = route.request().postDataJSON() as Record<string, unknown>;
-      pasteRequests.push(request);
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          layers: [FIGMA_PASTED_FRAME],
-          plan: { kind: "board", positions: [{ x: 45, y: 55 }] },
-          warnings: [],
-        }),
-      });
-    },
-  );
+  const importRequests = trackImportRequests(page);
 
   await gotoEditor(page, designId);
   const boardFrame = page
     .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
     .contentFrame();
-  const pasted = boardFrame.locator(
-    '[data-agent-native-layer-name="Synthetic imported frame"]',
-  );
   await expect
     .poll(() =>
       boardFrame.locator("body").evaluate((body) => {
@@ -883,60 +875,71 @@ test("Figma paste plans can insert a frame into the Design board and persist it"
       }),
     )
     .toBe(true);
-  expect(await pasteFigmaClipboard(page)).toBe(true);
-  await expect.poll(() => pasteRequests.length).toBe(1);
-  expect(pasteRequests[0]).toMatchObject({
-    designId,
-    pasteScene: {
-      viewport: expect.objectContaining({
-        width: expect.any(Number),
-        height: expect.any(Number),
-      }),
-      screens: expect.arrayContaining([
-        expect.objectContaining({ fileId: screenId }),
-      ]),
-    },
-  });
+
+  expect(await pasteDesignAppCopy(page)).toBe(true);
+  // A frame with no screen to land in becomes a screen, in one batch.
+  await expect.poll(() => importRequests.length).toBe(1);
+  expect(importRequests[0]).toContain("import-design-source");
   await app.settled();
-  const board = savedNodeMap(
-    await readBoardContent(page, designId, boardFileId),
-  );
-  const boardBody =
-    [...board.values()].find((node) => node.tag === "body")?.id ?? null;
-  const frames = [...board.values()].filter(
-    (node) =>
-      node.attrs["data-agent-native-layer-name"] === "Synthetic imported frame",
-  );
-  expect(frames).toHaveLength(1);
-  expect(frames[0]).toMatchObject({
-    parent: boardBody,
-    attrs: expect.objectContaining({ "data-an-primitive": "frame" }),
-  });
-  expect(styleOf(frames[0])).toMatchObject({
-    position: "absolute",
-    left: "45px",
-    top: "55px",
-    width: "104px",
-    height: "72px",
-  });
+
+  const screenSource = () =>
+    readSource(page, designId, "synthetic-imported-frame.html");
+  await expect
+    .poll(screenSource)
+    .toContain('data-agent-native-layer-name="Synthetic imported frame"');
+  expect(await screenSource()).toContain("background-color:#4a70c8");
   expectOnlyChanged(screenBefore, await app.savedNodes(designId), []);
-  await expect(pasted).toBeVisible();
-  await expect(pasted).toHaveCSS("background-color", "rgb(74, 112, 200)");
 
   await page.reload();
-  const reloadedBoardFrame = page
+  await expect
+    .poll(screenSource)
+    .toContain('data-agent-native-layer-name="Synthetic imported frame"');
+});
+
+test("a design-app copy pasted while a screen has focus is relayed from the canvas", async ({
+  app,
+  page,
+}) => {
+  const { designId } = await createDesign(app);
+  await createBoardSurface(page, designId);
+  const importRequests = trackImportRequests(page);
+
+  await gotoEditor(page, designId);
+  const boardFrame = page
     .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
     .contentFrame();
-  const reloaded = reloadedBoardFrame.locator(
-    '[data-agent-native-layer-name="Synthetic imported frame"]',
-  );
-  await expect(reloaded).toHaveCSS("background-color", "rgb(74, 112, 200)");
-  expect(
-    await reloaded.evaluate((element) => {
-      const r = element.getBoundingClientRect();
-      return { width: r.width, height: r.height };
-    }),
-  ).toEqual({ width: 104, height: 72 });
+  await expect
+    .poll(() =>
+      boardFrame.locator("body").evaluate((body) => {
+        const frameWindow = body.ownerDocument.defaultView as
+          | (Window & {
+              __anEditorChromeBridge?: boolean;
+            })
+          | null;
+        return frameWindow?.__anEditorChromeBridge === true;
+      }),
+    )
+    .toBe(true);
+
+  // The paste fires inside the canvas iframe, where the bridge owns it.
+  const claimed = await boardFrame.locator("body").evaluate((body, html) => {
+    const transfer = new DataTransfer();
+    transfer.setData("text/html", html);
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: transfer,
+    });
+    body.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, PASTED_FRAME_COPY_HTML);
+  expect(claimed).toBe(true);
+
+  await expect.poll(() => importRequests.length).toBe(1);
+  await app.settled();
+  await expect
+    .poll(() => readSource(page, designId, "synthetic-imported-frame.html"))
+    .toContain('data-agent-native-layer-name="Synthetic imported frame"');
 });
 
 test("pasting a PNG identifies its image inspector and persists Fit, Crop, adjustments, and opacity", async ({

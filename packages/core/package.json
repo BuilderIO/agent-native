@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.227.0",
+  "version": "0.235.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -147,6 +147,14 @@
       "types": "./dist/save-conflict/server.d.ts",
       "default": "./dist/save-conflict/server.js"
     },
+    "./free-name": {
+      "types": "./dist/free-name/index.d.ts",
+      "default": "./dist/free-name/index.js"
+    },
+    "./free-name/server": {
+      "types": "./dist/free-name/server.d.ts",
+      "default": "./dist/free-name/server.js"
+    },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
       "default": "./dist/authorization/index.js"
@@ -155,6 +163,7 @@
       "types": "./dist/agent-native/index.d.ts",
       "default": "./dist/agent-native/index.js"
     },
+    "./workspace-app-paths": "./dist/deploy/workspace-app-paths.js",
     "./config": {
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
@@ -169,6 +178,7 @@
     "./client": "./dist/client/index.js",
     "./client/action-query-cache": "./dist/client/action-query-cache.js",
     "./client/chat-errors": "./dist/client/chat-errors.js",
+    "./client/schema-message": "./dist/client/schema-message.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/agent-engine-readiness": "./dist/client/agent-engine-readiness.js",
     "./client/agent-sidebar-state": "./dist/client/agent-sidebar-state.js",
@@ -194,6 +204,7 @@
     "./client/labs": "./dist/client/labs/index.js",
     "./client/experiments": "./dist/client/experiments/index.js",
     "./client/hooks": "./dist/client/hooks/index.js",
+    "./surface-visibility": "./dist/shared/surface-visibility.js",
     "./client/host": "./dist/client/host/index.js",
     "./client/webmcp": "./dist/client/webmcp.js",
     "./client/integrations": "./dist/client/integrations/index.js",
@@ -205,6 +216,7 @@
     "./client/lazy-chunk-retry-fallback": "./dist/client/tombstone/lazy-chunk-retry-fallback.js",
     "./client/secrets": "./dist/client/secrets.js",
     "./client/session-replay-privacy": "./dist/client/session-replay-privacy.js",
+    "./client/url-scrub": "./dist/client/url-scrub.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
     "./client/generation-stream": "./dist/client/generation-stream/index.js",
@@ -231,6 +243,7 @@
     "./client/status-requests": "./dist/client/client-status-requests.js",
     "./client/speak": "./dist/client/speak.js",
     "./client/sign-in-landing": "./dist/client/sign-in-landing.js",
+    "./client/mobile-auth": "./dist/client/mobile-auth.js",
     "./client/oauth-popup": "./dist/client/oauth-popup.js",
     "./client/route-state": "./dist/client/route-state.js",
     "./client/recorder": "./dist/client/recorder.js",
@@ -244,6 +257,7 @@
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
+    "./client/action-query-boundary": "./dist/client/action-query-boundary.js",
     "./client/i18n": "./dist/client/i18n.js",
     "./client/write-failure": "./dist/client/write-failure.js",
     "./embedding": "./dist/embedding/index.js",
@@ -258,10 +272,12 @@
     "./shared/auth-copy": "./dist/shared/auth-copy.js",
     "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./shared/optional-peer": "./dist/shared/optional-peer.js",
+    "./shared/secret-redaction": "./dist/shared/secret-redaction.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./deploy/function-bundle": "./dist/deploy/function-bundle.js",
     "./deploy/netlify-static-headers": "./dist/deploy/netlify-static-headers.js",
+    "./deploy/served-build": "./dist/deploy/served-build.js",
     "./guards": {
       "types": "./dist/guards/index.d.ts",
       "default": "./dist/guards/index.js"
@@ -287,6 +303,8 @@
     "./labs/actions/get-labs": "./dist/labs/actions/get-labs.js",
     "./labs/actions/get-lab-states": "./dist/labs/actions/get-lab-states.js",
     "./labs/actions/set-lab": "./dist/labs/actions/set-lab.js",
+    "./labs/actions/get-labs-show-all": "./dist/labs/actions/get-labs-show-all.js",
+    "./labs/actions/set-labs-show-all": "./dist/labs/actions/set-labs-show-all.js",
     "./experiments": "./dist/experiments/index.js",
     "./experiments/registry": "./dist/experiments/registry.js",
     "./experiments/server": "./dist/experiments/server.js",
@@ -345,6 +363,7 @@
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
     "./resources/metadata": "./dist/resources/metadata.js",
+    "./resources/shared-memory": "./dist/resources/shared-memory.js",
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./secrets": "./dist/secrets/index.js",
     "./secrets/crypto": "./dist/secrets/crypto.js",
@@ -422,6 +441,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/process": {
+      "types": "./dist/cli/process.d.ts",
+      "default": "./dist/cli/process.js"
+    },
     "./cli/telemetry": {
       "types": "./dist/cli/telemetry.d.ts",
       "default": "./dist/cli/telemetry.js"
@@ -437,6 +460,10 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
+    },
+    "./testing/cpu-time": {
+      "types": "./dist/testing/cpu-time.d.ts",
+      "default": "./dist/testing/cpu-time.js"
     },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
@@ -462,8 +489,10 @@
     "./connections": "./dist/connections/index.js",
     "./connections/sigma-api": "./dist/connections/sigma-api.js",
     "./connections/runtime": "./dist/connections/runtime.js",
+    "./connections/oauth-callback-error": "./dist/connections/oauth-callback-error.js",
     "./provider-api": "./dist/provider-api/index.js",
     "./provider-api/runtime": "./dist/provider-api/runtime.js",
+    "./provider-api/call-gates": "./dist/provider-api/call-gates.js",
     "./provider-api/gong": "./dist/provider-api/gong.js",
     "./provider-api/corpus-jobs": "./dist/provider-api/corpus-jobs.js",
     "./provider-api/corpus-jobs-store": "./dist/provider-api/corpus-jobs-store.js",
@@ -492,6 +521,18 @@
     },
     "./workspace-files": "./dist/workspace-files/index.js",
     "./workspace-connections/credential-key-aliases": "./dist/workspace-connections/credential-key-aliases.js",
+    "./workspace-connections/personal-credential-archive": {
+      "types": "./dist/workspace-connections/personal-credential-archive.d.ts",
+      "default": "./dist/workspace-connections/personal-credential-archive.js"
+    },
+    "./workspace-connections/workspace-credentials": {
+      "types": "./dist/workspace-connections/workspace-credentials.d.ts",
+      "default": "./dist/workspace-connections/workspace-credentials.js"
+    },
+    "./workspace-connections/personal-credentials": {
+      "types": "./dist/workspace-connections/personal-credentials.d.ts",
+      "default": "./dist/workspace-connections/personal-credentials.js"
+    },
     "./workspace-connections/actions/list-workspace-user-groups": "./dist/workspace-connections/actions/list-workspace-user-groups.js",
     "./workspace-connections/actions/list-workspace-connection-scopes": "./dist/workspace-connections/actions/list-workspace-connection-scopes.js",
     "./workspace-connections/actions/upsert-workspace-user-group": "./dist/workspace-connections/actions/upsert-workspace-user-group.js",
@@ -631,6 +672,7 @@
     "./labs/core-labs": "./dist/labs/core-labs.js",
     "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
+    "./localization/privacy-choice-messages": "./dist/localization/privacy-choice-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",
     "./notifications/types": "./dist/notifications/types.js",
@@ -646,6 +688,7 @@
     "./org/workspace-url": "./dist/org/workspace-url.js",
     "./progress/types": "./dist/progress/types.js",
     "./resources/pack-constants": "./dist/resources/pack-constants.js",
+    "./review/markdown": "./dist/review/markdown.js",
     "./review/plain-text": "./dist/review/plain-text.js",
     "./review/types": "./dist/review/types.js",
     "./secrets/api-keys": "./dist/secrets/api-keys.js",
@@ -677,6 +720,7 @@
     "./shared/motion-easing": "./dist/shared/motion-easing.js",
     "./shared/motion-source-node-id": "./dist/shared/motion-source-node-id.js",
     "./shared/password-policy": "./dist/shared/password-policy.js",
+    "./shared/public-host": "./dist/shared/public-host.js",
     "./shared/qa-test-email": "./dist/shared/qa-test-email.js",
     "./shared/runtime-config": "./dist/shared/runtime-config.js",
     "./shared/sign-in-journey": "./dist/shared/sign-in-journey.js",
@@ -712,7 +756,11 @@
     "./client/db-admin": "./dist/client/tombstone/db-admin.js",
     "./client/extensions": "./dist/client/tombstone/extensions.js",
     "./client/tools": "./dist/client/tombstone/tools.js",
-    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js"
+    "./client/transcription/BuilderTranscriptionCta": "./dist/client/tombstone/transcription-builder-transcription-cta.js",
+    "./provider-api/provider-budget": "./dist/provider-api/provider-budget.js",
+    "./provider-api/write-queue": "./dist/provider-api/write-queue.js",
+    "./client/provider-writes": "./dist/client/provider-writes.js",
+    "./provider-api/provider-budget-gate": "./dist/provider-api/provider-budget-gate.js"
   },
   "publishConfig": {
     "access": "public",
@@ -736,10 +784,10 @@
     "@better-auth/core": "1.7.6",
     "@clack/prompts": "^1.7.0",
     "@mcp-b/webmcp-polyfill": "^5.1.0",
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/core": "^2.2.0",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/core": "2.4.0",
     "@modelcontextprotocol/ext-apps": "catalog:",
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "@mozilla/readability": "^0.6.0",
     "@neondatabase/serverless": "^1.1.0",
     "@noble/hashes": "^2.4.0",
@@ -749,6 +797,7 @@
     "ajv-formats": "^3.0.1",
     "better-auth": "1.7.6",
     "cron-parser": "^5.5.0",
+    "cross-spawn": "7.0.6",
     "diff": "^9.0.0",
     "diff-match-patch": "^1.0.5",
     "dotenv": "^17.2.1",
@@ -768,6 +817,8 @@
     "magic-string": "^1.4.3",
     "mdast-util-from-markdown": "^2.0.0",
     "mdast-util-gfm": "^3.0.0",
+    "mdast-util-gfm-strikethrough": "^2.0.0",
+    "mdast-util-to-markdown": "^2.1.2",
     "micromark-extension-gfm": "^3.0.0",
     "minimatch": "^10.0.0",
     "nitro": "3.0.260903-beta",
@@ -776,6 +827,7 @@
     "react-i18next": "17.0.8",
     "run": "2.0.1",
     "safe-regex2": "5.1.1",
+    "smol-toml": "1.9.1",
     "turndown": "^7.2.4",
     "undici": "^7.28.0",
     "ws": "^8.22.0",
@@ -814,6 +866,7 @@
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "^5.101.2",
+    "@types/cross-spawn": "6.0.6",
     "@types/diff-match-patch": "^1.0.36",
     "@types/express": "^5.0.6",
     "@types/mdast": "^4.0.4",

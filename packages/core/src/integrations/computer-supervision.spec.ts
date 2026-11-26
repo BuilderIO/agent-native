@@ -5,6 +5,7 @@ import type { ComputerCommandEnvelope } from "./remote-types.js";
 const executeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));

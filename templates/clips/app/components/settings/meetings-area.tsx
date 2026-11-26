@@ -14,7 +14,7 @@ import {
   IconCalendar,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { Fragment, useState, type CSSProperties } from "react";
 import { toast } from "sonner";
 
 import {
@@ -34,10 +34,21 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemSeparator,
+  ItemTitle,
+} from "@/components/ui/item";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { startCalendarOAuth } from "@/lib/calendar-oauth";
+import { Switch } from "@/components/ui/switch";
+import { useCalendarConnect } from "@/hooks/use-calendar-connect";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
-import { PopupBlockedError } from "@/lib/popup-blocked";
 
 import { FeatureKeysGroup } from "./feature-keys-group";
 import { LoadFailedRow } from "./load-failed-row";
@@ -55,6 +66,21 @@ interface CalendarAccount {
   status?: string | null;
 }
 
+interface CalendarChoice {
+  id: string;
+  name: string;
+  color: string | null;
+  primary: boolean;
+  enabled: boolean;
+}
+
+interface AccountCalendars {
+  accountId: string;
+  canChange: boolean;
+  calendars: CalendarChoice[];
+  error?: string;
+}
+
 function accountName(account: CalendarAccount): string {
   return account.email || account.displayName || account.id;
 }
@@ -66,9 +92,131 @@ function useInvalidateCalendar() {
       queryKey: ["action", "list-calendar-accounts"],
     });
     void queryClient.invalidateQueries({
+      queryKey: ["action", "list-calendars"],
+    });
+    void queryClient.invalidateQueries({
       queryKey: ["action", "list-meetings"],
     });
   };
+}
+
+function CalendarSwitchItem({
+  accountId,
+  calendar,
+  canChange,
+}: {
+  accountId: string;
+  calendar: CalendarChoice;
+  canChange: boolean;
+}) {
+  const t = useT();
+  const invalidate = useInvalidateCalendar();
+  const setEnabled = useActionMutation<
+    unknown,
+    { accountId: string; calendarId: string; enabled: boolean }
+  >("set-calendar-enabled");
+  const [flipped, setFlipped] = useState<boolean | null>(null);
+  if (flipped !== null && flipped === calendar.enabled) setFlipped(null);
+  const checked = flipped ?? calendar.enabled;
+
+  function toggle(enabled: boolean) {
+    if (setEnabled.isPending) return;
+    setFlipped(enabled);
+    setEnabled.mutate(
+      { accountId, calendarId: calendar.id, enabled },
+      {
+        onSuccess: () => invalidate(),
+        onError: (error) => {
+          setFlipped(null);
+          toast.error(error.message || t("settings.saveFailed"));
+        },
+      },
+    );
+  }
+
+  return (
+    <Item size="sm" className="rounded-none">
+      <ItemMedia>
+        <span
+          aria-hidden="true"
+          className="size-2.5 rounded-full bg-(--swatch,var(--color-muted-foreground))"
+          style={{ "--swatch": calendar.color } as CSSProperties}
+        />
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle className="min-w-0 max-w-full">
+          <span className="truncate">{calendar.name}</span>
+        </ItemTitle>
+        {calendar.primary ? (
+          <ItemDescription>{t("clipsSettings.mainCalendar")}</ItemDescription>
+        ) : null}
+      </ItemContent>
+      <ItemActions>
+        <Switch
+          aria-label={t("clipsSettings.showCalendar", {
+            calendar: calendar.name,
+          })}
+          checked={checked}
+          onCheckedChange={toggle}
+          disabled={!canChange}
+        />
+      </ItemActions>
+    </Item>
+  );
+}
+
+function AccountCalendarList({ accountId }: { accountId: string }) {
+  const t = useT();
+  const query = useActionQuery<{ accounts: AccountCalendars[] }>(
+    "list-calendars",
+    { accountId },
+    { retry: false },
+  );
+  const account = query.data?.accounts.find(
+    (entry) => entry.accountId === accountId,
+  );
+
+  if (query.isError || account?.error) {
+    return (
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {t("clipsSettings.calendarsLoadFailed")}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void query.refetch()}
+        >
+          {t("libraryGrid.retry")}
+        </Button>
+      </div>
+    );
+  }
+  if (!query.data) {
+    return <Skeleton className="h-11 w-full" />;
+  }
+  if (!account || account.calendars.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        {t("clipsSettings.calendarsDescription")}
+      </p>
+      <ItemGroup className="overflow-hidden rounded-lg border border-border">
+        {account.calendars.map((calendar, index) => (
+          <Fragment key={calendar.id}>
+            {index > 0 ? <ItemSeparator /> : null}
+            <CalendarSwitchItem
+              accountId={accountId}
+              calendar={calendar}
+              canChange={account.canChange}
+            />
+          </Fragment>
+        ))}
+      </ItemGroup>
+    </div>
+  );
 }
 
 function CalendarGroup() {
@@ -82,32 +230,7 @@ function CalendarGroup() {
   const disconnect = useActionMutation<unknown, { id: string }>(
     "disconnect-calendar",
   );
-  const [connecting, setConnecting] = useState(false);
-  const connectingRef = useRef(false);
   const [target, setTarget] = useState<CalendarAccount | null>(null);
-
-  function connect(expectedAccountId?: string) {
-    if (connectingRef.current) return;
-    connectingRef.current = true;
-    setConnecting(true);
-    void startCalendarOAuth(expectedAccountId)
-      .then((result) => {
-        if (!result) return;
-        invalidate();
-        toast.success(t("meetingsRoute.calendarConnected"));
-      })
-      .catch((err: Error) =>
-        toast.error(
-          err instanceof PopupBlockedError
-            ? t("clipsSettings.popupBlocked")
-            : err.message,
-        ),
-      )
-      .finally(() => {
-        connectingRef.current = false;
-        setConnecting(false);
-      });
-  }
 
   function confirmDisconnect() {
     if (!target) return;
@@ -125,7 +248,9 @@ function CalendarGroup() {
     );
   }
 
-  const googleAccounts = (accounts.data?.accounts ?? []).filter(
+  const allAccounts = accounts.data?.accounts ?? [];
+  const { connect, isConnecting: connecting } = useCalendarConnect(allAccounts);
+  const googleAccounts = allAccounts.filter(
     (account) => account.provider === "google",
   );
   const connectButton = (label: string, expectedAccountId?: string) => (
@@ -194,7 +319,11 @@ function CalendarGroup() {
                     </Button>
                   )
                 }
-              />
+              >
+                {account.status === "connected" ? (
+                  <AccountCalendarList accountId={account.id} />
+                ) : null}
+              </SettingsRow>
             ))}
             <SettingsRow
               id="add-calendar"

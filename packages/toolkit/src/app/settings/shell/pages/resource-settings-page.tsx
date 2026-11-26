@@ -1,3 +1,4 @@
+import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import type { ResourceView } from "@agent-native/core/client/resources/resource-views";
@@ -88,11 +89,13 @@ export function ResourceSettingsPage({
   groups,
   openResourceRef,
   onEditingChange,
+  trashRemovedSkills,
 }: {
   view: ResourceView;
   groups: readonly ResourceSettingsGroupConfig[];
   openResourceRef: OpenResourceRef;
   onEditingChange?: (editing: boolean) => void;
+  trashRemovedSkills?: boolean | undefined;
 }) {
   return (
     <ResourcesPanel
@@ -103,6 +106,7 @@ export function ResourceSettingsPage({
       settingsGroups={groups}
       openResourceRef={openResourceRef}
       onEditingChange={onEditingChange}
+      trashRemovedSkills={trashRemovedSkills}
     />
   );
 }
@@ -210,12 +214,14 @@ export function AddSkillMenu({
   placement,
   label,
   onCreated,
+  onDescribe,
 }: {
   scope: EditableResourceScope;
   placement: AddActionPlacement;
   /** Defaults to "Add skill". */
   label?: string | undefined;
   onCreated: (resource: ResourceMeta) => void;
+  onDescribe?: ((message: AgentChatMessage) => Promise<void>) | undefined;
 }) {
   const t = useT();
   const [describing, setDescribing] = useState(false);
@@ -301,8 +307,8 @@ export function AddSkillMenu({
               "agentChat.settingsResources.skills.describePlaceholder",
             )}
             draftScope="settings:create-skill"
-            onSubmit={(text) => {
-              requestSkillFromAgent(text, scope);
+            onSubmit={async (text) => {
+              await requestSkillFromAgent(text, scope, onDescribe);
               setDescribing(false);
             }}
           />
@@ -418,6 +424,7 @@ function CreateFileDialog({
         path,
         content: "",
         shared: scope === "shared",
+        uniquePath: true,
       });
       onOpenChange(false);
       onCreated(resource);

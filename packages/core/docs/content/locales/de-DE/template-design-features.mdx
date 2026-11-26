@@ -1,6 +1,6 @@
 ---
 title: "Design: Funktionen"
-description: "Jede zentrale Design-Funktion, gegliedert so, wie die App selbst aufgebaut ist: Designs, Design bearbeiten, Vorlagen und Designsysteme, mit dem, was jeder Bildschirm, jeder Tab und jedes Menü tatsächlich tut."
+description: "Jede zentrale Design-Funktion, gegliedert so, wie die App selbst aufgebaut ist: Designs, Design bearbeiten und Vorlagen, mit dem, was jeder Bildschirm, jeder Tab und jedes Menü tatsächlich tut."
 ---
 
 # Funktionen
@@ -9,8 +9,7 @@ Jede zentrale Design-Funktion: wie sie funktioniert und wie Sie sie
 einrichten. Einen Überblick finden Sie unter [Design](/docs/template-design)
 und die vollständige Liste der Eingabeaufforderungen unter [Mit dem Agent
 sprechen](/docs/template-design-agent). Die Funktionen sind nach den echten
-Bildschirmen der App gruppiert: **Designs**, **Design bearbeiten**,
-**Vorlagen** und **Designsysteme**.
+Bildschirmen der App gruppiert: **Designs**, **Design bearbeiten** und **Vorlagen**.
 
 ## Designs {#designs}
 
@@ -29,7 +28,7 @@ gehört.
   Design“ immer an erster Stelle steht.
 - Wählen Sie eine oder mehrere Karten aus (mit der Maus darüberfahren, um ein
   Kontrollkästchen einzublenden), um eine Massenaktions-Leiste zu erhalten:
-  alle sichtbaren auswählen/leeren, zu einem Kreativkontext hinzufügen oder
+  alle sichtbaren auswählen/leeren, oder
   die Auswahl löschen.
 - Bei einem leeren Konto werden vier Starter-Eingabeaufforderungen zum
   Anklicken angezeigt statt eines leeren Rasters (eine SaaS-Seite, ein
@@ -39,8 +38,7 @@ gehört.
 
 Beide Einstiegspunkte für „Neues Design“, die Kopfzeilen-Schaltfläche und die
 gestrichelte Kachel im Raster, öffnen dasselbe Popover. Sie können eine
-Eingabeaufforderung eingeben und eine Startvorlage, ein Designsystem und
-einen Kreativkontext auswählen, alles bevor der Editor überhaupt geöffnet
+Eingabeaufforderung eingeben und eine Startvorlage auswählen, alles bevor der Editor überhaupt geöffnet
 wird. Klicken Sie stattdessen auf **Überspringen**, um ein leeres Design (oder
 eine unaufgeforderte Kopie der ausgewählten Vorlage) ganz ohne KI-Generierung
 zu erhalten.
@@ -51,11 +49,10 @@ Hintergrund abgeschlossen wird.
 
 ### Ein Design verwalten {#manage-a-design}
 
-Das Menü „⋯“ auf einer Design-Karte hat vier Einträge:
+Das Menü „⋯“ auf einer Design-Karte hat drei Einträge:
 
 - **Umbenennen**: ein kleiner Dialog mit einem Textfeld.
 - **Duplizieren**: erstellt sofort eine Kopie und öffnet sie, ohne Bestätigung.
-- **Zu Kontext hinzufügen**: hängt das Design an einen Kreativkontext an.
 - **Löschen**: fragt zuerst um Bestätigung.
 
 ## Design bearbeiten {#edit-a-design}
@@ -80,9 +77,9 @@ darunter verschachtelt.
 Derselbe Agenten-Chat, den jede agentennative App hat, befindet sich auch im
 Editor, nicht eine Design-spezifische Chat-Oberfläche. Bitten Sie ihn, einen
 Bildschirm zu generieren, Varianten zu vergleichen, Details zu optimieren oder
-Qualität und Barrierefreiheit zu prüfen, genauso wie Sie um jede andere
-Änderung bitten würden. Er führt außerdem von sich aus eine automatische
-Qualitäts- und Barrierefreiheitsprüfung durch, bevor er ein Design für fertig
+die Qualität zu prüfen, genauso wie Sie um jede andere
+Änderung bitten würden. Er erstellt außerdem von sich aus, wenn möglich, einen Screenshot und behebt
+sichtbare Probleme, bevor er ein Design für fertig
 erklärt, ohne dass Sie etwas dafür tun müssen. Prompts nach Aufgabe finden Sie
 unter [Mit dem Agent sprechen](/docs/template-design-agent).
 
@@ -104,7 +101,7 @@ Vier Möglichkeiten, externe Inhalte einzubringen:
     ],
     [
       "Datei → Importieren…",
-      "Wählen Sie eine .fig- oder .html-Datei. Design importiert die ganze Datei auf die Arbeitsfläche und zeigt den Fortschritt in einer Benachrichtigung. Eine .fig-Datei über den Browser-Limits wird sofort abgelehnt; verwenden Sie stattdessen einen Figma-Link. Dies ist getrennt vom Importieren einer .fig-Datei in ein Designsystem.",
+      "Wählen Sie eine .fig- oder .html-Datei. Design importiert die ganze Datei auf die Arbeitsfläche und zeigt den Fortschritt in einer Benachrichtigung. Eine .fig-Datei über den Browser-Limits wird sofort abgelehnt; verwenden Sie stattdessen einen Figma-Link.",
     ],
     [
       "Lokale App",
@@ -291,8 +288,7 @@ eigenen Vorlagen (nicht die integrierten) erhalten ein „⋯“-Menü mit
 ### Eine Vorlage verwenden {#use-a-template}
 
 Ein Klick auf **Vorlage verwenden** öffnet einen kleinen Dialog: eine
-optionale Eingabeaufforderung, ein anzuwendendes Designsystem (oder ein Link
-zum Erstellen eines solchen) und eine Schaltfläche **So verwenden**, um
+optionale Eingabeaufforderung und eine Schaltfläche **So verwenden**, um
 direkt zu einer Kopie ohne Eingabeaufforderung zu springen. So oder so wird
 ein neues Design erstellt, und Sie gelangen direkt in dessen Editor.
 
@@ -318,53 +314,10 @@ Es gibt keinen separaten „Öffnen“-Schritt. Das Verwenden einer Vorlage ende
 genau wie das Generieren eines neuen Designs aus einer Eingabeaufforderung,
 immer damit, dass der Editor dieses Designs automatisch geöffnet wird.
 
-## Designsysteme {#design-systems}
-
-Ein Designsystem ist die Markenidentität, ihre Farben, Schriften, Abstände
-und Logos, die Design auf jeden mit ihm verknüpften Prototyp anwendet.
-
-### Designsysteme anzeigen und freigeben {#view-and-share}
-
-Die Seite Designsysteme ist ein Raster: zuerst eine Karte „Neues
-Designsystem“, dann eine Karte pro System mit einer Farbfeld-Vorschau, einem
-**Standard**-Badge auf demjenigen, das Ihr Standard ist, und einem
-Sichtbarkeits-Badge (privat, Organisation oder öffentlich). Jede Karte hat
-eine echte **Freigeben**-Schaltfläche mit den Rollen Betrachter, Bearbeiter
-oder Admin, demselben Freigabemodell, das Vorlagen verwenden. Ein
-**Auswählen**-Schalter in der Kopfzeile aktiviert die Mehrfachauswahl mit
-Massenlöschung.
-
-### Neues Designsystem {#new-design-system}
-
-Das Erstellen beginnt mit einer Quellenauswahl:
-
-- **Figma**: eine `.fig`-Datei hochladen.
-- **Unternehmen/Marke**: eine Website-URL.
-- **Code**: ein verbundenes GitHub-Repository.
-- **Design.md**: ein schriftliches Dokument mit Designrichtlinien.
-- **Design-Dateien**: Dateien direkt hochladen.
-- **Vorhandenes importieren**: ein bereits vorhandenes Designsystem oder
-  Projekt wiederverwenden.
-- **Notizen**: Beschreiben Sie Ihre Marke von Grund auf, oder starten Sie von
-  einem echten, gepflegten öffentlichen System wie Material 3, Carbon oder
-  Primer, statt eines aus dem Gedächtnis nachzubauen.
-
-<Callout tone="info">
-
-Jedes öffentliche System liefert echte semantische Tokens, eine
-Typografieskala, Abstände und Namensnennung. Design lässt sich durch eine
-Eingabeaufforderung nicht dazu bringen, eines heimlich in eine ähnlich
-aussehende Version mit anderen Daten darunter zu verwandeln. Jedes
-Designsystem trägt außerdem einen optionalen Satz benutzerdefinierter
-Anweisungen und einen beschriebenen Bildstil, damit generierte Fotografie und
-Illustration in derselben visuellen Sprache wie der Rest der Marke bleiben.
-
-</Callout>
-
 ## Wie geht es weiter?
 
 - [**Design**](/docs/template-design) — der Überblick und die ersten Schritte
 - [**Mit dem Agent sprechen**](/docs/template-design-agent) — jede Eingabeaufforderung nach Aufgabe und wie der Agent Ihren Bildschirm sieht
 - [**Design in einem Multi-App-Arbeitsbereich**](/docs/template-design-integrations) — die Verbindung zu Dispatch und der Aufruf von Design über MCP
 - [**Entwicklerhandbuch**](/docs/template-design-developers) — Schnellstart, Aktionen, Datenmodell und Routen
-- [**Freigabe**](/docs/sharing) — das Freigabemodell, auf dem Vorlagen und Designsysteme aufbauen
+- [**Freigabe**](/docs/sharing) — das Freigabemodell, auf dem Vorlagen aufbauen

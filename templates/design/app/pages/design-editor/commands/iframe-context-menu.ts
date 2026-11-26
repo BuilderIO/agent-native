@@ -17,6 +17,7 @@ import {
   resolveCodeLayerNodeFromElementInfo,
   resolvedLayerName,
 } from "@/pages/design-editor/code-layer-state";
+import { readIframeScrollOffset } from "@/pages/design-editor/iframe-scroll";
 import {
   computeIframeLocalCanvasPoint,
   readOverviewZoomPercentFromTransform,
@@ -137,17 +138,19 @@ export function runIframeContextMenu(
     iframeRect: iframeForPoint?.getBoundingClientRect() ?? null,
     zoomPercent: viewMode === "single" ? zoom : liveOverviewZoom,
   });
-  const scroll = (iframeForPoint as HTMLIFrameElement | null)?.contentWindow;
+  const scroll = readIframeScrollOffset(
+    iframeForPoint as HTMLIFrameElement | null,
+  );
   menu.openAt({
     clientX,
     clientY,
     ...(payload.info ? {} : { emptyCanvas: true }),
-    ...(canvasPoint
+    ...(canvasPoint && scroll
       ? {
-          canvasX: canvasPoint.x + (scroll?.scrollX ?? 0),
-          canvasY: canvasPoint.y + (scroll?.scrollY ?? 0),
-          ...(contextScreenId ? { screenId: contextScreenId } : {}),
+          canvasX: canvasPoint.x + scroll.left,
+          canvasY: canvasPoint.y + scroll.top,
         }
       : {}),
+    ...(contextScreenId ? { screenId: contextScreenId } : {}),
   });
 }

@@ -3,6 +3,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
+import { addablePropertyTypes } from "../shared/properties.js";
 import {
   builderEntryStatusChoices,
   builderEntryStatusTargets,
@@ -47,6 +48,10 @@ export default defineAction({
       databaseAccess?.role === "admin" ||
       databaseAccess?.role === "editor";
     const canManageSchema = canEditValues;
+    const canManageColumnRules =
+      databaseAccess?.role === "owner" || databaseAccess?.role === "admin";
+    const addableTypes = addablePropertyTypes(database?.systemRole);
+    const canAddProperties = canManageSchema && addableTypes.length > 0;
 
     const properties = await listPropertiesForDocument(
       access.resource,
@@ -80,6 +85,11 @@ export default defineAction({
       databaseId: databaseAccess ? (database?.id ?? null) : null,
       canEditValues,
       canManageSchema,
+      canManageColumnRules,
+      canAddProperties,
+      ...(canAddProperties && database?.systemRole
+        ? { addablePropertyTypes: [...addableTypes] }
+        : {}),
       properties: databaseAccess
         ? properties.map((property) =>
             builderStatusChoices &&

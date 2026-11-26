@@ -15,8 +15,11 @@ import {
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { useEffect, useRef, useState } from "react";
 
+import { analyticsChartBlock } from "@/components/editor/analytics-chart/AnalyticsChartBlock";
 import { clipEmbedBlock } from "@/components/editor/clip-embed/ClipEmbedBlock";
+import { designScreenBlock } from "@/components/editor/design-screen/DesignScreenBlock";
 import { uploadImageFile } from "@/components/editor/image-upload";
+import { linkCardBlock } from "@/components/editor/link-card/LinkCardBlock";
 import {
   Popover,
   PopoverContent,
@@ -51,6 +54,9 @@ for (const block of builderDocsBlocks) {
 contentBlockRegistry.register(sourceComponentBlock);
 contentBlockRegistry.register(inlineDatabaseBlock);
 contentBlockRegistry.register(clipEmbedBlock);
+contentBlockRegistry.register(analyticsChartBlock);
+contentBlockRegistry.register(linkCardBlock);
+contentBlockRegistry.register(designScreenBlock);
 
 type ContentBlockRenderContext = BlockRenderContext & {
   documentId?: string | null;
@@ -60,10 +66,15 @@ type ContentBlockRenderContext = BlockRenderContext & {
 export function createContentBlockRenderContext(options?: {
   documentId?: string | null;
   canEdit?: boolean;
+  /** Keep images a block uploads private to its page, as the body's are. */
+  privateImageUploads?: boolean;
 }): BlockRenderContext {
+  const documentId = options?.documentId;
+  const privateImageTarget =
+    options?.privateImageUploads && documentId ? { documentId } : null;
   const ctx: ContentBlockRenderContext = {
     dialect: "nfm",
-    documentId: options?.documentId,
+    documentId,
     canEdit: options?.canEdit,
     renderMarkdown: (markdown) => <ContentBlockMarkdown markdown={markdown} />,
     renderMarkdownEditor: ({ value, onChange, editable }) => (
@@ -74,7 +85,7 @@ export function createContentBlockRenderContext(options?: {
       />
     ),
     uploadFile: async (file: File) => {
-      const url = await uploadImageFile(file);
+      const url = await uploadImageFile(file, privateImageTarget);
       return { url };
     },
     renderEditSurface: ({

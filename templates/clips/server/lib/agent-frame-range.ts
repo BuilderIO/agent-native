@@ -240,13 +240,17 @@ export async function openAgentFrameRange(
         disconnected = true;
         controller.abort();
       });
+      activeRequests++;
+      // FFmpeg opens its next range before closing the one it seeks away
+      // from, so the slot frees when the client is gone, not when an
+      // upstream read that client abandoned settles.
       response.on("close", () => {
+        activeRequests--;
         if (!response.writableFinished) {
           disconnected = true;
           controller.abort();
         }
       });
-      activeRequests++;
       const task = (async () => {
         try {
           let offset = start;
@@ -285,8 +289,6 @@ export async function openAgentFrameRange(
         } catch {
           if (!isDisconnected()) fail("Recording storage range failed.");
           response.destroy();
-        } finally {
-          activeRequests--;
         }
       })();
       tasks.add(task);

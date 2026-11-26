@@ -1,12 +1,11 @@
+import type { DataSourceType } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { format, type SqlLanguage } from "sql-formatter";
-
-import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 const TEMPLATE_PARAM_REGEX = String.raw`\{\{[?/]?[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?\}\}`;
 
 function languageForSource(source: DataSourceType): SqlLanguage | null {
   if (source === "bigquery") return "bigquery";
-  if (source === "first-party") return "postgresql";
+  if (source === "first-party" || source === "postgres") return "postgresql";
   return null;
 }
 

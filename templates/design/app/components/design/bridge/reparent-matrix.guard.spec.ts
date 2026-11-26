@@ -8,10 +8,8 @@ import {
   ensureCodeLayerNodeIdsInHtml,
   moveNodeBetweenDocuments,
 } from "../../../../shared/code-layer";
-import {
-  buildRuntimeReactStructureMoveHandoff,
-  resolveRuntimeStructureMoveExecutionMode,
-} from "../../../pages/design-editor/react-semantic-handoff";
+
+// oracle-change: removed the execution-mode and handoff case; pages/design-editor/react-semantic-handoff.test.ts owns both functions
 
 const editorChromeBridgeSource = buildSync({
   entryPoints: [
@@ -1749,96 +1747,5 @@ describe("cross-screen source and runtime matrix", () => {
         destination: moved.destHtml,
       });
     }
-  });
-
-  it("uses the same-screen bridge only for safe runtime/runtime moves and semantic handoff for cross-screen or mixed ownership", () => {
-    expect(
-      resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: true,
-        targetRuntimeOnly: true,
-        sourceScreenId: "screen-a",
-        targetScreenId: "screen-a",
-      }),
-    ).toBe("screen-bridge");
-    expect(
-      resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: true,
-        targetRuntimeOnly: false,
-        sourceScreenId: "board",
-        targetScreenId: "live",
-        sourceScreenIsBoard: true,
-        targetScreenIsLive: true,
-      }),
-    ).toBe("screen-bridge-insert");
-    expect(
-      resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: false,
-        targetRuntimeOnly: false,
-        sourceScreenId: "screen-a",
-        targetScreenId: "live",
-        targetScreenIsLive: true,
-      }),
-    ).toBe("semantic-handoff");
-    expect(
-      resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: false,
-        targetRuntimeOnly: false,
-        sourceScreenId: "board",
-        targetScreenId: "live",
-        sourceScreenIsBoard: true,
-      }),
-    ).toBe("source-edit");
-    expect(
-      resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: true,
-        targetRuntimeOnly: true,
-        sourceScreenId: "live",
-        targetScreenId: "live",
-        targetScreenIsLive: true,
-      }),
-    ).toBe("screen-bridge");
-    for (const ownership of [
-      { subjectRuntimeOnly: true, targetRuntimeOnly: true },
-      { subjectRuntimeOnly: true, targetRuntimeOnly: false },
-      { subjectRuntimeOnly: false, targetRuntimeOnly: true },
-    ]) {
-      expect(
-        resolveRuntimeStructureMoveExecutionMode({
-          ...ownership,
-          sourceScreenId: "screen-a",
-          targetScreenId: "screen-b",
-        }),
-      ).toBe("semantic-handoff");
-    }
-
-    const anchor = (relPath: string, component: string) => ({
-      relPath,
-      sourceFile: relPath,
-      line: 12,
-      column: 5,
-      component,
-      runtimeMultiplicity: 1,
-      scope: "single-instance" as const,
-    });
-    const built = buildRuntimeReactStructureMoveHandoff({
-      subjectAnchor: anchor("app/components/Card.tsx", "Card"),
-      targetAnchor: anchor("app/components/Grid.tsx", "Grid"),
-      placement: "inside",
-      sourceScreenId: "screen-a",
-      targetScreenId: "screen-b",
-    });
-    expect(built.ok).toBe(true);
-    if (!built.ok) return;
-    expect(built.handoff.runtimeRelationship).toMatchObject({
-      kind: "inside",
-      sourceScreenId: "screen-a",
-      targetScreenId: "screen-b",
-    });
-    expect(built.handoff.executionContract).toMatchObject({
-      requiresHumanWriteConsent: true,
-      requiresExpectedVersionHash: true,
-      allowsGenericAstStructureTransform: false,
-      preservePreviewUntilHmrConfirmation: true,
-    });
   });
 });

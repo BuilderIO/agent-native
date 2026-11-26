@@ -1,4 +1,6 @@
+import { scrubQueryString, scrubUrl } from "../client/url-scrub.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { isSecretName } from "../shared/secret-redaction.js";
 import {
   isSqlQueryFailureText,
   isSqlStatementText,
@@ -110,6 +112,15 @@ function redactSentryEventPayload(
   for (const [key, child] of Object.entries(record)) {
     if (redactSqlParams && key.toLowerCase() === "params") {
       record[key] = "<redacted>";
+    } else if (
+      child !== null &&
+      child !== undefined &&
+      typeof child !== "number" &&
+      typeof child !== "boolean" &&
+      !(eventRoot && key === "modules") &&
+      isSecretName(key)
+    ) {
+      record[key] = "<redacted>";
     } else if (typeof child === "string") {
       record[key] =
         key.toLowerCase() === "stack"
@@ -140,6 +151,62 @@ function redactSentryEventPayload(
   }
 }
 
+type SentryRequest = NonNullable<import("@sentry/node").Event["request"]>;
+
+const SENSITIVE_HEADER_RE = /secret|token|signature/i;
+
+// Dropped, not redacted: a header named for a secret has no value worth keeping.
+function scrubSentryRequest(request: SentryRequest) {
+  if (request.headers) {
+    const headers = request.headers as Record<string, string>;
+    for (const k of Object.keys(headers)) {
+      const lk = k.toLowerCase();
+      if (
+        lk === "cookie" ||
+        lk === "authorization" ||
+        lk === "set-cookie" ||
+        lk === "proxy-authorization" ||
+        SENSITIVE_HEADER_RE.test(lk)
+      ) {
+        delete headers[k];
+      }
+    }
+  }
+  if (request.url) {
+    request.url = scrubUrl(request.url, { routePath: true }) ?? "";
+  }
+  if (request.query_string !== undefined) {
+    request.query_string = scrubQueryString(request.query_string) ?? "";
+  }
+  delete (request as Record<string, unknown>).cookies;
+}
+
+function scrubSentrySpanText(value: string): string {
+  return redact(
+    value.replace(/https?:\/\/[^\s"'<>]+/g, (url) => scrubUrl(url) ?? url),
+  );
+}
+
+// A fetch span names its URL in `description` and in `data` (`url.full`,
+// `http.query`), query string included.
+function scrubSentrySpan<
+  T extends { description?: string; data?: Record<string, unknown> },
+>(span: T): T {
+  if (typeof span.description === "string") {
+    span.description = scrubSentrySpanText(span.description);
+  }
+  if (span.data) {
+    for (const [key, value] of Object.entries(span.data)) {
+      if (typeof value === "string") {
+        span.data[key] = isSecretName(key)
+          ? "<redacted>"
+          : scrubSentrySpanText(value);
+      }
+    }
+  }
+  return span;
+}
+
 export function initServerSentry(): Promise<boolean> {
   if (_initPromise) return _initPromise;
 
@@ -163,6 +230,12 @@ export function initServerSentry(): Promise<boolean> {
         release: resolveServerRelease(),
         tracesSampleRate: parseTracesSampleRate(),
         sendDefaultPii: false,
+        beforeSendSpan: scrubSentrySpan,
+        beforeSendTransaction(event) {
+          redactSentryEventPayload(event, false, true);
+          if (event.request) scrubSentryRequest(event.request);
+          return event;
+        },
         beforeSend(event) {
           event.tags = {
             ...event.tags,
@@ -215,23 +288,7 @@ export function initServerSentry(): Promise<boolean> {
             delete event.logentry.params;
           }
 
-          if (event.request) {
-            if (event.request.headers) {
-              const headers = event.request.headers as Record<string, string>;
-              for (const k of Object.keys(headers)) {
-                const lk = k.toLowerCase();
-                if (
-                  lk === "cookie" ||
-                  lk === "authorization" ||
-                  lk === "set-cookie" ||
-                  lk === "proxy-authorization"
-                ) {
-                  delete headers[k];
-                }
-              }
-            }
-            delete (event.request as Record<string, unknown>).cookies;
-          }
+          if (event.request) scrubSentryRequest(event.request);
 
           if (event.user) {
             const user = event.user as Record<string, unknown>;

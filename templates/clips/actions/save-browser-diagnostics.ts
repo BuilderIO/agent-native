@@ -179,6 +179,7 @@ export default defineAction({
   description:
     "Save redacted browser timeline, console, and network diagnostics captured during a Clips recording session. UI/internal use only.",
   agentTool: false,
+  automatic: true,
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     sessionId: z.string().min(1).max(120).optional(),

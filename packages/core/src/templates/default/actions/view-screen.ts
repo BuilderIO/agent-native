@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state. Note: basic screen context is auto-included with each message — use this tool only when you need a detailed or refreshed snapshot.",
+    "Agent-only: see what the user is currently looking at on screen. Returns the current navigation state; no browser control calls it. Note: basic screen context is auto-included with each message — use this tool only when you need a detailed or refreshed snapshot.",
   schema: z.object({}),
   http: false,
   readOnly: true,

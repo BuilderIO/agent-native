@@ -84,6 +84,7 @@ const schema = z.discriminatedUnion("operation", [
 ]);
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Create, update, or delete an automation from the Agent Automations page. Existing automations are addressed by stable resourceId; name and scope remain compatibility inputs.",
   agentTool: false,

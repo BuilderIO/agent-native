@@ -654,19 +654,21 @@ the thread silent while a required product or UX decision is pending, and
 report that gate only in the private recap.
 
 If no prior maintainer request is awaiting an update and this would be the
-active login's first comment on that PR, begin the draft with a warm thank-you that tags the author
-using the exact GitHub `author.login` from the live PR metadata, for example:
+active login's first comment on that PR, follow `community-prs/SKILL.md` for
+external authors: begin with a warm thank-you using the first name from their
+GitHub profile (never greet by `@handle`; if no profile name is set, use plain
+"Thanks for the PR!"):
 
 ```text
-Thanks for the PR, @username!
+Thanks for the PR, FirstName!
 
 Couple requests. Can you please [make the specific update] so [the intended
 behavior or outcome] is preserved?
 ```
 
-Replace `username` with the PR author's actual login and the bracketed text with
-the evidence-backed request; do not use a display name, guess the handle, or
-leave placeholders in the draft. Put the thank-you on its own line, then state
+Replace `FirstName` with the author's GitHub profile first name (or omit the
+name if none is set) and replace the bracketed text with the evidence-backed
+request; never guess a name, use `@handle`, or leave placeholders in the draft. Put the thank-you on its own line, then state
 the concrete request in a friendly, conversational way (for example, "Couple
 requests. Can you please ...?"). Keep the technical request specific,
 actionable, and supported by the diff or source evidence; ask for a regression
@@ -712,10 +714,10 @@ local work without explicit authorization.
 
 During review-only work, do not sync `origin/main`. During an explicitly
 authorized `/ship` for the same PR, follow that skill's safe-sync rule: merge
-fresh `origin/main` for a confirmed conflict or a failing required check fixed
-there, after verifying the exact live head and a clean task-owned worktree.
-Use a normal merge for shared branches. Never sync just to clear a behind
-count or restart checks.
+fresh `origin/main` only when `gh pr view <n> --json baseRefName,mergeable,mergeStateStatus`
+reports base `main` and `CONFLICTING` or `DIRTY`, after verifying HEAD is the
+live PR head and the worktree is clean. Use a normal merge, never a rebase. Never sync just to
+clear a behind count or restart checks.
 
 ## End-of-run recap
 

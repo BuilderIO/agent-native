@@ -27,6 +27,7 @@ export default defineAction({
   description:
     "Record LLM token usage and reported or estimated cost when available for a recap, keyed by plan id. Internal mechanic used by the PR Visual Recap workflow after the agent run finishes; not an agent-facing tool.",
   agentTool: false,
+  automatic: true,
   schema: z.object({
     planId: z.string().min(1),
     agent: z.enum(["claude", "codex", "openai-compatible"]).optional(),

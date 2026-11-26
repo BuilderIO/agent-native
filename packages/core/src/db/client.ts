@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
-import { isConnectionError } from "./errors.js";
+import { isConnectionError, isRetryableConnectionError } from "./errors.js";
 export { isConnectionError, isTransientDatabaseError } from "./errors.js";
 
 import { withoutWriteObservation } from "../action-frame.js";
@@ -313,6 +313,29 @@ async function importOptionalModule(specifier: string): Promise<any> {
   return import(/* @vite-ignore */ specifier);
 }
 
+/**
+ * Registers PGlite extensions (for example `pg_textsearch` from
+ * `@electric-sql/pglite-pg_textsearch`) that Core passes to `PGlite.create()`.
+ * PGlite only accepts extensions at client creation, so call this before the
+ * first database access, at module load of a file every entry point imports.
+ * Throws once any PGlite client has been created. `CREATE EXTENSION` stays in
+ * the app's migrations; remote PostgreSQL connections ignore this.
+ */
+export function configurePgliteExtensions(
+  extensions: Record<string, unknown>,
+): void {
+  if (pgliteProcess.__agentNativePgliteClientCreated) {
+    throw new Error(
+      "configurePgliteExtensions: a PGlite client already exists. Register " +
+        "extensions before the first database access.",
+    );
+  }
+  pgliteProcess.__agentNativePgliteExtensions = {
+    ...pgliteProcess.__agentNativePgliteExtensions,
+    ...extensions,
+  };
+}
+
 export async function loadPglitePackage(): Promise<{ PGlite: any }> {
   const packageName = "@electric-sql/pglite";
   return loadOptionalPeer(packageName, () => importOptionalModule(packageName));
@@ -354,6 +377,8 @@ const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
   __agentNativePgliteClientShutdownRequested?: boolean;
   __agentNativePgliteClientGeneration?: number;
+  __agentNativePgliteExtensions?: Record<string, unknown>;
+  __agentNativePgliteClientCreated?: boolean;
   __agentNativePgliteClientReadyGenerations?: Map<string, number>;
   __agentNativeDbClientsClosingHooks?: DbClientsClosingHooks;
 };
@@ -720,7 +745,11 @@ export async function getPgliteClient(url: string): Promise<any> {
         assertPgliteClientGeneration(generation);
         const { PGlite } = await loadPglitePackage();
         assertPgliteClientGeneration(generation);
-        const client = await PGlite.create(clientKey);
+        const extensions = pgliteProcess.__agentNativePgliteExtensions;
+        pgliteProcess.__agentNativePgliteClientCreated = true;
+        const client = extensions
+          ? await PGlite.create(clientKey, { extensions })
+          : await PGlite.create(clientKey);
         try {
           assertPgliteClientGeneration(generation);
         } catch (error) {
@@ -827,14 +856,24 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
 
 export { retryOnDdlRace } from "./runtime-facts.js";
 
+/**
+ * Whether a write failed on a unique or primary key constraint. Drizzle wraps
+ * a failed query in `DrizzleQueryError` with the driver's error as `cause`, so
+ * a few levels of `cause` are checked too.
+ */
 export function isUniqueViolation(e: any): boolean {
-  if (e?.code === "23505") return true;
-  const msg = String(e?.message ?? "").toLowerCase();
-  return (
-    msg.includes("unique constraint") ||
-    msg.includes("primary key constraint") ||
-    msg.includes("duplicate key")
-  );
+  for (let depth = 0; depth < 4 && e; depth += 1, e = e?.cause) {
+    if (e?.code === "23505") return true;
+    const msg = String(e?.message ?? "").toLowerCase();
+    if (
+      msg.includes("unique constraint") ||
+      msg.includes("primary key constraint") ||
+      msg.includes("duplicate key")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function isLocalDatabase(): boolean {
@@ -1239,7 +1278,7 @@ export async function retryOnConnectionError<T>(
     } catch (e) {
       last = e;
       if (
-        !isConnectionError(e) ||
+        !isRetryableConnectionError(e) ||
         attempt === maxAttempts - 1 ||
         !hasRetryBudgetFor(startedAt)
       ) {
@@ -1256,6 +1295,18 @@ export function dbOpTimeoutMs(): number {
   const raw = Number(process.env.DB_OP_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return isServerlessRuntime() ? 8_000 : 30_000;
+}
+
+/**
+ * When the database last timed out a query, so background work can stand down for a
+ * moment instead of retrying into a slow database. 11/5 evening: with the pool no
+ * longer exhausted, ~6 query timeouts a minute remained, each one a sweep handler
+ * failing against a database that had just timed out another one.
+ */
+let lastDbTimeoutAt = 0;
+
+export function dbRecentTimeoutMs(): number {
+  return lastDbTimeoutAt ? Date.now() - lastDbTimeoutAt : Infinity;
 }
 
 class DbTimeoutError extends Error {
@@ -1339,6 +1390,7 @@ export async function withDbTimeout<T>(
         await runCleanup();
         recordQueryResult();
         finishTelemetry("timeout");
+        lastDbTimeoutAt = Date.now();
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -1561,6 +1613,22 @@ export class DbConnectCooldownError extends Error {
     );
     this.name = "DbConnectCooldownError";
   }
+}
+
+/**
+ * How long the process must still wait before it will attempt a database connect,
+ * or 0 when connects are allowed. Exposed so background work can stand down while a
+ * saturated database is in cooldown instead of piling on: the hosted database pooler
+ * answered "Too many connections" to hundreds of requests a minute, and every sweep
+ * handler retried it independently.
+ */
+export function dbConnectGateRemainingMs(): number {
+  let remaining = 0;
+  const now = Date.now();
+  for (const gate of connectCooldowns.values()) {
+    if (gate.until > now) remaining = Math.max(remaining, gate.until - now);
+  }
+  return remaining;
 }
 
 const connectCooldowns = new Map<
@@ -2428,12 +2496,23 @@ const transactionCallbacks = new AsyncLocalStorage<{
   executors: WeakSet<DbExec>;
 }>();
 
+// The handles `createGetDb` gives `db.transaction()` callbacks. `withDbExec`
+// also scopes executors that aren't in a transaction.
+const drizzleTransactionExecs = new WeakSet<DbExec>();
+
+/** Marks the handle of a Drizzle transaction, which `withDbExec` then scopes. */
+export function markDrizzleTransactionExec(exec: DbExec): DbExec {
+  drizzleTransactionExecs.add(exec);
+  return exec;
+}
+
 export function withDbExec<T>(exec: DbExec, run: () => T): T {
   const guarded = guardSchemaMutations(exec);
   const callback = transactionCallbacks.getStore();
   if (callback?.active && callback.executors.has(exec)) {
     callback.executors.add(guarded);
   }
+  if (drizzleTransactionExecs.has(exec)) drizzleTransactionExecs.add(guarded);
   return scopedDbExec.run(guarded, run);
 }
 
@@ -2449,6 +2528,12 @@ export function getScopedTransactionDbExec(): DbExec | undefined {
     : undefined;
 }
 
+/** Whether an executor is the live handle supplied to the active transaction callback. */
+export function isActiveTransactionExec(exec: DbExec): boolean {
+  const callback = transactionCallbacks.getStore();
+  return callback?.active === true && callback.executors.has(exec);
+}
+
 /**
  * True while a `getDbExec().transaction()` callback runs. That callback leaves
  * `getScopedDbExec()` unset, so code that must not run inside a caller's
@@ -2456,6 +2541,37 @@ export function getScopedTransactionDbExec(): DbExec | undefined {
  */
 export function insideDbTransactionCallback(): boolean {
   return transactionCallbacks.getStore()?.active === true;
+}
+
+/**
+ * The executor that writes in the transaction this code runs in, or undefined
+ * outside one: a transaction's handle that `withDbExec` scoped, as a Drizzle
+ * `db.transaction()` does, or inside a PGlite transaction `getDbExec()`, which
+ * joins it. An executor scoped outside a transaction doesn't count. For code
+ * that should join the caller's transaction rather than open its own, since
+ * PGlite can't nest one. A `getDbExec().transaction()` callback that hasn't
+ * scoped its handle with `withDbExec` keeps it to itself, so this throws there
+ * rather than return an executor that writes outside it. Legacy callers that
+ * intentionally operate independently of an unscoped transaction may opt out.
+ */
+export function getEnclosingTransactionDbExec(options?: {
+  allowUnscoped?: boolean;
+}): DbExec | undefined {
+  const scoped = getScopedDbExec();
+  if (scoped && drizzleTransactionExecs.has(scoped)) return scoped;
+  const callbackScoped = getScopedTransactionDbExec();
+  if (callbackScoped) return callbackScoped;
+  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) {
+    return getActivePgliteTransactionExec(
+      getRuntimeDatabaseUrl("pglite:./data/pglite"),
+    );
+  }
+  if (insideDbTransactionCallback() && !options?.allowUnscoped) {
+    throw new Error(
+      "Scope this transaction's handle with withDbExec(tx, …) so the code it calls writes in it.",
+    );
+  }
+  return undefined;
 }
 
 async function inTransactionCallback<T>(

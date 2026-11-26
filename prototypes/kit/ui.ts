@@ -4,7 +4,10 @@
 
 declare const KIT_ICONS: Record<string, string>;
 const ICONS = KIT_ICONS;
+// A prototype that draws some icons from another set defines a global kitIcon(name, cls) that returns the
+// markup, or nothing to fall back to this set.
 const ic = (n, cls = "") =>
+  (globalThis as { kitIcon?: (n: string, cls: string) => string | undefined }).kitIcon?.(n, cls) ??
   `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
 const $ = (s, r = document) => r.querySelector(s);
 

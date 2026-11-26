@@ -26,7 +26,6 @@ export async function trackDesignCreated(
   properties: {
     creationMethod: DesignCreationMethod;
     projectType: string | null | undefined;
-    designSystemId?: string | null;
     sourceDesignId?: string;
     templateId?: string;
     variantCount?: number;
@@ -43,9 +42,6 @@ export async function trackDesignCreated(
         project_type: properties.projectType ?? "prototype",
         ...(properties.variantCount !== undefined
           ? { variant_count: properties.variantCount }
-          : {}),
-        ...(properties.designSystemId
-          ? { design_system_id: properties.designSystemId }
           : {}),
         ...(properties.sourceDesignId
           ? { source_design_id: properties.sourceDesignId }

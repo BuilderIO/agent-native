@@ -23,7 +23,7 @@ vi.mock("../../server/agents-bundle.js", () => ({
 
 import { createResourceScriptEntries } from "../../server/agent-chat/script-entries.js";
 import { runWithRequestContext } from "../../server/request-context.js";
-import resourceReadScript from "./read.js";
+import resourceReadScript, { resourceRevisionLine } from "./read.js";
 
 const owner = "alice@example.test";
 const resources = new Map<
@@ -53,13 +53,15 @@ describe("resource action paging", () => {
   });
 
   it.each([40_000, 20_000, 128, 90])(
-    "reconstructs Unicode within a %i-character action cap",
-    async (cap) => {
+    "reconstructs Unicode within a %i-character page under the revision line",
+    async (pageCap) => {
       const content =
-        cap >= 20_000
+        pageCap >= 20_000
           ? "a".repeat(19_930) + "😀b".repeat(8_000) + "end"
           : "😀a".repeat(180) + "end";
       addResource({ owner, path, content });
+      const line = resourceRevisionLine({ content }, "personal");
+      const cap = line.length + pageCap;
       const action = (await createResourceScriptEntries()).resources;
       expect(action).toBeDefined();
       let offset = 0;
@@ -79,15 +81,18 @@ describe("resource action paging", () => {
         );
         expect(out.length).toBeLessThanOrEqual(cap);
         expect(Buffer.from(out, "utf8").toString("utf8")).toBe(out);
-        const match = out.match(
-          /^\[chars (\d+)-(\d+) of (\d+); (?:partial - read again with offset=(\d+) for the rest|end of resource)\]\n/,
+        expect(out.startsWith(line)).toBe(true);
+        const page = out.slice(line.length);
+        const match = page.match(
+          /^\[chars (\d+)-(\d+) of (\d+); (?:partial - read again with offset=(\d+) for the rest|end of resource)(; if the revision isn't your first page's, the file changed: read again from offset=0)?\]\n/,
         );
         expect(match).not.toBeNull();
-        if (!match) throw new Error(`Missing page header: ${out}`);
+        if (!match) throw new Error(`Missing page header: ${page}`);
+        expect(match[5] !== undefined).toBe(offset > 0 && pageCap > 1_000);
         const end = Number(match[2]);
         expect(Number(match[1])).toBe(offset);
         expect(Number(match[3])).toBe(content.length);
-        const body = out.slice(match[0].length);
+        const body = page.slice(match[0].length);
         expect(body).toBe(content.slice(offset, end));
         expect(end).toBeGreaterThan(offset);
         rebuilt += body;
@@ -105,9 +110,10 @@ describe("resource action paging", () => {
   it("fails rather than splitting a codepoint or returning a misleading header", async () => {
     addResource({ owner, path, content: "😀more" });
     const action = (await createResourceScriptEntries()).resources;
+    const line = resourceRevisionLine({ content: "😀more" }, "personal");
     const header =
       "[chars 0-2 of 6; partial - read again with offset=2 for the rest]\n";
-    for (const cap of [2, header.length + 1]) {
+    for (const cap of [2, line.length + header.length + 1]) {
       await expect(
         runWithRequestContext({ userEmail: owner }, () =>
           action.run(
@@ -121,10 +127,13 @@ describe("resource action paging", () => {
       await runWithRequestContext({ userEmail: owner }, () =>
         action.run(
           { action: "read", path, scope: "personal", length: "1" },
-          { caller: "tool", maxResultChars: header.length + 2 },
+          {
+            caller: "tool",
+            maxResultChars: line.length + header.length + 2,
+          },
         ),
       ),
-    ).toBe(header + "😀");
+    ).toBe(line + header + "😀");
   });
 });
 

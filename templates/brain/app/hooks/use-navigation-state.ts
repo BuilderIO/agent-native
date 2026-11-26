@@ -7,6 +7,10 @@ import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: BrainView;
+  intelligenceTab?: string;
+  intelligenceId?: string;
+  period?: string;
+  owner?: string;
   path?: string;
   query?: string;
   projectId?: string;
@@ -40,6 +44,10 @@ export function useNavigationState() {
       return {
         view: viewFromPath(localPathname),
         path: appPath(`${localPathname}${search}`),
+        intelligenceTab: params.get("tab") || undefined,
+        intelligenceId: params.get("intelligenceId") || undefined,
+        period: params.get("period") || undefined,
+        owner: params.get("owner") || undefined,
         query: params.get("q") || undefined,
         projectId: params.get("projectId") || undefined,
         source: params.get("source") || undefined,
@@ -52,6 +60,7 @@ export function useNavigationState() {
         limit: parseLimit(params.get("limit")),
         priority: params.get("priority") || undefined,
         sourceId: params.get("sourceId") || undefined,
+        captureId: params.get("captureId") || undefined,
         selectedKnowledgeId: params.get("knowledgeId") || undefined,
         reviewItemId: params.get("reviewItemId") || undefined,
         settingsSection:
@@ -61,6 +70,12 @@ export function useNavigationState() {
     },
     getCommandPath: (navCommand) => {
       const params = new URLSearchParams();
+      if (navCommand.intelligenceTab)
+        params.set("tab", navCommand.intelligenceTab);
+      if (navCommand.intelligenceId)
+        params.set("intelligenceId", navCommand.intelligenceId);
+      if (navCommand.owner) params.set("owner", navCommand.owner);
+      if (navCommand.period) params.set("period", navCommand.period);
       if (navCommand.query) params.set("q", navCommand.query);
       if (navCommand.projectId) params.set("projectId", navCommand.projectId);
       if (navCommand.source) params.set("source", navCommand.source);

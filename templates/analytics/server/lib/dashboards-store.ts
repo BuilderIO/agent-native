@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
-import { fail } from "@agent-native/core/action";
+import { ActionContractError, fail } from "@agent-native/core/action";
+import { isUniqueViolation } from "@agent-native/core/db";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { getRequestRunContext, recordChange } from "@agent-native/core/server";
 import {
   getOrgSetting,
@@ -16,6 +18,7 @@ import {
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import {
   and,
   asc,
@@ -41,7 +44,6 @@ import {
   type DashboardChange,
   type DashboardChangeSummary,
 } from "../../shared/dashboard-change-summary";
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
   decodeSearchCursor,
@@ -53,6 +55,11 @@ import {
   parseDashboardCertification,
   type DashboardCertification,
 } from "./dashboard-certification.js";
+import type {
+  AnalyticsTransaction,
+  GuardedCommitHook,
+  GuardedStoreOptions,
+} from "./guarded-writes.js";
 import { listLegacyDashboardSummaries } from "./legacy-dashboard-summaries.js";
 
 export type DashboardKind = "explorer" | "sql";
@@ -598,18 +605,100 @@ function affectedRowCount(result: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-export class DashboardConflictError extends Error {
-  constructor(id: string) {
-    super(`Dashboard "${id}" changed between read and write.`);
+/**
+ * A write fenced on a version that is no longer current. `currentRevision` is
+ * the updatedAt found instead (null when the record is gone), and
+ * `expectedUpdatedAt` the caller's own fence, when the caller sent one.
+ */
+function conflictOptions(
+  idKey: "dashboardId" | "analysisId",
+  id: string,
+  errorCode: string,
+  currentRevision: string | null | undefined,
+  expectedUpdatedAt: string | undefined,
+) {
+  return {
+    errorCode,
+    statusCode: 409,
+    details: {
+      [idKey]: id,
+      ...(currentRevision !== undefined ? { currentRevision } : {}),
+      ...(expectedUpdatedAt !== undefined ? { expectedUpdatedAt } : {}),
+    },
+  };
+}
+
+function conflictMessage(
+  record: "Dashboard" | "Analysis",
+  id: string,
+  currentRevision: string | null | undefined,
+  expectedUpdatedAt: string | undefined,
+): string {
+  if (expectedUpdatedAt === undefined) {
+    return `${record} "${id}" changed between read and write.`;
+  }
+  const now =
+    currentRevision === null
+      ? "it no longer exists"
+      : currentRevision === undefined
+        ? "it has changed since"
+        : `it is now at ${currentRevision}`;
+  return `${record} "${id}" changed after you read it (expectedUpdatedAt ${expectedUpdatedAt}; ${now}), so nothing was written. Read it again, redo your edit on that version, and resend with expectedUpdatedAt set to details.currentRevision.`;
+}
+
+export class DashboardConflictError extends ActionContractError {
+  constructor(
+    id: string,
+    currentRevision?: string | null,
+    expectedUpdatedAt?: string,
+  ) {
+    super(
+      conflictMessage("Dashboard", id, currentRevision, expectedUpdatedAt),
+      conflictOptions(
+        "dashboardId",
+        id,
+        "dashboard_conflict",
+        currentRevision,
+        expectedUpdatedAt,
+      ),
+    );
     this.name = "DashboardConflictError";
   }
 }
 
-export class AnalysisConflictError extends Error {
-  constructor(id: string) {
-    super(`Analysis "${id}" changed between read and write.`);
+export class AnalysisConflictError extends ActionContractError {
+  constructor(
+    id: string,
+    currentRevision?: string | null,
+    expectedUpdatedAt?: string,
+  ) {
+    super(
+      conflictMessage("Analysis", id, currentRevision, expectedUpdatedAt),
+      conflictOptions(
+        "analysisId",
+        id,
+        "analysis_conflict",
+        currentRevision,
+        expectedUpdatedAt,
+      ),
+    );
     this.name = "AnalysisConflictError";
   }
+}
+
+/** The first row a query returned, or undefined when it returned none. */
+function firstRow<T>(rows: readonly T[]): T | undefined {
+  return rows[0];
+}
+
+/** The sharing context for `ctx`, leaving out an org it does not have. */
+function accessContextOf(ctx: AccessCtx): {
+  userEmail: string;
+  orgId?: string;
+} {
+  return ctx.orgId
+    ? { userEmail: ctx.email, orgId: ctx.orgId }
+    : { userEmail: ctx.email };
 }
 
 function changeScope(
@@ -1656,17 +1745,26 @@ export async function assertDashboardNameIsAvailable(
 ): Promise<void> {
   const normalized = normalizeDashboardName(name);
   if (!normalized) return;
-  const conflict = (
-    await listDashboardSummaries(ctx, { legacyScan: "strict" }, dbOverride)
-  ).find(
-    (dashboard) =>
-      dashboard.id !== excludeId &&
-      normalizeDashboardName(dashboard.name) === normalized,
+  const summaries = await listDashboardSummaries(
+    ctx,
+    { legacyScan: "strict" },
+    dbOverride,
   );
-  if (!conflict) return;
-  throw new Error(
-    `Dashboard name "${name.trim()}" is already used by visible dashboard "${conflict.name}". Choose a different name.`,
+  const taken = new Set(
+    summaries
+      .filter((dashboard) => dashboard.id !== excludeId)
+      .map((dashboard) => normalizeDashboardName(dashboard.name)),
   );
+  if (!taken.has(normalized)) return;
+  const preferred = name
+    .trim()
+    .slice(0, 200 - (1 + String(summaries.length + 2).length));
+  const suggestion = nextFreeName(preferred, (candidate) =>
+    taken.has(normalizeDashboardName(candidate)),
+  );
+  throw nameTaken("dashboard", name.trim(), suggestion, {
+    hint: "A dashboard owner can rename or hide the conflicting dashboard if needed. The suggestion is not a reservation.",
+  });
 }
 
 async function lockDashboardNames(db: any, names: string[]): Promise<void> {
@@ -1830,6 +1928,43 @@ export async function assertDashboardEditable(
   });
 }
 
+/**
+ * The access a dashboard write needs, checked up front: a keyed write answers
+ * a replay only after this passes.
+ */
+export async function requireDashboardAccess(
+  dashboardId: string,
+  ctx: AccessCtx,
+  role: "editor" | "viewer",
+): Promise<DashboardRecord> {
+  const existing = await getDashboard(dashboardId, ctx);
+  if (!existing) {
+    fail(`dashboard "${dashboardId}" not found (or you don't have access).`, {
+      errorCode: "dashboard_not_found",
+      statusCode: 404,
+    });
+  }
+  assertNotBuiltinDashboard(dashboardId, existing);
+  await assertAccess("dashboard", dashboardId, role, accessContextOf(ctx));
+  return existing;
+}
+
+/**
+ * Whether any dashboard row has this id, whoever can see it. A write that may
+ * create a dashboard is a create only while its id is unclaimed; a dashboard
+ * the caller can no longer see still needs `requireDashboardAccess`.
+ */
+export async function isDashboardIdTaken(id: string): Promise<boolean> {
+  // guard:allow-unscoped — reads whether the id exists, never the row, so an
+  // unseen dashboard is refused by the access check instead of taken as new.
+  const rows = await getDb()
+    .select({ id: schema.dashboards.id })
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function createDashboardRevisionSnapshot(
   dashboardId: string,
   ctx: AccessCtx,
@@ -1901,6 +2036,18 @@ export function assertDashboardMutationApplied(
   if (affected === 0) throw new DashboardConflictError(id);
 }
 
+/** The version a lost compare-and-swap lost to, for the conflict's details. */
+async function currentDashboardVersion(
+  db: AnalyticsTransaction,
+  id: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ updatedAt: schema.dashboards.updatedAt })
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id));
+  return firstRow(rows)?.updatedAt ?? null;
+}
+
 async function lockWritableDashboard(
   db: any,
   id: string,
@@ -1934,12 +2081,17 @@ async function upsertDashboardWithOutcome(
   body: Record<string, unknown>,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
+  onCommit?: GuardedCommitHook,
+  createOnly = false,
 ): Promise<DashboardUpsertOutcome> {
   const existing = await getDashboard(id, ctx);
   assertNotBuiltinDashboard(id, existing);
+  if (createOnly && existing) {
+    throw new DashboardConflictError(id, existing.updatedAt);
+  }
   const observedUpdatedAt = expectedUpdatedAt ?? existing?.updatedAt;
   if (!existing && expectedUpdatedAt !== undefined) {
-    throw new DashboardConflictError(id);
+    throw new DashboardConflictError(id, null, expectedUpdatedAt);
   }
   const db = getDb() as any;
   const { title, config } = configFromSettings(body, kind);
@@ -1955,14 +2107,29 @@ async function upsertDashboardWithOutcome(
     observedUpdatedAt !== undefined &&
     existing.updatedAt !== observedUpdatedAt
   ) {
-    throw new DashboardConflictError(id);
+    throw new DashboardConflictError(id, existing.updatedAt, expectedUpdatedAt);
   }
   const changed =
     !existing ||
     existing.kind !== kind ||
     existing.title !== title ||
     stableStringify(existing.config) !== configJson;
-  if (existing && !changed) return { dashboard: existing, didWrite: false };
+  if (existing && !changed) {
+    // A save that changes nothing still answers for the version it was
+    // fenced on, so a stale repeat conflicts instead of reporting success.
+    await db.transaction(async (tx: AnalyticsTransaction) => {
+      const row = await lockWritableDashboard(tx, id);
+      if (row.updatedAt !== observedUpdatedAt) {
+        throw new DashboardConflictError(id, row.updatedAt, expectedUpdatedAt);
+      }
+      await onCommit?.(tx, {
+        before: row.updatedAt,
+        after: row.updatedAt,
+        changed: false,
+      });
+    });
+    return { dashboard: existing, didWrite: false };
+  }
   let persistedDashboard: DashboardRecord | undefined;
   let revisionId: string | undefined;
   const nameChanged =
@@ -1982,7 +2149,7 @@ async function upsertDashboardWithOutcome(
         kind,
         title,
         config: configJson,
-        updatedAt: nextDashboardVersion(existing.updatedAt),
+        updatedAt: nextRecordVersion(existing.updatedAt),
         updatedBy: ctx.email,
       };
       if (observedUpdatedAt !== undefined) {
@@ -2003,7 +2170,11 @@ async function upsertDashboardWithOutcome(
           )
           .returning();
         if (!row) {
-          throw new DashboardConflictError(id);
+          throw new DashboardConflictError(
+            id,
+            await currentDashboardVersion(writeDb, id),
+            expectedUpdatedAt,
+          );
         }
         persistedDashboard = rowToDashboard(row);
         if (changed)
@@ -2036,6 +2207,7 @@ async function upsertDashboardWithOutcome(
         persistedDashboard = rowToDashboard(row);
       }
     } else {
+      const createdAt = nowIso();
       const [row] = await writeDb
         .insert(schema.dashboards)
         .values({
@@ -2046,7 +2218,9 @@ async function upsertDashboardWithOutcome(
           ownerEmail: ctx.email,
           orgId: ctx.orgId,
           visibility: "private",
+          createdAt,
           createdBy: ctx.email,
+          updatedAt: createdAt,
           updatedBy: ctx.email,
         })
         .returning();
@@ -2059,16 +2233,35 @@ async function upsertDashboardWithOutcome(
   // The update and the history entry it leaves commit together; otherwise a
   // peer can save on top of this write before its entry lands, and the newest
   // entry ends up describing the older save.
-  await db.transaction(async (tx: any) => {
-    if (nameChanged) {
-      await lockDashboardNames(tx, [
-        title,
-        ...(existing ? [existing.title] : []),
-      ]);
-      await assertDashboardNameIsAvailable(title, ctx, existing?.id, tx);
+  try {
+    await db.transaction(async (tx: AnalyticsTransaction) => {
+      if (nameChanged) {
+        await lockDashboardNames(tx, [
+          title,
+          ...(existing ? [existing.title] : []),
+        ]);
+        await assertDashboardNameIsAvailable(title, ctx, existing?.id, tx);
+      }
+      await persist(tx);
+      if (onCommit) {
+        if (!persistedDashboard) {
+          throw new Error(`Dashboard "${id}" write returned no persisted row.`);
+        }
+        await onCommit(tx, {
+          before: existing?.updatedAt ?? null,
+          after: persistedDashboard.updatedAt,
+          changed: true,
+          revisionId: revisionId ?? null,
+        });
+      }
+    });
+  } catch (error) {
+    // Another create took this id first.
+    if (!existing && isUniqueViolation(error)) {
+      throw new DashboardConflictError(id);
     }
-    await persist(tx);
-  });
+    throw error;
+  }
   if (!persistedDashboard) {
     throw new Error(`Dashboard "${id}" write returned no persisted row.`);
   }
@@ -2095,10 +2288,40 @@ export async function upsertDashboardOutcome(
   body: Record<string, unknown>,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
+  onCommit?: GuardedCommitHook,
 ): Promise<DashboardUpsertOutcome> {
   return expectedUpdatedAt === undefined
-    ? await upsertDashboardLastWriteWins(id, kind, body, ctx)
-    : await upsertDashboardWithOutcome(id, kind, body, ctx, expectedUpdatedAt);
+    ? await upsertDashboardLastWriteWins(id, kind, body, ctx, onCommit)
+    : await upsertDashboardWithOutcome(
+        id,
+        kind,
+        body,
+        ctx,
+        expectedUpdatedAt,
+        onCommit,
+      );
+}
+
+/**
+ * Creates a dashboard at `id`, or throws `DashboardConflictError` when one is
+ * already there, so a create never lands on someone else's edit.
+ */
+export async function createDashboardOutcome(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+  onCommit?: GuardedCommitHook,
+): Promise<DashboardUpsertOutcome> {
+  return upsertDashboardWithOutcome(
+    id,
+    kind,
+    body,
+    ctx,
+    undefined,
+    onCommit,
+    true,
+  );
 }
 
 export async function upsertDashboard(
@@ -2125,10 +2348,18 @@ async function upsertDashboardLastWriteWins(
   kind: DashboardKind,
   body: Record<string, unknown>,
   ctx: AccessCtx,
+  onCommit?: GuardedCommitHook,
 ): Promise<DashboardUpsertOutcome> {
   return retryDashboardConflicts(id, async () => {
     const existing = await getDashboard(id, ctx);
-    return upsertDashboardWithOutcome(id, kind, body, ctx, existing?.updatedAt);
+    return upsertDashboardWithOutcome(
+      id,
+      kind,
+      body,
+      ctx,
+      existing?.updatedAt,
+      onCommit,
+    );
   });
 }
 
@@ -2179,6 +2410,10 @@ async function retryDashboardConflicts<T>(
  * On a lost race, this re-reads and re-invokes `mutate` up to `maxAttempts`
  * times before failing loud with a clear error so callers never silently
  * drop a write or loop forever.
+ *
+ * A caller fence (`guard.expectedUpdatedAt`) turns the merge off: one
+ * attempt, made only when the first read is that exact version, and a lost
+ * race is the caller's conflict to resolve.
  */
 export async function upsertDashboardWithRetryOutcome(
   id: string,
@@ -2193,7 +2428,29 @@ export async function upsertDashboardWithRetryOutcome(
         body: Record<string, unknown>;
       }>,
   maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
+  guard: GuardedStoreOptions = {},
 ): Promise<DashboardUpsertOutcome> {
+  const fence = guard.expectedUpdatedAt;
+  if (fence !== undefined) {
+    const existing = await getDashboard(id, ctx);
+    if (!existing) {
+      throw new Error(
+        `dashboard "${id}" not found (or you don't have access).`,
+      );
+    }
+    if (existing.updatedAt !== fence) {
+      throw new DashboardConflictError(id, existing.updatedAt, fence);
+    }
+    const { kind, body } = await mutate(existing);
+    return upsertDashboardWithOutcome(
+      id,
+      kind,
+      body,
+      ctx,
+      fence,
+      guard.onCommit,
+    );
+  }
   let lastConflict: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getDashboard(id, ctx);
@@ -2211,6 +2468,7 @@ export async function upsertDashboardWithRetryOutcome(
         body,
         ctx,
         existing.updatedAt,
+        guard.onCommit,
       );
     } catch (err) {
       if (err instanceof DashboardConflictError) {
@@ -2242,17 +2500,19 @@ export async function upsertDashboardWithRetry(
         body: Record<string, unknown>;
       }>,
   maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
+  guard: GuardedStoreOptions = {},
 ): Promise<DashboardRecord> {
   const outcome = await upsertDashboardWithRetryOutcome(
     id,
     ctx,
     mutate,
     maxAttempts,
+    guard,
   );
   return outcome.dashboard;
 }
 
-function nextDashboardVersion(updatedAt: string): string {
+function nextRecordVersion(updatedAt: string): string {
   const now = Date.now();
   const current = Date.parse(updatedAt);
   return new Date(
@@ -2287,7 +2547,7 @@ export async function certifyDashboardWithRetry(
         "Archived dashboards cannot be certified for AI queries.",
       );
     }
-    const updatedAt = nextDashboardVersion(existing.updatedAt);
+    const updatedAt = nextRecordVersion(existing.updatedAt);
     const certification: DashboardCertification = {
       status: "certified",
       certifiedAt: new Date().toISOString(),
@@ -2408,19 +2668,27 @@ export async function restoreDashboardRevision(
   revisionId: string,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
+  onCommit?: GuardedCommitHook,
 ): Promise<{
   dashboard: DashboardRecord;
   snapshotRevisionId: string;
 } | null> {
   return expectedUpdatedAt === undefined
     ? await retryDashboardConflicts(dashboardId, () =>
-        restoreDashboardRevisionAt(dashboardId, revisionId, ctx),
+        restoreDashboardRevisionAt(
+          dashboardId,
+          revisionId,
+          ctx,
+          undefined,
+          onCommit,
+        ),
       )
     : await restoreDashboardRevisionAt(
         dashboardId,
         revisionId,
         ctx,
         expectedUpdatedAt,
+        onCommit,
       );
 }
 
@@ -2429,6 +2697,7 @@ async function restoreDashboardRevisionAt(
   revisionId: string,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
+  onCommit?: GuardedCommitHook,
 ): Promise<{
   dashboard: DashboardRecord;
   snapshotRevisionId: string;
@@ -2444,7 +2713,11 @@ async function restoreDashboardRevisionAt(
   // leaves records `existing`, so it must be the version the restore replaces.
   const observedUpdatedAt = expectedUpdatedAt ?? existing.updatedAt;
   if (existing.updatedAt !== observedUpdatedAt) {
-    throw new DashboardConflictError(dashboardId);
+    throw new DashboardConflictError(
+      dashboardId,
+      existing.updatedAt,
+      expectedUpdatedAt,
+    );
   }
   const db = getDb() as any;
   const [revisionRow] = await db
@@ -2459,7 +2732,7 @@ async function restoreDashboardRevisionAt(
     .limit(1);
   if (!revisionRow) return null;
   const revision = rowToDashboardRevision(revisionRow);
-  const updatedAt = nextDashboardVersion(existing.updatedAt);
+  const updatedAt = nextRecordVersion(existing.updatedAt);
   const nameChanged =
     normalizeDashboardName(existing.title) !==
     normalizeDashboardName(revision.title);
@@ -2501,7 +2774,13 @@ async function restoreDashboardRevisionAt(
         "The Postgres update did not report an affected-row count for the fenced dashboard restore.",
       );
     }
-    if (affected === 0) throw new DashboardConflictError(dashboardId);
+    if (affected === 0) {
+      throw new DashboardConflictError(
+        dashboardId,
+        await currentDashboardVersion(tx, dashboardId),
+        expectedUpdatedAt,
+      );
+    }
 
     const snapshotRevisionId = await snapshotDashboardRevision(
       tx,
@@ -2513,6 +2792,12 @@ async function restoreDashboardRevisionAt(
         ...describeDashboardChanges(existing.config, revision.config),
       ]),
     );
+    await onCommit?.(tx, {
+      before: existing.updatedAt,
+      after: updatedAt,
+      changed: true,
+      revisionId: snapshotRevisionId,
+    });
     const [row] = await tx
       .select()
       .from(schema.dashboards)
@@ -2535,30 +2820,109 @@ async function restoreDashboardRevisionAt(
   return restored;
 }
 
-export async function archiveDashboard(
+export interface DashboardStatePlan {
+  role: "editor" | "viewer";
+  /** The columns to set, or null when the dashboard is already in that state. */
+  patch: (
+    current: typeof schema.dashboards.$inferSelect,
+  ) => Partial<typeof schema.dashboards.$inferInsert> | null;
+  /** Whether the dashboard ends up listed under its name. */
+  becomesVisible?: (
+    current: Pick<DashboardRecord, "archivedAt" | "hiddenAt">,
+  ) => boolean;
+}
+
+/**
+ * Sets state columns (archive, hidden, folder) on one dashboard under its row
+ * lock, advancing its version. A request that changes nothing is still
+ * checked against the caller's fence and still records its receipt.
+ */
+export async function updateDashboardState(
   id: string,
   ctx: AccessCtx,
+  plan: DashboardStatePlan,
+  guard: GuardedStoreOptions = {},
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
   assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
-  if (existing.archivedAt) return existing;
-  await assertAccess("dashboard", id, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
+  await assertAccess("dashboard", id, plan.role, accessContextOf(ctx));
+  const fence = guard.expectedUpdatedAt;
+  if (fence !== undefined && existing.updatedAt !== fence) {
+    throw new DashboardConflictError(id, existing.updatedAt, fence);
+  }
+  const lockName = plan.becomesVisible?.(existing) === true;
+  if (lockName) {
+    await assertDashboardNameIsAvailable(existing.title, ctx, id);
+  }
+  const written = await getDb().transaction(async (tx) => {
+    if (lockName) {
+      await lockDashboardNames(tx, [existing.title]);
+      await assertDashboardNameIsAvailable(existing.title, ctx, id, tx);
+    }
+    const current = firstRow(
+      await tx
+        .select()
+        .from(schema.dashboards)
+        .where(eq(schema.dashboards.id, id))
+        .for("update"),
+    );
+    if (!current) throw new DashboardConflictError(id, null, fence);
+    // The deploy pass can take the id for a built-in after the read above.
+    if (current.hiddenBy === BUILTIN_DASHBOARD_HIDDEN_BY) {
+      throw new DashboardConflictError(id, undefined, fence);
+    }
+    if (fence !== undefined && current.updatedAt !== fence) {
+      throw new DashboardConflictError(id, current.updatedAt, fence);
+    }
+    // The name lock was chosen from the read above. If a peer has since
+    // archived, hidden or renamed it, the name this would make visible was
+    // never checked.
+    if (
+      plan.becomesVisible?.(current) === true &&
+      (!lockName || current.title !== existing.title)
+    ) {
+      throw new DashboardConflictError(id, current.updatedAt, fence);
+    }
+    const patch = plan.patch(current);
+    if (!patch) {
+      await guard.onCommit?.(tx, {
+        before: current.updatedAt,
+        after: current.updatedAt,
+        changed: false,
+      });
+      // The locked row, not the read above: a peer may have made this same
+      // change in between, and the caller must see that version.
+      return { row: current, changed: false };
+    }
+    const updated = await tx
+      .update(schema.dashboards)
+      .set({
+        ...patch,
+        updatedAt: nextRecordVersion(current.updatedAt),
+        updatedBy: ctx.email,
+      })
+      .where(
+        and(
+          dashboardWritableFilter(),
+          and(
+            eq(schema.dashboards.id, id),
+            eq(schema.dashboards.updatedAt, current.updatedAt),
+          ),
+        ),
+      )
+      .returning();
+    const row = firstRow(updated);
+    if (!row) throw new DashboardConflictError(id, undefined, fence);
+    await guard.onCommit?.(tx, {
+      before: current.updatedAt,
+      after: row.updatedAt,
+      changed: true,
+    });
+    return { row, changed: true };
   });
-  const db = getDb() as any;
-  const now = nowIso();
-  const mutation = await db
-    .update(schema.dashboards)
-    .set({ archivedAt: now, updatedAt: now, updatedBy: ctx.email })
-    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
-  assertDashboardMutationApplied(mutation, id);
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, id));
-  const dashboard = rowToDashboard(row);
+  const dashboard = rowToDashboard(written.row, existing.role);
+  if (!written.changed) return dashboard;
   recordScopedChange(
     "dashboards",
     "change",
@@ -2568,151 +2932,80 @@ export async function archiveDashboard(
     dashboard.visibility,
   );
   return dashboard;
+}
+
+export async function archiveDashboard(
+  id: string,
+  ctx: AccessCtx,
+  guard?: GuardedStoreOptions,
+): Promise<DashboardRecord | null> {
+  return updateDashboardState(
+    id,
+    ctx,
+    {
+      role: "editor",
+      patch: (current) =>
+        current.archivedAt ? null : { archivedAt: nowIso() },
+    },
+    guard,
+  );
 }
 
 export async function unarchiveDashboard(
   id: string,
   ctx: AccessCtx,
+  guard?: GuardedStoreOptions,
 ): Promise<DashboardRecord | null> {
-  const existing = await getDashboard(id, ctx);
-  assertNotBuiltinDashboard(id, existing);
-  if (!existing) return null;
-  if (!existing.archivedAt) return existing;
-  await assertAccess("dashboard", id, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
-  if (!existing.hiddenAt) {
-    await assertDashboardNameIsAvailable(existing.title, ctx, id);
-  }
-  const db = getDb() as any;
-  const persist = async (writeDb: any) => {
-    const mutation = await writeDb
-      .update(schema.dashboards)
-      .set({ archivedAt: null, updatedAt: nowIso(), updatedBy: ctx.email })
-      .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
-    assertDashboardMutationApplied(mutation, id);
-  };
-  if (!existing.hiddenAt) {
-    await db.transaction(async (tx: any) => {
-      await lockDashboardNames(tx, [existing.title]);
-      await assertDashboardNameIsAvailable(existing.title, ctx, id, tx);
-      await persist(tx);
-    });
-  } else {
-    await persist(db);
-  }
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, id));
-  const dashboard = rowToDashboard(row);
-  recordScopedChange(
-    "dashboards",
-    "change",
-    dashboard.id,
-    dashboard.ownerEmail,
-    dashboard.orgId,
-    dashboard.visibility,
+  return updateDashboardState(
+    id,
+    ctx,
+    {
+      role: "editor",
+      patch: (current) => (current.archivedAt ? { archivedAt: null } : null),
+      becomesVisible: (current) => !!current.archivedAt && !current.hiddenAt,
+    },
+    guard,
   );
-  return dashboard;
 }
 
 export async function hideDashboard(
   id: string,
   ctx: AccessCtx,
+  guard?: GuardedStoreOptions,
 ): Promise<DashboardRecord | null> {
-  const existing = await getDashboard(id, ctx);
-  assertNotBuiltinDashboard(id, existing);
-  if (!existing) return null;
-  if (existing.hiddenAt) return existing;
-  await assertAccess("dashboard", id, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
-  const db = getDb() as any;
-  const now = nowIso();
-  const mutation = await db
-    .update(schema.dashboards)
-    .set({
-      hiddenAt: now,
-      hiddenBy: ctx.email,
-      updatedAt: now,
-      updatedBy: ctx.email,
-    })
-    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
-  assertDashboardMutationApplied(mutation, id);
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, id));
-  const dashboard = rowToDashboard(row);
-  recordScopedChange(
-    "dashboards",
-    "change",
-    dashboard.id,
-    dashboard.ownerEmail,
-    dashboard.orgId,
-    dashboard.visibility,
+  return updateDashboardState(
+    id,
+    ctx,
+    {
+      role: "editor",
+      patch: (current) =>
+        current.hiddenAt ? null : { hiddenAt: nowIso(), hiddenBy: ctx.email },
+    },
+    guard,
   );
-  return dashboard;
 }
 
 export async function unhideDashboard(
   id: string,
   ctx: AccessCtx,
+  guard?: GuardedStoreOptions,
 ): Promise<DashboardRecord | null> {
-  const existing = await getDashboard(id, ctx);
-  assertNotBuiltinDashboard(id, existing);
-  if (!existing) return null;
-  await assertAccess("dashboard", id, "viewer", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
-  if (!existing.archivedAt) {
-    await assertDashboardNameIsAvailable(existing.title, ctx, id);
-  }
-  const db = getDb() as any;
-  const now = nowIso();
-  const patch: Record<string, unknown> = {
-    hiddenAt: null,
-    hiddenBy: null,
-    updatedAt: now,
-    updatedBy: ctx.email,
-  };
-  if (!existing.ownerEmail) {
-    patch.ownerEmail = ctx.email;
-  }
-  const persist = async (writeDb: any) => {
-    const mutation = await writeDb
-      .update(schema.dashboards)
-      .set(patch)
-      .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
-    assertDashboardMutationApplied(mutation, id);
-  };
-  if (!existing.archivedAt) {
-    await db.transaction(async (tx: any) => {
-      await lockDashboardNames(tx, [existing.title]);
-      await assertDashboardNameIsAvailable(existing.title, ctx, id, tx);
-      await persist(tx);
-    });
-  } else {
-    await persist(db);
-  }
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, id));
-  const dashboard = rowToDashboard(row);
-  recordScopedChange(
-    "dashboards",
-    "change",
-    dashboard.id,
-    dashboard.ownerEmail,
-    dashboard.orgId,
-    dashboard.visibility,
+  return updateDashboardState(
+    id,
+    ctx,
+    {
+      role: "viewer",
+      patch: (current) => {
+        // Unhide only needs view access, so it claims nothing visible.
+        if (!current.hiddenAt) return null;
+        // An unowned cleanup dashboard becomes the unhider's.
+        const claim = current.ownerEmail ? {} : { ownerEmail: ctx.email };
+        return { hiddenAt: null, hiddenBy: null, ...claim };
+      },
+      becomesVisible: (current) => !!current.hiddenAt && !current.archivedAt,
+    },
+    guard,
   );
-  return dashboard;
 }
 
 export async function removeDashboard(
@@ -3087,7 +3380,7 @@ async function snapshotAnalysisRevision(
   analysis: AnalysisRecord,
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
-): Promise<void> {
+): Promise<string> {
   const dataSources = stableStringify(analysis.dataSources);
   const resultData = analysis.resultData
     ? stableStringify(analysis.resultData)
@@ -3120,7 +3413,7 @@ async function snapshotAnalysisRevision(
     latest.resultMarkdown === analysis.resultMarkdown &&
     comparableJson(latest.resultData) === resultData
   ) {
-    return;
+    return latest.id;
   }
   const id = revisionId("analysisrev", analysis.id, latest?.id, {
     name: analysis.name,
@@ -3151,6 +3444,39 @@ async function snapshotAnalysisRevision(
     })
     .onConflictDoNothing();
   await pruneAnalysisRevisions(db, analysis.id);
+  return id;
+}
+
+/**
+ * The access an analysis write needs, checked up front: a keyed write answers
+ * a replay only after this passes.
+ */
+export async function requireAnalysisAccess(
+  analysisId: string,
+  ctx: AccessCtx,
+  role: "editor" | "viewer",
+): Promise<AnalysisRecord> {
+  const existing = await getAnalysis(analysisId, ctx);
+  if (!existing) {
+    fail(`analysis "${analysisId}" not found (or you don't have access).`, {
+      errorCode: "analysis_not_found",
+      statusCode: 404,
+    });
+  }
+  await assertAccess("analysis", analysisId, role, accessContextOf(ctx));
+  return existing;
+}
+
+/** `isDashboardIdTaken` for analyses. */
+export async function isAnalysisIdTaken(id: string): Promise<boolean> {
+  // guard:allow-unscoped — reads whether the id exists, never the row, so an
+  // unseen analysis is refused by the access check instead of taken as new.
+  const rows = await getDb()
+    .select({ id: schema.analyses.id })
+    .from(schema.analyses)
+    .where(eq(schema.analyses.id, id))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function createAnalysisRevisionSnapshot(
@@ -3173,160 +3499,204 @@ export async function createAnalysisRevisionSnapshot(
   return analysisId;
 }
 
+type AnalysisBody = {
+  name?: string;
+  description?: string;
+  question?: string;
+  instructions?: string;
+  dataSources?: string[];
+  resultMarkdown?: string;
+  resultData?: Record<string, unknown> | null;
+};
+
+/**
+ * The columns `body` changes on the stored row, or null when it changes
+ * nothing. JSON columns compare against the stored text, so a malformed value
+ * the parse had to replace still counts as different.
+ */
+function analysisPatch(
+  stored: typeof schema.analyses.$inferSelect,
+  body: AnalysisBody,
+): Partial<typeof schema.analyses.$inferInsert> | null {
+  const current = rowToAnalysis(stored);
+  const patch: Partial<typeof schema.analyses.$inferInsert> = {};
+  if (body.name !== undefined && body.name !== current.name) {
+    patch.name = body.name;
+  }
+  if (
+    body.description !== undefined &&
+    body.description !== current.description
+  ) {
+    patch.description = body.description;
+  }
+  if (body.question !== undefined && body.question !== current.question) {
+    patch.question = body.question;
+  }
+  if (
+    body.instructions !== undefined &&
+    body.instructions !== current.instructions
+  ) {
+    patch.instructions = body.instructions;
+  }
+  if (body.dataSources !== undefined) {
+    const dataSources = stableStringify(body.dataSources);
+    if (comparableJson(stored.dataSources) !== dataSources) {
+      patch.dataSources = dataSources;
+    }
+  }
+  if (
+    body.resultMarkdown !== undefined &&
+    body.resultMarkdown !== current.resultMarkdown
+  ) {
+    patch.resultMarkdown = body.resultMarkdown;
+  }
+  if (body.resultData !== undefined) {
+    const resultData = body.resultData
+      ? stableStringify(body.resultData)
+      : null;
+    if (comparableJson(stored.resultData) !== resultData) {
+      patch.resultData = resultData;
+    }
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+function assertAnalysisMutationApplied(
+  result: unknown,
+  id: string,
+  expectedUpdatedAt: string | undefined,
+): void {
+  const affected = affectedRowCount(result);
+  if (affected === undefined) {
+    throw new Error(
+      "The Postgres analysis update did not report an affected-row count.",
+    );
+  }
+  if (affected === 0) {
+    throw new AnalysisConflictError(id, undefined, expectedUpdatedAt);
+  }
+}
+
+async function lockAnalysisRow(
+  tx: AnalyticsTransaction,
+  id: string,
+  expectedUpdatedAt: string | undefined,
+): Promise<typeof schema.analyses.$inferSelect> {
+  const row = firstRow(
+    await tx
+      .select()
+      .from(schema.analyses)
+      .where(eq(schema.analyses.id, id))
+      .for("update"),
+  );
+  if (!row) throw new AnalysisConflictError(id, null, expectedUpdatedAt);
+  if (expectedUpdatedAt !== undefined && row.updatedAt !== expectedUpdatedAt) {
+    throw new AnalysisConflictError(id, row.updatedAt, expectedUpdatedAt);
+  }
+  return row;
+}
+
 /**
  * Upsert an analysis. On create, caller becomes owner and visibility defaults
  * to `private`. On update, `assertAccess` requires `editor`.
  *
  * `expectedUpdatedAt` fences the update against concurrent writers: pass the
- * `updatedAt` observed by an earlier `getAnalysis` call and the UPDATE only
- * applies `WHERE id = $1 AND updated_at = $2`. If another writer already saved
- * in between, the fenced UPDATE affects zero rows and this throws
- * `AnalysisConflictError` instead of silently clobbering their write. Omit it
- * (the default) to keep the prior unconditional last-write-wins behavior,
- * which existing callers (legacy migration, revision restore, and
- * `save-analysis`'s create/re-run path) still rely on. See
- * `upsertAnalysisWithRetry` for the read-modify-write pattern that recomputes
- * the patch from fresh state on a lost race.
+ * `updatedAt` observed by an earlier `getAnalysis` call and the update applies
+ * only while the row is still at that version, or this throws
+ * `AnalysisConflictError` instead of silently clobbering the other write,
+ * including when the update would change nothing. Omit it to apply `body` to
+ * whatever is stored now (last write wins per field), which `save-analysis`'s
+ * in-app create/re-run path relies on. The update, the history entry it
+ * leaves, and `onCommit` commit together. See `upsertAnalysisWithRetry` for
+ * the read-modify-write pattern that recomputes the patch from fresh state on
+ * a lost race.
  */
 export async function upsertAnalysis(
   id: string,
-  body: {
-    name?: string;
-    description?: string;
-    question?: string;
-    instructions?: string;
-    dataSources?: string[];
-    resultMarkdown?: string;
-    resultData?: Record<string, unknown> | null;
-  },
+  body: AnalysisBody,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
+  onCommit?: GuardedCommitHook,
 ): Promise<AnalysisRecord> {
   const existing = await getAnalysis(id, ctx);
   if (!existing && expectedUpdatedAt !== undefined) {
-    throw new AnalysisConflictError(id);
+    throw new AnalysisConflictError(id, null, expectedUpdatedAt);
   }
-  const db = getDb() as any;
+  const db = getDb();
   if (existing) {
     await assertAccess("analysis", id, "editor", {
       userEmail: ctx.email,
       orgId: ctx.orgId ?? undefined,
     });
-    let storedJson:
-      | { dataSources: string; resultData: string | null }
-      | undefined;
-    if (body.dataSources !== undefined || body.resultData !== undefined) {
-      [storedJson] = await db
-        .select({
-          dataSources: schema.analyses.dataSources,
-          resultData: schema.analyses.resultData,
-        })
-        .from(schema.analyses)
-        .where(eq(schema.analyses.id, id))
-        .limit(1);
+    if (
+      expectedUpdatedAt !== undefined &&
+      existing.updatedAt !== expectedUpdatedAt
+    ) {
+      throw new AnalysisConflictError(
+        id,
+        existing.updatedAt,
+        expectedUpdatedAt,
+      );
     }
-    const patch: Record<string, unknown> = { updatedAt: nowIso() };
-    if (body.name !== undefined) patch.name = body.name;
-    if (body.description !== undefined) patch.description = body.description;
-    if (body.question !== undefined) patch.question = body.question;
-    if (body.instructions !== undefined) patch.instructions = body.instructions;
-    if (body.dataSources !== undefined)
-      patch.dataSources = stableStringify(body.dataSources);
-    if (body.resultMarkdown !== undefined)
-      patch.resultMarkdown = body.resultMarkdown;
-    if (body.resultData !== undefined)
-      patch.resultData = body.resultData
-        ? stableStringify(body.resultData)
-        : null;
-    const next = {
-      name: (patch.name as string | undefined) ?? existing.name,
-      description:
-        (patch.description as string | undefined) ?? existing.description,
-      question: (patch.question as string | undefined) ?? existing.question,
-      instructions:
-        (patch.instructions as string | undefined) ?? existing.instructions,
-      dataSources:
-        body.dataSources !== undefined
-          ? body.dataSources
-          : existing.dataSources,
-      resultMarkdown:
-        (patch.resultMarkdown as string | undefined) ?? existing.resultMarkdown,
-      resultData:
-        body.resultData !== undefined ? body.resultData : existing.resultData,
-    };
-    const changed =
-      next.name !== existing.name ||
-      next.description !== existing.description ||
-      next.question !== existing.question ||
-      next.instructions !== existing.instructions ||
-      (body.dataSources !== undefined &&
-        (!storedJson ||
-          comparableJson(storedJson.dataSources) !==
-            stableStringify(body.dataSources))) ||
-      next.resultMarkdown !== existing.resultMarkdown ||
-      (body.resultData !== undefined &&
-        (!storedJson ||
-          comparableJson(storedJson.resultData) !==
-            (body.resultData === null
-              ? null
-              : stableStringify(body.resultData))));
-    if (!changed) return existing;
-    if (expectedUpdatedAt !== undefined) {
-      // Fenced write. Snapshot the revision only after we know this exact
-      // write actually landed — otherwise a lost race would record a
-      // revision for a save that never happened.
-      const updateResult = await db
+    const unchanged = await db.transaction(async (tx) => {
+      const stored = await lockAnalysisRow(tx, id, expectedUpdatedAt);
+      const patch = analysisPatch(stored, body);
+      if (!patch) {
+        await onCommit?.(tx, {
+          before: stored.updatedAt,
+          after: stored.updatedAt,
+          changed: false,
+        });
+        // A peer may have saved this same body since the read above.
+        return stored;
+      }
+      const updatedAt = nextRecordVersion(stored.updatedAt);
+      const updateResult = await tx
         .update(schema.analyses)
-        .set(patch)
+        .set({ ...patch, updatedAt })
         .where(
           and(
             eq(schema.analyses.id, id),
-            eq(schema.analyses.updatedAt, expectedUpdatedAt),
+            eq(schema.analyses.updatedAt, stored.updatedAt),
           ),
         );
-      const affected = affectedRowCount(updateResult);
-      if (affected === undefined) {
-        throw new Error(
-          "The Postgres update did not report an affected-row count for the fenced analysis update.",
-        );
-      }
-      if (affected === 0) {
-        throw new AnalysisConflictError(id);
-      }
-      if (changed)
-        await snapshotAnalysisRevision(
-          db,
-          existing,
-          ctx,
-          requestRevisionChatContext(),
-        );
-    } else {
-      if (changed)
-        await snapshotAnalysisRevision(
-          db,
-          existing,
-          ctx,
-          requestRevisionChatContext(),
-        );
-      await db
-        .update(schema.analyses)
-        .set(patch)
-        .where(eq(schema.analyses.id, id));
-    }
+      assertAnalysisMutationApplied(updateResult, id, expectedUpdatedAt);
+      // After the update landed, so a lost race leaves no history entry.
+      const revisionId = await snapshotAnalysisRevision(
+        tx,
+        rowToAnalysis(stored),
+        ctx,
+        requestRevisionChatContext(),
+      );
+      await onCommit?.(tx, {
+        before: stored.updatedAt,
+        after: updatedAt,
+        changed: true,
+        revisionId,
+      });
+      return null;
+    });
+    if (unchanged) return rowToAnalysis(unchanged, existing.role);
   } else {
-    await db.insert(schema.analyses).values({
-      id,
-      name: body.name ?? "Untitled",
-      description: body.description ?? "",
-      question: body.question ?? "",
-      instructions: body.instructions ?? "",
-      dataSources: JSON.stringify(body.dataSources ?? []),
-      resultMarkdown: body.resultMarkdown ?? "",
-      resultData: body.resultData ? JSON.stringify(body.resultData) : null,
-      author: ctx.email,
-      ownerEmail: ctx.email,
-      orgId: ctx.orgId,
-      visibility: "private",
+    const createdAt = nowIso();
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.analyses).values({
+        id,
+        name: body.name ?? "Untitled",
+        description: body.description ?? "",
+        question: body.question ?? "",
+        instructions: body.instructions ?? "",
+        dataSources: JSON.stringify(body.dataSources ?? []),
+        resultMarkdown: body.resultMarkdown ?? "",
+        resultData: body.resultData ? JSON.stringify(body.resultData) : null,
+        author: ctx.email,
+        ownerEmail: ctx.email,
+        orgId: ctx.orgId,
+        visibility: "private",
+        createdAt,
+        updatedAt: createdAt,
+      });
+      await onCommit?.(tx, { before: null, after: createdAt, changed: true });
     });
   }
   // guard:allow-unscoped — read-after-write of the analysis row just upserted
@@ -3363,27 +3733,28 @@ export const ANALYSIS_SAVE_MAX_ATTEMPTS = 3;
 export async function upsertAnalysisWithRetry(
   id: string,
   ctx: AccessCtx,
-  mutate: (existing: AnalysisRecord) =>
-    | {
-        name?: string;
-        description?: string;
-        question?: string;
-        instructions?: string;
-        dataSources?: string[];
-        resultMarkdown?: string;
-        resultData?: Record<string, unknown> | null;
-      }
-    | Promise<{
-        name?: string;
-        description?: string;
-        question?: string;
-        instructions?: string;
-        dataSources?: string[];
-        resultMarkdown?: string;
-        resultData?: Record<string, unknown> | null;
-      }>,
+  mutate: (existing: AnalysisRecord) => AnalysisBody | Promise<AnalysisBody>,
   maxAttempts: number = ANALYSIS_SAVE_MAX_ATTEMPTS,
+  guard: GuardedStoreOptions = {},
 ): Promise<AnalysisRecord> {
+  const fence = guard.expectedUpdatedAt;
+  if (fence !== undefined) {
+    // The caller's fence is the only version this write may land on.
+    const existing = await getAnalysis(id, ctx);
+    if (!existing) {
+      throw new Error(`analysis "${id}" not found (or you don't have access).`);
+    }
+    if (existing.updatedAt !== fence) {
+      throw new AnalysisConflictError(id, existing.updatedAt, fence);
+    }
+    return upsertAnalysis(
+      id,
+      await mutate(existing),
+      ctx,
+      fence,
+      guard.onCommit,
+    );
+  }
   let lastConflict: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getAnalysis(id, ctx);
@@ -3392,7 +3763,13 @@ export async function upsertAnalysisWithRetry(
     }
     const body = await mutate(existing);
     try {
-      return await upsertAnalysis(id, body, ctx, existing.updatedAt);
+      return await upsertAnalysis(
+        id,
+        body,
+        ctx,
+        existing.updatedAt,
+        guard.onCommit,
+      );
     } catch (err) {
       if (err instanceof AnalysisConflictError) {
         lastConflict = err;
@@ -3468,6 +3845,8 @@ export async function restoreAnalysisRevision(
   analysisId: string,
   revisionId: string,
   ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+  onCommit?: GuardedCommitHook,
 ): Promise<AnalysisRecord | null> {
   const existing = await getAnalysis(analysisId, ctx);
   if (!existing) return null;
@@ -3475,7 +3854,17 @@ export async function restoreAnalysisRevision(
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
-  const db = getDb() as any;
+  if (
+    expectedUpdatedAt !== undefined &&
+    existing.updatedAt !== expectedUpdatedAt
+  ) {
+    throw new AnalysisConflictError(
+      analysisId,
+      existing.updatedAt,
+      expectedUpdatedAt,
+    );
+  }
+  const db = getDb();
   const [revisionRow] = await db
     .select()
     .from(schema.analysisRevisions)
@@ -3488,27 +3877,43 @@ export async function restoreAnalysisRevision(
     .limit(1);
   if (!revisionRow) return null;
   const revision = rowToAnalysisRevision(revisionRow);
-  await snapshotAnalysisRevision(
-    db,
-    existing,
-    ctx,
-    requestRevisionChatContext(),
-  );
-  await db
-    .update(schema.analyses)
-    .set({
-      name: revision.name,
-      description: revision.description,
-      question: revision.question,
-      instructions: revision.instructions,
-      dataSources: JSON.stringify(revision.dataSources),
-      resultMarkdown: revision.resultMarkdown,
-      resultData: revision.resultData
-        ? JSON.stringify(revision.resultData)
-        : null,
-      updatedAt: nowIso(),
-    })
-    .where(eq(schema.analyses.id, analysisId));
+  await db.transaction(async (tx) => {
+    const stored = await lockAnalysisRow(tx, analysisId, expectedUpdatedAt);
+    const updatedAt = nextRecordVersion(stored.updatedAt);
+    const updateResult = await tx
+      .update(schema.analyses)
+      .set({
+        name: revision.name,
+        description: revision.description,
+        question: revision.question,
+        instructions: revision.instructions,
+        dataSources: JSON.stringify(revision.dataSources),
+        resultMarkdown: revision.resultMarkdown,
+        resultData: revision.resultData
+          ? JSON.stringify(revision.resultData)
+          : null,
+        updatedAt,
+      })
+      .where(
+        and(
+          eq(schema.analyses.id, analysisId),
+          eq(schema.analyses.updatedAt, stored.updatedAt),
+        ),
+      );
+    assertAnalysisMutationApplied(updateResult, analysisId, expectedUpdatedAt);
+    const snapshotRevisionId = await snapshotAnalysisRevision(
+      tx,
+      rowToAnalysis(stored),
+      ctx,
+      requestRevisionChatContext(),
+    );
+    await onCommit?.(tx, {
+      before: stored.updatedAt,
+      after: updatedAt,
+      changed: true,
+      revisionId: snapshotRevisionId,
+    });
+  });
   const [row] = await db
     .select()
     .from(schema.analyses)
@@ -3560,28 +3965,66 @@ export async function removeAnalysis(
   }
 }
 
-export async function hideAnalysis(
+/**
+ * Sets the hidden columns on one analysis under its row lock, advancing its
+ * version. A request that changes nothing is still checked against the
+ * caller's fence and still records its receipt.
+ */
+async function updateAnalysisState(
   id: string,
   ctx: AccessCtx,
+  plan: {
+    role: "editor" | "viewer";
+    patch: (
+      current: typeof schema.analyses.$inferSelect,
+    ) => Partial<typeof schema.analyses.$inferInsert> | null;
+  },
+  guard: GuardedStoreOptions = {},
 ): Promise<AnalysisRecord | null> {
   const existing = await getAnalysis(id, ctx);
   if (!existing) return null;
-  if (existing.hiddenAt) return existing;
-  await assertAccess("analysis", id, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
+  await assertAccess("analysis", id, plan.role, accessContextOf(ctx));
+  const fence = guard.expectedUpdatedAt;
+  if (fence !== undefined && existing.updatedAt !== fence) {
+    throw new AnalysisConflictError(id, existing.updatedAt, fence);
+  }
+  const db = getDb();
+  const unchanged = await db.transaction(async (tx) => {
+    const stored = await lockAnalysisRow(tx, id, fence);
+    const patch = plan.patch(stored);
+    if (!patch) {
+      await guard.onCommit?.(tx, {
+        before: stored.updatedAt,
+        after: stored.updatedAt,
+        changed: false,
+      });
+      // A peer may have made this same change since the read above.
+      return stored;
+    }
+    const updatedAt = nextRecordVersion(stored.updatedAt);
+    const updateResult = await tx
+      .update(schema.analyses)
+      .set({ ...patch, updatedAt })
+      .where(
+        and(
+          eq(schema.analyses.id, id),
+          eq(schema.analyses.updatedAt, stored.updatedAt),
+        ),
+      );
+    assertAnalysisMutationApplied(updateResult, id, fence);
+    await guard.onCommit?.(tx, {
+      before: stored.updatedAt,
+      after: updatedAt,
+      changed: true,
+    });
+    return null;
   });
-  const db = getDb() as any;
-  const now = nowIso();
-  await db
-    .update(schema.analyses)
-    .set({ hiddenAt: now, hiddenBy: ctx.email, updatedAt: now })
-    .where(eq(schema.analyses.id, id));
+  if (unchanged) return rowToAnalysis(unchanged, existing.role);
   const [row] = await db
     .select()
     .from(schema.analyses)
     .where(eq(schema.analyses.id, id));
-  const analysis = rowToAnalysis(row);
+  const analysis = rowToAnalysis(row, existing.role);
   recordScopedChange(
     "analyses",
     "change",
@@ -3593,41 +4036,43 @@ export async function hideAnalysis(
   return analysis;
 }
 
+export async function hideAnalysis(
+  id: string,
+  ctx: AccessCtx,
+  guard?: GuardedStoreOptions,
+): Promise<AnalysisRecord | null> {
+  return updateAnalysisState(
+    id,
+    ctx,
+    {
+      role: "editor",
+      patch: (current) =>
+        current.hiddenAt ? null : { hiddenAt: nowIso(), hiddenBy: ctx.email },
+    },
+    guard,
+  );
+}
+
 export async function unhideAnalysis(
   id: string,
   ctx: AccessCtx,
+  guard?: GuardedStoreOptions,
 ): Promise<AnalysisRecord | null> {
-  const existing = await getAnalysis(id, ctx);
-  if (!existing) return null;
-  await assertAccess("analysis", id, "viewer", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
-  const db = getDb() as any;
-  const now = nowIso();
-  const patch: Record<string, unknown> = {
-    hiddenAt: null,
-    hiddenBy: null,
-    updatedAt: now,
-  };
-  if (!existing.ownerEmail) {
-    patch.ownerEmail = ctx.email;
-  }
-  await db.update(schema.analyses).set(patch).where(eq(schema.analyses.id, id));
-  const [row] = await db
-    .select()
-    .from(schema.analyses)
-    .where(eq(schema.analyses.id, id));
-  const analysis = rowToAnalysis(row);
-  recordScopedChange(
-    "analyses",
-    "change",
-    analysis.id,
-    analysis.ownerEmail,
-    analysis.orgId,
-    analysis.visibility,
+  return updateAnalysisState(
+    id,
+    ctx,
+    {
+      role: "viewer",
+      patch: (current) => {
+        // Unhide only needs view access, so it claims nothing visible.
+        if (!current.hiddenAt) return null;
+        // An unowned cleanup analysis becomes the unhider's.
+        const claim = current.ownerEmail ? {} : { ownerEmail: ctx.email };
+        return { hiddenAt: null, hiddenBy: null, ...claim };
+      },
+    },
+    guard,
   );
-  return analysis;
 }
 
 export interface DashboardViewRecord {

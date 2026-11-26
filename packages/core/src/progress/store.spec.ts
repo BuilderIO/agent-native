@@ -21,6 +21,7 @@ const mockDb = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   isUniqueViolation: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
@@ -34,6 +35,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));

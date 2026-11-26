@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { sql as budgetSql, withSqlBudget } from "./sql.js";
+
 async function resetAppConfig(): Promise<void> {
   const { resetAppConfigForTests } = await import("../app-config/store.js");
   resetAppConfigForTests();
@@ -219,6 +221,183 @@ describe("PGlite dev reloads", () => {
       }
     },
   );
+});
+
+describe("enclosing transaction executor", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.unstubAllEnvs();
+    vi.doUnmock("@neondatabase/serverless");
+    vi.doUnmock("@electric-sql/pglite");
+    await resetAppConfig();
+    vi.resetModules();
+  });
+
+  it("recognizes scoped Drizzle transaction handles but not ordinary scopes", async () => {
+    const {
+      getEnclosingTransactionDbExec,
+      getScopedDbExec,
+      markDrizzleTransactionExec,
+      withDbExec,
+    } = await import("./client.js");
+    const execute = vi.fn(async () => ({ rows: [], rowsAffected: 0 }));
+    const ordinary = { execute };
+    const transaction = markDrizzleTransactionExec({ execute });
+
+    expect(getEnclosingTransactionDbExec()).toBeUndefined();
+    await withDbExec(ordinary, async () => {
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+      await withDbExec(transaction, async () => {
+        const enclosing = getEnclosingTransactionDbExec();
+        expect(enclosing).toBe(getScopedDbExec());
+        if (!enclosing) throw new Error("Expected a scoped transaction");
+        await enclosing.execute("SELECT 1");
+        await withDbExec(ordinary, async () => {
+          expect(getEnclosingTransactionDbExec()).toBeUndefined();
+        });
+        expect(getEnclosingTransactionDbExec()).toBe(enclosing);
+      });
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+    });
+    expect(execute).toHaveBeenCalledWith("SELECT 1");
+    expect(getEnclosingTransactionDbExec()).toBeUndefined();
+  });
+
+  it("requires a transaction callback to scope its own handle unless explicitly opted out", async () => {
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    );
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    await resetAppConfig();
+    const query = vi.fn(async (_statement: string) => ({
+      rows: [],
+      rowCount: 0,
+    }));
+    const client = { query, release: vi.fn() };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const {
+      getDbExec,
+      getEnclosingTransactionDbExec,
+      getScopedDbExec,
+      withDbExec,
+    } = await import("./client.js");
+    const unrelated = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+    const exec = getDbExec();
+    if (!exec.transaction) throw new Error("Expected transaction support");
+    await exec.transaction(async (tx) => {
+      expect(() => getEnclosingTransactionDbExec()).toThrow(
+        "Scope this transaction's handle with withDbExec(tx, …)",
+      );
+      expect(
+        getEnclosingTransactionDbExec({ allowUnscoped: true }),
+      ).toBeUndefined();
+      await withDbExec(unrelated, async () => {
+        expect(() => getEnclosingTransactionDbExec()).toThrow(
+          "Scope this transaction's handle with withDbExec(tx, …)",
+        );
+        expect(
+          getEnclosingTransactionDbExec({ allowUnscoped: true }),
+        ).toBeUndefined();
+      });
+      await withDbExec(tx, async () => {
+        const enclosing = getEnclosingTransactionDbExec();
+        expect(enclosing).toBe(getScopedDbExec());
+        if (!enclosing) throw new Error("Expected a scoped transaction");
+        expect(getEnclosingTransactionDbExec({ allowUnscoped: true })).toBe(
+          enclosing,
+        );
+        await enclosing.execute("SELECT 1");
+      });
+      expect(() => getEnclosingTransactionDbExec()).toThrow();
+    });
+    expect(query.mock.calls.map(([statement]) => statement)).toContain(
+      "SELECT 1",
+    );
+    expect(unrelated.execute).not.toHaveBeenCalled();
+    expect(getEnclosingTransactionDbExec()).toBeUndefined();
+  });
+
+  it("joins only the PGlite transaction for the runtime database", async () => {
+    const dataDir = mkdtempSync(
+      join(tmpdir(), "agent-native-transaction-scope-"),
+    );
+    const runtimeUrl = `pglite:${join(dataDir, "runtime")}`;
+    const otherUrl = `pglite:${join(dataDir, "other")}`;
+    vi.stubEnv("DATABASE_URL", runtimeUrl);
+    await resetAppConfig();
+    const runtimeQuery = vi.fn(async () => ({
+      rows: [{ database: "runtime" }],
+    }));
+    const otherQuery = vi.fn(async () => ({ rows: [{ database: "other" }] }));
+    const createClient = (query: typeof runtimeQuery) => ({
+      query,
+      transaction: async (run: (tx: unknown) => Promise<unknown>) =>
+        run({ query }),
+      close: vi.fn(async () => {}),
+    });
+    const runtimeClient = createClient(runtimeQuery);
+    const otherClient = createClient(otherQuery);
+    vi.doMock("@electric-sql/pglite", () => ({
+      PGlite: {
+        create: vi.fn(async (dir: string) =>
+          dir === join(dataDir, "runtime") ? runtimeClient : otherClient,
+        ),
+      },
+    }));
+    const {
+      closeDbExec,
+      createDbExec,
+      getDbExec,
+      getEnclosingTransactionDbExec,
+    } = await import("./client.js");
+    try {
+      const runtime = await createDbExec({ url: runtimeUrl });
+      const other = await createDbExec({ url: otherUrl });
+      if (!runtime.transaction || !other.transaction) {
+        throw new Error("Expected PGlite transaction support");
+      }
+
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+      await other.transaction(async () => {
+        expect(getEnclosingTransactionDbExec()).toBeUndefined();
+        await expect(getDbExec().execute("SELECT 1")).resolves.toMatchObject({
+          rows: [{ database: "runtime" }],
+        });
+        await runtime.transaction(async () => {
+          const enclosing = getEnclosingTransactionDbExec();
+          if (!enclosing) throw new Error("Expected the runtime transaction");
+          await expect(enclosing.execute("SELECT 2")).resolves.toMatchObject({
+            rows: [{ database: "runtime" }],
+          });
+        });
+        expect(getEnclosingTransactionDbExec()).toBeUndefined();
+      });
+      expect(runtimeQuery).toHaveBeenCalledTimes(2);
+      expect(otherQuery).not.toHaveBeenCalled();
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+    } finally {
+      await closeDbExec();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("db/client Postgres URL handling", () => {
@@ -1787,6 +1966,36 @@ describe("Neon foreground statement budgets", () => {
     expect(pool.connect).toHaveBeenCalledOnce();
   });
 
+  it("applies a budgeted fragment to connection timeout and retry count", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    const pool = {
+      connect: vi.fn(() => new Promise(() => {})),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+    const { createDbExec } = await import("./client.js");
+    const db = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+    const pending = expect(
+      db.execute(
+        withSqlBudget(budgetSql`SELECT 1`, { timeoutMs: 25, maxAttempts: 1 }),
+      ),
+    ).rejects.toThrow("DB connect timed out after 25ms");
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+    expect(pool.connect).toHaveBeenCalledOnce();
+  });
+
   it("sets and resets a server-side timeout for an explicitly budgeted query", async () => {
     vi.useFakeTimers();
     vi.stubEnv("NETLIFY", "true");
@@ -2715,5 +2924,101 @@ describe("retryOnConnectionError budget", () => {
 
     expect(value).toBe("ok");
     expect(attempt).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["57P03", "08001", "08004", "ECONNREFUSED", "EAI_AGAIN"])(
+    "retries a connection the database refused before any statement ran: %s",
+    async (code) => {
+      vi.useFakeTimers();
+      vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+      const { retryOnConnectionError } = await import("./client.js");
+      const attempt = vi
+        .fn<() => Promise<string>>()
+        .mockRejectedValueOnce(
+          Object.assign(new Error("the database system is starting up"), {
+            code,
+          }),
+        )
+        .mockResolvedValue("ok");
+
+      const { value } = await runUntilSettled(() =>
+        retryOnConnectionError(attempt),
+      );
+
+      expect(value).toBe("ok");
+      expect(attempt).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("fails with the same transient error when the database keeps refusing", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { isTransientDatabaseError, retryOnConnectionError } =
+      await import("./client.js");
+    const refusal = Object.assign(
+      new Error("the database system is starting up"),
+      { code: "57P03" },
+    );
+    const attempt = vi.fn<() => Promise<string>>().mockRejectedValue(refusal);
+
+    const { error } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toBe(refusal);
+    expect(attempt).toHaveBeenCalledTimes(3);
+    expect(isTransientDatabaseError(error)).toBe(true);
+  });
+
+  it.each([
+    {
+      code: "23505",
+      message:
+        'duplicate key value violates unique constraint "connection_closed_events_pkey"',
+    },
+    { code: "57014", message: "canceling statement due to statement timeout" },
+    {
+      code: "57P01",
+      message: "terminating connection due to administrator command",
+    },
+  ])(
+    "does not retry a $code error a retry could repeat or make worse",
+    async ({ code, message }) => {
+      vi.useFakeTimers();
+      vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+      const { retryOnConnectionError } = await import("./client.js");
+      const failure = Object.assign(new Error(message), { code });
+      const attempt = vi.fn<() => Promise<string>>().mockRejectedValue(failure);
+
+      const { error } = await runUntilSettled(() =>
+        retryOnConnectionError(attempt),
+      );
+
+      expect(error).toBe(failure);
+      expect(attempt).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("isUniqueViolation", () => {
+  it("sees a unique violation that Drizzle wrapped as the cause", async () => {
+    const { isUniqueViolation } = await import("./client.js");
+    const driverError = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "design_files_design_filename_unique_idx"',
+      ),
+      { code: "23505" },
+    );
+    const wrapped = new Error("Failed query: insert into design_files", {
+      cause: driverError,
+    });
+    expect(isUniqueViolation(driverError)).toBe(true);
+    expect(isUniqueViolation(wrapped)).toBe(true);
+    expect(
+      isUniqueViolation(
+        new Error("Failed query", { cause: new Error("connection reset") }),
+      ),
+    ).toBe(false);
+    expect(isUniqueViolation(undefined)).toBe(false);
   });
 });

@@ -12,6 +12,7 @@ import {
 } from "../shared/properties.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertOrdinaryPropertySetupAllowed } from "./_database-setup-mutation.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -64,6 +65,7 @@ export default defineAction({
     if (definition.systemRole) {
       throw new Error("System properties cannot be duplicated.");
     }
+    assertOrdinaryPropertySetupAllowed(database, definition.type);
 
     const now = new Date().toISOString();
     const newPropertyId = nanoid();

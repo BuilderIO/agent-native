@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import http, { type Server } from "node:http";
 import path from "node:path";
 
 import { decodeContinuation } from "@agent-native/core/shared";
 import {
   prepareDesignConnectManifest,
+  readDevActionDiscoveryFile,
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
@@ -24,6 +25,7 @@ import {
   designFrame,
   enterDirectMode,
   installBridge,
+  openPageOverview,
   readSeedDesignId,
   selectByText,
   waitForBridge,
@@ -815,7 +817,7 @@ test.describe("public visual edit", () => {
       await expect(preparing).toBeHidden();
       await expect(frame).toHaveAttribute("src", settledSource!);
       await expect(
-        page.getByRole("dialog", { name: "Connect your local screens" }),
+        page.getByRole("dialog", { name: "Connect your local pages" }),
         "a rejected preview token is not a local-network permission problem",
       ).toHaveCount(0);
     } finally {
@@ -1004,8 +1006,10 @@ test.describe("public visual edit", () => {
           ),
         { timeout: 30_000 },
       );
+      // A signed-out page only ever starts a new board: every signed-out tab
+      // shares one local principal, so reopening by id would reach any board.
       await signedOut.page.evaluate(
-        ({ designId, devServerUrl, bridgeInput }) => {
+        ({ devServerUrl, bridgeInput }) => {
           const helper = (
             window as typeof window & {
               __agentNativeWebMcp?: {
@@ -1019,7 +1023,6 @@ test.describe("public visual edit", () => {
           if (!helper) throw new Error("WebMCP page helper missing");
           void helper
             .call("open-visual-edit", {
-              designId,
               devServerUrl,
               paths: ["/"],
               ...bridgeInput,
@@ -1028,11 +1031,7 @@ test.describe("public visual edit", () => {
               // Navigation may abort this promise after the editor opens.
             });
         },
-        {
-          designId: preflightResult?.designId,
-          devServerUrl: visualEditTargetUrl,
-          bridgeInput,
-        },
+        { devServerUrl: visualEditTargetUrl, bridgeInput },
       );
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: /open visual edit/i }).click();
@@ -1458,9 +1457,25 @@ test.describe("public visual edit", () => {
         `/_agent-native/actions/get-visual-edit-collaboration?designId=${collaborationDesignId}`,
       ),
     );
-    expect(await saved.json()).toEqual({
+    const { shareUrl, ...collaboration } = await saved.json();
+    expect(collaboration).toEqual({
       designId: collaborationDesignId,
       enabled: true,
+      previews: [],
+    });
+    const share = new URL(shareUrl);
+    expect({
+      href: `${share.origin}${share.pathname}`,
+      params: Object.fromEntries(share.searchParams),
+    }).toEqual({
+      href: appUrl("/_agent-native/open"),
+      params: {
+        app: "design",
+        view: "editor",
+        to: `/visual-edit/${collaborationDesignId}?share=1&editorView=overview`,
+        designId: collaborationDesignId,
+        agentSidebar: "closed",
+      },
     });
   });
 
@@ -1548,11 +1563,8 @@ test.describe("public visual edit", () => {
     await expect(
       ownerFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
-    const allScreensButton = page.getByRole("button", {
-      name: "All screens",
-    });
-    await allScreensButton.click();
-    await expect(allScreensButton).toHaveAttribute("aria-current", "page");
+    // oracle-change: the All screens row is gone; the overview is entered from the View menu, which asserts the switch itself.
+    await openPageOverview(page);
 
     await page.getByRole("button", { name: /^share$/i }).click();
     const copyLiveCanvasLink = page
@@ -2038,12 +2050,11 @@ async function createLinkedScreen(browser: Browser, designId: string) {
 async function registerSignedOutBridgeThroughCli(
   bridge: DesignConnectBridge,
 ): Promise<void> {
-  const discovery = JSON.parse(
-    await readFile(
-      path.join(import.meta.dirname, "..", ".agent-native", "dev-server.json"),
-      "utf8",
-    ),
-  ) as { token: string };
+  const discovery = readDevActionDiscoveryFile(
+    path.join(import.meta.dirname, ".."),
+  );
+  if (!discovery)
+    throw new Error("The local dev action bridge is unavailable.");
   const rootPath = bridge.manifest.rootPath;
   const workspaceId = createHash("sha256")
     .update(path.resolve(rootPath))

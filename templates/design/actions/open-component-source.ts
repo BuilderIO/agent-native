@@ -35,6 +35,7 @@ async function liveContent(
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Navigate to a component's source: for inline/Alpine designs, selects " +
     "the component root in the editor and returns the design file as the " +

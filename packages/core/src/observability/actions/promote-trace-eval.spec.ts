@@ -15,6 +15,7 @@ const threads = vi.hoisted(() => ({
 }));
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn() }),
 }));
 vi.mock("../store.js", () => ({

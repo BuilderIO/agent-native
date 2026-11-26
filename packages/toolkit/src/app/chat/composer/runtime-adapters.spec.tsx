@@ -1,14 +1,17 @@
 // @vitest-environment happy-dom
 
 import { insertAgentComposerReference } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/toolkit/composer";
 import {
   AGENT_CHAT_INSERT_REFERENCE_EVENT,
   AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+  ComposerRuntimeAdaptersProvider,
   useComposerRuntimeAdapters,
   type ComposerRuntimeAdapters,
 } from "@agent-native/toolkit/composer/runtime-adapters";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
@@ -39,6 +42,61 @@ afterEach(() => {
 });
 
 describe("CoreComposerRuntimeProvider", () => {
+  it("keeps a blocked chat draft and links to Model settings after Send", async () => {
+    const onSubmit = vi.fn();
+    await act(async () => {
+      root.render(
+        <MemoryRouter basename="/reports" initialEntries={["/reports/home"]}>
+          <ComposerRuntimeAdaptersProvider
+            adapters={{
+              translate,
+              models: {
+                ...coreComposerAdapters.models,
+                BuilderSetupCard: () => null,
+                useAgentEngineConfigured: () => ({
+                  state: "missing",
+                  missing: true,
+                }),
+                fetchAgentEngineConfiguredState: async () => "missing",
+              },
+            }}
+          >
+            <PromptComposer
+              initialText="How did revenue trend by month?"
+              onSubmit={onSubmit}
+              requireAgentEngine
+              showMissingApiKeySetup={false}
+              showModelSelector={false}
+              autoFocus={false}
+              includeDefaultMentionSearch={false}
+              includeDefaultSlashSkills={false}
+              voiceEnabled={false}
+            />
+          </ComposerRuntimeAdaptersProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const send = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    await vi.waitFor(() => expect(send?.disabled).toBe(false));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => send?.click());
+
+    const notice = container.querySelector('[role="alert"]');
+    expect(notice?.textContent ?? "").toContain(
+      "agentChat.setup.connectToChat",
+    );
+    expect(notice?.querySelector("a")?.getAttribute("href")).toBe(
+      "/reports/settings/model",
+    );
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "How did revenue trend by month?",
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("receives references sent by the core custom-event and postMessage helper", async () => {
     const customReferences: unknown[] = [];
     const messageReferences: unknown[] = [];
@@ -108,5 +166,17 @@ describe("CoreComposerRuntimeProvider", () => {
     expect(coreComposerAdapters.builder?.BuilderConnectPopover).toBe(
       DeferredBuilderConnectPopover,
     );
+  });
+
+  it("offers composer credits only where commercial surfaces are shown", () => {
+    expect(coreComposerAdapters.builder?.creditsOffered?.()).toBe(true);
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      expect(coreComposerAdapters.builder?.creditsOffered?.()).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

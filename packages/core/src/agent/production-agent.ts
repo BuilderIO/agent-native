@@ -50,6 +50,7 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
+  isActionOutputContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -61,11 +62,13 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
   type ActionAutomationContext,
   type ActionCallIntent,
+  type ActionMcpTool,
   type PreparedActionCall,
   type ActionCaller,
   type ActionRunContext,
@@ -89,6 +92,7 @@ import type {
   AuditAttributionSource,
   AuditOverride,
 } from "../audit/attribution.js";
+import { scrubLocationHash } from "../client/url-scrub.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -169,6 +173,11 @@ import {
   updateRunProgress,
 } from "../progress/registry.js";
 import {
+  isProviderInteractiveScope,
+  runWithDurableTurnToolScope,
+  type ProviderTurnGrant,
+} from "../provider-api/interactive-scope.js";
+import {
   readOptionalKeyCache,
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
@@ -202,6 +211,7 @@ import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunProviderKeyOrgId,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
 } from "../server/personal-provider-key-policy.js";
@@ -241,7 +251,9 @@ import {
   stripInlineDataUrls,
 } from "../shared/inline-bytes.js";
 import {
+  isGPTReasoningModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   normalizeReasoningEffortForRequest,
   stepDownReasoningEffort,
   type ReasoningEffort,
@@ -281,6 +293,8 @@ import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./continuation-prompt.js";
 import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
+  backgroundRunInitiatorMarker,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -293,6 +307,11 @@ import {
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+import {
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
+  mintDurableTurnGrant,
+  reissueDurableTurnGrant,
+} from "./durable-turn-grant.js";
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
@@ -308,7 +327,9 @@ import {
   isContextOverflowMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
+  isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
+  MODEL_REFUSAL_MESSAGE,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -390,11 +411,20 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  ModelAttemptMeasurement,
+  type ModelAttemptObserver,
+  type ModelAttemptStartObserver,
+} from "./model-attempt.js";
 import { getProviderDefaultEffort } from "./model-catalog.js";
 import {
   getContextWindowForModel,
   resolveFallbackModel,
 } from "./model-config.js";
+import {
+  createModelInputScopeGuardRegistry,
+  MODEL_INPUT_SCOPE_ABORT_REASON,
+} from "./model-input-scope-guards.js";
 import {
   maybeCompactThread,
   buildObservationalContext,
@@ -418,7 +448,10 @@ import { applyUncheckedDefaultModelReplacement } from "./provider-model-selectio
 import {
   IncompleteAgentRunError,
   incompleteAgentRunFailure,
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
   RUN_RATE_LIMITED_MESSAGE,
+  TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
+  TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
 } from "./run-errors.js";
 import {
   startRun,
@@ -438,6 +471,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  carriesAssistantText,
   endsAfterToolResultWithoutAssistantFinal,
   endsDuringActionPreparation,
 } from "./run-manager.js";
@@ -446,6 +480,8 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   beginAgentExecutionStep,
+  PRIVATE_REPLAY_IDENTITY_PATTERN,
+  privateExecutionStepIdentity,
   privateExecutionStepInputJson,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
@@ -501,6 +537,7 @@ import {
   findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
+  findReplayablePrivateJournalEntry,
   hasJournalStepForCall,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
@@ -546,6 +583,9 @@ import {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
   RunEvent,
+  RESPONSE_GUARD_DRAFT_KEPT_EVENT,
+  RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
+  UNKNOWN_TOOL_ERROR_CODE,
   type ToolErrorClass,
   type UnknownWriteCause,
 } from "./types.js";
@@ -795,6 +835,7 @@ async function getOwnerApiKeyDetailed(
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   const orgId = getRequestOrgId();
+  const policyOrgId = orgId ?? personalRunProviderKeyOrgId(secretKey);
   // Restricted members keep their stored keys, but none of the personal rows
   // below (user, solo workspace, legacy settings) may answer. Unknown is a
   // failed lookup, never "not restricted". Keys outside the policy (Jev) are
@@ -804,7 +845,9 @@ async function getOwnerApiKeyDetailed(
     personalRestricted =
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
-        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+        policyOrgId
+          ? { email: ownerEmail, orgId: policyOrgId }
+          : { email: ownerEmail },
       ));
   } catch {
     lookupFailed = true;
@@ -1366,12 +1409,18 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  outputSchema?: import("@standard-schema/spec").StandardSchemaV1;
+  /** The input schema agents are shown, when `defineAction` was given one
+   *  narrower than `schema`. */
+  agentInputSchema?: unknown;
   http?: import("../action.js").ActionHttpConfig | false;
   requiresAuth?: boolean;
   maxBodyBytes?: number;
   uiOnly?: boolean;
+  requiresSignedInBrowser?: boolean;
+  opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   /** True when this entry's raw tool schema was authored by an external MCP
    *  server (imported via the MCP client), not a local action. Distinct
    *  from `mcpTool`, which controls whether a *local* action is exposed to
@@ -1382,6 +1431,10 @@ export interface ActionEntry {
    *  Schema dialect when the schema omits `$schema`. */
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
+  /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
+  mcpScript?: "read" | "write";
+  /** See `mcpScriptWrite` in `defineAction`. */
+  mcpScriptWrite?: import("../action.js").McpScriptWriteContract;
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when
@@ -1396,6 +1449,8 @@ export interface ActionEntry {
   emptyListsEraseNothing?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  userTurn?: import("../action.js").ActionUserTurn;
+  requiresUserTurn?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
   confirmsAutomationWork?: boolean;
   grounding?: boolean;
@@ -1404,6 +1459,8 @@ export interface ActionEntry {
   changeEvents?: boolean;
   persistInBrowser?: boolean;
   persistInChatHistory?: boolean;
+  /** The action's audit settings, as `defineAction` was given them. */
+  audit?: import("../audit/types.js").ActionAuditConfig;
   changeResource?: (
     input: any,
     result: any,
@@ -1431,6 +1488,24 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
+  /** See `ActionDefinition.mcpNeedsApproval`. */
+  mcpNeedsApproval?(
+    this: void,
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): boolean | Promise<boolean>;
+  /** See `ActionDefinition.approvalNotice`. */
+  approvalNotice?(
+    this: void,
+    args: unknown,
+    ctx: import("../action.js").ActionApprovalNoticeContext,
+  ): string | undefined | Promise<string | undefined>;
+  /** See `ActionDefinition.approvalProof`. */
+  approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -1618,6 +1693,11 @@ export interface AgentActionSurfaceDetails {
   requestedTurnId?: string;
   queuedMessageId?: string;
   actionScope?: Readonly<AgentActionScope>;
+  /**
+   * Set for a saved automation run, which has no request: `event` is
+   * `undefined` and `threadId` is unset.
+   */
+  automation?: { name: string };
   availableActionNames: readonly string[];
 }
 
@@ -2288,6 +2368,8 @@ export interface ProductionAgentOptions {
     message: string;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
+    /** A promoted queued message's claim; saving it checks the claim. */
+    queuedMessageClaimId?: string;
     agentKitMessageId?: string;
     submissionExpiresAt?: unknown;
     retryContext: RefusedTurnRetryContext;
@@ -2346,11 +2428,7 @@ export interface ProductionAgentOptions {
    * not describe tools that require an extra discovery turn before use.
    */
   initialToolNames?: string[];
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
 }
 
 export async function resolveAgentOwnerEmail(
@@ -3482,7 +3560,7 @@ function engineStopError(
   const attachmentRejected =
     event.errorCode === "invalid_attachment" ||
     (hasInlineAttachment &&
-      (event.statusCode === 413 ||
+      ((event.statusCode === 413 && !isProviderTokenRateLimitMessage(error)) ||
         ((event.statusCode === undefined ||
           event.statusCode === 400 ||
           event.statusCode === 422) &&
@@ -4306,9 +4384,7 @@ export async function callConnectedAgentReference(input: {
   });
   relay.start();
   try {
-    const callerAuth = await input.resolveCallerAuth({
-      includeGoogleToken: true,
-    });
+    const callerAuth = await input.resolveCallerAuth();
     const response = await input.callAgent(input.path, input.message, {
       async: true,
       apiKey: callerAuth.apiKey,
@@ -4750,6 +4826,12 @@ export type AgentLoopFinalResponseGuardResult =
       expandToolSurface?: boolean;
     };
 
+export interface FinalGuardKeptDraft {
+  current?:
+    | { draft: string; prefix: string; clearAllText?: boolean }
+    | undefined;
+}
+
 export type AgentLoopFinalResponseGuard = (
   context: AgentLoopFinalResponseGuardContext,
 ) =>
@@ -4757,6 +4839,24 @@ export type AgentLoopFinalResponseGuard = (
   | null
   | undefined
   | Promise<AgentLoopFinalResponseGuardResult | null | undefined>;
+
+function keptGuardDraftRecordEvent(failure: {
+  message: string;
+  errorCode?: string | undefined;
+}): AgentChatEvent {
+  return {
+    type: "rich_event",
+    event: {
+      namespace: RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
+      name: RESPONSE_GUARD_DRAFT_KEPT_EVENT,
+      version: 1,
+      data: {
+        errorCode: failure.errorCode ?? "engine_error",
+        message: failure.message,
+      },
+    },
+  };
+}
 
 function collectTextParts(parts: EngineContentPart[]): string {
   return parts
@@ -4793,8 +4893,7 @@ export function turnHasVisibleText(events: readonly AgentChatEvent[]): boolean {
   let visible = false;
   for (const event of events) {
     if (event.type === "clear") visible = false;
-    else if (event.type === "text" && event.text.trim().length > 0)
-      visible = true;
+    else if (carriesAssistantText(event)) visible = true;
   }
   return visible;
 }
@@ -4855,27 +4954,30 @@ export function appendContinuationCheckpoint(
   });
 }
 
+const CONTINUATION_NOTES = {
+  run_timeout: "The previous run reached an internal execution budget.",
+  loop_limit: "The previous run reached an internal step budget.",
+  max_tokens:
+    "The previous LLM call reached the model output-token cap before the response finished.",
+  stream_ended:
+    "The previous stream ended before the agent sent a final completion signal.",
+  gateway_timeout:
+    "The previous LLM call hit an upstream gateway timeout before the response finished streaming.",
+  rate_limited:
+    "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget.",
+  network_interrupted:
+    "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly).",
+  no_progress:
+    "The previous run stopped producing progress events while the connection stayed open.",
+  empty_response: "The previous LLM call ended without an answer.",
+} satisfies Record<AgentLoopContinuationReason | "empty_response", string>;
+
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: keyof typeof CONTINUATION_NOTES,
   options: { actionPreparationTool?: string; journalNote?: string } = {},
 ) {
-  const note =
-    reason === "loop_limit"
-      ? "The previous run reached an internal step budget."
-      : reason === "max_tokens"
-        ? "The previous LLM call reached the model output-token cap before the response finished."
-        : reason === "stream_ended"
-          ? "The previous stream ended before the agent sent a final completion signal."
-          : reason === "gateway_timeout"
-            ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-            : reason === "rate_limited"
-              ? "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget."
-              : reason === "network_interrupted"
-                ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-                : reason === "no_progress"
-                  ? "The previous run stopped producing progress events while the connection stayed open."
-                  : "The previous run reached an internal execution budget.";
+  const note = CONTINUATION_NOTES[reason];
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
@@ -4956,6 +5058,10 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("too much time has passed without sending any data") ||
     text.includes("terminated")
   );
+}
+
+export function isSilentAfterKeptDraft(err: EngineError): boolean {
+  return isRejectedRequestErrorCode(err.errorCode);
 }
 
 export function isTransientProviderRateLimitError(err: unknown): boolean {
@@ -5557,6 +5663,30 @@ const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 const MAX_TOOL_FAILURE_STREAK = 5;
+
+export interface ToolLimits {
+  timeoutMs?: number;
+  maxResultChars?: number;
+  hardMaxResultChars?: number;
+  /** Identical failures of one tool with the same arguments before the turn stops. Default 3. */
+  maxIdenticalErrors?: number;
+  /** Failures of one tool with the same error across different arguments before the turn stops. Default 3. */
+  maxSameErrorAcrossArguments?: number;
+  /** Consecutive failures of one tool before the loop is told to change course. Default 5. */
+  maxFailureStreak?: number;
+}
+
+/** A limit counts attempts, so only a positive whole number replaces the default. */
+export function resolveToolFailureLimit(
+  configured: number | undefined,
+  fallback: number,
+): number {
+  return typeof configured === "number" &&
+    Number.isSafeInteger(configured) &&
+    configured >= 1
+    ? configured
+    : fallback;
+}
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
 const MAX_STOP_ERROR_LINE_CHARS = 300;
@@ -6293,6 +6423,8 @@ export function buildFirstRequestPayloadDetail(input: {
 
 const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "resources",
+  "save-memory",
+  "delete-memory",
   "framework-search",
   "docs-search",
   "get-framework-context",
@@ -6782,10 +6914,10 @@ export function permanentPreconditionReason(
     .replace(/[.。]+$/, "");
   const nestedPrecondition = reason
     .match(
-      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\. That needs to be fixed outside this chat\b|\.?$)/i,
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\.? That needs to be fixed outside this chat\b|\.?$)/i,
     )?.[1]
     ?.trim();
-  if (nestedPrecondition) return nestedPrecondition;
+  if (nestedPrecondition) return shortenPreconditionReason(nestedPrecondition);
   if (!reason) return null;
   if (
     /\bI stopped because\b/i.test(reason) ||
@@ -6793,9 +6925,30 @@ export function permanentPreconditionReason(
   ) {
     return null;
   }
-  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
-    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
-    : reason;
+  return shortenPreconditionReason(reason);
+}
+
+const SENTENCE_END_NOT_ABBREVIATION = /(?<!\b[a-z]\.[a-z])[.!?](?=\s)/gi;
+
+function shortenPreconditionReason(reason: string): string {
+  const maxBeforeClosingMark = PERMANENT_PRECONDITION_REASON_MAX_CHARS - 1;
+  if (reason.length <= maxBeforeClosingMark) return reason;
+  let sentenceEnd = 0;
+  for (const { index } of reason.matchAll(SENTENCE_END_NOT_ABBREVIATION)) {
+    if (index >= maxBeforeClosingMark) break;
+    sentenceEnd = index + 1;
+  }
+  if (sentenceEnd >= maxBeforeClosingMark / 2) {
+    return reason.slice(0, sentenceEnd).replace(/\.$/, "");
+  }
+  const wordEnd = reason.lastIndexOf(" ", maxBeforeClosingMark);
+  const cut =
+    wordEnd >= maxBeforeClosingMark / 2 ? wordEnd : maxBeforeClosingMark;
+  return `${reason.slice(0, cut).replace(/[\s,;:—–-]+$/, "")}…`;
+}
+
+function asSentence(text: string): string {
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
 const SOURCE_SWEEP_TOOL_NAME =
@@ -7147,20 +7300,55 @@ function repairToolCallInput(
   entry: ActionEntry | undefined,
   input: unknown,
 ): ToolInputRepair {
-  if (!entry || getStrictToolInputValidator(entry)) {
-    return { input, changed: false };
+  if (!entry) return { input, changed: false };
+  const schema = entry.tool.parameters;
+  if (getStrictToolInputValidator(entry)) {
+    return dropModelChosenRequestId(schema, input);
   }
-  const json = coerceStringifiedJsonToolValues(entry.tool.parameters, input);
+  const json = coerceStringifiedJsonToolValues(schema, input);
   const placeholders = normalizeOptionalToolPlaceholders(
-    entry.tool.parameters,
+    schema,
     json.input,
     entry,
   );
   if (placeholders.error) return placeholders;
+  const requestId = dropModelChosenRequestId(schema, placeholders.input);
   return {
-    input: placeholders.input,
-    changed: json.changed || placeholders.changed,
+    input: requestId.input,
+    changed: json.changed || placeholders.changed || requestId.changed,
   };
+}
+
+/**
+ * A model cannot know a stable idempotency key. It invents one, or reuses one
+ * it saw in an earlier turn, and the write receipt guard then refuses the next
+ * write ("Request ID was already used for different data") or replays an
+ * unrelated saved result. Every action that takes an OPTIONAL `requestId` is
+ * the class. Drop the model's value so the write runs fresh; a schema that
+ * REQUIRES one keeps what the model sent, because that action cannot run
+ * without it.
+ */
+function dropModelChosenRequestId(
+  schema: RawJsonSchema | undefined,
+  input: unknown,
+): ToolInputRepair {
+  if (!schema?.properties || !input || typeof input !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(input)) return { input, changed: false };
+  const requestIdSchema: unknown = schema.properties.requestId;
+  if (!requestIdSchema || typeof requestIdSchema !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(schema.required) && schema.required.includes("requestId")) {
+    return { input, changed: false };
+  }
+  const args = input as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(args, "requestId")) {
+    return { input, changed: false };
+  }
+  const { requestId: _modelChosen, ...rest } = args;
+  return { input: rest, changed: true };
 }
 
 /**
@@ -7414,6 +7602,13 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
     }
 
     const part = value as Record<string, unknown>;
+    if (part.omitFromPersistedHistory === true) {
+      return {
+        type: "text",
+        text: "[Private content omitted]",
+        omitFromPersistedHistory: true,
+      };
+    }
     const isMedia =
       isImageListEntry || part.type === "image" || part.type === "file";
     if (isMedia) {
@@ -7448,10 +7643,28 @@ function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
 function notifyModelInputObserver(
   observer: ModelInputObserver | undefined,
   messages: readonly unknown[],
+  privateTurn = false,
 ): void {
   if (!observer) return;
   try {
-    const result = observer(projectModelInputForObserver(messages));
+    // Observers may persist their input independently of the run's trace writer.
+    // Once a turn is private, even unmarked derived context stays model-only.
+    const result = observer(
+      privateTurn
+        ? [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "[Private content omitted]",
+                  omitFromPersistedHistory: true,
+                },
+              ],
+            },
+          ]
+        : projectModelInputForObserver(messages),
+    );
     if (result !== undefined) {
       void Promise.resolve(result).catch(() => {
         // coercion-ok: observer failures cannot change agent execution.
@@ -7468,6 +7681,7 @@ export function createRunSafeBoundaryGuards(input: {
   signal: AbortSignal;
   flushEvents: () => Promise<void>;
   interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
+  validateModelInput?: () => boolean | Promise<boolean>;
 }): {
   beforeModelDispatch: BeforeModelDispatch;
   beforeWrite: () => Promise<void>;
@@ -7479,6 +7693,17 @@ export function createRunSafeBoundaryGuards(input: {
       if (input.signal.aborted || interruptResult !== "none") {
         return { started: false as const };
       }
+      if (input.validateModelInput) {
+        try {
+          const current = input.validateModelInput();
+          if (current !== true && (await current) !== true) {
+            return { started: false as const };
+          }
+        } catch {
+          return { started: false as const };
+        }
+      }
+      if (isSignalAborted(input.signal)) return { started: false as const };
       return { started: true as const, value: dispatch() };
     },
     beforeWrite: async () => {
@@ -7536,11 +7761,14 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
   beforeModelDispatch?: BeforeModelDispatch;
+  registerModelInputGuard?: ActionRunContext["registerModelInputGuard"];
   unknownWriteToolNames?: Set<string>;
   /** The request's unknown outcomes, which each of its loops feeds and holds by. */
   unknownOutcomes?: UnknownOutcomes;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  onModelAttempt?: ModelAttemptObserver;
+  onModelAttemptStart?: ModelAttemptStartObserver;
   /**
    * The model and effort each model call uses. Either can change mid-run: a
    * rate limit falls back to another model, and an empty response steps effort
@@ -7587,6 +7815,7 @@ export async function runAgentLoop(opts: {
   priorTurnInputTokens?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   finalResponseGuardRequestText?: string;
+  finalGuardKeptDraft?: FinalGuardKeptDraft;
   threadId?: string;
   turnId?: string;
   /** Recovery paths overlay completed durable steps missing from tool_done. */
@@ -7594,11 +7823,7 @@ export async function runAgentLoop(opts: {
   durableStepIdForToolCall?: (logicalStepId: string) => string;
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
   /** Recorded by an approved call's own audit rows, and read by nothing else. */
@@ -8008,6 +8233,8 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const refusedUnavailableTools: Array<{ name: string; resultCount: number }> =
+    [];
   const turnReceipts = (): ToolWriteReceipt[] =>
     toolResultHistory.flatMap((result) =>
       result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
@@ -8029,8 +8256,29 @@ export async function runAgentLoop(opts: {
         opts.recoverCompletedExecutionSteps === true,
     },
   );
+  const journalHasPrivateHistory =
+    (journalRead.status === "read" &&
+      journalRead.events.some(
+        (event) => event.omitFromPersistedHistory === true,
+      )) ||
+    (journalRead.status === "unreadable" &&
+      journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE);
+  if (journalHasPrivateHistory) {
+    if (opts.runId) await ensurePrivateTurnRecorded();
+    else send.markPrivate();
+  }
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const priorPrivateSideEffect =
+    journalRead.status === "read" &&
+    journalRead.events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.omitFromPersistedHistory === true &&
+        event.completedSideEffect === true &&
+        (typeof event.privateReplayIdentity !== "string" ||
+          !PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity)),
+    );
   turnHasActionWarnings =
     journalRead.status === "read" &&
     journalRead.events.some(
@@ -8267,14 +8515,12 @@ export async function runAgentLoop(opts: {
   }
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
-    (journalRead.code === "private_history_unrecoverable" ||
+    (journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE ||
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message:
-            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-            "Retrying would risk repeating a step that already completed. Please send the request again.",
-          errorCode: "tool_call_journal_unreadable",
+          message: TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
+          errorCode: TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
           details: journalRead.error,
         }
       : null;
@@ -8360,6 +8606,18 @@ export async function runAgentLoop(opts: {
     toolCallCacheKey,
     normalizeToolErrorForBreaker,
   );
+  const maxToolFailureStreak = resolveToolFailureLimit(
+    opts.toolLimits?.maxFailureStreak,
+    MAX_TOOL_FAILURE_STREAK,
+  );
+  const maxIdenticalToolErrors = resolveToolFailureLimit(
+    opts.toolLimits?.maxIdenticalErrors,
+    MAX_IDENTICAL_TOOL_ERRORS,
+  );
+  const maxSameErrorAcrossArguments = resolveToolFailureLimit(
+    opts.toolLimits?.maxSameErrorAcrossArguments,
+    MAX_SAME_ERROR_ACROSS_ARGUMENTS,
+  );
   const toolFailureBudget = (name: string) => {
     const failures = failureStreaks.get(name) ?? 0;
     let equivalentFailures = 0;
@@ -8369,8 +8627,8 @@ export async function runAgentLoop(opts: {
     return {
       failures: Math.max(failures, equivalentFailures),
       remaining: Math.min(
-        MAX_TOOL_FAILURE_STREAK - failures,
-        MAX_SAME_ERROR_ACROSS_ARGUMENTS - equivalentFailures,
+        maxToolFailureStreak - failures,
+        maxSameErrorAcrossArguments - equivalentFailures,
       ),
     };
   };
@@ -8416,6 +8674,8 @@ export async function runAgentLoop(opts: {
   };
   const blockedA2ATargets = new Map<string, string>();
   let finalGuardRetries = 0;
+  const finalGuardKeptDraft: FinalGuardKeptDraft =
+    opts.finalGuardKeptDraft ?? {};
   let emptyFinalResponseRetries = 0;
   let followUpOnlyTurns = 0;
   let preserveReasoningEffortForEmptyResponseRetries = false;
@@ -8442,6 +8702,28 @@ export async function runAgentLoop(opts: {
       ...(stop.blockedTool ? { blockedTool: stop.blockedTool } : {}),
       ...(stop.blockedBy ? { blockedBy: stop.blockedBy } : {}),
       recoverable: false,
+    });
+  };
+  const showKeptGuardDraft = async (
+    keptDraft: NonNullable<FinalGuardKeptDraft["current"]>,
+    failure: { message: string; errorCode?: string | undefined },
+  ) => {
+    finalGuardKeptDraft.current = undefined;
+    await send(keptGuardDraftRecordEvent(failure));
+    await send(
+      keptDraft.clearAllText
+        ? { type: "clear", allText: true }
+        : { type: "clear" },
+    );
+    await send({
+      type: "text",
+      text: `${keptDraft.prefix}\n\n${keptDraft.draft}`,
+    });
+    reportOutcome({
+      state: "failed",
+      code: failure.errorCode ?? "engine_error",
+      retryable: false,
+      message: failure.message,
     });
   };
   let effectiveMaxOutputTokens = opts.maxOutputTokens;
@@ -8584,6 +8866,15 @@ export async function runAgentLoop(opts: {
 
     for (let retry = 0; ; retry++) {
       const attemptStartedAt = Date.now();
+      const measurement = opts.onModelAttempt
+        ? new ModelAttemptMeasurement(
+            model,
+            iterations,
+            retry,
+            opts.onModelAttemptStart,
+          )
+        : undefined;
+      let retryWaitStartedAt: number | undefined;
       assistantContent = undefined;
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
@@ -8607,6 +8898,9 @@ export async function runAgentLoop(opts: {
         )
           ? contextMessages
           : replaceImagesForModelWithoutVision(contextMessages, model);
+        const reasoningEffort = completingFollowUpSuggestions
+          ? ("none" as const)
+          : effectiveReasoningEffort;
         const streamOpts = {
           model,
           systemPrompt: completingFollowUpSuggestions
@@ -8632,11 +8926,12 @@ export async function runAgentLoop(opts: {
               : effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: completingFollowUpSuggestions
-            ? ("none" as const)
-            : effectiveReasoningEffort,
-          beforeModelDispatch: opts.beforeModelDispatch,
+          ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+          ...(opts.beforeModelDispatch === undefined
+            ? {}
+            : { beforeModelDispatch: opts.beforeModelDispatch }),
           onModelDispatchStarted: () => {
+            measurement?.dispatched();
             usage.llmCalls = (usage.llmCalls ?? 0) + 1;
             try {
               opts.onModelDispatchStarted?.();
@@ -8646,10 +8941,16 @@ export async function runAgentLoop(opts: {
             }
           },
           providerOptions,
+          ...(send.isPrivateTurn() ? { privateContent: true } : {}),
         };
 
+        measurement?.request(streamOpts);
         opts.onModelSettings?.(model, effectiveReasoningEffort);
-        notifyModelInputObserver(opts.onModelInput, engineMessages);
+        notifyModelInputObserver(
+          opts.onModelInput,
+          engineMessages,
+          send.isPrivateTurn(),
+        );
         if (signal.aborted) {
           reportOutcome({
             state: "canceled",
@@ -8814,6 +9115,7 @@ export async function runAgentLoop(opts: {
               break;
             }
             const event = nextEvent.value;
+            measurement?.event(event);
             if (hasNoProgressStalled()) {
               checkpointNoProgress();
               break;
@@ -8966,6 +9268,7 @@ export async function runAgentLoop(opts: {
             terminalStopErrorCode ??= thrownCode;
           throw err;
         } finally {
+          measurement?.endStream();
           closeModelStreamBracket();
           if (!eventIteratorDone) {
             await requestEventIteratorReturn(
@@ -8988,6 +9291,7 @@ export async function runAgentLoop(opts: {
           return usage;
         }
         if (followUpCompletionFailed) break;
+        if (terminalStopReason === "refusal") break;
 
         const hasCompleteToolCall =
           streamedAssistantToolCalls.length > 0 ||
@@ -9006,6 +9310,7 @@ export async function runAgentLoop(opts: {
 
         break;
       } catch (err: unknown) {
+        const streamEndedAt = measurement?.endStream() ?? Date.now();
         if (signal.aborted) throw err;
         if (completingFollowUpSuggestions) {
           failFollowUpCompletion("provider_error");
@@ -9015,6 +9320,7 @@ export async function runAgentLoop(opts: {
           if (retry === 0 && !attemptHasText()) {
             const trimmed = trimOldToolResults(contextMessages);
             if (trimmed !== null) {
+              retryWaitStartedAt = streamEndedAt;
               contextMessages = trimmed;
               await sendClear();
               continue;
@@ -9035,6 +9341,7 @@ export async function runAgentLoop(opts: {
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
           const stalledMs = Date.now() - attemptStartedAt;
+          retryWaitStartedAt = streamEndedAt;
           await sendClear();
           if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
             send({
@@ -9066,6 +9373,7 @@ export async function runAgentLoop(opts: {
               getContextWindowForModel(fallbackModel) * 0.8;
           if (fallbackModel && fallbackFits) {
             fallbackModelAttempted = true;
+            retryWaitStartedAt = streamEndedAt;
             await sendClear();
             send({
               type: "activity",
@@ -9084,6 +9392,13 @@ export async function runAgentLoop(opts: {
           }
         }
         throw err;
+      } finally {
+        if (retryWaitStartedAt !== undefined) {
+          measurement?.retryWait(Date.now() - retryWaitStartedAt);
+        }
+        if (measurement && opts.onModelAttempt) {
+          measurement.finish(opts.onModelAttempt);
+        }
       }
     }
 
@@ -9092,6 +9407,16 @@ export async function runAgentLoop(opts: {
     }
 
     if (tripwire || followUpCompletionFailed) break;
+    if (terminalStopReason === "refusal") {
+      if (completingFollowUpSuggestions) break;
+      if (streamedAssistantText) await send({ type: "clear" });
+      await send({ type: "text", text: MODEL_REFUSAL_MESSAGE });
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: MODEL_REFUSAL_MESSAGE }],
+      });
+      break;
+    }
 
     if (!assistantContent && toolCallErrors.length > 0) {
       assistantContent = [];
@@ -9405,26 +9730,62 @@ export async function runAgentLoop(opts: {
           );
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
-          if (
+          const previousEffort = isUnsetReasoningEffort(
+            effectiveReasoningEffort,
+          )
+            ? getProviderDefaultEffort(model)
+            : effectiveReasoningEffort;
+          const isBuilderGpt =
+            engine.name === "builder" && isGPTReasoningModel(model);
+          if (isBuilderGpt && previousEffort === undefined) {
+            effectiveReasoningEffort = "low";
+          } else if (
             !preserveReasoningEffortForEmptyResponseRetries ||
             effectiveMaxOutputTokens <= previousMaxOutputTokens
           ) {
-            // With no effort chosen the provider ran at its own default, so
-            // step down from that documented level when the catalog knows it.
-            effectiveReasoningEffort = stepDownReasoningEffort(
-              effectiveReasoningEffort ?? getProviderDefaultEffort(model),
-            );
+            const nextEffort = stepDownReasoningEffort(previousEffort);
+            effectiveReasoningEffort =
+              isBuilderGpt && nextEffort === "minimal" ? "low" : nextEffort;
           }
           send({ type: "clear" });
-          appendAgentLoopContinuation(messages, "max_tokens");
+          appendAgentLoopContinuation(
+            messages,
+            terminalStopReason === "max_tokens"
+              ? "max_tokens"
+              : "empty_response",
+          );
           continue;
         }
         send({ type: "clear" });
-        terminalActionStop = {
-          message:
-            "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-          errorCode: "empty_final_response",
-        };
+        const strandedTools = [
+          ...new Set(
+            refusedUnavailableTools
+              .filter(
+                ({ resultCount }) =>
+                  !toolResultHistory
+                    .slice(resultCount)
+                    .some((result) => !result.isError),
+              )
+              .map(({ name }) => name),
+          ),
+        ];
+        const emptyFinalStop: TerminalActionStop =
+          strandedTools.length > 0
+            ? {
+                message: `${strandedTools.join(", ")} ${strandedTools.length === 1 ? "is" : "are"} not available to this run, so the step did not execute and the request is incomplete. Send the request again in a new message.`,
+                errorCode: "tool_unavailable",
+              }
+            : {
+                message:
+                  "The model returned an empty response, even after retrying. Try again, or pick a different model from the model menu.",
+                errorCode: "empty_final_response",
+              };
+        const keptDraft = finalGuardKeptDraft.current;
+        if (keptDraft && emptyFinalStop.errorCode === "empty_final_response") {
+          await showKeptGuardDraft(keptDraft, emptyFinalStop);
+          break;
+        }
+        terminalActionStop = emptyFinalStop;
         sendTerminalActionStop(terminalActionStop);
         break;
       }
@@ -9478,6 +9839,16 @@ export async function runAgentLoop(opts: {
             receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
+          finalGuardKeptDraft.current =
+            typeof guard !== "string" &&
+            guard.exhaustedDraftPrefix &&
+            finalResponseDraftText.trim()
+              ? {
+                  draft: finalResponseDraftText,
+                  prefix: guard.exhaustedDraftPrefix,
+                  ...(guard.clearAllText ? { clearAllText: true } : {}),
+                }
+              : undefined;
           await send(
             typeof guard !== "string" && guard.clearAllText
               ? { type: "clear", allText: true }
@@ -9501,14 +9872,21 @@ export async function runAgentLoop(opts: {
         );
         const exhaustedDraftPrefix =
           typeof guard === "string" ? undefined : guard.exhaustedDraftPrefix;
+        const keptDraft = exhaustedDraftPrefix
+          ? finalGuardKeptDraft.current
+          : undefined;
+        finalGuardKeptDraft.current = undefined;
         send({
           type: "text",
           text:
             exhaustedDraftPrefix && finalResponseDraftText.trim()
               ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
-              : (fallbackMessage ?? retryMessage),
+              : keptDraft
+                ? `${keptDraft.prefix}\n\n${keptDraft.draft}`
+                : (fallbackMessage ?? retryMessage),
         });
       } else {
+        finalGuardKeptDraft.current = undefined;
         flushUnstreamedAssistantText();
         if (
           !canSettleEmptyFinal &&
@@ -9537,6 +9915,7 @@ export async function runAgentLoop(opts: {
     }
 
     finalGuardRetries = 0;
+    finalGuardKeptDraft.current = undefined;
     emptyFinalResponseRetries = 0;
     followUpOnlyTurns = 0;
     preserveReasoningEffortForEmptyResponseRetries = false;
@@ -9794,13 +10173,35 @@ export async function runAgentLoop(opts: {
           duplicateReadOnlyToolCalls.clear();
         }
         if (event.id) settleRepeatedToolCall(event.id);
+        const privateReplayIdentity =
+          isPrivateCall() &&
+          event.completedSideEffect === true &&
+          argumentsHash &&
+          opts.threadId &&
+          opts.turnId
+            ? privateExecutionStepIdentity({
+                threadId: opts.threadId,
+                turnId: opts.turnId,
+                toolName: toolCall.name,
+                argumentsHash,
+              })
+            : undefined;
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(actionExecutionOutcome.navigationKeys?.size ||
+            (actionInvoked && event.tool === "navigate")
+              ? {
+                  navigationKeys: [
+                    ...(actionExecutionOutcome.navigationKeys ?? []),
+                  ],
+                }
+              : {}),
             ...(event.outcomeUnknown && unknownOutcomeCause
               ? { unknownCause: unknownOutcomeCause }
               : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
+            ...(privateReplayIdentity ? { privateReplayIdentity } : {}),
             ...(executionStepId ? { executionStepId } : {}),
           }),
         ).then(() => {
@@ -9877,8 +10278,8 @@ export async function runAgentLoop(opts: {
           requestedActionStop ??= {
             message: reason
               ? directStop?.ownRemedy
-                ? `I stopped because ${toolCall.name} can't run yet: ${reason}.`
-                : `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                ? `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)}`
+                : `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                   "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
               : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
                 "Retrying would not have changed it, and anything completed before this is saved.",
@@ -9886,7 +10287,7 @@ export async function runAgentLoop(opts: {
             details: sanitizedResult,
           };
           return reason
-            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+            ? `Stopped: ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`
             : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`;
@@ -9907,9 +10308,9 @@ export async function runAgentLoop(opts: {
         const anyArgsCount = (toolErrors.get(anyArgsKey) ?? 0) + 1;
         toolErrors.set(anyArgsKey, anyArgsCount);
         if (
-          failureCount >= MAX_TOOL_FAILURE_STREAK &&
-          count < MAX_IDENTICAL_TOOL_ERRORS &&
-          anyArgsCount < MAX_SAME_ERROR_ACROSS_ARGUMENTS
+          failureCount >= maxToolFailureStreak &&
+          count < maxIdenticalToolErrors &&
+          anyArgsCount < maxSameErrorAcrossArguments
         ) {
           requestedActionStop ??= repeatedToolFailureStop(
             toolCall.name,
@@ -9919,8 +10320,8 @@ export async function runAgentLoop(opts: {
           return sanitizedResult;
         }
         if (
-          count < MAX_IDENTICAL_TOOL_ERRORS &&
-          anyArgsCount >= MAX_SAME_ERROR_ACROSS_ARGUMENTS
+          count < maxIdenticalToolErrors &&
+          anyArgsCount >= maxSameErrorAcrossArguments
         ) {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
@@ -9940,7 +10341,7 @@ export async function runAgentLoop(opts: {
           return result;
         }
 
-        if (count < MAX_IDENTICAL_TOOL_ERRORS) return sanitizedResult;
+        if (count < maxIdenticalToolErrors) return sanitizedResult;
         const result =
           `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
           `Last error: ${sanitizedResult}`;
@@ -10090,8 +10491,15 @@ export async function runAgentLoop(opts: {
           result,
           isError: true,
           completedSideEffect: false,
+          ...(noLongerAvailable ? {} : { errorCode: UNKNOWN_TOOL_ERROR_CODE }),
         });
         recordToolResult(result, true);
+        if (noLongerAvailable && isHistoryToolName(toolCall.name)) {
+          refusedUnavailableTools.push({
+            name: toolCall.name,
+            resultCount: toolResultHistory.length,
+          });
+        }
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -10245,28 +10653,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10299,6 +10712,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10311,6 +10729,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -10714,17 +11133,46 @@ export async function runAgentLoop(opts: {
       // for arguments prepared exactly as these are, or a write recorded
       // before calls had identities, by its raw input; anything else runs
       // fresh.
-      if (toolCallJournal && !ambiguousLegacyWrite && !isPrivateCall()) {
-        const journaled = findReplayableJournalEntry(
-          toolCallJournal,
-          toolCall.name,
-          argumentsHash,
-          consumedJournalKeys,
-          actionIsReadOnly ? undefined : { input: toolCall.input },
-          journalEntriesAlreadyRepresented,
-          executionStepId,
-          journalEntriesAmbiguous,
-        );
+      const privateReplayIdentity =
+        isPrivateCall() && opts.threadId && opts.turnId
+          ? privateExecutionStepIdentity({
+              threadId: opts.threadId,
+              turnId: opts.turnId,
+              toolName: toolCall.name,
+              argumentsHash,
+            })
+          : undefined;
+      const privateReplayLookup =
+        toolCallJournal &&
+        !ambiguousLegacyWrite &&
+        isPrivateCall() &&
+        privateReplayIdentity
+          ? findReplayablePrivateJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              privateReplayIdentity,
+              consumedJournalKeys,
+            )
+          : { status: "none" as const };
+      const ambiguousPrivateWrite =
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        privateReplayLookup.status === "ambiguous";
+      if (toolCallJournal && !ambiguousLegacyWrite && !ambiguousPrivateWrite) {
+        const journaled = isPrivateCall()
+          ? privateReplayLookup.status === "replay"
+            ? privateReplayLookup.entry
+            : undefined
+          : findReplayableJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              argumentsHash,
+              consumedJournalKeys,
+              actionIsReadOnly ? undefined : { input: toolCall.input },
+              journalEntriesAlreadyRepresented,
+              executionStepId,
+              journalEntriesAmbiguous,
+            );
         if (journaled) {
           rollbackRepeatedToolCall();
           const recordedResult = journaled.result ?? "";
@@ -10825,14 +11273,15 @@ export async function runAgentLoop(opts: {
         0,
         ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
       );
-      const priorInterruptions = ambiguousLegacyWrite
-        ? Math.max(1, priorInterruptionsBeforeStepReplay)
-        : (interruptedCallMatchesStep ||
-              ((actionIsReadOnly || actionRetrySafe) &&
-                retryableInterruptedCallKeys.has(preparedCallKey))) &&
-            priorInterruptionsBeforeStepReplay > 0
-          ? 0
-          : priorInterruptionsBeforeStepReplay;
+      const priorInterruptions =
+        ambiguousLegacyWrite || ambiguousPrivateWrite
+          ? Math.max(1, priorInterruptionsBeforeStepReplay)
+          : (interruptedCallMatchesStep ||
+                ((actionIsReadOnly || actionRetrySafe) &&
+                  retryableInterruptedCallKeys.has(preparedCallKey))) &&
+              priorInterruptionsBeforeStepReplay > 0
+            ? 0
+            : priorInterruptionsBeforeStepReplay;
 
       // Another write of a tool whose earlier call may have applied could
       // apply the same change twice, so it does not run; the turn goes on,
@@ -11120,6 +11569,7 @@ export async function runAgentLoop(opts: {
         let chatUIResult: unknown;
         let isError = false;
         let thrown: unknown;
+        let actionRaceFailure: { error: unknown } | undefined;
         // A deadline or abort after invocation leaves a zombie that may still
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
@@ -11229,6 +11679,12 @@ export async function runAgentLoop(opts: {
               actionName: toolCall.name,
               toolCallId: toolCall.id,
               maxResultChars: toolMaxResultChars,
+              ...(actionEntry.persistInChatHistory === false &&
+              engine.supportsPrivateContent === true &&
+              opts.beforeModelDispatch &&
+              opts.registerModelInputGuard
+                ? { registerModelInputGuard: opts.registerModelInputGuard }
+                : {}),
               get omitFromPersistedHistory(): true | undefined {
                 return isPrivateCall() ? true : undefined;
               },
@@ -11270,7 +11726,23 @@ export async function runAgentLoop(opts: {
                 ...(actionOrgId ? { orgId: actionOrgId } : {}),
                 ...(requestContext?.run ? { run: requestContext.run } : {}),
               },
-              invokeAction,
+              () =>
+                runWithDurableTurnToolScope(
+                  invokeAction,
+                  AbortSignal.any([signal, timeoutSignal]),
+                  {
+                    runId: opts.runId,
+                    turnId: opts.turnId,
+                    owner: opts.ownerEmail,
+                    ...(opts.networkProtocol
+                      ? { networkProtocol: opts.networkProtocol }
+                      : {}),
+                    unattended: Boolean(
+                      opts.automation ||
+                      (opts.actionCaller && opts.actionCaller !== "tool"),
+                    ),
+                  },
+                ),
             ),
           );
 
@@ -11288,113 +11760,153 @@ export async function runAgentLoop(opts: {
               toolCall.name,
               ledgerArgumentsHash,
             );
-            const zombieLedgerPromise = actionPromise
-              .then(async (zombieRaw: unknown) => {
-                await new Promise<void>((resolve) => setTimeout(resolve, 0));
-                if (!toolResultLost) return;
-                // A call is recovered only when it may have written.
-                if (ranEffect({}).effect === "none") return;
-                const zombieMcp = isMcpActionResult(zombieRaw)
-                  ? zombieRaw
-                  : null;
-                if (
-                  zombieMcp &&
-                  zombieMcp.raw &&
-                  typeof zombieMcp.raw === "object" &&
-                  (zombieMcp.raw as Record<string, unknown>).isError === true
-                ) {
-                  return;
-                }
-                const zombieResultForAgent = zombieMcp
-                  ? zombieMcp.text
-                  : extractAgentImagesFromActionResult(zombieRaw).value;
-                const zombieResultMetadata =
-                  zombieMcp?.raw ?? zombieResultForAgent;
-                const zombieStr =
-                  typeof zombieResultForAgent === "string"
-                    ? zombieResultForAgent
-                    : JSON.stringify(zombieResultForAgent, null, 2);
-                const zombieArtifacts = detectArtifactReceipts(
-                  zombieResultMetadata,
-                  toolCall.name,
-                );
-                const zombieReceipt = readWriteReceipt(zombieResultMetadata);
-                const zombieChatUI = actionChatUIForResult(
-                  toolCall.name,
-                  actionEntry,
-                  toolCall.input as Record<string, unknown>,
-                  zombieResultForAgent,
-                  false,
-                );
-                const zombieFileMutation = actionEntry.fileMutationProof?.(
-                  toolCall.input,
-                );
-                if (executionStepIntent) {
-                  await recordLateAgentExecutionStepOutcome(
-                    executionStepIntent,
-                    serializeDurableExecutionStepOutcome({
-                      result: isPrivateCall()
-                        ? "[Private content omitted]"
-                        : stripInlineBytes(zombieStr, "placeholder").slice(
-                            0,
-                            toolMaxResultChars,
-                          ),
-                      isError: false,
-                      completedSideEffect: true,
-                      ...(isPrivateCall()
-                        ? {}
-                        : { artifacts: zombieArtifacts }),
-                      ...(!isPrivateCall() && zombieReceipt
-                        ? { receipt: zombieReceipt }
-                        : {}),
-                      ...(!isPrivateCall() && zombieMcp?.mcpApp
-                        ? { mcpApp: zombieMcp.mcpApp }
-                        : {}),
-                      ...(!isPrivateCall() && zombieChatUI
-                        ? {
-                            chatUI: zombieChatUI.chatUI,
-                            chatUIResult: zombieChatUI.result,
-                          }
-                        : {}),
-                      ...(!isPrivateCall() && zombieFileMutation
-                        ? { fileMutation: zombieFileMutation }
-                        : {}),
-                    }),
-                  );
-                }
-                if (!executionStepIntent && !isPrivateCall()) {
-                  await writeLedgerEntry(
-                    ledgerThreadId,
-                    ledgerToolKey,
-                    zombieStr,
-                    zombieArtifacts,
-                    typeof zombieResultForAgent === "string",
-                    zombieChatUI
-                      ? JSON.stringify(zombieChatUI.result)
-                      : undefined,
-                    ledgerArgumentsHash,
-                  );
-                }
-              })
-              .catch((error) => {
-                captureError(
-                  isPrivateCall()
-                    ? new Error("Private content omitted")
-                    : error,
-                  {
-                    ...(isPrivateCall()
-                      ? { errorMessagePolicy: "omit" as const }
-                      : {}),
-                    route: "/_agent-native/agent-chat",
-                    ...(opts.runId ? { aiTraceId: opts.runId } : {}),
-                    tags: {
-                      component: "agent-execution-step",
-                      phase: "late-outcome-persistence",
-                      tool: toolCall.name,
-                    },
+            const reportLateError = (
+              error: unknown,
+              phase: "late-action-rejection" | "late-outcome-persistence",
+            ) => {
+              const privateCall = isPrivateCall();
+              captureError(
+                privateCall ? new Error("Private content omitted") : error,
+                {
+                  ...(privateCall || phase === "late-action-rejection"
+                    ? { errorMessagePolicy: "omit" as const }
+                    : {}),
+                  route: "/_agent-native/agent-chat",
+                  ...(opts.runId ? { aiTraceId: opts.runId } : {}),
+                  tags: {
+                    component: "agent-execution-step",
+                    phase,
+                    tool: toolCall.name,
                   },
+                },
+              );
+            };
+            const zombieLedgerPromise = actionPromise.then(
+              async (zombieRaw: unknown) => {
+                try {
+                  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                  if (!toolResultLost) return;
+                  // A call is recovered only when it may have written.
+                  if (ranEffect({}).effect === "none") return;
+                  const zombieMcp = isMcpActionResult(zombieRaw)
+                    ? zombieRaw
+                    : null;
+                  if (
+                    zombieMcp &&
+                    zombieMcp.raw &&
+                    typeof zombieMcp.raw === "object" &&
+                    (zombieMcp.raw as Record<string, unknown>).isError === true
+                  ) {
+                    return;
+                  }
+                  const zombieResultForAgent = zombieMcp
+                    ? zombieMcp.text
+                    : extractAgentImagesFromActionResult(zombieRaw).value;
+                  const zombieResultMetadata =
+                    zombieMcp?.raw ?? zombieResultForAgent;
+                  const zombieStr =
+                    typeof zombieResultForAgent === "string"
+                      ? zombieResultForAgent
+                      : JSON.stringify(zombieResultForAgent, null, 2);
+                  const zombieArtifacts = detectArtifactReceipts(
+                    zombieResultMetadata,
+                    toolCall.name,
+                  );
+                  const zombieReceipt = readWriteReceipt(zombieResultMetadata);
+                  const zombieChatUI = actionChatUIForResult(
+                    toolCall.name,
+                    actionEntry,
+                    toolCall.input as Record<string, unknown>,
+                    zombieResultForAgent,
+                    false,
+                  );
+                  const zombieFileMutation = actionEntry.fileMutationProof?.(
+                    toolCall.input,
+                  );
+                  if (executionStepIntent) {
+                    await recordLateAgentExecutionStepOutcome(
+                      executionStepIntent,
+                      serializeDurableExecutionStepOutcome({
+                        result: isPrivateCall()
+                          ? "[Private content omitted]"
+                          : stripInlineBytes(zombieStr, "placeholder").slice(
+                              0,
+                              toolMaxResultChars,
+                            ),
+                        isError: false,
+                        completedSideEffect: true,
+                        ...(isPrivateCall()
+                          ? {}
+                          : { artifacts: zombieArtifacts }),
+                        ...(!isPrivateCall() && zombieReceipt
+                          ? { receipt: zombieReceipt }
+                          : {}),
+                        ...(!isPrivateCall() && zombieMcp?.mcpApp
+                          ? { mcpApp: zombieMcp.mcpApp }
+                          : {}),
+                        ...(!isPrivateCall() && zombieChatUI
+                          ? {
+                              chatUI: zombieChatUI.chatUI,
+                              chatUIResult: zombieChatUI.result,
+                            }
+                          : {}),
+                        ...(!isPrivateCall() && zombieFileMutation
+                          ? { fileMutation: zombieFileMutation }
+                          : {}),
+                      }),
+                    );
+                  }
+                  if (!executionStepIntent && !isPrivateCall()) {
+                    await writeLedgerEntry(
+                      ledgerThreadId,
+                      ledgerToolKey,
+                      zombieStr,
+                      zombieArtifacts,
+                      typeof zombieResultForAgent === "string",
+                      zombieChatUI
+                        ? JSON.stringify(zombieChatUI.result)
+                        : undefined,
+                      ledgerArgumentsHash,
+                    );
+                  }
+                } catch (error) {
+                  reportLateError(error, "late-outcome-persistence");
+                }
+              },
+              async (error: unknown) => {
+                // Let the race record which rejection it actually handled.
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (
+                  !actionRaceFailure ||
+                  Object.is(actionRaceFailure.error, error) ||
+                  (error instanceof ActionInputValidationError &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  (isActionContractError(error) &&
+                    !isActionOutputContractError(error) &&
+                    (error.statusCode < 500 ||
+                      error.errorCode === "storage_setup_required") &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  (isAgentActionStopError(error) &&
+                    actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  // Retry safety does not establish that a write did not happen.
+                  (signal.aborted &&
+                    error instanceof Error &&
+                    error.name === "AbortError" &&
+                    ranEffect({ failed: { error }, retrySafe: false })
+                      .effect === "none") ||
+                  (!actionInvoked &&
+                    error instanceof Error &&
+                    ((signal.aborted && error.message === "Run aborted") ||
+                      (timeoutSignal.aborted &&
+                        error.message === timeoutMessage())))
+                )
+                  return;
+                reportLateError(
+                  new Error("Late action failed"),
+                  "late-action-rejection",
                 );
-              });
+              },
+            );
             void retainRequestDbPoolScope(zombieLedgerPromise);
           }
 
@@ -11416,7 +11928,10 @@ export async function runAgentLoop(opts: {
                 { once: true },
               );
             }),
-          ]);
+          ]).catch((error: unknown) => {
+            actionRaceFailure = { error };
+            throw error;
+          });
           settlementOnReturn = settlementWasRequested();
           const mcpResult = isMcpActionResult(raw) ? raw : null;
           const rawForAgent = mcpResult ? mcpResult.text : raw;
@@ -11927,10 +12442,9 @@ export async function runAgentLoop(opts: {
 
     const skipToolCallAfterStop = (
       toolCall: import("./engine/types.js").EngineToolCallPart,
+      result = `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
+        "Continue with the results already collected.",
     ): EngineContentPart => {
-      const result =
-        `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
-        "Continue with the results already collected.";
       send({
         type: "tool_start",
         id: toolCall.id,
@@ -11977,6 +12491,26 @@ export async function runAgentLoop(opts: {
       }
       if (turnYieldedToUser || requestedActionStop) {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
+        continue;
+      }
+      const privateResumeIntent = priorPrivateSideEffect
+        ? await resolveToolCallIntent(toolCall)
+        : undefined;
+      if (
+        priorPrivateSideEffect &&
+        (privateResumeIntent === undefined ||
+          (privateResumeIntent.status === "prepared" &&
+            privateResumeIntent.intent.valid &&
+            !intentIsReadOnly(privateResumeIntent.intent)))
+      ) {
+        await flushParallelBatch();
+        toolResultParts.push(
+          skipToolCallAfterStop(
+            toolCall,
+            `Not executed: a private action already completed earlier in this turn, and its details are not available after the run resumed. ` +
+              `Do not repeat it or guess its result. Tell the user that an earlier private step finished, ask them to check what was saved, and to send a new request for anything else.`,
+          ),
+        );
         continue;
       }
       const batchKind = await getParallelBatchKind(toolCall);
@@ -12440,6 +12974,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       : MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT;
 
   const historyPrivacyState = opts.historyPrivacyState ?? { private: false };
+  const finalGuardKeptDraft: FinalGuardKeptDraft =
+    opts.finalGuardKeptDraft ?? {};
   const localTurnEvents: AgentChatEvent[] = [];
   let continuationReason: AgentLoopContinuationReason | undefined;
   const send = createHistoryPrivacySender(
@@ -12475,6 +13011,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
         budgetStartedAt,
         send,
         finalResponseGuardRequestText,
+        finalGuardKeptDraft,
         hasVisibleTurnText: () => turnHasVisibleText(localTurnEvents),
         onModelDispatchStarted: () => {
           dispatchedModelCalls++;
@@ -12488,11 +13025,51 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       });
       addUsage(nextUsage);
     } catch (err) {
+      if (isSignalAborted(opts.signal)) throw err;
       if (
-        isSignalAborted(opts.signal) ||
         !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
-      )
+      ) {
+        const keptDraft = finalGuardKeptDraft.current;
+        if (
+          keptDraft &&
+          err instanceof EngineError &&
+          !isRecoverableContinuationError({
+            type: "error",
+            error: err.message,
+            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            ...(err.providerRetryable === undefined
+              ? {}
+              : { providerRetryable: err.providerRetryable }),
+          })
+        ) {
+          finalGuardKeptDraft.current = undefined;
+          const failure = { message: err.message, errorCode: err.errorCode };
+          await send(
+            keptDraft.clearAllText
+              ? { type: "clear", allText: true }
+              : { type: "clear" },
+          );
+          await send(keptGuardDraftRecordEvent(failure));
+          await send({
+            type: "text",
+            text: `${keptDraft.prefix}\n\n${keptDraft.draft}`,
+          });
+          if (!isSilentAfterKeptDraft(err)) throw err;
+          await send({ type: "done" });
+          try {
+            opts.onOutcome?.({
+              state: "failed",
+              code: failure.errorCode ?? "engine_error",
+              retryable: false,
+              message: failure.message,
+            });
+          } catch {
+            // coercion-ok: outcome observers cannot change run completion.
+          }
+          return usage;
+        }
         throw err;
+      }
       if (
         !resumeResumableErrorsInProcess &&
         remainingRunBudgetMs(budgetStartedAt) <
@@ -12568,7 +13145,7 @@ export function endsAtContinuationBoundary(run: ActiveRun): boolean {
 function chunkMadeForwardProgress(run: ActiveRun): boolean {
   return run.events.some(
     ({ event }) =>
-      (event.type === "text" && event.text.trim().length > 0) ||
+      carriesAssistantText(event) ||
       event.type === "tool_start" ||
       event.type === "tool_done",
   );
@@ -13040,34 +13617,131 @@ interface QueueableAttachments {
   requestAttachments: AgentRequestAttachment[];
 }
 
-function requestAttachmentIndexes(
+type SubmissionBinding = {
+  index: number;
+  name: string;
+  type: string;
+  imageFile: boolean;
+};
+
+function submissionAttachmentBindings(
   submission: AgentSubmissionPayload,
   attachments: AgentChatAttachment[],
-): Set<number> | null {
-  const unmatched = new Set(attachments.map((_, index) => index));
-  for (const identity of submission.attachments ?? []) {
-    const match = [...unmatched].find(
-      (index) =>
-        fingerprintAgentSubmissionAttachment(attachments[index], "file") ===
-        identity.fingerprint,
-    );
-    if (match === undefined) return null;
-    unmatched.delete(match);
-  }
+): {
+  count: number;
+  files: SubmissionBinding[];
+  images: SubmissionBinding[];
+} | null {
+  const remaining = new Set(attachments.map((_, index) => index));
+  const bind = (
+    items: readonly { fingerprint: string; name: string }[],
+    kind: "file" | "image",
+  ): SubmissionBinding[] | null => {
+    const bindings: SubmissionBinding[] = [];
+    for (const item of items) {
+      const index = [...remaining].find(
+        (candidate) =>
+          (kind !== "image" || attachments[candidate]?.type === "image") &&
+          fingerprintAgentSubmissionAttachment(attachments[candidate], kind) ===
+            item.fingerprint,
+      );
+      if (index === undefined) return null;
+      remaining.delete(index);
+      const original = attachments.at(index);
+      if (!original || original.name !== item.name) return null;
+      bindings.push({
+        index,
+        name: item.name,
+        type: original.type,
+        imageFile:
+          (original.type === "file" || original.type === "document") &&
+          typeof original.url === "string" &&
+          original.url.startsWith("data:image/"),
+      });
+    }
+    return bindings;
+  };
+  const files = bind(submission.attachments ?? [], "file");
+  const images = bind(submission.requestAttachments ?? [], "image");
+  return files && images ? { count: attachments.length, files, images } : null;
+}
 
-  const requestIndexes = new Set<number>();
-  for (const identity of submission.requestAttachments ?? []) {
-    const match = [...unmatched].find(
-      (index) =>
-        attachments[index]?.type === "image" &&
-        fingerprintAgentSubmissionAttachment(attachments[index], "image") ===
-          identity.fingerprint,
-    );
-    if (match === undefined) return null;
-    unmatched.delete(match);
-    requestIndexes.add(match);
+const DURABLE_SUBMISSION_PROJECTION =
+  "__agentNativeDurableSubmissionProjection";
+
+function submissionDigest(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Submission identity is missing");
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function submissionDigestAt(values: string[], index: number): string {
+  const value = values.at(index);
+  if (value === undefined)
+    throw new Error("Submission projection is incomplete");
+  return value;
+}
+
+function isSubmissionDigestArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry: unknown) =>
+        typeof entry === "string" && /^[a-f0-9]{64}$/.test(entry),
+    )
+  );
+}
+
+function serializeBoundDurableSubmission(
+  body: Record<string, unknown>,
+  bindings: ReturnType<typeof submissionAttachmentBindings> | undefined,
+): string {
+  const sanitized = JSON.parse(serializeDurableDispatchPayload(body)) as Record<
+    string,
+    unknown
+  >;
+  if (bindings) {
+    const durableAttachments = sanitized.attachments;
+    if (
+      !Array.isArray(durableAttachments) ||
+      durableAttachments.length !== bindings.count
+    ) {
+      throw new Error("Durable submission attachment binding lost");
+    }
+    const project = (bindings: SubmissionBinding[], kind: "file" | "image") =>
+      bindings.map(({ index, name, type, imageFile }) => {
+        const attachment = durableAttachments[index];
+        if (
+          attachment &&
+          typeof attachment === "object" &&
+          type === "image" &&
+          attachment.type === "file" &&
+          attachment.referenceOnly === true &&
+          (attachment.contentType === "image/svg+xml" ||
+            (attachment.contentType === "application/octet-stream" &&
+              name.toLowerCase().endsWith(".svg")))
+        ) {
+          attachment.type = "image";
+        }
+        if (
+          !attachment ||
+          typeof attachment !== "object" ||
+          attachment.name !== name ||
+          (attachment.type !== type &&
+            !(imageFile && attachment.type === "image") &&
+            !(type === "document" && attachment.type === "file"))
+        ) {
+          throw new Error("Durable submission attachment binding lost");
+        }
+        return fingerprintAgentSubmissionAttachment(attachment, kind);
+      });
+    sanitized[DURABLE_SUBMISSION_PROJECTION] = {
+      canonicalDigest: submissionDigest(sanitized.submissionPayload),
+      files: project(bindings.files, "file"),
+      images: project(bindings.images, "image"),
+    };
   }
-  return requestIndexes;
+  return JSON.stringify(sanitized);
 }
 
 async function queueableAttachments(
@@ -13604,6 +14278,16 @@ export function isLoopProtectionDispatchError(err: unknown): boolean {
 
 export const MAX_NESTED_SELF_DISPATCH_DEPTH = 6;
 
+function verifiedTurnGrantOf(event: unknown): ProviderTurnGrant | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const context: unknown = Reflect.get(event, "context");
+  if (!context || typeof context !== "object") return undefined;
+  const grant: unknown = Reflect.get(context, VERIFIED_TURN_GRANT_CONTEXT_KEY);
+  return grant && typeof grant === "object"
+    ? (grant as ProviderTurnGrant)
+    : undefined;
+}
+
 export async function chainServerDrivenContinuation(opts: {
   event: unknown;
   run: ActiveRun;
@@ -13616,6 +14300,7 @@ export async function chainServerDrivenContinuation(opts: {
   chainViaDurableBackground: boolean;
   turnInitiator?: AgentTurnInitiator;
   workerProvenInBackgroundFunction?: boolean;
+  submissionBindings?: ReturnType<typeof submissionAttachmentBindings>;
   deps?: ChainServerDrivenContinuationDeps;
 }): Promise<void> {
   const d = {
@@ -13725,6 +14410,7 @@ export async function chainServerDrivenContinuation(opts: {
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
+    ...backgroundRunInitiatorMarker(nextRunId, opts.turnInitiator),
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
@@ -13753,6 +14439,17 @@ export async function chainServerDrivenContinuation(opts: {
         }
       : {}),
   };
+  // The turn grant names its run, so the next run gets its own copy, and
+  // only when this run verified the grant it was dispatched with.
+  const nextTurnGrant = reissueDurableTurnGrant({
+    verified: verifiedTurnGrantOf(opts.event),
+    initiator: opts.turnInitiator,
+    turnId: effectiveTurnId,
+    nextRunId,
+  });
+  if (nextTurnGrant)
+    continuationBody[AGENT_CHAT_TURN_GRANT_FIELD] = nextTurnGrant;
+  else delete continuationBody[AGENT_CHAT_TURN_GRANT_FIELD];
   // Approval selectors apply only to the request that consumes their one-shot grants.
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
@@ -13787,11 +14484,15 @@ export async function chainServerDrivenContinuation(opts: {
         `chain_dispatch_start nextRunId=${nextRunId} reason=${continuationReason} path=${continuationDispatchPath}`,
       )
       .catch(() => {});
+    const continuationPayload = serializeBoundDurableSubmission(
+      continuationBody,
+      opts.submissionBindings,
+    );
     let nextRowInserted = false;
     try {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
-        dispatchPayload: serializeDurableDispatchPayload(continuationBody),
+        dispatchPayload: continuationPayload,
         ...(opts.turnInitiator ? { turnInitiator: opts.turnInitiator } : {}),
       });
       nextRowInserted = true;
@@ -13853,7 +14554,9 @@ export async function chainServerDrivenContinuation(opts: {
           },
         }
       : {
-          ...continuationBody,
+          ...(opts.submissionBindings
+            ? (JSON.parse(continuationPayload) as Record<string, unknown>)
+            : continuationBody),
           [AGENT_CHAT_BACKGROUND_RUN_FIELD]: continuationMarker,
         };
     const { dispatched, lastDispatchErr, nestedDepthExceeded } =
@@ -14131,7 +14834,17 @@ export function createProductionAgentHandler(
   const getEngineTools = (actions: Record<string, ActionEntry>) =>
     actionsToEngineTools(getRequestActions(actions));
 
-  return defineEventHandler(async (event) => {
+  type PrepCleanupState = {
+    runId?: string;
+    runStarted: boolean;
+    dispatchMayOwnRun?: boolean;
+    runRowState?: { foregroundInserted: boolean; durableInserted: boolean };
+    setupResumeClaim?: { release: () => Promise<unknown> } | null | undefined;
+  };
+  const handleAgentChatEvent = async (
+    event: Parameters<typeof getMethod>[0],
+    prepCleanup: PrepCleanupState,
+  ) => {
     let completionTrackingSource = options.onRunComplete
       ? snapshotAgentRunTrackingSource()
       : undefined;
@@ -14357,6 +15070,9 @@ export function createProductionAgentHandler(
     if (!isBackgroundWorker) {
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
       delete (body as unknown as Record<string, unknown>)[
+        DURABLE_SUBMISSION_PROJECTION
+      ];
+      delete (body as unknown as Record<string, unknown>)[
         AGENT_CHAT_RECOVERY_OF_RUN_FIELD
       ];
       delete body.__resolvedActionSurface;
@@ -14497,12 +15213,16 @@ export function createProductionAgentHandler(
       });
     const mutableBody = body as unknown as Record<string, unknown>;
     if (!isBackgroundWorker) {
+      delete mutableBody[AGENT_CHAT_TURN_GRANT_FIELD];
       // A client can submit this private field, so overwrite it at the boundary.
       mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
         getRequestContext()?.browserSessionId ?? null;
       const requestContext = getRequestContext();
       mutableBody[AGENT_CHAT_REQUEST_CONTEXT_FIELD] = {
         requestOrigin: requestContext?.requestOrigin ?? null,
+        ...(requestContext?.timezone
+          ? { timezone: requestContext.timezone }
+          : {}),
         isLoopbackRequest:
           !dispatchToBackground && requestContext?.isLoopbackRequest === true,
         isDirectLoopbackRequest:
@@ -14536,15 +15256,66 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
-    // The worker's body is the foreground's server-built dispatch payload, whose
-    // attachments were sanitized after the client fingerprints were validated, so
-    // they can no longer match those fingerprints.
+    const projection = isBackgroundWorker
+      ? (body as unknown as Record<string, unknown>)[
+          DURABLE_SUBMISSION_PROJECTION
+        ]
+      : undefined;
+    let attachmentSubmission = submissionPayload;
+    if (projection !== undefined && submissionPayload) {
+      const candidate =
+        projection &&
+        typeof projection === "object" &&
+        !Array.isArray(projection)
+          ? (projection as Record<string, unknown>)
+          : {};
+      const files = candidate.files;
+      const images = candidate.images;
+      if (
+        candidate.canonicalDigest !==
+          submissionDigest(requestedSubmissionPayload) ||
+        !isSubmissionDigestArray(files) ||
+        !isSubmissionDigestArray(images) ||
+        files.length !== (submissionPayload.attachments?.length ?? 0) ||
+        images.length !== (submissionPayload.requestAttachments?.length ?? 0)
+      ) {
+        setResponseStatus(event, 400);
+        return {
+          error: "submissionPayload does not match this message",
+          code: "submission_payload_attachments_mismatch",
+        };
+      }
+      attachmentSubmission = {
+        ...submissionPayload,
+        ...(submissionPayload.attachments
+          ? {
+              attachments: submissionPayload.attachments.map((item, index) => ({
+                ...item,
+                fingerprint: submissionDigestAt(files, index),
+              })),
+            }
+          : {}),
+        ...(submissionPayload.requestAttachments
+          ? {
+              requestAttachments: submissionPayload.requestAttachments.map(
+                (item, index) => ({
+                  ...item,
+                  fingerprint: submissionDigestAt(images, index),
+                }),
+              ),
+            }
+          : {}),
+      };
+    }
     const validateSubmissionAttachments =
-      submissionPayload !== undefined && !isBackgroundWorker;
+      !isBackgroundWorker || projection !== undefined;
+    const submissionAttachmentsAreConsistent =
+      attachmentSubmission !== undefined &&
+      submissionAttachmentsMatch(attachmentSubmission, requestAttachments);
     if (
       submissionPayload &&
       validateSubmissionAttachments &&
-      !submissionAttachmentsMatch(submissionPayload, requestAttachments)
+      !submissionAttachmentsAreConsistent
     ) {
       setResponseStatus(event, 400);
       return {
@@ -14552,17 +15323,28 @@ export function createProductionAgentHandler(
         code: "submission_payload_attachments_mismatch",
       };
     }
-    const submissionRequestAttachmentIndexes =
-      submissionPayload && validateSubmissionAttachments
-        ? requestAttachmentIndexes(submissionPayload, requestAttachments)
-        : new Set<number>();
-    if (!submissionRequestAttachmentIndexes) {
+    const bindings =
+      attachmentSubmission && validateSubmissionAttachments
+        ? submissionAttachmentBindings(attachmentSubmission, requestAttachments)
+        : { count: requestAttachments.length, files: [], images: [] };
+    if (!bindings) {
       setResponseStatus(event, 400);
       return {
         error: "submissionPayload does not match this message",
         code: "submission_payload_attachment_indexes_mismatch",
       };
     }
+    const submissionRequestAttachmentIndexes = new Set(
+      bindings.images.map(({ index }) => index),
+    );
+    const durableSubmissionBindings =
+      submissionPayload && !isBackgroundWorker && requestAttachments.length > 0
+        ? bindings
+        : undefined;
+    if (isBackgroundWorker)
+      requestAttachments = requestAttachments.map((attachment) => ({
+        ...attachment,
+      }));
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
@@ -15289,9 +16071,8 @@ export function createProductionAgentHandler(
           })
         : null;
     if (
-      (requestedApprovedToolCallAskIds?.length ||
-        (privateRequestHistory && exactApprovedToolCall)) &&
-      !resolvedApprovalTurnId
+      requestedApprovedToolCalls?.length &&
+      (!requestedApprovedToolCallAskIds?.length || !resolvedApprovalTurnId)
     ) {
       setResponseStatus(event, 409);
       return {
@@ -15330,6 +16111,12 @@ export function createProductionAgentHandler(
         typeof requestedContinueOfRunId === "string",
     });
     const isQueuedPromotion = admittedQueuedMessage !== null;
+    // Only an admitted promotion's claim may save a refused turn over its
+    // queue entry. An unadmitted claim is refused below, so it consumes nothing.
+    const admittedQueuedMessageClaimId =
+      admittedQueuedMessage && typeof queuedMessageClaimId === "string"
+        ? queuedMessageClaimId.trim()
+        : "";
     if (admittedQueuedMessage) {
       // A claim admits the persisted queue payload, not extra fields in this request.
       const promotionOptions = admittedQueuedMessage.options ?? {};
@@ -15433,6 +16220,9 @@ export function createProductionAgentHandler(
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
+          ...(admittedQueuedMessageClaimId
+            ? { queuedMessageClaimId: admittedQueuedMessageClaimId }
+            : {}),
           ...(agentKitMessageId ? { agentKitMessageId } : {}),
           retryContext: retryContextFromRequest(body, (dropped) =>
             console.warn(
@@ -15504,7 +16294,7 @@ export function createProductionAgentHandler(
           : {}),
       },
     );
-    const contextPrefetchDeadlineAt = Date.now() + 1_300;
+    let contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
       ownerEmail,
@@ -16012,6 +16802,9 @@ export function createProductionAgentHandler(
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
+          ...(admittedQueuedMessageClaimId
+            ? { queuedMessageClaimId: admittedQueuedMessageClaimId }
+            : {}),
           ...(agentKitMessageId ? { agentKitMessageId } : {}),
           retryContext: retryContextFromRequest(body, (dropped) =>
             console.warn(
@@ -16034,6 +16827,128 @@ export function createProductionAgentHandler(
           controller.close();
         },
       });
+    }
+
+    const promptRunContext = ensureRequestRunContext();
+    if (promptRunContext) {
+      promptRunContext.appDiscoveryQuery = requestMessage;
+      if (ownerEmail && !promptRunContext.owner) {
+        promptRunContext.owner = ownerEmail;
+      }
+    }
+
+    const isChainedBackgroundContinuation =
+      isBackgroundWorker && backgroundContinuationCount > 0;
+    const isReaperSuccessor =
+      isBackgroundWorker &&
+      typeof mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD] === "string" &&
+      Boolean(mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD]);
+    const isClientTurnContinuation =
+      !isBackgroundWorker &&
+      internalContinuation === true &&
+      !continueOf &&
+      !approvedToolCallsForExecution?.length &&
+      typeof message === "string" &&
+      message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      typeof requestTurnId === "string" &&
+      requestTurnId.trim().length > 0;
+    const shouldRecoverCompletedExecutionSteps =
+      isChainedBackgroundContinuation ||
+      isReaperSuccessor ||
+      Boolean(continueOf) ||
+      isClientTurnContinuation;
+    const runId = backgroundRunMarker?.runId ?? generateRunId();
+    const effectiveThreadId = threadId ?? runId;
+    const effectiveTurnId =
+      typeof backgroundRunMarker?.turnId === "string" &&
+      backgroundRunMarker.turnId.trim()
+        ? backgroundRunMarker.turnId.trim()
+        : (resolvedApprovalTurnId ??
+          (typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId));
+    if (dispatchToBackground && getAppConfig().agent.interactiveChatTurns) {
+      const grant = mintDurableTurnGrant({
+        runId,
+        turnId: effectiveTurnId,
+        initiator: turnInitiator,
+        interactive: isProviderInteractiveScope(),
+        continuation:
+          internalContinuation === true ||
+          Boolean(continueOf) ||
+          Boolean(requestedAutoContinueOfRunId) ||
+          Boolean(requestedContinueOfRunId),
+        lifetimeMs: MAX_TURN_WALL_CLOCK_MS,
+      });
+      if (grant) mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = grant;
+    }
+    let durableDispatchPayload: string | undefined;
+    if (dispatchToBackground) {
+      try {
+        const dispatchBody = {
+          ...body,
+          ...(Array.isArray(attachments) || requestAttachments.length > 0
+            ? { attachments: requestAttachments }
+            : {}),
+        } as unknown as Record<string, unknown>;
+        delete dispatchBody.queuedMessageClaimId;
+        durableDispatchPayload = serializeBoundDurableSubmission(
+          dispatchBody,
+          durableSubmissionBindings,
+        );
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
+    }
+    const foregroundSelfChainEligible =
+      !isBackgroundWorker &&
+      !dispatchToBackground &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      isAgentChatForegroundSelfChainEnabled();
+    const runRowState = {
+      foregroundInserted: false,
+      durableInserted: false,
+    };
+    prepCleanup.runId = runId;
+    prepCleanup.runRowState = runRowState;
+    let setupResumeClaim:
+      | Awaited<ReturnType<typeof claimSetupResume>>
+      | undefined;
+    const messageToPersist =
+      typeof requestDisplayMessage === "string" &&
+      requestDisplayMessage.trim().length > 0
+        ? requestDisplayMessage
+        : requestMessage;
+
+    const deferExecutionContext =
+      dispatchToBackground && !shouldRecoverCompletedExecutionSteps;
+    let backgroundDispatchAttempted = false;
+    if (deferExecutionContext) {
+      backgroundDispatchAttempted = true;
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
+      }
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
+      }
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
+      contextPrefetchDeadlineAt = Date.now() + 1_300;
     }
 
     attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
@@ -16082,9 +16997,6 @@ export function createProductionAgentHandler(
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
         orgId: getRequestOrgId() ?? null,
       }).catch(() => readAgentLoopSettings({}));
-
-    const promptRunContext = ensureRequestRunContext();
-    if (promptRunContext) promptRunContext.appDiscoveryQuery = requestMessage;
 
     let systemPromptError: Error | null = null;
     const systemPromptThunk = (): Promise<string> =>
@@ -16218,7 +17130,8 @@ export function createProductionAgentHandler(
               : null;
             if (extensionId) lines.push(`extensionId: ${extensionId}`);
             if (url.search) lines.push(`search: ${url.search}`);
-            if (url.hash) lines.push(`hash: ${url.hash}`);
+            // A tab on an older bundle still stores the hash unscrubbed.
+            if (url.hash) lines.push(`hash: ${scrubLocationHash(url.hash)}`);
             if (url.searchParams && Object.keys(url.searchParams).length > 0) {
               lines.push("searchParams:");
               for (const [k, v] of Object.entries(url.searchParams)) {
@@ -16316,6 +17229,36 @@ export function createProductionAgentHandler(
               const skillLines: string[] = [];
               const agentLines: string[] = [];
               const jobLines: string[] = [];
+              const detailResources = allResources.filter((r) => {
+                const kind = getResourceKind(r.path);
+                return (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                );
+              });
+              const fullById = new Map<
+                string,
+                Awaited<ReturnType<typeof resourceGet>>
+              >();
+              if (detailResources.length > 0) {
+                const resourceOpts = {
+                  userEmail: ownerEmail,
+                  ...(orgId !== undefined ? { orgId } : {}),
+                };
+                const concurrency = Math.min(4, detailResources.length);
+                let nextIndex = 0;
+                await Promise.all(
+                  Array.from({ length: concurrency }, async () => {
+                    while (nextIndex < detailResources.length) {
+                      const item = detailResources.at(nextIndex++);
+                      if (!item) break;
+                      const full = await resourceGet(item.id, resourceOpts);
+                      fullById.set(item.id, full);
+                    }
+                  }),
+                );
+              }
               for (const r of allResources) {
                 const scope = isWorkspaceResourceOwner(r.owner)
                   ? "workspace"
@@ -16338,10 +17281,7 @@ export function createProductionAgentHandler(
                   kind === "agent" ||
                   kind === "remote-agent"
                 ) {
-                  const full = await resourceGet(r.id, {
-                    userEmail: ownerEmail,
-                    orgId,
-                  });
+                  const full = fullById.get(r.id);
                   if (!full) continue;
                   if (kind === "skill") {
                     const skill = parseSkillMetadata(full.content, r.path);
@@ -16490,7 +17430,7 @@ export function createProductionAgentHandler(
         // The foreground of a dispatched run never prompts the model; the
         // worker re-reads, so reading here would pay for it twice.
         (): Promise<PriorConnectionNote> =>
-          threadId && !dispatchToBackground
+          threadId && (!dispatchToBackground || backgroundDispatchAttempted)
             ? resolvePriorConnectionNote({
                 threadId,
                 orgId: getRequestOrgId() ?? null,
@@ -16506,11 +17446,26 @@ export function createProductionAgentHandler(
     workerStep("context_all");
 
     if (systemPromptError) {
-      if (isBackgroundWorker) throw systemPromptError;
+      const err = systemPromptError as Error;
+      if (runRowState.foregroundInserted || runRowState.durableInserted) {
+        try {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "system_prompt_failed");
+            await setRunError(runId, "system_prompt_failed", err.message);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark run errored after system prompt failure:",
+            cleanupErr,
+          );
+        }
+      }
+      await setupResumeClaim?.release();
+      if (isBackgroundWorker) throw err;
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       const encoder = new TextEncoder();
-      const err = systemPromptError as Error;
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
@@ -16579,10 +17534,13 @@ export function createProductionAgentHandler(
           COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
         )
       : undefined;
+    const effectiveDispatchToBackground = backgroundDispatchAttempted
+      ? false
+      : dispatchToBackground;
     const [requestTools, jevPreload] = await Promise.all([
       preloadJevTools({
         request: jevRequestContext,
-        skip: Boolean(internalContinuation || dispatchToBackground),
+        skip: Boolean(internalContinuation || effectiveDispatchToBackground),
         deadlineAt: contextPrefetchDeadlineAt,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
@@ -16608,7 +17566,7 @@ export function createProductionAgentHandler(
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
         contextPrefetchDeadlineAt,
-        dispatchToBackground,
+        dispatchToBackground: effectiveDispatchToBackground,
         internalContinuation: Boolean(internalContinuation),
         candidates: jevPromptCandidates,
         fallbackCandidateIds: jevFallbackCandidateIds,
@@ -16748,80 +17706,19 @@ export function createProductionAgentHandler(
       tools: requestTools,
       availableToolCount: availableRequestTools.length,
     });
-    const isChainedBackgroundContinuation =
-      isBackgroundWorker && backgroundContinuationCount > 0;
-    const isReaperSuccessor =
-      isBackgroundWorker &&
-      typeof mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD] === "string" &&
-      Boolean(mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD]);
-    const isClientTurnContinuation =
-      !isBackgroundWorker &&
-      internalContinuation === true &&
-      !continueOf &&
-      !approvedToolCallsForExecution?.length &&
-      typeof message === "string" &&
-      message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
-      typeof threadId === "string" &&
-      threadId.trim().length > 0 &&
-      typeof requestTurnId === "string" &&
-      requestTurnId.trim().length > 0;
-    const shouldRecoverCompletedExecutionSteps =
-      isChainedBackgroundContinuation ||
-      isReaperSuccessor ||
-      Boolean(continueOf) ||
-      isClientTurnContinuation;
-    const runId = backgroundRunMarker?.runId ?? generateRunId();
-    const effectiveThreadId = threadId ?? runId;
-    const effectiveTurnId =
-      typeof backgroundRunMarker?.turnId === "string" &&
-      backgroundRunMarker.turnId.trim()
-        ? backgroundRunMarker.turnId.trim()
-        : (resolvedApprovalTurnId ??
-          (typeof requestTurnId === "string" && requestTurnId.trim()
-            ? requestTurnId.trim()
-            : runId));
-    let durableDispatchPayload: string | undefined;
-    if (dispatchToBackground) {
-      try {
-        const dispatchBody = {
-          ...body,
-          ...(Array.isArray(attachments) || requestAttachments.length > 0
-            ? { attachments: requestAttachments }
-            : {}),
-        } as unknown as Record<string, unknown>;
-        // This one-time claim authorizes only the request that consumes it.
-        delete dispatchBody.queuedMessageClaimId;
-        durableDispatchPayload = serializeDurableDispatchPayload(dispatchBody);
-      } catch (error) {
-        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
-          throw error;
-        }
-        setResponseStatus(event, 503);
-        return {
-          error: error.message,
-          code: error.code,
-          retryable: false,
-        };
-      }
-    }
-    const foregroundSelfChainEligible =
-      !isBackgroundWorker &&
-      !dispatchToBackground &&
-      typeof threadId === "string" &&
-      threadId.trim().length > 0 &&
-      isAgentChatForegroundSelfChainEnabled();
-    let foregroundRunRowInserted = false;
-    let setupResumeClaim:
-      | Awaited<ReturnType<typeof claimSetupResume>>
-      | undefined;
 
-    if (threadId && !isBackgroundWorker) {
+    async function claimForegroundRunSlot(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!threadId || isBackgroundWorker) {
+        return { earlyResponse: null };
+      }
       if (
         typeof requestTurnId === "string" &&
         requestTurnId &&
         (await isTurnAborted(threadId, requestTurnId))
       ) {
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
       const setupResumeOfRunId = setupResumeRefusedRunId(body);
       setupResumeClaim =
@@ -16833,9 +17730,11 @@ export function createProductionAgentHandler(
               turnId: effectiveTurnId,
             })
           : undefined;
+      prepCleanup.setupResumeClaim = setupResumeClaim;
       if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
-        // Another tab already sent this refused prompt again.
-        return { ok: true, stopped: true, resumeAlreadySent: true };
+        return {
+          earlyResponse: { ok: true, stopped: true, resumeAlreadySent: true },
+        };
       }
       let slot;
       try {
@@ -16852,7 +17751,6 @@ export function createProductionAgentHandler(
         if (ownerEmail && !isAuthorizedApprovalContinuation) {
           await ensureAgentToolApprovalTable();
         }
-        // The inbox read runs under the slot lock, but its schema must be ready first.
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
@@ -16869,7 +17767,7 @@ export function createProductionAgentHandler(
             : foregroundSelfChainEligible
               ? "foreground-self-chain"
               : "foreground",
-          ...(dispatchToBackground
+          ...(dispatchToBackground && durableDispatchPayload !== undefined
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
@@ -16898,47 +17796,59 @@ export function createProductionAgentHandler(
           error instanceof AgentTurnInitiatorUnavailableError
         ) {
           setResponseStatus(event, 409);
-          return { error: "This agent turn cannot resume for this initiator" };
+          return {
+            earlyResponse: {
+              error: "This agent turn cannot resume for this initiator",
+            },
+          };
         }
         throw error;
       }
       if (slot.turnAborted) {
         await setupResumeClaim?.release();
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
       if (slot.continueRefused) {
         await setupResumeClaim?.release();
         setResponseStatus(event, 409);
-        return continueRefusal(slot.continueRefused);
+        return { earlyResponse: continueRefusal(slot.continueRefused) };
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
         if (!stream) {
           setResponseStatus(event, 500);
-          return { error: "Failed to replay completed agent run" };
+          return {
+            earlyResponse: { error: "Failed to replay completed agent run" },
+          };
         }
         setResponseHeader(event, "Content-Type", "text/event-stream");
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", slot.completedRunId);
-        // The client leaves a replay's turn out unless named here, and this
-        // replay was found by its turn, so the stored turn is known.
         setRunTurnIdHeader(event, effectiveTurnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
-        return stream;
+        return { earlyResponse: stream };
       }
       if (!slot.claimed) {
         await setupResumeClaim?.release();
         if (slot.queuedSubmissionPending) {
           const queued = await tryAdmitBusySubmission();
-          if (queued !== null) return queued;
-          return runSlotBusy(event, null);
+          if (queued !== null) return { earlyResponse: queued };
+          return { earlyResponse: runSlotBusy(event, null) };
         }
         const queued = await tryAdmitBusySubmission();
-        if (queued !== null) return queued;
-        return runSlotBusy(event, slot.activeRunId);
+        if (queued !== null) return { earlyResponse: queued };
+        return { earlyResponse: runSlotBusy(event, slot.activeRunId) };
       }
-      foregroundRunRowInserted = true;
+      runRowState.foregroundInserted = true;
+      return { earlyResponse: null };
+    }
+
+    if (!backgroundDispatchAttempted) {
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
+      }
     }
 
     const approvalStoreBinding = (
@@ -16987,11 +17897,6 @@ export function createProductionAgentHandler(
       await markRunAborted(runId, "user").catch(() => {});
       return { ok: true, stopped: true };
     }
-    const messageToPersist =
-      typeof requestDisplayMessage === "string" &&
-      requestDisplayMessage.trim().length > 0
-        ? requestDisplayMessage
-        : requestMessage;
     const priorTurnInputTokensFromBody = Number(
       (body as unknown as Record<string, unknown>)[
         AGENT_CHAT_TURN_INPUT_TOKENS_FIELD
@@ -17147,8 +18052,12 @@ export function createProductionAgentHandler(
         const { getThread } = await import("../chat-threads/store.js");
         const { recoverThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
+        const threadData = (await getThread(threadId))?.threadData;
         const recovered = recoverThreadHistoryForRequest(
-          (await getThread(threadId))?.threadData,
+          threadData,
+          backgroundDispatchAttempted
+            ? { excludeSubmittedTurnId: effectiveTurnId }
+            : undefined,
         );
         if (recovered.length > 0) messages.unshift(...recovered);
       } catch (err) {
@@ -17180,7 +18089,16 @@ export function createProductionAgentHandler(
     setupMark("depsThread");
     workerStep("owner_thread");
 
-    if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
+    async function runOnRunPreparedHook(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (
+        !options.onRunPrepared ||
+        internalContinuation ||
+        isBackgroundWorker
+      ) {
+        return { earlyResponse: null };
+      }
       try {
         const prepared = await options.onRunPrepared({
           runId,
@@ -17206,7 +18124,7 @@ export function createProductionAgentHandler(
             ? prepared.duplicateRunId.trim()
             : undefined;
         if (duplicateRunId) {
-          if (foregroundRunRowInserted) {
+          if (runRowState.foregroundInserted) {
             await markRunAborted(runId, "duplicate_submission");
           }
           await setupResumeClaim?.release();
@@ -17214,9 +18132,11 @@ export function createProductionAgentHandler(
           if (!stream) {
             setResponseStatus(event, 503);
             return {
-              error: "The accepted submission run is no longer replayable",
-              code: "queued_message_run_unavailable",
-              retryable: true,
+              earlyResponse: {
+                error: "The accepted submission run is no longer replayable",
+                code: "queued_message_run_unavailable",
+                retryable: true,
+              },
             };
           }
           setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -17225,10 +18145,10 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", duplicateRunId);
           setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
-          return stream;
+          return { earlyResponse: stream };
         }
       } catch (error) {
-        if (foregroundRunRowInserted) {
+        if (runRowState.foregroundInserted) {
           const terminalized = await updateRunStatusIfRunning(runId, "errored");
           if (terminalized) {
             await setRunTerminalReason(runId, "run_preparation_failed");
@@ -17241,15 +18161,23 @@ export function createProductionAgentHandler(
         }
         throw error;
       }
+      return { earlyResponse: null };
     }
 
-    if (dispatchToBackground) {
-      let backgroundRowInserted = foregroundRunRowInserted;
+    async function dispatchDurableBackgroundRun(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!dispatchToBackground) {
+        return { earlyResponse: null };
+      }
+      let backgroundRowInserted = runRowState.foregroundInserted;
       if (!backgroundRowInserted) {
         try {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
-            dispatchPayload: durableDispatchPayload!,
+            ...(durableDispatchPayload !== undefined
+              ? { dispatchPayload: durableDispatchPayload }
+              : {}),
             ...(turnInitiator ? { turnInitiator } : {}),
           });
           backgroundRowInserted = true;
@@ -17261,32 +18189,24 @@ export function createProductionAgentHandler(
           );
         }
       }
+      runRowState.durableInserted = backgroundRowInserted;
 
       if (
         backgroundRowInserted &&
         (await isTurnAborted(effectiveThreadId, effectiveTurnId))
       ) {
         await markRunAborted(runId, "user");
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
 
       let dispatched = false;
       const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
       const expectsNetlifyBackgroundFunction =
         dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
+      prepCleanup.dispatchMayOwnRun = true;
       try {
         await fireInternalDispatch({
           event,
-          // On hosted Netlify this resolves to the background function's DEFAULT
-          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
-          // workspaces) — the function declares NO custom config.path, so it keeps
-          // its default url, and `background: true` makes that url async (202,
-          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
-          // so it never shadows it. Off-Netlify this resolves to the framework
-          // `_process-run` route and the same in-process catch-all handles it
-          // inline. `fireInternalDispatch` strips the app base path for
-          // /.netlify/* targets so the request reaches the host-root function url;
-          // the Authorization Bearer HMAC is preserved either way.
           path: backgroundDispatchPath,
           taskId: runId,
           ...(expectsNetlifyBackgroundFunction
@@ -17300,6 +18220,7 @@ export function createProductionAgentHandler(
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
                   payloadRef: true,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               }
             : {
@@ -17309,6 +18230,7 @@ export function createProductionAgentHandler(
                   turnId: effectiveTurnId,
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               },
         });
@@ -17344,45 +18266,79 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", runId);
           setRunTurnIdHeader(event, effectiveTurnId);
           setResponseHeader(event, "X-Dispatch-Mode", "background");
-          return stream;
+          return { earlyResponse: stream };
         }
         const terminalReason =
           backgroundOutcome.action === "stream"
             ? "background_subscribe_failed"
             : "background_dispatch_failed";
-        const statusUpdated = await updateRunStatusIfRunning(
-          runId,
-          "errored",
-        ).catch(() => false);
-        if (statusUpdated) {
-          await setRunTerminalReason(runId, terminalReason).catch(() => {});
+        try {
+          const statusUpdated = await updateRunStatusIfRunning(
+            runId,
+            "errored",
+          );
+          if (statusUpdated) {
+            await setRunTerminalReason(runId, terminalReason);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark background run errored after subscribe failure:",
+            cleanupErr,
+          );
         }
         setResponseStatus(event, 500);
         return {
-          error:
-            backgroundOutcome.action === "stream"
-              ? "Failed to subscribe to background run"
-              : "Failed to dispatch background run",
+          earlyResponse: {
+            error:
+              backgroundOutcome.action === "stream"
+                ? "Failed to subscribe to background run"
+                : "Failed to dispatch background run",
+          },
         };
       }
 
+      prepCleanup.dispatchMayOwnRun = false;
       if (backgroundOutcome.reason === "worker-never-claimed") {
-        const priorClaim = await readBackgroundRunClaim(runId).catch(
-          () => null,
-        );
-        const priorDiag = priorClaim?.diagStage ?? "none";
+        let priorDiag = "none";
+        try {
+          const priorClaim = await readBackgroundRunClaim(runId);
+          priorDiag = priorClaim?.diagStage ?? "none";
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to read prior background claim diagnostic:",
+            diagErr,
+          );
+        }
         console.error(
           "[agent-chat] background worker did not claim the 202-dispatched run " +
             `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
           runId,
         );
-        await recordRunDiagnostic(
-          runId,
-          RUN_DIAG_STAGE.foregroundInlineRecovery,
-          `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
-        ).catch(() => {});
+        try {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.foregroundInlineRecovery,
+            `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
+          );
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to record foreground inline recovery diagnostic:",
+            diagErr,
+          );
+        }
       }
-      // Fall through to the inline `startRun` path below.
+      return { earlyResponse: null };
+    }
+
+    if (!backgroundDispatchAttempted) {
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
+      }
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
     }
 
     const trackedProgressOwner =
@@ -17571,6 +18527,11 @@ export function createProductionAgentHandler(
                     ? { attachments: requestAttachments }
                     : {}),
                 } as unknown as Record<string, unknown>,
+                ...(submissionPayload &&
+                validateSubmissionAttachments &&
+                requestAttachments.length > 0
+                  ? { submissionBindings: bindings }
+                  : {}),
                 backgroundContinuationCount,
                 noProgressRepeat,
                 turnInputTokens,
@@ -17667,6 +18628,7 @@ export function createProductionAgentHandler(
     }
 
     // raw-sql-ok: run callback IDs and prompts reach static queries as bound arguments.
+    prepCleanup.runStarted = true;
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -17754,11 +18716,15 @@ export function createProductionAgentHandler(
             }
             return "none";
           };
+        const modelInputScopes = createModelInputScopeGuardRegistry(() => {
+          abortRun(runId, MODEL_INPUT_SCOPE_ABORT_REASON);
+        });
         const { beforeModelDispatch: guardedBeforeModelDispatch, beforeWrite } =
           createRunSafeBoundaryGuards({
             signal,
             flushEvents: control.flushEvents,
             interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
+            validateModelInput: modelInputScopes.validate,
           });
         const exposureAssignment =
           questionIntakeAssignment && !internalContinuation && !continueOf
@@ -17820,19 +18786,24 @@ export function createProductionAgentHandler(
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const { findAccessibleCustomAgent } =
-            await import("../resources/agents.js");
+          const {
+            findAccessibleCustomAgent,
+            resolveAccessibleCustomAgentReference,
+          } = await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
             customAgentRefs.map(async (ref, index) => {
+              const agentCallId = randomUUID();
               send({
                 type: "agent_call",
                 agent: ref.name,
                 status: "start",
+                agentCallId,
               });
               try {
-                const profile = await findAccessibleCustomAgent(
+                const profile = await resolveAccessibleCustomAgentReference(
                   ownerEmail,
-                  ref.refId || ref.path || ref.name,
+                  ref,
+                  findAccessibleCustomAgent,
                 );
                 if (!profile) {
                   throw new Error("Profile not found");
@@ -17919,6 +18890,7 @@ export function createProductionAgentHandler(
                         type: "agent_call_text",
                         agent: ref.name,
                         text: event.text,
+                        agentCallId,
                       });
                     } else if (
                       event.type === "tool_start" ||
@@ -17976,6 +18948,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
+                  agentCallId,
                 });
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
@@ -17983,6 +18956,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "error",
+                  agentCallId,
                 });
                 const message =
                   userFacingLlmCredentialError(err, {
@@ -18127,6 +19101,7 @@ export function createProductionAgentHandler(
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeModelDispatch,
+          registerModelInputGuard: modelInputScopes.register,
           beforeWrite,
           unknownOutcomes,
           internalContinuation,
@@ -18146,6 +19121,7 @@ export function createProductionAgentHandler(
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          appId: options.appId,
           ...(options.appId && getRequestOrgId()
             ? { appAuthorization: getRequestRunContext()?.appAuthorization }
             : {}),
@@ -18505,7 +19481,7 @@ export function createProductionAgentHandler(
           : foregroundSelfChainEligible
             ? "foreground-self-chain"
             : "foreground",
-        runRowAlreadyInserted: foregroundRunRowInserted,
+        runRowAlreadyInserted: runRowState.foregroundInserted,
         executionLease: true,
         // An anonymous run is not a user; `run_started` does not name one either.
         userId: turnInitiator?.anonymous
@@ -18548,6 +19524,53 @@ export function createProductionAgentHandler(
     );
 
     return stream;
+  };
+
+  return defineEventHandler(async (event) => {
+    const prepCleanup: PrepCleanupState = { runStarted: false };
+    try {
+      return await handleAgentChatEvent(event, prepCleanup);
+    } catch (error) {
+      if (
+        !prepCleanup.runStarted &&
+        !prepCleanup.dispatchMayOwnRun &&
+        prepCleanup.runId &&
+        (prepCleanup.runRowState?.foregroundInserted ||
+          prepCleanup.runRowState?.durableInserted)
+      ) {
+        try {
+          const terminalized = await updateRunStatusIfRunning(
+            prepCleanup.runId,
+            "errored",
+          );
+          if (terminalized) {
+            await setRunTerminalReason(
+              prepCleanup.runId,
+              "run_preparation_failed",
+            );
+            await setRunError(
+              prepCleanup.runId,
+              "run_preparation_failed",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark run errored after preparation failure:",
+            cleanupErr,
+          );
+        }
+      }
+      try {
+        await prepCleanup.setupResumeClaim?.release();
+      } catch (releaseErr) {
+        console.warn(
+          "[agent-chat] failed to release setup resume claim:",
+          releaseErr,
+        );
+      }
+      throw error;
+    }
   });
 }
 

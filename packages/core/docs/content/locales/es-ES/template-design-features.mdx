@@ -1,6 +1,6 @@
 ---
 title: "Design: Funciones"
-description: "Todas las funciones principales de Design, organizadas como la propia app: Diseños, Editar un diseño, Plantillas y Sistemas de diseño, con lo que hace realmente cada pantalla, pestaña y menú."
+description: "Todas las funciones principales de Design, organizadas como la propia app: Diseños, Editar un diseño y Plantillas, con lo que hace realmente cada pantalla, pestaña y menú."
 ---
 
 # Funciones
@@ -9,8 +9,7 @@ Todas las funciones principales de Design: cómo funcionan y cómo
 configurarlas. Consulta [Design](/docs/template-design) para ver la visión
 general y [Hablar con el Agent](/docs/template-design-agent) para la lista
 completa de peticiones. Las funciones están agrupadas según las pantallas
-reales de la app: **Diseños**, **Editar un diseño**, **Plantillas** y
-**Sistemas de diseño**.
+reales de la app: **Diseños**, **Editar un diseño** y **Plantillas**.
 
 ## Diseños {#designs}
 
@@ -29,7 +28,7 @@ de cada uno.
   siempre en primer lugar.
 - Selecciona una o varias tarjetas (pasa el cursor para ver una casilla de
   verificación) para obtener una barra de herramientas masiva: seleccionar o
-  borrar toda la selección visible, añadir a un contexto creativo, o
+  borrar toda la selección visible, o
   eliminar la selección.
 - Una cuenta vacía muestra cuatro peticiones de inicio para hacer clic en
   lugar de una cuadrícula en blanco (una página SaaS, un panel, una app
@@ -39,8 +38,7 @@ de cada uno.
 
 Los dos puntos de entrada de "Nuevo diseño", el botón del encabezado y la
 casilla punteada de la cuadrícula, abren el mismo popover. Puedes escribir
-una petición y elegir una plantilla de inicio, un sistema de diseño y un
-contexto creativo, todo antes de que se abra siquiera el editor. Haz clic en
+una petición y elegir una plantilla de inicio, todo antes de que se abra siquiera el editor. Haz clic en
 **Omitir** en su lugar para obtener un diseño en blanco (o una copia sin
 petición de la plantilla elegida) sin ninguna generación de IA implicada.
 
@@ -49,11 +47,10 @@ Enviarlo te lleva directamente al editor del nuevo diseño con una capa de
 
 ### Gestiona un diseño {#manage-a-design}
 
-El menú "⋯" de una tarjeta de diseño tiene cuatro elementos:
+El menú "⋯" de una tarjeta de diseño tiene tres elementos:
 
 - **Renombrar**: un pequeño diálogo con un campo de texto.
 - **Duplicar**: hace una copia de inmediato y la abre, sin confirmación.
-- **Añadir al contexto**: adjunta el diseño a un contexto creativo.
 - **Eliminar**: pide confirmación primero.
 
 ## Editar un diseño {#edit-a-design}
@@ -77,10 +74,10 @@ anidadas debajo.
 
 El mismo chat del agente que tiene toda app nativa del agente también está
 en el editor, no una superficie de chat específica de Design. Pídele que
-genere una pantalla, compare variantes, ajuste detalles o revise la calidad
-y la accesibilidad, de la misma forma en que pedirías cualquier otro cambio.
-También ejecuta por su cuenta una comprobación automática de calidad y
-accesibilidad antes de dar un diseño por listo, sin que tengas que hacer
+genere una pantalla, compare variantes, ajuste detalles o revise la calidad,
+de la misma forma en que pedirías cualquier otro cambio.
+También hace por su cuenta, cuando puede, una captura de pantalla y corrige los
+problemas visibles antes de dar un diseño por listo, sin que tengas que hacer
 nada. Consulta [Hablar con el Agent](/docs/template-design-agent) para ver
 las peticiones por tarea.
 
@@ -102,7 +99,7 @@ Cuatro formas de traer contenido externo:
     ],
     [
       "Archivo → Importar…",
-      "Elige un archivo .fig o .html. Design importa el archivo completo al lienzo y muestra el progreso en una notificación. Un .fig que supera los límites del navegador se rechaza de inmediato; usa un enlace de Figma en su lugar. Esto es independiente de importar un .fig a un sistema de diseño.",
+      "Elige un archivo .fig o .html. Design importa el archivo completo al lienzo y muestra el progreso en una notificación. Un .fig que supera los límites del navegador se rechaza de inmediato; usa un enlace de Figma en su lugar.",
     ],
     [
       "App local",
@@ -290,9 +287,7 @@ menú "⋯" con **Compartir** (acceso de lector, editor o administrador) y
 
 ### Usa una plantilla {#use-a-template}
 
-Al hacer clic en **Usar plantilla** se abre un pequeño diálogo: una petición
-opcional, un sistema de diseño para aplicar (o un enlace para crear uno) y
-un botón **Usar tal cual** para saltar directamente a una copia sin ninguna
+Al hacer clic en **Usar plantilla** se abre un pequeño diálogo: una petición opcional y un botón **Usar tal cual** para saltar directamente a una copia sin ninguna
 petición. De cualquier forma, se crea un nuevo diseño y te lleva directamente
 a su editor.
 
@@ -318,53 +313,10 @@ No hay un paso de "abrir" separado. Usar una plantilla, al igual que generar
 un nuevo diseño a partir de una petición, siempre termina abriendo
 automáticamente el editor de ese diseño.
 
-## Sistemas de diseño {#design-systems}
-
-Un sistema de diseño es la identidad de marca, sus colores, tipografías,
-espaciado y logotipos, que Design aplica a cada prototipo vinculado a él.
-
-### Ver y compartir sistemas de diseño {#view-and-share}
-
-La página Sistemas de diseño es una cuadrícula: una tarjeta "Nuevo sistema
-de diseño" primero, luego una tarjeta por sistema con una vista previa de
-muestra de colores, una insignia **Predeterminado** en el que sea tu
-predeterminado, y una insignia de visibilidad (privado, organización o
-público). Cada tarjeta tiene un botón **Compartir** real con roles de
-lector, editor o administrador, el mismo modelo de uso compartido que usan
-las plantillas. Un interruptor **Seleccionar** en el encabezado habilita la
-selección múltiple con eliminación masiva.
-
-### Nuevo sistema de diseño {#new-design-system}
-
-Crear uno empieza con un selector de fuente:
-
-- **Figma**: sube un archivo `.fig`.
-- **Empresa/marca**: una URL de sitio web.
-- **Código**: un repositorio de GitHub conectado.
-- **Design.md**: un documento escrito de guía de diseño.
-- **Archivos de diseño**: sube archivos directamente.
-- **Importar existente**: reutiliza un sistema de diseño o proyecto que ya
-  tienes.
-- **Notas**: describe tu marca desde cero, o empieza desde un sistema
-  público real y mantenido, como Material 3, Carbon o Primer, en lugar de
-  recrear uno de memoria.
-
-<Callout tone="info">
-
-Cada sistema público incluye tokens semánticos reales, una escala
-tipográfica, espaciado y atribución. Design no dejará que una petición
-convierta silenciosamente uno en una imitación con datos diferentes debajo.
-Cada sistema de diseño también lleva un conjunto opcional de instrucciones
-personalizadas y un estilo de imagen descrito, para que la fotografía y las
-ilustraciones generadas se mantengan en el mismo lenguaje visual que el
-resto de la marca.
-
-</Callout>
-
 ## Qué sigue
 
 - [**Design**](/docs/template-design) — la visión general y los pasos para empezar
 - [**Hablar con el Agent**](/docs/template-design-agent) — cada petición por tarea y cómo ve el agente tu pantalla
 - [**Design en un espacio de trabajo con varias apps**](/docs/template-design-integrations) — conectar con Dispatch y llamar a Design a través de MCP
 - [**Guía para desarrolladores**](/docs/template-design-developers) — inicio rápido, acciones, el modelo de datos y las rutas
-- [**Uso compartido**](/docs/sharing) — el modelo de concesión de acceso compartido que usan las plantillas y los sistemas de diseño
+- [**Uso compartido**](/docs/sharing) — el modelo de concesión de acceso compartido que usan las plantillas

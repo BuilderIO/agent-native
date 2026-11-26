@@ -139,9 +139,26 @@ function storableText(value: unknown): unknown {
     : value;
 }
 
-export async function insertAuditEvent(event: AuditEvent): Promise<void> {
+export function insertAuditEvent(event: AuditEvent): Promise<void> {
+  return insertAuditRow(event, "");
+}
+
+/**
+ * Inserts the row unless one with its id is already there, so a delivery
+ * retried after an unknown outcome writes it once. Throws on failure.
+ */
+export function insertAuditEventOnce(event: AuditEvent): Promise<void> {
+  return insertAuditRow(event, " ON CONFLICT (id) DO NOTHING");
+}
+
+// raw-sql-ok: onConflict is one of the two literal clauses above; every value is bound.
+async function insertAuditRow(
+  event: AuditEvent,
+  onConflict: string,
+): Promise<void> {
   await ensureAuditTables();
   const client = getDbExec();
+  // raw-sql-ok: onConflict is one of the two literal clauses above; every value is bound.
   await client.execute({
     sql: `INSERT INTO agent_audit_log
       (id, created_at, action, caller, actor_kind, actor_email, org_id,
@@ -150,7 +167,7 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
        source_kind, source_platform, source_id, source_url, network_protocol,
        network_id, network_peer, app, reported_client_name,
        reported_client_version, oauth_client_id, approval, identity_assurance)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${onConflict}`,
     args: [
       event.id,
       event.createdAt,

@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { withExecutionFence } from "./execution-fence.js";
 
-const pglite = await createTestPglite();
+const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
 
 afterAll(async () => {
   await pglite.close();
@@ -40,6 +40,7 @@ rawClient.transaction = async (
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,

@@ -22,6 +22,22 @@ export const NON_PRODUCTION_HOST_SUFFIXES = [
  * it through the query scope.
  */
 export const TRAFFIC_FILTER_ID = "traffic_environment";
+
+export const TRAFFIC_SCOPED_TABLES = [
+  "analytics_events",
+  "analytics_event_daily_rollups",
+  "analytics_user_days",
+  "session_recordings",
+] as const;
+
+const TRAFFIC_SCOPED_TABLE = new RegExp(
+  `\\b(?:${TRAFFIC_SCOPED_TABLES.join("|")})\\b`,
+  "i",
+);
+
+export function mayReadTrafficScopedTables(sql: string): boolean {
+  return !sql.trim() || TRAFFIC_SCOPED_TABLE.test(sql);
+}
 export const TRAFFIC_FILTER_PARAM = `f_${TRAFFIC_FILTER_ID}`;
 export const ALL_TRAFFIC = "all";
 

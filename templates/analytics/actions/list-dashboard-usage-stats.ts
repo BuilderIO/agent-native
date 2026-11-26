@@ -5,6 +5,12 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { requireDbAdminContextFromRequest } from "../server/lib/db-admin-connections";
+import {
+  dashboardIdFromEventLocation,
+  dashboardIdFromPath,
+} from "../shared/dashboard-event-location";
+
+export { dashboardIdFromEventLocation, dashboardIdFromPath };
 
 type DashboardUsageStats = {
   id: string;
@@ -54,52 +60,6 @@ function dashboardPanelCount(row: {
 }): number | null {
   if (row.kind !== "sql") return null;
   return toNumber(row.panelCount);
-}
-
-export function dashboardIdFromPath(path: string | null): string | null {
-  const pathname = path ?? "";
-  const match = pathname.match(/(?:^|\/)(?:dashboards|adhoc)\/([^/?#]+)/);
-  if (!match) return null;
-  if (match[1] === "explorer-dashboard") {
-    return null;
-  }
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
-}
-
-export function dashboardIdFromEventLocation(
-  path: string | null,
-  url: string | null,
-): string | null {
-  const direct = dashboardIdFromPath(path);
-  if (direct) return direct;
-  const raw = url || path;
-  if (!raw) return null;
-  try {
-    const parsed = new URL(raw, "https://analytics.local");
-    const parsedDashboardId = dashboardIdFromPath(parsed.pathname);
-    if (parsedDashboardId) return parsedDashboardId;
-    if (
-      /(?:^|\/)(?:dashboards|adhoc)\/explorer-dashboard$/.test(parsed.pathname)
-    ) {
-      const id = parsed.searchParams.get("id");
-      return id && id.trim() ? id : null;
-    }
-  } catch {
-    // Fall through to regex below for malformed relative strings.
-  }
-  const match = raw.match(
-    /(?:^|\/)(?:dashboards|adhoc)\/explorer-dashboard(?:\?[^#]*)?[?&]id=([^&#]+)/,
-  );
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1].replace(/\+/g, " "));
-  } catch {
-    return match[1];
-  }
 }
 
 function dashboardUrl(row: { id: string; kind: string }): string {
@@ -164,6 +124,11 @@ export default defineAction({
     const analyticsUserIdentity = sql<
       string | null
     >`coalesce(nullif(${schema.analyticsEvents.userKey}, ''), nullif(${schema.analyticsEvents.userId}, ''), nullif(${schema.analyticsEvents.anonymousId}, ''), nullif(${schema.analyticsEvents.sessionId}, ''))`;
+    // New events report a route template as the path, so the app also names the
+    // dashboard in this property; older events only have it in the path.
+    const eventDashboardId = sql<
+      string | null
+    >`nullif(${schema.analyticsEvents.properties}::jsonb ->> 'dashboard_id', '')`;
     const indexedDashboardEventLocation = or(
       like(schema.analyticsEvents.path, "/dashboards/%"),
       like(schema.analyticsEvents.path, "/adhoc/%"),
@@ -185,6 +150,7 @@ export default defineAction({
 
     const [savedViewRows, revisionRows, eventRows, eventUserRows] =
       await Promise.all([
+        // guard:allow-unbounded-read — one row per dashboard, joined to this org's dashboards
         db
           .select({
             dashboardId: schema.dashboardViews.dashboardId,
@@ -214,6 +180,7 @@ export default defineAction({
           .select({
             path: schema.analyticsEvents.path,
             url: schema.analyticsEvents.url,
+            dashboardId: eventDashboardId,
             eventName: schema.analyticsEvents.eventName,
             count: sql<number>`count(*)`,
             lastSeenAt: sql<
@@ -230,12 +197,14 @@ export default defineAction({
           .groupBy(
             schema.analyticsEvents.path,
             schema.analyticsEvents.url,
+            eventDashboardId,
             schema.analyticsEvents.eventName,
           ),
         db
           .select({
             path: schema.analyticsEvents.path,
             url: schema.analyticsEvents.url,
+            dashboardId: eventDashboardId,
             userIdentity: analyticsUserIdentity,
           })
           .from(schema.analyticsEvents)
@@ -249,6 +218,7 @@ export default defineAction({
           .groupBy(
             schema.analyticsEvents.path,
             schema.analyticsEvents.url,
+            eventDashboardId,
             analyticsUserIdentity,
           ),
       ]);
@@ -291,11 +261,13 @@ export default defineAction({
     for (const row of eventRows as Array<{
       path: string | null;
       url: string | null;
+      dashboardId: string | null;
       eventName: string;
       count: unknown;
       lastSeenAt: string | null;
     }>) {
-      const dashboardId = dashboardIdFromEventLocation(row.path, row.url);
+      const dashboardId =
+        row.dashboardId ?? dashboardIdFromEventLocation(row.path, row.url);
       if (!dashboardId || !dashboardIds.has(dashboardId)) continue;
       const current = eventsByDashboard.get(dashboardId) ?? {
         viewCount: 0,
@@ -320,9 +292,11 @@ export default defineAction({
     for (const row of eventUserRows as Array<{
       path: string | null;
       url: string | null;
+      dashboardId: string | null;
       userIdentity: string | null;
     }>) {
-      const dashboardId = dashboardIdFromEventLocation(row.path, row.url);
+      const dashboardId =
+        row.dashboardId ?? dashboardIdFromEventLocation(row.path, row.url);
       if (!dashboardId || !dashboardIds.has(dashboardId)) continue;
       const current = eventsByDashboard.get(dashboardId) ?? {
         viewCount: 0,

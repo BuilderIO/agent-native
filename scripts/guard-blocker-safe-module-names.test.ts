@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
   browserModules,
+  collectOverlaidFiles,
   devModuleUrl,
   emptyBrowserRoots,
   findBlockedModuleNames,
+  listRepoFiles,
   uncheckedUnits,
 } from "./guard-blocker-safe-module-names";
 
@@ -341,4 +347,49 @@ test("allows the names the blocker lists let through", () => {
     ]),
     [],
   );
+});
+
+void test("walks gitignored overlay roots only when PUBLIC_PIN or untracked-import-roots.json is present", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "guard-blocker-overlay-"));
+  const write = (rel: string, text: string) => {
+    const abs = path.join(root, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, text);
+  };
+  try {
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
+    write(".gitignore", "packages/shared-app-config/\npackages/docs/\n");
+    write("packages/core/src/index.ts", "export const ok = 1;\n");
+    write("packages/shared-app-config/templates.ts", "export const a = 1;\n");
+    write(
+      "packages/shared-app-config/node_modules/ignored/cookie-banner.js",
+      "export {};\n",
+    );
+    write("packages/docs/app/root.tsx", "export default function Root() {}\n");
+    write("packages/docs/dist/cookie-banner.js", "export {};\n");
+    execFileSync("git", ["add", ".gitignore", "packages/core/src/index.ts"], {
+      cwd: root,
+    });
+
+    assert.deepEqual(collectOverlaidFiles(root), []);
+    assert.deepEqual(listRepoFiles(root), ["packages/core/src/index.ts"]);
+
+    write(
+      "guard-allowlists/untracked-import-roots.json",
+      JSON.stringify(["packages/shared-app-config/"]),
+    );
+    assert.deepEqual(listRepoFiles(root).sort(), [
+      "packages/core/src/index.ts",
+      "packages/shared-app-config/templates.ts",
+    ]);
+
+    write("PUBLIC_PIN", "21c90bdff1\n");
+    assert.deepEqual(listRepoFiles(root).sort(), [
+      "packages/core/src/index.ts",
+      "packages/docs/app/root.tsx",
+      "packages/shared-app-config/templates.ts",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

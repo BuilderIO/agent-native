@@ -46,20 +46,20 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 
 ### 设计
 
-| Action                    | 作用                                       |
-| ------------------------- | ------------------------------------------ |
-| `create-design`           | 创建空的设计外壳                           |
-| `generate-design`         | 写入生成的 HTML/JSX 文件内容               |
-| `edit-design`             | 对现有文件进行精确的查找/替换编辑          |
-| `update-design`           | 更新设计的元数据，例如标题或关联的设计系统 |
-| `get-design`              | 按 id 读取一个设计                         |
-| `list-designs`            | 列出可访问的设计                           |
-| `duplicate-design`        | 复制一个设计及其文件                       |
-| `delete-design`           | 删除一个设计                               |
-| `apply-tweaks`            | 持久保存实时调整旋钮值                     |
-| `present-design-variants` | 将几个方向保存为屏幕，并显示并排选择器     |
-| `show-design-questions`   | 为一个模糊的提示显示澄清问题浮层           |
-| `generate-screens`        | 批量生成多个屏幕                           |
+| Action                    | 作用                                   |
+| ------------------------- | -------------------------------------- |
+| `create-design`           | 创建空的设计外壳                       |
+| `generate-design`         | 写入生成的 HTML/JSX 文件内容           |
+| `edit-design`             | 对现有文件进行精确的查找/替换编辑      |
+| `update-design`           | 更新设计的元数据，例如标题             |
+| `get-design`              | 按 id 读取一个设计                     |
+| `list-designs`            | 列出可访问的设计                       |
+| `duplicate-design`        | 复制一个设计及其文件                   |
+| `delete-design`           | 删除一个设计                           |
+| `apply-tweaks`            | 持久保存实时调整旋钮值                 |
+| `present-design-variants` | 将几个方向保存为屏幕，并显示并排选择器 |
+| `show-design-questions`   | 为一个模糊的提示显示澄清问题浮层       |
+| `generate-screens`        | 批量生成多个屏幕                       |
 
 ### 文件
 
@@ -79,22 +79,15 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 | `save-design-as-template`     | 将当前设计保存为一个可复用的模板               |
 | `delete-design-template`      | 删除一个已保存的模板                           |
 
-### 设计系统与品牌导入
+### 品牌导入
 
-| Action                             | 作用                                                                                                                 |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `create-design-system`             | 从零创建一个设计系统，或从一个公开预设（如 Material 3、Carbon 或 Primer）创建                                        |
-| `update-design-system`             | 更新一个设计系统的令牌或设置                                                                                         |
-| `get-design-system`                | 按 id 读取一个设计系统                                                                                               |
-| `list-design-systems`              | 列出可访问的设计系统                                                                                                 |
-| `delete-design-system`             | 删除一个设计系统                                                                                                     |
-| `set-default-design-system`        | 设置账户默认使用哪个设计系统                                                                                         |
-| `analyze-brand-assets`             | 从已上传的品牌素材中提取颜色、排版和标志引用                                                                         |
-| `import-from-url`                  | 从一个真实网站中提取计算后的颜色、排版和标志引用                                                                     |
-| `index-design-system-with-builder` | 通过 Builder DSI，从已连接的代码、一个 GitHub 仓库或设计文件（包括 `.fig`）索引一个设计系统（需要已连接 Builder.io） |
-| `import-design-tokens`             | 直接导入设计令牌                                                                                                     |
-| `import-document`                  | 从上传的 DOCX、PPTX 或 PDF 中提取品牌信号                                                                            |
-| `import-design-project`            | 基于现有的设计或设计系统启动一个设计系统                                                                             |
+| Action                  | 作用                                             |
+| ----------------------- | ------------------------------------------------ |
+| `analyze-brand-assets`  | 从已上传的品牌素材中提取颜色、排版和标志引用     |
+| `import-from-url`       | 从一个真实网站中提取计算后的颜色、排版和标志引用 |
+| `import-design-tokens`  | 直接导入设计令牌                                 |
+| `import-document`       | 从上传的 DOCX、PPTX 或 PDF 中提取品牌信号        |
+| `import-design-project` | 从现有设计中提取设计令牌                         |
 
 ### Figma
 
@@ -137,15 +130,12 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 | `go-to-main-component`        | 跳转到一个组件最早的实例，作为参考点 |
 | `open-component-source`       | 打开一个组件的源位置                 |
 
-### 动效与着色器
+### 着色器
 
-| Action                   | 作用                               |
-| ------------------------ | ---------------------------------- |
-| `get-motion-timeline`    | 读取一个元素的动效时间轴           |
-| `apply-motion-edit`      | 在动效时间轴上添加或编辑一个关键帧 |
-| `remove-motion-timeline` | 移除一个动效时间轴                 |
-| `get-shader`             | 查看原生定义和已保存的效果清单     |
-| `edit-native-shader`     | 应用、编辑、批准或移除原生效果     |
+| Action               | 作用                           |
+| -------------------- | ------------------------------ |
+| `get-shader`         | 查看原生定义和已保存的效果清单 |
+| `edit-native-shader` | 应用、编辑、批准或移除原生效果 |
 
 原生 WebGPU 效果使用 WGSL。自定义创作通过 `edit-native-shader` 的 `define-definition` 保存定义，用 `get-shader` 读取已保存的 `executionHash`，用该 `expectedExecutionHash` 执行 `approve-definition`，再以确切的定义 ID 和版本执行 `apply`。每次编辑都需要 `designId`、`fileId` 和当前的 `expectedVersionHash`。每次写入后重新读取文件哈希。CPU 架构验证不会编译 GPU 代码，因此需检查 Design 预览。以前保存的 GLSL 效果仍可渲染和移除。
 
@@ -153,10 +143,7 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 
 | Action                   | 作用                                                         |
 | ------------------------ | ------------------------------------------------------------ |
-| `run-design-audit`       | 检查一个屏幕的无障碍性、对比度和跨屏幕差异问题               |
-| `apply-a11y-fix`         | 为一个审查发现应用一次自动修复                               |
 | `take-design-screenshot` | 在真实浏览器中渲染该屏幕，并检查溢出、损坏的图片和控制台错误 |
-| `get-design-review`      | 读取已缓存的无障碍性和视觉差异发现                           |
 
 ### 审阅反馈
 
@@ -204,7 +191,6 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 | `deploy-builder-app`           | 将一个 fusion 分支部署到一个真实 URL                       |
 | `get-builder-deploy-status`    | 检查一次部署的状态                                         |
 | `create-design-branch`         | 为一个 fusion 支撑的设计创建一个新分支                     |
-| `get-design-branch-diff`       | 将一个 fusion 分支与更早的版本进行比较                     |
 | `deploy-design-preview`        | 部署一个 fusion 支撑的设计的预览                           |
 | `migrate-inline-design-to-app` | 将一个内联原型转换为一个 fusion 支撑的应用                 |
 | `connect-builder-app`          | 启动 Builder.io OAuth 连接流程                             |
@@ -245,28 +231,27 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 ## 数据模型
 
 所有数据通过 Drizzle ORM 存储在 SQL 中。架构：
-`templates/design/server/db/schema.ts`。设计和设计系统都带有标准的
+`templates/design/server/db/schema.ts`。设计带有标准的
 `ownableColumns` 以及一个匹配的框架共享表，因此它们可以纳入按用户/按
 组织的共享模型。
 
-下表涵盖可拥有的核心资源：设计、文件、模板、版本和设计系统。
+下表涵盖可拥有的核心资源：设计、文件、模板和版本。
 
-| 表                                       | 它包含什么                                                                                                                              |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | 一个设计项目——`title`、`description`、`project_type`（`prototype` / `other`）、`data` JSON blob，以及一个可选的 `design_system_id` 关联 |
-| `design_files`                           | 属于某个设计的各个文件（`filename`、`content`、默认为 `html` 的 `file_type`）                                                           |
-| `design_templates`                       | 可复用的模板元数据、尺寸、默认值、源设计引用，以及锁定图层数量                                                                          |
-| `design_template_files`                  | 用户从模板开始时，快照并复制到一个正常可编辑设计中的模板文件                                                                            |
-| `design_template_shares`                 | 框架共享表，用于私有、组织内、明确共享和公开发现的模板                                                                                  |
-| `design_versions`                        | 一个设计带有可选 `label` 的时间点 `snapshot`，用于历史记录和回滚                                                                        |
-| `design_systems`                         | 可复用的品牌令牌——`data`（颜色/排版/间距）、`assets`、`custom_instructions`，以及一个 `is_default` 标志                                 |
-| `design_shares` / `design_system_shares` | 框架共享表，将主体（用户或组织）映射到角色（查看者、编辑者、管理员）                                                                    |
+| 表                       | 它包含什么                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `designs`                | 一个设计项目——`title`、`description`、`project_type`（`prototype` / `other`）和 `data` JSON blob |
+| `design_files`           | 属于某个设计的各个文件（`filename`、`content`、默认为 `html` 的 `file_type`）                    |
+| `design_templates`       | 可复用的模板元数据、尺寸、默认值、源设计引用，以及锁定图层数量                                   |
+| `design_template_files`  | 用户从模板开始时，快照并复制到一个正常可编辑设计中的模板文件                                     |
+| `design_template_shares` | 框架共享表，用于私有、组织内、明确共享和公开发现的模板                                           |
+| `design_versions`        | 一个设计带有可选 `label` 的时间点 `snapshot`，用于历史记录和回滚                                 |
+| `design_shares`          | 框架共享表，将主体（用户或组织）映射到角色（查看者、编辑者、管理员）                             |
 
 <DataModel
   id="doc-block-design11"
   title="设计数据模型"
   summary={
-    "一个设计拥有它自己的文件和已版本化的快照，并且可以选择关联一个可复用的设计系统。设计和系统都是可拥有的，每一个都带有一个框架共享表。"
+    "一个设计拥有它自己的文件和已版本化的快照。它是可拥有的，并带有一个框架共享表。"
   }
   entities={[
     {
@@ -297,12 +282,6 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
           name: "data",
           type: "json",
           note: "starts as {}",
-        },
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
-          nullable: true,
         },
       ],
     },
@@ -353,37 +332,6 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
       ],
     },
     {
-      id: "systems",
-      name: "design_systems",
-      note: "可复用的品牌令牌（可拥有）",
-      fields: [
-        {
-          name: "id",
-          type: "id",
-          pk: true,
-        },
-        {
-          name: "data",
-          type: "json",
-          note: "colors / typography / spacing",
-        },
-        {
-          name: "assets",
-          type: "json",
-          nullable: true,
-        },
-        {
-          name: "custom_instructions",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "is_default",
-          type: "boolean",
-        },
-      ],
-    },
-    {
       id: "design_shares",
       name: "design_shares",
       note: "框架共享表",
@@ -392,23 +340,6 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
           name: "design_id",
           type: "id",
           fk: "designs.id",
-        },
-        {
-          name: "role",
-          type: "text",
-          note: "viewer / editor / admin",
-        },
-      ],
-    },
-    {
-      id: "system_shares",
-      name: "design_system_shares",
-      note: "框架共享表",
-      fields: [
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
         },
         {
           name: "role",
@@ -430,19 +361,8 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
       kind: "1-n",
     },
     {
-      from: "systems",
-      to: "designs",
-      kind: "1-n",
-      label: "applied to",
-    },
-    {
       from: "designs",
       to: "design_shares",
-      kind: "1-n",
-    },
-    {
-      from: "systems",
-      to: "system_shares",
       kind: "1-n",
     },
   ]}
@@ -451,19 +371,15 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
 一个设计项目在拥有内容之前只是一个外壳：`create-design` 创建一个空
 行（`data: "{}"`），然后 `generate-design` 写入实际的独立 HTML/JSX
 文件。生成的工件、可编辑的源，以及每一次导出，都来自同一个 HTML，因
-此不存在一种需要单独转换的"AI 模型稿"格式。一个已关联的设计系统会提
-供令牌和 `custom_instructions`，代理在每一次生成时都会遵循它们。
+此不存在一种需要单独转换的"AI 模型稿"格式。
 
-另外七个表支撑着本页其他部分介绍的功能，而不是核心资源模型：
+另外六个表支撑着本页其他部分介绍的功能，而不是核心资源模型：
 `design_localhost_connections` 和 `design_localhost_write_grants` 支
 撑[本地应用导入](/docs/template-design-features#import)，
 `component_index` 支撑[Design 标签页的组件区块](/docs/template-design-features#design-tab)，
-`motion_timeline` 支撑每个元素可编辑的动效时间轴（编辑器中的动效面
-板），`design_state` 保存一个设计的具名备用状态、静态固件和真实应用
+`design_state` 保存一个设计的具名备用状态、静态固件和真实应用
 的捕获内容，`design_fusion_edits` 支撑上文[完整应用构建](#full-app-building)
-中介绍的 fusion 编辑队列，`design_review_snapshot` 缓存
-`get-design-review` 背后的无障碍性发现和视觉差异，即上文
-[质量](#quality)中介绍的内容。
+中介绍的 fusion 编辑队列。
 
 持久化的审阅评论和讨论串（`get-review-feedback`、
 `resolve-review-thread` 及其他）根本不是一个设计专属的表：它们是来自
@@ -485,7 +401,7 @@ TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上，
   filename="templates/design/actions/save-design-as-template.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
   }
   annotations={[
     {
@@ -565,23 +481,19 @@ selector/source id 和请求的更改。代理应先调用 `view-screen`，然�
     { path: "app/routes/present.$id.tsx", note: "展示/共享视图" },
     { path: "app/routes/templates.tsx", note: "模板页面" },
     {
-      path: "app/routes/design-systems.tsx",
-      note: "设计系统列表。design-systems_.setup.tsx 用于创建一个",
-    },
-    {
       path: "app/routes/visual-edit.tsx",
       note: "/visual-edit 本地应用桥接的落地路由",
     },
     {
       path: "server/db/schema.ts",
-      note: "Drizzle 架构：设计、文件、版本、系统、共享，外加 7 个功能表",
+      note: "Drizzle 架构：设计、文件、版本、共享，外加 7 个功能表",
     },
     {
       path: ".agents/skills/design-generation/SKILL.md",
       note: "五阶段生成流程，美学质量标准",
     },
     {
-      path: ".agents/skills/design-systems/SKILL.md",
+      path: ".agents/skills/design-tokens/SKILL.md",
       note: "品牌令牌、Figma 导入/读取/粘贴",
     },
     {
@@ -599,7 +511,6 @@ selector/source id 和请求的更改。代理应先调用 `view-screen`，然�
 
 Design 是一个完整的、可克隆的模板。一些实用的扩展思路：
 
-- "添加一个带有我们令牌的可复用电子商务设计系统和示例组件。"
 - "添加一个导出步骤，将 ZIP 上传到我们的内部审核系统。"
 - "让我粘贴现有的着陆页 HTML，并让代理给出三个更强的版本。"
 - "为产品页面、仪表板和引导流程简介添加一个已保存的提示词库。"
@@ -616,5 +527,5 @@ Design 是一个完整的、可克隆的模板。一些实用的扩展思路：
 - [**与 Agent 对话**](/docs/template-design-agent) — 代理如何在这些 actions 之间做出选择
 - [**多应用工作区中的 Design**](/docs/template-design-integrations) — 这些 actions 如何暴露给其他应用和外部代理
 - [**Actions**](/docs/actions-overview) — 该模板所构建于其上的 action 系统
-- [**共享**](/docs/sharing) — `design_shares` 和 `design_system_shares` 所使用的共享授权模型
+- [**共享**](/docs/sharing) — `design_shares` 所使用的共享授权模型
 - [**扩展**](/docs/extensions) — 编辑器扩展插槽背后的沙盒和桥接 API

@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from "react";
+import type { ReactElement } from "react";
 
 import {
   InteractDevicePicker,
@@ -6,7 +6,6 @@ import {
   InteractScreenControls,
   InteractThemePicker,
 } from "@/components/design/editor/InteractControls";
-import { InteractZoomControl } from "@/components/design/editor/InteractZoomControl";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorModes } from "../domains/use-editor-modes";
@@ -68,37 +67,6 @@ function renderInteractPieces({
   };
 }
 
-/**
- * Interact's controls for the docked top bar: device and theme beside the mode
- * switch, screen controls in the centre, the fit zoom beside Share. The mode
- * switch is the way out, so none of these is an exit.
- */
-export function renderInteractTopBarSlots(args: InteractControlsArgs): {
-  leading: ReactNode;
-  center: ReactNode;
-  zoomControl: ReactNode;
-} {
-  const { devicePicker, themePicker, screenControls } =
-    renderInteractPieces(args);
-  return {
-    leading: (
-      <>
-        {devicePicker}
-        {themePicker}
-      </>
-    ),
-    center: screenControls,
-    zoomControl: (
-      <InteractZoomControl
-        zoom={args.editorModes.interactZoom}
-        choice={args.editorModes.interactZoomChoice}
-        onChange={args.editorModes.handleInteractZoomChange}
-      />
-    ),
-  };
-}
-
-/** Minimal UI has no top bar, so the same controls float with an exit. */
 export function renderInteractFloatingBar(
   args: InteractControlsArgs,
 ): ReactElement {

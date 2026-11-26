@@ -12,6 +12,7 @@ export interface CalendarEvent {
   source: "local" | "google" | "ical";
   sourceId?: string;
   googleEventId?: string;
+  revision?: string;
   htmlLink?: string;
   accountEmail?: string;
   calendarSourceKey?: string;
@@ -339,6 +340,21 @@ export interface Booking {
   createdAt: string;
 }
 
+export type PublicSingleUseLinkStatus =
+  | "available"
+  | "used"
+  | "revoked"
+  | "missing";
+
+export const BOOKING_REMINDER_MINUTES_OPTIONS = [0, 60, 1440] as const;
+export const DEFAULT_BOOKING_REMINDER_MINUTES = 1440;
+
+export function isBookingReminderMinutes(value: number): boolean {
+  return (BOOKING_REMINDER_MINUTES_OPTIONS as readonly number[]).includes(
+    value,
+  );
+}
+
 export interface BookingLink {
   id: string;
   slug: string;
@@ -350,6 +366,7 @@ export interface BookingLink {
   publicHosts?: PublicBookingHost[];
   customFields?: CustomField[];
   conferencing?: ConferencingConfig;
+  reminderMinutes?: number;
   color?: string;
   isActive: boolean;
   visibility?: "private" | "org" | "public";
@@ -368,6 +385,7 @@ export interface GoogleAuthStatus {
     expiresAt?: string;
     photoUrl?: string;
     shared?: boolean;
+    description?: string;
   }>;
 }
 
@@ -382,6 +400,7 @@ export interface GoogleCalendarSource {
   primary: boolean;
   accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
   readOnly: boolean;
+  accountDescription?: string;
   sourcePaths?: Array<{
     sourceKey: string;
     accountEmail: string;
@@ -395,6 +414,7 @@ export interface ExternalCalendar {
   name: string;
   url: string;
   color: string;
+  description?: string;
 }
 
 export interface Settings {

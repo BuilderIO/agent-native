@@ -51,6 +51,18 @@ describe("normalizeJourneyPath", () => {
     expect(normalizeJourneyPath("/r/ifsHSxM8iCbH")).toBe("/r/:id");
   });
 
+  it("names a route template segment :id so it groups with raw ids", () => {
+    expect(normalizeJourneyPath("/deck/:deckId/present")).toBe(
+      "/deck/:id/present",
+    );
+    expect(normalizeJourneyPath("/clips/:recordingId/edit")).toBe(
+      "/clips/:id/edit",
+    );
+    expect(normalizeJourneyPath("/share/:shareId")).toBe(
+      normalizeJourneyPath("/share/AbCdEfGhIj"),
+    );
+  });
+
   it("replaces a segment that holds an email address", () => {
     expect(normalizeJourneyPath("/invite/alice@example.com")).toBe(
       "/invite/:email",

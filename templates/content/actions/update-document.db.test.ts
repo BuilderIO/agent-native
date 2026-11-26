@@ -728,6 +728,43 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(id)).content).toBe("Body after");
   });
 
+  it("keeps a linked file's first heading when it repeats the title", async () => {
+    const id = await createDocument({
+      title: "Page",
+      content: "# Page\nBody before",
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "page.md",
+      })
+      .where(eq(schema.documents.id, id));
+    const revision = documentRevisionToken(0, "# Page\nBody before");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        {
+          id,
+          content: "# Page\nBody after",
+          baseRevision: revision,
+          authoredBaseRevision: revision,
+          authoredBaseContent: "# Page\nBody before",
+          authoredCandidateContent: "# Page\nBody after",
+          editorSessionId: nextId("linked-heading-session"),
+          editorEditGeneration: 1,
+          browserSaveAttemptId: nextId("linked-heading-attempt"),
+        },
+        {
+          caller: "frontend",
+          userEmail: OWNER,
+          actionName: "update-document",
+        },
+      ),
+    );
+    expect((await documentRow(id)).content).toBe("# Page\nBody after");
+  });
+
   it("uses the locked body revision for a verified authored merge with only baseUpdatedAt", async () => {
     const base = "First passage\nSecond passage";
     const id = await createDocument({ content: base });
@@ -2523,6 +2560,217 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(documentId)).content).toBe("original");
   });
 
+  it.each(["http", "cli", "automation"] as const)(
+    "requires a readable base for a %s full-body write",
+    async (caller) => {
+      const documentId = await createDocument({ content: "original" });
+      const write = (fields: {
+        baseRevision?: string;
+        baseUpdatedAt?: string;
+        loadedUpdatedAt?: string;
+        content?: string;
+      }) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            { id: documentId, content: "scripted rewrite", ...fields },
+            { caller, userEmail: OWNER },
+          ),
+        );
+
+      await expect(write({})).rejects.toMatchObject({
+        errorCode: "BASE_REVISION_REQUIRED",
+        statusCode: 400,
+      });
+      for (const baseRevision of ["", "not-a-revision"]) {
+        await expect(write({ baseRevision })).rejects.toMatchObject({
+          errorCode: "INVALID_BASE_REVISION",
+          statusCode: 400,
+        });
+      }
+      const row = await documentRow(documentId);
+      const refused = {
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+        details: {
+          currentRevision: documentRevisionToken(row.bodyRevision, row.content),
+        },
+      };
+      await expect(write({ baseUpdatedAt: "" })).rejects.toMatchObject(refused);
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({ baseRevision: documentRevisionToken(0, "An older body") }),
+      ).rejects.toMatchObject(refused);
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({
+          baseRevision: documentRevisionToken(0, "An older body"),
+          loadedUpdatedAt: "2000-01-01T00:00:00.000Z",
+          content: "",
+        }),
+      ).rejects.toMatchObject(refused);
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({ baseRevision: "not-a-revision", content: "original" }),
+      ).rejects.toMatchObject({
+        errorCode: "INVALID_BASE_REVISION",
+        statusCode: 400,
+      });
+      await expect(
+        write({
+          baseRevision: documentRevisionToken(0, "An older body"),
+          content: "original",
+        }),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        write({
+          baseUpdatedAt: "2000-01-01T00:00:00.000Z",
+          content: "original",
+        }),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        write({ baseUpdatedAt: row.updatedAt, content: "original" }),
+      ).resolves.toMatchObject({ content: "original" });
+
+      await write({
+        baseRevision: documentRevisionToken(row.bodyRevision, row.content),
+      });
+      expect((await documentRow(documentId)).content).toBe("scripted rewrite");
+    },
+  );
+
+  it("refuses alt text for a page that changed after the action read it", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const image = "![](/uploads/alt-text-race.png)";
+    const documentId = await createDocument({ content: `Intro\n${image}` });
+    const update = updateDocumentAction.run.bind(updateDocumentAction);
+    const spy = vi
+      .spyOn(updateDocumentAction, "run")
+      .mockImplementationOnce(async (args, ctx) => {
+        await getDb()
+          .update(schema.documents)
+          .set({ content: `Edited meanwhile\n${image}` })
+          .where(eq(schema.documents.id, documentId));
+        return update(args, ctx);
+      });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          setImageAltText.run(
+            {
+              documentId,
+              imageUrl: "/uploads/alt-text-race.png",
+              altText: "Chart",
+            },
+            { caller: "mcp", userEmail: OWNER },
+          ),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await documentRow(documentId)).content).toBe(
+      `Edited meanwhile\n${image}`,
+    );
+  });
+
+  it("keeps alt text the user typed after a quiet alt text request started", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const content = [
+      "![](/uploads/twice.png)",
+      "![Typed \\] by hand](/uploads/twice.png)",
+      '<img src="/uploads/html.png" alt="Mine &amp; theirs" />',
+    ].join("\n\n");
+    const documentId = await createDocument({ content });
+    const set = (args: {
+      imageUrl: string;
+      imageOccurrence?: number;
+      expectedAltText: string;
+    }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setImageAltText.run(
+          { documentId, altText: "A bar chart", ...args },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      );
+
+    await expect(
+      set({
+        imageUrl: "/uploads/twice.png",
+        imageOccurrence: 1,
+        expectedAltText: "",
+      }),
+    ).resolves.toMatchObject({
+      altTextUpdated: false,
+      keptCurrentAltText: true,
+    });
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "" }),
+    ).resolves.toMatchObject({ altTextUpdated: false });
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "Mine & theirs " }),
+    ).resolves.toMatchObject({ altTextUpdated: false });
+    expect((await documentRow(documentId)).content).toBe(content);
+
+    await expect(
+      set({ imageUrl: "/uploads/html.png", expectedAltText: "Mine & theirs" }),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    await expect(
+      set({
+        imageUrl: "/uploads/twice.png",
+        imageOccurrence: 0,
+        expectedAltText: "",
+      }),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    expect((await documentRow(documentId)).content).toBe(
+      [
+        "![A bar chart](/uploads/twice.png)",
+        "![Typed \\] by hand](/uploads/twice.png)",
+        '<img src="/uploads/html.png" alt="A bar chart" />',
+      ].join("\n\n"),
+    );
+  });
+
+  it("reads and writes alt text the way the editor saves it", async () => {
+    const setImageAltText = (await import("./set-image-alt-text.js")).default;
+    const documentId = await createDocument({
+      content: [
+        "![A \\*red\\* bird on a \\[draft\\] page](/uploads/escaped.png)",
+        `<img src="/uploads/sized.png" alt="Alice's cat" width="320" />`,
+      ].join("\n\n"),
+    });
+    const set = (imageUrl: string, expectedAltText: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setImageAltText.run(
+          {
+            documentId,
+            imageUrl,
+            altText: "Costs $1 *each*_now",
+            expectedAltText,
+          },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      );
+
+    await expect(
+      set("/uploads/escaped.png", "A *red* bird on a [draft] page"),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    await expect(set("/uploads/sized.png", "Alice")).resolves.toMatchObject({
+      altTextUpdated: false,
+    });
+    await expect(
+      set("/uploads/sized.png", "Alice's cat"),
+    ).resolves.toMatchObject({ altTextUpdated: true });
+    expect((await documentRow(documentId)).content).toBe(
+      [
+        "![Costs $1 \\*each\\*\\_now](/uploads/escaped.png)",
+        '<img src="/uploads/sized.png" alt="Costs $1 *each*_now" width="320" />',
+      ].join("\n\n"),
+    );
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");
@@ -3486,17 +3734,15 @@ describe("update-document save outcome counts", () => {
               { caller: "http", userEmail: OWNER },
             ),
           );
-          if (bodyChanges)
-            await expect(saved).rejects.toMatchObject({
-              errorCode: "INVALID_BASE_REVISION",
-            });
-          else expect((await saved).content).toBe("Body");
+          await expect(saved).rejects.toMatchObject({
+            errorCode: "INVALID_BASE_REVISION",
+          });
         },
         {
-          outcome: bodyChanges ? "refused" : "unchanged",
+          outcome: "refused",
           stale_base: "unknown",
           history_effect: "none",
-          ...(bodyChanges ? { reason_code: "INVALID_BASE_REVISION" } : {}),
+          reason_code: "INVALID_BASE_REVISION",
         },
       );
       expect(await documentRow(id)).toEqual(before);

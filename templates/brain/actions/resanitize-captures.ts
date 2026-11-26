@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { ensureCaptureAudience } from "../server/lib/audiences.js";
 import {
+  BrainCaptureConcurrentError,
   contentHash,
   getAccessibleCapture,
   invalidateDerivedForCapture,
@@ -15,14 +16,46 @@ import {
   recordBlockedCapture,
   stableJson,
 } from "../server/lib/brain.js";
-import { sanitizeCaptureForStorage } from "../server/lib/capture-sanitization.js";
+import {
+  BrainClassifierUnavailableError,
+  BrainUnsafeSourceIdentityError,
+  sanitizeCaptureForStorage,
+} from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureInvalidation } from "../server/lib/ingest-queue.js";
+import {
+  parseCaptureMetadata,
+  publicCaptureExternalId,
+  withOmissionReceipt,
+} from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import type { BrainCaptureKind, BrainSourceProvider } from "../shared/types.js";
 import { idSchema, stringArrayCliSchema } from "./_schemas.js";
 
 function reviewPreview(value: string) {
   return redactSensitiveText(value).replace(/\s+/g, " ").trim().slice(0, 320);
+}
+
+function changedSinceRead(
+  capture: { id: string; sourceId: string; capturedAt: string },
+  derivedRefs: { knowledgeIds: string[]; proposalIds: string[] },
+  beforeLength: number,
+) {
+  return {
+    id: capture.id,
+    sourceId: capture.sourceId,
+    externalId: null,
+    title: "Capture changed during resanitization",
+    capturedAt: capture.capturedAt,
+    beforeLength,
+    afterLength: beforeLength,
+    method: "not-sanitized",
+    rawContentRetained: true,
+    skipped: true,
+    skipReason: "capture-changed",
+    dependentKnowledgeIds: derivedRefs.knowledgeIds,
+    dependentProposalIds: derivedRefs.proposalIds,
+    preview: "",
+  };
 }
 
 function canEditSource(
@@ -88,6 +121,7 @@ export default defineAction({
     .refine((args) => args.sourceId || args.captureIds?.length, {
       message: "Provide sourceId or captureIds",
     }),
+  mcpTool: false,
   run: async (args) => {
     const db = getDb();
     const settings = await readBrainSettings();
@@ -165,28 +199,70 @@ export default defineAction({
       const hasDerivedRefs =
         derivedRefs.knowledgeIds.length > 0 ||
         derivedRefs.proposalIds.length > 0;
-      const sanitized = await sanitizeCaptureForStorage({
-        kind: row.capture.kind as BrainCaptureKind,
-        title: row.capture.title,
-        content: row.capture.content,
-        metadata: parseJson<Record<string, unknown>>(
-          row.capture.metadataJson,
-          {},
+      let sanitized: Awaited<ReturnType<typeof sanitizeCaptureForStorage>>;
+      try {
+        sanitized = await sanitizeCaptureForStorage({
+          kind: row.capture.kind as BrainCaptureKind,
+          title: row.capture.title,
+          content: row.capture.content,
+          metadata: parseJson<Record<string, unknown>>(
+            row.capture.metadataJson,
+            {},
+          ),
+          capturedAt: row.capture.capturedAt,
+          source: {
+            id: row.source.id,
+            title: row.source.title,
+            provider: row.source.provider as BrainSourceProvider,
+            ownerEmail: row.source.ownerEmail,
+            orgId: row.source.orgId,
+          },
+          sourceConfig: parseCaptureMetadata(row.source.configJson) ?? {
+            unreadableSourceConfig: true,
+          },
+          settings,
+        });
+      } catch (error) {
+        const skipReason =
+          error instanceof BrainUnsafeSourceIdentityError
+            ? "unsafe-source-identity"
+            : error instanceof BrainClassifierUnavailableError
+              ? "screening-unavailable"
+              : null;
+        if (!skipReason) throw error;
+        results.push({
+          id: row.capture.id,
+          sourceId: row.capture.sourceId,
+          externalId: null,
+          title: "Incomplete transcript",
+          capturedAt: row.capture.capturedAt,
+          beforeLength,
+          afterLength: beforeLength,
+          method: "not-sanitized",
+          rawContentRetained: true,
+          skipped: true,
+          skipReason,
+          dependentKnowledgeIds: derivedRefs.knowledgeIds,
+          dependentProposalIds: derivedRefs.proposalIds,
+          preview: "",
+        });
+        continue;
+      }
+      const publicExternalId = publicCaptureExternalId(
+        publicCaptureExternalId(
+          row.capture.externalId,
+          parseCaptureMetadata(
+            withOmissionReceipt(
+              row.capture.metadataJson,
+              row.capture.content,
+              row.capture.kind,
+            ),
+          ),
+          row.capture.kind,
         ),
-        capturedAt: row.capture.capturedAt,
-        source: {
-          id: row.source.id,
-          title: row.source.title,
-          provider: row.source.provider as BrainSourceProvider,
-          ownerEmail: row.source.ownerEmail,
-          orgId: row.source.orgId,
-        },
-        sourceConfig: parseJson<Record<string, unknown>>(
-          row.source.configJson,
-          {},
-        ),
-        settings,
-      });
+        sanitized.metadata,
+        row.capture.kind,
+      );
       const sanitizer = sanitized.metadata.captureSanitization as
         | Record<string, unknown>
         | undefined;
@@ -194,7 +270,7 @@ export default defineAction({
         results.push({
           id: row.capture.id,
           sourceId: row.capture.sourceId,
-          externalId: row.capture.externalId,
+          externalId: publicExternalId,
           title: sanitized.title,
           capturedAt: row.capture.capturedAt,
           beforeLength,
@@ -214,32 +290,44 @@ export default defineAction({
         sanitized.decision &&
         sanitized.decision.disposition !== "allowed"
       ) {
-        await recordBlockedCapture({
-          id: row.capture.id,
-          existing: row.capture,
-          source: row.source,
-          values: {
+        try {
+          await recordBlockedCapture({
             id: row.capture.id,
-            sourceId: row.capture.sourceId,
-            externalId: row.capture.externalId,
-            title: row.capture.title,
-            kind: row.capture.kind as BrainCaptureKind,
-            content: row.capture.content,
-            metadata: parseJson<Record<string, unknown>>(
-              row.capture.metadataJson,
-              {},
-            ),
-            capturedAt: row.capture.capturedAt,
-            status: row.capture.status,
-          },
-          decision: sanitized.decision,
-          classifierFailureReason: sanitized.classifierFailureReason,
-          retentionHours: settings.quarantineRetentionHours ?? 72,
-        });
+            existing: row.capture,
+            source: row.source,
+            values: {
+              id: row.capture.id,
+              sourceId: row.capture.sourceId,
+              externalId: row.capture.externalId,
+              title: row.capture.title,
+              kind: row.capture.kind as BrainCaptureKind,
+              content: row.capture.content,
+              metadata: parseJson<Record<string, unknown>>(
+                row.capture.metadataJson,
+                {},
+              ),
+              capturedAt: row.capture.capturedAt,
+              status: row.capture.status,
+            },
+            decision: sanitized.decision,
+            ...(sanitized.classifierFailureReason
+              ? {
+                  classifierFailureReason: sanitized.classifierFailureReason,
+                }
+              : {}),
+            retentionHours: settings.quarantineRetentionHours ?? 72,
+          });
+        } catch (error) {
+          if (!(error instanceof BrainCaptureConcurrentError)) throw error;
+          results.push(
+            changedSinceRead(row.capture, derivedRefs, beforeLength),
+          );
+          continue;
+        }
         results.push({
           id: row.capture.id,
           sourceId: row.capture.sourceId,
-          externalId: row.capture.externalId,
+          externalId: null,
           title: "Privacy-blocked capture",
           capturedAt: row.capture.capturedAt,
           beforeLength,
@@ -268,7 +356,7 @@ export default defineAction({
             })
           ).aclHash;
         }
-        await db
+        const updated = await db
           .update(schema.brainRawCaptures)
           .set({
             title: sanitized.title,
@@ -294,7 +382,19 @@ export default defineAction({
                 : "ignored",
             updatedAt: nowIso(),
           })
-          .where(eq(schema.brainRawCaptures.id, row.capture.id));
+          .where(
+            and(
+              eq(schema.brainRawCaptures.id, row.capture.id),
+              eq(schema.brainRawCaptures.updatedAt, row.capture.updatedAt),
+            ),
+          )
+          .returning({ id: schema.brainRawCaptures.id });
+        if (!updated.length) {
+          results.push(
+            changedSinceRead(row.capture, derivedRefs, beforeLength),
+          );
+          continue;
+        }
         if (
           hasDerivedRefs &&
           (sanitized.decision?.disposition !== "allowed" ||
@@ -328,7 +428,7 @@ export default defineAction({
       results.push({
         id: row.capture.id,
         sourceId: row.capture.sourceId,
-        externalId: row.capture.externalId,
+        externalId: publicExternalId,
         title: sanitized.title,
         capturedAt: row.capture.capturedAt,
         beforeLength,

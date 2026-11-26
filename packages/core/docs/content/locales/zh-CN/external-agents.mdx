@@ -149,10 +149,12 @@ MCP URL、可用时的 A2A 代理卡片，以及与完整连接页面相同的�
 
 ### Claude 和 ChatGPT OAuth {#oauth}
 
-Claude / Claude 桌面：添加自定义连接器，粘贴 MCP URL，点击
-**连接**，使用您的 Agent-Native 帐户登录，批准 MCP 范围，
-并在聊天中启用连接器。 Claude 代码使用相同的 URL：将其添加为
-远程HTTP MCP服务器，运行`/mcp`，然后选择**验证**。
+Claude / Claude Desktop：**添加到 Claude** 会打开 **Customize → Connectors**，
+并且 **Add custom connector** 对话框中已填好应用名称和 MCP URL。选择 **Add**，
+使用您的 Agent-Native 账户登录，批准 MCP 权限范围，然后在聊天中启用该连接器。
+Claude Code 使用相同的 URL：运行
+`claude mcp add --transport http --scope user <server-name> <mcp-url>`，
+让该服务器在所有项目中可用，然后运行 `/mcp` 并选择 **Authenticate**。
 
 ChatGPT：自定义 MCP 应用需要受支持的 ChatGPT web 工作区。如果你有访问权限，请打开
 **Settings → Apps → Advanced settings**，在需要时启用开发者模式，选择 **Create app**，
@@ -173,11 +175,13 @@ Dispatch 不会重写 ChatGPT 或 Claude 的缓存日历/邮件/等。
 
 ### Cursor、VS Code 和 Codex {#install-links}
 
-**Settings → MCP server** 和 `/mcp/connect` 中的 **Cursor** 与 **VS Code**
-选项卡提供安装按钮。**添加到 Cursor** 会打开 Cursor 的 **Install MCP server?**
+**Settings → MCP server** 和 `/mcp/connect` 中的 **Claude**、**Cursor** 与 **VS Code**
+指南提供安装按钮。**添加到 Claude** 会打开 Claude 的添加连接器对话框，并已填好名称和 URL。
+**添加到 Cursor** 会打开 Cursor 的 **Install MCP server?**
 提示。**添加到 VS Code** 和 **添加到 VS Code Insiders** 会打开带有 **Install**
-按钮的服务器页面。链接只包含服务器名称、传输方式和 MCP URL，从不包含令牌、请求头或账户信息。
+按钮的服务器页面。链接只包含名称和 MCP URL（VS Code 还包含传输方式），从不包含令牌、请求头或账户信息。
 客户端首次连接时会自行完成 OAuth 登录。在 VS Code 中，这些工具随后会出现在 Agent 模式下的 Chat 视图中。
+如果没有该按钮，请运行 **Chat: Open Customizations**，打开 **MCP Servers**，选择 **+**，选择 **HTTP**，然后粘贴 MCP URL。
 
 对于 Codex，运行 `codex mcp add <server-name> --url <mcp-url>`，然后运行
 `codex mcp login <server-name>`，通过 OAuth 登录。**Codex** 选项卡会填好这两个值。
@@ -666,7 +670,7 @@ Actions 可以为支持 MCP 应用扩展的主机通告带有 `mcpApp` 的内联
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -698,7 +702,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. 通过 `getSession` 解析 **浏览器** 会话（身份验证防护绕过确切路径 `/_agent-native/open`）。
 2. 如果未经身份验证，则在相同的 URL 处提供配置的登录 HTML \*\*；表单的成功处理程序重新加载 `window.location`，重新输入经过身份验证的路由 - 没有 `?next=` 管道。
 3. 使用 `requestSource: "deep-link"` 写入现有的一次性 `navigate` 应用程序状态命令（有效负载 = 每个非保留查询参数 + `view`），其范围仅限于浏览器会话的电子邮件，并将 `compose` base64url 草稿解码为 `compose-<id>` 密钥。
-4. 302-重定向到安全的同源相对路径（`to=`，或者`/<view>`，或者每个模板的`resolveOpenPath`），转发`f_*`过滤器参数，以便在`navigate`命令耗尽之前打开预先过滤的列表/仪表板。
+4. 302-重定向到安全的同源相对路径（`to=`，或者每个模板的`resolveOpenPath`，或者`/<view>`），转发`f_*`过滤器参数，以便在`navigate`命令耗尽之前打开预先过滤的列表/仪表板。
 
 跨源、方案相关 `//host` 和控制字符重定向被拒绝（开放重定向防护）。可以通过 `disableOpenRoute` 禁用每个应用程序的路线。
 

@@ -1,0 +1,144 @@
+/*
+ * Part: checkbox
+ *
+ *   <span class="checkbox" role="checkbox"          Base UI Checkbox.Root
+ *         data-variant="surface|soft"
+ *         [data-color="accent|gray|danger|warning|success|info"]
+ *         [data-high-contrast] [data-checked] [data-unchecked]
+ *         [data-indeterminate] [data-invalid] [data-disabled]>
+ *     <span class="checkbox-indicator">             Checkbox.Indicator, a check or a dash
+ *
+ * Radix Themes' checkbox on the system's scale: a 16px box that sits in a
+ * 24px control, with a hit area 4px wider on every side. Surface is a
+ * field with a gray edge that fills with the nearest color's indicator when
+ * checked; soft is a tint whose check is drawn in the color's text step.
+ * The unchecked edge is gray step a10, not Radix's a7, so the box keeps a
+ * 3:1 contrast against the page.
+ */
+
+@layer components {
+  .checkbox {
+    --_size: var(--space-4);
+    --_indicator: var(--control-icon-size-1);
+
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--_size);
+    height: var(--_size);
+    border-radius: calc(var(--radius-2) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    vertical-align: top;
+    cursor: pointer;
+    outline-style: none;
+    transition-property: color, background-color, box-shadow;
+    transition-duration: var(--duration-1);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .checkbox::after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--space-1) * -1);
+  }
+
+  .checkbox-indicator {
+    display: flex;
+  }
+
+  .checkbox-indicator svg {
+    width: var(--_indicator);
+    height: var(--_indicator);
+    stroke-width: 3;
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  .checkbox[data-variant="surface"] {
+    background-color: var(--fill-field);
+    box-shadow: inset 0 0 0 1px var(--gray-a10);
+  }
+
+  .checkbox[data-variant="surface"]:where(
+      [data-checked],
+      [data-indeterminate]
+    ) {
+    background-color: var(--accent-indicator);
+    box-shadow: none;
+    color: var(--accent-contrast);
+  }
+
+  .checkbox[data-variant="surface"][data-high-contrast]:where(
+      [data-checked],
+      [data-indeterminate]
+    ) {
+    background-color: var(--accent-12);
+    color: var(--accent-1);
+  }
+
+  .checkbox[data-variant="soft"] {
+    background-color: var(--accent-a5);
+    color: var(--accent-text);
+  }
+
+  .checkbox[data-variant="soft"][data-high-contrast] {
+    color: var(--accent-12);
+  }
+
+  .checkbox[data-invalid][data-unchecked] {
+    box-shadow: inset 0 0 0 1px var(--fill-danger);
+  }
+
+  .checkbox:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- disabled ---- */
+
+  .checkbox[data-disabled][data-variant] {
+    cursor: not-allowed;
+    background-color: var(--gray-a3);
+    color: var(--fg-disabled);
+  }
+
+  .checkbox[data-disabled][data-variant="surface"] {
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+  @media (forced-colors: active) {
+    .checkbox[data-variant] {
+      forced-color-adjust: none;
+      border: 1px solid ButtonText;
+      color: ButtonText;
+      background-color: Canvas;
+      box-shadow: none;
+    }
+
+    .checkbox[data-variant]:is([data-checked], [data-indeterminate]) {
+      border-color: Highlight;
+      color: HighlightText;
+      background-color: Highlight;
+    }
+
+    .checkbox[data-variant][data-disabled] {
+      border-color: GrayText;
+      color: GrayText;
+      background-color: Canvas;
+      box-shadow: none;
+    }
+
+    .checkbox[data-invalid][data-unchecked] {
+      border-style: dashed;
+      box-shadow: none;
+    }
+
+    .checkbox:focus-visible {
+      outline-color: Highlight;
+    }
+  }
+}

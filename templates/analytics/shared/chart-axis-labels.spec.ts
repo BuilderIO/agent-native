@@ -1,5 +1,3 @@
-import { describe, expect, it } from "vitest";
-
 import {
   axisDirection,
   estimateTextWidth,
@@ -9,7 +7,8 @@ import {
   spanLabelX,
   trimToWholeWords,
   trimToWidth,
-} from "./chart-axis-labels";
+} from "@agent-native/toolkit/dashboard/chart-axis-labels";
+import { describe, expect, it } from "vitest";
 
 const APPS = [
   "analytics",

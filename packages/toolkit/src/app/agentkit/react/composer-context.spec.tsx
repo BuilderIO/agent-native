@@ -617,6 +617,41 @@ describe("AgentKit composer context submission", () => {
   );
 
   it.each(["immediate", "queued"] as const)(
+    "sends a custom agent mention as a run reference on %s submissions",
+    async (intent) => {
+      const runtime = transport();
+      if (intent === "queued") withActiveRun(runtime);
+      client = new AgentKitClient({ transport: runtime });
+      if (intent === "queued") await client.loadThread("thread-1");
+      await act(async () =>
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer autoFocus={false} />
+          </AgentKitProvider>,
+        ),
+      );
+      const researcher = {
+        type: "custom-agent" as const,
+        path: "agents/researcher.md",
+        name: "Researcher",
+        source: "agent:custom",
+        refType: "custom-agent",
+        refId: "researcher",
+      };
+      await act(async () => {
+        await capture.props!.onSubmit("Find sources", [], [researcher], {
+          intent,
+        });
+      });
+      const input =
+        intent === "queued"
+          ? runtime.queueMessage.mock.calls[0][0]
+          : runtime.startRun.mock.calls[0][0];
+      expect(input.references).toEqual([researcher]);
+    },
+  );
+
+  it.each(["immediate", "queued"] as const)(
     "includes mode instructions without context items in %s submissions",
     async (intent) => {
       const runtime = transport();
@@ -710,6 +745,35 @@ describe("AgentKit composer context submission", () => {
     expect(assertAiSetupReady).toHaveBeenCalledOnce();
     expect(onSubmit).not.toHaveBeenCalled();
     expect(onLocalSubmit).not.toHaveBeenCalled();
+  });
+
+  it("lets a host override that never starts a run submit without AI setup", async () => {
+    const assertAiSetupReady = vi.fn(async () => {
+      throw new Error("AI setup is required");
+    });
+    const runtime = { ...transport(), assertAiSetupReady };
+    client = new AgentKitClient({ transport: runtime });
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer
+            onSubmit={onSubmit}
+            submitRequiresAiSetup={false}
+            autoFocus={false}
+          />
+        </AgentKitProvider>,
+      ),
+    );
+
+    await act(async () => {
+      if (!capture.props) throw new Error("capture.props missing");
+      await capture.props.onSubmit("quarterly roadmap", [], [], {});
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("quarterly roadmap");
+    expect(assertAiSetupReady).not.toHaveBeenCalled();
+    expect(runtime.startRun).not.toHaveBeenCalled();
   });
 
   it("preserves mode instructions when resubmitting an edited message on a fork", async () => {

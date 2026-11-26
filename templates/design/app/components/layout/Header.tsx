@@ -20,8 +20,6 @@ import { cn } from "@/lib/utils";
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.home",
   "/home": "navigation.home",
-  "/design-systems": "navigation.designSystems",
-  "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",
 };
 

@@ -68,15 +68,22 @@ export function requestCountryFromHeaders(
   return requestCountryFromHeader((name) => headers?.get(name) ?? undefined);
 }
 
-function allowsConsentCategory(
+/**
+ * Whether a request may use `category`: `withheld` by a stored choice or by a
+ * country in the consent region, `unknown` with neither a choice nor a usable
+ * country, so a report can tell the consent region from a geo miss.
+ */
+export type ConsentCategoryState = "allowed" | "withheld" | "unknown";
+
+function consentCategoryState(
   cookieHeader: string | undefined,
   country: string | undefined,
   category: ConsentCategory,
-): boolean {
+): ConsentCategoryState {
   const consent = parseConsent(
     parseCookieHeader(cookieHeader)[CONSENT_COOKIE_NAME],
   );
-  if (consent) return consent[category];
+  if (consent) return consent[category] ? "allowed" : "withheld";
   const normalizedCountry = country?.trim().toUpperCase();
   if (
     !normalizedCountry ||
@@ -84,17 +91,17 @@ function allowsConsentCategory(
     normalizedCountry === "XX" ||
     normalizedCountry === "ZZ"
   ) {
-    return false;
+    return "unknown";
   }
-  return !isConsentRegionCountry(normalizedCountry);
+  return isConsentRegionCountry(normalizedCountry) ? "withheld" : "allowed";
 }
 
-/** Consent decision for auth callbacks using standard request headers. */
-export function requestAllowsConsentCategoryFromHeaders(
+/** The consent state for auth callbacks using standard request headers. */
+export function requestConsentCategoryStateFromHeaders(
   headers: Headers | null | undefined,
   category: ConsentCategory,
-): boolean {
-  return allowsConsentCategory(
+): ConsentCategoryState {
+  return consentCategoryState(
     headers?.get("cookie") ?? undefined,
     requestCountryFromHeaders(headers),
     category,
@@ -105,15 +112,33 @@ export function requestAllowsConsentCategoryFromHeaders(
  * A stored choice applies everywhere; without one, the country decides
  * whether storing `category` cookies requires an opt-in.
  */
-export function requestAllowsConsentCategory(
+export function requestConsentCategoryState(
   event: H3Event,
   category: ConsentCategory,
-): boolean {
-  return allowsConsentCategory(
+): ConsentCategoryState {
+  return consentCategoryState(
     getHeader(event, "cookie"),
     requestCountry(event),
     category,
   );
+}
+
+/** Consent decision for auth callbacks using standard request headers. */
+export function requestAllowsConsentCategoryFromHeaders(
+  headers: Headers | null | undefined,
+  category: ConsentCategory,
+): boolean {
+  return (
+    requestConsentCategoryStateFromHeaders(headers, category) === "allowed"
+  );
+}
+
+/** Whether `requestConsentCategoryState` allows `category`. */
+export function requestAllowsConsentCategory(
+  event: H3Event,
+  category: ConsentCategory,
+): boolean {
+  return requestConsentCategoryState(event, category) === "allowed";
 }
 
 /**

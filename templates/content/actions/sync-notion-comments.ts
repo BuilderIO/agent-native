@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertAgentsMayCommentOnPageId } from "./_document-agent-lock.js";
 import { getNotionDocumentOwner } from "./_notion-action-utils.js";
 
 export default defineAction({
@@ -12,7 +13,7 @@ export default defineAction({
     documentId: z.string().optional().describe("Document ID (required)"),
   }),
   http: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = args.documentId;
     if (!documentId) throw new Error("--documentId is required");
 
@@ -23,6 +24,7 @@ export default defineAction({
     } = await import("../server/lib/notion.js");
     const { getSyncLink } = await import("../server/lib/notion-sync.js");
     const owner = await getNotionDocumentOwner(documentId);
+    await assertAgentsMayCommentOnPageId(documentId, ctx);
 
     const syncLink = await getSyncLink(documentId, owner);
     if (!syncLink) {
@@ -40,6 +42,8 @@ export default defineAction({
     const ownerEmail = owner;
 
     const notionComments = await listNotionComments(notionPageId, accessToken);
+    // Notion can take a while; a person may have set Can view meanwhile.
+    await assertAgentsMayCommentOnPageId(documentId, ctx);
     let pulled = 0;
 
     const existingByNotionId = new Map<

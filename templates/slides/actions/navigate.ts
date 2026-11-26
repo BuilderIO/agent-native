@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { navigationIntentSchema } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import {
@@ -44,6 +45,7 @@ export default defineAction({
       .describe(
         "Deprecated/internal zero-based slide index. Prefer slideNumber for user-visible slide references.",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
   run: async (args) => {

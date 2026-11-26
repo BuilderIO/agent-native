@@ -1,6 +1,4 @@
-import { appStateGet } from "@agent-native/core/application-state";
 import { lookupGongCallsByEmail } from "@agent-native/core/provider-api/gong";
-import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -8,6 +6,11 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
+import {
+  integrationContextFor,
+  readIntegrationKey,
+} from "../lib/integration-keys.js";
 
 export const gongValidate = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event).catch(() => ({}));
@@ -47,16 +50,8 @@ export const gongValidate = defineEventHandler(async (event: H3Event) => {
   };
 });
 
-async function getSessionId(event: H3Event): Promise<string> {
-  const session = await getSession(event);
-  if (!session) return "local";
-  return session.email;
-}
-
 async function getGongKey(event: H3Event): Promise<string | undefined> {
-  const sessionId = await getSessionId(event);
-  const data = await appStateGet(sessionId, "gong");
-  return (data as any)?.apiKey || undefined;
+  return readIntegrationKey("gong", await integrationContextFor(event));
 }
 
 export const gongCallsLookup = defineEventHandler(async (event: H3Event) => {

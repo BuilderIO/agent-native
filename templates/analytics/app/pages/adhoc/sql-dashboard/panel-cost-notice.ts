@@ -1,10 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import { serializePanelSql } from "./panel-sql";
-import type { SqlPanel } from "./types";
 
 const MIB = 1024 ** 2;
 const GIB = 1024 ** 3;

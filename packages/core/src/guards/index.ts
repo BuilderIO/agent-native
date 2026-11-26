@@ -9,7 +9,11 @@ export {
   analyzeEmptyMigrationsSource,
   shouldScanEmptyMigrationsFile,
 } from "./no-empty-migrations.js";
-export { scanEnvCredentials } from "./no-env-credentials.js";
+export {
+  parseTestEnvKeys,
+  scanEnvCredentials,
+  type EnvCredentialsScanOptions,
+} from "./no-env-credentials.js";
 export { scanEnvMutation } from "./no-env-mutation.js";
 export { scanIdentityColumnsRegistered } from "./identity-columns-registered.js";
 export { scanLocalhostFallback } from "./no-localhost-fallback.js";

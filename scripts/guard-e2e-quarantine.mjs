@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +10,7 @@ import {
   findDesignE2ESuppressionCallSites,
   findDesignE2ETestRegistrations,
 } from "./design-e2e-regression-pins.ts";
+import { readProvidedRoots } from "./guard-no-untracked-imports.mjs";
 import {
   GUARD_EXIT_COULD_NOT_RUN,
   resolveDiffBase,
@@ -779,9 +780,28 @@ export function inspectCurrentFiles(cwd) {
   return { files, fixmeCount, skipCount, unexplained };
 }
 
+export function isDesignOverlaidFromPublicPin(cwd) {
+  if (!existsSync(path.join(cwd, "PUBLIC_PIN"))) return false;
+  try {
+    const providedRoots = readProvidedRoots(cwd);
+    return providedRoots.some(
+      (root) =>
+        root === "templates/design/" || "templates/design/".startsWith(root),
+    );
+  } catch (error) {
+    failToRun(error instanceof Error ? error.message : String(error));
+  }
+}
+
 function main() {
   const listOnly = process.argv.includes("--list");
   try {
+    if (isDesignOverlaidFromPublicPin(REPO_ROOT)) {
+      console.log(
+        "guard:e2e-quarantine: templates/design/ is overlaid from PUBLIC_PIN; gated upstream.",
+      );
+      return;
+    }
     const { files, fixmeCount, skipCount, unexplained } =
       inspectCurrentFiles(REPO_ROOT);
     const rows = [

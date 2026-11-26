@@ -423,11 +423,9 @@ export function buildRadialGradientDef(
   return `<radialGradient id="${id}"${units} cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}">${stopMarkup(stops)}</radialGradient>`;
 }
 
-// ---------------------------------------------------------------------------
 // Computed-style string parsers — pure, unit-testable without a browser.
 // These assume Chromium's normalized `getComputedStyle` output (the engine
 // `extractFigmaSvgScene` renders with), documented per-function.
-// ---------------------------------------------------------------------------
 
 // guard:allow-raw-color — exported SVG paint read from the design's own computed styles, never app UI
 /** Split on top-level commas only — doesn't split inside `rgba(...)`/`rgb(...)` parens. */

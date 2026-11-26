@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 // @vitest-environment happy-dom
 
 import { VisualScrubInput } from "@agent-native/toolkit/design-tweaks";
@@ -19,7 +20,7 @@ import {
 } from "./useDesignHotkeys";
 
 describe("isDesignHotkeyEditableTarget", () => {
-  it("treats Monaco-style textbox elements as editable targets", () => {
+  it("treats ARIA textbox elements as editable targets", () => {
     const root = document.createElement("div");
     root.setAttribute("data-hotkeys-scope", "text");
     const textbox = document.createElement("div");
@@ -576,21 +577,7 @@ describe("useDesignHotkeys — drawing tool bindings", () => {
     expect(onTextTool).toHaveBeenCalledTimes(1);
   });
 
-  it("Shift+Y arms the annotation/draw tool and a bare Y does not", async () => {
-    const onDrawTool = vi.fn();
-    const onToolChange = vi.fn();
-    await withHotkeys({ onDrawTool, onToolChange }, () => {
-      dispatchKey("y");
-      dispatchKey("y", { shiftKey: true });
-    });
-    expect(onDrawTool).toHaveBeenCalledTimes(1);
-    expect(onToolChange).toHaveBeenCalledWith(
-      "draw",
-      expect.objectContaining({ key: "y" }),
-    );
-  });
-
-  it("leaves Shift+Y alone when no draw handler is wired (Annotate lab off)", async () => {
+  it("leaves Shift+Y unbound", async () => {
     const onMoveTool = vi.fn();
     let shiftY: KeyboardEvent | undefined;
     await withHotkeys({ onMoveTool }, () => {

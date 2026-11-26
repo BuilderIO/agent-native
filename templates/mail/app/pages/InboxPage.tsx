@@ -1,17 +1,32 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
 import { inboxTabHref } from "@shared/inbox-threads";
+import { openThreadPath } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
+import { IconMail } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { EmailList, InboxZero } from "@/components/email/EmailList";
+import {
+  EmailList,
+  InboxZero,
+  type EmailListSection,
+} from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
+import { ReadingPaneDivider } from "@/components/email/ReadingPaneDivider";
+import {
+  DraftsHeaderActions,
+  RequestedDrafts,
+} from "@/components/email/RequestedDrafts";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -19,6 +34,7 @@ import {
   FOCUS_COMPOSE_DRAFT_EVENT,
   useComposeState,
 } from "@/hooks/use-compose-state";
+import { useQueuedDrafts } from "@/hooks/use-draft-queue";
 import {
   EMPTY_LABELS,
   useEmails,
@@ -29,16 +45,19 @@ import {
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import {
   INBOX_PAGE_SIZE,
+  invalidateInboxThreads,
   inboxThreadsHasNextPage,
   mergeInboxThreadPages,
   resolveInboxTabId,
   useInboxOverview,
   useInboxThreads,
   useInboxThreadsPages,
+  type InboxSyncResult,
 } from "@/hooks/use-inbox-threads";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useReadingPane } from "@/hooks/use-reading-pane";
 import {
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
@@ -72,7 +91,7 @@ function ContactPanel({
   allowEmailSearch,
 }: {
   emailId: string | undefined;
-  contactEmail?: string;
+  contactEmail?: string | undefined;
   emails: EmailMessage[];
   allowEmailSearch: boolean;
 }) {
@@ -121,7 +140,13 @@ function ContactPanel({
           );
         })
         .slice(0, 4)
-        .map((e) => ({ id: e.id, subject: e.subject }))
+        .map((e) => ({
+          id: e.id,
+          threadId: e.threadId || e.id,
+          subject: e.subject,
+          date: e.date,
+          accountEmail: e.accountEmail,
+        }))
     : [];
 
   useEffect(() => {
@@ -169,6 +194,7 @@ function ContactPanel({
       recentEmails={recentFromContact}
       recentEmailsError={allEmailsError}
       threadId={email?.threadId}
+      subject={email?.subject}
       focusedEmailId={email?.id ?? emailId}
     />
   );
@@ -319,6 +345,16 @@ function ThreadListSidebar({
   );
 }
 
+function ReadingPaneEmpty() {
+  const t = useT();
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground/60">
+      <IconMail aria-hidden="true" className="size-8" stroke={1.25} />
+      <p className="text-sm">{t("mail.readingPane.empty")}</p>
+    </div>
+  );
+}
+
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
@@ -376,6 +412,7 @@ export function InboxPage() {
     [selectedIds],
   );
   const [isMaximized, setIsMaximized] = useState(false);
+  const [listThreadIds, setListThreadIds] = useState<string[] | null>(null);
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
@@ -384,6 +421,12 @@ export function InboxPage() {
     isLoading: settingsLoading,
     isError: settingsError,
   } = useSettings();
+  const readingPane = useReadingPane(
+    settings ? settings.previewPane !== "off" : undefined,
+  );
+  const paneLayout =
+    readingPane.layout?.mode === "pane" ? readingPane.layout : null;
+  const paneListRef = useRef<HTMLDivElement>(null);
   const jevAvailability = useActionQuery(
     "get-jev-availability",
     {},
@@ -522,9 +565,51 @@ export function InboxPage() {
     { enabled: view === "inbox" },
   );
   const inboxOverview = useInboxOverview(inboxAccountEmails);
+  const queryClient = useQueryClient();
+  const loadOlderMutation = useActionMutation<
+    InboxSyncResult,
+    { accountEmails?: string[]; loadOlder: boolean },
+    "sync-inbox"
+  >("sync-inbox", {
+    method: "POST",
+    skipActionQueryInvalidation: true,
+    errorNotification: "caller",
+  });
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
   const inboxMetadata =
     inboxOverview.data ??
     (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
+  const hasOlderInbox =
+    isInboxView &&
+    (inboxMetadata?.accounts.some((account) => account.backfillPending) ===
+      true ||
+      inboxThreads.data?.hasLegacyClassification === true);
+  const loadOlderInbox = useCallback(async () => {
+    if (loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const result = await loadOlderMutation.mutateAsync({
+        ...(inboxAccountEmails ? { accountEmails: inboxAccountEmails } : {}),
+        loadOlder: true,
+      });
+      if (
+        result.accounts.some(
+          (account) =>
+            account.state === "error" || account.state === "needs_reauth",
+        )
+      ) {
+        toast.error(t("mail.toasts.failedToRefreshInbox"));
+      }
+      await invalidateInboxThreads(queryClient);
+    } catch {
+      toast.error(t("mail.toasts.failedToRefreshInbox"));
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [inboxAccountEmails, loadOlderMutation, queryClient, t]);
   const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
   useEffect(() => {
     const priorityExtraPages = Math.max(
@@ -848,6 +933,48 @@ export function InboxPage() {
     savedFilterQueries,
   ]);
 
+  const isDraftsView = view === "drafts";
+  const { data: scheduledEmails } = useEmails(
+    "scheduled",
+    searchQuery,
+    undefined,
+    { enabled: isDraftsView },
+  );
+  const requestedDrafts = useQueuedDrafts({
+    scope: "review",
+    status: "active",
+    limit: 100,
+  });
+  const draftSections = useMemo<EmailListSection[] | undefined>(() => {
+    if (!isDraftsView) return undefined;
+    const scheduled = (scheduledEmails ?? EMPTY_EMAILS).filter(
+      (e) =>
+        activeAccounts.size === 0 ||
+        (e.accountEmail && activeAccounts.has(e.accountEmail)),
+    );
+    return [
+      {
+        id: "scheduled",
+        title: t("mail.views.scheduled"),
+        emails: scheduled,
+        soonestFirst: true,
+      },
+      { id: "drafts", title: t("mail.views.drafts"), emails },
+    ];
+  }, [isDraftsView, scheduledEmails, activeAccounts, emails, t]);
+  const listEmails = useMemo(
+    () => draftSections?.flatMap((section) => section.emails) ?? emails,
+    [draftSections, emails],
+  );
+  const draftsHeaderActions = useMemo(
+    () => (isDraftsView ? <DraftsHeaderActions /> : undefined),
+    [isDraftsView],
+  );
+  const requestedSection =
+    isDraftsView && !searchQuery && requestedDrafts.drafts.length > 0 ? (
+      <RequestedDrafts drafts={requestedDrafts.drafts} />
+    ) : undefined;
+
   useEffect(
     () => setSelectedIds(new Set()),
     [view, activeLabel, activeInboxTab, activeFilterId],
@@ -871,6 +998,7 @@ export function InboxPage() {
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
       sort: sortMode === "priority" && showPrioritySort ? sortMode : undefined,
+      readingPane: paneLayout ? true : undefined,
     });
   }, [
     view,
@@ -888,6 +1016,7 @@ export function InboxPage() {
     showPrioritySort,
     jevAvailability.isError,
     sortMode,
+    paneLayout !== null,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
@@ -925,7 +1054,7 @@ export function InboxPage() {
     } else if (targetView === "draft-queue") {
       const target = navCommand.queuedDraftId
         ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
-        : "/draft-queue";
+        : "/drafts";
       void navigate(target);
     } else if (targetView === "settings") {
       void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
@@ -934,9 +1063,9 @@ export function InboxPage() {
     } else if (targetFilter) {
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
-      void navigate(`/${targetView}/${targetThread}`);
+      void navigate(openThreadPath(targetView, targetThread));
     } else if (targetView !== view) {
-      void navigate(`/${targetView}`);
+      void navigate(`/${targetView === "scheduled" ? "drafts" : targetView}`);
     }
 
     void navState.clearCommand();
@@ -948,7 +1077,7 @@ export function InboxPage() {
   // cascades through EmailThread's props and re-renders the whole detail
   // view. With this, the props only change when the list of threads (or
   // their latest-message identities) actually changes.
-  const rawThreads = useMemo(() => groupIntoThreads(emails), [emails]);
+  const rawThreads = useMemo(() => groupIntoThreads(listEmails), [listEmails]);
   const prevThreadsRef = useRef<ThreadSummary[]>([]);
   const threads = useMemo(() => {
     const prev = prevThreadsRef.current;
@@ -970,6 +1099,16 @@ export function InboxPage() {
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],
   );
+
+  const paneOpen = paneLayout !== null;
+  useEffect(() => {
+    if (!paneOpen || !threadId) return;
+    const open = threads.find(
+      (thread) =>
+        (thread.latestMessage.threadId || thread.latestMessage.id) === threadId,
+    );
+    if (open) setFocusedId(open.latestMessage.id);
+  }, [paneOpen, threadId, threads]);
 
   useEffect(() => {
     if (
@@ -1031,7 +1170,7 @@ export function InboxPage() {
     searchQuery,
     isSavedFilter: Boolean(activeSavedFilter),
     threadCount: threads.length,
-    hasNextPage: Boolean(hasNextPage),
+    hasNextPage: Boolean(hasNextPage || hasOlderInbox),
     hasAccountErrors: Boolean(accountErrors?.length),
   });
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
@@ -1062,96 +1201,158 @@ export function InboxPage() {
     return <InboxZero />;
   }
 
-  return (
-    <div className="flex flex-1 overflow-hidden">
-      {/* Main content */}
-      {hasThread && !isMobile && !isMaximized && (
-        <ThreadListSidebar
-          emails={emails}
-          activeThreadId={threadId}
-          view={view}
-          searchParams={searchParams}
+  const emailList = (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">
+        <EmailList
+          emails={listEmails}
+          sections={draftSections}
+          topSection={requestedSection}
+          headerActions={draftsHeaderActions}
+          focusedId={focusedId}
+          setFocusedId={setFocusedId}
           selectedIds={selectedIds}
           setSelectedIds={setSelectedIds}
+          onCompose={handleCompose}
+          onArchived={setLastArchivedId}
+          onDraftOpen={handleDraftOpen}
           onNavigateThread={handleOptimisticThreadNavigation}
+          isLoading={emailListLoading}
+          isFetching={isFetching}
+          emailsError={emailsError}
+          accountErrors={accountErrors}
+          read={listRead}
+          labels={
+            isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined
+          }
+          refetchEmails={refetchEmails}
+          hasNextPage={hasNextPage}
+          reachedCap={isInboxView && inboxReachedCap}
+          fetchNextPage={fetchNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          isFetchNextPageError={isFetchNextPageError}
+          sortMode={sortMode}
+          showPrioritySort={showPrioritySort}
+          jevConfigured={jevConfigured}
+          priorityProviderIdentity={
+            jevAvailability.data?.providerIdentity ?? "unavailable"
+          }
+          jevAvailabilityLoading={
+            jevAvailability.isLoading || jevAvailability.isFetching
+          }
+          jevAvailabilityError={jevAvailability.isError}
+          onJevConnected={onJevAvailabilityChange}
+          onJevRetry={onJevAvailabilityChange}
+          onSortModeChange={changeSortMode}
+          readingPane={paneLayout !== null}
+          keyboardEnabled={!(paneLayout && hasThread)}
+          onThreadOrderChange={setListThreadIds}
         />
-      )}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {hasThread ? (
-          <EmailThread
-            activeThreadId={threadId}
-            activeThreadAccountEmail={
-              optimisticThread === undefined
-                ? undefined
-                : (optimisticThread?.accountEmail ?? null)
-            }
-            onArchived={setLastArchivedId}
-            emailIds={threadIds}
-            threads={threads}
-            selectedIds={selectedIds}
-            setSelectedIds={setSelectedIds}
-            onContactSelect={setSidebarContactEmail}
-            onNavigateThread={handleOptimisticThreadNavigation}
-            isMaximized={isMaximized}
-            onToggleMaximize={() => setIsMaximized((v) => !v)}
-          />
-        ) : (
-          <EmailList
-            emails={emails}
-            focusedId={focusedId}
-            setFocusedId={setFocusedId}
-            selectedIds={selectedIds}
-            setSelectedIds={setSelectedIds}
-            onCompose={handleCompose}
-            onArchived={setLastArchivedId}
-            onDraftOpen={handleDraftOpen}
-            onNavigateThread={handleOptimisticThreadNavigation}
-            isLoading={emailListLoading}
-            isFetching={isFetching}
-            emailsError={emailsError}
-            accountErrors={accountErrors}
-            read={listRead}
-            labels={
-              isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined
-            }
-            refetchEmails={refetchEmails}
-            hasNextPage={hasNextPage}
-            reachedCap={isInboxView && inboxReachedCap}
-            fetchNextPage={fetchNextPage}
-            isFetchingNextPage={isFetchingNextPage}
-            isFetchNextPageError={isFetchNextPageError}
-            sortMode={sortMode}
-            showPrioritySort={showPrioritySort}
-            jevConfigured={jevConfigured}
-            priorityProviderIdentity={
-              jevAvailability.data?.providerIdentity ?? "unavailable"
-            }
-            jevAvailabilityLoading={
-              jevAvailability.isLoading || jevAvailability.isFetching
-            }
-            jevAvailabilityError={jevAvailability.isError}
-            onJevConnected={onJevAvailabilityChange}
-            onJevRetry={onJevAvailabilityChange}
-            onSortModeChange={changeSortMode}
-          />
-        )}
       </div>
+      {hasOlderInbox && (
+        <button
+          type="button"
+          disabled={loadingOlder}
+          onClick={() => void loadOlderInbox()}
+          className="shrink-0 border-t border-border/30 px-4 py-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          {t(loadingOlder ? "mail.empty.loadingMore" : "mail.empty.loadOlder")}
+        </button>
+      )}
+    </div>
+  );
+  const showPaneList = paneLayout !== null && !(hasThread && isMaximized);
+  const contactPanelDisplay = paneLayout
+    ? paneLayout.showSidePanel
+      ? "flex"
+      : null
+    : "mail-contact-side-panel hidden";
 
-      {!(hasThread && isMaximized) && (
-        <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]">
-          {emailListLoading ? (
-            <ContactPanelSkeleton />
-          ) : (
-            <ContactPanel
-              emailId={contactEmailId}
-              contactEmail={sidebarContactEmail}
-              emails={emails}
-              allowEmailSearch={
-                !isInboxView || (googleStatus.isSuccess && !isGoogleConnected)
-              }
+  return (
+    <div ref={readingPane.containerRef} className="flex flex-1 overflow-hidden">
+      {readingPane.layout && (
+        <>
+          {paneLayout && showPaneList && (
+            <div
+              ref={paneListRef}
+              style={{ width: paneLayout.listWidth }}
+              className="flex shrink-0 flex-col overflow-hidden"
+            >
+              {emailList}
+            </div>
+          )}
+          {paneLayout && showPaneList && (
+            <ReadingPaneDivider
+              listRef={paneListRef}
+              width={paneLayout.listWidth}
+              minWidth={paneLayout.listMinWidth}
+              maxWidth={paneLayout.listMaxWidth}
+              onCommit={readingPane.commitListWidth}
             />
           )}
-        </div>
+          {!paneLayout && hasThread && !isMobile && !isMaximized && (
+            <ThreadListSidebar
+              emails={listEmails}
+              activeThreadId={threadId}
+              view={view}
+              searchParams={searchParams}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              onNavigateThread={handleOptimisticThreadNavigation}
+            />
+          )}
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {hasThread ? (
+              <EmailThread
+                activeThreadId={threadId}
+                activeThreadAccountEmail={
+                  optimisticThread === undefined
+                    ? undefined
+                    : (optimisticThread?.accountEmail ?? null)
+                }
+                onArchived={setLastArchivedId}
+                emailIds={
+                  showPaneList && listThreadIds ? listThreadIds : threadIds
+                }
+                threads={threads}
+                selectedIds={selectedIds}
+                setSelectedIds={setSelectedIds}
+                onContactSelect={setSidebarContactEmail}
+                onNavigateThread={handleOptimisticThreadNavigation}
+                isMaximized={isMaximized}
+                onToggleMaximize={() => setIsMaximized((v) => !v)}
+                variant={showPaneList ? "pane" : "full"}
+              />
+            ) : paneLayout ? (
+              <ReadingPaneEmpty />
+            ) : (
+              emailList
+            )}
+          </div>
+
+          {contactPanelDisplay && !(hasThread && isMaximized) && (
+            <div
+              className={cn(
+                contactPanelDisplay,
+                "w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]",
+              )}
+            >
+              {emailListLoading ? (
+                <ContactPanelSkeleton />
+              ) : (
+                <ContactPanel
+                  emailId={contactEmailId}
+                  contactEmail={sidebarContactEmail}
+                  emails={emails}
+                  allowEmailSearch={
+                    !isInboxView ||
+                    (googleStatus.isSuccess && !isGoogleConnected)
+                  }
+                />
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -95,24 +95,16 @@ describe("gfmDoc GFM ↔ ProseMirror primitive", () => {
       expect(levels).toEqual([1, 2, 3]);
     });
 
-    it("paragraph", () => {
-      expect(meaningfulTypes("Just text.")).toEqual(["paragraph"]);
-    });
+    // oracle-change: five one-line block-type tests became one it.each table; each case still asserts meaningfulTypes
 
-    it("bulleted list", () => {
-      expect(meaningfulTypes("- a\n- b")).toEqual(["bulletList"]);
-    });
-
-    it("numbered list", () => {
-      expect(meaningfulTypes("1. a\n2. b")).toEqual(["orderedList"]);
-    });
-
-    it("task list", () => {
-      expect(meaningfulTypes("- [ ] a\n- [x] b")).toEqual(["taskList"]);
-    });
-
-    it("blockquote", () => {
-      expect(meaningfulTypes("> quoted")).toEqual(["blockquote"]);
+    it.each([
+      ["paragraph", "Just text.", "paragraph"],
+      ["bulleted list", "- a\n- b", "bulletList"],
+      ["numbered list", "1. a\n2. b", "orderedList"],
+      ["task list", "- [ ] a\n- [x] b", "taskList"],
+      ["blockquote", "> quoted", "blockquote"],
+    ])("%s", (_name, markdown, type) => {
+      expect(meaningfulTypes(markdown)).toEqual([type]);
     });
 
     it("fenced code block keeps language", () => {

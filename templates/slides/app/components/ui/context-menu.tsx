@@ -1,19 +1,24 @@
 import * as ContextMenuParts from "@agent-native/toolkit/ui/context-menu";
 import * as React from "react";
 
+import { cn } from "@/lib/utils";
+
 export * from "@agent-native/toolkit/ui/context-menu";
 
+const INSTANT_MENU_CLASS = "data-[state=open]:!animate-none";
+
 function instantMenuStyle(style: React.CSSProperties | undefined) {
-  return { ...style, animation: "none", transition: "none" };
+  return { ...style, transition: "none" };
 }
 
 export const ContextMenuContent = React.forwardRef<
   React.ElementRef<typeof ContextMenuParts.ContextMenuContent>,
   React.ComponentPropsWithoutRef<typeof ContextMenuParts.ContextMenuContent>
->(({ style, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => (
   <ContextMenuParts.ContextMenuContent
     {...props}
     ref={ref}
+    className={cn(INSTANT_MENU_CLASS, className)}
     style={instantMenuStyle(style)}
   />
 ));
@@ -22,10 +27,11 @@ ContextMenuContent.displayName = "ContextMenuContent";
 export const ContextMenuSubContent = React.forwardRef<
   React.ElementRef<typeof ContextMenuParts.ContextMenuSubContent>,
   React.ComponentPropsWithoutRef<typeof ContextMenuParts.ContextMenuSubContent>
->(({ style, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => (
   <ContextMenuParts.ContextMenuSubContent
     {...props}
     ref={ref}
+    className={cn(INSTANT_MENU_CLASS, className)}
     style={instantMenuStyle(style)}
   />
 ));

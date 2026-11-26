@@ -30,7 +30,11 @@ export default createAgentChatPlugin({
   prepareRequest: async ({ references }) => {
     await validateRecordingReferences(references);
   },
-  mcp: { appApprovalPage: true },
+  mcp: {
+    appApprovalPage: true,
+    instructions:
+      "Use open_app to show Clips views (including /library?q=<query> for filtered Library search results), or ask_app to search, filter, and work with recordings.",
+  },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   durableBackgroundRuns: true,
@@ -41,6 +45,9 @@ The transcript in view-screen and get-recording-player-data is bounded when call
 <clips-agent-routing>
 For summaries, action-item lists, follow-up lists, and todo lists based on the recording in view, use Clips' recording/transcript actions and answer directly in this chat. Do not call Plan or another app for a generic written list. Only delegate to Plan when the user explicitly asks for a visual or structured Agent-Native Plan, a Plan artifact, or the Plans app.
 </clips-agent-routing>
+<clips-library-search>
+When the user asks to find, search, or filter clips or recordings by keyword or topic, filter the active list view on screen by calling navigate with view="library" and search="<query>" (or view="space" with spaceId and search inside a space), even if matching recordings already appear in current-screen. Do not only list matches in chat while leaving the Library unfiltered, and do not jump straight into a single recording player (view="recording") unless the user asks to open, play, or inspect a specific clip or its transcript/comments.
+</clips-library-search>
 <clips-recording-discovery>
 Clips public recordings are unlisted-by-link, not a searchable public catalog. Treat a recording as known only when it is owned by the current user, already appears in the current screen, or the current user has already viewed it. Do not use list-recordings or search-recordings to discover someone else's clips, recover from a failed direct lookup, answer a date/time question, or search by a title that was not supplied by the user. A question such as when this clip was created refers to the clip already in context; answer it from current-screen or get-recording-player-data. If a direct recording lookup fails, report the failure and stop instead of broadening the search. Only inspect another clip when the user provides its share URL or recording id in the request.
 </clips-recording-discovery>`,

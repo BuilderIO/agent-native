@@ -19,6 +19,7 @@ export default defineAction({
   readOnly: true,
   parallelSafe: true,
   authorize: authorizeObservabilityOrgAdmin,
+  mcpTool: false,
   run: async (args, ctx) => {
     const access = getObservabilityOrgAdminAccess(ctx);
     const orgId = resolveObservabilityReviewOrg(access.reviewScope, args.orgId);

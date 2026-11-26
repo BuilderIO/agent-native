@@ -1,0 +1,117 @@
+/*
+ * Part: data-list
+ *
+ *   <dl class="data-list" data-orientation="horizontal|vertical"
+ *       [data-trim="normal|start|end|both"]>
+ *     <div class="data-list-item">
+ *       <dt class="data-list-label">
+ *       <dd class="data-list-value">
+ *
+ * Radix Themes' data list: label and value pairs. Horizontal sets the
+ * labels in one column beside their values, aligned on the first line's
+ * baseline; vertical stacks each label over its value. A taller value,
+ * such as a Badge or a Button, may hang a little past its row in a
+ * horizontal list so the rows keep the type's rhythm; the first and last
+ * rows keep it inside the list. `trim` removes the half-leading above the
+ * first row, below the last, or both, so the list sits flush with its box.
+ */
+
+@layer components {
+  .data-list {
+    --_data-list-gap: var(--space-3);
+    --_data-list-line-height: var(--line-height-2);
+    --_data-list-trim: calc((1em - var(--_data-list-line-height)) / 2);
+
+    margin: 0;
+    gap: var(--_data-list-gap);
+    color: var(--fg-default);
+    font-size: var(--font-size-2);
+    font-weight: var(--font-weight-regular);
+    font-style: normal;
+    line-height: var(--_data-list-line-height);
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+
+  .data-list-label {
+    display: flex;
+    color: var(--fg-muted);
+  }
+
+  .data-list-value {
+    display: flex;
+    min-width: 0;
+    margin: 0;
+  }
+
+  /* A zero-width joiner gives an empty or flex-only cell a baseline to align on. */
+  .data-list-label::before,
+  .data-list-value::before {
+    content: "\200D";
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- orientation ---- */
+
+  .data-list[data-orientation="horizontal"] {
+    display: grid;
+    grid-template-columns: auto 1fr;
+  }
+
+  .data-list[data-orientation="horizontal"] .data-list-item {
+    display: grid;
+    grid-template-columns: inherit;
+    grid-template-columns: subgrid;
+    grid-column: span 2;
+    gap: inherit;
+    align-items: baseline;
+  }
+
+  .data-list[data-orientation="horizontal"] .data-list-label {
+    min-width: 120px;
+  }
+
+  .data-list[data-orientation="horizontal"] .data-list-value {
+    margin-block: -0.25em;
+  }
+
+  .data-list[data-orientation="horizontal"]
+    .data-list-item:first-child
+    .data-list-value {
+    margin-top: 0;
+  }
+
+  .data-list[data-orientation="horizontal"]
+    .data-list-item:last-child
+    .data-list-value {
+    margin-bottom: 0;
+  }
+
+  .data-list[data-orientation="vertical"] {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .data-list[data-orientation="vertical"] .data-list-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .data-list[data-orientation="vertical"] .data-list-label {
+    min-width: 0;
+  }
+
+  /* ---- trim ---- */
+
+  .data-list:is([data-trim="start"], [data-trim="both"])
+    .data-list-item:first-child {
+    margin-top: var(--_data-list-trim);
+  }
+
+  .data-list:is([data-trim="end"], [data-trim="both"])
+    .data-list-item:last-child {
+    margin-bottom: var(--_data-list-trim);
+  }
+}

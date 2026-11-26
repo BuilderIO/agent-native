@@ -55,7 +55,7 @@ function listAs(userEmail: string, appId: string | undefined) {
 
 beforeAll(async () => {
   process.env.SECRETS_ENCRYPTION_KEY ??= "workspace-connection-scopes-test-key";
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await asUser("alice@example.com", async () => {
     await upsertWorkspaceConnection({
       id: "hubspot-alice",
@@ -136,4 +136,10 @@ describe("list-workspace-connection-scopes", () => {
       errorCode: "app_required",
     });
   });
+});
+
+it("keeps list-workspace-connection-scopes in the app, off MCP", async () => {
+  const { default: action } =
+    await import("./list-workspace-connection-scopes.js");
+  expect(action.mcpTool).toBe(false);
 });

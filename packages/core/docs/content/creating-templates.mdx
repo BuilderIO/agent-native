@@ -372,7 +372,7 @@ export function useNavigationState() {
 }
 ```
 
-Keep shareable filters in URL query params. The framework exposes them to the agent as `<current-url>` and the built-in agent can change them with `set-search-params`; `navigation` should hold semantic IDs and aliases, not a second copy of the full query string.
+Keep shareable filters in URL query params. The framework exposes the keys you declare in `AgentSidebar`'s `urlQueryKeys` to the agent as `<current-url>` (other values show as `<redacted>`), and the built-in agent can change them with `set-search-params`; `navigation` should hold semantic IDs and aliases, not a second copy of the full query string.
 
 For app navigation, prefer one `navigate` command that includes a same-origin
 `path` when the URL is known. Do not also write `__set_url__` for the same move;

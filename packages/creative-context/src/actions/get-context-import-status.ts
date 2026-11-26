@@ -9,5 +9,6 @@ export default defineAction({
   schema: z.object({ jobId: z.string().min(1) }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ jobId }) => ({ job: serializePublicJob(await getJob(jobId)) }),
 });

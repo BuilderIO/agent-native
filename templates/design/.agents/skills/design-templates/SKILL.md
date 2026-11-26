@@ -27,19 +27,17 @@ description: >-
    messaging app, project tasks, design studio) beside ads, posters and pages.
 2. **Save a reusable template.** Call `save-design-as-template` with the source
    `designId`. The action snapshots inline screens, canvas dimensions,
-   defaults, linked design system, and locked layers.
+   defaults, and locked layers.
 3. **Create from a template.** Call `create-design-from-template` with the
-   resolved `templateId`. Pass `designSystemId` only when the user selected an
-   override; the action access-checks it and returns the effective linked id.
-4. **Stop after a pure copy.** If there is no prompt and no pending design-system
-   adaptation, open the copied design and do not start generation.
-5. **Adapt copied screens.** When the user supplied a prompt or chose a
-   different accessible design system, call `get-design-snapshot` exactly once,
+   resolved `templateId`.
+4. **Stop after a pure copy.** If there is no prompt, open the copied design and
+   do not start generation.
+5. **Adapt copied screens.** When the user supplied a prompt, call `get-design-snapshot` exactly once,
    then refine the existing unlocked content with `edit-design`. Never call
    `generate-design`, delete the copied screens, or recreate the template from
    scratch.
 6. **Verify.** Read back the copied design and confirm its screens, canvas
-   dimensions, linked design system, and locked-layer boundaries before
+   dimensions, and locked-layer boundaries before
    reporting completion.
 
 ## The Template On Follow-Up Requests
@@ -81,5 +79,5 @@ explicitly wants one changed, ask them to unlock it in the Layers panel first.
 ## Related Skills
 
 - `design-generation` — creating and refining Design screens.
-- `design-systems` — applying linked systems and tokens.
+- `design-tokens` — reading and editing tokens.
 - `sharing` — access and sharing rules for user-created templates.

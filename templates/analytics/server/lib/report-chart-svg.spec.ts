@@ -4,7 +4,8 @@ vi.mock("@agent-native/core/server", () => ({
   OG_FONT_FAMILY: "Liberation Sans",
 }));
 
-import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
+import { resolveDashboardFunnelRows } from "@agent-native/toolkit/dashboard/dashboard-funnel";
+
 import {
   estimateTextWidth,
   REPORT_CHART_FONT_FAMILY,

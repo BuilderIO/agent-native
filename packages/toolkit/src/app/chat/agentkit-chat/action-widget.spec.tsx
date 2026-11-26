@@ -7,6 +7,7 @@ import type {
   AgentWidget,
 } from "@agent-native/agentkit/protocol";
 import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -16,6 +17,7 @@ import {
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
 } from "@agent-native/core/data-widgets";
+import { waitFor } from "@testing-library/react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -91,6 +93,147 @@ describe("AgentKitActionWidget", () => {
       } finally {
         unregister();
       }
+    },
+  );
+
+  it.each<{
+    label: string;
+    taskRunIds: Record<string, string>;
+    visible: string[];
+    hidden: string[];
+  }>([
+    {
+      label: "all tasks in this run",
+      taskRunIds: { "task-1": "run-2", "task-2": "run-2" },
+      visible: [],
+      hidden: ["Hero copy", "Pricing research"],
+    },
+    {
+      label: "one task in an earlier run",
+      taskRunIds: { "task-1": "run-2" },
+      visible: ["Hero copy"],
+      hidden: ["Pricing research"],
+    },
+    {
+      label: "both tasks in an earlier run",
+      taskRunIds: {},
+      visible: ["Hero copy", "Pricing research"],
+      hidden: [],
+    },
+  ])(
+    "shows team progress for $label",
+    async ({ taskRunIds, visible, hidden }) => {
+      const toolCall: AgentToolCall = {
+        id: "team-1",
+        name: "agent-teams",
+        input: { action: "list" },
+        output: {
+          tasks: [
+            {
+              taskId: "task-1",
+              threadId: "child-1",
+              name: "Pricing research",
+              status: "completed",
+            },
+            {
+              taskId: "task-2",
+              threadId: "child-2",
+              name: "Hero copy",
+              status: "running",
+            },
+          ],
+        },
+        status: "completed",
+        runId: "run-2",
+      };
+      const widget: AgentWidget = {
+        id: "team-1:chat-ui",
+        kind: ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+        data: { toolCallId: toolCall.id, toolName: toolCall.name },
+      };
+      const render = async (
+        taskRunIds: Record<string, string>,
+        expected: string[],
+      ) => {
+        const tasks = [
+          {
+            id: "task-1",
+            title: "Pricing research",
+            status: "completed" as const,
+          },
+          { id: "task-2", title: "Hero copy", status: "running" as const },
+        ];
+        const client = new AgentKitClient({
+          transport: {
+            async startRun() {
+              return { runId: "run-3" };
+            },
+            async *subscribeToRun() {},
+            async cancelRun() {},
+            async getThreadSnapshot() {
+              return {
+                id: "thread-1",
+                createdAt: "2026-09-26T00:00:00.000Z",
+                updatedAt: "2026-09-26T00:00:00.000Z",
+                messages: [],
+                toolCalls: [toolCall],
+                tasks,
+                events: tasks.map((task, index) => {
+                  const runId = taskRunIds[task.id] ?? "run-1";
+                  const sequence = tasks
+                    .slice(0, index + 1)
+                    .filter(
+                      (earlier) =>
+                        (taskRunIds[earlier.id] ?? "run-1") === runId,
+                    ).length;
+                  return {
+                    id: `task-event-${index}`,
+                    threadId: "thread-1",
+                    runId,
+                    sequence,
+                    occurredAt: "2026-09-26T00:00:01.000Z",
+                    type: "task.updated" as const,
+                    task,
+                  };
+                }),
+              };
+            },
+          },
+        });
+        await client.loadThread("thread-1");
+        const container = document.createElement("div");
+        const root = createRoot(container);
+        try {
+          await act(async () => {
+            root.render(
+              <AgentNativeI18nProvider
+                catalog={catalog}
+                persistPreference={false}
+              >
+                <AgentKitProvider controller={client} threadId="thread-1">
+                  <AgentKitActionWidget value={widget} threadId="thread-1" />
+                </AgentKitProvider>
+              </AgentNativeI18nProvider>,
+            );
+          });
+          await waitFor(() => {
+            expect(
+              expected.filter((name) => container.textContent.includes(name)),
+            ).toEqual(expected);
+          });
+          return container.textContent;
+        } finally {
+          await act(async () => root.unmount());
+        }
+      };
+
+      const text = await render(taskRunIds, visible);
+      for (const name of visible) expect(text).toContain(name);
+      for (const name of hidden) expect(text).not.toContain(name);
+      expect(text.length === 0).toBe(visible.length === 0);
+      expect(visible.map((name) => text.split(name).length)).toEqual(
+        visible.map(() => 2),
+      );
     },
   );
 

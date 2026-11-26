@@ -16,6 +16,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import {
   documentEditAttribution,
   requireDocumentRequestActor,
@@ -27,6 +28,7 @@ import {
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
@@ -59,7 +61,10 @@ import {
 } from "./_document-edit-mutation.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
-import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
+import {
+  NFM_CONTAINER_SYNTAX,
+  NFM_INTERACTIVE_HTML_SYNTAX,
+} from "./_nfm-syntax.js";
 
 interface TextEdit {
   find: string;
@@ -106,7 +111,7 @@ const editDocumentSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Opaque revision returned by get-document for the exact body being edited.",
+      "Opaque revision of the exact body being edited, from get-document, create-document or the previous edit's receipt.revisions.after. A receipt with outcome \"applied\" and readback.verified already confirms the saved body, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
     ),
   idempotencyKey: z
     .string()
@@ -124,7 +129,7 @@ const editDocumentSchema = z.object({
     .describe(
       'Replacement text in single-edit mode; omit to delete the matched text (default: ""). ' +
         'NFM body: each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. Plain CommonMark blank lines are not preserved. No admonition/callout shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
-        NFM_CONTAINER_SYNTAX,
+        `${NFM_CONTAINER_SYNTAX} ${NFM_INTERACTIVE_HTML_SYNTAX}`,
     ),
   edits: textEditsSchema
     .optional()
@@ -165,7 +170,7 @@ const externalEditDocumentSchema = editDocumentSchema.extend({
     .string()
     .min(1)
     .describe(
-      "Required. Opaque revision returned by get-document for the exact body being edited.",
+      "Required. Opaque revision of the exact body being edited, from get-document, create-document or the previous edit's receipt.revisions.after. A receipt with outcome \"applied\" and readback.verified already confirms the saved body, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
     ),
   idempotencyKey: z
     .string()
@@ -301,7 +306,7 @@ async function editThroughLiveCopy(args: {
 
 export default defineAction({
   description:
-    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks, and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks (text between backticks is literal), and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. Pass baseRevision and a caller-generated idempotencyKey; an applied receipt needs no readback.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
@@ -480,6 +485,7 @@ export default defineAction({
       return { applied: 0, total: edits.length, results };
     }
     assertNoNewlySharedVideoIds(existing.content, content);
+    assertInteractiveHtmlBlocks(ctx, existing.content, content);
 
     let linkedLocalPersistence:
       | {
@@ -652,6 +658,10 @@ export default defineAction({
         await syncPrivateMediaReferences(
           tx as unknown as ReturnType<typeof getDb>,
           { documentId: id, after: content, userEmail: actor },
+        );
+        await syncAnalyticsChartCitations(
+          tx as unknown as ReturnType<typeof getDb>,
+          { documentId: id, before: existing.content ?? "", after: content },
         );
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({

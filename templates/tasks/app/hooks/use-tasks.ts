@@ -2,7 +2,12 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  matchQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
+import { useCallback, useEffect } from "react";
 
 import type { TaskFieldValue } from "../../server/custom-fields/task-fields.js";
 import type { FieldValue } from "../../server/custom-fields/values/store.js";
@@ -12,7 +17,10 @@ import { LIST_TASKS_QUERY_KEY, invalidateTasks } from "./cache";
 export type { Task } from "../../server/tasks/store.js";
 export { LIST_TASKS_QUERY_KEY };
 
-export type TaskWithFields = Task & { fields?: TaskFieldValue[] };
+export type TaskWithFields = Task & {
+  fields?: TaskFieldValue[];
+  revision?: string;
+};
 
 type ListTasksData = { tasks: TaskWithFields[]; hasCompletedTasks?: boolean };
 
@@ -157,8 +165,61 @@ export function useCreateTask() {
   });
 }
 
-export function useUpdateTask() {
+export type TaskPatch = {
+  title?: string | undefined;
+  done?: boolean | undefined;
+  fieldValues?:
+    | Array<{ fieldId: string; value: FieldValue | null }>
+    | undefined;
+};
+
+function withTaskPatch(
+  task: TaskWithFields,
+  { title, done, fieldValues }: TaskPatch,
+  updatedAt: string,
+): TaskWithFields {
+  return {
+    ...task,
+    ...(title !== undefined ? { title } : {}),
+    ...(done !== undefined ? { done } : {}),
+    ...(fieldValues && task.fields
+      ? {
+          fields: task.fields.map((field) => {
+            const next = fieldValues.find(
+              (value) => value.fieldId === field.id,
+            );
+            return next ? { ...field, value: next.value } : field;
+          }),
+        }
+      : {}),
+    updatedAt,
+  };
+}
+
+function patchCachedTask(
+  queryClient: QueryClient,
+  taskId: string,
+  patch: TaskPatch,
+) {
+  const timestamp = new Date().toISOString();
+  patchListTasksCache(queryClient, (tasks) =>
+    tasks.map((task) =>
+      task.id === taskId ? withTaskPatch(task, patch, timestamp) : task,
+    ),
+  );
+}
+
+export function useUpdateTask(
+  options: {
+    overlay?: ((taskId: string) => TaskPatch | undefined) | undefined;
+  } = {},
+) {
   const queryClient = useQueryClient();
+  const lifecycle = listTasksOptimisticLifecycle(queryClient);
+  const applyOverlay = (taskId: string) => {
+    const overlay = options.overlay?.(taskId);
+    if (overlay) patchCachedTask(queryClient, taskId, overlay);
+  };
   return useActionMutation<
     TaskWithFields,
     {
@@ -166,44 +227,121 @@ export function useUpdateTask() {
       title?: string;
       done?: boolean;
       fieldValues?: Array<{ fieldId: string; value: FieldValue | null }>;
+      expectedRevision?: string;
     }
   >("update-task", {
-    onMutate: async ({ taskId, title, done, fieldValues }) => {
+    onMutate: async ({ taskId, ...patch }) => {
       const timestamp = new Date().toISOString();
-      return beginListTasksOptimisticUpdate(queryClient, (tasks) =>
+      const context = await beginListTasksOptimisticUpdate(
+        queryClient,
+        (tasks) =>
+          tasks.map((task) =>
+            task.id === taskId ? withTaskPatch(task, patch, timestamp) : task,
+          ),
+      );
+      applyOverlay(taskId);
+      return context;
+    },
+    onSuccess: (updated) => {
+      patchListTasksCache(queryClient, (tasks) =>
+        tasks.map((task) => {
+          if (task.id !== updated.id) return task;
+          const fields = updated.fields ?? task.fields;
+          return fields
+            ? { ...task, ...updated, fields }
+            : { ...task, ...updated };
+        }),
+      );
+      applyOverlay(updated.id);
+    },
+    onError: (error, variables, context) => {
+      lifecycle.onError(error, variables, context);
+      applyOverlay(variables.taskId);
+    },
+    onSettled: lifecycle.onSettled,
+  });
+}
+
+export function usePatchCachedTask() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (taskId: string, patch: TaskPatch) =>
+      patchCachedTask(queryClient, taskId, patch),
+    [queryClient],
+  );
+}
+
+export function useOnListTasksReload(onReload: () => void) {
+  const queryClient = useQueryClient();
+  useEffect(
+    () =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (
+          event.type === "updated" &&
+          event.action.type === "success" &&
+          event.action.manual !== true &&
+          matchQuery({ queryKey: LIST_TASKS_QUERY_KEY }, event.query)
+        ) {
+          onReload();
+        }
+      }),
+    [queryClient, onReload],
+  );
+}
+
+export function useSetCachedTaskRecord() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (
+      taskId: string,
+      record: {
+        title: string;
+        done: boolean;
+        fields: Record<string, FieldValue>;
+      },
+      revision: string | null,
+    ) => {
+      const values = new Map(Object.entries(record.fields));
+      patchListTasksCache(queryClient, (tasks) =>
         tasks.map((task) =>
           task.id === taskId
             ? {
                 ...task,
-                ...(title !== undefined ? { title } : {}),
-                ...(done !== undefined ? { done } : {}),
-                ...(fieldValues && task.fields
+                title: record.title,
+                done: record.done,
+                ...(task.fields
                   ? {
-                      fields: task.fields.map((field) => {
-                        const next = fieldValues.find(
-                          (value) => value.fieldId === field.id,
-                        );
-                        return next ? { ...field, value: next.value } : field;
-                      }),
+                      fields: task.fields.map((field) => ({
+                        ...field,
+                        value: values.get(field.id) ?? null,
+                      })),
                     }
                   : {}),
-                updatedAt: timestamp,
+                ...(revision === null ? {} : { revision }),
               }
             : task,
         ),
       );
     },
-    onSuccess: (updated) => {
-      patchListTasksCache(queryClient, (tasks) =>
-        tasks.map((task) =>
-          task.id === updated.id
-            ? { ...task, ...updated, fields: updated.fields ?? task.fields }
-            : task,
-        ),
-      );
+    [queryClient],
+  );
+}
+
+export function useReadCachedTask() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (taskId: string): TaskWithFields | undefined => {
+      let newest: { task: TaskWithFields; at: number } | undefined;
+      for (const [key, data] of snapshotListTasksQueries(queryClient)) {
+        const task = data?.tasks.find((candidate) => candidate.id === taskId);
+        if (!task?.fields || !task.revision) continue;
+        const at = queryClient.getQueryState(key)?.dataUpdatedAt ?? 0;
+        if (!newest || at > newest.at) newest = { task, at };
+      }
+      return newest?.task;
     },
-    ...listTasksOptimisticLifecycle(queryClient),
-  });
+    [queryClient],
+  );
 }
 
 export function useDeleteTask() {

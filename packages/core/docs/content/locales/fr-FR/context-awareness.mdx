@@ -18,7 +18,7 @@ Pour comprendre quoi mettre sur quelle surface (AGENTS.md contre skills contre a
 Six modèles résolvent ce problème :
 
 1. **État de navigation** - le UI écrit une clé `navigation` dans l'état de l'application à chaque changement d'itinéraire
-2. **URL actuel** - le framework écrit `__url__` afin que les paramètres de requête soient visibles et modifiables par l'agent
+2. **URL actuel** - le framework écrit `__url__` afin que l'agent voie le chemin de la page et les paramètres de requête déclarés par l'application, et puisse les modifier
 3. **État de sélection** - le UI écrit une clé `selection` lorsque l'utilisateur se concentre, sélectionne ou sélectionne plusieurs fois quelque chose de significatif
 4. **`view-screen`** - une action qui lit l'état de l'application, récupère les données contextuelles et renvoie un instantané de ce que voit l'utilisateur
 5. **Transfert rapide** : les contrôles UI appellent `sendToAgentChat()` lorsqu'un clic doit devenir le tour de l'agent
@@ -91,7 +91,7 @@ Utilisez différents canaux contextuels pour différentes tâches :
 | Couche                                                  | Propriétaire      | Utilisez-le pour                                                                                           |
 | ------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
 | Clé d'état de l'application `navigation`                | UI                | État de la route sémantique : vue actuelle, enregistrement ouvert, onglet actif, identifiants stables      |
-| Clé d'état de l'application `__url__`                   | Cadre UI          | Chemin d'accès actuel, chaîne de recherche, hachage et paramètres de requête URL analysés                  |
+| Clé d'état de l'application `__url__`                   | Cadre UI          | Chemin d'accès actuel, hachage et paramètres de requête URL (valeurs uniquement pour les clés déclarées)   |
 | Clé d'état de l'application `__set_url__`               | Agent/framework   | Modifications ponctuelles de URL à partir de `set-search-params` et `set-url-path`                         |
 | Clé d'état de l'application `selection`                 | UI                | Sélection sémantique durable : lignes, blocs, formes, ressources, messages                                 |
 | Clé d'état de l'application `pending-selection-context` | UI / `AgentPanel` | Texte sélectionné en une seule fois attaché au prochain tour de discussion, généralement à partir de Cmd+I |
@@ -146,6 +146,8 @@ searchParams:
 </current-url>
 ```
 
+L'agent voit le chemin et le hachage, mais la valeur d'une requête uniquement pour les clés déclarées par l'application : transmettez `urlQueryKeys` à `AgentSidebar` (noms exacts et motifs `prefix*` ; cet exemple déclare `["f_*", "q"]`). Toute autre clé conserve son nom, et sa valeur s'affiche sous la forme `<redacted>`.
+
 Il s'agit de la couche canonique pour l'état du filtre partageable. Si l'utilisateur peut copier un URL et revenir à la même liste filtrée, le filtre appartient à la chaîne de requête. L'agent peut modifier ces filtres avec l'outil `set-search-params` intégré :
 
 ```text
@@ -154,7 +156,7 @@ set-search-params({ "params": { "f_region": "east", "q": null } })
 
 Utilisez `navigation` uniquement pour les alias sémantiques qui aident `view-screen` à récupérer ou à résumer les bonnes données. Un tableau de bord peut conserver `navigation.dashboardId` tandis que `__url__.searchParams` possède `f_region`, `f_dateStart` et `q`.
 
-Lorsque `view-screen` renvoie un instantané plus riche, il peut copier les filtres URL importants dans un objet `activeFilters` convivial :
+Lorsque `view-screen` renvoie un instantané plus riche, il peut copier les filtres URL importants dans un objet `activeFilters` convivial. Il lit le même `__url__` épuré : déclarez donc aussi ces clés dans `urlQueryKeys` :
 
 ```ts
 const url = (await readAppState("__url__")) as {
@@ -358,6 +360,18 @@ outils framework URL (`set-url-path`, `set-search-params`) et filtre URL uniquem
 changements. Pour les commandes qui peuvent arriver pendant la diffusion du chat, validez la route
 avec `navigate(path, { replace: true, flushSync: true })` au lieu de l'envelopper
 dans une transition de vue afin que la barre d'adresse et la page visible restent ensemble.
+
+### Les agents conservent la vue de l'utilisateur {#agent-keeps-view}
+
+L'écran de l'utilisateur ne change que lorsqu'il a demandé à voir quelque chose. Cela vaut pour tous les agents : le chat intégré, les agents externes via MCP ou WebMCP et les pairs via A2A (`isAgentCaller(ctx)` de `@agent-native/core`).
+
+- Les lectures ne naviguent jamais. Une action en lecture seule qui écrit `navigate` pendant un appel d'agent est refusée au niveau du magasin d'état de l'application.
+- Les écritures ne déplacent pas la vue par défaut. Une écriture d'agent qui écrit `navigate` sans `intent: "open"` est refusée ; appelez `navigateAfterWrite(navigation, { ctx, intent })` de `@agent-native/core/application-state` pour qu'un agent ignore proprement le déplacement sauf si `intent` vaut `"open"`, ou définissez `allowsAgentNavigation: true` sur une action dont le rôle est d'ouvrir une interface.
+- Ouvrir un élément demande `intent: "open"`. `createNavigateAction()` et le magasin d'état l'appliquent par défaut aux champs d'identifiant (`id`, `*Id`) et aux chemins de détail sans code propre à l'application. Ne passez `isDetailView` à `createNavigateAction()` que pour une détection personnalisée.
+
+```ts
+export const navigate = createNavigateAction();
+```
 
 ## Le hook useNavigationState {#use-navigation-state}
 

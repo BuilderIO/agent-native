@@ -7,8 +7,9 @@ import {
   deleteSettingsByPrefix,
   listSettingsByPrefix,
   type SettingEntry,
-  type StoreWriteOptions,
   type StoreReadOptions,
+  type OrgSettingWriteOptions,
+  assertScopedSettingsOptions,
 } from "./store.js";
 
 function orgKey(orgId: string, key: string): string {
@@ -37,9 +38,10 @@ export async function putOrgSetting(
   orgId: string,
   key: string,
   value: Record<string, unknown>,
-  options?: StoreWriteOptions,
+  options?: OrgSettingWriteOptions,
 ): Promise<void> {
-  return putSetting(orgKey(orgId, key), value, options);
+  assertScopedSettingsOptions(options);
+  return putSetting(orgKey(orgId, key), value, { ...options, orgId });
 }
 
 export async function mutateOrgSetting(
@@ -48,24 +50,27 @@ export async function mutateOrgSetting(
   updater: (
     current: Record<string, unknown> | null,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-  options?: StoreWriteOptions,
+  options?: OrgSettingWriteOptions,
 ): Promise<Record<string, unknown>> {
-  return mutateSetting(orgKey(orgId, key), updater, options);
+  assertScopedSettingsOptions(options);
+  return mutateSetting(orgKey(orgId, key), updater, { ...options, orgId });
 }
 
 export async function deleteOrgSetting(
   orgId: string,
   key: string,
-  options?: StoreWriteOptions,
+  options?: OrgSettingWriteOptions,
 ): Promise<boolean> {
-  return deleteSetting(orgKey(orgId, key), options);
+  assertScopedSettingsOptions(options);
+  return deleteSetting(orgKey(orgId, key), { ...options, orgId });
 }
 
 export async function deleteAllOrgSettings(
   orgId: string,
-  options?: StoreWriteOptions,
+  options?: OrgSettingWriteOptions,
 ): Promise<number> {
-  return deleteSettingsByPrefix(`o:${orgId}:`, options);
+  assertScopedSettingsOptions(options);
+  return deleteSettingsByPrefix(`o:${orgId}:`, { ...options, orgId });
 }
 
 export async function listOrgSettings(

@@ -1,4 +1,7 @@
 import fs from "fs";
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import os from "os";
 import path from "path";
 
@@ -59,6 +62,55 @@ describe("resolveDeployPostBuildInvocation", () => {
       args: [deployBuild],
       scriptPath: deployBuild,
     });
+  });
+
+  it("runs deploy-build with an ancestor tsx outside PATH", () => {
+    if (process.platform === "win32") return;
+    const root = tempRoot();
+    const workspace = path.join(root, "workspace");
+    const cwd = path.join(workspace, "nested app");
+    const bin = path.join(workspace, "node_modules", ".bin");
+    const pathDir = path.join(root, "empty-path");
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.mkdirSync(bin, { recursive: true });
+    fs.mkdirSync(pathDir);
+    fs.writeFileSync(path.join(cwd, "package.json"), "{}");
+    fs.writeFileSync(path.join(cwd, "react-router.config.ts"), "");
+    for (const name of ["react-router", "@react-router/dev", "vite"]) {
+      const dir = path.join(workspace, "node_modules", name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ main: "index.js" }),
+      );
+      fs.writeFileSync(path.join(dir, "index.js"), "");
+      if (name === "@react-router/dev")
+        fs.writeFileSync(path.join(dir, "vite.js"), "");
+    }
+    fs.writeFileSync(path.join(bin, "react-router"), "#!/bin/sh\nexit 0\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(
+      path.join(bin, "tsx"),
+      "#!/bin/sh\necho ancestor-tsx:$1\n",
+      { mode: 0o755 },
+    );
+    const require = createRequire(import.meta.url);
+    const cli = fileURLToPath(new URL("./index.ts", import.meta.url));
+    const result = spawnSync(
+      process.execPath,
+      [require.resolve("tsx/cli"), cli, "build"],
+      {
+        cwd,
+        env: { ...process.env, PATH: pathDir, CI: "1", DO_NOT_TRACK: "1" },
+        encoding: "utf8",
+        timeout: 30000,
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("ancestor-tsx:");
+    expect(result.stdout).toContain("src/deploy/build.ts");
   });
 
   it("fails deploy-preset builds when no post-build script can run", () => {

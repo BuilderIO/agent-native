@@ -594,13 +594,13 @@ export function applyProviderModelSelection(
  * not a ranking of the models. `undefined` keeps the engine default, which is
  * also what happens when the selection can't be read.
  */
-export async function resolveUncheckedDefaultModelReplacement(engine: {
-  name: string;
-  defaultModel: string;
-}): Promise<string | undefined> {
+export async function resolveUncheckedDefaultModelReplacement(
+  engine: { name: string; defaultModel: string },
+  resolveSelection = resolveEffectiveProviderModelSelection,
+): Promise<string | undefined> {
   const provider = providerForEngineName(engine.name);
   if (!provider) return undefined;
-  const selection = await resolveEffectiveProviderModelSelection(provider);
+  const selection = await resolveSelection(provider);
   if (selection.state === "unreadable") {
     console.warn(
       `[agent-chat] provider model selection unreadable for ${provider}; keeping ${engine.defaultModel}: ${selection.error}`,

@@ -4,6 +4,8 @@ export type TranscriptFailureCode =
   | "FFMPEG_UNAVAILABLE"
   | "EXTRACTION_FAILED"
   | "TIMEOUT"
+  /** The video doesn't fit in the server's temporary space, so retrying can't help. */
+  | "MEDIA_TOO_LARGE"
   // --- transcript level ---
   /** The recording itself was saved with no audio stream at all. */
   | "NO_AUDIO_SAVED"
@@ -43,6 +45,8 @@ export function transcriptFailureMessage(code: TranscriptFailureCode): string {
       return "Audio could not be prepared for transcription. Retrying usually works.";
     case "TIMEOUT":
       return "Transcription timed out before it finished. Retrying usually works.";
+    case "MEDIA_TOO_LARGE":
+      return "This video is too large to transcribe. It doesn't fit in the server's temporary space.";
     case "CLOUD_FAILED":
       return "No transcript was captured locally, and cloud transcription could not finish. Retrying usually works; if it persists, check the recording's audio and the Builder connection.";
     case "CHUNK_FAILED":

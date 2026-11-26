@@ -5,6 +5,7 @@ export {
   setAgentNativeApiDisabled,
 } from "../api-surface.js";
 export {
+  clearEmbedAuthToken,
   ensureEmbedAuthFetchInterceptor,
   getEmbedAuthToken,
   isEmbedAuthActive,

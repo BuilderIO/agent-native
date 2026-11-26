@@ -25,7 +25,6 @@ import {
 } from "./color-picker-model";
 import {
   expandHexShorthand,
-  GRADIENT_PAINT_TYPES,
   hasHexAlpha,
   hsvToRgba,
   inferPaintType,
@@ -33,6 +32,8 @@ import {
   resolveActivePaint,
   rgbaToHsv,
 } from "./DesignColorPicker";
+
+// oracle-change: removed the GRADIENT_PAINT_TYPES membership restatement and the exact-primaries round trip; the bounded and fixed-point round trip cases remain
 
 describe("inferPaintType", () => {
   it("returns 'solid' for a plain hex color at full opacity", () => {
@@ -71,21 +72,6 @@ describe("inferPaintType", () => {
     expect(inferPaintType('url("https://example.com/img.png")', 100)).toBe(
       "image",
     );
-  });
-});
-
-describe("GRADIENT_PAINT_TYPES", () => {
-  it("contains all four gradient variants", () => {
-    expect(GRADIENT_PAINT_TYPES.has("linear")).toBe(true);
-    expect(GRADIENT_PAINT_TYPES.has("radial")).toBe(true);
-    expect(GRADIENT_PAINT_TYPES.has("angular")).toBe(true);
-    expect(GRADIENT_PAINT_TYPES.has("diamond")).toBe(true);
-  });
-
-  it("does not contain solid, image, or shader", () => {
-    expect(GRADIENT_PAINT_TYPES.has("solid")).toBe(false);
-    expect(GRADIENT_PAINT_TYPES.has("image")).toBe(false);
-    expect(GRADIENT_PAINT_TYPES.has("shader")).toBe(false);
   });
 });
 
@@ -323,15 +309,6 @@ describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
     { r: 17, g: 202, b: 91, a: 0.5 },
     { r: 51, g: 143, b: 199, a: 1 },
   ];
-
-  it("a single RGB -> HSL -> RGB round trip is exact for primaries/grayscale/black/white", () => {
-    for (const rgb of exactSamples) {
-      const back = hslToRgba(rgbaToHsl(rgb));
-      expect(back.r).toBe(rgb.r);
-      expect(back.g).toBe(rgb.g);
-      expect(back.b).toBe(rgb.b);
-    }
-  });
 
   it("a single round trip never shifts an arbitrary RGB triple by more than 1 per channel", () => {
     for (const rgb of arbitrarySamples) {

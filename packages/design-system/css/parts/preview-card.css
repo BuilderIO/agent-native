@@ -1,0 +1,114 @@
+/*
+ * Part: preview-card
+ *
+ *   <div class="preview-card-positioner">           Base UI PreviewCard.Positioner
+ *     <div class="preview-card-popup"               PreviewCard.Popup
+ *          [data-open] [data-side] [data-align] [data-instant]
+ *          [data-starting-style] [data-ending-style]>
+ *       <div class="preview-card-arrow">            PreviewCard.Arrow
+ *
+ * The card has no type of its own, so its content sets it.
+ */
+
+@layer components {
+  .preview-card-positioner {
+    z-index: var(--layer-popup);
+    outline: none;
+  }
+
+  .preview-card-popup {
+    --_slide-x: 0px;
+    --_slide-y: 0px;
+
+    box-sizing: border-box;
+    width: 16rem;
+    padding: var(--space-4);
+    border: 0;
+    border-radius: calc(var(--shape-popup) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-4);
+    outline-style: none;
+    transform-origin: var(--transform-origin);
+    transition-property: opacity, scale, translate;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-enter);
+  }
+
+  .preview-card-popup[data-side="bottom"] {
+    --_slide-y: calc(var(--space-2) * -1);
+  }
+  .preview-card-popup[data-side="top"] {
+    --_slide-y: var(--space-2);
+  }
+  .preview-card-popup[data-side="left"] {
+    --_slide-x: var(--space-2);
+  }
+  .preview-card-popup[data-side="right"] {
+    --_slide-x: calc(var(--space-2) * -1);
+  }
+  .preview-card-popup[data-side="inline-start"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1));
+  }
+  .preview-card-popup[data-side="inline-end"] {
+    --_slide-x: calc(var(--space-2) * var(--_inline-direction, 1) * -1);
+  }
+
+  .preview-card-popup[data-starting-style] {
+    opacity: 0;
+    scale: 0.95;
+    translate: var(--_slide-x) var(--_slide-y);
+  }
+
+  .preview-card-popup[data-ending-style] {
+    opacity: 0;
+    scale: 0.95;
+  }
+
+  .preview-card-popup[data-instant] {
+    transition-duration: 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .preview-card-popup {
+      transition-property: none;
+    }
+  }
+
+  /* ---- sizes ---- */
+
+  .preview-card-arrow {
+    --_size: 10px;
+
+    width: var(--_size);
+    height: var(--_size);
+    background-color: var(--surface-raised);
+    border: 1px solid var(--gray-a3);
+    rotate: 45deg;
+  }
+  .preview-card-arrow[data-side="bottom"] {
+    top: calc(var(--_size) / -2 - 1px);
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .preview-card-arrow[data-side="top"] {
+    bottom: calc(var(--_size) / -2 - 1px);
+    border-top: 0;
+    border-left: 0;
+  }
+  .preview-card-arrow[data-side="left"],
+  .preview-card-arrow[data-side="inline-start"]:where(:dir(ltr)),
+  .preview-card-arrow[data-side="inline-end"]:where(:dir(rtl)) {
+    right: calc(var(--_size) / -2 - 1px);
+    border-bottom: 0;
+    border-left: 0;
+  }
+  .preview-card-arrow[data-side="right"],
+  .preview-card-arrow[data-side="inline-end"]:where(:dir(ltr)),
+  .preview-card-arrow[data-side="inline-start"]:where(:dir(rtl)) {
+    left: calc(var(--_size) / -2 - 1px);
+    border-top: 0;
+    border-right: 0;
+  }
+}

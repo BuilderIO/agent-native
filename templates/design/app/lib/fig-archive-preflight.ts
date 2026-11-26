@@ -1,13 +1,13 @@
 import {
-  BROWSER_FIG_LIMITS,
-  type FigImportLimits,
-} from "../../server/lib/fig-file-limits.js";
-import {
   readAscii,
   readU16LE,
   readU32LE,
   readUtf8,
 } from "../../shared/fig-bytes.js";
+import {
+  BROWSER_FIG_LIMITS,
+  type FigImportLimits,
+} from "../../shared/fig-file-limits.js";
 
 /** Reads only the zip central directory and the kiwi chunk headers of a .fig,
  * so a file the browser decoder would refuse is refused before it is loaded

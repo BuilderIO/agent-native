@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
       minimum === "editor" && ["editor", "admin", "owner"].includes(role),
   ),
   writeAppState: vi.fn(),
+  issueVisualEditBoardClaim: vi.fn(),
+  markVisualEditBoard: vi.fn(),
+  linkVisualEditBoardConnections: vi.fn(),
   designData: null as string | null,
   designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
 }));
@@ -37,6 +40,8 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  toDesktopOpenUrl: (url: string) =>
+    `agentnative://open?${url.split("?")[1] ?? ""}`,
   buildEmbedStartPath: (ticket: string) =>
     `/_agent-native/embed/start?ticket=${ticket}`,
   buildDeepLink: ({
@@ -98,6 +103,15 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+vi.mock("../server/lib/visual-edit-board-claim.js", () => ({
+  issueVisualEditBoardClaim: mocks.issueVisualEditBoardClaim,
+  markVisualEditBoard: mocks.markVisualEditBoard,
+}));
+
+vi.mock("../server/lib/visual-edit-capability.js", () => ({
+  linkVisualEditBoardConnections: mocks.linkVisualEditBoardConnections,
+}));
+
 vi.mock("./connect-localhost.js", () => ({
   default: {
     run: mocks.connectLocalhostRun,
@@ -129,11 +143,6 @@ vi.mock("./navigate.js", () => ({
   },
 }));
 
-vi.mock("./motion-localhost-relay.js", () => ({
-  ensureMotionLocalhostRelayChain: vi.fn(),
-  motionLocalhostRelayIdentity: vi.fn(),
-}));
-
 import action, {
   localVisualEditWorkspacePrincipal,
 } from "./open-visual-edit.js";
@@ -145,6 +154,7 @@ describe("open-visual-edit", () => {
 
   beforeEach(() => {
     mocks.addLocalhostScreensRun.mockReset();
+    mocks.linkVisualEditBoardConnections.mockReset();
     mocks.assertAccess.mockReset().mockResolvedValue(undefined);
     mocks.createEmbedSessionTicket.mockReset();
     mocks.createEmbedSessionTicket.mockResolvedValue({
@@ -192,6 +202,16 @@ describe("open-visual-edit", () => {
       resource: { id: "design_existing" },
     });
     mocks.writeAppState.mockReset();
+    mocks.markVisualEditBoard.mockReset().mockResolvedValue(undefined);
+    mocks.issueVisualEditBoardClaim
+      .mockReset()
+      .mockImplementation(async () =>
+        mocks
+          .getRequestUserEmail()
+          ?.endsWith("@local.visual-edit.agent-native.invalid")
+          ? "example-claim-secret-0123456789abcdef0123"
+          : undefined,
+      );
     mocks.designData = null;
     mocks.designFiles = [];
 
@@ -212,6 +232,10 @@ describe("open-visual-edit", () => {
 
   it("advertises the host coding-agent handoff on its MCP App resource", () => {
     expect(action.mcpApp.resource.description).toContain("host coding agent");
+  });
+
+  it("declares that opening the canvas is its job so an agent call is not refused for moving the view", () => {
+    expect(action.allowsAgentNavigation).toBe(true);
   });
 
   it("uses the connection id returned by connect-localhost when no id is supplied", async () => {
@@ -399,6 +423,10 @@ describe("open-visual-edit", () => {
     expect(mocks.createDesignRun).toHaveBeenCalledOnce();
     expect(result.designId).toBe("design_created");
     expect(result.createdDesign).toBe(true);
+    expect(mocks.linkVisualEditBoardConnections).toHaveBeenCalledWith(
+      "design_created",
+      ["localhost_canonical", undefined],
+    );
   });
 
   it("rejects conflicting existing and new project targets", async () => {
@@ -930,6 +958,25 @@ describe("open-visual-edit", () => {
     );
   });
 
+  it("includes minimal UI in the editor route and MCP link when requested", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/"],
+      minimalUi: true,
+      navigate: false,
+    });
+
+    expect(result.urlPath).toBe(
+      "/visual-edit/design_1?editorView=overview&embedChrome=1&minimalUi=1",
+    );
+    expect(result.openUrl).toBe(
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1&minimalUi=1",
+    );
+    expect(action.link!({ args: {}, result }).url).toBe(result.openUrl);
+    expect(action.mcpApp?.resource).toBeDefined();
+  });
+
   it("returns the app link after saving an originless local visual-edit request", async () => {
     mocks.getRequestContext.mockReturnValue({
       userEmail: "owner@example.com",
@@ -1286,5 +1333,141 @@ describe("open-visual-edit", () => {
       "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
     );
     expect(result).not.toHaveProperty("embedStartUrl");
+  });
+
+  describe("signed-out boards", () => {
+    const pageContext = (caller: "frontend" | "webmcp") => ({
+      actionName: "open-visual-edit",
+      caller,
+      userEmail: undefined,
+      orgId: null,
+      requestHeaders: new Headers({
+        origin: "https://design.example.com",
+        "sec-fetch-site": "same-origin",
+      }),
+    });
+
+    beforeEach(() => {
+      mocks.getRequestUserEmail.mockReturnValue(undefined);
+      mocks.getRequestAuthCapability.mockReturnValue(
+        `capability:visual-edit-bootstrap:${"e".repeat(32)}`,
+      );
+    });
+
+    it("refuses to reopen an existing design from a signed-out page", async () => {
+      await expect(
+        action.run(
+          {
+            designId: "someone_elses_board",
+            devServerUrl: "http://localhost:5173",
+            navigate: false,
+          },
+          pageContext("frontend"),
+        ),
+      ).rejects.toThrow(/can only start a new board/);
+      expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+      expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    });
+
+    it("ignores the shared principal's saved project and starts a new board", async () => {
+      mocks.readAppState.mockResolvedValue({
+        designId: "someone_elses_board",
+        connectionId: "localhost_custom",
+      });
+      const result = await action.run(
+        { devServerUrl: "http://localhost:5173", navigate: false },
+        pageContext("frontend"),
+      );
+      expect(mocks.readAppState).not.toHaveBeenCalled();
+      expect(result.designId).toBe("design_created");
+    });
+
+    it("builds a board without a bridge and keeps the claim secret on the page", async () => {
+      const result = await action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          withoutBridge: true,
+          publicReadOnly: true,
+          navigate: false,
+        },
+        pageContext("frontend"),
+      );
+      expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+      expect(mocks.addLocalhostScreensRun).not.toHaveBeenCalled();
+      expect(mocks.writeAppState).not.toHaveBeenCalled();
+      expect(mocks.markVisualEditBoard).toHaveBeenCalledWith(
+        "design_created",
+        true,
+      );
+      expect(result).toMatchObject({
+        designId: "design_created",
+        connectionId: null,
+        screenCount: 0,
+        publicReadOnly: true,
+      });
+      expect((result as { claimSecret?: string }).claimSecret).toBe(
+        "example-claim-secret-0123456789abcdef0123",
+      );
+    });
+
+    it.each([undefined, false])(
+      "keeps a bridge-free board private when publicReadOnly is %s",
+      async (publicReadOnly) => {
+        const result = await action.run(
+          {
+            devServerUrl: "http://localhost:5173",
+            withoutBridge: true,
+            ...(publicReadOnly === undefined ? {} : { publicReadOnly }),
+            navigate: false,
+          },
+          pageContext("frontend"),
+        );
+        expect(mocks.markVisualEditBoard).toHaveBeenCalledWith(
+          "design_created",
+          false,
+        );
+        expect(result.publicReadOnly).toBe(false);
+      },
+    );
+
+    it("still opens a bridged signed-out design publicly by default", async () => {
+      const result = await action.run(
+        { devServerUrl: "http://localhost:5173", navigate: false },
+        pageContext("frontend"),
+      );
+      expect(mocks.markVisualEditBoard).toHaveBeenCalledWith(
+        "design_created",
+        true,
+      );
+      expect(result.publicReadOnly).toBe(true);
+    });
+
+    it("hides the claim secret from a WebMCP caller's serialized result", async () => {
+      const result = await action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          withoutBridge: true,
+          navigate: false,
+        },
+        pageContext("webmcp"),
+      );
+      expect(result.designId).toBe("design_created");
+      expect(JSON.stringify(result)).not.toContain("example-claim-secret");
+      expect(mocks.linkVisualEditBoardConnections).not.toHaveBeenCalled();
+    });
+
+    it("mints no claim secret for a signed-in creator", async () => {
+      mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+      mocks.getRequestAuthCapability.mockReturnValue(undefined);
+      const result = await action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          withoutBridge: true,
+          navigate: false,
+        },
+        pageContext("frontend"),
+      );
+      expect(JSON.stringify(result)).not.toContain("claim");
+    });
   });
 });

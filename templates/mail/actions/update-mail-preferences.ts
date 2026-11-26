@@ -8,8 +8,8 @@ import {
   mergeSavedFilters,
   mergeSettings,
   normalizeMailSettings,
+  type MailSettingsPatch,
 } from "../server/lib/mail-settings.js";
-import type { UserSettings } from "../shared/types.js";
 
 const mobileActionId = z.enum([
   "archive",
@@ -38,7 +38,7 @@ const patchSchema = z.object({
   autocompleteEnabled: z.boolean().optional(),
   theme: z.enum(["light", "dark", "system"]).optional(),
   density: z.enum(["compact", "comfortable", "spacious"]).optional(),
-  previewPane: z.enum(["right", "bottom", "off"]).optional(),
+  previewPane: z.enum(["right", "off"]).optional(),
   sendAndArchive: z.boolean().optional(),
   combineInbox: z.boolean().optional(),
   showAllTab: z.boolean().optional(),
@@ -54,6 +54,14 @@ const patchSchema = z.object({
   trustedSenders: z.array(z.string()).optional(),
   mobileActions: z.array(mobileActionId).optional(),
   tracking: z.object({ opens: z.boolean(), clicks: z.boolean() }).optional(),
+  contactPanelWidgets: z
+    .object({
+      meetings: z.boolean().optional(),
+      notes: z.boolean().optional(),
+      attachments: z.boolean().optional(),
+      recent: z.boolean().optional(),
+    })
+    .optional(),
   requestSource: z
     .string()
     .min(1)
@@ -79,7 +87,7 @@ export default defineAction({
       "mail-settings",
       (current) => {
         const base = normalizeMailSettings(current, ownerEmail);
-        const next = mergeSettings(base, patch as Partial<UserSettings>);
+        const next = mergeSettings(base, patch as MailSettingsPatch);
         if ("pinnedLabels" in patch) {
           next.pinnedLabels = mergePinnedLabels(
             base.pinnedLabels,

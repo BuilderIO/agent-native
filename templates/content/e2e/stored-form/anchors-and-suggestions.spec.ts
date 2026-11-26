@@ -486,6 +486,7 @@ async function editAround(
   );
   await tabs.waitForTypingSaved(first, id);
   await tabs.waitForTypingSaved(second, id);
+  await tabs.quiet();
 
   await agent.edit(
     id,

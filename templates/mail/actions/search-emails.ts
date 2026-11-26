@@ -147,6 +147,7 @@ export default defineAction({
       view: "all",
     };
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     if (!args.q) throw new Error("--q is required");
     const view = args.view ?? "all";

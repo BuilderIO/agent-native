@@ -1,0 +1,70 @@
+{
+  "name": "@agent-native/design-system",
+  "version": "0.235.0",
+  "description": "Themable design tokens, brand color generation, and component CSS for Agent-Native apps.",
+  "license": "MIT",
+  "files": [
+    "css",
+    "dist",
+    "src",
+    "!src/**/*.spec.ts",
+    "!src/**/__fixtures__",
+    "THIRD_PARTY_NOTICES.md",
+    "tsconfig.json"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./color": {
+      "types": "./dist/tokens/color/index.d.ts",
+      "default": "./dist/tokens/color/index.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "default": "./dist/catalog/index.js"
+    },
+    "./model": {
+      "types": "./dist/model/index.d.ts",
+      "default": "./dist/model/index.js"
+    },
+    "./tokens.css": "./css/tokens.css",
+    "./main.css": "./css/main.css",
+    "./styles.css": "./css/styles.css",
+    "./components/*.css": "./css/components/*.css",
+    "./themes/*.css": "./css/themes/*.css",
+    "./appearances.css": "./css/appearances.css",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc",
+    "css": "tsx scripts/build-css.ts",
+    "css:check": "tsx scripts/build-css.ts --check",
+    "props": "tsx scripts/build-prop-types.ts",
+    "props:check": "tsx scripts/build-prop-types.ts --check",
+    "tokens:export": "tsx scripts/tokens.ts export",
+    "tokens:import": "tsx scripts/tokens.ts import",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@radix-ui/colors": "^3.0.0",
+    "colorjs.io": "^0.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "jsdom": "30.1.2",
+    "tsx": "^4.20.3",
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import {
   canonicalizeDatabasePropertyInput,
@@ -10,8 +11,8 @@ import {
 } from "./_database-property-input.js";
 import {
   createDatabaseRow,
-  databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
+  databaseMutationTargetInputSchema,
   assertDatabaseWidgetWriteTarget,
 } from "./_database-row-mutation.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -28,7 +29,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
   propertyEntries: databasePropertyEntriesSchema,
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .extend({ target: databaseMutationTargetInputSchema.strict() })
   .omit({ propertyValues: true })
   .strict();
 
@@ -68,6 +69,8 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  changeResource: (input) =>
+    documentChangeResource(input.target.databaseDocumentId),
   run: async (args, context): Promise<ContentDatabaseRowMutationResult> => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     assertDatabaseWidgetWriteTarget(args.target, "add-database-item", context);

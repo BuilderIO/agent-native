@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { resolveRecordingKind } from "@shared/recording-kind";
@@ -15,6 +15,7 @@ import {
   not,
   notInArray,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { z } from "zod";
 
@@ -28,12 +29,17 @@ import {
 import {
   activeUploadFromContent,
   contentPageUrls,
-  uploadedFromContent,
   uploadFromTrashedPage,
 } from "../server/lib/content-uploads.js";
+import {
+  filterLibraryRecordings,
+  librarySourceCondition,
+  librarySources,
+} from "../server/lib/library-filter.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import { RECORDING_MADE_BY } from "../server/lib/recording-made-by.js";
 import {
   countedViewCondition,
   getActiveOrganizationId,
@@ -41,7 +47,14 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
+import {
+  isDefaultLibraryFilter,
+  readLibraryFilter,
+  unreadLibraryFilterParts,
+  withLibrarySource,
+} from "../shared/library-filters.js";
 import { transcriptHasTextSql } from "./lib/transcript-text.js";
+import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 // A calendar date (2026-10-25) or a date-time with its offset
 // (2026-10-25T12:00:00Z). Date.parse alone would also take 10/25/2026 and
@@ -49,10 +62,6 @@ import { transcriptHasTextSql } from "./lib/transcript-text.js";
 const isoDate = z.union([z.iso.date(), z.iso.datetime({ offset: true })], {
   error: "Use an ISO date or date-time, like 2026-10-25.",
 });
-
-function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, "\\$1");
-}
 
 type RecordingMediaFields = {
   id: string;
@@ -169,7 +178,26 @@ export const listRecordingsSchema = z.object({
       z.boolean().optional(),
     )
     .describe(
-      "true: only your recordings whose share list names at least one person, group or org; false: only your recordings whose share list is empty. This reads the share list, not visibility, so an org or public recording can have an empty list; filter on visibility for that. Either value leaves out recordings you don't own.",
+      "Leave this out unless the user asks about sharing: false is not a neutral default, it drops every recording you've shared. true: only your recordings whose share list names at least one person, group or org; false: only your recordings whose share list is empty. This reads the share list, not visibility, so an org or public recording can have an empty list; filter on visibility for that. Either value leaves out recordings you don't own.",
+    ),
+  madeBy: z
+    .enum(RECORDING_MADE_BY)
+    .optional()
+    .describe(
+      "Only recordings a person made (in Clips' apps or a Content page) or an agent made (through Clips' tools, its chat, MCP or A2A). Recordings from before Clips began recording this have madeBy null, so either value leaves them out.",
+    ),
+  source: z
+    .enum(["clips", "content", "all"])
+    .optional()
+    .describe(
+      "For view library without a folder: where the recordings came from. clips, the default, leaves out recordings uploaded from Agent-Native Content pages; content lists only those, each with contentPageUrl; all lists both. Like any filter beyond the default, content and all also look inside folders.",
+    ),
+  filters: z
+    .string()
+    .max(4000)
+    .optional()
+    .describe(
+      "For view library without a folder: the Library's filter, written as the query of a Library link, such as source=all&r=madeBy:equals:agent&r=created:is_within:past_7_days. source is clips, content or all; match=any makes one rule enough; each r=field:operator:values adds a rule. Fields: madeBy (person, agent), created (a date, today, or a range like past_7_days, read in the user's time zone), sharing (private, org, public, shared, not_shared), length (under_1m, 1_to_5m, 5_to_20m, over_20m), tag, transcript (is_checked or is_unchecked). With countOnly, also returns the count beside every option and the tags in use. The default (source clips, no rules) lists recordings outside folders, as Library does beside its folder cards; any rule or other source looks inside every folder, as Library does while filtering.",
     ),
   sort: z
     .enum(["recent", "views", "oldest"])
@@ -190,12 +218,39 @@ export const listRecordingsSchema = z.object({
 });
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  readOnly: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, whether a person or an agent made it, where it came from, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. Library leaves out Clips uploaded from Agent-Native Content pages unless source or filters asks for them; each such Clip has `contentPageUrl`. Library lists only recordings outside folders until source or filters narrows it; then it looks inside every folder. The from-content view lists those uploads wherever they're filed, for older callers. For the exact list the user sees in Library, pass the filters from their Library link. Read-only: call navigate with view='library' and search='<query>' when showing matching clips in the Library UI.",
   schema: listRecordingsSchema,
   http: { method: "GET" },
   run: async (args, ctx) => {
+    const unread = unreadLibraryFilterParts(args.filters ?? "");
+    if (unread.length > 0) {
+      fail(
+        `Library's filter can't read ${unread.join(", ")}. Each rule is r=field:operator:values, with the fields and values the filters argument lists.`,
+        { errorCode: "invalid_filters", details: { unread } },
+      );
+    }
     const db = getDb();
+    const libraryFilter =
+      args.view === "library" && args.folderId == null
+        ? args.source
+          ? withLibrarySource(
+              readLibraryFilter(args.filters ?? ""),
+              args.source,
+            )
+          : readLibraryFilter(args.filters ?? "")
+        : null;
+    const filterInMemory =
+      libraryFilter !== null &&
+      (libraryFilter.items.length > 0 ||
+        (args.countOnly === true && args.filters != null));
 
     const whereClauses = [
       recordingExpiryQuery(ctx?.userEmail ?? getRequestUserEmail()).available,
@@ -220,13 +275,8 @@ export default defineAction({
     }
 
     const orgId = await getActiveOrganizationId();
+    let listWithin: SQL | undefined;
 
-    // Library = "Your personal recordings in the active org". `accessFilter`
-    // admits all owner rows regardless of org, so library must add both the
-    // owner-email and current-org predicates to scope correctly. A Clip
-    // uploaded from a Content page is never in Library's own list, and lists
-    // under From Content, or in a folder or space someone moved it into, only
-    // while its page isn't in Trash; one linked into a page stays in Library.
     if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
       if (email) {
@@ -239,8 +289,9 @@ export default defineAction({
       }
       if (args.view === "from-content") {
         whereClauses.push(activeUploadFromContent());
-      } else if (args.folderId == null) {
-        whereClauses.push(not(uploadedFromContent()));
+      } else if (libraryFilter && !filterInMemory) {
+        const source = librarySourceCondition(libraryFilter);
+        if (source) whereClauses.push(source);
       }
     }
 
@@ -276,11 +327,17 @@ export default defineAction({
       }
     }
 
+    const searchTerm = args.search?.trim();
+
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
-      } else {
-        whereClauses.push(isNull(schema.recordings.folderId));
+      } else if (
+        (!searchTerm || args.kind === "image") &&
+        (!libraryFilter || isDefaultLibraryFilter(libraryFilter))
+      ) {
+        if (filterInMemory) listWithin = isNull(schema.recordings.folderId);
+        else whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
 
@@ -295,10 +352,14 @@ export default defineAction({
       whereClauses.push(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
     }
 
-    if (args.search) {
-      const pat = `%${escapeLike(args.search)}%`;
+    if (searchTerm) {
+      const pattern = buildCaseInsensitiveSearchPattern(searchTerm);
+      const email = ctx?.userEmail ?? getRequestUserEmail();
+      const canSearchTranscript = email
+        ? sql`(${ownerEmailMatches(schema.recordings.ownerEmail, email)} OR ${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '')`
+        : sql`(${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '')`;
       whereClauses.push(
-        sql`(${schema.recordings.title} LIKE ${pat} ESCAPE '\\' OR ${schema.recordings.description} LIKE ${pat} ESCAPE '\\')`,
+        sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\' OR (${canSearchTranscript} AND EXISTS (SELECT 1 FROM ${schema.recordingTranscripts} rt WHERE rt.recording_id = ${schema.recordings.id} AND lower(rt.full_text) LIKE ${pattern} ESCAPE '\\')))`,
       );
     }
 
@@ -332,6 +393,10 @@ export default defineAction({
       whereClauses.push(inArray(schema.recordings.visibility, args.visibility));
     }
 
+    if (args.madeBy) {
+      whereClauses.push(eq(schema.recordings.madeBy, args.madeBy));
+    }
+
     // Who a recording is shared with is the owner's to see, so this filter
     // only ever matches the caller's own recordings.
     if (args.hasShares !== undefined) {
@@ -349,14 +414,6 @@ export default defineAction({
       whereClauses.push(
         sql`EXISTS (SELECT 1 FROM ${schema.recordingTags} rt WHERE rt.recording_id = ${schema.recordings.id} AND rt.tag = ${args.tag})`,
       );
-    }
-
-    if (args.countOnly) {
-      const totalRows = await db
-        .select({ count: sql<number>`COUNT(1)` })
-        .from(schema.recordings)
-        .where(and(...whereClauses));
-      return { recordings: [], total: Number(totalRows[0]?.count ?? 0) };
     }
 
     const countedViewerCount = sql<number>`(
@@ -387,6 +444,38 @@ export default defineAction({
           ? [desc(viewCountOrder), desc(schema.recordings.createdAt)]
           : [desc(schema.recordings.createdAt)];
 
+    const filtered =
+      libraryFilter && filterInMemory
+        ? await filterLibraryRecordings({
+            where: whereClauses,
+            state: libraryFilter,
+            orderBy,
+            listWithin,
+          })
+        : null;
+
+    if (args.countOnly) {
+      if (filtered) {
+        return {
+          recordings: [],
+          total: filtered.counts.matching,
+          counts: filtered.counts,
+          tags: filtered.tags,
+        };
+      }
+      const totalRows = await db
+        .select({ count: sql<number>`COUNT(1)` })
+        .from(schema.recordings)
+        .where(and(...whereClauses));
+      return { recordings: [], total: Number(totalRows[0]?.count ?? 0) };
+    }
+
+    const pageIds = filtered
+      ? filtered.ids.slice(args.offset, args.offset + args.limit)
+      : null;
+    if (pageIds?.length === 0) return { recordings: [] };
+    if (pageIds) whereClauses.push(inArray(schema.recordings.id, pageIds));
+
     const rows = await db
       .select({
         recording: {
@@ -407,6 +496,8 @@ export default defineAction({
           failureReason: schema.recordings.failureReason,
           failureCode: schema.recordings.failureCode,
           visibility: schema.recordings.visibility,
+          madeBy: schema.recordings.madeBy,
+          madeByAgent: schema.recordings.madeByAgent,
           hasPassword: sql<number>`(
             CASE WHEN ${schema.recordings.password} IS NOT NULL
               AND ${schema.recordings.password} <> ''
@@ -445,7 +536,14 @@ export default defineAction({
       .where(and(...whereClauses))
       .orderBy(...orderBy)
       .limit(args.limit)
-      .offset(args.offset);
+      .offset(pageIds ? 0 : args.offset);
+    if (pageIds) {
+      const order = new Map(pageIds.map((id, index) => [id, index]));
+      rows.sort(
+        (a, b) =>
+          (order.get(a.recording.id) ?? 0) - (order.get(b.recording.id) ?? 0),
+      );
+    }
 
     const ids = rows.map((r) => r.recording.id);
     const ownerProfilesPromise = getUserProfiles(
@@ -492,7 +590,8 @@ export default defineAction({
         ])
       : Promise.resolve(null);
     const contentPagesPromise =
-      args.view === "from-content"
+      args.view === "from-content" ||
+      (libraryFilter && librarySources(libraryFilter).includes("content"))
         ? contentPageUrls(ids)
         : Promise.resolve(new Map<string, string>());
     const [ownerProfiles, tagRows, viewRows, contentPages] = await Promise.all([
@@ -542,6 +641,8 @@ export default defineAction({
         failureReason: r.failureReason,
         failureCode: r.failureCode,
         visibility: r.visibility,
+        madeBy: r.madeBy ?? null,
+        madeByAgent: r.madeByAgent ?? null,
         hasPassword: Number(r.hasPassword ?? 0) > 0,
         expiresAt: r.expiresAt,
         ownerEmail: r.ownerEmail,
@@ -563,7 +664,7 @@ export default defineAction({
         ...resolveListRecordingMedia(r, args.includeMedia),
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
-        ...(args.view === "from-content"
+        ...(contentPages.has(r.id)
           ? { contentPageUrl: contentPages.get(r.id) ?? null }
           : {}),
       };

@@ -24,6 +24,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+import type {
+  VisualEditLaunchResult,
+  VisualEditLaunchTarget,
+} from "../shared/visual-edit-launch.js";
+import { storeVisualEditBoardClaimSecret } from "./lib/visual-edit-board-claim.js";
+import { dispatchVisualEditBrowserLaunch } from "./lib/visual-edit-launch.js";
 import {
   clearLocalhostBridgeFetchProxy,
   installLocalhostBridgeFetchProxy,
@@ -34,7 +40,7 @@ import {
 /** Safe browser-visible subset of the `open-visual-edit` action result. */
 export interface OpenVisualEditWebMcpResult {
   designId: string;
-  connectionId: string;
+  connectionId: string | null;
   createdDesign: boolean;
   publicReadOnly: boolean;
   devServerUrl: string;
@@ -43,10 +49,12 @@ export interface OpenVisualEditWebMcpResult {
   overview: boolean;
   urlPath: string;
   openUrl: string;
+  launch?: VisualEditLaunchResult;
 }
 
 type OpenVisualEditActionResult = OpenVisualEditWebMcpResult & {
   embedStartUrl?: string;
+  claimSecret?: string;
 };
 
 export interface OpenVisualEditWebMcpInput {
@@ -56,6 +64,7 @@ export interface OpenVisualEditWebMcpInput {
   title?: string;
   description?: string;
   devServerUrl: string;
+  withoutBridge?: boolean;
   bridgeUrl?: string;
   rootPath?: string;
   name?: string;
@@ -70,6 +79,7 @@ export interface OpenVisualEditWebMcpInput {
   startY?: number;
   gap?: number;
   navigate?: boolean;
+  target?: VisualEditLaunchTarget;
   publicReadOnly?: boolean;
 }
 
@@ -197,7 +207,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
       name: "open-visual-edit",
       title: "Open visual edit", // i18n-ignore stable WebMCP tool title
       description: // i18n-ignore stable WebMCP tool description
-        "Open or refresh a running localhost app in Design overview mode. Reuses the saved project for the same localhost connection when available; set newDesign to true to start a separate project. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path.",
+        "Open or refresh a running localhost app in Design overview mode. Reuses the saved project for the same localhost connection when available; set newDesign to true to start a separate project. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path. Signed out, it always starts a new board, and once the tab opens that board its board tools (create-file, update-file, update-design, rename-screen, apply-tweaks, list-files, get-design) register for that one design. Set withoutBridge when no visual-edit bridge runs, to get an empty board for inline screens.",
       requiresApproval: {
         title: "Open visual edit?", // i18n-ignore stable WebMCP approval title
         description: // i18n-ignore stable WebMCP approval description
@@ -232,6 +242,11 @@ export function createOpenVisualEditWebMcpActions(options?: {
             type: "string",
             description:
               "Running local app URL, for example http://localhost:5173",
+          },
+          withoutBridge: {
+            type: "boolean",
+            description:
+              "Start a new board with no localhost connection or localhost screens; add inline screens with create-file. Use when no visual-edit bridge runs for devServerUrl.",
           },
           bridgeUrl: {
             type: "string",
@@ -273,6 +288,12 @@ export function createOpenVisualEditWebMcpActions(options?: {
           startX: { type: "number" },
           startY: { type: "number" },
           gap: { type: "number" },
+          target: {
+            type: "string",
+            enum: ["inline-browser", "system-browser", "desktop"],
+            description:
+              "Launch destination. Defaults to inline-browser; desktop detection is available to local CLI hosts.",
+          },
           navigate: {
             type: "boolean",
             description:
@@ -281,7 +302,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
           publicReadOnly: {
             type: "boolean",
             description:
-              "For newly created loopback localhost designs, make the design public viewer-access too. Defaults to true.",
+              "For newly created loopback localhost designs, make the design public viewer-access too. Defaults to true, except with withoutBridge, where the board stays private unless this is true.",
           },
         },
         required: ["devServerUrl"],
@@ -289,8 +310,12 @@ export function createOpenVisualEditWebMcpActions(options?: {
       },
       run: async (input, runtime) => {
         const result = await runOpenVisualEdit(input, runtime);
+        // The claim secret stays with this page; the calling agent never sees it.
+        if (result.claimSecret) {
+          storeVisualEditBoardClaimSecret(result.designId, result.claimSecret);
+        }
         const relayUrl = !isAuthenticated ? result.bridgeUrl : undefined;
-        if (relayUrl) {
+        if (relayUrl && result.connectionId) {
           const transport = {
             designId: result.designId,
             connectionId: result.connectionId,
@@ -313,7 +338,15 @@ export function createOpenVisualEditWebMcpActions(options?: {
           openUrl,
           embedStartUrl,
         } = result;
-        if (input.navigate !== false && embedStartUrl) {
+        const launch =
+          input.navigate !== false && result.launch
+            ? await dispatchVisualEditBrowserLaunch(result.launch)
+            : result.launch;
+        if (
+          input.navigate !== false &&
+          (input.target ?? "inline-browser") === "inline-browser" &&
+          embedStartUrl
+        ) {
           window.location.replace(
             new URL(embedStartUrl, window.location.href).toString(),
           );
@@ -329,6 +362,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
           overview,
           urlPath,
           openUrl,
+          ...(launch ? { launch } : {}),
         };
       },
     }),

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveAgentNativeCommitSha } from "./build-id.js";
+import {
+  resolveAgentNativeBuildIdentity,
+  resolveAgentNativeCommitSha,
+} from "./build-id.js";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -63,5 +66,46 @@ describe("resolveAgentNativeCommitSha", () => {
     expect(
       resolveAgentNativeCommitSha({ COMMIT_REF: `  ${"A".repeat(40)}\n` }),
     ).toBe(SHA_A);
+  });
+});
+
+describe("resolveAgentNativeBuildIdentity", () => {
+  const env = {
+    AGENT_NATIVE_BUILD_ID: "env-build",
+    COMMIT_REF: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  };
+
+  it("reads the build environment when the app sets nothing", () => {
+    expect(resolveAgentNativeBuildIdentity(env)).toEqual({
+      buildId: "env-build",
+      commitSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    });
+  });
+
+  it("lets each value the app sets win, trimmed and lowercased", () => {
+    expect(
+      resolveAgentNativeBuildIdentity(env, {
+        buildId: "  pinned-build  ",
+        commitSha: "  AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  ",
+      }),
+    ).toEqual({
+      buildId: "pinned-build",
+      commitSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    });
+    expect(
+      resolveAgentNativeBuildIdentity(env, { buildId: "pinned-build" }),
+    ).toEqual({
+      buildId: "pinned-build",
+      commitSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    });
+  });
+
+  it("throws on a blank build id or a commit that is not a full SHA", () => {
+    expect(() =>
+      resolveAgentNativeBuildIdentity(env, { buildId: "   " }),
+    ).toThrow("The app's buildId override is empty.");
+    expect(() =>
+      resolveAgentNativeBuildIdentity(env, { commitSha: "abc123" }),
+    ).toThrow(/"abc123" is not a full 40-character commit SHA/);
   });
 });

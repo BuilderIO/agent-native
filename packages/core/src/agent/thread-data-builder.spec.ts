@@ -19,11 +19,48 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   sanitizeThreadDataForPrivateActions,
+  recoverThreadHistoryForRequest,
   threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
+
+describe("recovered history for inline fallback", () => {
+  it("excludes only the stored current submission, including attachment-only prompts", () => {
+    const prior = [
+      { role: "user", content: [{ type: "text", text: "Same prompt" }] },
+      { role: "assistant", content: [{ type: "text", text: "Prior reply" }] },
+    ];
+    const current = {
+      role: "user",
+      content: [{ type: "text", text: "Same prompt" }],
+      metadata: { custom: { submittedTurnId: "current" } },
+    };
+    const expected = [
+      { role: "user", content: [{ type: "text", text: "Same prompt" }] },
+      { role: "assistant", content: [{ type: "text", text: "Prior reply" }] },
+    ];
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: [...prior, current] },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: [...prior, { ...current, content: [] }] },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: prior },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+  });
+});
 
 describe("foldUnstartedTurnFailure", () => {
   it("answers a refused turn with a typed notice and a failed run, once", () => {
@@ -647,6 +684,20 @@ describe("buildAssistantMessage", () => {
 
     expect(message?.metadata).toMatchObject({
       custom: { chatScope: { type: "deck", id: "deck-1" } },
+    });
+  });
+
+  it("uses the terminal event duration when projecting the saved reply", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Answer." } },
+        { seq: 1, event: { type: "done", durationMs: 5_027 } },
+      ],
+      "run-timed",
+      { runDurationMs: 19_193 },
+    );
+    expect(message?.metadata).toMatchObject({
+      custom: { agentNativeRunDurationMs: 5_027 },
     });
   });
 
@@ -2117,7 +2168,7 @@ describe("buildAssistantMessage", () => {
       runError: {
         errorCode: "missing_api_key",
         message:
-          "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+          "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
       },
     });
   });
@@ -3824,6 +3875,45 @@ describe("mergeThreadDataForClientSave", () => {
     );
 
     expect(merged.agentKit.widgets).toEqual([incomingWidget]);
+  });
+
+  describe("a peer approval card", () => {
+    const run = (n: number) => ({
+      id: `run-${n}`,
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: `2026-11-16T23:1${n}:00.000Z`,
+      activeMessageId: `assistant-${n}`,
+      lastSequence: 10,
+    });
+    const card = (n: number) => ({
+      messageId: `assistant-${n}`,
+      widget: {
+        id: "Slides:approval:approval-1",
+        kind: "agent-native/agent-call-approval",
+        data: {
+          agent: "Slides",
+          id: "approval-1",
+          tool: "delete-deck",
+          url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+          taskId: "task-child",
+          callId: `call-${n}`,
+        },
+      },
+    });
+    const merge = (existing: number, incoming: number) =>
+      mergeThreadDataForClientSave(
+        { agentKit: { runs: [run(existing)], widgets: [card(existing)] } },
+        { agentKit: { runs: [run(incoming)], widgets: [card(incoming)] } },
+      ).agentKit.widgets;
+
+    it("takes a later run's rewrite for the call still waiting", () => {
+      expect(merge(1, 2)).toEqual([card(2)]);
+    });
+
+    it("keeps the newer card when an older run's save arrives late", () => {
+      expect(merge(2, 1)).toEqual([card(2)]);
+    });
   });
 
   it("keeps run status from the highest sequence across stale snapshots", () => {
@@ -7336,6 +7426,30 @@ describe("live-client marker", () => {
 });
 
 describe("private run projections survive snapshot sanitizing", () => {
+  it("recognizes a folded private run and redacts the entire combined reply", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "folded",
+            role: "assistant",
+            content: [{ type: "text", text: "private reply" }],
+            metadata: {
+              runId: "later-run",
+              custom: { foldedRunIds: ["private-run", "later-run"] },
+            },
+          },
+        },
+      ],
+    };
+    expect(hasPrivateRunProjections(repo, ["private-run"])).toBe(true);
+    expect(hasPrivateRunProjections(repo, ["unknown-run"])).toBe(false);
+    const sanitized = sanitizeThreadDataForPrivateActions(repo, new Set(), [
+      { runId: "private-run", omitFromPersistedHistory: true },
+    ]);
+    expect(JSON.stringify(sanitized)).not.toContain("private reply");
+  });
+
   it("still attributes a redacted server-projected reply to its private run", () => {
     const message = buildAssistantMessage(
       [
@@ -7370,5 +7484,194 @@ describe("private run projections survive snapshot sanitizing", () => {
       new Set(["private-action"]),
     );
     expect(hasPrivateRunProjections(sanitized, ["run-1"])).toBe(true);
+  });
+
+  it("keeps the span of omission-range events when redacting a private run", () => {
+    const repo = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        toolCalls: [
+          {
+            id: "tool-1",
+            name: "private-action",
+            runId: "run-1",
+            output: "secret",
+          },
+        ],
+        events: [
+          {
+            id: "run-1:1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-11-19T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "run-1:2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-11-19T00:00:00.000Z",
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { sourceType: "reasoning.delta", lastSequence: 44 },
+          },
+        ],
+      },
+    };
+    const sanitized = sanitizeThreadDataForPrivateActions(
+      JSON.parse(JSON.stringify(repo)),
+      new Set(["private-action"]),
+    ) as typeof repo;
+    expect(sanitized.agentKit.events[1]?.payload).toEqual({ lastSequence: 44 });
+    expect(JSON.stringify(sanitized)).not.toContain("reasoning.delta");
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        JSON.parse(JSON.stringify(repo)),
+        { privateActionNames: new Set(["private-action"]) },
+      ),
+    ).not.toThrow();
+  });
+
+  it("projects private auto_continue and allowlisted private errors safely without leaking raw details", () => {
+    const continued = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "text",
+            text: "Visible step",
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "text",
+            text: "private draft body",
+            omitFromPersistedHistory: true,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "auto_continue",
+            reason: "stream_ended",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-continue",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-private-continue",
+      },
+    );
+    expect(continued?.content).toEqual([
+      { type: "text", text: "Visible step" },
+    ]);
+    expect(continued?.metadata).toMatchObject({
+      custom: { continued: true },
+    });
+    expect(JSON.stringify(continued)).not.toContain("private draft body");
+
+    const allowedWithPriorText = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Visible prelude" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "raw secret error",
+            errorCode: "private_history_unrecoverable",
+            details: "secret stack trace",
+            upgradeUrl: "https://example.test/secret-upgrade",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-allowed-error",
+    );
+    expect(allowedWithPriorText?.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(allowedWithPriorText?.metadata.custom).toMatchObject({
+      runError: {
+        errorCode: "private_history_unrecoverable",
+        message:
+          "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      },
+    });
+    expect(allowedWithPriorText?.content).toEqual([
+      {
+        type: "text",
+        text: "Visible prelude\n\nError: I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      },
+    ]);
+    const allowedJson = JSON.stringify(allowedWithPriorText);
+    expect(allowedJson).not.toContain("raw secret error");
+    expect(allowedJson).not.toContain("secret stack trace");
+    expect(allowedJson).not.toContain("secret-upgrade");
+
+    const allowedStandalone = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "error",
+            error: "raw secret error",
+            errorCode: "write_tool_outcome_unknown",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-allowed-standalone",
+    );
+    expect(allowedStandalone?.content).toEqual([
+      {
+        type: "text",
+        text: "Error: I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
+      },
+    ]);
+
+    const blockedPrivateError = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "error",
+            error: "No LLM provider is connected: raw secret key",
+            errorCode: "missing_credentials",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-blocked-error",
+    );
+    expect(blockedPrivateError).toBeNull();
+
+    const publicMissingCredentials = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "checking..." } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "Credentials missing",
+            errorCode: "missing_credentials",
+          },
+        },
+      ],
+      "run-public-missing-credentials",
+    );
+    expect(publicMissingCredentials?.content).toEqual([
+      { type: "text", text: "checking..." },
+    ]);
+    expect(publicMissingCredentials?.metadata.custom).toMatchObject({
+      runError: { errorCode: "missing_credentials" },
+    });
   });
 });

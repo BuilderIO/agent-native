@@ -1,0 +1,25 @@
+/*
+ * Part: heading
+ *
+ *   <h1–h6 class="heading" data-size="0–9"
+ *          [data-weight="light|regular|medium|semibold|bold"]
+ *          [data-align="left|center|right"]
+ *          [data-trim="normal|start|end|both"] [data-truncate]
+ *          [data-wrap="wrap|nowrap|pretty|balance"]
+ *          [data-color="accent|gray|danger|warning|success|info"]
+ *          [data-high-contrast]>
+ *
+ * Radix Themes' heading: a step of the type scale (6 unless set) in the
+ * heading family, semibold like the system's other titles. Its size,
+ * weight, alignment, trim, truncation, wrapping and color are the text
+ * props in text.css.
+ */
+
+@layer components {
+  .heading {
+    margin: 0;
+    font-family: var(--font-family-heading);
+    font-style: normal;
+    font-weight: var(--font-weight-semibold);
+  }
+}

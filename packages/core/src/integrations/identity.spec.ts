@@ -13,6 +13,7 @@ vi.mock("./installations-store.js", () => ({
   getActiveIntegrationInstallationForTenant: getInstallationMock,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: membershipExecuteMock }),
 }));
 vi.mock("./identity-links-store.js", () => ({
@@ -193,6 +194,34 @@ describe("resolveDefaultIntegrationExecutionContext", () => {
     });
     expect(upsertIdentityMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { memberType: "guest" as const, actorVerified: true, reason: "guest" },
+    { memberType: "external" as const, actorVerified: true, reason: "guest" },
+    {
+      memberType: "member" as const,
+      actorVerified: false,
+      reason: "unverified",
+    },
+  ])(
+    "declines a channel mention from a $memberType sender (verified=$actorVerified)",
+    async ({ memberType, actorVerified, reason }) => {
+      getInstallationMock.mockResolvedValue({
+        id: "installation-1",
+        orgId: "org-1",
+      });
+
+      await expect(
+        resolveDefaultIntegrationExecutionContext({
+          ...slackMessage({ memberType, actorVerified }),
+          conversationType: "unknown",
+        }),
+      ).rejects.toMatchObject({
+        name: "IntegrationIdentityDeclinedError",
+        reason,
+      });
+    },
+  );
 
   it("runs a verified email that is not an org member as the anonymous org-scoped principal", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

@@ -18,6 +18,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
 import type { ListContentDatabasesResponse } from "../shared/api.js";
 import {
+  contentOutputContract,
+  listContentDatabasesOutputSchema,
+} from "./_content-output-contracts.js";
+import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
@@ -90,6 +94,10 @@ export default defineAction({
       .default(0)
       .describe("Zero-based continuation offset."),
   }),
+  outputSchema: contentOutputContract<ListContentDatabasesResponse>(
+    listContentDatabasesOutputSchema,
+  ),
+  mcpOutputSchema: true,
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
@@ -98,6 +106,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpScript: "read",
   run: async (args): Promise<ListContentDatabasesResponse> => {
     if (args.includeSystemCollections && !args.spaceId) {
       throw new ContentDatabaseResolutionError(

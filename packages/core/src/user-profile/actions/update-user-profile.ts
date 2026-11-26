@@ -1,3 +1,4 @@
+import { createError } from "h3";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
@@ -12,17 +13,33 @@ export default defineAction({
       .string()
       .trim()
       .min(1)
-      .max(120)
+      .max(256)
       .describe(
         "The display name to use when referring to the signed-in user.",
       ),
+    expectedUserEmail: z.string().email().optional(),
+    expectedOrgId: z.string().min(1).optional(),
     onboardingRole: onboardingRoleSchema
       .nullable()
       .optional()
       .describe("The user's shared onboarding role preference, or null."),
   }),
-  run: async ({ name, onboardingRole }, ctx): Promise<UserProfile> => {
+  run: async (
+    { name, onboardingRole, expectedUserEmail, expectedOrgId },
+    ctx,
+  ): Promise<UserProfile> => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    if (
+      (expectedUserEmail !== undefined &&
+        expectedUserEmail.trim().toLowerCase() !==
+          ctx.userEmail.trim().toLowerCase()) ||
+      (expectedOrgId !== undefined && expectedOrgId !== ctx.orgId)
+    ) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: "Profile context changed. Reload before saving.",
+      });
+    }
     return onboardingRole === undefined
       ? updateUserProfile(ctx.userEmail, name)
       : updateUserProfile(ctx.userEmail, name, onboardingRole);

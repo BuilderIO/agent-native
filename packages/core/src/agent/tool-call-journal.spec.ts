@@ -10,6 +10,7 @@ import {
   findAmbiguousLegacyJournalEntryForCall,
   findInterruptedJournalEntryForCall,
   findReplayableJournalEntry,
+  findReplayablePrivateJournalEntry,
   isJournalEmpty,
   journalEntriesAmbiguousInHistory,
   journalEntriesRepresentedInHistory,
@@ -1709,5 +1710,234 @@ describe("recorded call effects", () => {
         input: { to: "a" },
       }),
     ).toBeUndefined();
+  });
+
+  it("replays committed private tool entries by privateReplayIdentity and detects conflicting outcomes", () => {
+    const idA = `hmac-v1:${"a".repeat(64)}`;
+    const idB = `hmac-v1:${"b".repeat(64)}`;
+    const singleJournal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "p1",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "p1",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+        privateReplayIdentity: idA,
+      },
+      {
+        type: "tool_start",
+        id: "p2",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "p2",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: false,
+        omitFromPersistedHistory: true,
+        privateReplayIdentity: idB,
+      },
+    ]);
+
+    expect(singleJournal.completed[0]?.privateReplayIdentity).toBe(idA);
+    expect(
+      findReplayablePrivateJournalEntry(singleJournal, "other-tool", idA),
+    ).toEqual({ status: "none" });
+    expect(
+      findReplayablePrivateJournalEntry(singleJournal, "create-draft", idB),
+    ).toEqual({ status: "none" });
+    expect(
+      findReplayablePrivateJournalEntry(
+        singleJournal,
+        "create-draft",
+        `hmac-v1:${"c".repeat(64)}`,
+      ),
+    ).toEqual({ status: "none" });
+
+    expect(
+      findReplayablePrivateJournalEntry(singleJournal, "create-draft", idA),
+    ).toEqual({
+      status: "replay",
+      entry: expect.objectContaining({
+        id: "p1",
+        privateReplayIdentity: idA,
+      }),
+    });
+
+    const consumed = new Set<string>();
+    const firstLookup = findReplayablePrivateJournalEntry(
+      singleJournal,
+      "create-draft",
+      idA,
+      consumed,
+    );
+    expect(firstLookup).toEqual({
+      status: "replay",
+      entry: expect.objectContaining({ id: "p1" }),
+    });
+    expect(consumed.size).toBe(1);
+    expect(
+      findReplayablePrivateJournalEntry(
+        singleJournal,
+        "create-draft",
+        idA,
+        consumed,
+      ),
+    ).toEqual({ status: "none" });
+
+    const duplicateSameOutcome = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "dup-1",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "dup-1",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+        privateReplayIdentity: idA,
+      },
+      {
+        type: "tool_start",
+        id: "dup-2",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "dup-2",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+        privateReplayIdentity: idA,
+      },
+    ]);
+    const dupConsumed = new Set<string>();
+    const dupLookup = findReplayablePrivateJournalEntry(
+      duplicateSameOutcome,
+      "create-draft",
+      idA,
+      dupConsumed,
+    );
+    expect(dupLookup).toEqual({
+      status: "replay",
+      entry: expect.objectContaining({ id: "dup-2" }),
+    });
+    expect(dupConsumed.has(duplicateSameOutcome.completed[1]?.key ?? "")).toBe(
+      true,
+    );
+
+    const conflictCases: Array<
+      Partial<Extract<AgentChatEvent, { type: "tool_done" }>>
+    > = [
+      { isError: true },
+      { errorCode: "conflict_code" },
+      { result: "different result" },
+    ];
+    for (const diff of conflictCases) {
+      const conflictJournal = classifyToolCallJournal([
+        {
+          type: "tool_start",
+          id: "c1",
+          tool: "create-draft",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "c1",
+          tool: "create-draft",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+          privateReplayIdentity: idA,
+        },
+        {
+          type: "tool_start",
+          id: "c2",
+          tool: "create-draft",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "c2",
+          tool: "create-draft",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+          privateReplayIdentity: idA,
+          ...diff,
+        },
+      ]);
+      const conflictConsumed = new Set<string>();
+      expect(
+        findReplayablePrivateJournalEntry(
+          conflictJournal,
+          "create-draft",
+          idA,
+          conflictConsumed,
+        ),
+      ).toEqual({ status: "ambiguous" });
+      expect(conflictConsumed.size).toBe(0);
+    }
+
+    const outcomeUnknownConsumed = new Set<string>();
+    expect(
+      findReplayablePrivateJournalEntry(
+        {
+          completed: [
+            {
+              key: "k1",
+              tool: "create-draft",
+              input: {},
+              result: "[Private content omitted]",
+              order: 0,
+              committed: true,
+              privateReplayIdentity: idA,
+            },
+            {
+              key: "k2",
+              tool: "create-draft",
+              input: {},
+              result: "[Private content omitted]",
+              order: 1,
+              committed: true,
+              outcomeUnknown: true,
+              privateReplayIdentity: idA,
+            },
+          ],
+          interrupted: [],
+        },
+        "create-draft",
+        idA,
+        outcomeUnknownConsumed,
+      ),
+    ).toEqual({ status: "ambiguous" });
+    expect(outcomeUnknownConsumed.size).toBe(0);
   });
 });

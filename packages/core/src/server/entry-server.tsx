@@ -12,10 +12,30 @@ import {
   SsrSessionBootstrapContext,
 } from "../shared/ssr-session-bootstrap-slot.js";
 import { wrapWithAnalytics } from "./analytics.js";
+import {
+  documentBuildId,
+  documentBuildIdMetaTag,
+} from "./document-build-id.js";
 
 export const streamTimeout = 5_000;
 
 const HEAD_OPEN_PATTERN = /<head\b[^>]*>/i;
+
+/**
+ * The document's build id, served as an inline script first in <head> so a client chunk —
+ * which no longer bakes the commit — has the value before its first render and before any
+ * action can compare it with the server's. Empty when the release id is unknown: an empty
+ * stamp must never be written as the string "undefined".
+ */
+function buildIdStampScriptTag(): string {
+  const value = documentBuildId();
+  return value
+    ? `<script data-agent-native-build-id>globalThis.__AGENT_NATIVE_BUILD_ID__=${JSON.stringify(value)};</script>`
+    : "";
+}
+
+const HAS_OWN_BOOTSTRAP_TAG = `<script data-agent-native-has-own-bootstrap>if(typeof Object.hasOwn!=="function"){Object.defineProperty(Object,"hasOwn",{configurable:true,writable:true,value:{hasOwn(object,key){if(object==null)throw new TypeError("Cannot convert nullish value to object");return Object.prototype.hasOwnProperty.call(object,key)}}.hasOwn})}</script>`;
+
 const CHUNK_RECOVERY_BOOTSTRAP_TAG = `<script data-agent-native-chunk-recovery-bootstrap>${ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT}</script>`;
 
 // Inline scripts placed first in <head> run before any stylesheet or module
@@ -142,7 +162,10 @@ export function createDocumentRequestHandler(
 
       responseHeaders.set("Content-Type", "text/html; charset=utf-8");
       const headScripts =
+        HAS_OWN_BOOTSTRAP_TAG +
         CHUNK_RECOVERY_BOOTSTRAP_TAG +
+        buildIdStampScriptTag() +
+        documentBuildIdMetaTag() +
         (sessionPath ? getSsrSessionBootstrapScriptTag(sessionPath) : "");
       return new Response(
         wrapWithAnalytics(installEarlyHeadScripts(body, headScripts)),

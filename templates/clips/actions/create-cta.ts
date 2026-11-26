@@ -21,6 +21,7 @@ export default defineAction({
       .optional()
       .describe("When to show the button"),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     assertRecordingNotExpired(

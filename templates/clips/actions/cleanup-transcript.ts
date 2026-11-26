@@ -90,6 +90,7 @@ export default defineAction({
       .optional()
       .describe("Optional ISO language code (e.g. 'en', 'fr')."),
   }),
+  mcpTool: "search",
   run: async (args): Promise<CleanupResult> => {
     const transcript = args.transcript.slice(0, MAX_INPUT_CHARS);
     const contextPack = args.contextPack as VoiceContextPack | undefined;

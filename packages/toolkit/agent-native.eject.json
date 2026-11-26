@@ -35,7 +35,9 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-aspect-ratio",
@@ -194,7 +196,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -225,6 +229,7 @@
         "react-markdown",
         "react-router",
         "remark-gfm",
+        "shiki",
         "sonner",
         "tailwind-merge"
       ],
@@ -260,7 +265,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
@@ -295,6 +302,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -374,7 +382,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
@@ -409,6 +419,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -425,6 +436,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/cli/templates-meta",
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/hooks",
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/org",
@@ -463,7 +475,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
@@ -498,6 +512,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -574,6 +589,7 @@
         "@agent-native/core/org/permissions",
         "@agent-native/core/org/types",
         "@agent-native/core/resources/metadata",
+        "@agent-native/core/save-conflict",
         "@agent-native/core/secrets/api-keys",
         "@agent-native/core/secrets/key-aliases",
         "@agent-native/core/secrets/usage",
@@ -600,7 +616,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
@@ -635,6 +653,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -699,7 +718,9 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@tiptap/core",
         "@tiptap/extension-placeholder",
         "@tiptap/pm",
@@ -730,10 +751,12 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/action-query-cache",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/dev-overlay",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/onboarding/first-run-enabled",
         "@agent-native/core/client/route-warmup",
         "@agent-native/core/client/theme",
         "@agent-native/core/client/ui",
@@ -744,6 +767,7 @@
         "@agent-native/core/client/use-settings-shortcut",
         "@agent-native/core/client/webmcp",
         "@agent-native/core/client/write-failure",
+        "@agent-native/core/config",
         "@agent-native/core/notifications/types",
         "@agent-native/core/shared/document-title",
         "@agent-native/core/shared/mcp-app-widget-embed",
@@ -769,7 +793,9 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@tiptap/core",
         "@tiptap/extension-placeholder",
         "@tiptap/pm",
@@ -800,6 +826,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/mobile-auth",
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
@@ -808,6 +835,7 @@
         "@agent-native/core/client/oauth-popup",
         "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-session",
+        "@agent-native/core/localization/privacy-choice-messages",
         "@agent-native/core/localization/shared",
         "@agent-native/core/shared/analytics-events",
         "@agent-native/core/shared/app-status",
@@ -970,7 +998,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
@@ -1004,6 +1034,7 @@
         "clsx",
         "cmdk",
         "culori",
+        "next-themes",
         "openai",
         "linkedom",
         "qrcode.react",
@@ -1078,6 +1109,19 @@
       ]
     },
     {
+      "id": "toolkit/app-filters",
+      "label": "Toolkit app Filters",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-filters"],
+      "entrypoints": ["./app/filters"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/filters"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/i18n"]
+    },
+    {
       "id": "toolkit/app-integrations",
       "label": "Toolkit app Integrations",
       "catalog": "toolkit-ui",
@@ -1089,7 +1133,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
@@ -1124,6 +1170,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -1172,7 +1219,17 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/labs"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "dependencies": [
+        "@agent-native/core",
+        "@agent-native/design-system",
+        "@base-ui/react",
+        "@tabler/icons-react",
+        "clsx",
+        "culori",
+        "react",
+        "react-router",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/i18n",
@@ -1231,7 +1288,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-avatar",
@@ -1267,6 +1326,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "next-themes",
         "openai",
         "qrcode.react",
         "react",
@@ -1283,6 +1343,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/builder-frame",
@@ -1354,6 +1415,7 @@
         "@agent-native/core",
         "@tabler/icons-react",
         "@tiptap/core",
+        "@tiptap/extension-code",
         "@tiptap/extension-placeholder",
         "@tiptap/pm",
         "@tiptap/react",
@@ -1362,13 +1424,17 @@
         "react",
         "react-markdown",
         "remark-gfm",
+        "sonner",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/org",
         "@agent-native/core/client/review/use-review",
+        "@agent-native/core/client/uploads",
         "@agent-native/core/client/use-avatar",
+        "@agent-native/core/review/markdown",
         "@agent-native/core/review/plain-text",
         "@agent-native/core/review/types"
       ]
@@ -1385,7 +1451,9 @@
       "dependencies": [
         "@agent-native/agentkit",
         "@agent-native/core",
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@modelcontextprotocol/ext-apps",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
@@ -1432,6 +1500,8 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/localization",
+        "@agent-native/core/client/agent-engine-readiness",
         "@agent-native/core/client/agent-chat",
         "@agent-native/core/client/agent-native-version",
         "@agent-native/core/client/analytics",
@@ -1444,6 +1514,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/route-chunk-recovery",
         "@agent-native/core/client/sign-out",
+        "@agent-native/core/client/theme",
         "@agent-native/core/client/use-agent-engine-configured",
         "@agent-native/core/client/use-chat-models",
         "@agent-native/core/client/use-session",
@@ -1543,6 +1614,8 @@
       "sourceEntries": ["src/icons"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-popover",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
@@ -1553,6 +1626,7 @@
         "culori",
         "emojibase-data",
         "react",
+        "react-router",
         "tailwind-merge"
       ],
       "protectedImports": [
@@ -1577,7 +1651,12 @@
       ],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-collapsible",
+        "@radix-ui/react-context-menu",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-scroll-area",
         "@radix-ui/react-slot",
         "@radix-ui/react-tooltip",
@@ -1588,6 +1667,7 @@
         "culori",
         "react",
         "react-dom",
+        "react-i18next",
         "react-router",
         "sonner",
         "tailwind-merge"
@@ -1646,6 +1726,8 @@
         }
       ],
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -1661,6 +1743,7 @@
         "clsx",
         "culori",
         "react",
+        "react-router",
         "recharts",
         "tailwind-merge"
       ],
@@ -1676,6 +1759,8 @@
       "sourceEntries": ["src/canvas-annotations"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-slot",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
@@ -1684,6 +1769,7 @@
         "culori",
         "react",
         "react-dom",
+        "react-router",
         "sonner",
         "tailwind-merge"
       ],
@@ -1711,7 +1797,9 @@
       "sourceEntries": ["src/composer"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
         "@assistant-ui/react",
+        "@base-ui/react",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
         "@radix-ui/react-dropdown-menu",
@@ -1736,6 +1824,7 @@
         "openai",
         "react",
         "react-dom",
+        "react-router",
         "sonner",
         "tailwind-merge"
       ],
@@ -1784,6 +1873,8 @@
       "sourceEntries": ["src/context-ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-popover",
         "@radix-ui/react-slot",
         "@radix-ui/react-tooltip",
@@ -1792,6 +1883,7 @@
         "clsx",
         "culori",
         "react",
+        "react-router",
         "recharts",
         "tailwind-merge"
       ],
@@ -1807,6 +1899,8 @@
       "sourceEntries": ["src/design-tweaks"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-dialog",
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
@@ -1819,6 +1913,7 @@
         "cmdk",
         "culori",
         "react",
+        "react-router",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"]
@@ -1842,6 +1937,8 @@
       ],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -1857,6 +1954,7 @@
         "clsx",
         "culori",
         "react",
+        "react-router",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"]
@@ -1866,24 +1964,42 @@
       "label": "Dashboard kit",
       "catalog": "toolkit-ui",
       "catalogItems": ["dashboard"],
-      "entrypoints": ["./dashboard", "./dashboard/*"],
+      "entrypoints": [
+        "./dashboard",
+        "./dashboard/*",
+        "./app/dashboard-charts/*"
+      ],
       "strategy": "source-copy",
-      "sourceEntries": ["src/dashboard"],
+      "sourceEntries": ["src/dashboard", "src/app/dashboard-charts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
+        "@agent-native/design-system",
+        "@base-ui/react",
+        "@radix-ui/react-context-menu",
+        "@radix-ui/react-dropdown-menu",
+        "@radix-ui/react-hover-card",
+        "@radix-ui/react-popover",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
+        "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "class-variance-authority",
         "clsx",
         "culori",
         "react",
+        "react-dom",
+        "react-markdown",
+        "react-router",
         "recharts",
+        "remark-gfm",
         "tailwind-merge"
       ],
       "protectedImports": [
+        "@agent-native/core/client/i18n",
         "@agent-native/toolkit/ui/button",
         "@agent-native/toolkit/ui/card",
+        "@agent-native/toolkit/ui/hover-card",
         "@agent-native/toolkit/ui/select",
         "@agent-native/toolkit/ui/skeleton",
         "@agent-native/toolkit/ui/table",
@@ -2003,11 +2119,15 @@
       "sourceEntries": ["src/provider.tsx"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-slot",
+        "@tabler/icons-react",
         "class-variance-authority",
         "clsx",
         "culori",
         "react",
+        "react-router",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"]
@@ -2022,6 +2142,8 @@
       "sourceEntries": ["src/sharing"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-collapsible",
@@ -2039,6 +2161,7 @@
         "clsx",
         "culori",
         "react",
+        "react-router",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"]
@@ -2053,6 +2176,9 @@
       "sourceEntries": ["src/ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-aspect-ratio",
@@ -2091,8 +2217,10 @@
         "next-themes",
         "react",
         "react-day-picker",
+        "react-dom",
         "react-hook-form",
         "react-resizable-panels",
+        "react-router",
         "recharts",
         "sonner",
         "tailwind-merge",
@@ -2134,6 +2262,41 @@
       "sourceEntries": ["src/markdown-block-split.ts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/craft",
+      "label": "Craft UI primitives and semantic tokens",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["craft"],
+      "entrypoints": ["./craft", "./craft/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/craft"],
+      "styles": [
+        {
+          "entrypoint": "./craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        },
+        {
+          "entrypoint": "./app/styles/craft-tokens.css",
+          "source": "src/app/styles/craft-tokens.css"
+        }
+      ],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@agent-native/design-system",
+        "@base-ui/react",
+        "@radix-ui/react-alert-dialog",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-slot",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "react-router",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"]
     },
     {

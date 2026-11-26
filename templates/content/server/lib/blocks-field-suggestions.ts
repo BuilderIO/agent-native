@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec, sql, type DbExec } from "@agent-native/core/db";
 import type {
   SuggestionAdapter,
@@ -13,6 +14,7 @@ import {
   readStoredBlocksField,
   writeStoredBlocksField,
 } from "../../actions/_blocks-field-write.js";
+import { assertBlocksFieldNotFrozen } from "../../actions/_column-rules.js";
 import { lockContentDatabaseMutation } from "../../actions/_content-database-mutation-lock.js";
 import { assertEditableDocument } from "../../actions/_document-edit-mutation.js";
 import { lockDocumentRows } from "../../actions/_row-lock-order.js";
@@ -37,6 +39,7 @@ import {
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { schema } from "../db/index.js";
 import { firstRow } from "./first-row.js";
+import { assertInteractiveHtmlBlocks } from "./interactive-html-blocks.js";
 import {
   assertCommentAiSuggestionBinding,
   CONTENT_SUGGESTION_OPERATION_KINDS,
@@ -264,6 +267,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       input.resourceId,
       fieldId,
     );
+    const ctx = input.ctx as ActionRunContext | undefined;
     // A tab whose text the Collection's source owns can't take one, since
     // accepting it would be refused.
     await writableField(db, databaseId, fieldId);
@@ -280,6 +284,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       before === content
     ) {
       checkSupportedStructure(before, after);
+      assertInteractiveHtmlBlocks(ctx, before, after);
       return input.operations;
     }
     // Someone saved the tab since the suggester read it. Their edit is moved
@@ -296,6 +301,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       });
     }
     checkSupportedStructure(content, moved.after.markdown);
+    assertInteractiveHtmlBlocks(ctx, content, moved.after.markdown);
     return [moved];
   },
   async apply(context) {
@@ -332,6 +338,12 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       ...currentAccess(),
       transaction: tx,
     });
+    // Under the page's row lock, which a change to the rule's column takes too.
+    await assertBlocksFieldNotFrozen(db, {
+      databaseId,
+      documentId,
+      propertyId: fieldId,
+    });
 
     const current = await readStoredBlocksField(db, documentId, fieldId);
     const next =
@@ -357,6 +369,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       content: next,
       expectedRevision: await storedFieldRevision(tx, documentId, fieldId),
       now,
+      ctx: undefined,
     });
     await reanchorSourceComment(
       tx,

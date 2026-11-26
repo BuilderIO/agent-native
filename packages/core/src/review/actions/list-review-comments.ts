@@ -11,6 +11,7 @@ import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
+  reviewReactionActor,
   shouldRedactReviewIdentity,
 } from "../identity.js";
 import {
@@ -59,6 +60,7 @@ export default defineAction({
   requiresAuth: false,
   readOnly: true,
   parallelSafe: true,
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const access = await assertReviewableResourceAccess(
@@ -115,6 +117,7 @@ export default defineAction({
       ...(await getReviewDiscussionStateForComments(
         comments,
         actionCtx?.userEmail ?? null,
+        reviewReactionActor(actionCtx),
       )),
       canReact:
         Boolean(actionCtx?.userEmail) &&

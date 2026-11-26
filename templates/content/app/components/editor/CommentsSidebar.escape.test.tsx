@@ -95,7 +95,7 @@ vi.mock("@agent-native/core/client/review", () => ({
     isLoading: false,
   }),
   useReplyReviewComment: () => ({
-    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
     isPending: false,
     error: null,
   }),

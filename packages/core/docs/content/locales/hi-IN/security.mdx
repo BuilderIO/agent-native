@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # इसके अलावा org_i
 | OAuth टोकन (Google, GitHub)                 | `saveOAuthTokens()` के माध्यम से `oauth_tokens` स्टोर                 |
 | सत्र टोकन                                   | स्वचालित (बेहतर प्रमाणीकरण इसे संभालता है)                            |
 
-प्रति-उपयोगकर्ता/प्रति-संगठन क्रेडेंशियल्स और वॉल्ट AES-256-GCM से एन्क्रिप्ट होते हैं। Shared workspace vault पहले `WORKSPACE_SECRETS_ENCRYPTION_KEY`, फिर `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` और `BETTER_AUTH_SECRET` से बने legacy candidates उपयोग करता है; rotation में `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` rows को migration तक पढ़ने योग्य रखता है। मौजूदा plaintext rows के लिए `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive) चलाएँ।
+प्रति-उपयोगकर्ता/प्रति-संगठन क्रेडेंशियल्स और वॉल्ट AES-256-GCM से एन्क्रिप्ट होते हैं। Dispatch वॉल्ट में plaintext की कोई प्रति नहीं रहती: प्रत्येक key का नाम, label और एन्क्रिप्टेड मान उसकी `app_secrets` row में एक साथ रहते हैं, और vault की अपनी tables में केवल grants, requests और audit log रहते हैं। Shared workspace vault पहले `WORKSPACE_SECRETS_ENCRYPTION_KEY`, फिर `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` और `BETTER_AUTH_SECRET` से बने legacy candidates उपयोग करता है; rotation में `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` rows को migration तक पढ़ने योग्य रखता है। मौजूदा plaintext rows के लिए `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive) चलाएँ।
 
 `settings`, `application_state`, स्रोत कोड, या कार्रवाई प्रतिक्रियाओं में कभी भी रहस्य संग्रहीत न करें। उपरोक्त क्रेडेंशियल / वॉल्ट APIs का उपयोग करें - वे एन्क्रिप्शन और प्रति-उपयोगकर्ता स्कोपिंग दोनों को संभालते हैं।
 
@@ -350,7 +350,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. ऐप बी सत्यापित `sub` दावे को अनुरोध संदर्भ में पढ़ता है
 4. डेटा स्कोपिंग लागू होती है - ऐप बी केवल स्टीव का डेटा दिखाता है
 
-उत्पादन में `A2A_SECRET` के बिना, प्रत्येक A2A एंडपॉइंट और `/_agent-native/integrations/process-task` सेल्फ-फायर एंडपॉइंट रिटर्न **503**। इसे हर उस ऐप पर सेट करें जो A2A ट्रैफ़िक कॉल करता है या प्राप्त करता है। (स्थानीय विकास के लिए ढांचा अभी भी अप्रमाणित कॉल की अनुमति देता है।)
+उत्पादन में `A2A_SECRET` के बिना, प्रत्येक A2A एंडपॉइंट और `/_agent-native/integrations/process-task` सेल्फ-फायर एंडपॉइंट रिटर्न **503**। इसे हर उस ऐप पर सेट करें जो A2A ट्रैफ़िक कॉल करता है या प्राप्त करता है। (स्थानीय विकास में, A2A अप्रमाणित कॉल केवल उसी मशीन से स्वीकार करता है; जिस डेव सर्वर तक अन्य होस्ट पहुँच सकते हैं, उस पर `A2A_SECRET` सेट करें।)
 
 ## इनबाउंड Webhooks {#webhooks}
 

@@ -2,6 +2,14 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import {
+  diffBaseCommit,
+  GUARD_EXIT_COULD_NOT_RUN,
+  readCommitFile,
+  removedLines,
+  requireAddedLines,
+} from "./lib/changed-lines.mjs";
+
 const ALLOW_MARKER = /request-storm-allow:\s*(\S.{10,})/;
 const SHARED_SYNC_EVENT_SOURCE = "packages/core/src/client/use-db-sync.ts";
 const EXCLUDED_DIRECTORY_NAMES = new Set([
@@ -37,7 +45,11 @@ type AnalyzeOptions = {
   source: string;
 };
 
-function hasAdjacentAllow(source: string, line: number): boolean {
+function hasAdjacentAllow(
+  source: string,
+  line: number,
+  eligibleLines?: ReadonlySet<number>,
+): boolean {
   const lines = source.split(/\r?\n/);
   const currentIndex = line - 1;
   for (
@@ -46,7 +58,11 @@ function hasAdjacentAllow(source: string, line: number): boolean {
     index -= 1
   ) {
     const text = lines[index] ?? "";
-    if (ALLOW_MARKER.test(text)) return true;
+    if (
+      ALLOW_MARKER.test(text) &&
+      (!eligibleLines || eligibleLines.has(index + 1))
+    )
+      return true;
     if (index < currentIndex && text.trim() && !/^\s*(?:\/\/|\*)/.test(text)) {
       break;
     }
@@ -251,9 +267,82 @@ export function checkRequestStorms(repoRoot: string): {
   };
 }
 
+type RemovedLine = { line: number; oldLine: number; text: string };
+
+function exposedByRemovedAllow(
+  repoRoot: string,
+  added: Map<string, Set<number>>,
+): Map<string, Set<string>> {
+  const removed = removedLines(repoRoot) as Map<
+    string,
+    {
+      oldPath: string;
+      created: boolean;
+      lines: RemovedLine[];
+    }
+  > | null;
+  const base = diffBaseCommit(repoRoot);
+  if (removed === null || base === null) {
+    console.error(
+      "guard:request-storms: could not determine removed exemption context",
+    );
+    process.exit(GUARD_EXIT_COULD_NOT_RUN);
+  }
+  const exposed = new Map<string, Set<string>>();
+  for (const [absoluteFile, entry] of removed) {
+    const file = path
+      .relative(repoRoot, absoluteFile)
+      .split(path.sep)
+      .join("/");
+    if (entry.created || !shouldScanRequestStormFile(file)) continue;
+    const markers = new Set(
+      entry.lines
+        .filter((line) => ALLOW_MARKER.test(line.text))
+        .map((line) => line.oldLine),
+    );
+    if (markers.size === 0) continue;
+    const source = readCommitFile(repoRoot, base, entry.oldPath);
+    const unwaived = source.replaceAll(
+      "request-storm-allow:",
+      "request-storm-removed:",
+    );
+    const removedPositions = new Set(entry.lines.map((line) => line.oldLine));
+    const inserted = [...(added.get(absoluteFile) ?? [])].sort((a, b) => a - b);
+    const lines = new Set<string>();
+    for (const item of analyzeRequestStormSource({ file, source: unwaived })) {
+      if (
+        !hasAdjacentAllow(source, item.line, markers) ||
+        removedPositions.has(item.line)
+      )
+        continue;
+
+      let currentLine =
+        item.line -
+        entry.lines.filter((line) => line.oldLine < item.line).length;
+      for (const insertedLine of inserted) {
+        if (insertedLine <= currentLine) currentLine += 1;
+      }
+      lines.add(`${currentLine}:${item.rule}`);
+    }
+    exposed.set(absoluteFile, lines);
+  }
+  return exposed;
+}
+
 function main(): void {
   const repoRoot = path.resolve(import.meta.dirname, "..");
   const result = checkRequestStorms(repoRoot);
+  if (process.argv.includes("--diff")) {
+    const added = requireAddedLines(repoRoot, "guard:request-storms");
+    const exposed = exposedByRemovedAllow(repoRoot, added);
+    result.violations = result.violations.filter((item) => {
+      const file = path.resolve(repoRoot, item.file);
+      return (
+        added.get(file)?.has(item.line) ||
+        exposed.get(file)?.has(`${item.line}:${item.rule}`)
+      );
+    });
+  }
   if (result.violations.length > 0) {
     console.error(
       `[guard:request-storms] ${result.violations.length} issue(s):\n${result.violations

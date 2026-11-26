@@ -120,6 +120,27 @@ describe("WorkspaceAppCard", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders the configured catalog icon", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "crm-app",
+                name: "CRM",
+                path: "/crm-app",
+                status: "ready",
+                icon: "users",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+    expect(container.querySelector("svg.tabler-icon-users")).not.toBeNull();
+  });
+
   it("edits the app's when-to-use examples with the existing details form", async () => {
     await act(async () => {
       root.render(

@@ -77,6 +77,8 @@ function imageProps(attrs: Record<string, unknown>) {
       editor: {
         isEditable: true,
         isDestroyed: false,
+        on() {},
+        off() {},
         chain: () => chain,
         state: { tr },
         view: { dispatch },

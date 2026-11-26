@@ -133,7 +133,6 @@ export default defineAction({
         title: title || branchName,
         description: null,
         projectType: "prototype",
-        designSystemId: null,
         data: JSON.stringify(
           writeFusionApp(
             { sourceType: "fusion" },

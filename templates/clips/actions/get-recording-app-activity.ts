@@ -40,6 +40,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ recordingId, fromMs, toMs, start, maxEvents }) => {
     assertRecordingNotExpired(
       await assertAccess("recording", recordingId, "editor"),

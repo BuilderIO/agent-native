@@ -10,7 +10,12 @@ function legacyHashForTest(canonical: string): string {
 }
 
 function hashContentForTest(content: string | null | undefined): string {
-  return `v2:${legacyHashForTest(canonicalizeNotionNfm(content ?? ""))}`;
+  return `v3:${legacyHashForTest(canonicalizeNotionNfm(content ?? ""))}`;
+}
+
+/** A v2 baseline, from before text between backticks was literal. */
+function v2HashForTest(canonical: string): string {
+  return `v2:${legacyHashForTest(canonical)}`;
 }
 
 const testState = vi.hoisted(() => ({
@@ -1006,6 +1011,158 @@ describe("refreshDocumentSyncStatus", () => {
     expect(status.localChanged).toBe(false);
   });
 
+  it("lets a v2 baseline that still matches decide", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.link.lastSyncedContentHash = v2HashForTest("Local body");
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      { autoSync: true },
+    );
+
+    expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
+    expect(status.localChanged).toBe(false);
+    expect(status.remoteChanged).toBe(false);
+  });
+
+  it.each([
+    // Main saved a line break inside inline code as a tag between backticks.
+    ["`a<br>b` here", "`a`<br>`b` here"],
+    // It wrote code of only spaces around a line break without padding,
+    // which now reads as `<br>`.
+    ["` <br> `", "` `<br>` `"],
+  ])(
+    "pulls Notion's line break back into %j, last synced in v2",
+    async (stored, pulled) => {
+      const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+      testState.document = {
+        ...testState.document,
+        content: stored,
+        updatedAt: "2026-06-01T09:00:00.000Z",
+      };
+      testState.link.lastSyncedContentHash = v2HashForTest(stored);
+      notionMocks.fetchNotionPage.mockResolvedValue({
+        id: "notion-page",
+        last_edited_time: "2026-06-01T09:00:00.000Z",
+      });
+      notionMocks.readNotionPageAsDocument.mockResolvedValue({
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: pulled,
+        lastEditedTime: "2026-06-01T09:00:00.000Z",
+        warnings: [],
+      });
+
+      const status = await refreshDocumentSyncStatus(
+        "alice@example.com",
+        "doc-1",
+        { autoSync: true },
+      );
+
+      expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+      expect(testState.document.content).toBe(pulled);
+      expect(testState.link.lastSyncedContentHash).toBe(
+        hashContentForTest(pulled),
+      );
+      expect(status.hasConflict).toBe(false);
+      expect(status.remoteChanged).toBe(false);
+      expect(status.localChanged).toBe(false);
+    },
+  );
+
+  it("pushes a local edit to a page with a line break in code, last synced in v2, instead of flagging a conflict", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.document = {
+      ...testState.document,
+      content: "`a<br>b` and an edit",
+      updatedAt: "2026-06-01T10:00:00.000Z",
+    };
+    testState.link.lastSyncedContentHash = v2HashForTest("`a<br>b`");
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "`a`<br>`b`",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "`a`<br>`b` and an edit",
+      lastEditedTime: "2026-06-01T10:05:00.000Z",
+      warnings: [],
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      { autoSync: true },
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalledTimes(1);
+    expect(status.hasConflict).toBe(false);
+    expect(testState.link?.state).toBe("linked");
+    expect(testState.document.content).toBe("`a`<br>`b` and an edit");
+  });
+
+  it("keeps a local edit saved while it pulls Notion's line break back, last synced in v2", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.document = {
+      ...testState.document,
+      content: "`a<br>b`",
+      updatedAt: "2026-06-01T09:00:00.000Z",
+    };
+    testState.link.lastSyncedContentHash = v2HashForTest("`a<br>b`");
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockImplementation(async () => {
+      testState.document = {
+        ...testState.document,
+        content: "`a<br>b` and an edit",
+        updatedAt: "2026-06-01T10:00:05.000Z",
+      };
+      return {
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: "`a`<br>`b`",
+        lastEditedTime: "2026-06-01T09:00:00.000Z",
+        warnings: [],
+      };
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      { autoSync: true },
+    );
+
+    expect(testState.document.content).toBe("`a<br>b` and an edit");
+    expect(testState.link.lastSyncedContentHash).toBe(
+      v2HashForTest("`a<br>b`"),
+    );
+    expect(testState.link.state).toBe("linked");
+    expect(status.localChanged).toBe(true);
+  });
+
   it("proceeds with the pull when a stale claim (older than the staleness window) is held", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
@@ -1115,6 +1272,42 @@ describe("pushDocumentToNotion", () => {
       icon: null,
       content: "Teammate's same-minute Notion edit",
       lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+
+    const status = await pushDocumentToNotion(
+      "alice@example.com",
+      "doc-1",
+      false,
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(status.hasConflict).toBe(true);
+    expect(testState.link?.state).toBe("conflict");
+  });
+
+  it("keeps a recorded conflict on a page last synced in v2 when pushed without force", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+
+    testState.document.content = "Local edit typed just now";
+    // Recording the conflict moved the known remote time to the Notion edit.
+    testState.link = {
+      ...testState.link,
+      state: "conflict",
+      lastKnownRemoteUpdatedAt: "2026-06-01T10:30:00.000Z",
+      lastSyncedContentHash: v2HashForTest("Local body"),
+      hasConflict: true,
+    };
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T10:30:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Teammate's Notion edit",
+      lastEditedTime: "2026-06-01T10:30:00.000Z",
       warnings: [],
     });
 

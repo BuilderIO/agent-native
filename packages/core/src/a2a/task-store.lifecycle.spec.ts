@@ -25,6 +25,7 @@ const dbExec: DbExec = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => dbExec,
   getScopedTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
@@ -62,7 +63,7 @@ async function withTaskExecutionFence<T>(
 
 describe("task-store lifecycle (real pglite)", () => {
   beforeEach(async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     vi.resetModules();
   });
 

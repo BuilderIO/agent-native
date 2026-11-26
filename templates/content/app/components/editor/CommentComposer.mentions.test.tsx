@@ -25,6 +25,10 @@ vi.mock("@/hooks/use-mention-members", () => ({
     refetch: vi.fn(),
   }),
 }));
+vi.mock("./comment-images", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./comment-images")>()),
+  useCommentImageStorage: () => true,
+}));
 
 const first = { email: "sam.lee@example.test", name: "Sam Lee" };
 const second = { email: "sam.l@example.test", name: "Sam Lee" };

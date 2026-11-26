@@ -17,18 +17,22 @@ import {
   setResponseHeader,
 } from "h3";
 
-import { agentLinkOpensPrivateMedia } from "../../../lib/private-media-agent-links.js";
+import {
+  canReadPrivateMediaThroughComment,
+  liveCommentCarriesPrivateMedia,
+} from "../../../lib/comment-images.js";
+import {
+  agentLinkOpensCommentImage,
+  agentLinkOpensPrivateMedia,
+} from "../../../lib/private-media-agent-links.js";
 import { canReadPrivateMediaThroughDocument } from "../../../lib/private-media-references.js";
 
-/**
- * Serves a private image to someone who can view a live page that carries it,
- * to its uploader, or to anyone holding an unexpired agent link to it. Every
- * refusal is the same 404, so the route never says whether an image exists.
- */
 const RESPONSE_HEADERS = {
   "Cache-Control": "private, no-store",
   "X-Content-Type-Options": "nosniff",
 };
+
+const STORAGE_TIMEOUT_MS = 15_000;
 
 export default defineEventHandler(async (event) => {
   for (const [name, value] of Object.entries(RESPONSE_HEADERS)) {
@@ -50,15 +54,22 @@ export default defineEventHandler(async (event) => {
       ...(session?.orgId ? { orgId: session.orgId } : {}),
     },
     async () => {
-      const token = getQuery(event)[AGENT_ACCESS_PARAM];
+      const query = getQuery(event)[AGENT_ACCESS_PARAM];
+      const token = typeof query === "string" ? query : "";
       const readable =
-        (typeof token === "string" && agentLinkOpensPrivateMedia(token, id)) ||
+        agentLinkOpensPrivateMedia(token, id) ||
+        (!!token &&
+          (await liveCommentCarriesPrivateMedia(id, (documentId) =>
+            agentLinkOpensCommentImage(token, documentId, id),
+          ))) ||
         (await canReadPrivateMediaThroughDocument(id)) ||
+        (await canReadPrivateMediaThroughComment(id)) ||
         (await ownsPrivateMedia(id, session?.email));
       if (!readable) throw notFound();
       const opened = await openPrivateMediaForAuthorizedReader(id);
       if (!opened) throw notFound();
-      if (opened.kind === "redirect") {
+      const bytes = getQuery(event).bytes === "1";
+      if (opened.kind === "redirect" && !bytes) {
         return sendRedirect(event, opened.url, 302);
       }
       setResponseHeader(event, "Content-Type", opened.media.mimeType);
@@ -69,7 +80,19 @@ export default defineEventHandler(async (event) => {
           PRIVATE_MEDIA_SVG_CSP,
         );
       }
-      return Buffer.from(opened.data);
+      if (opened.kind === "bytes") return Buffer.from(opened.data);
+      const stored = await fetch(opened.url, {
+        signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS),
+      });
+      const data = stored.ok ? Buffer.from(await stored.arrayBuffer()) : null;
+      if (data?.byteLength !== opened.media.size) {
+        throw createError({
+          statusCode: 502,
+          statusMessage: "Image storage did not answer with the image",
+          headers: RESPONSE_HEADERS,
+        });
+      }
+      return data;
     },
   );
 });

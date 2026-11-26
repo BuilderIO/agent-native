@@ -196,14 +196,94 @@ export async function getSettingsRaw(
 
 export interface StoreWriteOptions {
   requestSource?: string;
+  owner?: string;
+  orgId?: string;
+  global?: true;
+  /**
+   * Allow this write to keep an inline image data URI.
+   *
+   * Settings never carry inline image or file bodies: they would put megabytes
+   * of base64 in a row every page reads, so `assertNoInlineImageBytes` rejects
+   * them. The one setting that is an image by design is the account photo
+   * (`avatar:<email>`, a 64x64 raster the avatar route validates and caps), so
+   * that route asks for the exemption explicitly. Nothing else passes it.
+   */
+  allowInlineImageBytes?: boolean;
+}
+
+export class SettingsScopeError extends Error {
+  readonly code = "SETTINGS_SCOPE_CONFLICT";
+
+  constructor() {
+    super("Settings write scope conflicts with its wrapper.");
+    this.name = "SettingsScopeError";
+  }
+}
+
+export type UserSettingWriteOptions = Omit<
+  StoreWriteOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export type UserSettingMutationOptions = Omit<
+  StoreMutationOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export type OrgSettingWriteOptions = Omit<
+  StoreWriteOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export function assertScopedSettingsOptions(
+  options: StoreWriteOptions | undefined,
+): void {
+  if (
+    options &&
+    (options.owner !== undefined ||
+      options.orgId !== undefined ||
+      options.global !== undefined)
+  ) {
+    throw new SettingsScopeError();
+  }
 }
 
 export interface StoreMutationOptions extends StoreWriteOptions {
   /** Initialize the settings store before the transaction and publish the change only after commit. */
   transaction?: DbExec;
+  /**
+   * Server-only guard invoked with each PRESENT stored snapshot before the
+   * updater: a stored JSON `null`, array or scalar included. For user settings
+   * the legacy-migration value is validated too. Throw to reject the mutation
+   * without writing. Absent by default, so existing callers are unchanged and
+   * no stored `null` is rejected globally.
+   *
+   * The hook validates the value as it is stored; it does not change migration
+   * or null semantics. A permissive guard that accepts a canonical JSON `null`
+   * still falls through to the same absent-row migration branch as before, and
+   * a permissive guard that accepts a legacy `null` leaves migration
+   * bookkeeping value-based exactly as before.
+   */
+  validateStoredValue?: (value: unknown) => void | Promise<void>;
 }
 
 const SETTINGS_MUTATION_ATTEMPTS = 25;
+
+function settingsChangeEvent(
+  type: "change" | "delete",
+  key: string,
+  options?: StoreWriteOptions,
+): Record<string, unknown> {
+  return {
+    source: "settings",
+    type,
+    key,
+    ...(options?.owner && { owner: options.owner }),
+    ...(options?.orgId && { orgId: options.orgId }),
+    ...(options?.global && { visibility: "public" }),
+    ...(options?.requestSource && { requestSource: options.requestSource }),
+  };
+}
 
 export async function mutateSetting(
   key: string,
@@ -223,8 +303,18 @@ export async function mutateSetting(
     const raw =
       snapshot.rows.length === 0 ? null : (snapshot.rows[0]?.value as string);
     const current = raw == null ? null : JSON.parse(raw);
+    // `raw !== null` means the row is present. Validate the parsed value even
+    // when it is `null`: the updater cannot tell a stored JSON `null` (or an
+    // array/scalar) from an absent row on its own, so without this guard its
+    // absent-row fallback would silently overwrite the corruption. Runs on
+    // every CAS attempt, including before the unchanged-row fast path.
+    if (raw !== null && options?.validateStoredValue) {
+      await options.validateStoredValue(current);
+    }
     const next = await updater(current);
-    assertNoInlineImageBytes(next, `setting "${key}"`);
+    if (!options?.allowInlineImageBytes) {
+      assertNoInlineImageBytes(next, `setting "${key}"`);
+    }
     const nextRaw = JSON.stringify(next);
     // An unchanged value is not a write: it would bump updated_at and publish
     // a settings event that makes every open page refetch for nothing.
@@ -243,12 +333,10 @@ export async function mutateSetting(
     if (result.rowsAffected === 0) continue;
     if (!options?.transaction) {
       requestSettingsCache()?.set(key, nextRaw);
-      settingsEmitter().emit("settings", {
-        source: "settings",
-        type: "change",
-        key,
-        ...(options?.requestSource && { requestSource: options.requestSource }),
-      });
+      settingsEmitter().emit(
+        "settings",
+        settingsChangeEvent("change", key, options),
+      );
     }
     return JSON.parse(nextRaw);
   }
@@ -260,12 +348,10 @@ export function publishSettingChange(
   options?: StoreWriteOptions,
 ): void {
   requestSettingsCache()?.delete(key);
-  settingsEmitter().emit("settings", {
-    source: "settings",
-    type: "change",
-    key,
-    ...(options?.requestSource && { requestSource: options.requestSource }),
-  });
+  settingsEmitter().emit(
+    "settings",
+    settingsChangeEvent("change", key, options),
+  );
 }
 
 export function invalidateSettingRequestCache(key: string): void {
@@ -277,7 +363,9 @@ export async function putSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
-  assertNoInlineImageBytes(value, `setting "${key}"`);
+  if (!options?.allowInlineImageBytes) {
+    assertNoInlineImageBytes(value, `setting "${key}"`);
+  }
   const serialized = JSON.stringify(value);
   await ensureTable();
   const client = getDbExec();
@@ -287,12 +375,10 @@ export async function putSetting(
     args: [key, serialized, Date.now()],
   });
   requestSettingsCache()?.set(key, serialized);
-  settingsEmitter().emit("settings", {
-    source: "settings",
-    type: "change",
-    key,
-    ...(options?.requestSource && { requestSource: options.requestSource }),
-  });
+  settingsEmitter().emit(
+    "settings",
+    settingsChangeEvent("change", key, options),
+  );
 }
 
 export async function deleteSetting(
@@ -308,12 +394,10 @@ export async function deleteSetting(
   });
   requestSettingsCache()?.set(key, null);
   if (result.rowsAffected > 0) {
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", key, options),
+    );
     return true;
   }
   return false;
@@ -335,12 +419,10 @@ export async function deleteSettingIfValue(
 
   if (!options?.transaction) {
     requestSettingsCache()?.set(key, null);
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", key, options),
+    );
   }
   return true;
 }
@@ -359,12 +441,10 @@ export async function deleteSettingsByPrefix(
   });
   requestSettingsCache()?.clear();
   if (result.rowsAffected > 0) {
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key: prefix,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", prefix, options),
+    );
   }
   return result.rowsAffected;
 }

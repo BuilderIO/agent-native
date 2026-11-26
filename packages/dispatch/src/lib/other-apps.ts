@@ -101,3 +101,44 @@ export function filterBuiltInApps(
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Apps outside this workspace that the chat-first pane can open: first-party
+ * hosted apps and apps connected from another workspace. None while the
+ * mounted list is loading, so an external row never stands in for a mounted
+ * app with the same id. When the mounted list is unreadable they are all
+ * kept, since no mounted app can be shown to shadow them.
+ */
+export function chatFirstExternalApps(
+  connectedApps: ConnectedAppSummary[],
+  workspaceApps: WorkspaceAppId[] | "loading" | "unreadable",
+): {
+  id: string;
+  name: string;
+  description?: string;
+  url: string;
+  source: "builtin" | "connected";
+  hiddenFromLaunchers?: boolean;
+}[] {
+  if (workspaceApps === "loading") return [];
+  const mounted = workspaceApps === "unreadable" ? [] : workspaceApps;
+  const summary = (app: ConnectedAppSummary, url: string) => ({
+    id: app.id,
+    name: app.name,
+    ...(app.description === undefined ? {} : { description: app.description }),
+    url,
+  });
+  return [
+    ...filterBuiltInApps(connectedApps, mounted, {
+      includeHiddenFromLaunchers: true,
+    }).map((app) => ({
+      ...summary(app, app.homeUrl?.trim() || app.url),
+      source: "builtin" as const,
+      ...(app.hiddenFromLaunchers ? { hiddenFromLaunchers: true } : {}),
+    })),
+    ...filterOtherApps(connectedApps, mounted).map((app) => ({
+      ...summary(app, app.url),
+      source: "connected" as const,
+    })),
+  ];
+}

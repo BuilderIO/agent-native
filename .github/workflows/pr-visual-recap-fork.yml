@@ -278,7 +278,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       checks: write
       contents: read
@@ -547,6 +547,10 @@ jobs:
 
       - name: Run agent (Claude Code)
         id: claude
+        # A quota-blocked or hung agent CLI never exits. Budget invariant: agent steps
+        # (2 attempts x 9m) + repair (10m) + ~10m setup/post-steps must stay under the
+        # job timeout (40m), so the check run is completed instead of cancelled.
+        timeout-minutes: 19
         if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
@@ -566,7 +570,8 @@ jobs:
           run_claude() {
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
-            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
+            TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
             CLAUDE_STATUS="$?"
             set -e
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
@@ -587,6 +592,10 @@ jobs:
 
       - name: Run agent (Codex)
         id: codex
+        # A quota-blocked or hung agent CLI never exits; each attempt gets its own 9m
+        # cap (the retry-capable steps fit two), so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 19
         if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
@@ -601,7 +610,8 @@ jobs:
           run_codex() {
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
-            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > codex-events.jsonl 2> codex-stderr.log
+            TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > codex-events.jsonl 2> codex-stderr.log
             CODEX_STATUS="$?"
             set -e
             echo "$CODEX_STATUS" > codex-exit-code.txt
@@ -619,6 +629,10 @@ jobs:
 
       - name: Run agent (OpenAI-compatible)
         id: openai_compatible
+        # A quota-blocked or hung agent CLI never exits; each attempt gets its own 9m
+        # cap (the retry-capable steps fit two), so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 19
         if: needs.gate.outputs.agent == 'openai-compatible' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
@@ -634,7 +648,8 @@ jobs:
           run_openai_compatible() {
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
-            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
@@ -717,6 +732,10 @@ jobs:
 
       - name: Repair recap source (Claude Code)
         id: claude_repair
+        # A quota-blocked or hung agent CLI never exits; each attempt gets its own 9m
+        # cap (the retry-capable steps fit two), so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'claude'
         continue-on-error: true
         env:
@@ -735,7 +754,8 @@ jobs:
           done
           set +e
           mkdir -p "$RUNNER_TEMP/recap-agent-home"
-          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
+          TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
+          ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
           CLAUDE_REPAIR_STATUS="$?"
           set -e
           echo "$CLAUDE_REPAIR_STATUS" > claude-repair-exit-code.txt
@@ -743,6 +763,10 @@ jobs:
 
       - name: Repair recap source (Codex)
         id: codex_repair
+        # A quota-blocked or hung agent CLI never exits; each attempt gets its own 9m
+        # cap (the retry-capable steps fit two), so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'codex'
         continue-on-error: true
         env:
@@ -757,7 +781,8 @@ jobs:
           run_codex() {
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
-            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > codex-repair-events.jsonl 2> codex-repair-stderr.log
+            TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > codex-repair-events.jsonl 2> codex-repair-stderr.log
             CODEX_STATUS="$?"
             set -e
             echo "$CODEX_STATUS" > codex-repair-exit-code.txt
@@ -767,6 +792,10 @@ jobs:
 
       - name: Repair recap source (OpenAI-compatible)
         id: openai_compatible_repair
+        # A quota-blocked or hung agent CLI never exits; each attempt gets its own 9m
+        # cap (the retry-capable steps fit two), so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'openai-compatible'
         continue-on-error: true
         env:
@@ -781,7 +810,8 @@ jobs:
           rm -f openai-compatible-repair-result.txt openai-compatible-repair-usage.json openai-compatible-repair-stderr.log
           set +e
           mkdir -p "$RUNNER_TEMP/recap-agent-home"
-          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
+          TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
+          ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
           OPENAI_COMPATIBLE_REPAIR_STATUS="$?"
           set -e
           echo "$OPENAI_COMPATIBLE_REPAIR_STATUS" > openai-compatible-repair-exit-code.txt

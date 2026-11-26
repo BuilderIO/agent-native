@@ -14,10 +14,6 @@ export interface CanvasPrimitiveVisual {
   color?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Canonical tokens
-// ---------------------------------------------------------------------------
-
 /** Default fill — a soft neutral gray. */
 // guard:allow-raw-color — a drawn shape must not retint with the document theme.
 export const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";

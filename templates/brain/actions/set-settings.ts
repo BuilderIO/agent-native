@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { writeBrainSettings } from "../server/lib/brain.js";
+import { assertBrainAdmin } from "../server/lib/zoom-governance.js";
 import { publishTierSchema, stringArrayCliSchema } from "./_schemas.js";
 
 function hasPrivacyWeakeningInstruction(value: string) {
@@ -28,7 +29,8 @@ const privacyInstructionsSchema = z
   });
 
 export default defineAction({
-  description: "Update Brain template settings.",
+  description:
+    "Update Brain settings for the current organization. Brain admins only.",
   schema: z.object({
     companyName: z.string().max(120).optional(),
     assistantName: z.string().max(80).optional(),
@@ -66,5 +68,9 @@ export default defineAction({
     autoArchiveResolved: z.coerce.boolean().optional(),
     notifyOnSourceErrors: z.coerce.boolean().optional(),
   }),
-  run: async (args) => ({ settings: await writeBrainSettings(args) }),
+  mcpTool: false,
+  run: async (args) => {
+    const { orgId } = await assertBrainAdmin();
+    return { settings: await writeBrainSettings(orgId, args) };
+  },
 });

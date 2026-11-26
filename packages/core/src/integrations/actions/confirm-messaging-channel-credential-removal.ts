@@ -4,6 +4,7 @@ import { defineAction } from "../../action.js";
 import { confirmMessagingChannelCredentialRemoval } from "../channel-settings.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "After the owner confirms in Settings, verify the selected channel credentials have not changed and mint exact, short-lived removal confirmations.",
   schema: z.object({

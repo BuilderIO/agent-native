@@ -3,6 +3,39 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-26
+
+### Added
+
+- Agents connected to Brain through MCP can now find and use most of its tools, such as asking and searching company knowledge, importing captures and transcripts, and writing knowledge, and they ask you first before approving or rejecting a proposal, archiving a source or changing what it reads, sharing a new source with your organization or giving it an ingest token, deleting a project, replacing a capture Brain already holds, or publishing or changing knowledge in workspace context.
+
+## 2026-11-22
+
+### Improved
+
+- Manual transcript imports can be marked as meeting transcripts, and Brain keeps the safe passages when only part of a transcript is restricted.
+
+## 2026-11-19
+
+### Fixed
+
+- Distillation reports failures before delivery accurately.
+- Redacted knowledge stays searchable and citable, and saving knowledge no longer races capture changes.
+- Redacted knowledge keeps its people in the entity graph, and private drafts stay out of published search.
+
+## 2026-11-18
+
+### Added
+
+- Track cited decisions and action items, explore related people and projects, save private context and recipes, and index personal Google sources.
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+### Fixed
+
+- Brain actions now list evidence and capture IDs as required inputs, so assistants include them in the first request.
+- Distillation requests are retained when delivery cannot be confirmed. Retrying or queueing a capture now publishes its request in the same step as the queue row, so an interrupted retry leaves the item retryable instead of stranded, and an unreadable claim returns to the queue instead of stalling.
+- Manual imports explain when screening is unavailable and ask you to retry the import.
+
 ## 2026-10-19
 
 ### Improved

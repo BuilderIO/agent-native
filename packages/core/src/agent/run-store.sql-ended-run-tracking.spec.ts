@@ -17,7 +17,7 @@ import {
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
 
-const pglite = await createTestPglite();
+const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
 
 afterAll(async () => {
   await pglite.close();
@@ -54,6 +54,7 @@ const client = {
 } as unknown as DbExec;
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => client,
   getScopedDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,

@@ -1,4 +1,13 @@
+import { ChatBubbleIcon } from "@radix-ui/react-icons";
 import type { ReactElement } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
@@ -6,79 +15,110 @@ import type { EditorHistory } from "../domains/use-editor-history";
 export function renderRightSidebarActions({
   editorCore,
   editorHistory,
-  renderZoomControl,
   renderPendingNodeRewriteControl,
   publishWaitlistControl,
   presenceControl,
-  reviewFeedbackControl,
+  renderReviewFeedbackControl,
   renderShareControl,
   localPreviewRow,
+  showCommentsToggle,
+  reviewUnreadCount,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
-  renderZoomControl: (
-    controlId: "toolbar" | "inspector" | "topbar",
-  ) => ReactElement;
   renderPendingNodeRewriteControl: (compact: boolean) => ReactElement | null;
   publishWaitlistControl: ReactElement | null;
   presenceControl: ReactElement | null;
-  reviewFeedbackControl: ReactElement | null;
+  renderReviewFeedbackControl: (compact: boolean) => ReactElement | null;
   renderShareControl: (dense: boolean) => ReactElement | null;
   localPreviewRow: ReactElement | null;
+  showCommentsToggle: boolean;
+  reviewUnreadCount: number;
 }) {
-  const { hostEmbeddedEditor, sessionResolved, isSignedIn } = editorCore;
-  const { rightSidebarWidth } = editorHistory;
+  const { t, hostEmbeddedEditor, sessionResolved, isSignedIn } = editorCore;
+  const { rightSidebarWidth, commentsPanelOpen, setCommentsPanelOpen } =
+    editorHistory;
 
   const rightToolbarCompact = rightSidebarWidth < 320;
+  const hasUnreadComments = reviewUnreadCount > 0;
+  const reviewFeedbackControl = renderReviewFeedbackControl(
+    rightSidebarWidth < 360,
+  );
+  const commentsLabelVisible =
+    rightSidebarWidth >= 280 && reviewFeedbackControl === null;
+  const commentsLabel = t("designEditor.columnHead.comments");
+  const unreadCommentsLabel = t("designEditor.columnHead.unreadComments");
+  const commentsAccessibleName = hasUnreadComments
+    ? `${commentsLabel}, ${unreadCommentsLabel}`
+    : commentsLabel;
+
+  const commentsToggle = showCommentsToggle ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size={commentsLabelVisible ? "xs" : "icon-xs"}
+      data-design-comments-toggle
+      aria-pressed={commentsPanelOpen}
+      aria-label={commentsLabelVisible ? undefined : commentsAccessibleName}
+      onClick={() => setCommentsPanelOpen((open) => !open)}
+      className={cn(
+        "design-focus-ring design-font-medium relative min-w-0 gap-[var(--design-baseline-half)] [&_svg]:size-[var(--design-icon-size)]",
+        commentsLabelVisible ? "shrink" : "shrink-0",
+        commentsPanelOpen &&
+          "bg-[var(--design-editor-active-row-color)] text-[var(--design-brand-ink)]",
+      )}
+    >
+      <ChatBubbleIcon className="design-ui-icon shrink-0" aria-hidden="true" />
+      {commentsLabelVisible ? (
+        <span className="min-w-0 truncate">{commentsLabel}</span>
+      ) : null}
+      {hasUnreadComments ? (
+        <>
+          <span
+            aria-hidden="true"
+            data-design-comments-unread-dot
+            className="absolute end-0.5 top-0.5 size-1.5 rounded-full bg-[var(--design-brand)]"
+          />
+          <span className="sr-only">{unreadCommentsLabel}</span>
+        </>
+      ) : null}
+    </Button>
+  ) : null;
 
   return (
     <div
       data-design-chrome-region="right-toolbar"
-      className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
+      className="shrink-0 bg-[var(--design-editor-panel-bg)]"
     >
-      {/* Presence leads the row and the zoom sits under it. When nothing
-          leads (no presence, no waitlist CTA) the leading cluster renders
-          empty and drops out of the grid, so the zoom joins the Share row,
-          next to Share: the floating title pill covers the panel's top-left
-          corner in a narrow frame. */}
       <div
         data-design-chrome-region="right-toolbar-actions"
-        className="group/actions grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--design-baseline-half)] gap-y-[var(--design-baseline-half)]"
+        className="flex h-[var(--design-column-head-height)] min-w-0 items-center gap-[var(--design-baseline-half)] ps-[var(--design-baseline-unit)] pe-[calc(var(--design-baseline-unit)*2)]"
       >
-        <div
-          data-design-right-toolbar-leading
-          className="col-start-1 flex min-h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)] empty:hidden"
-        >
-          {hostEmbeddedEditor ? null : (
-            <>
-              {presenceControl}
-              {sessionResolved && !isSignedIn ? publishWaitlistControl : null}
-            </>
-          )}
-        </div>
+        {commentsToggle && !commentsLabelVisible ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{commentsToggle}</TooltipTrigger>
+            <TooltipContent>{commentsLabel}</TooltipContent>
+          </Tooltip>
+        ) : (
+          commentsToggle
+        )}
+        {reviewFeedbackControl}
 
-        {/* Not shrink-0: the signed-out CTA ("Sign up") is a
-            nowrap label wide enough to push this row past the right rail's
-            edge on its own, and a shrink-0 row has no way to give that space
-            back — it just overflows the panel. */}
-        <div className="col-start-2 row-start-1 flex min-h-[var(--design-row-height)] min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
+        <div className="ms-auto flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
           {renderPendingNodeRewriteControl(rightToolbarCompact)}
-          {reviewFeedbackControl}
-          {!sessionResolved || isSignedIn ? publishWaitlistControl : null}
-          {renderShareControl(false)}
-        </div>
-
-        {localPreviewRow ? (
-          <div className="col-span-full min-w-0">{localPreviewRow}</div>
-        ) : null}
-
-        <div
-          data-design-right-toolbar-zoom
-          className="col-start-1 flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center justify-self-start group-has-[[data-design-right-toolbar-leading]:empty]/actions:row-start-1 group-has-[[data-design-right-toolbar-leading]:empty]/actions:justify-self-end"
-        >
-          <div className="shrink-0">{renderZoomControl("inspector")}</div>
+          {hostEmbeddedEditor ? null : presenceControl}
+          {!hostEmbeddedEditor || !sessionResolved || isSignedIn
+            ? publishWaitlistControl
+            : null}
+          {renderShareControl(true)}
         </div>
       </div>
+
+      {localPreviewRow ? (
+        <div className="min-w-0 px-[var(--design-baseline-unit)] pb-[var(--design-baseline-half)]">
+          {localPreviewRow}
+        </div>
+      ) : null}
     </div>
   );
 }

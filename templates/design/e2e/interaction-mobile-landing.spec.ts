@@ -194,12 +194,12 @@ async function pickScreenTool(app: App) {
     .click();
   await app.page
     .getByRole("menuitem")
-    .filter({ hasText: "Screen" })
+    .filter({ hasText: "Page" })
     .first()
     .click();
   await expect(
     app.page.locator(
-      '[data-design-bottom-toolbar] button[aria-label="Screen"][aria-pressed="true"]',
+      '[data-design-bottom-toolbar] button[aria-label="Page"][aria-pressed="true"]',
     ),
   ).toHaveCount(1);
 }

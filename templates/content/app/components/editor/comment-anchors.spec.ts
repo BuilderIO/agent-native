@@ -123,6 +123,13 @@ describe("comment-anchors", () => {
     expect(range!.from).toBeGreaterThan(firstParaEnd);
   });
 
+  it("finds its copy where copies of the quote overlap", () => {
+    const doc = mkDoc(["Say aaa now."]);
+    const from = 1 + "Say a".length;
+    const anchor = captureAnchor(doc, from, from + "aa".length);
+    expect(resolveAnchor(doc, anchor)).toEqual({ from, to: from + 2 });
+  });
+
   it("falls back to the first occurrence for a quote-only anchor", () => {
     const doc = mkDoc(["alpha beta alpha beta"]);
     const range = resolveAnchor(doc, { quotedText: "alpha" });
@@ -133,6 +140,46 @@ describe("comment-anchors", () => {
     const doc = mkDoc(["Nothing to see here."]);
     expect(resolveAnchor(doc, { quotedText: "missing phrase" })).toBeNull();
     expect(resolveAnchor(doc, { quotedText: null })).toBeNull();
+  });
+
+  describe("a quote whose own text was deleted", () => {
+    const plan = "Launch plan: ship the beta to testers on Friday.";
+    const notes = "Notes: the beta needs a new icon.";
+    const original = mkDoc([plan, notes]);
+    const from = 1 + plan.indexOf("the beta");
+    const anchor = captureAnchor(original, from, from + "the beta".length);
+
+    it("stays without a highlight when the same words remain elsewhere", () => {
+      expect(resolveAnchor(original, anchor)).toEqual({
+        from,
+        to: from + "the beta".length,
+      });
+      expect(resolveAnchor(mkDoc([notes]), anchor)).toBeNull();
+    });
+
+    it("re-attaches where the text around it still matches", () => {
+      // The paragraph moved below the notes paragraph.
+      const moved = notes.length + 2 + from;
+      expect(resolveAnchor(mkDoc([notes, plan]), anchor)).toEqual({
+        from: moved,
+        to: moved + "the beta".length,
+      });
+      // Words typed just after the quote leave the text before it.
+      const typed = mkDoc([plan.replace("beta to", "beta build to"), notes]);
+      expect(resolveAnchor(typed, anchor)).toEqual({
+        from,
+        to: from + "the beta".length,
+      });
+    });
+
+    it("finds its copy past hundreds of other copies", () => {
+      const others = Array.from({ length: 600 }, () => notes);
+      const moved = others.length * (notes.length + 2) + from;
+      expect(resolveAnchor(mkDoc([...others, plan]), anchor)).toEqual({
+        from: moved,
+        to: moved + "the beta".length,
+      });
+    });
   });
 
   it("resolves a deleted draft at its ordered context boundary", () => {

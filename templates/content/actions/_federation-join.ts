@@ -22,6 +22,7 @@ import { evaluateNormalizationFormula } from "../shared/properties.js";
 import {
   contentDatabaseSourceFieldAllowsLocalWrite,
   contentDatabaseSourceManagedPropertyIds,
+  contentDatabaseSourceWritebackPropertyIds,
 } from "../shared/source-field-policy.js";
 
 export function computeNormalizedKey(args: {
@@ -130,6 +131,16 @@ export function applyFederatedOverlayValues(
   const sourceManagedPropertyIds = contentDatabaseSourceManagedPropertyIds(
     sources.flatMap((source) => source.fields),
   );
+  const sourceWritebackPropertyIds = contentDatabaseSourceWritebackPropertyIds(
+    sources.flatMap((source) =>
+      source.fields.map((field) => ({
+        ...field,
+        sourceType: source.sourceType,
+        sourceTable: source.sourceTable,
+        sourceMetadataJson: JSON.stringify(source.metadata),
+      })),
+    ),
+  );
   const secondaryPropertyIds = new Set(
     sources
       .filter((source) => source.metadata.federation?.role === "secondary")
@@ -173,9 +184,14 @@ export function applyFederatedOverlayValues(
           };
         }
         if (!sourceManagedPropertyIds.has(propertyId)) return property;
-        return secondaryPropertyIds.has(propertyId) &&
+        if (
+          secondaryPropertyIds.has(propertyId) &&
           !primaryOrStandalonePropertyIds.has(propertyId)
-          ? { ...property, value: null, editable: false }
+        ) {
+          return { ...property, value: null, editable: false };
+        }
+        return sourceWritebackPropertyIds.has(propertyId)
+          ? property
           : { ...property, editable: false };
       }),
     };

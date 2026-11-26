@@ -119,12 +119,14 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/connections", () => ({
   },
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/questions", () => ({
-  GuidedQuestionFlow: () => null,
+  GuidedQuestionCard: () => null,
   useGuidedQuestionFlow: () => ({
     questions: null,
     handleSubmit: vi.fn(),
     handleSkip: vi.fn(),
+    refetchPendingQuestion: vi.fn(),
   }),
+  useRefetchGuidedQuestionsWhenAsked: () => undefined,
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/suggestions", () => ({
   findMcpConnectionSuggestionIntegration: () => null,
@@ -926,6 +928,8 @@ describe("ChatRoute AgentKit surface", () => {
     expect(routeState.sendMessage).toHaveBeenCalledWith({
       text: `Call the hello action\n\n<context data-agentkit-context-encoding="entities-v1">\nUse the selected action.\n\n${projectContext.trim()}\n</context>`,
       attachments: [uploadedAttachment],
+      // The run reads mentions from the message, not from its metadata.
+      references,
       options: {
         model: "claude-example",
         mode: "plan",

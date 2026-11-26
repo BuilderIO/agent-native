@@ -1,5 +1,6 @@
 import {
   automationMatchesEventOwner,
+  automationRunScopeContext,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
@@ -67,6 +68,7 @@ import {
   getAutomationTriggerSweepCursor,
   hasPendingStaleAutomationTriggerEvents,
   listReadyAutomationTriggerIds,
+  nextAutomationTriggerEventDueAt,
   purgeExpiredAutomationTriggerEvents,
   reserveAutomationTriggerEventPurge,
   retryAutomationTriggerEvent,
@@ -104,6 +106,21 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
+}
+
+export type AutomationEventGate = (input: {
+  automationId: string;
+  orgId: string | undefined;
+  eventOwner: string;
+}) => boolean | Promise<boolean>;
+
+let _eventGate: AutomationEventGate | undefined;
+
+/** Lets an app veto an event automation's run for one event owner before its condition is evaluated. */
+export function setAutomationEventGate(
+  gate: AutomationEventGate | undefined,
+): void {
+  _eventGate = gate;
 }
 
 export type AutomationWebhookTaskResult = "completed" | "retry";
@@ -359,9 +376,16 @@ export async function initTriggerDispatcher(
   _eventAutomationGeneration += 1;
   if (_anyEventSubscriptionId) unsubscribe(_anyEventSubscriptionId);
   _anyEventSubscriptionId = subscribeAll(handleAnyEvent);
-  registerRecurringSweepHandler("automation-trigger-queue", async (context) => {
-    await drainReadyTriggerQueue(context);
-  });
+  registerRecurringSweepHandler(
+    "automation-trigger-queue",
+    async (context) => {
+      await drainReadyTriggerQueue(context);
+    },
+    {
+      nextDueAt: async () =>
+        _deps ? nextAutomationTriggerEventDueAt(_deps.appId) : null,
+    },
+  );
   startTriggerQueueWorker();
 }
 
@@ -1325,12 +1349,30 @@ async function dispatchQueuedAutomationEvent(
         resolved.reason,
         resolved.code,
       );
+      // A membership that could not be read may read on a later try, so the
+      // event stays queued; a creator this deployment cannot track never will.
+      if (resolved.cause !== undefined) {
+        throw new BackgroundAutomationRunError(
+          resolved.reason,
+          resolved.code ?? "owner_unverifiable",
+        );
+      }
       return "completed";
     }
     if (!automationMatchesEventOwner(resolved.identity, queued.eventOwner)) {
       return "completed";
     }
     identity = resolved.identity;
+  }
+  if (
+    _eventGate &&
+    !(await _eventGate({
+      automationId: resource.id,
+      orgId: identity.orgId,
+      eventOwner: identity.eventOwner,
+    }))
+  ) {
+    return "completed";
   }
 
   // The condition check must see the same credential (owner key or Builder
@@ -1341,16 +1383,7 @@ async function dispatchQueuedAutomationEvent(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      {
-        ownerEmail: identity.userEmail,
-        orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
-      },
+      identity,
       deps,
       meta.model,
     );
@@ -1381,12 +1414,7 @@ async function dispatchQueuedAutomationEvent(
       {
         userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       () =>
         evaluateCondition(
@@ -1480,16 +1508,7 @@ export async function dispatchAutomationWebhookTask(
   let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
-      {
-        ownerEmail: identity.userEmail,
-        orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
-      },
+      identity,
       deps,
       meta.model,
     );
@@ -1512,12 +1531,7 @@ export async function dispatchAutomationWebhookTask(
       {
         userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       () =>
         evaluateCondition(
@@ -1661,12 +1675,7 @@ async function dispatchAgentic(
     resource: claimed,
   };
   const requestContext = {
-    ...(identity.orgScope === "personal"
-      ? { orgScope: "personal" as const }
-      : {}),
-    ...(identity.defaultAgentEngineScope === "deployment"
-      ? { defaultAgentEngineScope: "deployment" as const }
-      : {}),
+    ...automationRunScopeContext(identity),
     ...(runningMeta.originScopeId &&
     runningMeta.deliveryPlatform &&
     runningMeta.deliveryDestination

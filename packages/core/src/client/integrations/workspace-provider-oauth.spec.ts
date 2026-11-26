@@ -62,6 +62,7 @@ function startUrl(href: string): URL {
 describe("workspaceProviderOAuthUrl", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("starts the provider's connection flow with the app and scope", () => {
@@ -81,6 +82,15 @@ describe("workspaceProviderOAuthUrl", () => {
       }),
     );
     expect(org.searchParams.get("scope")).toBe("organization");
+  });
+
+  it("starts workspace connections under the mounted app path", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/brain-2");
+    stubUi();
+    expect(
+      startUrl(workspaceProviderOAuthUrl("zoom", { appId: "brain-2" }))
+        .pathname,
+    ).toBe("/brain-2/_agent-native/connections/oauth/zoom/start");
   });
 
   it("returns to the UI page as-is when the server shares the UI origin", () => {
@@ -170,6 +180,25 @@ describe("workspaceProviderOAuthUrl", () => {
     startWorkspaceProviderOAuth("notion", { appId: "content-2" });
     expect(open).toHaveBeenCalledTimes(1);
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("reports a blocked popup and allows the next user attempt to open it", () => {
+    const blocked = vi.fn();
+    const first = stubFramedUi(null);
+    startWorkspaceProviderOAuth("notion", {
+      appId: "calendar",
+      onPopupBlocked: blocked,
+    });
+    expect(blocked).toHaveBeenCalledTimes(1);
+    expect(first.assign).not.toHaveBeenCalled();
+    const retry = stubFramedUi({ closed: false } as Window);
+    startWorkspaceProviderOAuth("notion", {
+      appId: "calendar",
+      onPopupBlocked: blocked,
+    });
+    expect(retry.open).toHaveBeenCalledTimes(1);
+    expect(retry.assign).not.toHaveBeenCalled();
+    expect(blocked).toHaveBeenCalledTimes(1);
   });
 
   it("applies the caller's return path when the embedded flow completes", () => {

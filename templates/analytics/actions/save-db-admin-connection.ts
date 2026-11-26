@@ -7,6 +7,7 @@ import {
 } from "../server/lib/db-admin-connections";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Create or update an admin-only connected agent-native app database for the Analytics DB admin surface. Requires active organization owner/admin role. Secret values are encrypted and are not returned.",
   schema: z.object({

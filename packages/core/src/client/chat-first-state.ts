@@ -20,6 +20,7 @@ export const CHAT_FIRST_SURFACE_PANEL_STORAGE_KEY =
   "agent-native:chat-first-surface-panel:v1";
 export const CHAT_FIRST_MODE_CHANGED_EVENT = "agentNative:chatFirstModeChanged";
 export const CHAT_FIRST_OPEN_APP_EVENT = "agentNative:openApp";
+export const CHAT_FIRST_OPEN_APP_START_EVENT = "agentNative:openAppStart";
 export const CHAT_FIRST_OPEN_BROWSER_EVENT = "agentNative:openBrowser";
 export const CHAT_FIRST_WATCH_SESSION_EVENT = "agentNative:watchSession";
 
@@ -28,6 +29,9 @@ export type ChatFirstOpenAppDetail = {
   path?: string;
   url?: string;
   view?: string;
+  focus?: boolean;
+  optimistic?: boolean;
+  turnId?: string;
 };
 
 export type ChatFirstOpenBrowserDetail = {
@@ -602,6 +606,7 @@ export function resolveChatFirstBrowserTarget(
 
 type ChatFirstOpenAppListener = (detail: ChatFirstOpenAppDetail) => void;
 const chatFirstOpenAppListeners = new Set<symbol>();
+const chatFirstOpenAppStartListeners = new Set<symbol>();
 type ChatFirstOpenBrowserListener = (
   detail: ChatFirstOpenBrowserDetail,
 ) => void;
@@ -964,7 +969,8 @@ export function subscribeChatFirstOpenApp(
   if (typeof window === "undefined") return () => undefined;
   const subscription = Symbol("chat-first-open-app");
   const handleEvent = (event: Event) => {
-    const detail = (event as CustomEvent<ChatFirstOpenAppDetail>).detail;
+    const detail = (event as CustomEvent<ChatFirstOpenAppDetail | undefined>)
+      .detail;
     if (detail && typeof detail === "object") listener(detail);
   };
   chatFirstOpenAppListeners.add(subscription);
@@ -987,6 +993,44 @@ export function emitChatFirstOpenApp(
   const delivered = chatFirstOpenAppListeners.size > 0;
   window.dispatchEvent(
     new CustomEvent<ChatFirstOpenAppDetail>(CHAT_FIRST_OPEN_APP_EVENT, {
+      detail,
+    }),
+  );
+  return delivered
+    ? { delivered: true }
+    : { delivered: false, reason: "no-listener" };
+}
+
+export function subscribeChatFirstOpenAppStart(
+  listener: ChatFirstOpenAppListener,
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const subscription = Symbol("chat-first-open-app-start");
+  const handleEvent = (event: Event) => {
+    const detail = (event as CustomEvent<ChatFirstOpenAppDetail | undefined>)
+      .detail;
+    if (detail && typeof detail === "object") listener(detail);
+  };
+  chatFirstOpenAppStartListeners.add(subscription);
+  window.addEventListener(CHAT_FIRST_OPEN_APP_START_EVENT, handleEvent);
+  return () => {
+    chatFirstOpenAppStartListeners.delete(subscription);
+    window.removeEventListener(CHAT_FIRST_OPEN_APP_START_EVENT, handleEvent);
+  };
+}
+
+export function emitChatFirstOpenAppStart(
+  detail: ChatFirstOpenAppDetail,
+): ChatFirstOpenAppDelivery {
+  if (!detail.app && !detail.url && !detail.path && !detail.view) {
+    return { delivered: false, reason: "empty-detail" };
+  }
+  if (typeof window === "undefined") {
+    return { delivered: false, reason: "no-listener" };
+  }
+  const delivered = chatFirstOpenAppStartListeners.size > 0;
+  window.dispatchEvent(
+    new CustomEvent<ChatFirstOpenAppDetail>(CHAT_FIRST_OPEN_APP_START_EVENT, {
       detail,
     }),
   );
@@ -1079,11 +1123,16 @@ function registrationUrls(
   });
 }
 
+function basePathLength(url: URL): number {
+  return url.pathname.replace(/\/+$/, "").length;
+}
+
 function appMatchesUrl(
   app: ChatFirstAppRegistration,
   targetUrl: URL,
   currentOrigin?: string,
 ): URL | null {
+  let best: URL | null = null;
   for (const registeredUrl of registrationUrls(app, currentOrigin)) {
     if (registeredUrl.origin !== targetUrl.origin) continue;
     const basePath = registeredUrl.pathname.replace(/\/+$/, "") || "/";
@@ -1094,9 +1143,11 @@ function appMatchesUrl(
     ) {
       continue;
     }
-    return registeredUrl;
+    if (!best || basePathLength(registeredUrl) > basePathLength(best)) {
+      best = registeredUrl;
+    }
   }
-  return null;
+  return best;
 }
 
 function appRelativeUrlPath(targetUrl: URL, registeredUrl: URL): string {
@@ -1160,15 +1211,23 @@ export function resolveChatFirstAppTarget(
       }
     } else {
       const matchingApp = availableApps
-        .map((candidate) => ({
-          app: candidate,
-          registeredUrl: appMatchesUrl(
+        .flatMap((candidate) => {
+          const registeredUrl = appMatchesUrl(
             candidate,
             targetUrl as URL,
             options.currentOrigin,
-          ),
-        }))
-        .find((candidate) => candidate.registeredUrl);
+          );
+          return registeredUrl ? [{ app: candidate, registeredUrl }] : [];
+        })
+        .reduce<{ app: ChatFirstAppRegistration; registeredUrl: URL } | null>(
+          (best, candidate) =>
+            !best ||
+            basePathLength(candidate.registeredUrl) >
+              basePathLength(best.registeredUrl)
+              ? candidate
+              : best,
+          null,
+        );
       if (!matchingApp) {
         return { status: "unresolved", reason: "unknown-app" };
       }

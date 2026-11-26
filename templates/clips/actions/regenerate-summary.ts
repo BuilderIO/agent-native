@@ -27,6 +27,7 @@ export default defineAction({
         "When true, focus the queued generation request in the agent chat instead of keeping it hidden.",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

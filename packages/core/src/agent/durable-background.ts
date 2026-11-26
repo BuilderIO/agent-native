@@ -39,14 +39,18 @@
  * durable dispatch happens to fail still gets a working chat, just without the
  * 15-min budget.
  */
+import type { H3Event } from "h3";
+
 import {
   hasConfiguredA2ASecret,
-  isTrustedLocalRuntime,
+  isTrustedLocalRequest,
 } from "../a2a/auth-policy.js";
 import { getAppConfig } from "../app-config/index.js";
 import {
   extractBearerToken,
+  signDispatchedTurnInitiator,
   verifyInternalToken,
+  type DispatchedTurnInitiatorClaim,
 } from "../integrations/internal-token.js";
 
 export const AGENT_CHAT_PROCESS_RUN_PATH =
@@ -167,6 +171,36 @@ export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
 
 /** Captured turn origin; durable workers do not restore loopback trust from this payload. */
 export const AGENT_CHAT_REQUEST_CONTEXT_FIELD = "__agentChatRequestContext";
+
+/**
+ * Signed proof, minted only by the foreground handler, that the turn a durable
+ * run continues was started interactively by its owner. A client can submit
+ * this field too, so the foreground handler always overwrites it.
+ */
+export const AGENT_CHAT_TURN_GRANT_FIELD = "__agentChatTurnGrant";
+
+/**
+ * Background-run marker key for the signed initiator the worker must resume
+ * as. The worker compares it with the stored turn initiator, so a row that
+ * changed after dispatch is refused rather than adopted.
+ */
+export const AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD =
+  "initiatorSignature";
+
+/**
+ * Marker fields carrying the signed initiator for `runId`. Empty without
+ * A2A_SECRET, where unsigned local dispatch is the trust boundary instead.
+ */
+export function backgroundRunInitiatorMarker(
+  runId: string,
+  initiator: DispatchedTurnInitiatorClaim | null | undefined,
+): { [AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD]?: string } {
+  if (!initiator || !hasConfiguredA2ASecret()) return {};
+  return {
+    [AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD]:
+      signDispatchedTurnInitiator(runId, initiator),
+  };
+}
 
 export function isHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
@@ -377,13 +411,10 @@ export function extractProcessRunId(body: unknown): string | null {
  *
  * Auth policy mirrors the agent-teams processor exactly:
  *   - `A2A_SECRET` set → require a valid `verifyInternalToken(runId, token)`.
- *   - no secret → require `isTrustedLocalRuntime({ loopback })` (see
- *     auth-policy.ts): refuse (503) unless `A2A_ALLOW_UNSIGNED_INTERNAL=1` is
- *     set. This function has no h3 `event` of its own, so callers that CAN
- *     see the inbound socket peer (the route handler, which has the event)
- *     should compute `loopback` from it and pass it through; callers that
- *     can't determine the peer address should omit it (defaults to `false`
- *     — never trust unsigned dispatch without an explicit opt-in).
+ *   - no secret → require `isTrustedLocalRequest(event)`: refuse (503)
+ *     unless the inbound request is local or `A2A_ALLOW_UNSIGNED_INTERNAL=1`
+ *     is set. Callers without an inbound event omit it, which never trusts an
+ *     unsigned dispatch without that opt-in.
  *
  * Extracted from the route handler so the auth + marker-prep decision is unit
  * testable without booting the whole Nitro plugin. The route only adds body
@@ -392,7 +423,7 @@ export function extractProcessRunId(body: unknown): string | null {
 export function prepareProcessRunRequest(
   body: unknown,
   authHeader: string | undefined,
-  loopback: boolean = false,
+  event?: H3Event,
 ): ProcessRunPreparation {
   if (!body || typeof body !== "object") {
     return {
@@ -426,7 +457,7 @@ export function prepareProcessRunRequest(
         runId,
       };
     }
-  } else if (!isTrustedLocalRuntime({ loopback })) {
+  } else if (!isTrustedLocalRequest(event)) {
     return {
       ok: false,
       status: 503,

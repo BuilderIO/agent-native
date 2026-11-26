@@ -34,6 +34,7 @@ export interface TaskListRowProps {
   highlighted?: boolean;
   hideAfterComplete: boolean;
   onOpenDetails: () => void;
+  onStartTitleEdit?: () => void;
   onUpdateTitle: (title: string) => Promise<unknown>;
   onUpdateDone: (done: boolean) => Promise<unknown>;
   onRequestDelete: () => void;
@@ -50,6 +51,7 @@ export function TaskListRow({
   highlighted = false,
   hideAfterComplete,
   onOpenDetails,
+  onStartTitleEdit,
   onUpdateTitle,
   onUpdateDone,
   onRequestDelete,
@@ -138,6 +140,7 @@ export function TaskListRow({
                 <InlineEditable
                   value={item.title}
                   onSave={onUpdateTitle}
+                  onEditStart={onStartTitleEdit}
                   onDisplayTitleChange={setDisplayTitle}
                   ariaLabel={t("common.editTitleAriaLabel")}
                   disabled={busy}

@@ -66,10 +66,13 @@ function stubSpeechEnvironment(getUserMedia = vi.fn()) {
   return getUserMedia;
 }
 
-async function renderVoiceDictation() {
+async function renderVoiceDictation(
+  onTranscript = vi.fn(),
+  onLiveUpdate = vi.fn(),
+) {
   const seen: VoiceDictationApi[] = [];
   function Probe() {
-    seen.push(useVoiceDictation({ onTranscript: vi.fn() }));
+    seen.push(useVoiceDictation({ onTranscript, onLiveUpdate }));
     return null;
   }
   const container = document.createElement("div");
@@ -98,6 +101,47 @@ afterEach(() => {
 });
 
 describe("useVoiceDictation — browser speech path", () => {
+  it("delivers each final result once per recognition session", async () => {
+    stubSpeechEnvironment();
+    const onTranscript = vi.fn();
+    const onLiveUpdate = vi.fn();
+    const probe = await renderVoiceDictation(onTranscript, onLiveUpdate);
+    await act(async () => {
+      await probe.latest().start();
+    });
+    const first = FakeSpeechRecognition.last!;
+    const firstResult = { 0: { transcript: "hello " }, isFinal: true };
+    const secondResult = { 0: { transcript: "hello" }, isFinal: true };
+    await act(async () => {
+      first.onresult?.({ resultIndex: 0, results: [firstResult] });
+      first.onresult?.({ resultIndex: 0, results: [firstResult] });
+      first.onresult?.({
+        resultIndex: 1,
+        results: [firstResult, secondResult],
+      });
+    });
+    expect(onLiveUpdate).toHaveBeenLastCalledWith("hello hello", "");
+    await act(async () => {
+      probe.latest().stop();
+      first.onend?.();
+    });
+    expect(onTranscript).toHaveBeenNthCalledWith(1, "hello hello");
+
+    await act(async () => {
+      await probe.latest().start();
+    });
+    const second = FakeSpeechRecognition.last!;
+    expect(second).not.toBe(first);
+    await act(async () => {
+      second.onresult?.({ resultIndex: 0, results: [secondResult] });
+      probe.latest().stop();
+      second.onend?.();
+    });
+    expect(onTranscript).toHaveBeenNthCalledWith(2, "hello");
+    expect(onTranscript).toHaveBeenCalledTimes(2);
+    await probe.cleanup();
+  });
+
   it("reports a session that ends before the microphone ever opened", async () => {
     stubSpeechEnvironment();
     const probe = await renderVoiceDictation();

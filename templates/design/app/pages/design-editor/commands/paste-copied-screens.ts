@@ -96,6 +96,7 @@ export function runPasteCopiedScreens(
         content,
         fileType: normalizedDesignFileType(screen.fileType ?? "html"),
         ...(screen.frameType ? { frameType: screen.frameType } : {}),
+        ifNameTaken: "next-free",
       } as any,
       {
         onSuccess: (result: any) => {

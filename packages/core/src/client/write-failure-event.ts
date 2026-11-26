@@ -1,3 +1,5 @@
+import { ProviderWritePendingError } from "./provider-writes.js";
+
 export const WRITE_FAILURE_EVENT = "agent-native:write-failure";
 
 export interface WriteFailureDetail {
@@ -14,6 +16,7 @@ export function reportWriteFailure(
   error: unknown,
   options?: { label?: string | undefined },
 ): void {
+  if (error instanceof ProviderWritePendingError) return;
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent<WriteFailureDetail>(WRITE_FAILURE_EVENT, {

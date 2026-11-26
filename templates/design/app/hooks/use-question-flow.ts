@@ -10,13 +10,9 @@ import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
-import {
-  formatComposerContext,
-  hasComposerSystemContext,
-} from "@/lib/composer-context";
+import { formatComposerContext } from "@/lib/composer-context";
 import {
   designCanvasIntentDirectives,
-  loadDesignSystemGenerationContext,
   variantContentDirective,
 } from "@/pages/design-editor/generation-prompt-directives";
 
@@ -29,7 +25,6 @@ export interface QuestionFlowModelSelection {
 export interface QuestionFlowGenerationBrief {
   contextItems?: PromptComposerSubmitOptions["contextItems"];
   prompt?: string;
-  designSystemId?: string | null;
   images?: string[];
   uploadedFileContext?: string;
 }
@@ -63,7 +58,6 @@ function designQuestionsStateKey(designId: string | undefined): string {
 
 export function buildGenerationBriefContext(
   brief: QuestionFlowGenerationBrief | null | undefined,
-  designSystemContext: string,
 ): string {
   return [
     brief?.prompt?.trim()
@@ -86,7 +80,6 @@ export function buildGenerationBriefContext(
       : "",
     brief?.uploadedFileContext?.trim() ?? "",
     formatComposerContext(brief?.contextItems),
-    designSystemContext,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -112,7 +105,7 @@ function continueDesignInstruction(
     return "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.";
   }
   return (
-    `Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions. ${variantContentDirective(brief?.prompt, brief?.designSystemId, brief?.images?.length)}` +
+    `Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions. ${variantContentDirective(brief?.prompt, brief?.images?.length)}` +
     ' Wait for their chat pick, delete each unchosen variant screen at most once, call get-design-snapshot exactly once with fileId for the kept screen, then call edit-design exactly once on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
   );
 }
@@ -172,15 +165,8 @@ export function useQuestionFlow(
       const previousRunBaselinePromise =
         getPreviousRunBaseline?.(continuationTabId) ?? null;
       flow.clear();
-      const designSystemContext =
-        brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
-          ? await loadDesignSystemGenerationContext(brief.designSystemId)
-          : "";
       const previousRunBaseline = await previousRunBaselinePromise;
-      const briefContext = buildGenerationBriefContext(
-        brief,
-        designSystemContext,
-      );
+      const briefContext = buildGenerationBriefContext(brief);
       const tabId = sendToDesignAgentChat({
         message,
         context: [

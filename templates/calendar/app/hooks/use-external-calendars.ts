@@ -55,7 +55,14 @@ export function useUpdateExternalCalendarColor() {
       try {
         await callAction<ExternalCalendar[]>(
           "update-external-calendars",
-          { calendars: updated },
+          {
+            calendars: updated.map((feed) => ({
+              id: feed.id,
+              name: feed.name,
+              url: feed.url,
+              color: feed.color,
+            })),
+          },
           { method: "PUT" },
         );
       } catch {

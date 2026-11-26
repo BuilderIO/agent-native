@@ -477,6 +477,110 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
   });
 });
 
+describe("apply-visual-edit deleteNode with a breakpoint scope", () => {
+  const deleteCard = {
+    kind: "deleteNode" as const,
+    target: { selector: "#card" },
+  };
+
+  it("hides the layer at an explicit maxWidthPx bound instead of removing it", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      maxWidthPx: 809,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.result.message).toMatch(
+      /^Hidden at viewport widths <= 809px/,
+    );
+    expect(result.results?.[0]).toMatchObject({
+      intent: {
+        kind: "breakpoint-style",
+        property: "display",
+        value: "none",
+        maxWidthPx: 809,
+      },
+    });
+    expect(result.patchedContent).toContain('id="card"');
+    expect(result.patchedContent).toContain("@media (max-width: 809px)");
+    expect(result.patchedContent).toContain("display: none !important;");
+  });
+
+  it("removes the layer when no breakpoint scope is passed", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.result.message).toBe("Node deleted.");
+    expect(result.patchedContent).not.toContain('id="card"');
+  });
+
+  it("removes the layer when activeFrameWidthPx cannot resolve to a bound (no breakpoint set)", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeFrameWidthPx: 390,
+    });
+
+    expect(result.result.message).toBe("Node deleted.");
+    expect(result.patchedContent).not.toContain('id="card"');
+  });
+
+  it("deletes at the legacy base prefix and refuses a legacy min-width prefix", async () => {
+    const base = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeBreakpoint: "base",
+    });
+    expect(base.patchedContent).not.toContain('id="card"');
+
+    const refused = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeBreakpoint: "md",
+    });
+    expect(refused.result).toMatchObject({
+      status: "needsAgent",
+      changed: false,
+    });
+    expect(refused.result.message).toContain("no source was changed");
+    expect(refused.patchedContent).toBeUndefined();
+
+    const explicitBoundWins = await action.run({
+      source: { kind: "inline-html", html },
+      intent: deleteCard,
+      includeContent: true,
+      activeBreakpoint: "md",
+      maxWidthPx: 809,
+    });
+    expect(explicitBoundWins.result.status).toBe("applied");
+    expect(explicitBoundWins.patchedContent).toContain('id="card"');
+  });
+
+  it("reports a failed hide as not deleted and leaves the document untouched", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: { kind: "deleteNode", target: { selector: "#missing" } },
+      includeContent: true,
+      maxWidthPx: 809,
+    });
+
+    expect(result.result.status).not.toBe("applied");
+    expect(result.result.message).toMatch(
+      /^Could not hide the layer at viewport widths <= 809px, and it was not deleted/,
+    );
+    expect(result.patchedContent).toBe(html);
+  });
+});
+
 describe("apply-visual-edit batched intent failure", () => {
   it("returns a projection consistent with the rolled-back content when a later intent fails", async () => {
     const result = await action.run({

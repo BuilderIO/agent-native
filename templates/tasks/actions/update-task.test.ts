@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { updateTask, listTaskFieldValues } = vi.hoisted(() => ({
+const { updateTask } = vi.hoisted(() => ({
   updateTask: vi.fn(),
-  listTaskFieldValues: vi.fn(),
 }));
 
 vi.mock("../server/tasks/store.js", () => ({
@@ -13,16 +12,11 @@ vi.mock("../server/tasks/store.js", () => ({
   },
 }));
 
-vi.mock("../server/custom-fields/task-fields.js", () => ({
-  listTaskFieldValues,
-}));
-
 import updateTaskAction, { updateTaskSchema } from "./update-task.js";
 
 describe("update-task", () => {
   beforeEach(() => {
     updateTask.mockReset();
-    listTaskFieldValues.mockReset();
   });
 
   describe("schema", () => {
@@ -52,6 +46,16 @@ describe("update-task", () => {
         taskId: "t1",
         fieldValues: [{ fieldId: "fld-1", value: 3 }],
       });
+    });
+
+    it("accepts the revision the caller read", () => {
+      expect(
+        updateTaskSchema.parse({
+          taskId: "t1",
+          done: true,
+          expectedRevision: "rev_1",
+        }),
+      ).toEqual({ taskId: "t1", done: true, expectedRevision: "rev_1" });
     });
   });
 
@@ -88,6 +92,7 @@ describe("update-task", () => {
         title: undefined,
         done: true,
         fieldValues: undefined,
+        expectedRevision: undefined,
       });
       expect(result).toMatchObject({ id: "t1", done: true });
     });
@@ -101,10 +106,9 @@ describe("update-task", () => {
         ownerEmail: "alice@example.com",
         createdAt: "2026-06-22T10:00:00.000Z",
         updatedAt: "2026-06-22T10:00:00.000Z",
+        fields: [{ id: "fld-1", title: "Estimate", type: "number", value: 3 }],
+        revision: "rev_after",
       });
-      listTaskFieldValues.mockResolvedValue([
-        { id: "fld-1", title: "Estimate", type: "number", value: 3 },
-      ]);
 
       const result = await updateTaskAction.run(
         { taskId: "t1", fieldValues: [{ fieldId: "fld-1", value: 3 }] },
@@ -117,14 +121,12 @@ describe("update-task", () => {
         title: undefined,
         done: undefined,
         fieldValues: [{ fieldId: "fld-1", value: 3 }],
-      });
-      expect(listTaskFieldValues).toHaveBeenCalledWith({
-        ownerEmail: "alice@example.com",
-        taskId: "t1",
+        expectedRevision: undefined,
       });
       expect(result).toMatchObject({
         id: "t1",
         fields: [{ id: "fld-1", value: 3 }],
+        revision: "rev_after",
       });
     });
 
@@ -137,16 +139,16 @@ describe("update-task", () => {
         ownerEmail: "alice@example.com",
         createdAt: "2026-06-22T10:00:00.000Z",
         updatedAt: "2026-06-22T11:00:00.000Z",
+        fields: [{ id: "fld-1", title: "Estimate", type: "number", value: 3 }],
+        revision: "rev_after",
       });
-      listTaskFieldValues.mockResolvedValue([
-        { id: "fld-1", title: "Estimate", type: "number", value: 3 },
-      ]);
 
       const result = await updateTaskAction.run(
         {
           taskId: "t1",
           title: "Updated",
           fieldValues: [{ fieldId: "fld-1", value: 3 }],
+          expectedRevision: "rev_before",
         },
         { userEmail: "alice@example.com", caller: "cli" },
       );
@@ -157,6 +159,7 @@ describe("update-task", () => {
         title: "Updated",
         done: undefined,
         fieldValues: [{ fieldId: "fld-1", value: 3 }],
+        expectedRevision: "rev_before",
       });
       expect(result).toMatchObject({
         id: "t1",

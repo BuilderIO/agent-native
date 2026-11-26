@@ -1,3 +1,71 @@
+## 0.7.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.3
+
+### Patch Changes
+
+- baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
+
+## 0.7.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.1
+
+### Patch Changes
+
+- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
+  imports from its layout, transactional email pages, and MCP gateway;
+  creative-context drops unused type imports and an unread `headingStyle`;
+  recap-cli drops the `node:os` import and two unread locals; skills drops the
+  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
+  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
+  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
+  blocks new ones.
+
+## 0.7.0
+
+### Minor Changes
+
+- 39383b5: designs can be generated using creative context
+
+## 0.6.6
+
+### Patch Changes
+
+- 4c7c289: Keep browser-rendered website style extraction working when the shared evaluator
+  is bundled before it is serialized into Chromium.
+
+## 0.6.5
+
+### Patch Changes
+
+- b3b4580: Normalize commenter access to the read-only creative-context role contract.
+
+## 0.6.4
+
+### Patch Changes
+
+- 9204f85: Fix the Context tab's dropdown in the Share dialog rendering invisibly behind the host popover and dismissing the whole dialog on interaction. The select now matches the popover's nested-overlay z-index and is marked so `ShareButton` doesn't treat clicks inside it as outside clicks.
+
+## 0.6.3
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
 ## 0.6.2
 
 ### Patch Changes

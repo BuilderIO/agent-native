@@ -8,6 +8,7 @@ import { createApp } from "h3";
 import { vi } from "vitest";
 
 import { workspaceRoot } from "../../vitest.workspace-root.js";
+import { isActionExposedToExternalAgents } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   coreActionLoaderEntries,
@@ -108,6 +109,48 @@ export interface AppCatalog {
 /** The default catalog of a plain production deployment (code execution off). */
 export function defaultProductionTools(app: AppCatalog): AdvertisedTool[] {
   return app.surfaces[0]!.catalogs.default;
+}
+
+/**
+ * Where a checked-in baseline keys an action: under the app for the template's
+ * own actions and the files its dev server discovers under the app, under
+ * "core" for everything the framework composes, which every app shares.
+ */
+export function baselineSection(app: AppCatalog, name: string): string {
+  return app.templateActionNames.has(name) || app.devDiscoveredTools.has(name)
+    ? app.appId
+    : "core";
+}
+
+/**
+ * Actions the app's own agent can call that only a missing decision keeps off
+ * a plain production deployment's default MCP catalog: not served there, no
+ * `mcpTool` decision (`true`, `"search"` or `false`), not ending the in-app
+ * agent's turn, and allowed on the full catalog, so no framework rule rules
+ * them out either.
+ */
+export function undecidedMcpActions(app: AppCatalog): string[] {
+  const production = app.surfaces.find(
+    ({ surface }) => !surface.dev && surface.codeExecution === "off",
+  );
+  if (!production) {
+    throw new Error(`${app.appId} has no plain production catalog to check.`);
+  }
+  const { config, catalogs } = production;
+  const served = new Set(catalogs.default.map((tool) => tool.name));
+  const allowed = new Set(catalogs.full.map((tool) => tool.name));
+  return Object.entries(config.actions)
+    .filter(
+      ([name, entry]) =>
+        entry.uiOnly !== true &&
+        entry.agentTool !== false &&
+        entry.mcpTool === undefined &&
+        isActionExposedToExternalAgents(entry) &&
+        !served.has(name) &&
+        allowed.has(name),
+    )
+    .map(([name]) => name)
+    .sort();
 }
 
 export function templateIdsWithAgentChat(): string[] {
@@ -288,12 +331,15 @@ export async function listAdvertised(
   }));
 }
 
+const CATALOG_ORIGIN = "https://catalog.agent-native.test";
+
 export async function withCatalogClient<T>(
   config: MCPConfig,
   request: {
     fullCatalog: boolean;
     fullSurface: boolean;
     inlineMcpApps?: boolean;
+    oauthScopes?: string[];
   },
   inspect: (client: Client) => Promise<T>,
 ): Promise<T> {
@@ -303,10 +349,12 @@ export async function withCatalogClient<T>(
       userEmail: "catalog-contract@example.com",
       orgDomain: undefined,
       orgId: null,
-      oauthScopes: ["mcp:read", "mcp:write"],
+      oauthScopes: request.oauthScopes ?? ["mcp:read", "mcp:write"],
     },
     {
       transport: "http",
+      // A hosted request always carries its origin; full-app cards need it.
+      origin: CATALOG_ORIGIN,
       inlineMcpApps: request.inlineMcpApps ?? false,
       ...(request.fullCatalog ? { fullCatalog: true } : {}),
       ...(request.fullSurface ? { fullSurface: true } : {}),
@@ -421,13 +469,43 @@ export async function loadAppCatalogs(
   // overlapping first imports of a mocked module can resolve the real one. The
   // real integrations plugin starts retry timers that outlive each app's
   // database, so resolve its mock once before any plugin runs.
+  await import("../server/framework-request-handler.js");
+  await import("../mcp-client/index.js");
+  await import("../jobs/scheduler.js");
   await import("../integrations/plugin.js");
+  await import("../triggers/dispatcher.js");
+  await import("../chat-threads/migrations.js");
+  await import("../server/social-og-image.js");
+  await import("@agent-native/core/labs/server");
+  await import("@agent-native/core/mcp");
+  await import("../mcp/server.js");
+  await import("@agent-native/core/server");
+  const appIds = templateIdsWithAgentChat().filter(
+    (appId) => !only || only.includes(appId),
+  );
+  for (const appId of appIds) {
+    generateActionRegistryForProject(path.join(repoRoot, "templates", appId));
+  }
+  await Promise.all(
+    appIds.flatMap((appId) => {
+      const projectRoot = path.join(repoRoot, "templates", appId);
+      return [
+        import(
+          pathToFileURL(
+            path.join(projectRoot, ".generated/actions-registry.ts"),
+          ).href
+        ),
+        import(
+          pathToFileURL(path.join(projectRoot, "server/plugins/agent-chat.ts"))
+            .href
+        ),
+      ];
+    }),
+  );
   const results: AppCatalog[] = [];
   try {
-    for (const appId of templateIdsWithAgentChat()) {
-      if (only && !only.includes(appId)) continue;
+    for (const appId of appIds) {
       const projectRoot = path.join(repoRoot, "templates", appId);
-      generateActionRegistryForProject(projectRoot);
       const registry = await import(
         pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
           .href

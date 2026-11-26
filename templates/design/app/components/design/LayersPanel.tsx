@@ -1,14 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  EyeClosedIcon,
+  EyeOpenIcon,
+  LockClosedIcon,
+  LockOpen1Icon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+} from "@radix-ui/react-icons";
+import {
   IconArrowUpRight,
   IconArtboard,
-  IconChevronDown,
-  IconChevronRight,
   IconCircle,
   IconCode,
   IconComponents,
-  IconEye,
-  IconEyeOff,
   IconFile,
   IconFrame,
   IconLayoutColumns,
@@ -16,11 +20,7 @@ import {
   IconLayoutRows,
   IconLine,
   IconListTree,
-  IconLock,
-  IconLockOpen,
   IconPhoto,
-  IconPlus,
-  IconSearch,
   IconSquare,
   IconSquareDashed,
   IconStar,
@@ -49,7 +49,15 @@ import {
 import { flushSync } from "react-dom";
 
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
+import {
+  TREE_GRID_ICON_SLOT_CLASS,
+  TREE_GRID_ROW_CLASS,
+  TreeGridChevron,
+  TreeGridLead,
+  TreeGridSectionHead,
+} from "@/components/design/TreeGridRow";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -81,6 +89,13 @@ export type LayersPanelNodeType =
   | "element"
   | "board-element"
   | "unknown";
+
+export interface LayersPanelComponent {
+  name: string;
+  instanceCount: number;
+  sampleFileId: string;
+  sampleNodeId: string;
+}
 
 export interface LayersPanelNode {
   id: string;
@@ -149,9 +164,8 @@ interface LayersPanelMoveIntent {
 export interface LayersPanelLabels {
   title: string;
   screens: string;
+  components: string;
   resizeScreens: string;
-  allScreens: string;
-  screenOverview: string;
   addScreen: string;
   searchPlaceholder: string;
   empty: string;
@@ -186,7 +200,10 @@ export interface LayersPanelProps {
   labels?: Partial<LayersPanelLabels>;
   onSearchQueryChange: (query: string) => void;
   onScreenSelect?: (id: string) => void;
-  onScreenOverview?: () => void;
+  components?: readonly LayersPanelComponent[];
+  componentsLoading?: boolean;
+  onComponentsExpandedChange?: (expanded: boolean) => void;
+  onComponentSelect?: (component: LayersPanelComponent) => void;
   onAddScreen?: () => void;
   onExpandedIdsChange: (ids: string[]) => void;
   onSelectionChange: (
@@ -302,32 +319,12 @@ function beginIconToggleDrag(
   window.addEventListener("blur", clear, true);
 }
 
-// Row height, left inset and type size; the Tokens panel lays its rows out with
-// the same geometry so the two trees read as one list.
-export const LAYER_ROW_GEOMETRY_CLASS =
-  "flex h-[var(--design-row-height)] items-center pl-2.5 pr-[var(--design-baseline-half)] text-[11px]";
-
-export function layerRowIndentCount(depth: number): number {
-  return Math.max(1, depth + 1);
-}
-
-export function layerSelectionBlockId(
-  row: Pick<FlatLayerRow, "node" | "ancestorIds">, // i18n-ignore -- TypeScript generic, not visible copy.
-  selectedIds: ReadonlySet<string>,
-): string | null {
-  if (selectedIds.has(row.node.id)) return row.node.id;
-  return (
-    [...row.ancestorIds].reverse().find((id) => selectedIds.has(id)) ?? null
-  );
-}
-
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
+    components: t("layersPanel.components"),
     resizeScreens: t("layersPanel.resizeScreens"),
-    allScreens: t("layersPanel.allScreens"),
-    screenOverview: t("designEditor.screenOverview"),
     addScreen: t("layersPanel.addScreen"),
     searchPlaceholder: t("layersPanel.searchPlaceholder"),
     empty: t("layersPanel.empty"),
@@ -922,7 +919,10 @@ function LayersPanelImpl(
     labels: labelsProp,
     onSearchQueryChange,
     onScreenSelect,
-    onScreenOverview,
+    components,
+    componentsLoading,
+    onComponentsExpandedChange,
+    onComponentSelect,
     onAddScreen,
     onExpandedIdsChange,
     onSelectionChange,
@@ -977,6 +977,9 @@ function LayersPanelImpl(
   const [dropIndicator, setDropIndicator] =
     useState<LayersPanelMoveIntent | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
+  const [screensExpanded, setScreensExpanded] = useState(true);
+  const [componentsExpanded, setComponentsExpanded] = useState(false);
+  const [layersExpanded, setLayersExpanded] = useState(true);
 
   const roots = useMemo(
     () =>
@@ -1007,11 +1010,6 @@ function LayersPanelImpl(
   const selectedAncestorIds = useMemo(
     () => collectAncestorIds(roots, selectedIdSet),
     [roots, selectedIdSet],
-  );
-
-  const selectionBlockIds = useMemo(
-    () => visibleRows.map((row) => layerSelectionBlockId(row, selectedIdSet)),
-    [selectedIdSet, visibleRows],
   );
 
   const selectableVisibleIds = useMemo(
@@ -1159,6 +1157,7 @@ function LayersPanelImpl(
   );
 
   const focusSearch = useCallback(() => {
+    setLayersExpanded(true);
     setSearchOpen(true);
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, []);
@@ -1451,8 +1450,7 @@ function LayersPanelImpl(
         ref={layersPanelRef}
         data-layers-panel
         className={cn(
-          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-section-height:28px]",
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-xs font-normal text-foreground",
           className,
         )}
         aria-label={labels.title}
@@ -1462,53 +1460,35 @@ function LayersPanelImpl(
             ref={screenSectionRef}
             data-screen-section
             className="flex min-h-0 shrink-0 flex-col overflow-hidden border-b border-[var(--design-editor-panel-divider-color)] pb-1"
-            style={{
-              maxHeight: "30%",
-              ...(screenSectionHeight === null
-                ? {}
-                : { height: `${screenSectionHeight}px` }),
-            }}
+            style={
+              screensExpanded
+                ? {
+                    maxHeight: "30%",
+                    ...(screenSectionHeight === null
+                      ? {}
+                      : { height: `${screenSectionHeight}px` }),
+                  }
+                : undefined
+            }
           >
-            <div
-              data-layers-panel-header="screens"
-              className="flex h-[var(--design-section-height)] items-center justify-between px-2"
-            >
-              <h2 className="truncate text-[11px] font-semibold text-foreground">
-                {labels.screens}
-              </h2>
-              <div className="flex items-center gap-0.5 text-muted-foreground">
+            <TreeGridSectionHead
+              headerId="screens"
+              label={labels.screens}
+              expanded={screensExpanded}
+              onExpandedChange={setScreensExpanded}
+              actions={
                 <IconTooltipButton
                   label={labels.addScreen}
                   dataAction="add-screen"
                   disabled={!onAddScreen}
                   onClick={onAddScreen}
                 >
-                  <IconPlus className="!size-[var(--design-icon-size)]" />
+                  <PlusIcon className="design-ui-icon" aria-hidden="true" />
                 </IconTooltipButton>
-              </div>
-            </div>
-            <div className="px-1.5">
-              <button
-                type="button"
-                className={cn(
-                  "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  screenOverviewActive
-                    ? "bg-[var(--design-editor-active-row-color)] text-foreground"
-                    : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
-                )}
-                aria-current={screenOverviewActive ? "page" : undefined}
-                onClick={() => onScreenOverview?.()}
-                title={labels.allScreens}
-              >
-                <IconLayoutGrid className="size-[var(--design-icon-size)] shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">
-                  {labels.allScreens}
-                </span>
-              </button>
-            </div>
-            <div className="mx-2 my-1 border-t border-[var(--design-editor-panel-divider-color)]" />
-            <div className="min-h-0 flex-1 overflow-auto px-1.5">
-              <div className="space-y-0">
+              }
+            />
+            {screensExpanded ? (
+              <div className="min-h-0 flex-1 overflow-auto">
                 {screenRows.map((screen) => {
                   const isActive =
                     !screenOverviewActive && screen.id === activeScreenId;
@@ -1523,16 +1503,25 @@ function LayersPanelImpl(
                         else screenRowRefs.current.delete(screen.id);
                       }}
                       className={cn(
-                        "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                        TREE_GRID_ROW_CLASS,
+                        "w-full cursor-default text-start outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--design-focus-ring-color)]",
                         isActive
                           ? "bg-[var(--design-editor-active-row-color)] text-foreground"
-                          : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
+                          : "text-foreground/85 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
                       )}
                       aria-current={isActive ? "page" : undefined}
                       onClick={() => onScreenSelect?.(screen.id)}
                       title={screen.filename ?? screen.name}
                     >
-                      <LayerGlyph node={{ ...screen, type: "file" }} />
+                      <TreeGridLead depth={0} />
+                      <span
+                        className={cn(
+                          TREE_GRID_ICON_SLOT_CLASS,
+                          "me-2 text-muted-foreground",
+                        )}
+                      >
+                        <LayerGlyph node={{ ...screen, type: "file" }} />
+                      </span>
                       <span className="min-w-0 flex-1 truncate">
                         {screen.name}
                       </span>
@@ -1545,11 +1534,63 @@ function LayersPanelImpl(
                   );
                 })}
               </div>
-            </div>
+            ) : null}
           </div>
         ) : null}
 
-        {screenRows.length > 0 ? (
+        {onComponentsExpandedChange || (components && components.length > 0) ? (
+          <div
+            data-components-section
+            className="flex max-h-[25%] min-h-0 shrink-0 flex-col overflow-hidden border-b border-[var(--design-editor-panel-divider-color)] pb-1"
+          >
+            <TreeGridSectionHead
+              headerId="components"
+              label={labels.components}
+              expanded={componentsExpanded}
+              onExpandedChange={(expanded) => {
+                setComponentsExpanded(expanded);
+                onComponentsExpandedChange?.(expanded);
+              }}
+            />
+            {componentsExpanded ? (
+              <div className="min-h-0 flex-1 overflow-auto">
+                {componentsLoading ? (
+                  <Skeleton className="mx-2 my-1 h-5" />
+                ) : null}
+                {(components ?? []).map((component) => (
+                  <button
+                    key={component.name}
+                    type="button"
+                    data-component-row={component.name}
+                    className={cn(
+                      TREE_GRID_ROW_CLASS,
+                      "w-full cursor-default text-start text-foreground/85 outline-none hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--design-focus-ring-color)]",
+                    )}
+                    onClick={() => onComponentSelect?.(component)}
+                  >
+                    <TreeGridLead depth={0} />
+                    <span
+                      className={cn(
+                        TREE_GRID_ICON_SLOT_CLASS,
+                        "me-2 text-[var(--design-editor-component-color)]",
+                      )}
+                    >
+                      <IconComponents className="design-ui-icon" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {component.name}
+                    </span>
+                    <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
+                      {component.instanceCount}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {screenRows.length > 0 && screensExpanded ? (
           <div
             data-screen-section-resizer
             role="separator"
@@ -1568,44 +1609,39 @@ function LayersPanelImpl(
           ></div>
         ) : null}
 
-        <div
-          data-layers-panel-header="layers"
-          className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-2"
-        >
-          <div className="min-w-0">
-            <h2 className="truncate text-[11px] font-semibold text-foreground">
-              {labels.title}
-            </h2>
-          </div>
-          <div className="flex items-center gap-0.5 text-muted-foreground">
-            <IconTooltipButton
-              label={labels.searchPlaceholder}
-              dataAction="search"
-              onClick={toggleSearch}
-            >
-              <IconSearch
-                className="!size-[var(--design-icon-size)]"
-                strokeWidth={1.8}
-              />
-            </IconTooltipButton>
-            <button
-              type="button"
-              data-layers-panel-action="collapse"
-              className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-              aria-label={labels.collapseAll}
-              title={labels.collapseAll}
-              disabled={!hasExpandedRows}
-              onClick={collapseLayers}
-            >
-              <IconListTree
-                className="!size-[var(--design-icon-size)]"
-                strokeWidth={1.5}
-              />
-            </button>
-          </div>
-        </div>
+        <TreeGridSectionHead
+          headerId="layers"
+          label={labels.title}
+          expanded={layersExpanded}
+          onExpandedChange={setLayersExpanded}
+          actions={
+            <>
+              <IconTooltipButton
+                label={labels.searchPlaceholder}
+                dataAction="search"
+                onClick={() => {
+                  setLayersExpanded(true);
+                  toggleSearch();
+                }}
+              >
+                <MagnifyingGlassIcon
+                  className="design-ui-icon"
+                  aria-hidden="true"
+                />
+              </IconTooltipButton>
+              <IconTooltipButton
+                label={labels.collapseAll}
+                dataAction="collapse"
+                disabled={!hasExpandedRows}
+                onClick={collapseLayers}
+              >
+                <IconListTree className="design-ui-icon" aria-hidden="true" />
+              </IconTooltipButton>
+            </>
+          }
+        />
 
-        {shouldShowSearch ? (
+        {layersExpanded && shouldShowSearch ? (
           <LeftPanelSearchField
             ref={searchInputRef}
             value={searchQuery}
@@ -1618,30 +1654,22 @@ function LayersPanelImpl(
 
         <div
           ref={scrollContainerRef}
-          className="min-h-0 flex-1 overflow-auto overscroll-contain py-1"
+          hidden={!layersExpanded}
+          className="min-h-0 flex-1 overflow-auto overscroll-contain pb-1"
           onDragOver={handleRowsDragOver}
           onDrop={stopAutoScroll}
           onDragEnd={stopAutoScroll}
         >
           {visibleRows.length ? (
             <div
-              className="w-full min-w-0 px-1.5"
+              className="w-full min-w-0"
               role="tree"
               aria-label={labels.title}
             >
-              {visibleRows.map((row, index) => {
+              {visibleRows.map((row) => {
                 const isSelected = selectedIdSet.has(row.node.id);
                 const isInSelectedSubtree = row.ancestorIds.some((id) =>
                   selectedIdSet.has(id),
-                );
-                const selectionBlockId = selectionBlockIds[index];
-                const isSelectionBlockStart = Boolean(
-                  selectionBlockId &&
-                  selectionBlockIds[index - 1] !== selectionBlockId,
-                );
-                const isSelectionBlockEnd = Boolean(
-                  selectionBlockId &&
-                  selectionBlockIds[index + 1] !== selectionBlockId,
                 );
                 const isHovered =
                   hoveredLayerId != null && row.node.id === hoveredLayerId;
@@ -1663,8 +1691,6 @@ function LayersPanelImpl(
                     isExpanded={expandedIdSet.has(row.node.id)}
                     isSelected={isSelected}
                     isInSelectedSubtree={isInSelectedSubtree}
-                    isSelectionBlockStart={isSelectionBlockStart}
-                    isSelectionBlockEnd={isSelectionBlockEnd}
                     isActiveScreen={isActiveScreen}
                     isHovered={isHovered}
                     isRenaming={isRenaming}
@@ -1696,7 +1722,7 @@ function LayersPanelImpl(
               })}
             </div>
           ) : (
-            <div className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
+            <div className="px-4 py-8 text-center text-xs text-muted-foreground">
               {hasAnyRows ? labels.noMatches : labels.empty}
             </div>
           )}
@@ -1717,8 +1743,6 @@ interface LayerRowProps {
   isExpanded: boolean;
   isSelected: boolean;
   isInSelectedSubtree: boolean;
-  isSelectionBlockStart: boolean;
-  isSelectionBlockEnd: boolean;
   isActiveScreen: boolean;
   isHovered: boolean;
   isRenaming: boolean;
@@ -1759,39 +1783,6 @@ interface LayerRowProps {
   onOpenContextMenu?: (point: { clientX: number; clientY: number }) => void;
 }
 
-export function LayerRowIndentSlots({
-  count,
-  control,
-  fit = false,
-}: {
-  count: number;
-  control?: ReactNode;
-  fit?: boolean;
-}) {
-  return (
-    <span
-      data-layer-row-indents
-      className={cn("flex h-full", fit ? "min-w-0" : "shrink-0")}
-      aria-hidden={control ? undefined : true}
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <span
-          key={index}
-          data-layer-row-indent
-          className={cn(
-            "flex h-full w-6 items-center",
-            fit ? "min-w-0 shrink" : "shrink-0",
-            fit && index === count - 1 && "min-w-4",
-            index === count - 1 ? "justify-start" : "justify-center",
-          )}
-        >
-          {index === count - 1 ? control : null}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 function LayerDropIndicator({
   depth,
   placement,
@@ -1803,11 +1794,11 @@ function LayerDropIndicator({
     <span
       data-layer-drop-indicator={placement}
       className={cn(
-        "pointer-events-none absolute left-2.5 right-2 z-10 flex h-px",
+        "pointer-events-none absolute inset-x-4 z-10 flex h-px",
         placement === "before" ? "top-0" : "bottom-0",
       )}
     >
-      <LayerRowIndentSlots count={depth} fit />
+      <TreeGridLead depth={depth} chevronSlot={false} fit />
       <span className="h-px min-w-0 flex-1 bg-[var(--design-editor-accent-color)]" />
     </span>
   );
@@ -1819,8 +1810,6 @@ const LayerRow = memo(function LayerRow({
   isExpanded,
   isSelected,
   isInSelectedSubtree,
-  isSelectionBlockStart,
-  isSelectionBlockEnd,
   isActiveScreen,
   isHovered,
   isRenaming,
@@ -2215,12 +2204,8 @@ const LayerRow = memo(function LayerRow({
           activeDrop === "inside" ? "inside" : undefined
         }
         className={cn(
-          "group w-full min-w-0 [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
-          LAYER_ROW_GEOMETRY_CLASS,
-          !isSelected && !isInSelectedSubtree && "rounded-[4px]",
-          isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
-          isSelectionBlockStart && !isSelectionBlockEnd && "rounded-t-[4px]",
-          !isSelectionBlockStart && isSelectionBlockEnd && "rounded-b-[4px]",
+          "group w-full bg-[var(--design-editor-panel-bg)]",
+          TREE_GRID_ROW_CLASS,
           activeDrop === "inside" &&
             "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
           isSelected &&
@@ -2243,10 +2228,10 @@ const LayerRow = memo(function LayerRow({
           node.hidden && "text-muted-foreground",
         )}
       >
-        <LayerRowIndentSlots
-          count={layerRowIndentCount(depth)}
+        <TreeGridLead
+          depth={depth}
           fit
-          control={
+          chevron={
             hasChildren ? (
               <Button
                 type="button"
@@ -2264,14 +2249,7 @@ const LayerRow = memo(function LayerRow({
                   );
                 }}
               >
-                {isExpanded ? (
-                  <IconChevronDown className="!size-3" strokeWidth={1.8} />
-                ) : (
-                  <IconChevronRight
-                    className="!size-3 rtl:-scale-x-100"
-                    strokeWidth={1.8}
-                  />
-                )}
+                <TreeGridChevron expanded={isExpanded} />
               </Button>
             ) : undefined
           }
@@ -2296,7 +2274,8 @@ const LayerRow = memo(function LayerRow({
               // The icon is the scroll target so deep rows don't scroll
               // sideways; the margin brings the full row and the list's
               // padding into view with it.
-              "flex size-[var(--design-icon-size)] shrink-0 scroll-my-3 items-center justify-center text-muted-foreground",
+              TREE_GRID_ICON_SLOT_CLASS,
+              "scroll-my-3 text-muted-foreground",
               isComponentLayer
                 ? "text-[var(--design-editor-component-color)]"
                 : undefined,
@@ -2333,7 +2312,7 @@ const LayerRow = memo(function LayerRow({
                   onCancelRename(node.id);
                 }
               }}
-              className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
+              className="h-[var(--design-control-height)] min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-xs text-foreground outline-none"
               aria-label={labels.rename}
             />
           ) : (
@@ -2360,11 +2339,12 @@ const LayerRow = memo(function LayerRow({
 
         {(lockable || hideable) && (
           <div
+            data-layer-toggles
             className={cn(
-              "sticky right-0 z-10 ml-auto flex shrink-0 items-center bg-inherit",
-              node.locked || node.hidden
+              "sticky end-0 z-10 ms-auto flex shrink-0 items-center bg-inherit",
+              node.locked || node.hidden || isSelected
                 ? "w-auto overflow-visible"
-                : "w-0 overflow-hidden group-hover:w-auto group-hover:overflow-visible focus-within:w-auto focus-within:overflow-visible",
+                : "w-0 overflow-hidden group-focus-within:w-auto group-focus-within:overflow-visible group-hover:w-auto group-hover:overflow-visible",
             )}
           >
             <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
@@ -2375,10 +2355,10 @@ const LayerRow = memo(function LayerRow({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
+                    size="icon-xs"
                     className={cn(
-                      "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.locked && "opacity-100",
+                      "shrink-0 text-muted-foreground [&_svg]:size-[var(--design-icon-size)] opacity-0 hover:bg-transparent hover:text-foreground group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+                      (node.locked || isSelected) && "opacity-100",
                       isSelected && "text-foreground",
                     )}
                     aria-label={node.locked ? labels.unlock : labels.lock}
@@ -2404,9 +2384,15 @@ const LayerRow = memo(function LayerRow({
                     }}
                   >
                     {node.locked ? (
-                      <IconLock className="size-3" />
+                      <LockClosedIcon
+                        className="design-ui-icon"
+                        aria-hidden="true"
+                      />
                     ) : (
-                      <IconLockOpen className="size-3" />
+                      <LockOpen1Icon
+                        className="design-ui-icon"
+                        aria-hidden="true"
+                      />
                     )}
                   </Button>
                 </TooltipTrigger>
@@ -2422,10 +2408,10 @@ const LayerRow = memo(function LayerRow({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
+                    size="icon-xs"
                     className={cn(
-                      "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.hidden && "opacity-100",
+                      "shrink-0 text-muted-foreground [&_svg]:size-[var(--design-icon-size)] opacity-0 hover:bg-transparent hover:text-foreground group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+                      (node.hidden || isSelected) && "opacity-100",
                       isSelected && "text-foreground",
                     )}
                     aria-label={node.hidden ? labels.show : labels.hide}
@@ -2451,9 +2437,15 @@ const LayerRow = memo(function LayerRow({
                     }}
                   >
                     {node.hidden ? (
-                      <IconEyeOff className="size-3" />
+                      <EyeClosedIcon
+                        className="design-ui-icon"
+                        aria-hidden="true"
+                      />
                     ) : (
-                      <IconEye className="size-3" />
+                      <EyeOpenIcon
+                        className="design-ui-icon"
+                        aria-hidden="true"
+                      />
                     )}
                   </Button>
                 </TooltipTrigger>
@@ -2505,9 +2497,9 @@ function IconTooltipButton({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-xs"
             data-layers-panel-action={dataAction}
-            className="size-5 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
+            className="text-muted-foreground [&_svg]:size-[var(--design-icon-size)] hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:opacity-35"
             aria-label={label}
             disabled={disabled}
             onClick={onClick}

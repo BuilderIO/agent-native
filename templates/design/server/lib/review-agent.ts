@@ -138,10 +138,8 @@ export function refuseNoWrite(
   return reviewAgentErrors.noWrite(message, code, { statusCode });
 }
 
-// ---------------------------------------------------------------------------
 // Stored values: parsed on the way out, so a bad value throws instead of
 // flowing on as a plausible one.
-// ---------------------------------------------------------------------------
 
 /**
  * What a failed or stopped row says. The UI localizes from the code; this is
@@ -330,10 +328,6 @@ function deterministicUuid(seed: string): string {
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-
-// ---------------------------------------------------------------------------
-// Access, identity, rows
-// ---------------------------------------------------------------------------
 
 export function requireRequesterEmail(): string {
   const email = getRequestUserEmail();
@@ -551,10 +545,6 @@ export async function expireStaleActiveRequests(scope: {
   return expired;
 }
 
-// ---------------------------------------------------------------------------
-// Review thread
-// ---------------------------------------------------------------------------
-
 function reviewScope() {
   return {
     userEmail: getRequestUserEmail() ?? null,
@@ -620,10 +610,6 @@ export async function loadReviewThread(
   }
   return { root, comments };
 }
-
-// ---------------------------------------------------------------------------
-// Screen facts and what the agent may do to the screen
-// ---------------------------------------------------------------------------
 
 export type ReviewAgentCapabilities =
   | { canApply: true }
@@ -815,10 +801,6 @@ export function previewEdits(
   return previewWithin(edits, 1);
 }
 
-// ---------------------------------------------------------------------------
-// Agent-authored comments
-// ---------------------------------------------------------------------------
-
 const MENTION_MARKUP = /@\[([^\]]+)\]\(mailto:[^)]*\)/g;
 
 /**
@@ -902,10 +884,6 @@ function toolContext(
     orgId: getRequestOrgId() ?? null,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Serialization
-// ---------------------------------------------------------------------------
 
 /** The session a browser must dispatch for this row, or `null` when none is owed. */
 export function pendingSessionFor(
@@ -997,10 +975,6 @@ export function serializeReviewAgentRequest(
     pendingSession: mine ? pendingSessionFor(row) : null,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Start, list, cancel, reconcile
-// ---------------------------------------------------------------------------
 
 export interface StartReviewAgentArgs {
   requestId: string;
@@ -1461,10 +1435,6 @@ export async function reconcileReviewAgentRun(input: {
   // A lost race means another call already closed the row; report it as it is.
   return updated ?? loadReviewAgentRequest(row.id);
 }
-
-// ---------------------------------------------------------------------------
-// Scoped runs
-// ---------------------------------------------------------------------------
 
 export interface ScopedRequestOptions {
   ctx: ActionRunContext | undefined;

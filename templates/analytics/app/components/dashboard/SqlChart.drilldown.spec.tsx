@@ -96,9 +96,9 @@ vi.mock("recharts", async (importOriginal) => {
   };
 });
 
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
-import { SqlChart, type ChartDatum } from "./SqlChart";
+import { SqlChart, type ChartDatum } from "./SqlChartQuery";
 
 function panel(
   chartType: "area" | "line" | "combo",
@@ -374,7 +374,8 @@ describe("SqlChart drilldown clicks", () => {
     });
   });
 
-  it("names a null x point's keyboard control", async () => {
+  it("names a null x point's keyboard control and flags only its click as null", async () => {
+    const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
     await act(async () => {
       root.render(
         <SqlChart
@@ -382,8 +383,13 @@ describe("SqlChart drilldown clicks", () => {
             ...panel("line"),
             config: { xKey: "day", yKeys: ["signups"] },
           }}
-          onDatumClick={vi.fn()}
-          resultOverride={{ rows: [{ day: null, signups: 3 }] }}
+          onDatumClick={onDatumClick}
+          resultOverride={{
+            rows: [
+              { day: null, signups: 3 },
+              { day: "", signups: 1 },
+            ],
+          }}
         />,
       );
     });
@@ -397,6 +403,16 @@ describe("SqlChart drilldown clicks", () => {
     expect(disclosure?.querySelector("ul button")?.textContent).toContain(
       "sqlDashboard.noXValue",
     );
+
+    for (const point of disclosure?.querySelectorAll<HTMLButtonElement>(
+      "ul button",
+    ) ?? []) {
+      await act(async () => point.click());
+    }
+    expect(onDatumClick.mock.calls).toEqual([
+      [{ x: "", xIsNull: true, value: 3 }],
+      [{ x: "", value: 1 }],
+    ]);
   });
 
   it("offers keyboard-operable controls for pie chart slices", async () => {

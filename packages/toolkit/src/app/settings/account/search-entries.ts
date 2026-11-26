@@ -34,6 +34,12 @@ export const PREFERENCES_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     anchor: "interface-language",
   },
   {
+    id: "theme",
+    labelKey: key("theme"),
+    keywords: "theme dark mode light mode system appearance",
+    anchor: "theme",
+  },
+  {
     id: "theme-family",
     labelKey: key("themeFamily"),
     keywords: "theme appearance style colors",

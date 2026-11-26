@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 
+import type { TableColumnConfig } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-import type { TableColumnConfig } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
   activePersonalColumnWidths,

@@ -7,12 +7,12 @@
  *   pnpm action update-clips-recording-defaults '{"defaultRecordingVisibility":null}'
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { mutateUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { readActiveOrganizationDefaultVisibility } from "../server/lib/recordings.js";
+import { readActiveOrganizationVisibilityPolicy } from "../server/lib/recordings.js";
 import { CLIPS_USER_PREFS_KEY } from "../shared/clips-ai-prefs.js";
 import {
   CLIPS_DEFAULT_PLAYBACK_SPEEDS,
@@ -42,11 +42,23 @@ const patchSchema = z
 
 export default defineAction({
   description:
-    "Update the current user's Clips recording defaults: the playback speed recordings open at and their own visibility for new recordings. Pass defaultRecordingVisibility: null to follow the organization default again. Other Clips preferences are kept. Returns the same shape as get-clips-recording-defaults.",
+    "Update the current user's Clips recording defaults: the playback speed recordings open at and their own visibility for new recordings. Pass defaultRecordingVisibility: null to follow the organization default again. Setting a visibility fails while the organization enforces its default. Other Clips preferences are kept. Returns the same shape as get-clips-recording-defaults.",
   schema: patchSchema,
+  mcpTool: false,
   run: async (args): Promise<ClipsRecordingDefaults> => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("Sign in required");
+
+    const policy = await readActiveOrganizationVisibilityPolicy();
+    if (
+      policy.enforced &&
+      typeof args.defaultRecordingVisibility === "string"
+    ) {
+      fail(
+        "Your organization enforces its default recording visibility, so you can't set your own. Change visibility on an individual recording from its Share dialog instead.",
+        { errorCode: "forbidden", statusCode: 403 },
+      );
+    }
 
     const next = await mutateUserSetting(
       email,
@@ -66,7 +78,8 @@ export default defineAction({
     );
     return getClipsRecordingDefaults(
       next,
-      await readActiveOrganizationDefaultVisibility(),
+      policy.defaultVisibility,
+      policy.enforced,
     );
   },
 });

@@ -34,6 +34,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { assertVisualEditCapabilityConnections } from "./visual-edit-capability.js";
 
 const CONNECT_HINT = "npx @agent-native/core@latest design connect";
 const VISUAL_EDIT_CAPABILITY_PREFIX = "capability:visual-edit:design:";
@@ -166,6 +167,7 @@ export async function resolveLocalhostBridgeConnection(args: {
   orgId: string | null;
 }): Promise<LocalhostBridgeConnection> {
   const { connectionId, ownerEmail, orgId } = args;
+  await assertVisualEditCapabilityConnections([connectionId]);
   const db = getDb();
   const [connection] = await db
     .select({

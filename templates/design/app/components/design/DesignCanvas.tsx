@@ -26,7 +26,6 @@ import {
 } from "@shared/canvas-math";
 import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
-import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
   decodeMotionPrototypeTransitionAttribute,
   type MotionPrototypeTransitionDecodeResult,
@@ -59,6 +58,11 @@ import {
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { sanitizeVisualEditSnapshotHtml } from "@shared/visual-edit-snapshot";
+import {
+  CANVAS_CONTEXT_RECORDER_SCRIPT,
+  injectCanvasContextRecorder,
+  isVisualLayerKind,
+} from "@shared/visual-layers";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -71,19 +75,15 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { createPortal } from "react-dom";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
-  DrawOverlay as SharedDrawOverlay,
   ReviewCanvasPins,
   type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import type { ReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
-import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,
@@ -110,7 +110,6 @@ import {
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
-import { motionPreviewBridgeScript } from "../../../.generated/bridge/motion-preview.generated";
 import { navBridgeScript } from "../../../.generated/bridge/nav.generated";
 import { shaderFillPreviewBridgeScript } from "../../../.generated/bridge/shader-fill-preview.generated";
 import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-runtime.generated";
@@ -123,8 +122,6 @@ import type {
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { hydrateInitialSourceTokens } from "./bridge/source-token-hydration";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
-import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
-import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
 import { appendContentSizeReporter } from "./design-canvas/content-size-report";
 import {
   getScreenContentPointFromClient,
@@ -177,6 +174,10 @@ import {
   forwardEmbeddedCanvasPanMessage,
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
+import {
+  filterPastedMediaFiles,
+  hasSkippedImagePaste,
+} from "./design-canvas/image-paste-files";
 import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
 import {
   inlineDesignStylesheets,
@@ -184,14 +185,6 @@ import {
 } from "./design-canvas/linked-stylesheets";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
-import {
-  applyMotionPathEdit,
-  parseMotionPathEditMessage,
-} from "./design-canvas/motion-path-edit";
-import type {
-  MotionPathTracksChangeResult,
-  MotionTrackWire,
-} from "./design-canvas/motion-types";
 import {
   connectNativePreviewSurface,
   nativePreviewSurfaceDocumentKey,
@@ -244,6 +237,7 @@ import {
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
+import { ExternalReferenceFallback } from "./ExternalReferenceFallback";
 import { getBoardSurfaceRenderContent } from "./multi-screen/board-surface-html";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
 import {
@@ -258,6 +252,7 @@ import {
   getIframePaintRetentionStyle,
   SCALED_IFRAME_PAINT_RETENTION_STYLE,
 } from "./scaled-iframe-paint";
+import { SharedTunnelPreview } from "./SharedTunnelPreview";
 import type {
   ElementInfo,
   GridGroupStructureMove,
@@ -272,6 +267,7 @@ import type {
   TextEditingState,
 } from "./types";
 import { useNativeShaderApprovals } from "./use-native-shader-approvals";
+import { useReferenceFrameFailure } from "./use-reference-frame-failure";
 
 function getSingleScreenZoomTransform(
   zoom: number,
@@ -432,12 +428,6 @@ function clearTabFocusedLiveFrames(document: Document) {
     .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
     .forEach((frame) => tabFocusedLiveFrames.delete(frame));
 }
-
-const MOTION_PREVIEW_BRIDGE_SCRIPT = `
-<script data-agent-native-motion-preview-bridge>
-${motionPreviewBridgeScript}
-</script>
-`;
 
 const SHADER_FILL_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-shader-runtime data-runtime-version="1">
@@ -645,6 +635,9 @@ interface DesignCanvasProps {
    */
   sourceType?: "inline" | "localhost" | "fusion";
   bridgeUrl?: string;
+  referenceBridgeUrl?: string;
+  referencePreviewToken?: string;
+  sharedTunnelUrl?: string;
   allowLocalNetworkAccessPrompt?: boolean;
   previewUrlOverride?: string;
   previewUrlSourceKey?: string;
@@ -926,11 +919,6 @@ interface DesignCanvasProps {
     },
   ) => boolean | "pending" | void;
   tweakValues: Record<string, string>;
-  drawMode?: boolean;
-  onExitDrawMode?: () => void;
-  drawOverlayResetSignal?: number;
-  retainDrawOverlayWhenHidden?: boolean;
-  onAnnotationSendingChange?: (sending: boolean) => void;
   pinMode?: boolean;
   commentPinsHidden?: boolean;
   selectedSelector?: string | null;
@@ -974,20 +962,6 @@ interface DesignCanvasProps {
     transition: MotionPrototypeTransitionDecodeResult,
     sourceFrame: HTMLIFrameElement,
   ) => void;
-  motionTracks?: MotionTrackWire[];
-  motionEasingVariables?: MotionEasingVariable[];
-  motionDefaultEase?: string;
-  motionDurationMs?: number;
-  motionPathEditingEnabled?: boolean;
-  motionPathTargetNodeId?: string | null;
-  motionPathTrackId?: string | null;
-  motionOriginEditingEnabled?: boolean;
-  motionOriginTargetNodeId?: string | null;
-  onMotionPathTracksChange?: (
-    tracks: MotionTrackWire[],
-    targetNodeId: string,
-    trackId?: string,
-  ) => MotionPathTracksChangeResult | void;
   previewWidthPx?: number;
   previewHeightPx?: number;
   gradientEditTarget?: {
@@ -1371,7 +1345,7 @@ function normalizeScriptMarkup(scriptHtml: string): string {
  * A changed `<head>` is NOT a reload trigger: the bridge swaps only the nodes
  * the previous source head contributed (replaceSourceHeadNodes), leaving what
  * the page's own runtime injected in place. Treating any head edit as a reload
- * meant every breakpoint override, motion track and token write — all of which
+ * meant every breakpoint override and token write — all of which
  * persist into a managed `<style>` in the head — reloaded the whole frame.
  */
 function runtimeDocumentNeedsReload(
@@ -1494,6 +1468,9 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  referenceBridgeUrl,
+  referencePreviewToken,
+  sharedTunnelUrl,
   allowLocalNetworkAccessPrompt = true,
   previewUrlOverride,
   previewUrlSourceKey,
@@ -1587,11 +1564,6 @@ export function DesignCanvas({
   onVisualGridGroupChange,
   onVisualDuplicateChange,
   tweakValues,
-  drawMode,
-  onExitDrawMode,
-  drawOverlayResetSignal,
-  retainDrawOverlayWhenHidden = false,
-  onAnnotationSendingChange,
   pinMode,
   commentPinsHidden,
   selectedSelector,
@@ -1629,16 +1601,6 @@ export function DesignCanvas({
   previewColorScheme = null,
   previewReloadNonce = 0,
   onPreviewThemeStatus,
-  motionTracks,
-  motionEasingVariables,
-  motionDefaultEase,
-  motionDurationMs,
-  motionPathEditingEnabled = false,
-  motionPathTargetNodeId = null,
-  motionPathTrackId = null,
-  motionOriginEditingEnabled = false,
-  motionOriginTargetNodeId = null,
-  onMotionPathTracksChange,
   previewWidthPx,
   previewHeightPx,
   onComponentSourceJump,
@@ -2231,7 +2193,7 @@ export function DesignCanvas({
         target.readOnly ||
         !isInspectorTarget(target) ||
         target.closest(
-          '[role="menu"], [role="listbox"], [role="combobox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]',
+          '[role="menu"], [role="listbox"], [role="combobox"][aria-expanded="true"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]',
         )
       ) {
         return;
@@ -2299,8 +2261,6 @@ export function DesignCanvas({
     },
     [],
   );
-  const [annotationCaptureBusy, setAnnotationCaptureBusy] = useState(false);
-  const annotationCaptureBusyRef = useRef(false);
   const [, setFetchedExternalSnapshot] = useState<{
     url: string;
     html: string;
@@ -2507,8 +2467,7 @@ export function DesignCanvas({
     return (
       LIVE_ROUTE_BRIDGE_SCRIPT +
       (includeLiveEditEditorChrome
-        ? MOTION_PREVIEW_BRIDGE_SCRIPT +
-          SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
+        ? SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
           TWEAK_BRIDGE_SCRIPT +
           // Kept on the overview too: Full view takes over this registration
           // only while the script is the same. The overview's gesture-mode
@@ -2636,13 +2595,7 @@ export function DesignCanvas({
       !embeddedFrame &&
       !boardSurface &&
       Boolean(rawExternalPreviewUrl),
-    mode: interactMode
-      ? "interact"
-      : drawMode
-        ? "draw"
-        : pinMode
-          ? "comment"
-          : "edit",
+    mode: interactMode ? "interact" : pinMode ? "comment" : "edit",
     presentation: embeddedFrame || boardSurface ? "overview" : "focused",
     scale: zoom / 100,
     active: nativePreviewActive,
@@ -2693,6 +2646,16 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
+  const [referenceCopyActive, setReferenceCopyActive] = useState(false);
+  const referenceEligible = Boolean(
+    externalPreviewUrl &&
+    sourceType !== "localhost" &&
+    !usesLiveEditInjectedBridge,
+  );
+  useEffect(() => {
+    setReferenceCopyActive(false);
+  }, [externalPreviewUrl, referenceEligible]);
+
   const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
     useNativeShaderApprovals({
       designId,
@@ -3653,6 +3616,11 @@ export function DesignCanvas({
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
   const designStylesheets = useDesignStylesheets();
+  // Interact bakes only the values current when its document is built; later
+  // knob changes reach its tweaks bridge as the replayed `tweak-values`
+  // message, so they never reload the frame.
+  const latestTweakValuesRef = useRef(tweakValues);
+  latestTweakValuesRef.current = tweakValues;
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     // Interact runs the design as authored. Its document carries the theme and
@@ -3667,6 +3635,7 @@ export function DesignCanvas({
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
         heightMode: screenHeightMode,
+        tweakValues: latestTweakValuesRef.current,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
@@ -3726,7 +3695,6 @@ export function DesignCanvas({
     const imageDiagBridge = "";
     const bridgeToInject =
       sourceProvenanceBootstrap(iframeSourceProvenance) +
-      MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
       TWEAK_BRIDGE_SCRIPT +
       // An embedded frame's gesture bridge already forwards Cmd/Ctrl wheels,
@@ -3740,7 +3708,10 @@ export function DesignCanvas({
       imageDiagBridge;
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
-      frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
+      frameDocument = injectDocumentMarkup(
+        injectCanvasContextRecorder(frameContent),
+        bridgeToInject,
+      );
     } else {
       const frameStyle = [
         getEmbeddedFrameBackgroundStyle({
@@ -3752,7 +3723,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
@@ -3886,30 +3857,12 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
-  const [motionOriginMarkerPosition, setMotionOriginMarkerPosition] = useState<{
-    targetNodeId: string;
-    x: number;
-    y: number;
-    viewportWidth: number;
-    viewportHeight: number;
-  } | null>(null);
-  const motionOriginPointerIdRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!motionOriginEditingEnabled) {
-      setMotionOriginMarkerPosition(null);
-      return;
-    }
-    const refreshPortalPosition = () =>
-      setMotionOriginMarkerPosition((current) =>
-        current ? { ...current } : current,
-      );
-    window.addEventListener("scroll", refreshPortalPosition, true);
-    window.addEventListener("resize", refreshPortalPosition);
-    return () => {
-      window.removeEventListener("scroll", refreshPortalPosition, true);
-      window.removeEventListener("resize", refreshPortalPosition);
-    };
-  }, [motionOriginEditingEnabled]);
+  const { failed: referenceFrameFailed, markFailed: markReferenceFrameFailed } =
+    useReferenceFrameFailure({
+      url: externalPreviewUrl,
+      eligible: referenceEligible,
+      loaded: previewFrameLoaded,
+    });
   const [loadedPreviewDocumentIdentity, setLoadedPreviewDocumentIdentity] =
     useState<string | null>(null);
   const loadedPreviewDocumentIdentityRef = useRef(
@@ -4088,136 +4041,6 @@ export function DesignCanvas({
         typeof e.data?.routePath === "string"
           ? routePathWithoutBridgeKey(e.data.routePath)
           : e.data?.routePath;
-      if (
-        trustedCurrentFrame &&
-        e.data?.type === "motion-origin-marker-position"
-      ) {
-        if (e.data.visible !== true) {
-          setMotionOriginMarkerPosition(null);
-          return;
-        }
-        const targetNodeId = e.data.targetNodeId;
-        const x = Number(e.data.x);
-        const y = Number(e.data.y);
-        const viewportWidth = Number(e.data.viewportWidth);
-        const viewportHeight = Number(e.data.viewportHeight);
-        if (
-          !motionOriginEditingEnabled ||
-          typeof targetNodeId !== "string" ||
-          targetNodeId !== motionOriginTargetNodeId ||
-          !Number.isFinite(x) ||
-          !Number.isFinite(y) ||
-          !(viewportWidth > 0) ||
-          !(viewportHeight > 0)
-        ) {
-          return;
-        }
-        setMotionOriginMarkerPosition((current) => {
-          if (
-            current?.targetNodeId === targetNodeId &&
-            current.x === x &&
-            current.y === y &&
-            current.viewportWidth === viewportWidth &&
-            current.viewportHeight === viewportHeight
-          ) {
-            return current;
-          }
-          return { targetNodeId, x, y, viewportWidth, viewportHeight };
-        });
-        return;
-      }
-      if (
-        trustedCurrentFrame &&
-        e.data?.type === "motion-path-edit" &&
-        motionPathEditingEnabled &&
-        !readOnly &&
-        editMode &&
-        !interactMode &&
-        onMotionPathTracksChange
-      ) {
-        const edit = parseMotionPathEditMessage(
-          e.data,
-          motionPathTargetNodeId,
-          motionPathTrackId,
-        );
-        if (!edit || !motionTracks) return;
-        const matchingTrackIndexes = motionTracks.flatMap((track, index) =>
-          track.targetNodeId === edit.targetNodeId &&
-          track.property === "translate"
-            ? [index]
-            : [],
-        );
-        const trackIndex = edit.trackId
-          ? motionTracks.findIndex(
-              (track) =>
-                track.id === edit.trackId &&
-                track.targetNodeId === edit.targetNodeId &&
-                track.property === "translate",
-            )
-          : matchingTrackIndexes.length === 1
-            ? matchingTrackIndexes[0]
-            : -1;
-        if (trackIndex < 0) return;
-        const updated = applyMotionPathEdit(motionTracks[trackIndex], edit);
-        if (!updated) return;
-        const nextTracks = [...motionTracks];
-        nextTracks[trackIndex] = updated;
-        const changeResult = onMotionPathTracksChange(
-          nextTracks,
-          edit.targetNodeId,
-          edit.trackId ?? motionTracks[trackIndex]?.id,
-        );
-        if (changeResult?.status === "unsupported") {
-          const iframeWindow = iframeRef.current?.contentWindow;
-          iframeWindow?.postMessage(
-            {
-              type: "motion-load-tracks",
-              tracks: motionTracks.map(
-                ({ nativeStyleIndex: _index, ...track }) => track,
-              ),
-              easingVariables: motionEasingVariables,
-              defaultEase: motionDefaultEase,
-              durationMs: motionDurationMs,
-            },
-            "*",
-          );
-          iframeWindow?.postMessage(
-            {
-              type: "motion-path-editing",
-              enabled:
-                motionPathEditingEnabled &&
-                !readOnly &&
-                editMode &&
-                !interactMode &&
-                typeof motionPathTargetNodeId === "string" &&
-                typeof motionPathTrackId === "string",
-              targetNodeId: motionPathTargetNodeId ?? null,
-              trackId: motionPathTrackId ?? null,
-            },
-            "*",
-          );
-          iframeWindow?.postMessage(
-            {
-              type: "motion-origin-editing",
-              enabled:
-                motionOriginEditingEnabled &&
-                !readOnly &&
-                editMode &&
-                !interactMode &&
-                typeof motionOriginTargetNodeId === "string",
-              targetNodeId: motionOriginTargetNodeId ?? null,
-            },
-            "*",
-          );
-          toast.error(
-            changeResult.reason === "repeated-position-path"
-              ? t("designEditor.motion.pathEditPositionConflict")
-              : t("designEditor.motion.pathEditAmbiguous"),
-            { id: `motion-path-edit-unsupported:${changeResult.reason}` },
-          );
-        }
-        return;
-      }
       if (
         trustedCurrentFrame &&
         e.data?.type === "agent-native:canvas-tab-navigation" &&
@@ -5753,31 +5576,12 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "canvas-image-paste") {
-        const raw = Array.isArray(e.data.files) ? e.data.files : [];
-        const MAX_IMAGE_PASTE_FILES = 20;
-        const MAX_DATA_URL_BYTES = 20 * 1024 * 1024;
-        const files = raw
-          .slice(0, MAX_IMAGE_PASTE_FILES)
-          .filter(
-            (
-              f: unknown,
-            ): f is { dataUrl: string; type: string; name: string } => {
-              if (!f || typeof f !== "object") return false;
-              const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
-              if (typeof dataUrl !== "string") return false;
-              if (
-                !dataUrl.startsWith("data:image/") &&
-                !dataUrl.startsWith("data:video/")
-              )
-                return false;
-              if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
-              return true;
-            },
-          );
-        if (files.length > 0) {
+        const { files, skipped } = filterPastedMediaFiles(e.data.files);
+        if (files.length > 0 || hasSkippedImagePaste(skipped)) {
           onImagePaste?.({
             files,
             screenId: boardSurface ? undefined : screenId,
+            skipped,
           });
         }
         return;
@@ -5827,6 +5631,9 @@ export function DesignCanvas({
                       typeof e.data.screenId === "string"
                         ? e.data.screenId
                         : undefined,
+                    ...(isVisualLayerKind(candidate.kind)
+                      ? { kind: candidate.kind }
+                      : {}),
                     info: candidate.info,
                   }))
               : [],
@@ -5978,16 +5785,6 @@ export function DesignCanvas({
     deviceFrame,
     onPrototypeNavigate,
     onComponentSourceJump,
-    motionPathEditingEnabled,
-    motionPathTargetNodeId,
-    motionPathTrackId,
-    motionOriginEditingEnabled,
-    motionOriginTargetNodeId,
-    motionTracks,
-    motionEasingVariables,
-    motionDefaultEase,
-    motionDurationMs,
-    onMotionPathTracksChange,
     isEmbeddedFrame,
     sourceType,
     bridgeUrl,
@@ -6020,53 +5817,6 @@ export function DesignCanvas({
   selectedSelectorRef.current = selectedSelector;
   const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
   selectedSelectorCandidatesRef.current = selectedSelectorCandidates;
-
-  const sendMotionPathEditingState = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: "motion-path-editing",
-        enabled:
-          motionPathEditingEnabled &&
-          !readOnly &&
-          editMode &&
-          !interactMode &&
-          typeof motionPathTargetNodeId === "string" &&
-          typeof motionPathTrackId === "string",
-        targetNodeId: motionPathTargetNodeId ?? null,
-        trackId: motionPathTrackId ?? null,
-      },
-      "*",
-    );
-  }, [
-    editMode,
-    interactMode,
-    motionPathEditingEnabled,
-    motionPathTargetNodeId,
-    motionPathTrackId,
-    readOnly,
-  ]);
-
-  const sendMotionOriginEditingState = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: "motion-origin-editing",
-        enabled:
-          motionOriginEditingEnabled &&
-          !readOnly &&
-          editMode &&
-          !interactMode &&
-          typeof motionOriginTargetNodeId === "string",
-        targetNodeId: motionOriginTargetNodeId ?? null,
-      },
-      "*",
-    );
-  }, [
-    editMode,
-    interactMode,
-    motionOriginEditingEnabled,
-    motionOriginTargetNodeId,
-    readOnly,
-  ]);
 
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
@@ -6179,24 +5929,6 @@ export function DesignCanvas({
           },
       "*",
     );
-    if (motionTracks && motionTracks.length > 0) {
-      iframe.contentWindow?.postMessage(
-        {
-          type: "motion-load-tracks",
-          tracks: motionTracks.map(
-            ({ nativeStyleIndex: _index, ...track }) => track,
-          ),
-          easingVariables: motionEasingVariables,
-          defaultEase: motionDefaultEase,
-          durationMs: motionDurationMs,
-        },
-        "*",
-      );
-    } else {
-      iframe.contentWindow?.postMessage({ type: "motion-preview-clear" }, "*");
-    }
-    sendMotionPathEditingState();
-    sendMotionOriginEditingState();
     iframe.contentWindow?.postMessage(
       {
         type: "state-preview",
@@ -6217,12 +5949,6 @@ export function DesignCanvas({
     hiddenSelectors,
     isEmbeddedFrame,
     lockedSelectors,
-    motionTracks,
-    motionEasingVariables,
-    motionDefaultEase,
-    motionDurationMs,
-    sendMotionPathEditingState,
-    sendMotionOriginEditingState,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
@@ -6317,36 +6043,6 @@ export function DesignCanvas({
       "*",
     );
   }, [clearSelectionRequest]);
-
-  useEffect(() => {
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    if (!motionTracks || motionTracks.length === 0) {
-      win.postMessage({ type: "motion-preview-clear" }, "*");
-    } else {
-      win.postMessage(
-        {
-          type: "motion-load-tracks",
-          tracks: motionTracks.map(
-            ({ nativeStyleIndex: _index, ...track }) => track,
-          ),
-          easingVariables: motionEasingVariables,
-          defaultEase: motionDefaultEase,
-          durationMs: motionDurationMs,
-        },
-        "*",
-      );
-    }
-    sendMotionPathEditingState();
-    sendMotionOriginEditingState();
-  }, [
-    motionTracks,
-    motionEasingVariables,
-    motionDefaultEase,
-    motionDurationMs,
-    sendMotionPathEditingState,
-    sendMotionOriginEditingState,
-  ]);
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
@@ -7254,22 +6950,6 @@ export function DesignCanvas({
     runtimeLayerSnapshotRequest,
   ]);
 
-  const sendMotionPreview = useCallback((t: number, durationMs?: number) => {
-    const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-    iframe.contentWindow.postMessage(
-      { type: "motion-preview", t: Math.max(0, Math.min(1, t)), durationMs },
-      "*",
-    );
-  }, []);
-
-  const clearMotionPreview = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: "motion-preview-clear" },
-      "*",
-    );
-  }, []);
-
   const replacePreviewContent = useCallback(
     (
       nextContent: string,
@@ -7764,8 +7444,6 @@ export function DesignCanvas({
       sendInteractionStatePreviewStyle;
     (window as any).__designCanvasReplaceContent = replacePreviewContentLinked;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
-    (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
-    (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
@@ -7795,16 +7473,6 @@ export function DesignCanvas({
       ) {
         delete (window as any).__designCanvasDeleteElement;
       }
-      if (
-        (window as any).__designCanvasSendMotionPreview === sendMotionPreview
-      ) {
-        delete (window as any).__designCanvasSendMotionPreview;
-      }
-      if (
-        (window as any).__designCanvasClearMotionPreview === clearMotionPreview
-      ) {
-        delete (window as any).__designCanvasClearMotionPreview;
-      }
     };
   }, [
     deleteRuntimeElement,
@@ -7813,8 +7481,6 @@ export function DesignCanvas({
     screenId,
     sendStyleChange,
     sendInteractionStatePreviewStyle,
-    sendMotionPreview,
-    clearMotionPreview,
   ]);
 
   const deviceDimensions: Record<
@@ -8128,130 +7794,6 @@ export function DesignCanvas({
     [content],
   );
 
-  const dispatchMotionOriginPointer = (
-    event: React.PointerEvent<HTMLButtonElement>,
-    phase: "down" | "move" | "up" | "cancel",
-  ) => {
-    const frame = iframeRef.current;
-    const frameWindow = frame?.contentWindow;
-    const frameRect = frame?.getBoundingClientRect();
-    if (
-      !frameWindow ||
-      !frameRect ||
-      frameRect.width <= 0 ||
-      frameRect.height <= 0
-    ) {
-      return;
-    }
-    frameWindow.postMessage(
-      {
-        type: "motion-origin-pointer",
-        phase,
-        pointerId: event.pointerId,
-        x:
-          ((event.clientX - frameRect.left) / frameRect.width) *
-          frameWindow.innerWidth,
-        y:
-          ((event.clientY - frameRect.top) / frameRect.height) *
-          frameWindow.innerHeight,
-      },
-      "*",
-    );
-  };
-
-  const handleMotionOriginPointerDown = (
-    event: React.PointerEvent<HTMLButtonElement>,
-  ) => {
-    if (event.button !== 0 || !motionOriginEditingEnabled) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    motionOriginPointerIdRef.current = event.pointerId;
-    dispatchMotionOriginPointer(event, "down");
-  };
-
-  const handleMotionOriginPointerMove = (
-    event: React.PointerEvent<HTMLButtonElement>,
-  ) => {
-    if (motionOriginPointerIdRef.current !== event.pointerId) return;
-    dispatchMotionOriginPointer(event, "move");
-  };
-
-  const finishMotionOriginPointer = (
-    event: React.PointerEvent<HTMLButtonElement>,
-    phase: "up" | "cancel",
-  ) => {
-    if (motionOriginPointerIdRef.current !== event.pointerId) return;
-    dispatchMotionOriginPointer(event, phase);
-    motionOriginPointerIdRef.current = null;
-  };
-
-  const motionOriginFrameRect = iframeRef.current?.getBoundingClientRect();
-  const motionOriginProxy =
-    motionOriginEditingEnabled &&
-    !readOnly &&
-    editMode &&
-    !interactMode &&
-    typeof document !== "undefined" &&
-    document.body &&
-    motionOriginFrameRect &&
-    motionOriginFrameRect.width > 0 &&
-    motionOriginFrameRect.height > 0 &&
-    motionOriginMarkerPosition?.targetNodeId === motionOriginTargetNodeId
-      ? createPortal(
-          <button
-            type="button"
-            data-motion-origin-proxy
-            aria-hidden="true"
-            tabIndex={-1}
-            onPointerDown={handleMotionOriginPointerDown}
-            onPointerMove={handleMotionOriginPointerMove}
-            onPointerUp={(event) => finishMotionOriginPointer(event, "up")}
-            onPointerCancel={(event) =>
-              finishMotionOriginPointer(event, "cancel")
-            }
-            onLostPointerCapture={(event) => {
-              if (motionOriginPointerIdRef.current === event.pointerId) {
-                finishMotionOriginPointer(event, "cancel");
-              }
-            }}
-            className="fixed z-[2147483647] grid size-4 -translate-x-1/2 -translate-y-1/2 cursor-move place-items-center rounded-full border-2 border-[var(--design-editor-accent-color,Highlight)] bg-[Canvas] p-0 touch-none"
-            style={{
-              left:
-                motionOriginFrameRect.left +
-                (motionOriginMarkerPosition.x /
-                  motionOriginMarkerPosition.viewportWidth) *
-                  motionOriginFrameRect.width,
-              top:
-                motionOriginFrameRect.top +
-                (motionOriginMarkerPosition.y /
-                  motionOriginMarkerPosition.viewportHeight) *
-                  motionOriginFrameRect.height,
-            }}
-          >
-            <svg
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 size-full overflow-visible"
-              viewBox="0 0 16 16"
-            >
-              <circle
-                cx="8"
-                cy="8"
-                r="2"
-                fill="var(--design-editor-accent-color,Highlight)"
-              />
-              <path
-                d="M4 8h8M8 4v8"
-                fill="none"
-                stroke="var(--design-editor-accent-color,Highlight)"
-                strokeWidth="1"
-              />
-            </svg>
-          </button>,
-          document.body,
-        )
-      : null;
-
   const previewIframeSandbox = getDesignCanvasIframeSandbox({
     externalPreview: Boolean(externalPreviewUrl),
     readOnly: readOnly || snapshotOnly,
@@ -8508,6 +8050,7 @@ export function DesignCanvas({
             sandbox={previewIframeSandbox}
             allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
             data-design-preview-iframe
+            onError={markReferenceFrameFailed}
             onFocus={(event) => {
               if (
                 sourceType !== "localhost" ||
@@ -8579,10 +8122,34 @@ export function DesignCanvas({
           />
         </>
       )}
-      {motionOriginProxy}
+      {referenceEligible && externalPreviewUrl ? (
+        <ExternalReferenceFallback
+          key={externalPreviewUrl}
+          url={externalPreviewUrl}
+          designId={designId}
+          screenId={screenId}
+          bridgeUrl={referenceBridgeUrl}
+          previewToken={referencePreviewToken}
+          snapshotHtml={matchingSharedSnapshot?.html ?? externalSnapshotHtml}
+          failed={referenceFrameFailed}
+          compact={previewFrameLoaded}
+          active={nativePreviewActive}
+          onReferenceChange={setReferenceCopyActive}
+        />
+      ) : null}
+      {snapshotOnly && !sharedTunnelUrl ? (
+        <span className="pointer-events-none absolute bottom-2 end-2 z-30 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+          {t("designEditor.livePreview.localOnly")}
+        </span>
+      ) : null}
+      {snapshotOnly && sharedTunnelUrl ? (
+        <SharedTunnelPreview url={sharedTunnelUrl} />
+      ) : null}
       {externalPreviewUrl &&
       !appStartingFrame &&
       !previewFrameLoaded &&
+      !referenceCopyActive &&
+      !(referenceEligible && referenceFrameFailed) &&
       !liveEditConnectionFailed ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
           <Spinner className="size-4 shrink-0" />
@@ -8854,82 +8421,6 @@ export function DesignCanvas({
           )}
         </div>
       ) : null}
-      {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
-      <SharedDrawOverlay
-        visible={!!drawMode}
-        clearSignal={drawOverlayResetSignal}
-        scopeKey={screenId}
-        retainSurfaceWhenHidden={retainDrawOverlayWhenHidden}
-        canvasInteractive={!pinMode}
-        queuedAnnotationCount={0}
-        zoom={zoom}
-        sending={annotationCaptureBusy}
-        onClose={() => onExitDrawMode?.()}
-        onSend={(annotations, instruction, canvasSize) => {
-          if (annotationCaptureBusyRef.current) return;
-          const summary = annotations
-            .map((a) =>
-              a.type === "path"
-                ? `[stroke ${a.color} w=${a.lineWidth}] ${a.pathData}`
-                : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
-            )
-            .join("\n");
-          const lines = [
-            `[Annotations on design ${designId || ""}${designTitle ? ` (${designTitle})` : ""}]`,
-            `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
-            ...(summary ? ["", "[Drawing]", summary] : []),
-            "",
-            instruction || "Apply these annotations to the design.",
-          ];
-          const message = lines.join("\n");
-
-          annotationCaptureBusyRef.current = true;
-          setAnnotationCaptureBusy(true);
-          onAnnotationSendingChange?.(true);
-          void captureAnnotatedScreenshot({
-            designId,
-            fileId: screenId,
-            sourceType:
-              sourceType ?? (externalPreviewUrl ? "localhost" : "inline"),
-            annotations,
-            canvasSize,
-          })
-            .catch(() => null)
-            .then((imageUrl) =>
-              submitDesignAnnotations({
-                message,
-                hasQueuedPins: false,
-                send: async (message) => {
-                  const result = await sendToDesignAgentChatAndConfirm({
-                    message,
-                    images: imageUrl ? [imageUrl] : undefined,
-                    submit: true,
-                    openSidebar: true,
-                  });
-                  if (!result.delivered) {
-                    throw new Error(
-                      `Annotation message was not delivered to the agent chat (${result.reason ?? "unknown"})`,
-                    );
-                  }
-                },
-                markQueuedPinsSubmitted: () => {},
-                exitDrawMode: () => onExitDrawMode?.(),
-                onError: (error) => {
-                  console.error(
-                    "[DesignCanvas] failed to submit drawing:",
-                    error,
-                  );
-                  toast.error(t("designEditor.toasts.annotationSendError"));
-                },
-              }),
-            )
-            .finally(() => {
-              annotationCaptureBusyRef.current = false;
-              setAnnotationCaptureBusy(false);
-              onAnnotationSendingChange?.(false);
-            });
-        }}
-      />
     </div>
   );
 

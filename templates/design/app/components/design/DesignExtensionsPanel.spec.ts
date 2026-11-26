@@ -33,6 +33,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
 import { installExtensionRequest } from "./DesignExtensionsPanel";
 
+// oracle-change: removed two describe blocks that only grepped DesignExtensionsPanel.tsx source text (discovery opt-in, LLM readiness gate); the postMessage origin checks remain
+
 describe("installExtensionRequest — duplicate-install race", () => {
   const originalFetch = global.fetch;
 
@@ -110,65 +112,5 @@ describe("DesignExtensionsPanel source — postMessage origin/source hygiene", (
       "utf8",
     );
     expect(source).not.toMatch(/addEventListener\(\s*["']message["']/);
-  });
-});
-
-describe("DesignExtensionsPanel source — extension discovery capability", () => {
-  const source = readFileSync(
-    path.join(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "DesignExtensionsPanel.tsx",
-    ),
-    "utf8",
-  );
-
-  it("keeps extension discovery opt-in while installed extensions still render", () => {
-    expect(source).toContain("enableExtensionDiscovery = false");
-    expect(source).toContain(
-      "useAvailableExtensions(slotId, enableExtensionDiscovery)",
-    );
-    expect(source).toMatch(
-      /enableExtensionDiscovery \? \(\s*<CreateExtensionPopover/,
-    );
-    expect(source).toMatch(
-      /visibleInstallable = enableExtensionDiscovery\s*\?/,
-    );
-    expect(source).toMatch(
-      /visibleInstalls\.map\(\(install\) => \(\s*<EmbeddedExtension/,
-    );
-  });
-
-  it("hides extension-only source and plugin filters without opt-in", () => {
-    expect(source).toMatch(
-      /enableExtensionDiscovery \? \(\s*<ToolFilterMenu\s*label="Source"/,
-    );
-    expect(source).toMatch(
-      /\.\.\.\(enableExtensionDiscovery\s*\?\s*\[\{ value: "plugins" as const/,
-    );
-  });
-});
-
-describe("Design extension creation — LLM readiness gate", () => {
-  const source = readFileSync(
-    path.join(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "DesignExtensionsPanel.tsx",
-    ),
-    "utf8",
-  );
-
-  it("keeps prompt entry and submission behind the readiness state", () => {
-    expect(source).toContain('providerStatus.state === "configured"');
-    expect(source).toContain('providerStatus === "configured"');
-    expect(source).toContain(
-      'disabled={!providerReady && providerStatus !== "unknown"}',
-    );
-    expect(source).toMatch(
-      /if \(!providerReady\) return;[\s\S]*?sendToDesignAgentChat\(/,
-    );
-    expect(source).toMatch(/if \(!providerReady \|\| !canSubmit\) return;/);
-    expect(source).toContain("<form onSubmit={handleSubmit}");
-    expect(source).toContain("<BuilderSetupCard");
-    expect(source).not.toContain('t("agentChat.setup.checkingProvider")');
   });
 });

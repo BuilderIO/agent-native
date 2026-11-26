@@ -98,6 +98,24 @@ export const privateMediaReferences = table(
   ],
 );
 
+export const analyticsChartCitations = table(
+  "content_analytics_chart_citations",
+  {
+    documentId: text("document_id").notNull(),
+    dashboardId: text("dashboard_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (citation) => [
+    uniqueIndex("content_analytics_chart_citation_unique").on(
+      citation.documentId,
+      citation.dashboardId,
+    ),
+    index("content_analytics_chart_citation_dashboard_idx").on(
+      citation.dashboardId,
+    ),
+  ],
+);
+
 export const contentSpaces = table(
   "content_spaces",
   {
@@ -332,6 +350,7 @@ export const documentComments = table(
      * `claude-code`, on a comment it posted over MCP.
      */
     authorClient: text("author_client"),
+    attachmentsJson: text("attachments_json"),
     resolved: integer("resolved").notNull().default(0),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -876,6 +895,32 @@ export const contentDatabaseSourceExecutionClaims = table(
   },
 );
 
+export const contentDatabaseBuilderAutosaves = table(
+  "content_database_builder_autosaves",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id").notNull(),
+    databaseItemId: text("database_item_id").notNull(),
+    documentId: text("document_id").notNull(),
+    enabled: integer("enabled").notNull().default(1),
+    state: text("state").notNull().default("idle"),
+    reason: text("reason"),
+    lastError: text("last_error"),
+    attemptId: text("attempt_id"),
+    claimedEditAt: text("claimed_edit_at"),
+    savedEditAt: text("saved_edit_at"),
+    lastSavedAt: text("last_saved_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (autosave) => [
+    uniqueIndex("content_database_builder_autosaves_source_item_unique").on(
+      autosave.sourceId,
+      autosave.databaseItemId,
+    ),
+  ],
+);
+
 export const contentDatabaseMigrationReceipts = table(
   "content_database_migration_receipts",
   {
@@ -1268,6 +1313,138 @@ export const contentWebhookDeliveries = table(
       delivery.updatedAt,
     ),
     index("content_webhook_deliveries_document_idx").on(delivery.documentId),
+  ],
+);
+
+export const contentColumnFills = table(
+  "content_column_fills",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    databaseId: text("database_id").notNull(),
+    databaseDocumentId: text("database_document_id").notNull(),
+    propertyId: text("property_id").notNull(),
+    instruction: text("instruction").notNull(),
+    rewrite: boolean("rewrite").notNull().default(false),
+    status: text("status").notNull().default("running"),
+    total: integer("total").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (fill) => [
+    index("content_column_fills_database_idx").on(
+      fill.databaseId,
+      fill.createdAt,
+    ),
+    index("content_column_fills_status_idx").on(fill.status),
+  ],
+);
+
+export const contentColumnFillCells = table(
+  "content_column_fill_cells",
+  {
+    fillId: text("fill_id").notNull(),
+    documentId: text("document_id").notNull(),
+    position: integer("position").notNull(),
+    status: text("status").notNull().default("waiting"),
+    baseGeneration: bigint("base_generation", { mode: "number" }),
+    taskId: text("task_id"),
+    agentThreadId: text("agent_thread_id"),
+    runId: text("run_id"),
+    attempt: integer("attempt").notNull().default(0),
+    error: text("error"),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (cell) => [
+    uniqueIndex("content_column_fill_cells_cell_idx").on(
+      cell.fillId,
+      cell.documentId,
+    ),
+    index("content_column_fill_cells_status_idx").on(
+      cell.fillId,
+      cell.status,
+      cell.position,
+    ),
+  ],
+);
+
+export const contentPageChecks = table(
+  "content_page_checks",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    sentence: text("sentence").notNull(),
+    parts: text("parts").notNull(),
+    scope: text("scope").notNull(),
+    wordingHash: text("wording_hash").notNull(),
+    paused: boolean("paused").notNull().default(false),
+    sure: text("sure").notNull().default("balanced"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (check) => [
+    index("content_page_checks_document_idx").on(
+      check.documentId,
+      check.createdAt,
+    ),
+  ],
+);
+
+export const contentPageCheckResults = table(
+  "content_page_check_results",
+  {
+    checkId: text("check_id").notNull(),
+    documentId: text("document_id").notNull(),
+    placeKey: text("place_key").notNull(),
+    wordingHash: text("wording_hash").notNull(),
+    textHash: text("text_hash").notNull(),
+    finding: text("finding").notNull(),
+    parts: text("parts").notNull(),
+    checkedBy: text("checked_by").notNull(),
+    checkedAt: text("checked_at").notNull().default(now()),
+  },
+  (result) => [
+    uniqueIndex("content_page_check_results_place_idx").on(
+      result.checkId,
+      result.placeKey,
+    ),
+    index("content_page_check_results_document_idx").on(result.documentId),
+  ],
+);
+
+export const contentPageCheckSkips = table(
+  "content_page_check_skips",
+  {
+    checkId: text("check_id").notNull(),
+    documentId: text("document_id").notNull(),
+    placeKey: text("place_key").notNull(),
+    textHash: text("text_hash").notNull(),
+    skippedBy: text("skipped_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (skip) => [
+    uniqueIndex("content_page_check_skips_place_idx").on(
+      skip.checkId,
+      skip.placeKey,
+    ),
+    index("content_page_check_skips_document_idx").on(skip.documentId),
+  ],
+);
+
+export const contentPageCheckUsage = table(
+  "content_page_check_usage",
+  {
+    documentId: text("document_id").notNull(),
+    day: text("day").notNull(),
+    questions: integer("questions").notNull().default(0),
+  },
+  (usage) => [
+    uniqueIndex("content_page_check_usage_day_idx").on(
+      usage.documentId,
+      usage.day,
+    ),
   ],
 );
 

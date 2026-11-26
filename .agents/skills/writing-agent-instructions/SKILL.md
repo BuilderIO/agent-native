@@ -52,11 +52,9 @@ Two consequences worth designing around:
 - **Put the skills list second, right after the purpose line.** It is the
   pointer to every deferred skill. If it lands in the truncated tail, the agent
   cannot discover any of the depth you carefully moved out.
-- **Markdown tables cost more than they look.** Prettier pads table cells to
-  align columns, and that invisible whitespace counts against the cap — enough
-  padding in a wide action table to push a file back over it on its own. Both
-  `**/AGENTS.md` and `**/SKILL.md` are in `.prettierignore` for this reason;
-  keep them there and write table rows unpadded.
+- **Markdown tables cost more than they look.** Wide aligned tables add
+  padding whitespace that counts against the byte/word cap — write concise
+  tables and verify with `pnpm fmt:check` (`oxfmt`) and `pnpm guard:doc-budgets`.
 
 ```markdown
 # Projects App
@@ -179,6 +177,16 @@ Deferred tools are loaded through `tool-search`, so the model always reads the
 description before it can call the tool — a start/update/complete sequence or an
 argument enum in the prompt buys nothing and is charged on every turn. State
 that the capability exists and when it applies; let the description carry how.
+
+## New required steps are guidance until measured
+
+A step, gate, or hold added to a workflow costs every run that follows it, and
+a pile of individually reasonable ones is how workflows get slow. Default to
+guidance or a non-blocking mechanism (a script that reports, grouping work
+before it is handed out, review by sampling). A step that must block needs a
+named number it should move, a measured trial first, and a time limit with an
+owner. Run `node scripts/agent-friction-report.mjs --weeks 2` before adding one
+(see `CLAUDE.md`, Checks).
 
 ## Prefer judgment over rules, and interfaces over examples
 

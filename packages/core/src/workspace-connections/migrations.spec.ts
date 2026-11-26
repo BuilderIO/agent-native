@@ -152,7 +152,7 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
   });
 
   it("installs the normalized-name trigger before older writers can bypass it", async () => {
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       for (const migration of WORKSPACE_CONNECTIONS_MIGRATIONS) {
         if (migration.version > 10) break;
@@ -213,7 +213,7 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
   }, 30_000);
 
   it("repairs normalized keys left by pre-trigger release migrations", async () => {
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     const exec = pgliteExec(pglite);
     try {
       for (const migration of WORKSPACE_CONNECTIONS_MIGRATIONS) {
@@ -286,7 +286,7 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
           "SELECT MAX(version) AS version FROM workspace_group_runner_migrations",
         )
         .get();
-      expect(version?.version).toBe(14);
+      expect(version?.version).toBe(15);
     } finally {
       vi.clearAllMocks();
       await pglite.close();

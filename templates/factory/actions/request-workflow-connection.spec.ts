@@ -147,6 +147,31 @@ describe("request-workflow-connection", () => {
     expect(resolveWorkspaceConnectionMock).not.toHaveBeenCalled();
   });
 
+  it("says Content is checked for the signed-in person, and that a workflow someone else owns needs its owner's connection", async () => {
+    report("content", "connected", "settings");
+    expect(await run({ provider: "content" }, kit.agentContext)).toMatchObject({
+      connected: true,
+      message: expect.stringContaining("only the owner can connect it"),
+    });
+
+    readProviderConnectionsMock.mockResolvedValue([
+      {
+        provider: "content",
+        status: "not connected",
+        connectWith: "settings",
+        detail: "Connect it for yourself: connect Content.",
+      },
+    ]);
+    const missing = await run({ provider: "content" }, kit.agentContext);
+    expect(missing).toMatchObject({
+      connected: false,
+      connectWith: "settings",
+    });
+    expect((missing as { message: string }).message).toContain(
+      "Connect it for yourself: connect Content. A saved workflow's Content steps write as its owner",
+    );
+  });
+
   it("says a connected provider is connected, and fails loudly for one it cannot check or does not know", async () => {
     report("slack", "connected");
     expect(await run({ provider: "slack" }, kit.agentContext)).toMatchObject({

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import type { DashboardFilter } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
@@ -13,7 +14,6 @@ import {
   DashboardFilterBar,
   type DashboardSavedView,
 } from "./DashboardFilterBar";
-import type { DashboardFilter } from "./types";
 
 // The v3 BigQuery dashboard's filters, plus a multi-select.
 const filters: DashboardFilter[] = [

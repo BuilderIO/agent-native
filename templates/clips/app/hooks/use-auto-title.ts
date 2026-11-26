@@ -5,6 +5,7 @@ import {
   type BackgroundAgentSessionSnapshot,
   type BackgroundAgentSessionStartOptions,
 } from "@agent-native/core/client/agent-chat";
+import { normalizeChatError } from "@agent-native/core/client/chat-errors";
 import {
   bumpChangeVersion,
   callAction,
@@ -548,6 +549,14 @@ async function persistAiRequestStatus(
   status: "working" | BackgroundAiRequestStatus,
   snapshot?: BackgroundAgentSessionSnapshot,
 ): Promise<boolean> {
+  const reason = snapshot?.terminalReason;
+  const message =
+    snapshot?.status === "errored" && reason === "missing_api_key"
+      ? normalizeChatError(reason, reason).message
+      : snapshot?.status === "errored" &&
+          reason === "error:email_verification_required"
+        ? normalizeChatError(reason, "email_verification_required").message
+        : reason;
   try {
     await callAction(
       "update-ai-request-status" as any,
@@ -560,9 +569,7 @@ async function persistAiRequestStatus(
         ...(session.turnId ? { turnId: session.turnId } : {}),
         ...(snapshot?.runId ? { runId: snapshot.runId } : {}),
         status,
-        ...(snapshot?.terminalReason
-          ? { message: snapshot.terminalReason.slice(0, 500) }
-          : {}),
+        ...(message ? { message: message.slice(0, 500) } : {}),
       } as any,
     );
     return true;

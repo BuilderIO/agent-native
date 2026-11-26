@@ -140,7 +140,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
         "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
         "agentChat.recovery.resendVerificationEmail":
-          "Resend verification email",
+          englishMessages["recovery.resendVerificationEmail"],
+        "agentChat.errorMessages.emailVerificationRequired":
+          englishMessages["errorMessages.emailVerificationRequired"],
         "agentChat.recovery.sendingVerificationEmail": "Sending...",
         "agentChat.recovery.verificationEmailRequested":
           "Verification email requested. Check your inbox and spam folder.",
@@ -226,6 +228,7 @@ vi.mock("../../settings/useBuilderStatus.js", () => ({
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 
+import englishMessages from "../../i18n/catalogs/en-US.js";
 import {
   BuilderSetupCard,
   BuilderSetupContent,
@@ -388,6 +391,94 @@ describe("run recovery surfaces", () => {
     ).toBeNull();
   });
 
+  it("offers only a retry for credit limits where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    const onRetry = vi.fn();
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-daily",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "The agent run failed before it finished.",
+    );
+    expect(container.textContent).not.toMatch(/credit|invite/i);
+    expect(container.querySelector("a")).toBeNull();
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    await act(async () => retry!.click());
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the server-chosen visitor message for email verification errors", async () => {
+    await act(async () => {
+      root.render(
+        <RunErrorRecoveryCard
+          info={{
+            message: "AI features aren't available on this site right now.",
+            errorCode: "email_verification_required",
+          }}
+          onRetry={vi.fn()}
+          onDismiss={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "The agent run failed before it finished.",
+    );
+    expect(container.querySelector("p")?.textContent).toBe(
+      "AI features aren't available on this site right now.",
+    );
+    expect(container.textContent).not.toContain(
+      "Verify an eligible email address with the connected AI provider account or space, then retry.",
+    );
+  });
+
+  it("shows provider verification guidance without app-account resend for a verified account", async () => {
+    await act(async () => {
+      root.render(
+        <RunErrorRecoveryCard
+          info={{
+            message:
+              "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+            errorCode: "email_verification_required",
+          }}
+          verificationEmail={null}
+          onRetry={vi.fn()}
+          onDismiss={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Verify an eligible email address with the connected AI provider account or space, then retry.",
+    );
+    expect(container.textContent).not.toContain(
+      "Resend app account verification email",
+    );
+    expect(resendVerificationEmailMock).not.toHaveBeenCalled();
+  });
+
   it("resends a verification email and confirms the request", async () => {
     window.history.replaceState(
       null,
@@ -403,7 +494,8 @@ describe("run recovery surfaces", () => {
         >
           <RunErrorRecoveryCard
             info={{
-              message: "Verify your email before continuing.",
+              message:
+                "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
               errorCode: "email_verification_required",
             }}
             verificationEmail="person@example.com"
@@ -414,8 +506,12 @@ describe("run recovery surfaces", () => {
       );
     });
 
+    expect(container.textContent).toContain(
+      "Verify an eligible email address with the connected AI provider account or space, then retry.",
+    );
     const resendButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Resend verification email"),
+      (button) =>
+        button.textContent.includes("Resend app account verification email"),
     );
     expect(resendButton).toBeTruthy();
 
@@ -428,7 +524,7 @@ describe("run recovery surfaces", () => {
       "person@example.com",
       `${window.location.origin}/design/thread`,
     );
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(container.querySelector('p[role="status"]')?.textContent).toContain(
       "Check your inbox and spam folder.",
     );
     expect(resendButton?.disabled).toBe(true);
@@ -445,7 +541,8 @@ describe("run recovery surfaces", () => {
         >
           <RunErrorRecoveryCard
             info={{
-              message: "Verify your email before continuing.",
+              message:
+                "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
               errorCode: "email_verification_required",
             }}
             verificationEmail="person@example.com"
@@ -459,7 +556,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       Array.from(container.querySelectorAll("button"))
         .find((button) =>
-          button.textContent?.includes("Resend verification email"),
+          button.textContent.includes("Resend app account verification email"),
         )
         ?.click();
       await Promise.resolve();
@@ -660,6 +757,46 @@ describe("run recovery surfaces", () => {
     expect(copied).toContain("Details:\nattempted_runs: run-1");
     expect(copied).not.toContain("secret");
     window.history.replaceState(null, "", "/");
+  });
+
+  it("starts a new chat from the failure link and shows the error once", async () => {
+    const onDismiss = vi.fn();
+    const newChat = vi.fn();
+    window.addEventListener("agent-chat:new-chat", newChat, { once: true });
+    try {
+      await act(async () => {
+        root.render(
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "Error: Gateway unavailable.\n\n[Start new chat](agent-native:new-chat)",
+              details: "Gateway unavailable.",
+              errorCode: "builder_gateway_error",
+              runId: "run-failed",
+            }}
+            onRetry={vi.fn()}
+            onDismiss={onDismiss}
+          />,
+        );
+      });
+      const link = container.querySelector<HTMLAnchorElement>(
+        'a[href="agent-native:new-chat"]',
+      );
+      expect(link?.textContent).toBe("Start new chat");
+      expect(container.textContent).not.toContain("[Start new chat]");
+      const details = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Details",
+      );
+      await act(async () => details?.click());
+      expect(
+        container.textContent.match(/Gateway unavailable\./g),
+      ).toHaveLength(1);
+      await act(async () => link?.click());
+      expect(newChat).toHaveBeenCalledOnce();
+      expect(onDismiss).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("agent-chat:new-chat", newChat);
+    }
   });
 
   it("keeps recovery actions compact in a narrow chat panel", async () => {

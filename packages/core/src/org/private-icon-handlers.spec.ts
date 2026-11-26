@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mocks.execute }),
 }));
 vi.mock("../server/auth.js", () => ({ getSession: mocks.getSession }));

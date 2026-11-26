@@ -437,6 +437,8 @@ Points de terminaison REST montés automatiquement :
 | `DELETE` | `/_agent-native/resources/:id`                | Supprimer une ressource                           |
 | `POST`   | `/_agent-native/resources/upload`             | Télécharger un fichier en tant que ressource      |
 
+Une ressource lue avec `GET /_agent-native/resources/:id` est accompagnée d'une `revision`. Renvoyez-la comme `expectedRevision` avec le nouveau `content` lors d'un `PUT` ; si quelqu'un a enregistré un autre contenu après votre lecture, rien n'est écrit : la réponse est un 409 avec `errorCode: "save_conflict"`, le contenu actuel dans `details.current.content` et sa révision dans `details.currentRevision`. Un `PUT` sans `expectedRevision` écrase toujours ce qui est enregistré. Un enregistrement vérifié ne peut pas aussi renommer la ressource : envoyez d'abord le nouveau `path` dans son propre `PUT`. `<ResourceEditor saveContent>` s'en charge pour vous : si quelqu'un d'autre a enregistré un autre contenu pendant une modification, il demande quelle version garder, puis propose de récupérer l'autre.
+
 ### Action API {#script-api}
 
 L'agent utilise ces actions intégrés. Vous pouvez également les appeler depuis votre propre actions :
@@ -457,9 +459,14 @@ pnpm action resource-effective --path "context/brand.md"
 # Écrire une ressource
 pnpm action resource-write --path "notes/meeting.md" --content "# Notes de réunion..."
 
+# Remplacer une ressource seulement si personne ne l'a enregistrée depuis votre lecture
+pnpm action resource-write --path "notes/meeting.md" --content "# Notes de réunion..." --expected-revision "rev_…"
+
 # Supprimer une ressource
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+Les lectures de ressources de l'agent commencent par une ligne `[revision …, scope …]`, et ses deux outils d'écriture acceptent cette révision comme `expectedRevision` (`--expected-revision` en ligne de commande). Si quelqu'un a enregistré le fichier après la lecture, rien n'est écrit : l'écriture échoue avec `errorCode: "save_conflict"` et la révision actuelle, et l'agent relit donc le fichier et refait sa modification. Une écriture sans révision remplace toujours ce qui s'y trouve.
 
 ## Et ensuite ? {#whats-next}
 

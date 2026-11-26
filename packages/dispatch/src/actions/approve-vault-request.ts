@@ -4,6 +4,7 @@ import { z } from "zod";
 import { approveRequest, requireVaultCtx } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Approve a pending vault secret request. Creates the secret (if it doesn't exist) and grants it to the requesting app. Admin only.",
   schema: z.object({

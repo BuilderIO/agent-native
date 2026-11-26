@@ -6,8 +6,11 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
@@ -49,12 +52,14 @@ import {
   persistBlocksFieldIdentity,
   readBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { assertBlocksFieldNotFrozen } from "./_column-rules.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
   withContentDatabaseMutationLock,
 } from "./_content-database-mutation-lock.js";
 import {
+  assertReceiptKeyOpen,
   assertSchema,
   databaseMutationTargetSchema,
   digest,
@@ -402,6 +407,13 @@ export async function listDatabaseBlocks(
     schemaRevision: loaded.context.schemaRevision,
     rowRevision: loaded.row.revision,
     fieldRevision: loaded.identity.revision,
+    baseRevision:
+      loaded.storageTarget === "document_body"
+        ? documentRevisionToken(
+            loaded.row.document.bodyRevision,
+            loaded.markdown,
+          )
+        : null,
     identityStatus: loaded.identity.identityStatus,
     total: blocks.length,
     order: blocks.map((block) => block.id),
@@ -536,6 +548,11 @@ async function writeMarkdown(
       after: markdown,
       userEmail: documentAttributionActor(),
     });
+    await syncAnalyticsChartCitations(db, {
+      documentId: target.rowDocumentId,
+      before: loaded.markdown,
+      after: markdown,
+    });
     return;
   }
   await compareAndSwapAdditionalBlocksField({
@@ -597,6 +614,11 @@ export async function compareAndSwapAdditionalBlocksField(args: {
       { propertyId: args.propertyId },
     );
   }
+  await syncPrivateMediaReferences(args.db, {
+    documentId: args.documentId,
+    after: args.content,
+    userEmail: documentAttributionActor(),
+  });
 }
 
 async function readExistingReceipt(
@@ -618,6 +640,7 @@ async function readExistingReceipt(
       ),
     );
   if (!stored) return null;
+  assertReceiptKeyOpen(stored, idempotencyKey);
   if (stored.payloadDigest !== expectedDigest) {
     contractError(
       "IDEMPOTENCY_KEY_REUSED",
@@ -955,6 +978,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
     );
     insertedBlockId = resolved.insertedBlockId;
     assertNoNewlySharedVideoIds(loaded.markdown, changed.markdown);
+    assertInteractiveHtmlBlocks(ctx, loaded.markdown, changed.markdown);
     await editContentLiveCopy(input.target.rowDocumentId, {
       cause: {
         ctx,
@@ -1113,11 +1137,18 @@ export async function mutateDatabaseBlock(
         // After both replays, so a write that landed before the lock keeps its
         // receipt, and on this fresh read, because the queue can be a long wait.
         assertAgentsMayEditPageText(loaded.row.document, ctx);
+        // Under the page's row lock, which a change to the rule's column takes too.
+        await assertBlocksFieldNotFrozen(tx, {
+          databaseId: input.target.databaseId,
+          documentId: input.target.rowDocumentId,
+          propertyId: input.target.propertyId,
+        });
         const { resolved, changed } = await prepareBlockMutation(
           tx,
           loaded,
           input,
         );
+        assertInteractiveHtmlBlocks(ctx, loaded.markdown, changed.markdown);
         const now = new Date().toISOString();
         let postIdentity = loaded.identity;
         if (changed.changed) {

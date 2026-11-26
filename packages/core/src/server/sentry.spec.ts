@@ -188,6 +188,81 @@ describe("server/sentry", () => {
     });
   });
 
+  describe("secrets in an event", () => {
+    async function init() {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+      return sentryMock.init.mock.calls[0][0];
+    }
+
+    it("redacts values by key name, in text, and in the request, and drops secret headers", async () => {
+      const { beforeSend } = await init();
+
+      const result = beforeSend({
+        extra: {
+          apiKey: "CANARYEXTRAKEY",
+          note: 'upstream said {"token":"CANARYNOTE"} for ?key=CANARYQUERYKEY',
+          attempt: 2,
+        },
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "failed at https://x.example.com/?code=CANARYEXCCODE",
+            },
+          ],
+        },
+        request: {
+          url: "https://app.example.com/cb?code=CANARYURLCODE&p-key=CANARYPKEY&utm_source=docs",
+          query_string: "code=CANARYQSCODE&state=CANARYQSSTATE&utm_source=docs",
+          headers: {
+            "user-agent": "test-agent",
+            "x-telegram-bot-api-secret-token": "CANARYTELEGRAM",
+            "x-webhook-secret": "CANARYWEBHOOK",
+            "x-hub-signature-256": "CANARYSIGNATURE",
+            "x-agent-native-device-token": "CANARYDEVICE",
+          },
+        },
+      } as never) as {
+        extra: { apiKey: string; attempt: number };
+        request: {
+          url: string;
+          query_string: string;
+          headers: Record<string, string>;
+        };
+      };
+
+      expect(JSON.stringify(result)).not.toMatch(/CANARY/);
+      expect(result.extra).toMatchObject({ apiKey: "<redacted>", attempt: 2 });
+      expect(result.request.headers).toEqual({ "user-agent": "test-agent" });
+      expect(result.request.url).toContain("utm_source=docs");
+      expect(result.request.query_string).toContain("utm_source=docs");
+    });
+
+    it("scrubs a span's URL and a transaction's request", async () => {
+      const { beforeSendSpan, beforeSendTransaction } = await init();
+
+      const span = beforeSendSpan({
+        description:
+          "GET https://oauth2.googleapis.com/tokeninfo?access_token=CANARYSPAN",
+        data: {
+          "url.full":
+            "https://oauth2.googleapis.com/tokeninfo?access_token=CANARYSPAN",
+          "http.query": "?access_token=CANARYSPAN",
+          "http.response.status_code": 200,
+        },
+      });
+      const transaction = beforeSendTransaction({
+        type: "transaction",
+        request: { url: "https://app.example.com/cb?code=CANARYTX" },
+      } as never);
+
+      expect(JSON.stringify([span, transaction])).not.toMatch(/CANARY/);
+      expect(span.data["http.response.status_code"]).toBe(200);
+    });
+  });
+
   describe("beforeSend", () => {
     it("redacts SQL parameters from Sentry message fields", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";

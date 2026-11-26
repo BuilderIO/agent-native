@@ -22,7 +22,7 @@ Use the shared review actions for design feedback:
    only as a visual fallback when the node cannot be resolved.
 4. Read the affected file with `get-design-snapshot`, make the smallest
    persisted edit with `edit-design` or the appropriate design action, then
-   verify the saved result with `get-design-snapshot` and a screenshot or audit
+   verify the saved result with `get-design-snapshot` and a screenshot
    when the change is visual.
 5. Resolve the thread with `resolve-review-thread` only after the edit is
    persisted and verified, and pass `resolutionNote` with a one-line description

@@ -9,8 +9,10 @@ import {
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { assertVisualEditCapabilityDesign } from "../server/lib/visual-edit-capability.js";
 import {
   isSafeCssTokenValue,
+  readTweakSelectionsRevision,
   tweakSelectionsHash,
 } from "../shared/resolve-tweaks.js";
 import { TWEAK_SELECTIONS_CONFLICT_ERROR_CODE } from "../shared/save-conflict.js";
@@ -41,7 +43,9 @@ export default defineAction({
     "radius, dark-mode, etc.) for a design. Merges the selections into " +
     "designs.data.tweakSelections so the tuned design survives reload and " +
     "is what get-design-snapshot / export-coding-handoff hand off. Other " +
-    "design data keys (tweaks, lastPrompt, ...) are left intact.",
+    "design data keys (tweaks, lastPrompt, ...) are left intact. Read the " +
+    "definitions (with their element `scope`) and current values with " +
+    "get-design-snapshot.",
   schema: z.object({
     designId: z.string().describe("Design project ID to apply tweaks to"),
     selections: z
@@ -69,8 +73,21 @@ export default defineAction({
       .describe(
         "Optimistic-concurrency hash of the persisted tweak selection map this full snapshot was based on.",
       ),
+    inFlightSelectionsHash: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe(
+        "Second accepted base: the persisted selections hash once the caller's own earlier apply-tweaks call, still in flight, lands.",
+      ),
   }),
-  run: async ({ designId, selections, expectedSelectionsHash }, context) => {
+  capabilityScopes: ["visual-edit"],
+  run: async (
+    { designId, selections, expectedSelectionsHash, inFlightSelectionsHash },
+    context,
+  ) => {
+    assertVisualEditCapabilityDesign(designId);
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
@@ -90,9 +107,18 @@ export default defineAction({
       mutate: (prevData, { updatedAt }) => {
         const persistedSelections = readSelections(prevData);
         const alreadyApplied = selectionsAreApplied(persistedSelections);
+        const selectionsRevision = readTweakSelectionsRevision(prevData);
+        if (selectionsRevision === null) {
+          throw new TweakSelectionsConflictError();
+        }
+        const persistedHash = tweakSelectionsHash(
+          persistedSelections,
+          selectionsRevision,
+        );
         if (
           expectedSelectionsHash !== undefined &&
-          tweakSelectionsHash(persistedSelections) !== expectedSelectionsHash &&
+          persistedHash !== expectedSelectionsHash &&
+          persistedHash !== inFlightSelectionsHash &&
           !alreadyApplied
         ) {
           throw new TweakSelectionsConflictError();
@@ -110,11 +136,20 @@ export default defineAction({
       },
     });
 
+    const selectionsRevision = readTweakSelectionsRevision(persistedData);
+    if (selectionsRevision === null) {
+      throw new TweakSelectionsConflictError();
+    }
+
     return {
       designId,
       applied: Object.keys(selections).length > 0,
       appliedTweaks: readSelections(persistedData),
-      selectionsHash: tweakSelectionsHash(readSelections(persistedData)),
+      selectionsHash: tweakSelectionsHash(
+        readSelections(persistedData),
+        selectionsRevision,
+      ),
+      selectionsRevision,
       deepLink: designDeepLink(designId),
     };
   },

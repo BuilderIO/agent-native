@@ -33,10 +33,10 @@ indigo→violet gradient, a centered hero, three rounded icon cards. Design beat
 this by splitting those jobs across the tools — use them in order, don't collapse
 them:
 
-1. **Direction** — `show-design-questions` (or a stated thesis) sets taste on purpose.
+1. **Direction** — state a clear visual thesis and key assumptions with sensible defaults (only use `show-design-questions` when intake questions are explicitly enabled and the tool is available).
 2. **Exploration** — `present-design-variants` compares genuinely different directions
    before committing to one. **This step kills sameness; never skip it for open-ended work.**
-3. **Spec** — a linked design system and the `:root` token block capture the chosen look as reusable rules.
+3. **Spec** — the `:root` token block capture the chosen look as reusable rules.
 4. **Code** — `generate-design` / `edit-design` execute a decision already made instead of guessing.
 
 Jumping straight to code is how you get slop. Let the phases (below) do the work.
@@ -50,7 +50,7 @@ them as "the agent ignored everything I gave it".
 Before Phase 1, check for **specification signals**:
 
 - an attached screenshot, mockup, or photo of a UI,
-- a linked design system / Brand Kit,
+- a supplied `design.md`, token file, or brand guide,
 - a written outline naming concrete screens, sections, components, or copy,
 - a named existing product/page to match, or pasted markup or tokens.
 
@@ -69,9 +69,9 @@ Before Phase 1, check for **specification signals**:
   *within* it, and say what you changed and why.
 
 Mixed input is normal: reproduce what was given, use the quality bar only for
-the parts genuinely left open. When a supplied reference and the linked design
-system disagree, follow the design system for tokens (color, type, spacing,
-radius) and the reference for layout and composition, then say you did.
+the parts genuinely left open. When a supplied reference and the supplied
+tokens disagree, follow the tokens for color, type, spacing, and radius and the
+reference for layout and composition, then say you did.
 
 ### A reference screenshot is a specification, not a mood board
 
@@ -91,8 +91,7 @@ say so and ask for a re-attach — never quietly design from the text alone.
 ## Authority and direction record
 
 Before generating, make a compact direction record: the job this surface must
-do, its audience, one-sentence visual thesis, the active design-system id or
-token source, approved references, and any unresolved choice that could change
+do, its audience, one-sentence visual thesis, the token source, approved references, and any unresolved choice that could change
 the result. This keeps a strong point of view without asking the model to fill
 in the user's intent silently.
 
@@ -100,17 +99,16 @@ Resolve visual authority in this order:
 
 1. The current-turn product, audience, content, accessibility, and explicit
    brand constraints.
-2. The active Agent-Native design system and its registered tokens, components,
-   type, imagery rules, and custom instructions.
-3. Approved Creative Context assets, components, and examples.
-4. Impeccable-inspired quality heuristics for hierarchy, subtraction,
+2. The design's own `:root` tokens and any supplied brand guide: colors, type,
+   imagery rules, and custom instructions.
+3. Impeccable-inspired quality heuristics for hierarchy, subtraction,
    composition, contrast, motion, and bounded review.
-5. Generic defaults only when the sources above are absent.
+4. Generic defaults only when the sources above are absent.
 
-The active design system is a contract, not a mood board. Do not swap its
-palette, fonts, component grammar, or imagery policy because a generic
-anti-pattern list prefers something else. A user can explicitly request a
-replacement or detachment; do not infer that request from a vague adjective.
+Supplied tokens are a contract, not a mood board. Do not swap their palette,
+fonts, component grammar, or imagery policy because a generic anti-pattern list
+prefers something else. A user can explicitly request a replacement; do not
+infer that request from a vague adjective.
 References can guide composition and narrative, but they do not silently
 transfer their tokens or brand identity.
 
@@ -123,10 +121,10 @@ change the design. Never smooth an evidence gap into confident copy.
 ## Aesthetic quality bar — beat distributional convergence
 
 The rules in this section are fallback quality heuristics for prompts that
-leave the look open. They do not override an active Agent-Native design system,
+leave the look open. They do not override supplied tokens,
 a supplied reference, or an explicit brand constraint. **A banned item stops
-being banned the moment the user's own material specifies it** — if their Brand
-Kit's body font is Inter, the design ships Inter; if their screenshot is a
+being banned the moment the user's own material specifies it** — if their brand
+guide's body font is Inter, the design ships Inter; if their screenshot is a
 centered hero with three icon cards, the design ships that. Substituting a
 "better" choice for a specified one is the single most-reported failure of this
 app. When you follow a specified value that appears on a "don't" list below,
@@ -135,7 +133,7 @@ just follow it — no apology, no note, no compensating flourish elsewhere.
 You sample toward the "on-distribution" center by default; refuse it. **Every
 "don't" here carries a "do"** — a banned default plus where to go instead —
 because banning Inter alone just makes you reach for Roboto next. Use a banned
-item only if the user explicitly asks, or their design system or reference
+item only if the user explicitly asks, or their tokens or reference
 already uses it.
 
 - **Fonts.** Don't: Inter, Roboto, Arial, Open Sans, system-ui. Do: a distinctive
@@ -264,13 +262,13 @@ status states, alerts, or form validation to express. Keep font tokens as
 placeholders you fill per design (see HTML Structure Requirements) rather than
 hardcoding a concrete family in a shared template.
 
-## Building on existing code, screens, or a design system
+## Building on existing code, screens, or tokens
 
-When a design system, tokens, current screens, or a connected codebase already
+When tokens, current screens, or a connected codebase already
 exist, the slop risk flips: the failure is ignoring the brand and reverting to
 defaults. The banned-defaults list above still applies, plus:
 
-- **Inspect before inventing.** Read the linked design system, the current
+- **Inspect before inventing.** Read the current
   `:root` tokens, and existing screens (or the connected localhost/repo) first.
   Derive the type scale, palette, radius, density, and component language from
   what is actually there — don't restate a generic direction.
@@ -293,25 +291,9 @@ defaults. The banned-defaults list above still applies, plus:
 
 ## Generation Workflow — the canonical 5-phase flow
 
-This flow mirrors Claude Design's UX: clarify only what's unclear → show variants → user picks → refine. Don't collapse phases into one shot for new, open-ended designs.
+For a new design request, generate the first coherent design directly with sensible defaults and briefly state any important assumptions instead of stopping at an intake-question form. When intake questions are explicitly enabled and `show-design-questions` is available, clarify only what's unclear before generating.
 
-### Creative-context gate
-
-Before Phase 1, read the `creative-context` skill and retrieve components,
-interaction examples, visual style, and factual evidence as separate roles.
-Respect `contextMode: "off"` and pinned packs. Apply its reuse ladder exactly:
-use an approved native component/template/asset unchanged, compose approved
-pieces, lightly adapt a real example, generate from narrowly retrieved
-references, then generate net-new only when the relevant corpus is empty.
-Retrieval is a separate operation from `generate-screens`, `generate-design`,
-or `present-design-variants`.
-
-Keep the selected immutable `contextPackId` and reuse labels on the generation
-session and every resulting screen/variant. Rendered HTML and screenshots are
-not provenance. App-local design systems and components remain the fallback
-when shared retrieval finds no relevant evidence.
-
-### Phase 1 — Create the project + ask before generating
+### Phase 1 — Create the project + set direction
 
 ```bash
 pnpm action create-design --title "Project Name" --projectType prototype
@@ -323,10 +305,13 @@ application state. External MCP hosts should surface the `create-design`
 returned "Open design" link, then use `present-design-variants` to open the
 visual picker.
 
-Then, for a brief or ambiguous first prompt to a **new** design, call
-`show-design-questions` BEFORE generating. The editor renders a full-canvas
-overlay; answers come back as a chat message. Size the question count to how
-much is actually unresolved — most prompts warrant 2-4 questions, not the full
+By default, skip intake questions and move straight into generating the first
+coherent design with sensible defaults, briefly stating any important
+assumptions. Only call `show-design-questions` BEFORE generating when intake
+questions are explicitly enabled for the deployment and `show-design-questions`
+is available on a brief or ambiguous first prompt to a **new** design. The
+editor renders a full-canvas overlay; answers come back as a chat message. Size
+the question count to how much is actually unresolved — most prompts warrant 2-4 questions, not the full
 1-8 range — and never ask about something the prompt already specified (a
 stated color, audience, or layout is settled; don't re-ask it as a choice).
 
@@ -341,13 +326,9 @@ Skip the questions entirely when:
   design; or
 - the user says "decide for me," "surprise me," "just build it," or similar.
 
-The turn that opens `show-design-questions` already checked Creative Context
-and any published Brand DNA before this skill loads, and the directives it
-built name exactly which topics (form factor, aesthetic direction,
-features/content, interactions/polish, exploring variations) are already
-answered. Never re-ask a topic those directives list as covered, and never
-skip a topic they don't — a single unrelated context member (a doc, a spec)
-must not suppress a question it has no bearing on.
+Only ask about topics (form factor, aesthetic direction, features/content,
+interactions/polish, exploring variations) the prompt leaves open. Never
+re-ask a topic the prompt or an earlier answer already settled.
 
 Asking on every prompt is as much a failure mode as never asking: a detailed
 prompt that already answers the obvious questions should generate
@@ -380,7 +361,7 @@ The WIDEST requested device is the base/primary frame; narrower devices become b
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
 Skip this phase entirely in reproduce mode (see "First decide the mode" above) —
-a screenshot, a written outline, or a linked design system means the direction
+a screenshot, a written outline, or supplied tokens means the direction
 is already chosen, and offering three alternatives to it is the behavior users
 report as "the agent ignored my design".
 
@@ -404,9 +385,9 @@ screen name.
 }
 ```
 
-Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
+Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When the design has supplied tokens, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement. Label the directions with concrete names ("Editorial split", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames whatever `fixedCanvas` says. Omit `content` only for open-ended app exploration: a fixed canvas, attached reference image, layout spec, or linked design system rejects direction-only variants. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames whatever `fixedCanvas` says. Omit `content` only for open-ended app exploration: a fixed canvas, attached reference image, layout spec, or supplied tokens reject direction-only variants. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -501,7 +482,7 @@ relative size when the asset is displayed at its intended dimensions.
 For ads, social graphics, flyers, posters, and banners, size and space type for
 the fixed canvas and where the asset will appear. The web prototype type scale
 and page section rhythm above are not defaults for artwork. If the user supplies
-a `design.md` or Brand Kit, use its typography, spacing, color, and voice as the
+a `design.md` or brand guide, use its typography, spacing, color, and voice as the
 source of truth and ground the output in those tokens.
 
 Use the canvas's shorter edge as a starting measure: on feed graphics and
@@ -527,27 +508,9 @@ every line.
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs. When a user asks to add a tweak control to an existing design, preserve the existing useful tweaks and add/update only the requested definitions — read the current file with `get-design-snapshot` first if source edits are needed, and persist the complete updated tweak list through `generate-design`.
 
-### Phase 5 — Audit, screenshot, fix, and eyeball before calling it ready
+### Phase 5 — Screenshot, fix, and eyeball before calling it ready
 
-Run `run-design-audit` against each screen (`designId` + `fileId`/`filename`).
-It returns `A11yFinding[]` covering missing alt/labels, tap-target size,
-focus-visibility, reduced-motion coverage, a contrast hint, and — for
-multi-screen designs — token drift against `index.html`'s `:root` block. For
-every `error`-severity finding with `fixAvailable: true`, call
-`apply-a11y-fix`; for findings that aren't auto-fixable (missing alt text,
-structural issues, token drift), fix them directly with `edit-design`. **A
-design with audit errors is not ready** — don't report a design as done while
-`run-design-audit` still returns unresolved errors.
-
-A `design-system-drift` finding means the screen uses none of the linked
-system's fonts, colors, or token names. That is a generation bug, not a style
-disagreement: the user linked that system precisely so the output would use it.
-Call `get-design-system` for the linked id, apply the real values through
-`edit-design`, and re-audit — never resolve it by explaining the deviation or
-by unlinking the system. It is the one check that can catch a design that
-looks fine and is still not the user's.
-
-After the audit is clean, call `take-design-screenshot` on each changed screen
+Call `take-design-screenshot` on each changed screen
 (default: 1280px desktop + 375px mobile). For an exact-size screen, capture
 only its specified viewport by passing `widths: [width]` and
 `heights: [height]`. Fix everything its `diagnostics`
@@ -556,14 +519,11 @@ broken images, zero-size or off-screen text, console errors — before reporting
 the design as ready; this is the same "visually inspect the result" pass, done
 against the real rendered DOM/CSS instead of by eye. If Chromium isn't
 available in the current environment, it returns `{ ok: false, reason }`
-instead — fall back to a careful read of the HTML plus the audit findings. The
+instead — fall back to a careful read of the HTML. The
 returned screenshot `url` is for human review (embed it as `![...](url)` in
 your reply); also still scan the rendered output yourself for anything the
 diagnostics don't catch — broken hierarchy, empty/loading/error states for app
-UI, and whether the copy/content still sounds real. To compare two design
-snapshots/branches for a file-level visual diff (added/removed/modified) —
-e.g. after a large refactor or before/after a review pass — call
-`get-design-review` instead of eyeballing both versions.
+UI, and whether the copy/content still sounds real.
 
 For fixed promotional artwork, inspect the exact-size screenshot at 1:1 and at
 the intended display scale (for example, as a feed thumbnail). Confirm the main
@@ -979,9 +939,7 @@ regeneration is slow, expensive, and regresses unrelated parts.
 
 For selecting/editing DOM elements as code layers (layer projection, the
 deterministic `apply-visual-edit` slice, and the semantic React/TSX handoff),
-read `references/code-layers.md`. For the VS Code-style source workbench
-(explorer, quick open, `list-source-files`/`apply-source-edit`), read
-`references/code-workspace.md`.
+read `references/code-layers.md`.
 
 ## Tailwind v4 + motion gotchas
 
@@ -1029,7 +987,7 @@ When a design has more than one screen, the shared system must be
 byte-identical across every screen file, not just similar: the `:root` token
 block, the Google Fonts `<link>`, the nav, and the footer should match exactly
 between `index.html` and every other screen. Before saving a new or edited
-screen, diff its `:root` block against `index.html`'s (or the design system's
+screen, diff its `:root` block against `index.html`'s (or the supplied
 tokens) and reconcile any drift instead of letting each screen accumulate its
 own slightly-different palette. Consistency is not sameness — keep structure
 and layout varied per screen (see "Building on existing code" above) while the
@@ -1121,69 +1079,7 @@ more than that reads as sluggish, not polished). Ease functions: `ease-out`
 for elements entering, `ease-in` for elements leaving. Animate only
 `transform` and `opacity` for performance; avoid animating `width`/`height`/
 `top`/`left`. Every non-essential animation must respect
-`prefers-reduced-motion` (see the mandatory `<style>` block below). For
-motion edits, keep a versioned keyframe timeline as the editable source
-model, then compile it back into the design code. Inspect the selected screen
-with `get-motion-timeline` before writing. Inline HTML/Alpine uses its `fileId`
-as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
-`sourceRef` plus the live module path, connection id, and version hash in
-`localSource`. Write through `apply-motion-edit` so edits stay parseable and
-round-trip between timeline and CSS/JSX. The inline output is standard CSS
-`@keyframes`; the React adapter updates verified JSX/source spans and emits the
-same managed CSS contract.
-
-Inline HTML `<style>` elements and React JSX `<style>` elements can adopt static
-CSS animations from top-level rules that use one uniquely resolved simple
-selector, one `animation-name`, and a matching top-level `@keyframes` block.
-React requires a static id selector with one matching static JSX host and one
-document-unique id. JSX `<style>` CSS is global, so React import does not adopt
-class, type, or attribute selectors. React also requires the complete style
-content to be one lossless JSX text or string/template literal with no
-substitutions. Dynamic style elements and style props that cannot be proven
-free of motion are unsupported. Importable animations use a positive fixed
-`ms`/`s` duration, a non-negative fixed delay, a Motion-supported easing,
-`animation-fill-mode: both`, one iteration, normal direction, running state,
-replace composition, and static keyframe stops from 0% through 100% with both
-endpoints and one or more supported properties: `opacity`, `transform`,
-`translate`, `scale`, `rotate`, `color`, `background-color`, `border-radius`,
-`border-color`, `border-width`, or `box-shadow`. Each property needs static 0%
-and 100% endpoints, and duplicate declarations at one stop are unsupported;
-Motion maps properties to parallel tracks with shared target and animation
-timing. Each target can have one imported animation. Shorthand, multiple
-animation names, conditional animation
-definitions, ambiguous targets, CSS variables in keyframe values, and external
-stylesheets are unsupported; the source reader fails closed so Motion does not
-silently discard or flatten them. The exact global
-`prefers-reduced-motion: reduce` override generated by this skill is preserved
-and does not change the imported timeline.
-
-On the first successful `apply-motion-edit` after import, Motion removes only
-the adopted animation declarations from the inline CSS and writes them into
-its managed stylesheet. Global `@keyframes` definitions and unrelated
-declarations remain in place because other rules may use them.
-`remove-motion-timeline` removes the managed stylesheet, adopted animation
-declarations, and Text runtime; it leaves authored keyframe definitions in
-place. For localhost source, pass the current `sourceVersionHash` returned by
-`get-motion-timeline` as `timelineVersionHash`; stale or missing hashes preserve
-the source and timeline so you can reload before retrying. This CSS importer
-does not read or edit JavaScript runtime animations, GSAP timelines, Web
-Animations API calls, or Alpine `x-transition`/`x-effect` behavior. Generic
-Alpine `x-bind` on a Motion target is unsupported because it can change
-attributes dynamically. In localhost React/TSX, write through the verified
-module path, connection id, and version hash in `localSource`. Include the
-current `moduleVersionHash` and captured `timelineVersionHash`; autosave
-compares both before writing so a code edit cannot replace the source
-underneath a dirty timeline. React inline `style` props such as
-`style={{ animationName: "fade" }}` are detected and rejected because they
-cannot be imported losslessly. This is separate from static JSX `<style>`
-elements, which can be imported under the constraints above. Keep runtime-only
-animation code source-owned and do not claim that Motion round-trips it.
-
-Text animations use `textDocument` version 2 for `animationDirection`, `order`,
-`overlapPercent`, and `ignoreSpaces`; preserve their unit, stagger interval,
-property, duration, and keyframes when editing. Version 1 text documents remain
-readable and are normalized on write. Do not keep the only copy of animation
-state in a GSAP runtime timeline or a one-way export.
+`prefers-reduced-motion` (see the mandatory `<style>` block below).
 
 ## Imagery
 
@@ -1205,10 +1101,9 @@ tokened SVG/CSS, not photos.
 - **Write image prompts as art direction, not a one-line label.** Specify
   subject, composition, lens/framing, lighting, and palette, and tie the
   palette/mood back to the design's own `:root` tokens so the image reads as
-  part of the same system rather than a stock photo dropped in. If a design
-  system is linked, fold its `imageStyle.styleDescription` into the prompt
-  (see `design-systems` skill) so generated imagery matches the brand's
-  established photographic/illustration style.
+  part of the same system rather than a stock photo dropped in. If the user
+  described an image style, fold it into the prompt so generated imagery
+  matches the brand's established photographic/illustration style.
 - **Default to `tier: "fast"`** (the cheap Gemini Flash "nanobanana"-class
   model) for exploration and every non-final variant. Only request
   `tier: "best"` for the final, user-approved hero image — not for every pass.

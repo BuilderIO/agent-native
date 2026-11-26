@@ -19,7 +19,6 @@ vi.mock("@/lib/pending-generation", () => ({
 
 vi.mock("@/lib/composer-context", () => ({
   formatComposerContext: vi.fn(() => ""),
-  hasComposerSystemContext: vi.fn(() => false),
 }));
 
 vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
@@ -27,7 +26,6 @@ vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
   designTemplateRefinementDirectives: vi.fn(() => []),
   formatUploadedFileContext: vi.fn(() => ""),
   imageAttachmentsFromUploadedFiles: vi.fn(() => []),
-  loadDesignSystemGenerationContext: vi.fn(async () => ""),
 }));
 
 import { runStartRetryGeneration } from "./start-retry-generation";
@@ -59,7 +57,6 @@ function createArgs(
 const promptState = {
   prompt: "Create a design",
   files: [],
-  designSystemId: null,
 };
 
 describe("runStartRetryGeneration output baseline", () => {

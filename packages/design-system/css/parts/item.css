@@ -1,0 +1,205 @@
+/*
+ * Part: item
+ *
+ *   <div class="item-group-header">                       the label and an action at the end
+ *     <h2 class="item-group-label" [data-visually-hidden]> names the list
+ *   <p class="item-description">                          optional, under a label: describes the list
+ *   <div class="item-group" role="list" data-variant="ghost|outline">
+ *     <div class="item" role="listitem"
+ *          data-variant="ghost|outline|soft">
+ *       <span class="item-media" [data-framed]>
+ *       <div class="item-content">
+ *         <div class="item-title">  <p class="item-description">
+ *       <div class="item-actions">                        a Switch, Buttons, a Menu trigger
+ *       <div class="item-footer">                         across the row's width
+ *
+ * A row in a list, not in Radix Themes. An outlined group frames its rows on the raised surface
+ * and divides them with hairlines; a ghost group is bare rows. On its own
+ * an item can draw its edge (outline) or a quiet fill (soft). An item that
+ * renders as a link or button takes the hover fill. Framed media sets an
+ * icon in a tile.
+ */
+
+@layer components {
+  .item-group-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: var(--control-height-4);
+    margin: 0 0 var(--space-2);
+  }
+
+  .item-group-label {
+    margin: 0 0 var(--space-2);
+    color: var(--fg-default);
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .item-group-header > .item-group-label {
+    min-width: 0;
+    margin: 0;
+  }
+
+  /* Read by assistive technology, drawn at no size. */
+  .item-group-label[data-visually-hidden] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .item-group-label:has(+ .item-description) {
+    margin-bottom: var(--space-1);
+  }
+
+  .item-group-label + .item-description {
+    margin-bottom: var(--space-2);
+  }
+
+  .item-group {
+    display: flex;
+    flex-direction: column;
+    color: var(--fg-default);
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+  }
+
+  .item-group[data-variant="outline"] {
+    overflow: hidden;
+    border: 1px solid var(--line-subtle);
+    border-radius: calc(var(--shape-panel) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+  }
+
+  .item-group[data-variant="outline"] > * + * {
+    border-top: 1px solid var(--line-subtle);
+  }
+
+  .item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    box-sizing: border-box;
+    min-height: var(--size-5);
+    padding: var(--space-3) var(--space-4);
+    color: var(--fg-default);
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    text-align: start;
+    text-decoration: none;
+    outline-style: none;
+  }
+
+  /* A row that is a control: the whole row is its hit area. */
+  button.item {
+    width: 100%;
+    border: 0;
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    background-color: transparent;
+    font: inherit;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+  }
+
+  .item[data-variant="outline"],
+  .item[data-variant="soft"] {
+    border-radius: calc(var(--shape-panel) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+  }
+
+  .item[data-variant="outline"] {
+    border: 1px solid var(--line-subtle);
+  }
+
+  .item[data-variant="soft"] {
+    background-color: var(--fill-neutral);
+  }
+
+  @media (hover: hover) {
+    a.item:hover,
+    button.item:hover {
+      background-color: var(--fill-hover);
+    }
+  }
+
+  .item:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(-1 * var(--focus-ring-width));
+  }
+
+  .item-media {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .item-media[data-framed] {
+    box-sizing: border-box;
+    width: var(--size-4);
+    height: var(--size-4);
+    border: 1px solid var(--line-default);
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-canvas);
+    color: var(--fg-muted);
+  }
+
+  .item-media svg {
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+  }
+
+  /* Media beside a description sits at the title's line, not the center. */
+  .item:has(.item-description) > .item-media {
+    align-self: flex-start;
+  }
+
+  .item-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .item-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--fg-default);
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .item-description {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+  }
+
+  .item-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+    margin-inline-start: auto;
+  }
+
+  .item-footer {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+}

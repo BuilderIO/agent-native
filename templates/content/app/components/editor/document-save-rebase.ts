@@ -1,5 +1,5 @@
 import { planDocReconcile } from "@agent-native/toolkit/editor";
-import type { Document } from "@shared/api";
+import type { Document, DocumentUpdateResponse } from "@shared/api";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { getSchema } from "@tiptap/core";
 
@@ -24,6 +24,12 @@ export type DocumentContentBase = {
 export type RebasedDocumentSaveResult =
   | { status: "saved"; document: Document; content: string }
   | { status: "displaced"; document: Document; localDraft: string }
+  | {
+      status: "displaced-preserved";
+      document: Document;
+      localDraft: string;
+      checkpointId?: string | undefined;
+    }
   | { status: "superseded"; document: Document }
   | { status: "abandoned" }
   | {
@@ -127,6 +133,25 @@ export async function saveDocumentWithRebase({
       };
     }
     if (!isDocumentUpdateConflict(saved)) {
+      // The server kept the other writer's version of a block this body
+      // changed too, and filed the body in History; nothing of it was saved.
+      const intent: DocumentUpdateResponse["bodyIntentOutcome"] =
+        "bodyIntentOutcome" in saved
+          ? (saved as DocumentUpdateResponse).bodyIntentOutcome
+          : undefined;
+      if (intent?.status === "displaced-preserved") {
+        // An editor that moved past this body has a newer save on the way,
+        // and that save's answer decides what to show.
+        if (owner && !ownsCurrentSnapshot()) {
+          return { status: "superseded", document: saved };
+        }
+        return {
+          status: "displaced-preserved",
+          document: saved,
+          localDraft: candidate,
+          checkpointId: intent.displacedCheckpointId,
+        };
+      }
       return confirmed(saved);
     }
     const winner = saved.document;

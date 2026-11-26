@@ -1,8 +1,10 @@
 import DiffMatchPatch from "diff-match-patch";
 
+import {
+  COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN,
+  keepsQuoteContext,
+} from "./comment-quote-anchor";
 import { nfmToDoc, type PMNode } from "./nfm";
-
-const CONTEXT_LEN = 32;
 
 export type CommentQuoteAnchor = {
   quotedText: string;
@@ -53,34 +55,45 @@ function commonPrefixLength(left: string, right: string) {
 
 /**
  * Where the comment's own copy of its quote starts, scored as the editor's
- * `resolveAnchor` scores it. Null when two copies fit equally well, where the
- * editor would fall back to the first.
+ * `resolveAnchor` scores it, overlapping copies included. Null when no copy
+ * keeps enough of the comment's context to be its own (`keepsQuoteContext`),
+ * or when two copies fit equally well, where the editor would fall back to the
+ * first.
  */
 function ownOccurrence(quote: CommentQuoteAnchor, text: string) {
   const { quotedText } = quote;
-  const found: { at: number; score: number }[] = [];
+  let best: number | null = null;
+  let bestScore = -Infinity;
+  let tied = false;
   for (
     let at = text.indexOf(quotedText);
     at >= 0;
-    at = text.indexOf(quotedText, at + quotedText.length)
+    at = text.indexOf(quotedText, at + 1)
   ) {
     const end = at + quotedText.length;
-    let score =
-      commonSuffixLength(
+    const matched = {
+      prefix: commonSuffixLength(
         text.slice(Math.max(0, at - CONTEXT_LEN), at),
         quote.prefix ?? "",
-      ) +
-      commonPrefixLength(
+      ),
+      suffix: commonPrefixLength(
         text.slice(end, end + CONTEXT_LEN),
         quote.suffix ?? "",
-      );
+      ),
+    };
+    if (!keepsQuoteContext(quote, matched)) continue;
+    let score = matched.prefix + matched.suffix;
     if (quote.startOffset != null)
       score -= Math.min(CONTEXT_LEN, Math.abs(at - quote.startOffset) / 8);
-    found.push({ at, score });
+    if (score > bestScore) {
+      best = at;
+      bestScore = score;
+      tied = false;
+    } else if (score === bestScore) {
+      tied = true;
+    }
   }
-  if (found.length < 2) return found[0]?.at ?? null;
-  found.sort((left, right) => right.score - left.score);
-  return found[0]!.score === found[1]!.score ? null : found[0]!.at;
+  return tied ? null : best;
 }
 
 /**

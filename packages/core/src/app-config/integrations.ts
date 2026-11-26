@@ -30,4 +30,18 @@ export const integrationsConfig = z.object({
       env: ["AGENT_NATIVE_INTEGRATION_PLATFORMS"],
       doc: "Integration platforms to mount, comma-separated, each matched against an adapter's `platform` id (slack, telegram, whatsapp, microsoft-teams, discord, google-docs, email). Unset mounts every adapter; a name no adapter provides throws at plugin init.",
     }),
+  slackInternalTeamIds: z
+    .array(z.string().min(1))
+    .optional()
+    .meta({
+      env: ["SLACK_INTERNAL_TEAM_IDS"],
+      doc: "Slack workspace (team) ids allowed to run a user-only Slack install, comma-separated. Unset or empty refuses every user-only install; malformed ids are ignored rather than widened.",
+    }),
+  slackUserInstallBootstrap: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["SLACK_USER_INSTALL_BOOTSTRAP"],
+      doc: "Allow the first user-only Slack install while `slackInternalTeamIds` is still empty, so the workspace id can be learned and pinned. Ignored once the allow-list has an entry; turn it off after pinning.",
+    }),
 });

@@ -8,6 +8,7 @@ import {
   buildAppSkillPack,
   ensureAppSkill,
   exportedSkills,
+  launchAppSkill,
   loadAppSkillManifest,
   normalizeAppSkillManifest,
   parseAppSkillArgs,
@@ -27,6 +28,22 @@ function tmpDir(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-app-skill-"));
   tmpRoots.push(root);
   return root;
+}
+
+// Windows makes a file or relative link only with Developer Mode or admin
+// rights, so a test that needs one runs only where this machine can make it.
+function canMakeLinks(): boolean {
+  if (process.platform !== "win32") return true;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-app-skill-probe-"));
+  try {
+    fs.symlinkSync("missing", path.join(dir, "probe"));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function writeFixture(root: string): string {
@@ -405,6 +422,49 @@ describe("app skill packaging", () => {
     expect(first).not.toBe(second);
   });
 
+  it("changes the plugin version when a file linked into a skill changes", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const shared = path.join(root, "shared");
+    fs.mkdirSync(shared);
+    fs.writeFileSync(path.join(shared, "notes.md"), "first\n", "utf-8");
+    fs.symlinkSync(
+      shared,
+      path.join(root, ".agents", "skills", "asset-generation", "notes"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const loaded = loadAppSkillManifest(manifestFile);
+    const skills = exportedSkills(loaded.manifest);
+
+    const first = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+    fs.writeFileSync(path.join(shared, "notes.md"), "second\n", "utf-8");
+    const second = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+
+    expect(first).not.toBe(second);
+  });
+
+  it("tells binary files that read as the same text apart in the plugin version", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const asset = path.join(
+      root,
+      ".agents",
+      "skills",
+      "asset-generation",
+      "icon.bin",
+    );
+    const loaded = loadAppSkillManifest(manifestFile);
+    const skills = exportedSkills(loaded.manifest);
+
+    // Neither byte is valid UTF-8, so both read as the same replacement text.
+    fs.writeFileSync(asset, Buffer.from([0xff]));
+    const first = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+    fs.writeFileSync(asset, Buffer.from([0xfe]));
+    const second = resolvePluginVersion(loaded.manifest, loaded.dir, skills);
+
+    expect(first).not.toBe(second);
+  });
+
   it("pack still includes alias names in the output .mcp.json for backward compat", async () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);
@@ -526,6 +586,71 @@ describe("app skill packaging", () => {
     ).toThrow(/local\.sourcePath must resolve inside/);
   });
 
+  it("refuses a skill path that doesn't end in a folder name", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.skills[0].path = ".agents/skills/asset-generation/..";
+    delete manifest.skills[0].exportAs;
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+    const outDir = path.join(tmpDir(), "out");
+    fs.mkdirSync(outDir);
+    fs.writeFileSync(path.join(outDir, "kept.txt"), "kept", "utf-8");
+
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/doesn't end in a folder name/);
+    expect(fs.readFileSync(path.join(outDir, "kept.txt"), "utf-8")).toBe(
+      "kept",
+    );
+  });
+
+  it("packs the app a linked local source path leads to", ({ skip }) => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    fs.mkdirSync(path.join(root, "web"));
+    fs.writeFileSync(path.join(root, "web", "package.json"), "{}\n", "utf-8");
+    try {
+      fs.symlinkSync("web", path.join(root, "linked-web"), "dir");
+    } catch (error) {
+      // Windows only lets developer mode or an admin make symlinks.
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return skip();
+      throw error;
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.local.sourcePath = "linked-web";
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.lstatSync(path.join(outDir, "app")).isSymbolicLink()).toBe(false);
+    expect(
+      fs.readFileSync(path.join(outDir, "app", "package.json"), "utf-8"),
+    ).toBe("{}\n");
+  });
+
+  it("refuses a local source path linked outside the app and its workspace", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const outside = tmpDir();
+    fs.writeFileSync(path.join(outside, "package.json"), "{}\n", "utf-8");
+    fs.symlinkSync(
+      outside,
+      path.join(root, "linked-web"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.local.sourcePath = "linked-web";
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/local\.sourcePath links outside the app and its workspace/);
+    expect(fs.existsSync(outDir)).toBe(false);
+  });
+
   it("rejects a configured local source path that is missing", () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);
@@ -561,9 +686,329 @@ describe("app skill packaging", () => {
     expect(fs.existsSync(path.join(outDir, "app", ".npmrc"))).toBe(false);
     expect(fs.existsSync(path.join(outDir, "app", "cert.pem"))).toBe(false);
   });
+
+  // oracle-change: a new test, skipped on Windows, where making a file link needs extra rights.
+  it.skipIf(process.platform === "win32")(
+    "keeps links in packed app source as links instead of following them",
+    () => {
+      const root = tmpDir();
+      const manifestFile = writeFixture(root);
+      fs.mkdirSync(path.join(root, "private"));
+      fs.writeFileSync(path.join(root, "private", "notes.txt"), "private");
+      fs.symlinkSync(
+        path.join("private", "notes.txt"),
+        path.join(root, "reference.txt"),
+      );
+
+      const outDir = path.join(tmpDir(), "packed-assets");
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+      const reference = path.join(outDir, "app", "reference.txt");
+      expect(fs.lstatSync(reference).isSymbolicLink()).toBe(true);
+      expect(fs.readlinkSync(reference)).toBe(
+        path.join("private", "notes.txt"),
+      );
+      expect(fs.existsSync(path.join(outDir, "app", "private"))).toBe(false);
+    },
+  );
+
+  it("exports a linked skill folder as files", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const sharedSkill = path.join(root, "shared", "asset-generation");
+    fs.mkdirSync(path.dirname(sharedSkill), { recursive: true });
+    fs.renameSync(skillLink, sharedSkill);
+    fs.symlinkSync(
+      sharedSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    const exported = path.join(outDir, "skills", "assets");
+    expect(fs.lstatSync(exported).isSymbolicLink()).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(exported, "references", "project-context.md"),
+        "utf-8",
+      ),
+    ).toBe("Keep project context bounded and preserve its provenance.\n");
+  });
+
+  it("exports a skill folder linked into the workspace around the app", () => {
+    const workspace = tmpDir();
+    fs.writeFileSync(
+      path.join(workspace, "package.json"),
+      JSON.stringify({ "agent-native": { workspaceCore: "packages/core" } }),
+      "utf-8",
+    );
+    const root = path.join(workspace, "apps", "assets");
+    fs.mkdirSync(root, { recursive: true });
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const workspaceSkill = path.join(workspace, "skills", "asset-generation");
+    fs.mkdirSync(path.dirname(workspaceSkill), { recursive: true });
+    fs.renameSync(skillLink, workspaceSkill);
+    fs.symlinkSync(
+      workspaceSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(
+      fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("exports links inside a skill as files, leaving out what a pack does", () => {
+    const workspace = tmpDir();
+    fs.writeFileSync(
+      path.join(workspace, "package.json"),
+      JSON.stringify({ "agent-native": { workspaceCore: "packages/core" } }),
+      "utf-8",
+    );
+    const root = path.join(workspace, "apps", "assets");
+    fs.mkdirSync(root, { recursive: true });
+    const manifestFile = writeFixture(root);
+    const skill = path.join(root, ".agents", "skills", "asset-generation");
+    const brand = path.join(workspace, "shared", "brand");
+    const keys = path.join(root, "private", "keys");
+    fs.mkdirSync(brand, { recursive: true });
+    fs.writeFileSync(path.join(brand, "palette.md"), "Palette\n", "utf-8");
+    fs.mkdirSync(keys, { recursive: true });
+    fs.writeFileSync(path.join(keys, "token.txt"), "secret\n", "utf-8");
+    // Junctions, which Windows makes without extra rights, are absolute.
+    const link = (target: string, linkPath: string) =>
+      process.platform === "win32"
+        ? fs.symlinkSync(target, linkPath, "junction")
+        : fs.symlinkSync(
+            path.relative(path.dirname(linkPath), target),
+            linkPath,
+            "dir",
+          );
+    link(brand, path.join(skill, "brand"));
+    link(keys, path.join(skill, "keys"));
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    const exported = path.join(outDir, "skills", "assets");
+    expect(fs.lstatSync(path.join(exported, "brand")).isSymbolicLink()).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(path.join(exported, "brand", "palette.md"), "utf-8"),
+    ).toBe("Palette\n");
+    expect(fs.existsSync(path.join(exported, "keys"))).toBe(false);
+  });
+
+  it("leaves out secret names in any case, and links into them", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const secrets = path.join(root, "Secrets");
+    fs.mkdirSync(secrets);
+    fs.writeFileSync(path.join(secrets, "token.txt"), "secret\n", "utf-8");
+    fs.writeFileSync(path.join(root, ".ENV"), "TOKEN=secret\n", "utf-8");
+    fs.writeFileSync(path.join(root, "signing.PFX"), "secret", "utf-8");
+    const skill = path.join(root, ".agents", "skills", "asset-generation");
+    fs.symlinkSync(
+      secrets,
+      path.join(skill, "vault"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(path.join(outDir, "app", "Secrets"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "app", ".ENV"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "app", "signing.PFX"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "skills", "assets", "vault"))).toBe(
+      false,
+    );
+  });
+
+  it("makes the packed app fresh rather than adding to the last build", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+    // As a build before secret names matched in any case would have left it.
+    fs.mkdirSync(path.join(outDir, "app", "Secrets"));
+    fs.writeFileSync(
+      path.join(outDir, "app", "Secrets", "token.txt"),
+      "secret\n",
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(outDir, "app", "removed.txt"), "old", "utf-8");
+
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(path.join(outDir, "app", "package.json"))).toBe(true);
+    expect(fs.existsSync(path.join(outDir, "app", "Secrets"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "app", "removed.txt"))).toBe(false);
+    expect(
+      fs.readdirSync(outDir).filter((name) => name.startsWith(".app-")),
+    ).toEqual([]);
+  });
+
+  it("packs an app whose own folder has a name left out inside it", () => {
+    const root = path.join(tmpDir(), "private");
+    fs.mkdirSync(root);
+    const manifestFile = writeFixture(root);
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(path.join(outDir, "app", "package.json"))).toBe(true);
+  });
+
+  it("refuses a skill folder linked outside the app and its workspace", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const outsideSkill = path.join(tmpDir(), "asset-generation");
+    fs.renameSync(skillLink, outsideSkill);
+    fs.symlinkSync(
+      outsideSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/links outside the app and its workspace/);
+    // Refused before the pack is written, so a last build there stays whole.
+    expect(fs.existsSync(outDir)).toBe(false);
+  });
+
+  it("refuses a skill folder linked into a folder a pack leaves out", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const privateSkill = path.join(root, "private", "asset-generation");
+    fs.mkdirSync(path.dirname(privateSkill), { recursive: true });
+    fs.renameSync(skillLink, privateSkill);
+    fs.symlinkSync(
+      privateSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    expect(() =>
+      buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir),
+    ).toThrow(/in a folder a pack leaves out/);
+  });
+
+  it("exports a skill folder linked into a folder named with two leading dots", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const skillLink = path.join(root, ".agents", "skills", "asset-generation");
+    const sharedSkill = path.join(root, "..shared", "asset-generation");
+    fs.mkdirSync(path.dirname(sharedSkill), { recursive: true });
+    fs.renameSync(skillLink, sharedSkill);
+    fs.symlinkSync(
+      sharedSkill,
+      skillLink,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(
+      fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("drops a linked file from a rebuilt pack once the link no longer resolves", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    // Only the skill copy is under test, so the pack leaves the app out.
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    delete manifest.local;
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest), "utf-8");
+    const notes = path.join(root, "notes");
+    fs.mkdirSync(notes);
+    fs.writeFileSync(path.join(notes, "plan.md"), "Plan\n");
+    fs.symlinkSync(
+      notes,
+      path.join(root, ".agents", "skills", "asset-generation", "notes"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const outDir = path.join(tmpDir(), "packed-assets");
+    const packedNotes = path.join(outDir, "skills", "assets", "notes");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+    expect(fs.existsSync(path.join(packedNotes, "plan.md"))).toBe(true);
+
+    fs.rmSync(notes, { recursive: true });
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(packedNotes)).toBe(false);
+    expect(
+      fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
+    ).toBe(true);
+    expect(fs.readdirSync(path.join(outDir, "skills"))).toEqual(["assets"]);
+  });
 });
 
 describe("app skill launch and ensure", () => {
+  // oracle-change: a new test, skipped where Windows won't make a relative link without extra rights.
+  it.skipIf(!canMakeLinks())(
+    "points a launched app's links out of the app at their targets",
+    async () => {
+      const workspace = tmpDir();
+      const root = path.join(workspace, "app");
+      fs.mkdirSync(root);
+      const manifestFile = writeFixture(root);
+      const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+      // A missing dev command falls back to `pnpm dev`, so give one that
+      // exits at once.
+      manifest.local.commands = { dev: "pnpm --version" };
+      fs.writeFileSync(manifestFile, JSON.stringify(manifest), "utf-8");
+      fs.writeFileSync(path.join(workspace, "shared.md"), "Shared\n");
+      fs.writeFileSync(path.join(root, "notes.md"), "Notes\n");
+      fs.symlinkSync(
+        path.join("..", "shared.md"),
+        path.join(root, "shared.md"),
+      );
+      fs.symlinkSync("notes.md", path.join(root, "notes-link.md"));
+      // A folder link whose target isn't there yet.
+      fs.symlinkSync(path.join("..", "later"), path.join(root, "later"), "dir");
+
+      const into = path.join(tmpDir(), "editable");
+      await launchAppSkill(loadAppSkillManifest(manifestFile), {
+        mode: "local",
+        into,
+        noRegister: true,
+        skipInstall: true,
+        log: () => {},
+      });
+
+      expect(fs.readlinkSync(path.join(into, "shared.md"))).toBe(
+        path.join(workspace, "shared.md"),
+      );
+      expect(fs.readFileSync(path.join(into, "shared.md"), "utf-8")).toBe(
+        "Shared\n",
+      );
+      expect(fs.readlinkSync(path.join(into, "notes-link.md"))).toBe(
+        "notes.md",
+      );
+      // It stays a folder link, so it lists once the folder exists.
+      fs.mkdirSync(path.join(workspace, "later"));
+      fs.writeFileSync(path.join(workspace, "later", "plan.md"), "Plan\n");
+      expect(fs.readdirSync(path.join(into, "later"))).toEqual(["plan.md"]);
+    },
+  );
+
   it("resolves hosted and local launcher plans", () => {
     const root = tmpDir();
     const loaded = loadAppSkillManifest(writeFixture(root));

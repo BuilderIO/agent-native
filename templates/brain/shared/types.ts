@@ -5,7 +5,10 @@ export type BrainSourceProvider =
   | "slack"
   | "granola"
   | "github"
-  | "zoom";
+  | "zoom"
+  | "google_calendar"
+  | "gmail"
+  | "google_drive";
 export type BrainSourceStatus = "active" | "paused" | "archived" | "error";
 export type BrainCaptureKind =
   | "transcript"
@@ -39,16 +42,18 @@ export type BrainProposalAction = "create" | "update" | "archive";
 export interface BrainEvidenceInput {
   captureId: string;
   quote: string;
-  note?: string;
-  sourceUrl?: string;
+  note?: string | undefined;
+  sourceUrl?: string | undefined;
   /** @deprecated use sourceUrl */
-  url?: string;
-  timestampMs?: number;
+  url?: string | undefined;
+  timestampMs?: number | undefined;
 }
 
 export interface BrainEvidence extends BrainEvidenceInput {
   sourceId: string;
   captureTitle: string;
+  capturedAt?: string | undefined;
+  capturedAtSource?: "manual-markdown" | undefined;
 }
 
 export interface BrainSettings {

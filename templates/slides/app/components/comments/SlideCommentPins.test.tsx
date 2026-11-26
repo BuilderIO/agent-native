@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-
+import type { ReviewComment } from "@agent-native/core/review";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -10,55 +11,121 @@ import {
 import {
   createContext,
   useContext,
-  useState,
   type ComponentProps,
   type ReactNode,
 } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { CommentThread } from "@/hooks/use-slide-comments";
+
 import { SlideCommentPins } from "./SlideCommentPins";
 
-const { deleteComment, mutateAsync, reaction, resolveComment, updateComment } =
-  vi.hoisted(() => ({
-    deleteComment: vi.fn(),
-    mutateAsync: vi.fn(),
-    reaction: vi.fn(),
-    resolveComment: vi.fn(),
-    updateComment: vi.fn(),
-  }));
-
-vi.mock("@agent-native/core/client/hooks", () => ({
-  actionErrorMessage: (error: Error) => error.message,
-  useAvatarUrl: () => null,
-  useReconciledState: (value: string) => useState(value),
+const mocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  reply: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+  resolve: vi.fn(),
+  react: vi.fn(),
+  sendToAgent: vi.fn(),
+  toastError: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) =>
-    ({
-      "comments.addComment": "Add comment",
-      "comments.addCommentPlaceholder": "Add a comment...",
-      "comments.cancel": "Cancel",
-      "comments.comment": "Comment",
-      "comments.saving": "Saving...",
-      "comments.saveCommentFailed": "Could not save this comment.",
-      "comments.title": "Comments",
-    })[key] ?? key,
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  actionErrorMessage: (error: unknown) =>
+    error instanceof Error ? error.message : null,
+  useSession: () => ({
+    session: { email: "writer@example.com", orgId: null },
+  }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/i18n")>();
+  const { default: english } =
+    await vi.importActual<typeof import("@/i18n/en-US")>("@/i18n/en-US");
+  const lookup = (key: string): unknown =>
+    key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          typeof node === "object" && node !== null
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        english,
+      );
+  return {
+    ...actual,
+    useT:
+      () =>
+      (key: string, values: Record<string, unknown> = {}) => {
+        const plural =
+          typeof values.count === "number"
+            ? `_${new Intl.PluralRules("en").select(values.count)}`
+            : "";
+        const message = lookup(`${key}${plural}`) ?? lookup(key);
+        return typeof message === "string"
+          ? message.replace(/\{\{(\w+)\}\}/g, (_, name: string) =>
+              String(values[name]),
+            )
+          : key;
+      },
+  };
+});
+
+vi.mock("@agent-native/core/client/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/review")
+  >()),
+  useCreateReviewComment: () => ({
+    mutateAsync: mocks.create,
+    isPending: false,
+  }),
+  useReplyReviewComment: () => ({ mutateAsync: mocks.reply, isPending: false }),
+  useUpdateReviewComment: () => ({
+    mutateAsync: mocks.update,
+    isPending: false,
+  }),
+  useDeleteReviewComment: () => ({
+    mutateAsync: mocks.remove,
+    isPending: false,
+  }),
+  useResolveReviewThread: () => ({
+    mutateAsync: mocks.resolve,
+    isPending: false,
+  }),
+  useReactToReviewComment: () => ({
+    mutateAsync: mocks.react,
+    isPending: false,
+  }),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  sendToAgentChatAndConfirm: mocks.sendToAgent,
+}));
+
+vi.mock("@agent-native/core/client/use-avatar", () => ({
+  useAvatarUrl: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/toolkit/app/review")
   >()),
-  CommentBody: ({ body }: { body: string }) => <span>{body}</span>,
+  useReviewMentionPeople: () => ({
+    people: [],
+    searching: false,
+    failed: false,
+    onMentionQueryChange: () => {},
+  }),
 }));
 
-vi.mock("@/components/ui/avatar", () => ({
-  Avatar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  AvatarFallback: ({ children }: { children: ReactNode }) => (
-    <span>{children}</span>
-  ),
-  AvatarImage: () => null,
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
 }));
 
 const PopoverContext = createContext<{
@@ -88,30 +155,107 @@ vi.mock("@/components/ui/popover", () => ({
       </span>
     );
   },
-  PopoverContent: ({ children }: { children: ReactNode }) => {
+  PopoverContent: ({
+    children,
+    ...props
+  }: { children: ReactNode } & Record<string, unknown>) => {
     const context = useContext(PopoverContext);
-    return context?.open ? <div>{children}</div> : null;
+    const dataAttributes = Object.fromEntries(
+      Object.entries(props).filter(([name]) => name.startsWith("data-")),
+    );
+    return context?.open ? <div {...dataAttributes}>{children}</div> : null;
   },
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  Tooltip: ({ children }: { children: ReactNode }) => children,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => children,
+  TooltipContent: () => null,
 }));
 
 vi.mock("@/hooks/use-slide-comments", () => ({
-  emailToColor: () => "#000",
-  formatRelativeTime: () => "just now",
-  useCreateSlideComment: () => ({ isPending: false, mutateAsync }),
-  useDeleteSlideComment: () => ({ mutate: deleteComment }),
-  useResolveSlideComment: () => ({ mutate: resolveComment }),
-  useToggleSlideCommentReaction: () => ({ mutate: reaction }),
-  useUpdateSlideComment: () => ({
-    isPending: false,
-    mutateAsync: updateComment,
+  useSlideComments: () => ({
+    data: {
+      threads: [],
+      discussion: {
+        reactions: {},
+        threadPreferences: {},
+        canReact: true,
+        canSetThreadPreferences: true,
+      },
+    },
+    isError: false,
   }),
 }));
+
+type EditorElement = HTMLElement & {
+  editor: {
+    commands: { focus: (position: "end") => boolean };
+    state: { tr: { insertText: (text: string) => unknown } };
+    view: { dispatch: (transaction: unknown) => void };
+  };
+};
+
+function comment(
+  id: string,
+  extra: Partial<ReviewComment> = {},
+): ReviewComment {
+  return {
+    id,
+    resourceType: "deck",
+    resourceId: "deck-1",
+    threadId: "thread-1",
+    parentCommentId: null,
+    targetId: null,
+    surfaceId: "slide-1",
+    kind: "comment",
+    status: "open",
+    anchor: { x: 25, y: 30 },
+    anchorKind: "slide-point",
+    anchorVersion: null,
+    body: "Check this image",
+    authorEmail: "other@example.com",
+    authorName: "Other",
+    createdBy: "human",
+    resolutionTarget: "human",
+    mentions: [],
+    metadata: null,
+    canDelete: false,
+    canDeleteThread: false,
+    createdAt: "2026-08-27T00:00:00.000Z",
+    updatedAt: "2026-08-27T00:00:00.000Z",
+    ...extra,
+  } as ReviewComment;
+}
+
+function thread(
+  root: ReviewComment,
+  extra: Partial<CommentThread> = {},
+): CommentThread {
+  return {
+    threadId: root.threadId,
+    slideId: root.surfaceId ?? null,
+    quotedText: null,
+    anchor: { x: 25, y: 30 },
+    resolved: false,
+    root,
+    replies: [],
+    ...extra,
+  };
+}
+
+function rect(left: number, top: number, width: number, height: number) {
+  return {
+    bottom: top + height,
+    height,
+    left,
+    right: left + width,
+    top,
+    width,
+    x: left,
+    y: top,
+  };
+}
 
 function renderWithCanvas(
   props: Partial<ComponentProps<typeof SlideCommentPins>> = {},
@@ -122,16 +266,7 @@ function renderWithCanvas(
   canvas.tabIndex = 0;
   Object.defineProperty(canvas, "getBoundingClientRect", {
     configurable: true,
-    value: () => ({
-      bottom: 250,
-      height: 200,
-      left: 100,
-      right: 500,
-      top: 50,
-      width: 400,
-      x: 100,
-      y: 50,
-    }),
+    value: () => rect(100, 50, 400, 200),
   });
   const firstPane = document.createElement("div");
   firstPane.className = "slide-content";
@@ -147,6 +282,7 @@ function renderWithCanvas(
         deckId="deck-1"
         slideId="slide-1"
         canvasSelector="[data-main-slide-canvas='true']"
+        currentUserEmail="writer@example.com"
         {...props}
       />,
     ),
@@ -155,181 +291,205 @@ function renderWithCanvas(
   };
 }
 
+async function findElement<T extends Element = HTMLElement>(
+  selector: string,
+): Promise<T> {
+  return waitFor(() => {
+    const element = document.querySelector<T>(selector);
+    if (!element) throw new Error(`no element matches ${selector}`);
+    return element;
+  });
+}
+
+async function editorNamed(name: string): Promise<EditorElement> {
+  const element = await screen.findByRole("textbox", { name });
+  return element as EditorElement;
+}
+
+function typeInto(element: EditorElement, text: string) {
+  act(() => {
+    element.editor.commands.focus("end");
+  });
+  act(() => {
+    const { state, view } = element.editor;
+    view.dispatch(state.tr.insertText(text));
+  });
+}
+
+function pressEnter(element: HTMLElement, init: KeyboardEventInit = {}) {
+  act(() => {
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      }),
+    );
+  });
+}
+
+function placeObject(
+  pane: HTMLElement,
+  object: HTMLElement,
+  text: string,
+): HTMLElement {
+  object.textContent = text;
+  Object.defineProperty(object, "getBoundingClientRect", {
+    configurable: true,
+    value: () => rect(200, 100, 100, 80),
+  });
+  pane.append(object);
+  const target = document.createElement("span");
+  target.textContent = text;
+  object.append(target);
+  Object.defineProperty(document, "elementsFromPoint", {
+    configurable: true,
+    value: () => [target, object],
+  });
+  return object;
+}
+
+function deferred<T>() {
+  const handlers = {
+    resolve: (_value: T) => {},
+    reject: (_reason: unknown) => {},
+  };
+  const promise = new Promise<T>((resolve, reject) => {
+    handlers.resolve = resolve;
+    handlers.reject = reject;
+  });
+  return { promise, resolve: handlers.resolve, reject: handlers.reject };
+}
+
+async function dropPinAndSend(text: string) {
+  const plane = await findElement("[data-slide-comment-click-plane]");
+  fireEvent.click(plane, { clientX: 300, clientY: 150 });
+  const editor = await editorNamed("Add comment");
+  typeInto(editor, text);
+  pressEnter(editor);
+}
+
 describe("SlideCommentPins", () => {
   beforeEach(() => {
-    mutateAsync.mockReset();
-    mutateAsync.mockResolvedValue({ id: "comment-1", threadId: "comment-1" });
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.create.mockResolvedValue(comment("comment-1"));
+    mocks.sendToAgent.mockResolvedValue({ delivered: true });
   });
 
   afterEach(() => {
     cleanup();
+    window.localStorage.clear();
     document
       .querySelectorAll("[data-main-slide-canvas]")
       .forEach((canvas) => canvas.remove());
     Reflect.deleteProperty(document, "elementsFromPoint");
   });
 
-  it("creates a persisted comment at the clicked slide position", async () => {
-    renderWithCanvas({ active: true });
-    const plane = await waitFor(() => {
-      const element = document.querySelector(
-        "[data-slide-comment-click-plane]",
-      );
-      expect(element).toBeTruthy();
-      return element!;
-    });
+  it("creates a comment at the clicked slide position", async () => {
+    const onBeforeCommentSubmit = vi.fn(async () => {});
+    renderWithCanvas({ active: true, onBeforeCommentSubmit });
 
-    fireEvent.click(plane, { clientX: 300, clientY: 150 });
-    fireEvent.change(screen.getByPlaceholderText("Add a comment..."), {
-      target: { value: "Move this title" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await dropPinAndSend("Move this title");
 
     await waitFor(() =>
-      expect(mutateAsync).toHaveBeenCalledWith({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Move this title",
+      expect(mocks.create).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        surfaceId: "slide-1",
+        body: "Move this title",
+        mentions: [],
         anchor: { x: 50, y: 50 },
+        anchorKind: "slide-point",
       }),
+    );
+    expect(onBeforeCommentSubmit).toHaveBeenCalledOnce();
+    expect(mocks.sendToAgent).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull(),
     );
   });
 
   it("keeps the pending pin comment open while IME keys are composing", async () => {
     renderWithCanvas({ active: true });
-    const plane = await waitFor(() => {
-      const element = document.querySelector(
-        "[data-slide-comment-click-plane]",
-      );
-      expect(element).toBeTruthy();
-      return element!;
-    });
+    const plane = await findElement("[data-slide-comment-click-plane]");
 
     fireEvent.click(plane, { clientX: 300, clientY: 150 });
-    const input = screen.getByPlaceholderText("Add a comment...");
-    fireEvent.change(input, { target: { value: "candidate" } });
-    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+    const editor = await editorNamed("Add comment");
+    typeInto(editor, "candidate");
+    pressEnter(editor, { isComposing: true });
 
-    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
-    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Add comment" })).toBeTruthy();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed pin comment open with its reason", async () => {
+    mocks.create.mockRejectedValue(new Error("Slide is gone"));
+    renderWithCanvas({ active: true });
+
+    await dropPinAndSend("Move this title");
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Slide is gone",
+    );
+    expect(
+      screen.getByRole("textbox", { name: "Add comment" }).textContent,
+    ).toContain("Move this title");
   });
 
   it("persists object-relative coordinates when a component is clicked", async () => {
-    renderWithCanvas({ active: true });
+    const { firstPane } = renderWithCanvas({ active: true });
     const object = document.createElement("div");
     object.dataset.slideObjectId = "chart-1";
-    object.textContent = "Revenue chart";
-    Object.defineProperty(object, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        bottom: 180,
-        height: 80,
-        left: 200,
-        right: 300,
-        top: 100,
-        width: 100,
-        x: 200,
-        y: 100,
-      }),
-    });
-    document.querySelector(".slide-content")?.append(object);
-    const target = document.createElement("span");
-    target.textContent = "Revenue chart";
-    object.append(target);
-    Object.defineProperty(document, "elementsFromPoint", {
-      configurable: true,
-      value: () => [target, object],
-    });
+    placeObject(firstPane, object, "Revenue chart");
 
-    const plane = await waitFor(() => {
-      const element = document.querySelector(
-        "[data-slide-comment-click-plane]",
-      );
-      expect(element).toBeTruthy();
-      return element!;
-    });
-
-    fireEvent.click(plane, { clientX: 300, clientY: 150 });
-    fireEvent.change(screen.getByPlaceholderText("Add a comment..."), {
-      target: { value: "Check the chart" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await dropPinAndSend("Check the chart");
 
     await waitFor(() =>
-      expect(mutateAsync).toHaveBeenCalledWith({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Check the chart",
-        anchor: {
-          x: 50,
-          y: 50,
-          objectId: "chart-1",
-          objectX: 100,
-          objectY: 62.5,
-          targetText: "Revenue chart",
-        },
-      }),
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: "Check the chart",
+          anchor: {
+            x: 50,
+            y: 50,
+            objectId: "chart-1",
+            objectX: 100,
+            objectY: 62.5,
+            targetText: "Revenue chart",
+          },
+          anchorKind: "slide-point",
+        }),
+      ),
     );
   });
 
   it("assigns an id before anchoring a first comment on an unpersisted object", async () => {
     const ensureObjectId = vi.fn(() => "new-object");
-    renderWithCanvas({ active: true, onEnsureObjectId: ensureObjectId });
+    const { firstPane } = renderWithCanvas({
+      active: true,
+      onEnsureObjectId: ensureObjectId,
+    });
     const object = document.createElement("div");
     object.className = "fmd-freeform-object";
     object.style.position = "absolute";
-    object.textContent = "New shape";
-    Object.defineProperty(object, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        bottom: 180,
-        height: 80,
-        left: 200,
-        right: 300,
-        top: 100,
-        width: 100,
-        x: 200,
-        y: 100,
-      }),
-    });
-    document.querySelector(".slide-content")?.append(object);
-    const target = document.createElement("span");
-    target.textContent = "New shape";
-    object.append(target);
-    Object.defineProperty(document, "elementsFromPoint", {
-      configurable: true,
-      value: () => [target, object],
-    });
+    placeObject(firstPane, object, "New shape");
 
-    const plane = await waitFor(() => {
-      const element = document.querySelector(
-        "[data-slide-comment-click-plane]",
-      );
-      expect(element).toBeTruthy();
-      return element!;
-    });
-
-    fireEvent.click(plane, { clientX: 300, clientY: 150 });
-    fireEvent.change(screen.getByPlaceholderText("Add a comment..."), {
-      target: { value: "Check this new shape" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await dropPinAndSend("Check this new shape");
 
     await waitFor(() =>
-      expect(mutateAsync).toHaveBeenCalledWith({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Check this new shape",
-        anchor: {
-          x: 50,
-          y: 50,
-          objectId: "new-object",
-          objectX: 100,
-          objectY: 62.5,
-          targetText: "New shape",
-        },
-      }),
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: "Check this new shape",
+          anchor: {
+            x: 50,
+            y: 50,
+            objectId: "new-object",
+            objectX: 100,
+            objectY: 62.5,
+            targetText: "New shape",
+          },
+        }),
+      ),
     );
     expect(ensureObjectId).toHaveBeenCalledWith(object);
   });
@@ -339,83 +499,130 @@ describe("SlideCommentPins", () => {
     renderWithCanvas({
       onSelectThread,
       comments: [
-        {
-          threadId: "thread-1",
-          quotedText: null,
-          anchor: { x: 25, y: 30 },
-          resolved: false,
-          comments: [
-            {
-              id: "comment-1",
-              deck_id: "deck-1",
-              slide_id: "slide-1",
-              thread_id: "thread-1",
-              parent_id: null,
-              content: "Check this image",
-              quoted_text: null,
-              anchor: { x: 25, y: 30 },
-              author_email: "writer@example.com",
-              author_kind: "person",
-              author_name: "Writer",
-              resolved: false,
-              created_at: "2026-08-27T00:00:00.000Z",
-              updated_at: "2026-08-27T00:00:00.000Z",
-            },
+        thread(comment("comment-1"), {
+          replies: [
+            comment("reply-1", {
+              parentCommentId: "comment-1",
+              body: "Swapped it",
+            }),
           ],
-        },
+        }),
       ],
     });
 
-    const marker = await waitFor(() => {
-      const element = document.querySelector("[data-slide-comment-marker]");
-      expect(element).toBeTruthy();
-      return element!;
+    const marker = await findElement("[data-slide-comment-marker]");
+    expect(marker.textContent).toContain("2");
+    fireEvent.click(marker);
+
+    const popover = await findElement("[data-slide-comment-popover]");
+    expect(popover.textContent).toContain("Check this image");
+    expect(popover.textContent).toContain("Swapped it");
+    expect(onSelectThread).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("replies and resolves from a marker's thread", async () => {
+    mocks.reply.mockResolvedValue(
+      comment("reply-1", { parentCommentId: "comment-1" }),
+    );
+    mocks.resolve.mockResolvedValue({});
+    renderWithCanvas({ comments: [thread(comment("comment-1"))] });
+
+    fireEvent.click(await findElement("[data-slide-comment-marker]"));
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const editor = await editorNamed("Reply");
+    typeInto(editor, "On it");
+    pressEnter(editor);
+
+    await waitFor(() =>
+      expect(mocks.reply).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "comment-1",
+        body: "On it",
+        mentions: [],
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
+    );
+    expect(mocks.sendToAgent).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+    expect(mocks.resolve).toHaveBeenCalledWith({
+      resourceType: "deck",
+      resourceId: "deck-1",
+      threadId: "thread-1",
+      status: "resolved",
+    });
+  });
+
+  it("says why resolving from a marker failed once the marker has gone", async () => {
+    const resolving = deferred<unknown>();
+    mocks.resolve.mockReturnValue(resolving.promise);
+    const view = renderWithCanvas({
+      comments: [thread(comment("comment-1"))],
     });
 
-    fireEvent.click(marker);
-    expect(screen.getAllByText("Check this image").length).toBeGreaterThan(0);
-    expect(onSelectThread).toHaveBeenCalledWith("thread-1");
+    fireEvent.click(await findElement("[data-slide-comment-marker]"));
+    fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+    view.rerender(
+      <SlideCommentPins
+        active={false}
+        canComment
+        comments={[]}
+        deckId="deck-1"
+        slideId="slide-1"
+        canvasSelector="[data-main-slide-canvas='true']"
+        currentUserEmail="writer@example.com"
+      />,
+    );
+    expect(document.querySelector("[data-slide-comment-marker]")).toBeNull();
+    await act(async () => {
+      resolving.reject(new Error("Resolve failed"));
+      await resolving.promise.catch(() => undefined);
+    });
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Resolve failed"),
+    );
+    expect(mocks.toastError).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a newer pin open when an earlier pin's send finishes", async () => {
+    const creating = deferred<unknown>();
+    mocks.create.mockReturnValue(creating.promise);
+    renderWithCanvas({ active: true });
+
+    await dropPinAndSend("Move this title");
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+    fireEvent.click(await findElement("[data-slide-comment-click-plane]"), {
+      clientX: 200,
+      clientY: 100,
+    });
+    await act(async () => {
+      creating.resolve(comment("comment-1"));
+      await creating.promise;
+    });
+
+    expect(screen.getByRole("textbox", { name: "Add comment" })).toBeTruthy();
+    expect(mocks.create).toHaveBeenCalledOnce();
   });
 
   it("names a marker with its comment's words, not its Markdown", async () => {
     renderWithCanvas({
       comments: [
-        {
-          threadId: "thread-1",
-          quotedText: null,
-          anchor: { x: 25, y: 30 },
-          resolved: false,
-          comments: [
-            {
-              id: "comment-1",
-              deck_id: "deck-1",
-              slide_id: "slide-1",
-              thread_id: "thread-1",
-              parent_id: null,
-              content:
-                "**Bigger** title for @[Sam Lee](mailto:sam@example.com)\n\n- and `step-2`",
-              quoted_text: null,
-              anchor: { x: 25, y: 30 },
-              author_email: "writer@example.com",
-              author_kind: "person",
-              author_name: "Writer",
-              resolved: false,
-              created_at: "2026-08-27T00:00:00.000Z",
-              updated_at: "2026-08-27T00:00:00.000Z",
-            },
-          ],
-        },
+        thread(
+          comment("comment-1", {
+            body: "**Bigger** title for @[Sam Lee](mailto:sam@example.com)\n\n- and `step-2`",
+          }),
+        ),
       ],
     });
 
-    const label = await waitFor(() => {
-      const value = document
-        .querySelector("[data-slide-comment-marker]")
-        ?.getAttribute("aria-label");
-      expect(value).toBeTruthy();
-      return value;
-    });
-    expect(label).toBe("Bigger title for @Sam Lee - and step-2");
+    const marker = await findElement("[data-slide-comment-marker]");
+    expect(marker.getAttribute("aria-label")).toBe(
+      "Bigger title for @Sam Lee - and step-2",
+    );
   });
 
   it("positions fallback text highlights relative to the canvas", async () => {
@@ -429,42 +636,17 @@ describe("SlideCommentPins", () => {
     try {
       const { firstPane } = renderWithCanvas({
         comments: [
-          {
-            threadId: "thread-1",
+          thread(comment("comment-1", { body: "Check this text" }), {
             quotedText: "Anchor text",
-            anchor: { x: 25, y: 30 },
-            resolved: false,
-            comments: [
-              {
-                id: "comment-1",
-                deck_id: "deck-1",
-                slide_id: "slide-1",
-                thread_id: "thread-1",
-                parent_id: null,
-                content: "Check this text",
-                quoted_text: "Anchor text",
-                anchor: { x: 25, y: 30 },
-                author_email: "writer@example.com",
-                author_kind: "person",
-                author_name: "Writer",
-                resolved: false,
-                created_at: "2026-08-27T00:00:00.000Z",
-                updated_at: "2026-08-27T00:00:00.000Z",
-              },
-            ],
-          },
+          }),
         ],
       });
       firstPane.textContent = "Anchor text";
       fireEvent.resize(window);
 
-      const highlight = await waitFor(() => {
-        const element = document.querySelector<HTMLElement>(
-          "[data-slide-comment-overlay] [aria-hidden='true'].bg-amber-300\\/40",
-        );
-        expect(element).toBeTruthy();
-        return element!;
-      });
+      const highlight = await findElement(
+        "[data-slide-comment-overlay] [aria-hidden='true'].bg-amber-300\\/40",
+      );
 
       expect(highlight.style.left).toBe("40px");
       expect(highlight.style.top).toBe("20px");
@@ -477,70 +659,29 @@ describe("SlideCommentPins", () => {
   });
 
   it("measures the whole canvas when it contains multiple content panes", async () => {
-    renderWithCanvas({ active: true });
-    const canvas = document.querySelector("[data-main-slide-canvas='true']")!;
+    const { canvas } = renderWithCanvas({ active: true });
     const secondPane = document.createElement("div");
     secondPane.className = "slide-content";
     canvas.append(secondPane);
 
-    const overlay = await waitFor(() => {
-      const element = document.querySelector("[data-slide-comment-overlay]");
-      expect(element).toBeTruthy();
-      return element!;
-    });
+    const overlay = await findElement("[data-slide-comment-overlay]");
 
     expect(overlay.getAttribute("style")).toContain("width: 400px");
     expect(overlay.getAttribute("style")).toContain("height: 200px");
   });
 
   it("keeps an anchored marker attached as its object moves", async () => {
-    let objectRect = {
-      bottom: 180,
-      height: 80,
-      left: 200,
-      right: 300,
-      top: 100,
-      width: 100,
-      x: 200,
-      y: 100,
+    let objectRect = rect(200, 100, 100, 80);
+    const anchor = {
+      x: 10,
+      y: 20,
+      objectId: "chart-1",
+      objectX: 50,
+      objectY: 50,
     };
-    const comment = {
-      threadId: "thread-1",
-      quotedText: null,
-      anchor: {
-        x: 10,
-        y: 20,
-        objectId: "chart-1",
-        objectX: 50,
-        objectY: 50,
-      },
-      resolved: false,
-      comments: [
-        {
-          id: "comment-1",
-          deck_id: "deck-1",
-          slide_id: "slide-1",
-          thread_id: "thread-1",
-          parent_id: null,
-          content: "Check this image",
-          quoted_text: null,
-          anchor: {
-            x: 10,
-            y: 20,
-            objectId: "chart-1",
-            objectX: 50,
-            objectY: 50,
-          },
-          author_email: "writer@example.com",
-          author_kind: "person",
-          author_name: "Writer",
-          resolved: false,
-          created_at: "2026-08-27T00:00:00.000Z",
-          updated_at: "2026-08-27T00:00:00.000Z",
-        },
-      ],
-    };
-    const view = renderWithCanvas({ comments: [comment] });
+    const view = renderWithCanvas({
+      comments: [thread(comment("comment-1", { anchor }), { anchor })],
+    });
     const object = document.createElement("div");
     object.dataset.slideObjectId = "chart-1";
     Object.defineProperty(object, "getBoundingClientRect", {
@@ -550,85 +691,103 @@ describe("SlideCommentPins", () => {
     view.firstPane.append(object);
     fireEvent.resize(window);
 
+    const markerPosition = () =>
+      document
+        .querySelector<HTMLElement>("[data-slide-comment-marker]")
+        ?.closest<HTMLElement>("[data-slide-comment-marker-position]");
     await waitFor(() => {
-      const marker = document.querySelector<HTMLElement>(
-        "[data-slide-comment-marker]",
-      );
-      const position = marker?.closest<HTMLElement>(
-        "[data-slide-comment-marker-position]",
-      );
-      expect(position?.style.left).toBe("37.5%");
-      expect(position?.style.top).toBe("45%");
+      expect(markerPosition()?.style.left).toBe("37.5%");
+      expect(markerPosition()?.style.top).toBe("45%");
     });
 
-    objectRect = {
-      bottom: 210,
-      height: 60,
-      left: 300,
-      right: 420,
-      top: 150,
-      width: 120,
-      x: 300,
-      y: 150,
-    };
+    objectRect = rect(300, 150, 120, 60);
     fireEvent.resize(window);
 
     await waitFor(() => {
-      const marker = document.querySelector<HTMLElement>(
-        "[data-slide-comment-marker]",
-      );
-      const position = marker?.closest<HTMLElement>(
-        "[data-slide-comment-marker-position]",
-      );
-      expect(position?.style.left).toBe("65%");
-      expect(position?.style.top).toBe("65%");
+      expect(markerPosition()?.style.left).toBe("65%");
+      expect(markerPosition()?.style.top).toBe("65%");
     });
   });
 
   it("restores canvas focus after the pin plane is pressed", async () => {
-    renderWithCanvas({ active: true });
-    const canvas = document.querySelector<HTMLElement>(
-      "[data-main-slide-canvas='true']",
-    )!;
-    const plane = await waitFor(() => {
-      const element = document.querySelector<HTMLElement>(
-        "[data-slide-comment-click-plane]",
-      );
-      expect(element).toBeTruthy();
-      return element!;
-    });
+    const { canvas } = renderWithCanvas({ active: true });
+    const plane = await findElement("[data-slide-comment-click-plane]");
 
     fireEvent.pointerDown(plane, { clientX: 300, clientY: 150 });
     expect(document.activeElement).toBe(canvas);
+    expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull();
   });
 
-  it("clears a pending pin draft when the slide changes", async () => {
-    const view = renderWithCanvas({ active: true });
-    const plane = await waitFor(() => {
-      const element = document.querySelector<HTMLElement>(
-        "[data-slide-comment-click-plane]",
-      );
-      expect(element).toBeTruthy();
-      return element!;
-    });
-
-    fireEvent.click(plane, { clientX: 300, clientY: 150 });
-    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
-
-    view.rerender(
+  it("keeps a pin's draft to its own spot across a slide change", async () => {
+    const pinsOn = (slideId: string) => (
       <SlideCommentPins
         active
         canComment
         comments={[]}
         deckId="deck-1"
-        slideId="slide-2"
+        slideId={slideId}
         canvasSelector="[data-main-slide-canvas='true']"
-      />,
+        currentUserEmail="writer@example.com"
+      />
+    );
+    const view = renderWithCanvas({ active: true });
+    const plane = await findElement("[data-slide-comment-click-plane]");
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    typeInto(await editorNamed("Add comment"), "Half a thought");
+
+    view.rerender(pinsOn("slide-2"));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull(),
     );
 
+    view.rerender(pinsOn("slide-1"));
+    fireEvent.click(await findElement("[data-slide-comment-click-plane]"), {
+      clientX: 200,
+      clientY: 100,
+    });
+    expect((await editorNamed("Add comment")).textContent).toBe("");
+
+    fireEvent.click(await findElement("[data-slide-comment-click-plane]"), {
+      clientX: 300,
+      clientY: 150,
+    });
     await waitFor(() =>
-      expect(screen.queryByPlaceholderText("Add a comment...")).toBeNull(),
+      expect(
+        screen.getByRole("textbox", { name: "Add comment" }).textContent,
+      ).toBe("Half a thought"),
     );
-    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("throws a pin's draft away when its pin is canceled", async () => {
+    renderWithCanvas({ active: true });
+    const plane = await findElement("[data-slide-comment-click-plane]");
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    typeInto(await editorNamed("Add comment"), "Half a thought");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull(),
+    );
+
+    fireEvent.click(plane, { clientX: 300, clientY: 150 });
+    expect((await editorNamed("Add comment")).textContent).toBe("");
+  });
+
+  it("throws a marker reply's draft away on Cancel", async () => {
+    renderWithCanvas({ comments: [thread(comment("comment-1"))] });
+
+    fireEvent.click(await findElement("[data-slide-comment-marker]"));
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    typeInto(await editorNamed("Reply"), "Half a reply");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect((await editorNamed("Reply")).textContent).toBe("");
+    expect(mocks.reply).not.toHaveBeenCalled();
   });
 });

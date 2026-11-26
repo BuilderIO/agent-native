@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { CREATIVE_CONTEXT_SOURCE_KINDS } from "../types.js";
@@ -102,14 +102,17 @@ export default defineAction({
     "Create or update a private source, archive/restore it, preview a deliberate org promotion, promote after confirming container and count, or tombstone it and enqueue purge.",
   schema,
   agentInputSchema,
-  needsApproval: (args) =>
-    args.operation === "delete" || args.operation === "promote",
+  needsApproval: (args, ctx) =>
+    args.operation === "delete" ||
+    args.operation === "promote" ||
+    (args.operation === "archive" && isOutsideAgentCall(ctx)),
   publicAgent: {
     expose: true,
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
   },
+  mcpTool: "search",
   run: async (args) => {
     if (args.operation === "create") {
       const source = await createContextSource(args);

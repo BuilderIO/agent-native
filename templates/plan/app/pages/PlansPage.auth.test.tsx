@@ -283,4 +283,109 @@ describe("Plan inline email signup verification", () => {
         ?.textContent,
     ).toContain("Create account");
   });
+
+  it("enrolls anonymous Plan access-gate Google and email signups with Builder disclosure when enabled", async () => {
+    const requests: Array<{ url: string; method: string; body?: unknown }> = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body =
+          typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+        requests.push({ url, method, body });
+        if (url.includes("builder-signup-experiment")) {
+          return new Response(
+            JSON.stringify(
+              method === "POST"
+                ? { status: "accepted" }
+                : {
+                    status: "assigned",
+                    id: "f".repeat(32),
+                    variant: "automatic",
+                    policy: "builder-signup-2026-11-06",
+                    experimentId: "plan_builder_signup_v1",
+                  },
+            ),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.includes("/auth/register")) {
+          return new Response(null, { status: 201 });
+        }
+        return new Response(
+          JSON.stringify({
+            message:
+              "Your email isn't verified yet. Check your inbox for a verification link.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onGoogleSignIn = vi.fn();
+    const planError = Object.assign(new Error("No access"), { status: 403 });
+    await act(async () => {
+      root.render(
+        <PlanLoadError
+          error={planError}
+          builderSignupEnabled
+          onRetry={() => {}}
+          onSignIn={() => {}}
+          onGoogleSignIn={onGoogleSignIn}
+          onRequestAccess={() => {}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('a[href="https://www.builder.io/legal/terms"]'),
+      ).not.toBeNull();
+    });
+
+    const termsLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://www.builder.io/legal/terms"]',
+    );
+    const privacyLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://www.builder.io/legal/privacy"]',
+    );
+    expect(termsLink?.rel).toBe("noopener noreferrer");
+    expect(privacyLink?.rel).toBe("noopener noreferrer");
+
+    await act(async () => {
+      buttonWithText("plansPage.loadError.continueWithGoogle")?.click();
+    });
+    await vi.waitFor(() => {
+      expect(onGoogleSignIn).toHaveBeenCalledWith({
+        builderSignupAttemptId: expect.any(String),
+      });
+    });
+
+    act(() => buttonWithText("Sign in with email")?.click());
+    act(() => buttonWithText("Create account")?.click());
+    const email =
+      container.querySelector<HTMLInputElement>("#plan-access-email");
+    const password = container.querySelector<HTMLInputElement>(
+      "#plan-access-password",
+    );
+    if (!email || !password) throw new Error("missing email/password inputs");
+    setInputValue(email, "newplan@example.com");
+    setInputValue(password, "correct-horse-battery-staple");
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    await vi.waitFor(() => {
+      expect(requests.some((r) => r.url.includes("/auth/register"))).toBe(true);
+    });
+
+    const registerReq = requests.find((r) => r.url.includes("/auth/register"));
+    const registerBody = registerReq?.body as
+      | Record<string, unknown>
+      | undefined;
+    expect(registerBody?.builderSignupAttemptId).toBeTruthy();
+  });
 });

@@ -122,9 +122,9 @@ export function SidebarRowsSkeleton({
   firstRowProps,
 }: {
   rows: number;
-  more?: boolean;
+  more?: boolean | undefined;
   framed?: boolean;
-  firstRowProps?: Record<string, string>;
+  firstRowProps?: Record<string, string> | undefined;
 }) {
   const rowList = Array.from({ length: rows }, (_, index) => (
     <div

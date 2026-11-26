@@ -150,7 +150,10 @@ function BrowseAppsAction({ href }: { href: string }) {
   const t = useT();
   return (
     <Button asChild size="sm">
-      <a href={href}>
+      {/* Cross-app destination: this leaves the app for the apps directory, so it
+          opens beside the app (the arrow icon promises a new place) instead of
+          replacing the page the reader is working in. */}
+      <a href={href} target="_blank" rel="noopener noreferrer">
         {t("agentChat.settingsOrg.apps.browse")}
         <IconArrowUpRight />
       </a>

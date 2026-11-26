@@ -34,7 +34,12 @@ export interface UpdateProgressInput {
   status?: ProgressStatus;
 }
 
-export interface ListRunsOptions {
+/** Omit for internal aggregate access; an explicit missing app fails closed. */
+export interface ProgressRunScope {
+  sourceAppId?: string | null;
+}
+
+export interface ListRunsOptions extends ProgressRunScope {
   activeOnly?: boolean;
   limit?: number;
   event?: unknown;

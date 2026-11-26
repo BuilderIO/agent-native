@@ -3,6 +3,7 @@ import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
+import { mcpConnectHostLabel } from "@agent-native/core/shared/mcp-connect-content";
 import {
   MentionChip,
   type MentionItemMedia as MentionMedia,
@@ -44,7 +45,14 @@ export type CommentIdentity =
       engine?: string | null;
       provider?: string | null;
       run?: CommentAgentRun;
+      onBehalfOf?: CommentAgentAttribution;
     };
+
+export interface CommentAgentAttribution {
+  name: string;
+  source: "mcp" | "agent";
+  client?: string | null | undefined;
+}
 
 export interface CommentAgentRun {
   effort: string | null;
@@ -187,10 +195,14 @@ function AgentIdentityCard({
 }) {
   const t = useT();
   const formatters = useFormatters();
-  const { run } = identity;
+  const { run, onBehalfOf } = identity;
   const name = modelDisplayName(identity.model);
   const ranAt = run?.ranAt ? new Date(run.ranAt) : null;
   const effortKey = run?.effort ? REASONING_EFFORT_KEYS[run.effort] : undefined;
+  const clientLabel =
+    onBehalfOf?.source === "mcp"
+      ? mcpConnectHostLabel(onBehalfOf.client)
+      : null;
   return (
     <div className="grid gap-2.5">
       <div className="flex min-w-0 items-center gap-2.5">
@@ -207,6 +219,26 @@ function AgentIdentityCard({
           </span>
         </div>
       </div>
+      {onBehalfOf ? (
+        <p
+          className="grid gap-0.5 text-xs"
+          data-comment-identity-on-behalf={onBehalfOf.source}
+        >
+          <span>{t("comments.aiAttribution", { name: onBehalfOf.name })}</span>
+          <span className="text-muted-foreground">
+            {[
+              clientLabel,
+              t(
+                onBehalfOf.source === "mcp"
+                  ? "comments.aiSourceMcp"
+                  : "comments.aiSourceAgent",
+              ),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </p>
+      ) : null}
       {run ? (
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
           <IdentityDetail

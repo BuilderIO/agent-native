@@ -140,16 +140,4 @@ describe("brain db.ts migration entries follow the naming convention", () => {
   });
 });
 
-describe("brain db.ts wires ensureAdditiveColumns after runMigrations", () => {
-  it("calls ensureAdditiveColumns after runMigrations(...) completes", () => {
-    const migrationsCallIdx = dbTsSource.indexOf("runMigrations(");
-    const ensureCallIdx = dbTsSource.indexOf("ensureAdditiveColumns({");
-    expect(migrationsCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
-
-    expect(dbTsSource).toMatch(
-      /await\s+runBrainMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
-    );
-  });
-});
+// oracle-change: boot no longer repairs schema after the migrations; db.boot.spec.ts checks boot at runtime instead of this source-text pattern

@@ -17,6 +17,26 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(resolved.appApprovalPage).toBe(false);
   });
 
+  it("preserves the read-only MCP resource opt-in", () => {
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { readOnlyResources: true } })
+        .readOnlyResources,
+    ).toBe(true);
+  });
+
+  it("preserves the MCP skills opt-in", () => {
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { skills: ["assets"] } }).skills,
+    ).toEqual(["assets"]);
+  });
+
+  it("preserves the server-only task candidate provider", () => {
+    const taskCandidates = async () => [];
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { taskCandidates } }).taskCandidates,
+    ).toBe(taskCandidates);
+  });
+
   it("reads the nested `mcp` option", () => {
     const resolved = resolveAgentChatMcpOptions({
       mcp: {
@@ -55,6 +75,47 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(resolved.title).toBe("Calendar");
     expect(resolved.websiteUrl).toBe("/");
     expect(warn).toHaveBeenCalled();
+  });
+
+  describe("sending every write through ask_app", () => {
+    async function warningsFor(
+      externalAgents: NonNullable<
+        Parameters<typeof resolveAgentChatMcpOptions>[0]
+      >["externalAgents"],
+    ) {
+      vi.resetModules();
+      const fresh = await import("./mcp-options.js");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      fresh.resolveAgentChatMcpOptions({ mcp: { externalAgents } });
+      fresh.resolveAgentChatMcpOptions({ mcp: { externalAgents } });
+      return warn.mock.calls.map(([message]) => String(message));
+    }
+
+    it("warns once that the explicit setting is deprecated", async () => {
+      const warnings = await warningsFor({ writes: "ask_app_only" });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('writes: "ask_app_only"');
+      expect(warnings[0]).toContain("deprecated");
+      expect(warnings[0]).toContain("mcpTool: false");
+      expect(warnings[0]).toContain('`"search"` serves it to them directly');
+    });
+
+    it("warns when automatic reads imply it", async () => {
+      const warnings = await warningsFor({ authenticatedReads: "auto" });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('authenticatedReads: "auto"');
+    });
+
+    it("stays quiet for allowlisted writes or no write policy", async () => {
+      expect(
+        await warningsFor({
+          authenticatedReads: "auto",
+          writes: "allowlisted",
+        }),
+      ).toEqual([]);
+      expect(await warningsFor({ denyActions: ["send-report"] })).toEqual([]);
+      expect(await warningsFor(undefined)).toEqual([]);
+    });
   });
 
   it("treats `disableMcp: true` and `mcp.enabled: false` as agreeing", () => {

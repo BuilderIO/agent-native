@@ -41,7 +41,9 @@ async function gate(args: Record<string, unknown>) {
   }
   const intent = await actionCallIntent(action, args);
   if (!intent.valid) throw intent.error;
-  return needsApproval(preparedCallArguments(intent) as never);
+  return needsApproval(preparedCallArguments(intent) as never, {
+    caller: "tool",
+  });
 }
 
 describe("delete-event", () => {
@@ -139,7 +141,7 @@ describe("delete-event", () => {
     expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
   });
 
-  it("gates only a delete that reaches the guests", async () => {
+  it("gates only an in-app delete that reaches the guests", async () => {
     expect(await gate({ id: "google-a" } as never)).toBe(false);
     expect(await gate({ id: "google-a", sendUpdates: "none" } as never)).toBe(
       false,

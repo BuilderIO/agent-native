@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+## 2026-11-13
+
+### Fixed
+
+- Fix a startup error when opening Dispatch.
+
 ## 2026-11-09
 
 ### Improved

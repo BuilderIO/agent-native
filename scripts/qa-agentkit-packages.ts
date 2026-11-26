@@ -27,7 +27,7 @@ const commandTimeoutMs = Number(
 );
 
 const publicPackages = ["packages/agentkit"] as const;
-const supportPackages = ["packages/toolkit"] as const;
+const supportPackages = ["packages/design-system", "packages/toolkit"] as const;
 
 interface PackageManifest {
   name: string;

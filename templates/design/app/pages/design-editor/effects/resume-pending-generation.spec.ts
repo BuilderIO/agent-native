@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   snapshotGenerationOutputBaseline: vi.fn(
     (): Array<{ id: string; contentHash: string }> => [],
   ),
-  loadDesignSystemGenerationContext: vi.fn(),
 }));
 
 vi.mock("@/lib/pending-generation", () => ({
@@ -35,14 +34,6 @@ vi.mock("@/lib/pending-generation", () => ({
   shouldSkipPendingGenerationResume: mocks.shouldSkipPendingGenerationResume,
 }));
 
-vi.mock("@agent-native/creative-context/client", () => ({
-  readCreativeContextState: vi.fn(),
-}));
-
-vi.mock("@/pages/design-editor/creative-context-precedent", () => ({
-  designPrecedentDirectives: vi.fn(),
-}));
-
 vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
   designGenerationDirectives: vi.fn(() => []),
   designIntakeQuestionDirectives: vi.fn(() => []),
@@ -50,22 +41,13 @@ vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
   designVariantGenerationDirectives: vi.fn(() => []),
   formatUploadedFileContext: mocks.formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles: mocks.imageAttachmentsFromUploadedFiles,
-  loadDesignSystemGenerationContext: mocks.loadDesignSystemGenerationContext,
   promptRequestsVariantExploration: vi.fn(() => false),
-}));
-
-vi.mock("@/pages/design-editor/intake-question-topics", () => ({
-  allIntakeTopicsCovered: vi.fn(() => false),
-  loadIntakeContextFromAppState: vi.fn(),
 }));
 
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 
 import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
-import {
-  SYSTEM_CONTEXT_KEY,
-  TEMPLATE_CONTEXT_KEY,
-} from "@/lib/composer-context";
+import { TEMPLATE_CONTEXT_KEY } from "@/lib/composer-context";
 import { FIGMA_REFERENCE_GENERATION_DIRECTIVE } from "@/lib/figma-attachment";
 import { designGenerationDirectives } from "@/pages/design-editor/generation-prompt-directives";
 
@@ -74,7 +56,7 @@ import { runResumePendingGeneration } from "./resume-pending-generation.js";
 
 const frozenContext = Object.freeze([
   Object.freeze({
-    key: SYSTEM_CONTEXT_KEY,
+    key: "brand",
     title: "Brand",
     context: "Frozen brand rules",
   }),
@@ -92,9 +74,6 @@ function createArgs(
   return {
     agentSubmit: vi.fn(() => "run-tab"),
     clearGenerationCompleteTimer: vi.fn(),
-    creativeContextEnabled: true,
-    creativeContextLabLoading: true,
-    creativeContextLabError: null,
     design: { title: "New design" } as never,
     files: [],
     generationModelRef: { current: null } as never,
@@ -126,16 +105,8 @@ beforeEach(() => {
   mocks.isPendingGenerationStale.mockReturnValue(false);
 });
 
+// oracle-change: Creative context removed from Design; its assertions no longer apply
 describe("runResumePendingGeneration", () => {
-  it("waits for Labs before consuming a pending generation", () => {
-    const args = createArgs();
-
-    runResumePendingGeneration(args);
-
-    expect(mocks.readPendingGeneration).not.toHaveBeenCalled();
-    expect(args.agentSubmit).not.toHaveBeenCalled();
-  });
-
   it("restores the pending tab without resetting the canonical run tracker", () => {
     mocks.readPendingGeneration.mockReturnValue({
       runTabId: "run-tab",
@@ -144,34 +115,13 @@ describe("runResumePendingGeneration", () => {
       currentRunId: "current-run",
       prompt: "Create a design",
     });
-    const args = createArgs({ creativeContextLabLoading: false });
+    const args = createArgs();
 
     runResumePendingGeneration(args);
 
     expect(args.setGenerationChatTabId).toHaveBeenCalledWith("run-tab");
     expect(args.setHasPendingGeneration).toHaveBeenCalledWith(true);
     expect(args.trackAgentGeneration).not.toHaveBeenCalled();
-  });
-
-  it("keeps the pending generation and reports an unreadable Labs state", () => {
-    mocks.readPendingGeneration.mockReturnValue({
-      autoGenerate: true,
-      files: [],
-      prompt: "Create a design",
-    });
-    const args = createArgs({
-      creativeContextLabLoading: false,
-      creativeContextLabError: "Could not read Labs settings.",
-    });
-
-    runResumePendingGeneration(args);
-
-    expect(args.setGenerationIssue).toHaveBeenCalledWith(
-      "Could not read Labs settings.",
-    );
-    expect(args.setHasPendingGeneration).toHaveBeenCalledWith(true);
-    expect(args.agentSubmit).not.toHaveBeenCalled();
-    expect(mocks.formatUploadedFileContext).not.toHaveBeenCalled();
   });
 
   it("shows invalid canvas dimensions instead of leaving a blank pending design", async () => {
@@ -184,10 +134,7 @@ describe("runResumePendingGeneration", () => {
     vi.mocked(designGenerationDirectives).mockImplementationOnce(() => {
       throw new InvalidCanvasDimensionsError("invalid dimensions");
     });
-    const args = createArgs({
-      creativeContextLabLoading: false,
-      creativeContextEnabled: false,
-    });
+    const args = createArgs();
 
     runResumePendingGeneration(args);
 
@@ -210,7 +157,7 @@ describe("runResumePendingGeneration", () => {
     mocks.imageAttachmentsFromUploadedFiles.mockImplementationOnce(() => {
       throw error;
     });
-    const args = createArgs({ creativeContextLabLoading: false });
+    const args = createArgs();
 
     runResumePendingGeneration(args);
 
@@ -237,10 +184,7 @@ describe("runResumePendingGeneration", () => {
         skipQuestions: true,
         templateId,
       });
-      const args = createArgs({
-        creativeContextLabLoading: false,
-        creativeContextEnabled: false,
-      });
+      const args = createArgs();
 
       runResumePendingGeneration(args);
 
@@ -260,7 +204,6 @@ describe("runResumePendingGeneration", () => {
         expect.anything(),
       );
       expect(mocks.formatUploadedFileContext).toHaveBeenCalledWith(files);
-      expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
       if (templateId) {
         expect(mocks.snapshotGenerationOutputBaseline).not.toHaveBeenCalled();
       } else {
@@ -287,13 +230,9 @@ describe("runResumePendingGeneration", () => {
           status: "ready",
         },
       ],
-      designSystemId: null,
       skipQuestions: true,
     });
-    const args = createArgs({
-      creativeContextLabLoading: false,
-      creativeContextEnabled: false,
-    });
+    const args = createArgs();
 
     runResumePendingGeneration(args);
 
@@ -307,13 +246,9 @@ describe("runResumePendingGeneration", () => {
       prompt: "Keep the original brief",
       files: [],
       contextItems: frozenContext,
-      designSystemId: null,
       skipQuestions: true,
     });
-    const args = createArgs({
-      creativeContextLabLoading: false,
-      creativeContextEnabled: false,
-    });
+    const args = createArgs();
 
     runResumePendingGeneration(args);
 
@@ -339,7 +274,6 @@ describe("runResumePendingGeneration", () => {
       prompt: "Create an ad at 0x600",
       files: [],
       contextItems: frozenContext,
-      designSystemId: null,
       model: "selected-model",
     };
 
@@ -375,7 +309,6 @@ describe("runResumePendingGeneration", () => {
         },
       ],
       contextItems: frozenContext,
-      designSystemId: "system-1",
       model: "selected-model",
       engine: "builder",
       effort: "high" as const,
@@ -401,7 +334,6 @@ describe("runResumePendingGeneration", () => {
         effort: "high",
       }),
     );
-    expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
   });
 
   it("clears a retry when its image payload is unavailable", async () => {

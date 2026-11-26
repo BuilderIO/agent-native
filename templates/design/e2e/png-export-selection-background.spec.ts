@@ -1,6 +1,11 @@
 import { type Page } from "@playwright/test";
 
-import { appPath, expandAllLayers, openAppMenuSubmenu } from "./helpers";
+import {
+  appPath,
+  expandAllLayers,
+  openAppMenuSubmenu,
+  openPageOverview,
+} from "./helpers";
 import { expect, test, type App } from "./rails";
 
 const EXPORT_HTML = `<!doctype html>
@@ -79,7 +84,7 @@ async function enterFocusedEditMode(page: Page) {
   ).toContainText("Home");
   await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await page
-    .locator('[data-design-top-bar] [data-design-mode="edit"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Edit"]')
     .press("Enter");
   await expect(
     page
@@ -159,7 +164,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
   const transparentFrame = layerRow(page, "Transparent frame");
   await transparentFrame.locator("[data-layer-row-button]").click();
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("100");
   const transparentFrameExport = await exportPngPixels(page);
   expect(transparentFrameExport).toMatchObject({
@@ -183,7 +188,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
 
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveCount(0);
   const focusedMenuExport = await exportPngPixelsFromFileMenu(page);
   expect(focusedMenuExport.corner).toEqual([18, 52, 86, 255]);
@@ -197,11 +202,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     )
     .toEqual({ scale: Math.round(focusedMenuExport.width / 300), height: 200 });
 
-  await page
-    .locator("aside")
-    .first()
-    .getByRole("button", { name: "All screens" })
-    .click();
+  await openPageOverview(page);
   await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expandAllLayers(page);
   const screen = layerRow(page, "Home");
@@ -219,11 +220,13 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     .locator('button[title="index.html"]');
   await home.click();
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(
-    page.locator("[data-design-top-bar] [data-design-interact-route]"),
+    page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
   const responsiveMenuExport = await exportPngPixelsFromFileMenu(page);
   expect(responsiveMenuExport.corner).toEqual([18, 52, 86, 255]);

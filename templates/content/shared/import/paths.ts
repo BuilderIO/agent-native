@@ -3,6 +3,7 @@ import { decodeHtmlEntities } from "./html-fragment";
 const SCHEME_RE = /^([a-z][a-z0-9+.-]*):/i;
 const SAFE_LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
 const MARKDOWN_FILE_RE = /\.(md|markdown|mdx)$/i;
+const FILE_EXTENSION_RE = /\.[a-z0-9]{1,8}$/i;
 const CONTROL_CHARACTER_RE = /[\u0000-\u001f\u007f]/;
 
 export type ImportReference =
@@ -81,14 +82,40 @@ export function resolveImportPath(
   sourcePath: string,
   reference: string,
 ): string | null {
-  const withoutSuffix = reference.replace(/[?#].*$/, "");
-  const decoded = safeDecode(withoutSuffix).replace(/\\/g, "/");
+  const { path } = splitReferenceSuffix(reference);
+  const decoded = safeDecode(path).replace(/\\/g, "/");
   const folder = decoded.startsWith("/")
     ? []
     : walkSegments([], sourcePath.replace(/\\/g, "/"))?.slice(0, -1);
   if (!folder) return null;
   const segments = walkSegments(folder, decoded);
   return segments?.length ? segments.join("/") : null;
+}
+
+export function splitReferenceSuffix(reference: string): {
+  path: string;
+  suffix: string;
+} {
+  const first = reference.search(/[?#]/);
+  if (first === -1) return { path: reference, suffix: "" };
+  if (FILE_EXTENSION_RE.test(safeDecode(reference.slice(0, first)))) {
+    return { path: reference.slice(0, first), suffix: reference.slice(first) };
+  }
+  const query = reference.indexOf("?", first);
+  const end = query === -1 ? reference.length : query;
+  for (let at = reference.indexOf("#", first + 1); at !== -1 && at < end; ) {
+    if (FILE_EXTENSION_RE.test(safeDecode(reference.slice(0, at)))) {
+      return { path: reference.slice(0, at), suffix: reference.slice(at) };
+    }
+    at = reference.indexOf("#", at + 1);
+  }
+  if (
+    end > first &&
+    FILE_EXTENSION_RE.test(safeDecode(reference.slice(0, end)))
+  ) {
+    return { path: reference.slice(0, end), suffix: reference.slice(end) };
+  }
+  return { path: reference.slice(0, first), suffix: reference.slice(first) };
 }
 
 export function isMarkdownFilePath(path: string): boolean {

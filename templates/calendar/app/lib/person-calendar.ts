@@ -1,11 +1,12 @@
-const NON_PERSON_ID_SUFFIXES = [
-  "@group.calendar.google.com",
-  "@resource.calendar.google.com",
-  "@import.calendar.google.com",
-];
+const GOOGLE_CALENDAR_DOMAIN = "calendar.google.com";
 
 export function isPersonCalendarId(calendarId: string): boolean {
   const id = calendarId.trim().toLowerCase();
-  if (!id.includes("@")) return false;
-  return !NON_PERSON_ID_SUFFIXES.some((suffix) => id.endsWith(suffix));
+  const at = id.lastIndexOf("@");
+  if (at === -1) return false;
+  const domain = id.slice(at + 1);
+  return (
+    domain !== GOOGLE_CALENDAR_DOMAIN &&
+    !domain.endsWith(`.${GOOGLE_CALENDAR_DOMAIN}`)
+  );
 }

@@ -33,6 +33,7 @@ function makeClient(
 }
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
@@ -121,6 +122,41 @@ describe("data-programs/store", () => {
       ).resolves.toBeDefined();
     });
 
+    it("adds scheduled_refresh to a data_programs table created before it existed", async () => {
+      await pglite.exec(`CREATE TABLE data_programs (
+        id TEXT PRIMARY KEY,
+        app_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        code TEXT NOT NULL,
+        params_schema TEXT,
+        default_params TEXT,
+        output_columns TEXT,
+        refresh_mode TEXT NOT NULL DEFAULT 'ttl',
+        refresh_ttl_ms INTEGER NOT NULL DEFAULT 300000,
+        background INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT now(),
+        updated_at TEXT NOT NULL DEFAULT now(),
+        archived_at TEXT,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      )`);
+      await pglite.exec(
+        `INSERT INTO data_programs (id, app_id, name, title, code, owner_email, org_id)
+         VALUES ('dp_legacy', 'test-app', 'legacy', 'Legacy', 'emit([])', 'owner@example.com', 'org_1')`,
+      );
+      const { ensureDataProgramTables, getDataProgram } = await loadStore();
+      await ensureDataProgramTables();
+
+      const legacy = await getDataProgram("dp_legacy", "test-app", {
+        userEmail: "owner@example.com",
+        orgId: "org_1",
+      });
+      expect(legacy?.scheduledRefresh).toBe(false);
+    });
+
     it("memoizes the init promise (second call is a no-op re-await)", async () => {
       const { ensureDataProgramTables } = await loadStore();
       await ensureDataProgramTables();
@@ -195,6 +231,169 @@ describe("data-programs/store", () => {
       const byName = await getDataProgramByName(appId, "cohort", owner);
       expect(byName?.title).toBe("V2");
       expect(byName?.code).toBe("emit([{a:1}])");
+    });
+
+    it("keeps a scheduled refresh through a save that leaves it out, and lists the app's live scheduled programs", async () => {
+      const {
+        ensureDataProgramTables,
+        upsertDataProgram,
+        archiveDataProgram,
+        listScheduledDataPrograms,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const org = {
+        ownerEmail: owner,
+        orgId: "org_1",
+        refreshTtlMs: 3_600_000,
+      };
+
+      const scheduled = await upsertDataProgram({
+        appId,
+        name: "hourly",
+        title: "Hourly",
+        code: "emit([])",
+        scheduledRefresh: true,
+        ...org,
+      });
+      expect(scheduled.scheduledRefresh).toBe(true);
+      const resaved = await upsertDataProgram({
+        appId,
+        name: "hourly",
+        title: "Hourly v2",
+        code: "emit([{a:1}])",
+        ...org,
+      });
+      expect(resaved.scheduledRefresh).toBe(true);
+
+      await upsertDataProgram({
+        appId,
+        name: "plain",
+        title: "Plain",
+        code: "emit([])",
+        ...org,
+      });
+      const archived = await upsertDataProgram({
+        appId,
+        name: "archived",
+        title: "Archived",
+        code: "emit([])",
+        scheduledRefresh: true,
+        ...org,
+      });
+      await archiveDataProgram(archived.id, appId, {
+        userEmail: owner,
+        orgId: "org_1",
+      });
+      await upsertDataProgram({
+        appId: "other-app",
+        name: "elsewhere",
+        title: "Elsewhere",
+        code: "emit([])",
+        scheduledRefresh: true,
+        ...org,
+      });
+
+      const listed = await listScheduledDataPrograms(appId);
+      expect(listed.map((p) => p.id)).toEqual([scheduled.id]);
+      await expect(
+        listScheduledDataPrograms(appId, scheduled.id),
+      ).resolves.toEqual([expect.objectContaining({ title: "Hourly v2" })]);
+      await expect(
+        listScheduledDataPrograms(appId, archived.id),
+      ).resolves.toEqual([]);
+
+      const off = await upsertDataProgram({
+        appId,
+        name: "hourly",
+        title: "Hourly v2",
+        code: "emit([{a:1}])",
+        scheduledRefresh: false,
+        ...org,
+      });
+      expect(off.scheduledRefresh).toBe(false);
+      await expect(listScheduledDataPrograms(appId)).resolves.toEqual([]);
+    });
+
+    it("refuses a scheduled refresh it couldn't share with an org", async () => {
+      const { ensureDataProgramTables, upsertDataProgram } = await loadStore();
+      await ensureDataProgramTables();
+      const base = {
+        appId,
+        title: "Scheduled",
+        code: "emit([])",
+        ownerEmail: owner,
+        refreshTtlMs: 3_600_000,
+        scheduledRefresh: true,
+      };
+
+      await expect(
+        upsertDataProgram({ ...base, name: "no-org" }),
+      ).rejects.toThrow(/needs an organization/);
+      await expect(
+        upsertDataProgram({
+          ...base,
+          name: "every-five-minutes",
+          orgId: "org_1",
+          refreshTtlMs: 5 * 60_000,
+        }),
+      ).rejects.toThrow(/at least 15 minutes/);
+      await expect(
+        upsertDataProgram({
+          ...base,
+          name: "manual",
+          orgId: "org_1",
+          refreshMode: "manual",
+        }),
+      ).rejects.toThrow(/refreshMode "ttl"/);
+      await expect(
+        upsertDataProgram({
+          ...base,
+          name: "background",
+          orgId: "org_1",
+          background: true,
+        }),
+      ).rejects.toThrow(/Background programs/);
+
+      const existing = await upsertDataProgram({
+        ...base,
+        name: "later-manual",
+        orgId: "org_1",
+      });
+      await expect(
+        upsertDataProgram({
+          appId,
+          name: "later-manual",
+          title: "Scheduled",
+          code: "emit([])",
+          ownerEmail: owner,
+          orgId: "org_1",
+          refreshMode: "manual",
+        }),
+      ).rejects.toThrow(/refreshMode "ttl"/);
+      expect(existing.scheduledRefresh).toBe(true);
+
+      const collector = {
+        appId,
+        name: "collector",
+        title: "Collector",
+        code: "emit([])",
+        ownerEmail: owner,
+        orgId: "org_1",
+        refreshTtlMs: 3_600_000,
+      };
+      await upsertDataProgram({ ...collector, background: true });
+      await expect(
+        upsertDataProgram({ ...collector, scheduledRefresh: true }),
+      ).rejects.toThrow(/background: false/);
+      const foreground = await upsertDataProgram({
+        ...collector,
+        background: false,
+        scheduledRefresh: true,
+      });
+      expect(foreground).toMatchObject({
+        background: false,
+        scheduledRefresh: true,
+      });
     });
 
     it("keeps updatedAt when a save changes nothing", async () => {
@@ -451,6 +650,41 @@ describe("data-programs/store", () => {
       expect(latest?.truncated).toBe(true);
     });
 
+    it("lets only the first onlyIfActive update finish a queued run", async () => {
+      const {
+        ensureDataProgramTables,
+        recordDataProgramRun,
+        updateDataProgramRun,
+        getLatestRun,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const run = await recordDataProgramRun({
+        programId,
+        paramsHash: "race",
+        paramsJson: "{}",
+        status: "queued",
+        executionId: "exec_1",
+        triggeredBy: "panel_view",
+      });
+
+      const first = await updateDataProgramRun(run.id, {
+        status: "succeeded",
+        rowsJson: JSON.stringify([{ a: 1 }]),
+        onlyIfActive: true,
+      });
+      const second = await updateDataProgramRun(run.id, {
+        status: "failed",
+        errorCode: "emit_missing",
+        onlyIfActive: true,
+      });
+
+      expect(first).toBe(true);
+      expect(second).toBe(false);
+      const latest = await getLatestRun(programId, "race");
+      expect(latest?.status).toBe("succeeded");
+      expect(latest?.errorCode).toBeNull();
+    });
+
     it("getLatestSuccessfulRun ignores failed runs", async () => {
       const {
         ensureDataProgramTables,
@@ -597,6 +831,49 @@ describe("data-programs/store", () => {
       expect(
         await getLatestFinishedRunOutcome(programId, "no-runs-hash"),
       ).toBeNull();
+    });
+
+    it("getLatestSharedRunRefusal skips the schedule's own failures", async () => {
+      const {
+        ensureDataProgramTables,
+        recordDataProgramRun,
+        getLatestSharedRunRefusal,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const now = Date.now();
+
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "refusal-hash",
+        paramsJson: "{}",
+        status: "failed",
+        errorCode: "shared_run_failed",
+        triggeredBy: "panel_view",
+        startedAt: now - 3_000,
+        finishedAt: now - 2_900,
+      });
+      for (const [errorCode, startedAt] of [
+        ["schedule_timed_out", now - 2_000],
+        ["schedule_owner_unverified", now - 1_000],
+      ] as const) {
+        await recordDataProgramRun({
+          programId,
+          paramsHash: "refusal-hash",
+          paramsJson: "{}",
+          status: "failed",
+          errorCode,
+          triggeredBy: "schedule",
+          startedAt,
+          finishedAt: startedAt + 100,
+        });
+      }
+
+      expect(
+        await getLatestSharedRunRefusal(programId, now - 10_000),
+      ).toMatchObject({
+        errorCode: "shared_run_failed",
+        startedAt: now - 3_000,
+      });
     });
 
     it("getActiveRun finds queued/running rows but not succeeded/failed ones", async () => {

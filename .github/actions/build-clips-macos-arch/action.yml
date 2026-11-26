@@ -1,0 +1,46 @@
+name: Build one Clips macOS architecture
+description: >-
+  Compiles the Clips desktop app for one macOS architecture and uploads the
+  binary with that architecture's ffmpeg sidecar as the workflow artifact
+  clips-macos-<target>. bundle-clips-macos merges both into the universal
+  app, so the two architectures compile on separate runners at the same time
+  instead of one after the other. The release and the build check both run
+  it. Requires setup-clips-desktop for the same target. Any
+  CLIPS_DESKTOP_SENTRY_* or VITE_* settings in the calling step's env are
+  built into the app.
+
+inputs:
+  target:
+    description: aarch64-apple-darwin or x86_64-apple-darwin.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Build the app binary
+      working-directory: templates/clips/desktop
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: pnpm tauri build --target "$TARGET" --no-bundle
+
+    - name: Collect the binary and its sidecar
+      id: collect
+      working-directory: templates/clips/desktop/src-tauri
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: |
+        BINARY=$(node -p 'const config = require("./tauri.conf.json"); config.mainBinaryName || config.productName')
+        OUT="$RUNNER_TEMP/clips-macos-$TARGET"
+        mkdir -p "$OUT"
+        cp "target/$TARGET/release/$BINARY" "binaries/ffmpeg-$TARGET" "$OUT/"
+        echo "dir=$OUT" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: clips-macos-${{ inputs.target }}
+        path: ${{ steps.collect.outputs.dir }}
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: true

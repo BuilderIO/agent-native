@@ -37,6 +37,7 @@ import {
   IconPhoto,
   IconFilter,
   IconMessage2,
+  IconLayoutColumns,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -88,6 +89,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useReportImageUploadFailure } from "@/hooks/use-storage-setup-labels";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -985,6 +987,7 @@ function AutomationsSection() {
 
 function DraftingSection() {
   const t = useT();
+  const reportSignatureImageFailure = useReportImageUploadFailure();
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
@@ -1035,9 +1038,10 @@ function DraftingSection() {
           `${current.slice(0, start)}${markdown}${current.slice(end)}`,
       );
     } catch (error) {
-      reportWriteFailure(error, {
-        label: t("settings.signatureImageUploadFailed"),
-      });
+      reportSignatureImageFailure(
+        error,
+        t("settings.signatureImageUploadFailed"),
+      );
     }
   };
 
@@ -1164,7 +1168,7 @@ function DraftingSection() {
           end: event.currentTarget.selectionEnd,
         };
       }}
-      placeholder={"Best,\nSteve"}
+      placeholder={t("settings.signaturePlaceholder")}
       rows={5}
       className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"
     />
@@ -1271,6 +1275,47 @@ function SettingsRowsSkeleton({ groups }: { groups: readonly number[] }) {
   );
 }
 
+function ReadingSection() {
+  const t = useT();
+  const { data: settings, isLoading } = useSettings();
+  const updateSettings = useUpdateSettings();
+
+  if (isLoading) return <SettingsRowsSkeleton groups={[1]} />;
+  return (
+    <SettingsGroup id="reading-settings">
+      <SettingsRow
+        id="reading-pane"
+        label={t("settings.readingPane")}
+        control={
+          settings === undefined ? (
+            <span className="text-sm text-muted-foreground" role="alert">
+              {t("settings.readingPaneLoadFailed")}
+            </span>
+          ) : (
+            <Switch
+              id="mail-reading-pane-setting"
+              aria-label={t("settings.readingPane")}
+              checked={settings.previewPane !== "off"}
+              onCheckedChange={(checked) =>
+                updateSettings.mutate(
+                  { previewPane: checked ? "right" : "off" },
+                  {
+                    onError: (error) =>
+                      reportWriteFailure(error, {
+                        label: t("settings.readingPaneSaveFailed"),
+                      }),
+                  },
+                )
+              }
+              disabled={updateSettings.isPending}
+            />
+          )
+        }
+      />
+    </SettingsGroup>
+  );
+}
+
 function TrackingSection() {
   const t = useT();
   const { data: settings, isLoading } = useSettings();
@@ -1322,6 +1367,21 @@ function useMailSettingsAreas(): MailSettingsAppArea[] {
   const t = useT();
   return useMemo<MailSettingsAppArea[]>(
     () => [
+      {
+        id: "reading",
+        label: t("settings.reading"),
+        icon: IconLayoutColumns,
+        keywords: "reading pane preview split layout columns",
+        searchEntries: [
+          {
+            id: "mail-reading-pane",
+            label: t("settings.readingPane"),
+            keywords: "reading pane preview split side by side",
+            hash: "reading-pane",
+          },
+        ],
+        content: <ReadingSection />,
+      },
       {
         id: "drafting",
         label: t("settings.drafting"),

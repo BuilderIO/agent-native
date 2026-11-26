@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
-import { buildDeepLink } from "@agent-native/core/server";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { createQueuedDraft } from "../server/lib/queued-drafts.js";
@@ -41,6 +41,11 @@ export default defineAction({
       .optional()
       .describe("Optional connected sender account the owner should use"),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.ownerEmail.trim().toLowerCase() !==
+      getRequestUserEmail()?.trim().toLowerCase(),
+  mcpTool: "search",
   run: async (args) => {
     return createQueuedDraft(args);
   },

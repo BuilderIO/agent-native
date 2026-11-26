@@ -34,6 +34,7 @@ function makeExec() {
 let exec = makeExec();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => exec,
   isConnectionError: (err: any) => err?.message === "CONNECTION_LOST",
   isProductionServerlessFunctionRuntime: () => false,
@@ -57,17 +58,13 @@ async function freshStore() {
 }
 
 describe("oauth-store hashing & token generation", () => {
-  it("generateOpaqueToken returns high-entropy, url-safe, distinct values", async () => {
+  it("issues high-entropy url-safe tokens and hashes them deterministically", async () => {
     const s = await freshStore();
     const a = s.generateOpaqueToken();
     const b = s.generateOpaqueToken();
     expect(a).not.toBe(b);
     expect(a).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(a.length).toBeGreaterThanOrEqual(43);
-  });
-
-  it("hashOAuthToken is deterministic and not the identity of the token", async () => {
-    const s = await freshStore();
     expect(s.hashOAuthToken("secret")).toBe(s.hashOAuthToken("secret"));
     expect(s.hashOAuthToken("secret")).not.toBe(s.hashOAuthToken("secret2"));
     expect(s.hashOAuthToken("secret")).not.toBe("secret");
@@ -373,6 +370,7 @@ describe("client registration", () => {
       tokenEndpointAuthMethod: "none",
       applicationType: "native",
     });
+    expect(await s.getOAuthClient("does-not-exist")).toBeNull();
   });
 
   it("preserves caller-supplied grant/response types and auth method", async () => {
@@ -393,11 +391,6 @@ describe("client registration", () => {
       "https://app/cb",
       "https://app/cb2",
     ]);
-  });
-
-  it("getOAuthClient returns null for an unknown client", async () => {
-    const s = await freshStore();
-    expect(await s.getOAuthClient("does-not-exist")).toBeNull();
   });
 
   it("enforces the registration rate limit inside the window", async () => {
@@ -560,11 +553,6 @@ describe("authorization codes", () => {
     ).toEqual([{ consumed_at: null }]);
   });
 
-  it("getOAuthCode returns null for an unknown code", async () => {
-    const s = await freshStore();
-    expect(await s.getOAuthCode("nope")).toBeNull();
-  });
-
   it("consumeOAuthCode succeeds exactly once (single-use)", async () => {
     const s = await freshStore();
     const created = await s.createOAuthCode(codeParams);
@@ -578,6 +566,7 @@ describe("authorization codes", () => {
   it("consumeOAuthCode returns null for an unknown or expired code", async () => {
     const s = await freshStore();
     expect(await s.consumeOAuthCode("missing")).toBeNull();
+    expect(await s.getOAuthCode("nope")).toBeNull();
 
     vi.spyOn(Date, "now").mockReturnValue(1000);
     const created = await s.createOAuthCode(codeParams);
@@ -949,15 +938,7 @@ describe("refresh tokens", () => {
 
     expect(await s.getOAuthRefreshToken("raw-refresh-token")).toBeNull();
     expect(await s.getOAuthRefreshToken("new-refresh-token")).not.toBeNull();
-  });
 
-  it("records the replacement hash on the revoked old token (rotation chain)", async () => {
-    const s = await freshStore();
-    await s.createOAuthRefreshToken(refreshParams);
-    await s.rotateOAuthRefreshToken({
-      oldRefreshToken: "raw-refresh-token",
-      newRefreshToken: "new-refresh-token",
-    });
     const oldRow = (await pglite
       .prepare("SELECT * FROM mcp_oauth_refresh_tokens WHERE token_hash = ?")
       .get(s.hashOAuthToken("raw-refresh-token"))) as any;
@@ -979,10 +960,6 @@ describe("refresh tokens", () => {
       newRefreshToken: "rotated-2",
     });
     expect(replay).toBeNull();
-  });
-
-  it("rotateOAuthRefreshToken returns null for an unknown token", async () => {
-    const s = await freshStore();
     expect(
       await s.rotateOAuthRefreshToken({
         oldRefreshToken: "never-existed",

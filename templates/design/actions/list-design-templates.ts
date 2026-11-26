@@ -54,7 +54,6 @@ export default defineAction({
         width: schema.designTemplates.width,
         height: schema.designTemplates.height,
         lockedLayerCount: schema.designTemplates.lockedLayerCount,
-        designSystemId: schema.designTemplates.designSystemId,
         visibility: schema.designTemplates.visibility,
         ownerEmail: schema.designTemplates.ownerEmail,
         createdAt: schema.designTemplates.createdAt,
@@ -68,20 +67,11 @@ export default defineAction({
       )
       .orderBy(desc(schema.designTemplates.updatedAt));
 
-    const linkedDesignSystemIds = Array.from(
-      new Set(
-        rows
-          .map((row) => row.designSystemId)
-          .filter(
-            (id): id is string => typeof id === "string" && id.length > 0,
-          ),
-      ),
-    );
-    const [files, accessibleDesignSystems] = await Promise.all([
+    const files =
       includePreview === "true" &&
       includeSavedPreview === "true" &&
       rows.length > 0
-        ? db
+        ? await db
             .select({
               templateId: schema.designTemplateFiles.templateId,
               filename: schema.designTemplateFiles.filename,
@@ -98,25 +88,7 @@ export default defineAction({
                 eq(schema.designTemplateFiles.fileType, "html"),
               ),
             )
-        : Promise.resolve([]),
-      linkedDesignSystemIds.length > 0
-        ? db
-            .select({ id: schema.designSystems.id })
-            .from(schema.designSystems)
-            .where(
-              and(
-                inArray(schema.designSystems.id, linkedDesignSystemIds),
-                accessFilter(
-                  schema.designSystems,
-                  schema.designSystemShares,
-                  { userEmail, orgId },
-                  "viewer",
-                  { includePublic: true },
-                ),
-              ),
-            )
-        : Promise.resolve([]),
-    ]);
+        : [];
 
     const previews = new Map<string, string>();
     if (includePreview === "true") {
@@ -129,9 +101,6 @@ export default defineAction({
         }
       }
     }
-    const accessibleDesignSystemIds = new Set(
-      accessibleDesignSystems.map((system) => system.id),
-    );
 
     const presets = DESIGN_TEMPLATE_PRESETS.filter(
       (preset) => !category || preset.category === category,
@@ -143,7 +112,6 @@ export default defineAction({
       width: preset.width,
       height: preset.height,
       lockedLayerCount: 2,
-      designSystemId: null,
       visibility: "public" as const,
       isOwner: false,
       isBuiltIn: true,
@@ -153,12 +121,8 @@ export default defineAction({
       ...(includePreview === "true" ? { previewHtml: preset.content } : {}),
     }));
 
-    const saved = rows.map(({ ownerEmail, designSystemId, ...row }) => ({
+    const saved = rows.map(({ ownerEmail, ...row }) => ({
       ...row,
-      designSystemId:
-        designSystemId && accessibleDesignSystemIds.has(designSystemId)
-          ? designSystemId
-          : null,
       isOwner:
         !!userEmail && ownerEmail.toLowerCase() === userEmail.toLowerCase(),
       isBuiltIn: false,

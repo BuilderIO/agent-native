@@ -69,7 +69,7 @@ export async function enterInteract(page: Page) {
   await page.setViewportSize({ width: 1751, height: 897 });
   await gotoEditor(page, await createDesign(page));
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   const frame = page.locator(INTERACT_FRAME);
   await expect(frame).toBeVisible();

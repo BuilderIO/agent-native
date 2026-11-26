@@ -384,6 +384,28 @@ Use typed defaults, formulas, validation, and rendering so ordinary data stays c
 
 **Enhancing capability records:** [View-derived creation defaults](capabilities/content.view.dynamic-create.md), [Actor properties](capabilities/content.property.actor.md), [Cached expression results](capabilities/content.expression.cached-result.md)
 
+### Feature 34: Writing that keeps itself right
+
+Put checks on a page so its writing keeps pointing at what doesn't pass, without anything changing the text.
+
+**Status:** Partially implemented
+
+**Example workflow:** An editor adds "Under 120 words" to a post's intro, sees "183 words, 63 over" before saving the check, cuts the intro, and watches the dot beside it disappear a few seconds after they stop typing.
+
+**What works today:** Count and yes/no checks on the page, the intro, a section or each paragraph, with dots beside the text, a Checks list in Info, a header count, Check now, a recheck after typing stops, Skip here and Comment. Yes/no parts name the model that answers them and offer How sure.
+
+**What remains:** Checks on each section with Only where, and checks on Collection rows.
+
+**What this Feature includes:**
+
+- **Checks:** A sentence on a page, like "Under 120 words", that marks every place in its scope that doesn't pass.
+- **Answers:** Each place is fine, not fine, skipped, changed since the last check, or couldn't check with its reason, and no two look alike.
+- **Running:** Check now, and a recheck a few seconds after typing stops; opening or reading a page runs nothing.
+- **Acting:** Comment opens the ordinary comment box with the reason filled in; Skip here hides one place until its text changes.
+- **Access:** Editors add, change and run checks; commenters read them; viewers and public readers get nothing.
+
+**Required capability records:** [Checks](capabilities/content.check.page.md)
+
 ### Feature 14: Share how your organization works
 
 Govern reusable Templates, Properties, Expressions, and Custom Blocks without taking ownership away from adopters.
@@ -544,9 +566,9 @@ Create a one-off artifact, then promote it into a governed reusable Custom Block
 
 **Example workflow:** An agent creates a one-off interactive calculator inside a Page; its owner inspects the source and rendered result, then promotes it to an approved Custom Block that coworkers can insert from the slash menu.
 
-**What works today:** Sandboxed Extensions, local MDX components, HTML artifacts, executable-code foundations, and shared component toolkits already demonstrate several rendering and execution modes.
+**What works today:** Artifact Blocks run Page-owned HTML as `html interactive` code blocks in a sealed frame, with inspectable source, full screen, their own links, agent edits, and captioned fallbacks. Sandboxed Extensions, local MDX components, executable-code foundations, and shared component toolkits demonstrate other rendering and execution modes.
 
-**What remains:** These pieces need one Custom Block lifecycle with inspectable source, secure sandboxing, optional typed props, one-off artifacts, promotion, governed catalogs, source-backed origins, and slash-command discovery.
+**What remains:** These pieces need one Custom Block lifecycle with optional typed props, promotion of one-off artifacts, governed catalogs, source-backed origins, and slash-command discovery.
 
 **What this Feature includes:**
 
@@ -571,16 +593,19 @@ Build Forms over the same schema, validation, and submission Actions as the Coll
 
 **What works today:** Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record. Only people who can edit the Collection can submit.
 
-**What remains:** Content and Agent-Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff.
+**What remains:** Content needs its own public Form: a link people can answer anonymously or signed in without reading the Collection, answers saved as people type, idempotent submission with receipts, spam limits, one read-and-submit tool pair for agents, and dependable downstream Rule handoff. Conditional questions and an email confirmed by code follow that first version.
 
 **What this Feature includes:**
 
-- **Form View:** Saves field selection, order, presentation, and submission behavior over one Collection.
-- **Shared schema:** Reuses the same Property types and validation as Agent-Native Forms and ordinary record editing.
-- **Conditional fields:** Shows or requires inputs through the typed expression language rather than custom form-only logic.
-- **Submission grants:** Allow a person to submit without silently granting broad access to the underlying Collection.
+- **Form page:** A Form belongs to one Collection and is written as one editor Page, with question Blocks placed anywhere among headings, text, and media. Any Page can show the Form inline.
+- **Questions are Properties:** Each question fills one Property. A new question creates its Property, named after the question's wording, and renaming the question renames the Property.
+- **Shared schema:** Reuses the same Property types and validation as ordinary record editing, so a Form can ask for more than the Collection requires, never less.
+- **Conditional fields:** After the first version, shows or requires inputs through the typed expression language rather than custom form-only logic.
+- **Submission grants:** Allow a person to submit without silently granting broad access to the underlying Collection. Each Form says who is answering: anonymous, signed in (optionally limited to the organization), or, later, an email confirmed by a one-time code without an account.
+- **Drafts:** Save answers as people type, apart from the Collection. A draft never becomes a record, so no record exists and no Rule runs until the person submits.
 - **Idempotent submission:** Prevents duplicate records when a request retries or returns ambiguously.
-- **Receipts:** Records the submitted values, actor, resulting Page, and downstream Actions the submitter may inspect.
+- **Receipts:** Records the submitted values, actor, resulting Page, and downstream Actions the submitter may inspect. Every record says how its sender was known.
+- **Agent form tools:** Any agent reads a Form from its link and submits through the same Action, with the same validation and receipt a person gets. One pair of tools serves every Form.
 
 **Required capability records:** [Shared Form engine](capabilities/content.form.shared-engine.md), [Property validation and defaults](capabilities/content.property.constraints.md), [Agent and UI parity](capabilities/content.agent.action-parity.md), [Committed Events](capabilities/content.event.committed.md)
 
@@ -877,3 +902,28 @@ Add user-controlled encrypted custody without abandoning collaboration, recovery
 **Required capability records:** [Private vault encryption](capabilities/content.security.private-vault.md), [Agent resource consent](capabilities/content.agent.resource-consent.md), [Portable vault export](capabilities/content.portability.vault-export.md)
 
 **Enhancing capability records:** [Local Source bridge](capabilities/content.source.local-bridge.md), [Audience-safe synthesis](capabilities/content.agent.audience-safe.md)
+
+### Feature 33: Use Content from ChatGPT
+
+Find Content in ChatGPT's app directory, connect your account, and search, open, and edit your real pages without leaving the chat.
+
+**Status:** Partially implemented
+
+**Example workflow:** A writer finds Content in ChatGPT's app directory, connects it with their Content sign-in, asks ChatGPT for last week's launch brief, opens the real page inline, and edits a paragraph. Opening the page in Content later shows the same edit, history, and permissions, whether the writer used ChatGPT on the web or on a phone.
+
+**What works today:** Content has a ChatGPT listing package with a curated, annotated tool set: search and read pages, create and revise documents, inspect databases, and add or update records, with no delete action. Production serves the directory connector behind sign-in and answers OpenAI's domain check. Inline widgets show the real document with Content's own layout, top bar, and formatting toolbar, and can edit it (#6529, #6542, #6856, #6985, #7149, #7257, #7317).
+
+**What remains:** OpenAI still has to approve the Content listing and make it public. Today the widget opens only on a page or database ChatGPT has just created: opening an existing page it found returns the page's text, so opening a found page inline still has to be built. Sign-in and the search, open, and edit tools need end-to-end proof on production rather than beta, and the widgets need proof that they render and save reliably in ChatGPT on the web and on mobile. The general mount and host-grant contract stays with Feature 31.
+
+**What this Feature includes:**
+
+- **Public listing:** Anyone can find Content in ChatGPT's app directory once OpenAI approves the listing, without pasting a connector URL.
+- **Own sign-in:** Connects through Content's production sign-in, and ChatGPT never sees or edits more than the signed-in person could in Content itself.
+- **Curated tools:** Offers search, read, create, and revise for pages and records through the same Actions Content uses, each annotated for the host, with no delete action.
+- **Real page inline:** Opens the canonical Page in a ChatGPT widget rather than a copy, and saves edits through the same validation, history, and permissions.
+- **Every ChatGPT client:** Works in ChatGPT on the web and on mobile, and says so plainly when a host cannot show the widget.
+- **Boundary:** Feature 31 owns the general contract for mounting Content inside another application; this Feature is the ChatGPT directory path onto it.
+
+**Required capability records:** [MCP App embedding](capabilities/content.embed.mcp-app.md), [Embedded Content surface](capabilities/content.embed.surface.md), [Embedded host grants](capabilities/content.embed.host-grant.md), [Agent and UI parity](capabilities/content.agent.action-parity.md), [Search](capabilities/content.knowledge.search.md)
+
+**Enhancing capability records:** [Responsive Page layout](capabilities/content.layout.responsive.md)

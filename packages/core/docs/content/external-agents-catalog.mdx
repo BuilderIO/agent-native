@@ -20,7 +20,7 @@ This is the canonical explanation of MCP catalog tiers — other pages link here
 
 The MCP server serves a **compact catalog by default to every caller** — hosted connectors (ChatGPT, Claude), code clients (Claude Code, Cursor, Codex), and the local CLI/stdio proxy alike. The full action surface is served only on explicit opt-in. The catalog is never inferred from the client name or user-agent.
 
-<Diagram id="doc-block-eacat-tiers" title="Two catalog tiers" summary={"Every caller gets the compact tier by default; the full ~105-tool surface is opt-in only. tool-search bridges the gap so nothing is ever truly hidden."}>
+<Diagram id="doc-block-eacat-tiers" title="Two catalog tiers" summary={"Every caller gets the compact tier by default; the full ~105-tool surface is opt-in only. tool-search finds what a connection is served, listed or not, and names the app's other matching actions for ask_app."}>
 
 ```html
 <div class="xa-tiers">
@@ -46,9 +46,10 @@ The MCP server serves a **compact catalog by default to every caller** — hoste
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> discovers full-tier tools on demand; the connector
-  catalog or authenticated-read policy must still permit execution unless the
-  caller explicitly opts into the full tier.
+  <code>tool-search</code> finds the tools this connection is served, including
+  ones it doesn't list, and names matching actions outside them as not served,
+  for <code>ask_app</code>. Calling a full-tier tool directly still needs the
+  explicit full-tier opt-in.
 </p>
 ```
 
@@ -90,11 +91,17 @@ By default every connected agent sees a small, curated catalog (~20–30 tools v
 
 - **Template-declared app actions** — the safe app-level allow-list. For Plan that is `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search`, and similar.
 - **Builtin cross-app tools** — `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
-- **`tool-search`** is always present for discovery. A discovered action still needs to be in the connector catalog, included by the authenticated-read policy, or reached through the explicit full-catalog opt-in before `tools/call` can execute it.
+- **`tool-search`** is always present for discovery. It searches the tools the connection is served: the listed ones, and `mcpTool: "search"` actions it marks `callWith: "call-tool"`. An action outside them isn't callable on this connection, so the search names it under `notServed` instead, as described below.
 
 Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development.
 
-`tool-search` works two ways: call it with **no query** for the full menu of tool names plus one-line descriptions (cheap, no schemas), or with a query for ranked matches with parameter summaries. It helps a compacted client discover capabilities; use `ask_app` for anything that requires the app agent's broader reasoning or a write.
+To see what a catalog costs a connected model, `packages/core/src/mcp/tools-list-size.perf.spec.ts` builds every first-party app's default production catalog and counts its `tools/list` result with Anthropic's tokenizer, once for a read-only connection and once for read and write. It prints a table with each app's tool count, total tokens, the tokens its own tools take and its largest tool. Run it with `pnpm --filter @agent-native/core exec vitest run src/mcp/tools-list-size.perf.spec.ts`; CI skips it, like the other `*.perf.spec.ts` files.
+
+Call `tool-search` with **no query** for a bounded menu of tool names, or with a query for lexical matches and parameter summaries. You can also provide a short `task` summary to request recommendations. The response identifies its `ranking` as `jev` or `bm25` and reports the provider `status`; BM25 results remain available when ranking is unavailable. Use a separate call for explicit `query`, `queries`, or `names` selectors. Recommendations are limited by the current connector and available app grants. Later tool calls still pass the connector's authorization checks; the hosting gateway and target app control app access and execution.
+
+A search that matches actions the app's own agent can run but this connection can't call adds a `notServed` field: up to three of them, each with its name and a short description, and a message telling the caller to describe the task to `ask_app`. A capability the app keeps off MCP then doesn't read as one the app lacks. Only a signed-in person who may call `ask_app` gets it, and never for a menu search or a `readOnlyOnly` one. It leaves out denied actions, framework tools, turn-ending actions, and anything the caller's OAuth scope or the app's discovery checks hide. When those checks fail or run past the search's deadline, the search comes back without it.
+
+Where the read-only resources tool is enabled, a verified user can read permitted personal or organization memory and top-level skills through `resources` with `action: "read"`, a `scope`, and a `path`. Workspace-inherited and nested agent skills are not available through this tool. Use `ask_app` for broader app reasoning or a write.
 
 #### Authenticated reads by default
 
@@ -105,7 +112,8 @@ export default createAgentChatPlugin({
   appId: "example-app",
   externalAgents: {
     authenticatedReads: "auto",
-    writes: "ask_app_only",
+    // Serve the writes each action decides to serve; see below.
+    writes: "allowlisted",
     // Optional defense-in-depth veto for especially sensitive reads.
     denyActions: ["get-sensitive-export"],
   },
@@ -120,7 +128,7 @@ This is a generic policy example. Analytics intentionally sets `authenticatedRea
 - `readOnly: true`
 - `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
 
-The policy combines those actions with any explicit `connectorCatalog` entries, then applies `denyActions`. With `writes: "ask_app_only"` (the default when automatic reads are enabled), mutating tools are not directly callable; route multi-step work and mutations through `ask_app`. `writes: "allowlisted"` exists only for apps that intentionally maintain an explicit write allow-list.
+The policy combines those actions with any explicit `connectorCatalog` entries, then applies `denyActions`. `writes: "allowlisted"` serves the writes the app chose to serve, with `mcpTool: true` or `"search"` on the action or a `connectorCatalog` entry. `writes: "ask_app_only"`, the default when automatic reads are enabled, keeps every write off MCP, so outside agents reach them only through `ask_app`. It is deprecated, and the server warns once at startup when it is set or implied: decide each write on its action instead, keeping one in the app with `mcpTool: false`.
 
 The policy is authenticated, not anonymous. MCP OAuth/connect identity is still carried through `runWithRequestContext`, so action-level access checks, owner/org scoping, and OAuth read scopes remain in force. Public/unauthenticated actions are not included by automatic reads.
 
@@ -311,6 +319,13 @@ resubmit `ask_app` to recover, because
 submission can duplicate work. Permanent authentication, not-found, and
 protocol failures remain errors.
 
+A `taskHandle` expires an hour after `ask_app` returns it. When
+`ask_app_status` rejects a handle as invalid or expired, keep polling the same
+task with the `app` and `taskId` from the `ask_app` result and no
+`taskHandle`; the error message says so too. Without the handle the status
+call finds the app through discovery again, so it works only while the app is
+still discoverable.
+
 ### Per-app tour {#tour}
 
 Every allow-listed template that produces or lists a navigable resource ships a `link` builder, and the ingest-heavy ones ship a GET + `publicAgent` action so a connected agent can pull live state:
@@ -396,7 +411,7 @@ When the user clicks the link in any browser or inline webview, `GET /_agent-nat
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -428,7 +443,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Resolves the **browser** session via `getSession` (the auth guard bypasses the exact path `/_agent-native/open`).
 2. If unauthenticated, serves the configured login HTML **at the same URL**; the form's success handler reloads `window.location`, re-entering the route authenticated — no `?next=` plumbing.
 3. Writes the existing one-shot `navigate` application-state command (payload = every non-reserved query param + `view`) scoped to the browser session's email with `requestSource: "deep-link"`, and decodes a `compose` base64url draft into a `compose-<id>` key.
-4. 302-redirects to a safe same-origin relative path (`to=`, else `/<view>`, else a per-template `resolveOpenPath`), forwarding `f_*` filter params so lists/dashboards open pre-filtered before the `navigate` command is even drained.
+4. 302-redirects to a safe same-origin relative path (`to=`, else a per-template `resolveOpenPath`, else `/<view>`), forwarding `f_*` filter params so lists/dashboards open pre-filtered before the `navigate` command is even drained.
 
 Cross-origin, scheme-relative `//host`, and control-char redirects are rejected (open-redirect guard). The route can be disabled per app via `disableOpenRoute`.
 
@@ -509,7 +524,7 @@ This is the unmanaged equivalent of what `connect` writes for you. See [MCP Serv
 
 ### Dev vs production tool surface {#dev-vs-prod}
 
-In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). The compact catalog is the default for every caller after auth — stdio/code clients using the `agent-native` proxy, the local CLI, and chat-style remote HTTP callers alike — so ChatGPT/Claude (or any client) cannot dump a huge full action catalog into the conversation. The full developer catalog is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`); `tool-search` keeps every tool reachable in the meantime.
+In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). The compact catalog is the default for every caller after auth — stdio/code clients using the `agent-native` proxy, the local CLI, and chat-style remote HTTP callers alike — so ChatGPT/Claude (or any client) cannot dump a huge full action catalog into the conversation. The full developer catalog is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`). In the meantime, `tool-search` finds what the compact catalog serves, listed or not, and names the app's other matching actions for `ask_app`.
 
 ### Switching first-party apps between prod and dev {#dev-switch}
 

@@ -209,6 +209,10 @@ Todos os métodos são chamados via `POST /_agent-native/a2a` com formato JSON-R
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -598,7 +602,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-O endpoint do cartão do agente é sempre público (sem autenticação) para que outros agentes possam descobrir recursos. O endpoint `/_agent-native/a2a` JSON-RPC aceita tokens de portador JWT assinados por `A2A_SECRET` e também aceita o token herdado `apiKeyEnv` quando configurado. No desenvolvimento local, a autorização pode ser omitida; em tempos de execução de produção hospedados, a autenticação A2A ausente retorna 503 em vez de ser executada sem autenticação.
+O endpoint do cartão do agente é sempre público (sem autenticação) para que outros agentes possam descobrir recursos. O endpoint `/_agent-native/a2a` JSON-RPC aceita tokens de portador JWT assinados por `A2A_SECRET` e também aceita o token herdado `apiKeyEnv` quando configurado. Sem `A2A_SECRET` ou `apiKeyEnv`, um servidor de desenvolvimento aceita chamadas não autenticadas apenas da mesma máquina e retorna 401 para qualquer outro host, inclusive quando o servidor de desenvolvimento é publicado em uma URL pública de visualização. Em tempos de execução de produção hospedados, a autenticação A2A ausente retorna 503 em vez de ser executada sem autenticação.
 
 ### Limite da política de autenticação {#auth-policy}
 
@@ -608,7 +612,7 @@ A validação do portador é executada no limite da solicitação — no manipul
 - `hasConfiguredA2ASecret()` retorna `true` quando `A2A_SECRET` é definido.
 - `shouldAdvertiseJwtA2AAuth()` é o que o cartão de agente usa para decidir se deve publicar um esquema de segurança `jwtBearer`.
 
-A política de produção é rigorosa: em qualquer tempo de execução de produção, a rota assíncrona `_process-task` se recusa a despachar, a menos que `A2A_SECRET` esteja configurado (retorna 503) e o endpoint JSON-RPC recusa chamadas não autenticadas. O substituto de desenvolvimento (avisar uma vez, permitir) só é acionado quando nenhum sinalizador de produção está definido.
+A política de produção é rigorosa: em qualquer tempo de execução de produção, a rota assíncrona `_process-task` se recusa a despachar, a menos que `A2A_SECRET` esteja configurado (retorna 503) e o endpoint JSON-RPC recusa chamadas não autenticadas. Fora da produção, uma chamada não autenticada só é permitida (com um aviso único) quando vem da mesma máquina: o endereço do par, `Host` e quaisquer cabeçalhos de encaminhamento devem ser loopback, e um contêiner de desenvolvimento na nuvem do Builder nunca conta como local. Qualquer outra chamada não autenticada, incluindo um despacho `_process-task` não assinado, retorna 401; defina `A2A_SECRET` no aplicativo para aceitá-la.
 
 Esse limite é importante porque o loop do agente aceita entrada de formato livre de um chamador remoto. Colocar a verificação ao portador dentro do loop ou confiar em uma ferramenta para aplicá-la permitiria que a injeção de prompt ou um manipulador com erros ignorasse a autenticação. Mantê-lo no limite HTTP significa uma falha de token em curto-circuito antes de qualquer chamada LLM.
 

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
-import { and, desc, eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, desc, eq, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -22,15 +23,22 @@ export default defineAction({
     captureId: z.string().min(1),
     queueId: z.string().min(1).optional(),
   }),
+  mcpTool: false,
   run: async ({ captureId, queueId }) => {
     const access = await getAccessibleCapture(captureId);
     if (!access) throw new Error(`No access to capture ${captureId}`);
+    await assertAccess("brain-source", access.capture.sourceId, "editor");
 
     const db = getDb();
+    const now = nowIso();
     const clauses = [
       eq(schema.brainIngestQueue.captureId, captureId),
       eq(schema.brainIngestQueue.operation, "distill"),
       eq(schema.brainIngestQueue.status, "queued"),
+      or(
+        isNull(schema.brainIngestQueue.runAfter),
+        lte(schema.brainIngestQueue.runAfter, now),
+      ),
     ];
     if (queueId) clauses.push(eq(schema.brainIngestQueue.id, queueId));
 
@@ -42,7 +50,6 @@ export default defineAction({
       .limit(1);
     if (!queue) return { claimed: false, queueItem: null };
 
-    const now = nowIso();
     const claimToken = nanoid(16);
     const leaseExpiresAt = new Date(Date.parse(now) + LEASE_MS).toISOString();
     const payload = parseJson<Record<string, unknown>>(queue.payloadJson, {});
@@ -50,7 +57,8 @@ export default defineAction({
       sql: `UPDATE brain_ingest_queue
         SET status = $1, attempts = $2, payload_json = $3, error = NULL,
             run_after = NULL, lease_token = $4, lease_expires_at = $5, updated_at = $6
-        WHERE id = $7 AND status = $8 AND updated_at = $9`,
+        WHERE id = $7 AND status = $8 AND updated_at = $9
+          AND (run_after IS NULL OR run_after <= $6)`,
       args: [
         "processing",
         queue.attempts + 1,

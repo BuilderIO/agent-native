@@ -1,3 +1,5 @@
+import { isAuthDisabled } from "./auth-disabled.js";
+
 /**
  * Stable code for "this deployed server is missing a setting it refuses to
  * run without" — a hosted database or the auth signing secret. The refusal
@@ -130,10 +132,6 @@ function valueOf(
   return value || undefined;
 }
 
-function truthy(value: string | undefined): boolean {
-  return isTruthyRuntimeValue(value);
-}
-
 function isProductionEnvironment(
   env: Record<string, string | undefined>,
 ): boolean {
@@ -187,18 +185,6 @@ function isLocalDatabaseUrl(url: string): boolean {
     url.startsWith("pglite:") ||
     !url.includes("://")
   );
-}
-
-function isLoopbackUrl(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return (
-      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-    );
-  } catch {
-    // coercion-ok: malformed URLs are not loopback; validation reports the config issue.
-    return false;
-  }
 }
 
 function missingDatabaseUrlIssue(
@@ -299,7 +285,7 @@ export function getRuntimeConfigReport(
 
   if (environment === "production") {
     if (authEnabled) {
-      if (truthy(valueOf(env, "AUTH_DISABLED"))) {
+      if (isAuthDisabled(env)) {
         addIssue(
           issues,
           {
@@ -339,26 +325,35 @@ export function getRuntimeConfigReport(
         );
       }
 
-      const explicitAuthUrl =
-        valueOf(env, "APP_URL") ?? valueOf(env, "BETTER_AUTH_URL");
+      const appUrl = valueOf(env, "APP_URL");
+      const authUrlKey = appUrl ? "APP_URL" : "BETTER_AUTH_URL";
+      const explicitAuthUrl = appUrl ?? valueOf(env, authUrlKey);
       if (explicitAuthUrl) {
-        let invalid = false;
+        const local =
+          valueOf(env, "AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT")?.toLowerCase() ===
+          "local";
+        let validAuthUrl: boolean;
         try {
           const parsed = new URL(explicitAuthUrl);
-          invalid = !["http:", "https:"].includes(parsed.protocol);
+          const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
+            parsed.hostname,
+          );
+          validAuthUrl =
+            ["http:", "https:"].includes(parsed.protocol) &&
+            (local || !loopback);
         } catch {
-          invalid = true;
+          validAuthUrl = false;
         }
-        if (isLoopbackUrl(explicitAuthUrl)) invalid = true;
-        if (invalid) {
+        if (!validAuthUrl) {
           addIssue(
             issues,
             {
               code: "invalid-auth-url",
-              title: "The public auth URL is not deployable",
-              message:
-                "APP_URL or BETTER_AUTH_URL must be an absolute public http(s) URL. Leave them unset when the platform URL should be inferred.",
-              envKeys: ["APP_URL", "BETTER_AUTH_URL"],
+              title: `${authUrlKey} is not a valid auth URL`,
+              message: local
+                ? `Set ${authUrlKey} to an absolute HTTP or HTTPS URL.`
+                : `Set ${authUrlKey} to an absolute public HTTP or HTTPS URL, or unset it to infer the platform URL. For a local production build, set AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT=local to use a loopback URL.`,
+              envKeys: [authUrlKey],
             },
             environment,
           );

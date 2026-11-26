@@ -27,28 +27,45 @@ describe("Drizzle-opened PGlite transactions register with the shared exec", () 
     vi.resetModules();
   });
 
-  it("resolves getDbExec().execute() run inside a Drizzle transaction instead of hanging", async () => {
+  it("runs getDbExec().execute() inside a Drizzle transaction on that transaction, never queued behind it", async () => {
     vi.stubEnv("DATABASE_URL", "pglite:memory");
 
-    const { getDbExec } = await import("./client.js");
+    const { getDbExec, getPgliteClient, getRuntimeDatabaseUrl } =
+      await import("./client.js");
     const { createGetDb } = await import("./create-get-db.js");
+    const { sql: drizzleSql } = await import("drizzle-orm");
     const getDb = createGetDb({});
+    const engine = await getPgliteClient(
+      getRuntimeDatabaseUrl("pglite:./data/pglite"),
+    );
 
-    const raced = await Promise.race([
-      getDb().transaction(async () => {
-        await getDbExec().execute("SELECT 1");
-        return "resolved";
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("deadlocked: exec never returned")),
-          5000,
-        ),
-      ),
-    ]);
+    const seenByExec = await getDb().transaction(async (tx) => {
+      // A statement that reaches the engine now waits for this transaction to
+      // end, so fail it instead of passing it through: a regression then
+      // reports the route it took rather than hanging until the test times out.
+      const engineQuery = vi
+        .spyOn(engine, "query")
+        .mockRejectedValue(
+          new Error(
+            "getDbExec() queued on the PGlite engine behind the open Drizzle transaction",
+          ),
+        );
+      try {
+        await tx.execute(
+          drizzleSql`SELECT set_config('agent_native.tx_probe', 'drizzle-tx', true)`,
+        );
+        const { rows } = await getDbExec().execute(
+          "SELECT current_setting('agent_native.tx_probe', true) AS probe",
+        );
+        expect(engineQuery).not.toHaveBeenCalled();
+        return rows[0]?.probe;
+      } finally {
+        engineQuery.mockRestore();
+      }
+    });
 
-    expect(raced).toBe("resolved");
-  }, 6000);
+    expect(seenByExec).toBe("drizzle-tx");
+  });
 
   it("runs getDbExec() writes on the same transaction, rolling back on throw", async () => {
     vi.stubEnv("DATABASE_URL", "pglite:memory");

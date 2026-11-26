@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 
 import { QueryClient } from "@tanstack/react-query";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createShareQueryKey,
   notifyShareChanged,
   optimisticallyUpdateShareVisibility,
+  useShareOrgMemberSearch,
+  type ShareOrgMemberSearchResult,
 } from "./share-controller-helpers.js";
 
 describe("share visibility cache ownership", () => {
@@ -79,6 +83,117 @@ describe("share visibility cache ownership", () => {
     mutation.rollback();
     expect(mutation.isCurrent()).toBe(false);
     expect(queryClient.getQueryData(key)).toEqual(initial);
+  });
+});
+
+describe("useShareOrgMemberSearch", () => {
+  let root: Root | undefined;
+  let container: HTMLDivElement | undefined;
+
+  afterEach(async () => {
+    const mounted = root;
+    if (mounted) await act(async () => mounted.unmount());
+    container?.remove();
+    root = undefined;
+    container = undefined;
+    vi.unstubAllGlobals();
+  });
+
+  const page = (emails: string[], nextOffset: number | null) =>
+    new Response(
+      JSON.stringify({
+        members: emails.map((email) => ({ email })),
+        hasMore: nextOffset !== null,
+        nextOffset,
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+
+  it("loads more for a new search while a page for the old one was still loading", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetchMock = vi
+      .fn<(input: string) => Promise<Response>>()
+      .mockResolvedValueOnce(page(["ana@example.com"], 1))
+      .mockReturnValueOnce(new Promise<Response>(() => {}))
+      .mockResolvedValueOnce(page(["bo@example.com"], 1))
+      .mockResolvedValueOnce(page(["bea@example.com"], null));
+    vi.stubGlobal("fetch", fetchMock);
+    let search: ShareOrgMemberSearchResult | undefined;
+    function Probe({ query }: { query: string }) {
+      search = useShareOrgMemberSearch(query, true, {
+        limit: 1,
+        debounceMs: 0,
+      });
+      return null;
+    }
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const mounted = createRoot(container);
+    root = mounted;
+    await act(async () => mounted.render(createElement(Probe, { query: "" })));
+    const current = () => {
+      if (!search) throw new Error("Hook didn't render");
+      return search;
+    };
+
+    // The next page for "" never answers before the search changes.
+    await act(async () => current().loadMore());
+    expect(current().isLoadingMore).toBe(true);
+    await act(async () => mounted.render(createElement(Probe, { query: "b" })));
+    expect(current().isLoadingMore).toBe(false);
+    expect(current().members.map((member) => member.email)).toEqual([
+      "bo@example.com",
+    ]);
+
+    await act(async () => current().loadMore());
+    expect(fetchMock.mock.calls[3]?.[0]).toContain("search=b");
+    expect(current().members.map((member) => member.email)).toEqual([
+      "bo@example.com",
+      "bea@example.com",
+    ]);
+  });
+
+  it("lets a later page that failed be loaded again", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetchMock = vi
+      .fn<(input: string) => Promise<Response>>()
+      .mockResolvedValueOnce(page(["ana@example.com"], 1))
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(page(["bo@example.com"], null));
+    vi.stubGlobal("fetch", fetchMock);
+    let search: ShareOrgMemberSearchResult | undefined;
+    function Probe() {
+      search = useShareOrgMemberSearch("", true, { limit: 1 });
+      return null;
+    }
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const mounted = createRoot(container);
+    root = mounted;
+    await act(async () => mounted.render(createElement(Probe)));
+    const current = () => {
+      if (!search) throw new Error("Hook didn't render");
+      return search;
+    };
+    expect(current().members.map((member) => member.email)).toEqual([
+      "ana@example.com",
+    ]);
+
+    await act(async () => current().loadMore());
+    expect(current().error).toBe(true);
+    expect(current().hasMore).toBe(true);
+    expect(current().members.map((member) => member.email)).toEqual([
+      "ana@example.com",
+    ]);
+
+    await act(async () => current().loadMore());
+    expect(fetchMock.mock.calls[2]?.[0]).toContain("offset=1");
+    expect(current().error).toBe(false);
+    expect(current().hasMore).toBe(false);
+    expect(current().members.map((member) => member.email)).toEqual([
+      "ana@example.com",
+      "bo@example.com",
+    ]);
   });
 });
 

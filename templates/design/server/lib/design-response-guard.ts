@@ -1,10 +1,22 @@
+import {
+  DEFAULT_LOCALE,
+  LOCALIZATION_SETTING_KEY,
+  isLocaleCode,
+  normalizeLocalizationPreference,
+  type BuiltinLocaleCode,
+} from "@agent-native/core/localization";
 import type {
   AgentLoopFinalResponseGuardContext,
   AgentLoopFinalResponseGuardResult,
 } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { getUserSetting } from "@agent-native/core/settings";
 import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
 
-import { DESIGN_OUTPUT_ACTIONS } from "../../shared/generation-output-receipt.js";
+import {
+  DESIGN_OUTPUT_ACTIONS,
+  isAssetsImageTool,
+} from "../../shared/generation-output-receipt.js";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   isRepromptSelectionMessage,
@@ -15,15 +27,12 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   // Full-app designs: the change lands in the Builder branch's code.
   "send-builder-message",
   "apply-builder-edits",
-  "apply-a11y-fix",
   "apply-component-prop-edit",
-  "apply-motion-edit",
   "apply-source-edit",
   "apply-tweaks",
   "apply-visual-edit",
   "create-design",
   "create-design-from-template",
-  "create-design-system",
   "create-component",
   "create-file",
   "delete-design",
@@ -177,21 +186,52 @@ function normalizeToolName(name: unknown): string {
     .replace(/[\s_]+/g, "-");
 }
 
+function userMessageText(
+  message: AgentLoopFinalResponseGuardContext["messages"][number],
+): string {
+  if (message.role !== "user") return "";
+  return message.content
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
+}
+
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
 ): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== "user" || !Array.isArray(message.content)) {
-      continue;
-    }
-    const text = message.content
-      .filter((part: any) => part?.type === "text")
-      .map((part: any) => String(part.text ?? ""))
-      .join("\n");
+  for (const message of [...messages].reverse()) {
+    const text = userMessageText(message);
     if (text.trim()) return text;
   }
   return "";
+}
+
+function isInternalPrompt(text: string): boolean {
+  return (
+    text.includes("<response-guard>") ||
+    text.startsWith("Continue from where you left off")
+  );
+}
+
+function currentTurnUserTexts(
+  messages: AgentLoopFinalResponseGuardContext["messages"],
+): string[] {
+  let start = 0;
+  let previous: (typeof messages)[number] | null = null;
+  for (const [index, message] of messages.entries()) {
+    const text = userMessageText(message);
+    const startsTurn =
+      text.trim() !== "" &&
+      !isInternalPrompt(text) &&
+      (previous === null ||
+        (previous.role === "assistant" &&
+          !previous.content.some((part) => part.type === "tool-call")));
+    if (startsTurn) start = index;
+    previous = message;
+  }
+  return messages
+    .slice(start)
+    .map(userMessageText)
+    .filter((text) => text.trim() && !isInternalPrompt(text));
 }
 
 function parseResult(content: string): Record<string, unknown> | null {
@@ -226,6 +266,7 @@ function hasSuccessfulMutation(
     if (result.isError) return false;
 
     const name = normalizeToolName(result.name);
+    if (isAssetsImageTool(name)) return true;
     if (!DESIGN_MUTATION_ACTIONS.has(name)) return false;
 
     const parsed = parseResult(String(result.content ?? ""));
@@ -270,19 +311,6 @@ function hasSuccessfulMutation(
         isRecord(parsed.appliedTweaks) &&
         Object.keys(parsed.appliedTweaks).length > 0
       );
-    }
-
-    if (name === "apply-motion-edit") {
-      return (
-        parsed.persisted === true &&
-        typeof parsed.designId === "string" &&
-        typeof parsed.timelineId === "string" &&
-        parsed.contentPatched === true
-      );
-    }
-
-    if (name === "create-design-system") {
-      return typeof parsed.id === "string";
     }
 
     if (name === "update-design") {
@@ -573,9 +601,162 @@ function requiresPersistedDesignOutput(composedRequest: string): boolean {
   return looksLikeDesignMutationRequest(message);
 }
 
-export function designFinalResponseGuard(
+const noDesignChangesSavedLoaders: Record<
+  BuiltinLocaleCode,
+  () => Promise<string>
+> = {
+  "en-US": async () =>
+    (await import("../../app/i18n/en-US.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "zh-CN": async () =>
+    (await import("../../app/i18n/zh-CN.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "zh-TW": async () =>
+    (await import("../../app/i18n/zh-TW.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "es-ES": async () =>
+    (await import("../../app/i18n/es-ES.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "fr-FR": async () =>
+    (await import("../../app/i18n/fr-FR.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "de-DE": async () =>
+    (await import("../../app/i18n/de-DE.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "ja-JP": async () =>
+    (await import("../../app/i18n/ja-JP.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "ko-KR": async () =>
+    (await import("../../app/i18n/ko-KR.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "pt-BR": async () =>
+    (await import("../../app/i18n/pt-BR.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "hi-IN": async () =>
+    (await import("../../app/i18n/hi-IN.js")).default.responseGuard
+      .noDesignChangesSaved,
+  "ar-SA": async () =>
+    (await import("../../app/i18n/ar-SA.js")).default.responseGuard
+      .noDesignChangesSaved,
+};
+
+async function noDesignChangesSavedLabel(): Promise<string> {
+  try {
+    const email = getRequestUserEmail();
+    const preference = normalizeLocalizationPreference(
+      email ? await getUserSetting(email, LOCALIZATION_SETTING_KEY) : undefined,
+    );
+    const locale = isLocaleCode(preference.locale)
+      ? preference.locale
+      : DEFAULT_LOCALE;
+    return await noDesignChangesSavedLoaders[locale]();
+  } catch (error) {
+    // coercion-ok: label locale is cosmetic; the guard's decision is unaffected.
+    console.warn("[design-response-guard] locale label unavailable", error);
+    return noDesignChangesSavedLoaders[DEFAULT_LOCALE]();
+  }
+}
+
+const CHAT_ATTACHMENT_ERROR_TAG =
+  /<chat-attachment-(?:processing|read)-error[\s>]/;
+
+function thrownErrorCode(content: string): string | null {
+  const match = /\(errorCode:\s*([\w-]+)\)(?![\s\S]*\(errorCode:)/.exec(
+    content,
+  );
+  return match?.[1] ?? null;
+}
+
+const UNREADABLE_ATTACHMENT_ERROR_CODES = new Set([
+  "composer_peer_unavailable",
+  "composer_reference_unavailable",
+]);
+const UNREADABLE_READ_ATTACHMENT_CODES = new Set([
+  "attachment_not_stored",
+  "attachment_reread_failed",
+  "attachment_read_failed",
+]);
+const CAPABILITY_MISSING_ERROR_CODES = new Set([
+  "full_app_building_disabled",
+  "builder_project_not_configured",
+]);
+
+function isBlockerResult(
+  result: AgentLoopFinalResponseGuardContext["toolResults"][number],
+): boolean {
+  const content = result.content;
+  if (result.isError) {
+    const code = thrownErrorCode(content);
+    return (
+      code !== null &&
+      (UNREADABLE_ATTACHMENT_ERROR_CODES.has(code) ||
+        CAPABILITY_MISSING_ERROR_CODES.has(code))
+    );
+  }
+
+  const name = normalizeToolName(result.name);
+  if (
+    name !== "read-attachment" &&
+    name !== "import-document" &&
+    name !== "create-builder-app" &&
+    name !== "migrate-inline-design-to-app"
+  ) {
+    return false;
+  }
+  const parsed = parseResult(content);
+  if (!parsed) return false;
+
+  if (name === "read-attachment") {
+    return (
+      typeof parsed.error === "string" &&
+      typeof parsed.errorCode === "string" &&
+      UNREADABLE_READ_ATTACHMENT_CODES.has(parsed.errorCode)
+    );
+  }
+  if (name === "import-document") {
+    return (
+      Array.isArray(parsed.files) &&
+      parsed.files.length > 0 &&
+      parsed.files.every(
+        (file) =>
+          !isRecord(file) ||
+          !isRecord(file.designHints) ||
+          typeof file.designHints.extractedText !== "string" ||
+          file.designHints.extractedText.trim() === "",
+      )
+    );
+  }
+  return parsed.status === "not-configured";
+}
+
+function hasStructuralBlocker(
   context: AgentLoopFinalResponseGuardContext,
-): AgentLoopFinalResponseGuardResult | null {
+): boolean {
+  if (
+    [context.requestText ?? "", ...currentTurnUserTexts(context.messages)].some(
+      (text) => CHAT_ATTACHMENT_ERROR_TAG.test(text),
+    )
+  ) {
+    return true;
+  }
+
+  return context.toolResults.some(
+    (result, index) =>
+      isBlockerResult(result) &&
+      !context.toolResults
+        .slice(index + 1)
+        .some(
+          (later) =>
+            normalizeToolName(later.name) === normalizeToolName(result.name) &&
+            !later.isError &&
+            !isBlockerResult(later),
+        ),
+  );
+}
+
+export async function designFinalResponseGuard(
+  context: AgentLoopFinalResponseGuardContext,
+): Promise<AgentLoopFinalResponseGuardResult | null> {
   if (context.executionMode === "plan") return null;
 
   const requestText =
@@ -598,17 +779,15 @@ export function designFinalResponseGuard(
   return {
     retryMessage:
       "This is a design-changing request, so a text-only answer is not completion. " +
-      "Continue in this turn and call the appropriate mutating Design action. " +
+      "Either call the appropriate mutating Design action in this turn, or say plainly what blocks you. " +
       "For a new design, create the project if needed and then call `generate-design` " +
       "or `present-design-variants`; for an existing design, read it and call `edit-design`. " +
       "If an image or asset is involved, finish with `insert-asset` when placement is needed. " +
       "Do not claim the design is created, updated, or ready until the action result proves " +
       "that content was persisted.",
-    exhaustedDraftPrefix:
-      "Unverified — no Design action saved content in this turn, so nothing below is confirmed to exist in your design.",
+    exhaustedDraftPrefix: await noDesignChangesSavedLabel(),
     fallbackMessage:
       "I couldn't confirm that a Design artifact was saved, so I haven't marked this request complete. Please retry.",
-    maxRetries: 1,
-    expandToolSurface: true,
+    maxRetries: hasStructuralBlocker(context) ? 0 : 1,
   };
 }

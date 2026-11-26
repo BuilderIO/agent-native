@@ -63,11 +63,18 @@ export {
   type RichMarkdownEditorProps,
   type CreateRichMarkdownExtensionsOptions,
 } from "./RichMarkdownEditor.js";
+export { FocusWithoutScroll } from "./FocusWithoutScroll.js";
 export {
   normalizePastedTaskListHtml,
   TaskListPasteNormalization,
 } from "./TaskListPaste.js";
 export { RunId, RUN_ID_NODE_TYPES } from "./RunId.js";
+export {
+  createListItemWidgets,
+  listItemWidgetItems,
+  type ListItemWidgetItem,
+  type ListItemWidgetsOptions,
+} from "./ListItemWidgets.js";
 export { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
 export {
   deleteBlockTransaction,
@@ -79,6 +86,17 @@ export {
   type DragHandleMenuRequest,
   type DragHandleOptions,
 } from "./DragHandle.js";
+export {
+  blockRemovalRange,
+  forEachListItemBlock,
+  insertBlockAt,
+  isList,
+  isListItem,
+  joinListsAt,
+  listItemTypeOf,
+  moveBlockTransaction,
+  positionBelowBlock,
+} from "./listItemBlocks.js";
 export {
   createRegistryBlockNode,
   LegacyJsonEditSurface,

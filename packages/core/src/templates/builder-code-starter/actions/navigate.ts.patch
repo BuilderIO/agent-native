@@ -1,7 +1,7 @@
 ===================================================================
 --- a/actions/navigate.ts
 +++ b/actions/navigate.ts
-@@ -1,25 +1,39 @@
+@@ -1,30 +1,44 @@
 -import { defineAction } from "@agent-native/core/action";
 +/**
 + * Navigate the UI to a view.
@@ -18,7 +18,10 @@
 + */
 +
 +import { defineAction, fail } from "@agent-native/core/action";
- import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+ import {
+   navigationIntentSchema,
+   writeAppStateForCurrentTab,
+ } from "@agent-native/core/application-state";
  import { z } from "zod";
  
  export default defineAction({
@@ -29,8 +32,10 @@
      view: z.string().optional().describe("View name to navigate to"),
      path: z.string().optional().describe("URL path to navigate to"),
 -    threadId: z.string().optional().describe("Chat thread ID to open"),
+     intent: navigationIntentSchema,
    }),
    http: false,
+   mcpTool: "search",
    run: async (args) => {
      if (!args.view && !args.path) {
 -      throw new Error("At least --view or --path is required.");

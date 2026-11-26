@@ -66,7 +66,6 @@ import {
 import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
-  MotionKeyframeFieldContext,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -100,7 +99,6 @@ function StrokeLayerControl({
   onStylesChange,
   onRemove,
   element,
-  motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   kind: StrokeLayerKind;
@@ -115,7 +113,6 @@ function StrokeLayerControl({
   onStylesChange?: StylesChangeHandler;
   onRemove: () => void;
   element?: ElementInfo;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
@@ -175,7 +172,6 @@ function StrokeLayerControl({
 
   return (
     <div className="space-y-2">
-      {/* design stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
       <InspectorPaintRow>
         <InspectorGridCell span={20}>
           <ColorInput
@@ -252,34 +248,21 @@ function StrokeLayerControl({
           <InspectorGridCell span={1} className="flex justify-center">
             <FieldTrailer
               element={element}
-              motionCssProperty="border-color"
-              motionKeyframeContext={motionKeyframeContext}
+              overrideProperty="border-color"
               breakpointOverrideContext={breakpointOverrideContext}
-              hoverRevealClassName="opacity-0 group-hover:opacity-100"
             />
           </InspectorGridCell>
         ) : null}
       </InspectorPaintRow>
       <div className="design-sidebar-property-group">
-        <InspectorGrid
-          className="design-sidebar-property-grid items-end"
-          layout="stroke-details"
-        >
-          <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-            <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-          </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-            <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
-          </InspectorGridCell>
-        </InspectorGrid>
-        <InspectorGrid className="items-center" layout="stroke-details">
+        <InspectorGrid className="items-center" layout="pair">
           <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
             <Select value={position} onValueChange={movePosition}>
-              <SelectTrigger className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+              <SelectTrigger
+                aria-label={t("editPanel.labels.position")}
+                // guard:allow-part-geometry unchanged 24px inspector trigger classes, reflowed only to add aria-label
+                className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -335,11 +318,9 @@ function StrokeLayerControl({
               {kind === "border" && element ? (
                 <FieldTrailer
                   element={element}
-                  motionCssProperty="border-width"
-                  motionKeyframeContext={motionKeyframeContext}
+                  overrideProperty="border-width"
                   breakpointOverrideContext={breakpointOverrideContext}
-                  className="absolute -top-3.5 right-0"
-                  hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+                  className="absolute -top-2 right-0"
                 />
               ) : null}
             </div>
@@ -371,13 +352,11 @@ export function StrokeProperties({
   element,
   onStyleChange,
   onStylesChange,
-  motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
@@ -568,7 +547,6 @@ export function StrokeProperties({
                 }
               }}
               element={element}
-              motionKeyframeContext={motionKeyframeContext}
               breakpointOverrideContext={breakpointOverrideContext}
             />
           ) : null}
@@ -597,7 +575,6 @@ export function StrokeProperties({
                 }
               }}
               element={element}
-              motionKeyframeContext={motionKeyframeContext}
               breakpointOverrideContext={breakpointOverrideContext}
             />
           ) : null}
@@ -1068,21 +1045,7 @@ function VectorStrokeProperties({
               onStylesChange={onStylesChange}
             />
           ) : null}
-          <InspectorGrid className="items-center" layout="stroke-details">
-            <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-              <SubsectionLabel>
-                {t("editPanel.labels.position")}
-              </SubsectionLabel>
-            </InspectorGridCell>
-            <InspectorGridCell
-              span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-              ariaHidden
-            />
-            <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-              <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
-            </InspectorGridCell>
-          </InspectorGrid>
-          <InspectorGrid className="items-center" layout="stroke-details">
+          <InspectorGrid className="items-center" layout="pair">
             <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
               <Select
                 value={canAlignStroke ? position : "center"}

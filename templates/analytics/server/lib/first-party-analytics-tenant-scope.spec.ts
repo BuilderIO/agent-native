@@ -1,6 +1,15 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 // Synthetic org members in a local PGlite database. Each case runs the real
 // first-party query path as one member and checks which recordings come back.
@@ -102,6 +111,7 @@ vi.mock("./first-party-analytics-health.js", async (importOriginal) => ({
 
 import { firstPartyCacheKey } from "./first-party-analytics-cache.js";
 import { queryFirstPartyAnalytics } from "./first-party-analytics.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const ALICE = { userEmail: "alice@example.test", orgId: "org_a" };
 const BOB = { userEmail: "bob@example.test", orgId: "org_a" };
@@ -110,8 +120,16 @@ const CAROL = { userEmail: "carol@example.test", orgId: "org_b" };
 describe("first-party session recording reads follow the app's sharing rules (PGlite)", () => {
   let client: PGliteClient;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     database.client = client;
     await client.exec(`
       CREATE TABLE session_recordings (
@@ -156,7 +174,6 @@ describe("first-party session recording reads follow the app's sharing rules (PG
   afterEach(async () => {
     await database.waitForOperations();
     database.client = null;
-    await client?.close();
   });
 
   async function recordingIds(

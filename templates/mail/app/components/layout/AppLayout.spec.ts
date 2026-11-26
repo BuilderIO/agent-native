@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildLabelDisplayNames,
+  isInboxSyncing,
   labelTreeRows,
   reorderById,
+  sidebarLabelTabs,
 } from "./AppLayout";
 
 function appLayoutSource(): string {
@@ -24,6 +26,22 @@ function mailGlobalCss(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("lists only labels and saved filters under the sidebar's Labels, not inbox tabs", () => {
+    const tabs = [
+      { id: "inbox" },
+      { id: "__inbox_all__" },
+      { id: "important" },
+      { id: "other" },
+      { id: "receipts", pinnedId: "receipts" },
+      { id: "filter-1", filterId: "filter-1" },
+    ];
+
+    expect(sidebarLabelTabs(tabs).map((tab) => tab.id)).toEqual([
+      "receipts",
+      "filter-1",
+    ]);
+  });
+
   it("clears in-memory thread bodies when the session or mailbox scope changes", () => {
     const source = appLayoutSource();
 
@@ -103,41 +121,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("return actionTargetEmails[0] ?? undefined;");
   });
 
-  it("keeps Mail navigation in a mobile drawer and supports desktop pinning", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain(
-      "const [sidebarOpen, setSidebarOpen] = useState(false)",
-    );
-    expect(source).toContain(
-      "const [sidebarPinned, setSidebarPinned] = useState(false)",
-    );
-    expect(source).toContain(
-      'window.localStorage.getItem("mail-sidebar-pinned") === "true"',
-    );
-    expect(source).toContain("if (!sidebarPinPreferenceLoaded) return;");
-    expect(source).toContain(
-      'localStorage.setItem("mail-sidebar-pinned", "true")',
-    );
-    expect(source).toContain("open={sidebarOpen || isPinnedSidebarVisible}");
-    expect(source).toContain("modal={!isPinnedSidebarVisible}");
-    expect(source).toContain("<DialogTrigger asChild>");
-    expect(source).toContain(
-      "if (isPinnedSidebarVisible) event.preventDefault();",
-    );
-    expect(source).toMatch(
-      /overlayClassName=\{\s*isPinnedSidebarVisible\s*\?\s*"hidden"\s*:\s*"bg-background\/20 backdrop-blur-none"\s*\}/,
-    );
-    expect(source).toContain("<DialogContent");
-    expect(source).toContain("aria-modal={!isPinnedSidebarVisible}");
-    expect(source).toContain('<DialogTitle className="sr-only">');
-    expect(source).toContain("start-0 left-0 right-auto flex h-dvh w-[260px]");
-    expect(source).toContain('t("mail.toolbar.pinSidebar")');
-    expect(source).toContain('t("mail.toolbar.unpinSidebar")');
-    expect(source).not.toContain("railNavItems");
-    expect(source).not.toContain("showCollapsedSidebar");
-  });
-
+  // oracle-change: the pinnable drawer gave way to a docked, collapsible sidebar; MailSidebar.interaction.test.tsx renders it.
   it("does not reuse placeholder metadata from a previous account filter", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
@@ -470,5 +454,49 @@ describe("reorderById", () => {
       "pitch",
       "github",
     ]);
+  });
+});
+
+describe("isInboxSyncing", () => {
+  const ready = { state: "ready" };
+
+  it("spins while a sync runs or older mail is still loading", () => {
+    expect(
+      isInboxSyncing({ syncing: true, accounts: [ready] }, undefined),
+    ).toBe(true);
+    expect(
+      isInboxSyncing(
+        {
+          syncing: false,
+          accounts: [{ state: "ready", backfillPending: true }],
+        },
+        { freshness: "live" },
+      ),
+    ).toBe(true);
+  });
+
+  it("stays still when nothing is syncing", () => {
+    expect(
+      isInboxSyncing({ syncing: false, accounts: [ready] }, undefined),
+    ).toBe(false);
+    expect(isInboxSyncing(undefined, undefined)).toBe(false);
+  });
+
+  it("stays still while Gmail has Mail waiting, so it never spins without progress", () => {
+    expect(
+      isInboxSyncing(
+        {
+          syncing: true,
+          accounts: [{ state: "ready", backfillPending: true }],
+        },
+        { freshness: "cached" },
+      ),
+    ).toBe(false);
+    expect(
+      isInboxSyncing(
+        { syncing: true, accounts: [ready] },
+        { freshness: "stale" },
+      ),
+    ).toBe(false);
   });
 });

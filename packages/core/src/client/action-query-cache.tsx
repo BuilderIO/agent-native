@@ -28,6 +28,11 @@ import {
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
+import {
+  ACTION_CACHE_FLUSH_EVENT,
+  type ActionCacheFlushDetail,
+  readMutationEpoch,
+} from "./action-query-cache-mutation.js";
 import { clientBuildId } from "./build-compatibility.js";
 import {
   getAccessDeniedActionQueryBinding,
@@ -406,6 +411,7 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
   let restoreAccepted = false;
   let restoreBlocked = false;
   let restoreRevision = 0;
+  let mutationEpoch = readMutationEpoch();
   const writesInFlight = new Set<Promise<void>>();
 
   const clearRestoredState = () => {
@@ -414,17 +420,90 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     restoredSources = new Map();
   };
 
+  let scannedStorageLength: number | undefined;
+  const storageLength = () => {
+    try {
+      return window.localStorage.length;
+    } catch {
+      cacheSafetyUnavailable = true;
+      return undefined;
+    }
+  };
+
+  const blockCache = () => {
+    persistBlocked = true;
+    restoreBlocked = true;
+    clearRestoredState();
+    latest = undefined;
+    clearTimeout(timer);
+    timer = undefined;
+  };
+
   const canUseCache = () => {
     const safe = matchesCacheEpoch(cacheEpoch);
-    if (!safe) {
-      persistBlocked = true;
-      restoreBlocked = true;
-      clearRestoredState();
-      latest = undefined;
-      clearTimeout(timer);
-      timer = undefined;
-    }
+    if (safe) scannedStorageLength = storageLength();
+    else blockCache();
     return safe;
+  };
+
+  const onStorage = (event: StorageEvent) => {
+    if (!open || persistBlocked) return;
+    try {
+      if (event.storageArea && event.storageArea !== window.localStorage)
+        return;
+    } catch {
+      return;
+    }
+    if (
+      event.key === null ||
+      (event.key === CACHE_EPOCH_KEY && event.newValue !== cacheEpoch) ||
+      (event.key.startsWith(CLEAR_INTENT_PREFIX) && event.newValue !== null)
+    ) {
+      blockCache();
+    }
+  };
+  const storageEvents =
+    typeof window !== "undefined" &&
+    typeof window.addEventListener === "function"
+      ? window
+      : undefined;
+  const flushPending = (event?: Event) => {
+    const settledEpoch =
+      event instanceof CustomEvent
+        ? (event.detail as ActionCacheFlushDetail).settledEpoch
+        : undefined;
+    if (
+      typeof settledEpoch === "string" &&
+      settledEpoch !== mutationEpoch &&
+      readMutationEpoch() === settledEpoch
+    ) {
+      mutationEpoch = settledEpoch;
+      if (latest) {
+        const restamped: PersistedClient & { mutationEpoch: string } = {
+          ...latest,
+          mutationEpoch,
+        };
+        latest = restamped;
+      }
+    }
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    flush();
+  };
+  const flushWhenHidden = () => {
+    if (document.visibilityState === "hidden") flushPending();
+  };
+  storageEvents?.addEventListener("storage", onStorage);
+  storageEvents?.addEventListener(ACTION_CACHE_FLUSH_EVENT, flushPending);
+  storageEvents?.addEventListener("pagehide", flushPending);
+  if (typeof document !== "undefined")
+    document.addEventListener("visibilitychange", flushWhenHidden);
+  const stopWatchingStorage = () => {
+    storageEvents?.removeEventListener("storage", onStorage);
+    storageEvents?.removeEventListener(ACTION_CACHE_FLUSH_EVENT, flushPending);
+    storageEvents?.removeEventListener("pagehide", flushPending);
+    if (typeof document !== "undefined")
+      document.removeEventListener("visibilitychange", flushWhenHidden);
   };
 
   const flush = () => {
@@ -445,10 +524,16 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     );
   };
 
-  return {
+  const persister: ScopedPersister = {
     persistClient(client) {
-      if (!open || persistBlocked || !canUseCache()) return;
-      latest = client;
+      if (!open || persistBlocked || mutationEpoch === undefined) return;
+      if (
+        (timer === undefined || storageLength() !== scannedStorageLength) &&
+        !canUseCache()
+      )
+        return;
+      const stamped = { ...client, mutationEpoch };
+      latest = stamped;
       timer ??= setTimeout(flush, WRITE_DELAY_MS);
     },
     async restoreClient() {
@@ -456,6 +541,18 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
       if (!open || restoreBlocked || !canUseCache()) return undefined;
       const revision = restoreRevision;
       const stored = await storage.get(scope);
+      const storedEpoch =
+        stored &&
+        "mutationEpoch" in stored &&
+        (typeof stored.mutationEpoch === "string" ||
+          stored.mutationEpoch === null)
+          ? stored.mutationEpoch
+          : null;
+      const currentEpoch = readMutationEpoch();
+      if (currentEpoch === undefined) {
+        this.discard();
+        return undefined;
+      }
       // A revoked record can still be in an outstanding storage read. Do not
       // return it to the persister after discard, even if the read was started
       // before the matching access-denied response.
@@ -463,6 +560,14 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
         open && !restoreBlocked && revision === restoreRevision && canUseCache()
           ? withinMaxAge(stored)
           : undefined;
+      if (record && storedEpoch !== currentEpoch) {
+        record.clientState.queries = record.clientState.queries.map(
+          (query) => ({
+            ...query,
+            state: { ...query.state, isInvalidated: true },
+          }),
+        );
+      }
       restored = new Map(
         record?.clientState.queries.map((query) => [
           query.queryHash,
@@ -541,6 +646,7 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     },
     close() {
       open = false;
+      stopWatchingStorage();
       restoreBlocked = true;
       restoreRevision += 1;
       clearRestoredState();
@@ -549,6 +655,8 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
       timer = undefined;
     },
   };
+  if (mutationEpoch === undefined) persister.discard();
+  return persister;
 }
 
 interface Binding {

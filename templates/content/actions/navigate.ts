@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -53,8 +56,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Content collection ID to open by its backing page"),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const path = await resolveNavigatePath(args);
 

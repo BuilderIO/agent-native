@@ -27,6 +27,7 @@ function subjectWithPrefix(subject: string, prefix: "Re:" | "Fwd:") {
   return subject.startsWith(prefix) ? subject : `${prefix} ${subject}`;
 }
 
+// No `url`: Mail serves Gmail parts by ID, and app state refuses its paths.
 function originalAttachments(message: EmailMessage): ComposeAttachment[] {
   return (message.attachments ?? []).map((attachment) => ({
     id: attachment.id,
@@ -34,7 +35,6 @@ function originalAttachments(message: EmailMessage): ComposeAttachment[] {
     originalName: attachment.filename,
     mimeType: attachment.mimeType,
     size: attachment.size,
-    url: `/api/attachments?messageId=${encodeURIComponent(message.id)}&id=${encodeURIComponent(attachment.id)}&mimeType=${encodeURIComponent(attachment.mimeType)}`,
     source: "gmail" as const,
     gmailMessageId: message.id,
     gmailAttachmentId: attachment.id,

@@ -201,7 +201,13 @@ function servicesStatus(
     service("embeddings", {}),
   ],
 ): ServiceProvidersStatus {
-  return { canManage: true, updatedAt: null, updatedBy: null, services };
+  return {
+    canManage: true,
+    updatedAt: null,
+    updatedBy: null,
+    semanticSearch: { enabled: true, updatedAt: null, updatedBy: null },
+    services,
+  };
 }
 
 const STORAGE: FileStorageStatus = {
@@ -633,6 +639,140 @@ describe("InfrastructureSettingsPage", () => {
       "Only organization owners and admins can change services.",
     );
     expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("turns semantic search off before the server answers, then keeps its answer", async () => {
+    let resolveSet: (value: ServiceProvidersStatus) => void = () => {};
+    callActionMock.mockImplementation(
+      (_name: string, params: { semanticSearch?: boolean }) => {
+        if (params?.semanticSearch === undefined) {
+          return Promise.resolve(servicesRead);
+        }
+        return new Promise((resolve) => {
+          resolveSet = resolve;
+        });
+      },
+    );
+    await render();
+    const toggle = () =>
+      row("semantic-search").querySelector<HTMLButtonElement>(
+        '[role="switch"]',
+      )!;
+    expect(row("semantic-search").textContent).toContain(
+      "Finds pages by meaning as well as words.",
+    );
+    expect(toggle().getAttribute("aria-checked")).toBe("true");
+
+    act(() => toggle().click());
+    await flush();
+    expect(callActionMock).toHaveBeenCalledWith("manage-service-providers", {
+      semanticSearch: false,
+    });
+    // The write is still in flight.
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    expect(toggle().disabled).toBe(true);
+
+    await act(async () =>
+      resolveSet({
+        ...servicesRead,
+        semanticSearch: {
+          enabled: false,
+          updatedAt: "2026-11-10T12:00:00.000Z",
+          updatedBy: "owner@example.com",
+        },
+      }),
+    );
+    await flush();
+    expect(row("semantic-search").textContent).toContain(
+      "Off. Search matches words only",
+    );
+    expect(toggle().disabled).toBe(false);
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Semantic search is off. Stored page vectors were deleted.",
+    );
+  });
+
+  it("rolls the semantic search switch back and says why when the change fails", async () => {
+    callActionMock.mockImplementation(
+      async (_name: string, params: { semanticSearch?: boolean }) => {
+        if (params?.semanticSearch === undefined) return servicesRead;
+        throw new Error(
+          "Only organization owners and admins can change services.",
+        );
+      },
+    );
+    await render();
+    const toggle = () =>
+      row("semantic-search").querySelector<HTMLButtonElement>(
+        '[role="switch"]',
+      )!;
+    act(() => toggle().click());
+    await flush();
+    expect(toggle().getAttribute("aria-checked")).toBe("true");
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Couldn't change semantic search.",
+      {
+        description: "Only organization owners and admins can change services.",
+      },
+    );
+  });
+
+  it("shows what the server saved when finishing a change fails, and offers to finish it", async () => {
+    let failNext = true;
+    callActionMock.mockImplementation(
+      async (_name: string, params: { semanticSearch?: boolean }) => {
+        if (params?.semanticSearch === undefined) return servicesRead;
+        // The setting is saved, then deleting stored vectors fails.
+        servicesRead = {
+          ...servicesRead,
+          semanticSearch: {
+            enabled: params.semanticSearch,
+            updatedAt: "2026-11-10T12:00:00.000Z",
+            updatedBy: "owner@example.com",
+          },
+        };
+        if (failNext) {
+          failNext = false;
+          throw new Error(
+            "Semantic search is off, so nothing new is embedded or searched, but deleting stored embeddings failed. Try again to finish.",
+          );
+        }
+        return servicesRead;
+      },
+    );
+    await render();
+    const toggle = () =>
+      row("semantic-search").querySelector<HTMLButtonElement>(
+        '[role="switch"]',
+      )!;
+    act(() => toggle().click());
+    await flush();
+    await flush();
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    const retry = button(row("semantic-search"), "Retry");
+    act(() => retry.click());
+    await flush();
+    expect(callActionMock).toHaveBeenLastCalledWith(
+      "manage-service-providers",
+      { semanticSearch: false },
+    );
+    expect(
+      [...row("semantic-search").querySelectorAll("button")].some(
+        (candidate) => candidate.textContent?.trim() === "Retry",
+      ),
+    ).toBe(false);
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("offers a retry when the semantic search setting can't be read", async () => {
+    servicesRead = { ...servicesStatus(), semanticSearch: null };
+    await render();
+    const semantic = row("semantic-search");
+    expect(semantic.textContent).toContain(
+      "Couldn't read whether semantic search is on.",
+    );
+    expect(semantic.querySelector('[role="switch"]')).toBeNull();
+    expect(button(semantic, "Retry")).toBeTruthy();
   });
 
   it("shows Saving on the primary button until the write settles", async () => {

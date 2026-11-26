@@ -33,7 +33,7 @@ folder in the parent and move the repo into it. `create .` is also out — it
 aborts unless the directory is empty apart from `.git` / `README.md` /
 `.gitignore`.
 
-Instead, scaffold into a staging subdirectory *inside* this repo, hoist its root
+Instead, scaffold into a staging subdirectory _inside_ this repo, hoist its root
 files up, and delete it. Nothing leaves the git root.
 
 ```bash
@@ -94,7 +94,7 @@ do that instead — it skips the transform entirely.
 
 Workspace is the **default** shape of `create`; `--standalone` is the opt-out.
 **Dispatch is always scaffolded** — the template picker hides it and the CLI
-unions it in, so `--template` only names the *additional* apps:
+unions it in, so `--template` only names the _additional_ apps:
 
 ```bash
 npx @agent-native/core@latest create app-workspace --template tasks,content
@@ -204,7 +204,7 @@ Dispatch's theming is app-owned even though its routes come from the package:
 - `apps/dispatch/app/global.css` — the token block. Replace the placeholder
   `:root` / dark values with the workspace brand for **both** modes.
 - `apps/dispatch/app/design-system.ts` — `defineDesignSystem({ name, theme,
-  components })` to override component adapters.
+components })` to override component adapters.
 - `apps/dispatch/app/dispatch-extensions.tsx` — workspace-owned tabs.
 - `Layout` from `@agent-native/dispatch/components` consumes semantic tokens, so
   retheming the tokens retheme the chrome. Do not fork the Layout to restyle it.
@@ -222,8 +222,8 @@ drift and the workspace looks like unrelated demos.
 
 The framework's default stance is deliberately anti-uniform: the scaffolded
 `DESIGN.md` tells each app to pick its own accent and warns against copying a
-sibling's palette. It carves out one exception — *"unless the workspace has an
-explicit brand system"*. When the user wants one shared look, take that
+sibling's palette. It carves out one exception — _"unless the workspace has an
+explicit brand system"_. When the user wants one shared look, take that
 exception explicitly and record it, rather than silently copying token blocks
 between apps.
 
@@ -269,12 +269,12 @@ not as a later cleanup pass.
 Applies to plugins, skills, actions, and `AGENTS.md`. Create the file and it
 takes over; there is no wiring step.
 
-| Override           | File in the app                                    |
-| ------------------ | -------------------------------------------------- |
-| Auth plugin        | `apps/<name>/server/plugins/auth.ts`               |
-| Agent-chat plugin  | `apps/<name>/server/plugins/agent-chat.ts`         |
-| One skill          | `apps/<name>/.agents/skills/<skill>/SKILL.md`      |
-| One action         | `apps/<name>/actions/<action>.ts`                  |
+| Override           | File in the app                                     |
+| ------------------ | --------------------------------------------------- |
+| Auth plugin        | `apps/<name>/server/plugins/auth.ts`                |
+| Agent-chat plugin  | `apps/<name>/server/plugins/agent-chat.ts`          |
+| One skill          | `apps/<name>/.agents/skills/<skill>/SKILL.md`       |
+| One action         | `apps/<name>/actions/<action>.ts`                   |
 | Extra instructions | `apps/<name>/AGENTS.md` (merges with workspace one) |
 
 ## packages/shared

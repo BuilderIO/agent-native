@@ -17,7 +17,8 @@ export type BigQueryUsageAttribution = {
     | "dashboard-panel"
     | "dashboard-report"
     | "panel-verification"
-    | "alert";
+    | "alert"
+    | "outside-agent-query";
   dashboardId?: string;
   panelId?: string;
 };
@@ -226,6 +227,95 @@ export async function observeBigQueryJobUsage(
     return result;
   } catch {
     return result;
+  }
+}
+
+export type BigQueryJobBilling =
+  | {
+      kind: "found";
+      state: "PENDING" | "RUNNING" | "DONE" | null;
+      billedBytes: number | null;
+      cacheHit: boolean | null;
+      statementType: string | null;
+      errorReason: string | null;
+      errorMessage?: string | null;
+      location: string | undefined;
+    }
+  | { kind: "not_found" }
+  | { kind: "unreadable" };
+
+export async function readBigQueryJobBilling(
+  job: { projectId: string; jobId: string; location?: string | null },
+  token: string,
+  signal: AbortSignal,
+): Promise<BigQueryJobBilling> {
+  const params = new URLSearchParams({
+    fields:
+      "jobReference,status(state,errorResult),statistics(query(totalBytesBilled,cacheHit,statementType))",
+  });
+  if (job.location) params.set("location", job.location);
+  try {
+    const response = await fetch(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(job.projectId)}/jobs/${encodeURIComponent(job.jobId)}?${params}`,
+      { signal, headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (response.status === 404) return { kind: "not_found" };
+    if (!response.ok) return { kind: "unreadable" };
+    const data = (await response.json()) as {
+      jobReference?: { projectId?: string; jobId?: string; location?: string };
+      status?: {
+        state?: string;
+        errorResult?: { reason?: unknown; message?: unknown };
+      };
+      statistics?: {
+        query?: {
+          totalBytesBilled?: unknown;
+          cacheHit?: unknown;
+          statementType?: unknown;
+        };
+      };
+    };
+    if (
+      data.jobReference?.projectId !== job.projectId ||
+      data.jobReference.jobId !== job.jobId
+    ) {
+      return { kind: "unreadable" };
+    }
+    const state = data.status?.state;
+    const billed = usageBytes(data.statistics?.query?.totalBytesBilled);
+    const billedBytes = billed === null ? null : Number(billed);
+    return {
+      kind: "found",
+      state:
+        state === "DONE" || state === "RUNNING" || state === "PENDING"
+          ? state
+          : null,
+      billedBytes:
+        billedBytes !== null && Number.isSafeInteger(billedBytes)
+          ? billedBytes
+          : null,
+      cacheHit:
+        typeof data.statistics?.query?.cacheHit === "boolean"
+          ? data.statistics.query.cacheHit
+          : null,
+      statementType:
+        typeof data.statistics?.query?.statementType === "string"
+          ? data.statistics.query.statementType
+          : null,
+      errorReason: data.status?.errorResult
+        ? typeof data.status.errorResult.reason === "string"
+          ? data.status.errorResult.reason
+          : "unreadable"
+        : null,
+      errorMessage:
+        typeof data.status?.errorResult?.message === "string"
+          ? data.status.errorResult.message.slice(0, 4_000)
+          : null,
+      location: data.jobReference.location ?? job.location ?? undefined,
+    };
+  } catch {
+    // coercion-ok: an unreadable answer is its own kind; callers keep the reservation.
+    return { kind: "unreadable" };
   }
 }
 

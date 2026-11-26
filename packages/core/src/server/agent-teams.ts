@@ -38,6 +38,7 @@ import {
   subscribeToRun,
   type ActiveRun,
 } from "../agent/run-manager.js";
+import { threadMatchesRunApp } from "../agent/run-ownership.js";
 import {
   ensureRunTables,
   getRunEventsSince,
@@ -63,7 +64,7 @@ import {
   deleteAppState,
 } from "../application-state/script-helpers.js";
 import { redactArgsToValue, redactTextToSummary } from "../audit/redact.js";
-import { createThread } from "../chat-threads/store.js";
+import { createThread, type ChatThreadScope } from "../chat-threads/store.js";
 import type {
   BackgroundAgentRun,
   BackgroundAgentRunStatus,
@@ -195,9 +196,11 @@ export interface AgentTask {
   stopRequestedAt?: number;
   stopRequestedRunId?: string;
   stopRequestedReason?: string;
+  quiet?: boolean;
 }
 
 export interface AgentTeamOwnerScope {
+  sourceAppId?: string | null;
   ownerEmail: string | null;
   orgId?: string | null;
 }
@@ -1326,6 +1329,7 @@ function taskProgressMetadata(task: AgentTask): Record<string, unknown> {
     currentStep: task.currentStep,
     surfaceUrl: `agent-native://threads/${encodeURIComponent(task.threadId)}`,
     ...(task.parentThreadId ? { parentThreadId: task.parentThreadId } : {}),
+    ...(task.quiet ? { quiet: true } : {}),
     ...(task.name ? { name: task.name } : {}),
   };
 }
@@ -1341,6 +1345,7 @@ async function startTaskProgressRun(
   task: AgentTask,
   ownerEmail: string,
 ): Promise<void> {
+  if (task.quiet) return;
   const runId = task.runId ?? taskRunId(task.taskId);
   task.runId = runId;
   try {
@@ -1361,6 +1366,7 @@ async function updateTaskProgressRun(
   task: AgentTask,
   ownerEmail: string,
 ): Promise<void> {
+  if (task.quiet) return;
   const runId = task.runId ?? taskRunId(task.taskId);
   task.runId = runId;
   try {
@@ -1379,6 +1385,7 @@ async function completeTaskProgressRun(
   status: TerminalProgressStatus,
   step: string,
 ): Promise<boolean> {
+  if (task.quiet) return true;
   const runId = task.runId ?? taskRunId(task.taskId);
   task.runId = runId;
   try {
@@ -1430,6 +1437,7 @@ async function ensureTaskCompletionNotification(
   ownerEmail: string,
   hitContinuationLimit = false,
 ): Promise<boolean> {
+  if (task.quiet) return true;
   try {
     const { hasNotificationWithMetadata, insertNotification } =
       await import("../notifications/store.js");
@@ -1830,11 +1838,21 @@ export interface SpawnTaskOptions {
   instructions?: string;
   model?: string;
   ownerEmail: string;
-  systemPrompt: string;
-  actions: Record<string, ActionEntry>;
+  systemPrompt?: string;
+  actions?: Record<string, ActionEntry>;
   engine?: AgentEngine;
   apiKey?: string;
-  parentSend: (event: AgentChatEvent) => void;
+  /** Omit when no chat is waiting on the task, as when app code starts it. */
+  parentSend?: (event: AgentChatEvent) => void;
+  /** The task thread's scope, so an app can keep it out of chat history. */
+  scope?: ChatThreadScope | null;
+  /** Keeps the task out of the runs tray. */
+  quiet?: boolean;
+  /**
+   * The only actions the sub-agent may call. Required without `parentSend`;
+   * inside a run that has its own allowlist, names outside it are dropped.
+   */
+  allowedActionNames?: readonly string[];
   parentThreadId?: string;
   parentSourceAppId?: string | null;
   parentRunId?: string;
@@ -1855,6 +1873,12 @@ export class SubagentDelegationDepthError extends Error {
 }
 
 export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
+  if (!opts.parentSend && opts.allowedActionNames === undefined) {
+    throw new Error(
+      "spawnTask needs allowedActionNames when no chat is waiting on the task.",
+    );
+  }
+  const parentAllowedActionNames = getRequestRunContext()?.allowedActionNames;
   const parentDepth =
     typeof opts.parentDelegationDepth === "number"
       ? opts.parentDelegationDepth
@@ -1887,6 +1911,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   const parentSourceAppId = opts.parentSourceAppId?.trim();
   const thread = await createThread(opts.ownerEmail, {
     title: opts.description.slice(0, 100),
+    ...(opts.scope ? { scope: opts.scope } : {}),
     ...(parentSourceAppId ? { source: { appId: parentSourceAppId } } : {}),
     initialData: {
       threadData,
@@ -1914,16 +1939,18 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     startedAt: createdAt,
     runId,
     delegationDepth: childDepth,
+    ...(opts.quiet ? { quiet: true } : {}),
   };
 
   await saveTask(task);
   await startTaskProgressRun(task, opts.ownerEmail);
 
-  opts.parentSend({
+  opts.parentSend?.({
     type: "agent_task",
     taskId,
     threadId: thread.id,
     description: opts.description,
+    ...(opts.name ? { name: opts.name } : {}),
     status: "running",
   });
 
@@ -1934,9 +1961,17 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
     ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
     ...(opts.name ? { name: opts.name } : {}),
-    ...(getRequestRunContext()?.allowedActionNames !== undefined
-      ? { allowedActionNames: Object.keys(opts.actions) }
-      : {}),
+    ...(opts.allowedActionNames !== undefined
+      ? {
+          allowedActionNames: opts.allowedActionNames.filter(
+            (name) =>
+              parentAllowedActionNames === undefined ||
+              parentAllowedActionNames.includes(name),
+          ),
+        }
+      : parentAllowedActionNames !== undefined
+        ? { allowedActionNames: Object.keys(opts.actions ?? {}) }
+        : {}),
     turnId: runId,
   };
 
@@ -3099,7 +3134,7 @@ export async function getTask(
   scope?: AgentTeamOwnerScope,
 ): Promise<AgentTask | undefined> {
   const task = await loadTask(taskId);
-  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+  if (!task || !(await taskMatchesOwnerScope(task, resolveOwnerScope(scope)))) {
     return undefined;
   }
   return await reconcileTaskForRead(task);
@@ -3110,7 +3145,7 @@ export async function getTaskByThread(
   scope?: AgentTeamOwnerScope,
 ): Promise<AgentTask | undefined> {
   const task = await loadTaskByThread(threadId);
-  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+  if (!task || !(await taskMatchesOwnerScope(task, resolveOwnerScope(scope)))) {
     return undefined;
   }
   return await reconcileTaskForRead(task);
@@ -3121,9 +3156,12 @@ export async function listTasks(
 ): Promise<AgentTask[]> {
   const ownerScope = resolveOwnerScope(scope);
   const entries = await listAppState(TASK_PREFIX);
-  const tasks = entries
-    .map((e) => e.value as unknown as AgentTask)
-    .filter((task) => taskMatchesOwnerScope(task, ownerScope));
+  const tasks: AgentTask[] = [];
+  for (const entry of entries) {
+    const task = entry.value as unknown as AgentTask;
+    if (task.quiet) continue;
+    if (await taskMatchesOwnerScope(task, ownerScope)) tasks.push(task);
+  }
   const reconciled = await Promise.all(tasks.map(reconcileTaskForRead));
   return reconciled.sort(
     (a, b) =>
@@ -3275,7 +3313,7 @@ export async function sendToTask(
   queuedCount?: number;
 }> {
   const task = await loadTask(taskId);
-  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+  if (!task || !(await taskMatchesOwnerScope(task, resolveOwnerScope(scope)))) {
     return { ok: false, error: "Task not found" };
   }
   if (task.status !== "running")
@@ -3377,7 +3415,7 @@ export async function stopAgentTeamBackgroundRun(
   let stoppedTask: AgentTask | null = null;
   for (let retry = 0; retry < 3 && !stoppedTask; retry += 1) {
     const task = await loadTask(taskId);
-    if (!task || !taskMatchesOwnerScope(task, ownerScope)) {
+    if (!task || !(await taskMatchesOwnerScope(task, ownerScope))) {
       return { ok: false, error: "Task not found" };
     }
     if (task.status !== "running") {
@@ -3408,7 +3446,7 @@ export async function stopAgentTeamBackgroundRun(
           const currentTask = await loadTask(taskId);
           if (
             currentTask &&
-            taskMatchesOwnerScope(currentTask, ownerScope) &&
+            (await taskMatchesOwnerScope(currentTask, ownerScope)) &&
             currentTask.status === "running"
           ) {
             const expectedTask = structuredClone(currentTask);
@@ -3449,7 +3487,7 @@ export async function stopAgentTeamBackgroundRun(
           const currentTask = await loadTask(taskId);
           if (
             !currentTask ||
-            !taskMatchesOwnerScope(currentTask, ownerScope) ||
+            !(await taskMatchesOwnerScope(currentTask, ownerScope)) ||
             currentTask.status !== "running" ||
             currentTask.stopRequestedAt !== requestedAt ||
             currentTask.stopRequestedRunId !== requestedRunId ||
@@ -3497,7 +3535,7 @@ export async function stopAgentTeamBackgroundRun(
     const currentTask = await loadTask(taskId);
     if (
       !currentTask ||
-      !taskMatchesOwnerScope(currentTask, ownerScope) ||
+      !(await taskMatchesOwnerScope(currentTask, ownerScope)) ||
       currentTask.status !== "running" ||
       currentTask.stopRequestedAt !== stopRequestedTask.stopRequestedAt ||
       currentTask.stopRequestedRunId !== stopRequestedTask.stopRequestedRunId ||
@@ -3542,12 +3580,18 @@ function resolveOwnerScope(
   };
 }
 
-function taskMatchesOwnerScope(
+async function taskMatchesOwnerScope(
   task: AgentTask,
   scope: AgentTeamOwnerScope | undefined,
-): boolean {
+): Promise<boolean> {
   if (!scope) return true;
   return (
+    (await threadMatchesRunApp(
+      task.threadId,
+      "sourceAppId" in scope
+        ? { sourceAppId: scope.sourceAppId ?? null }
+        : undefined,
+    )) &&
     (task.ownerEmail ?? null) === scope.ownerEmail &&
     (scope.orgId === undefined || (task.orgId ?? null) === scope.orgId)
   );
@@ -3568,7 +3612,7 @@ export async function markTaskErrored(
 
   for (let retry = 0; retry < 3; retry += 1) {
     const task = await loadTask(taskId);
-    if (!task || !taskMatchesOwnerScope(task, ownerScope)) return;
+    if (!task || !(await taskMatchesOwnerScope(task, ownerScope))) return;
     if (task.status !== "running") return;
 
     const dispatch = await getAgentTeamRunDispatchState(taskId);
@@ -3648,7 +3692,7 @@ export async function markTaskErrored(
           const currentTask = await loadTask(taskId);
           if (
             !currentTask ||
-            !taskMatchesOwnerScope(currentTask, ownerScope) ||
+            !(await taskMatchesOwnerScope(currentTask, ownerScope)) ||
             currentTask.status !== "running"
           ) {
             return { kind: "skip" as const };

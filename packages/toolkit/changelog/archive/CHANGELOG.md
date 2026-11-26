@@ -1,3 +1,92 @@
+## 0.16.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.16.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.16.11
+
+### Patch Changes
+
+- 6c2e431: Show a terminal raw-source error when a persisted registry block cannot hydrate instead of leaving it indefinitely loading.
+- af1b3bb: Stop silently dropping a collaborator's edits. A client that was not the reconcile lead never marked itself seeded, so its own changes were never written back
+  to SQL — they survived in the shared CRDT while a peer stayed connected and disappeared when that peer left. Read-only viewers were also counted in the lead
+  election, so a viewer could win it and then apply nothing at all, leaving a session where every editor's work was dropped.
+- c595519: Adds a shared `afterBodyPointerUnlock` helper (`@agent-native/toolkit/ui/pointer-lock`) that defers opening a follow-up Dialog/Sheet/AlertDialog until `document.body.style.pointerEvents` is confirmed unlocked, avoiding the Radix dismissable-layer race where a new modal mounts before a closing one (with a nested Select) finishes unregistering and leaves the page permanently unclickable.
+- 9735e4d: Fix the desktop agent picker readiness, tooltip stacking, and terminal mode control.
+- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring and selects the
+  committed value so editing can continue in the field. Blurring handed the next
+  keystroke to whatever global shortcut owned that key, so typing a value and
+  continuing to type could fire a canvas command (a zoom jump, in the report that
+  found this) while the user believed they were still editing the field.
+
+## 0.16.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.16.9
+
+### Patch Changes
+
+- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
+  imports from its layout, transactional email pages, and MCP gateway;
+  creative-context drops unused type imports and an unread `headingStyle`;
+  recap-cli drops the `node:os` import and two unread locals; skills drops the
+  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
+  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
+  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
+  blocks new ones.
+
+## 0.16.8
+
+### Patch Changes
+
+- 60b7e74: Pin Tiptap bubble-menu and floating-menu to 3.30.1 so npm no longer warns on optional peer mismatches when installing the CLI.
+
+## 0.16.7
+
+### Patch Changes
+
+- fc85cb2: Allow external prompt handoffs to insert text through the shared composer without publishing a runtime message update.
+
+## 0.16.6
+
+### Patch Changes
+
+- a2f21dc: Fix `ActionButton` and `IconButton` (from `@agent-native/toolkit/design-system`) not forwarding a native `ref`, which broke every Radix `asChild` trigger built on them — popovers, tooltips, dropdown menus, and dialogs positioned relative to the button would render off-screen (`transform: translate(0px, -200%)`) because Radix's `Slot` had no DOM node to measure. `ActionButton`/`IconButton` are now wrapped in `forwardRef`, and the forwarded ref is merged with the existing `elementRef` prop so both resolve to the same DOM node — existing consumers that pass `elementRef` explicitly are unaffected.
+
+  Also fix `IconButton` dropping a native `onClick`. `IconButtonProps` did not
+  declare `onClick` and the default adapter spread incoming props before setting
+  its own handler, so a Radix `asChild` trigger built on `IconButton` — popover,
+  dropdown menu, dialog — never opened at all. `IconButton` now merges `onClick`
+  with `onPress` the same way `ActionButton` already did.
+
+## 0.16.5
+
+### Patch Changes
+
+- 0b57293: Fix `ActionButton` and `IconButton` (from `@agent-native/toolkit/design-system`) not forwarding a native `ref`, which broke every Radix `asChild` trigger built on them — popovers, tooltips, dropdown menus, and dialogs positioned relative to the button would render off-screen (`transform: translate(0px, -200%)`) because Radix's `Slot` had no DOM node to measure. `ActionButton`/`IconButton` are now wrapped in `forwardRef`, and the forwarded ref is merged with the existing `elementRef` prop so both resolve to the same DOM node — existing consumers that pass `elementRef` explicitly are unaffected.
+
+  Also fix `IconButton` dropping a native `onClick`. `IconButtonProps` did not
+  declare `onClick` and the default adapter spread incoming props before setting
+  its own handler, so a Radix `asChild` trigger built on `IconButton` — popover,
+  dropdown menu, dialog — never opened at all. `IconButton` now merges `onClick`
+  with `onPress` the same way `ActionButton` already did.
+
+## 0.16.4
+
+### Patch Changes
+
+- 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
+
 ## 0.16.3
 
 ### Patch Changes

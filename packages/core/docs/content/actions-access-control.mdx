@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-This is the same catalog as the plugin's `mcp: { connectorCatalog: [...] }` list, declared on the action instead of in a separate array that has to be kept in sync as actions are renamed. Both forms work, and an app can move over one action at a time. Everything left out stays discoverable through `tool-search`.
+This is the same catalog as the plugin's `mcp: { connectorCatalog: [...] }` list, declared on the action instead of in a separate array that has to be kept in sync as actions are renamed. Both forms work, and an app can move over one action at a time. An action left out isn't on outside agents' default catalog. `mcpTool: "search"` serves one without listing it: `tool-search` finds it and `call-tool` runs it. For any other action your agent can call, `tool-search` names close matches as not served, so a signed-in outside agent can hand that task to `ask_app`.
 
 Pairing the two flags the other way — `agentTool: false` with `mcpTool: true` — makes an action **MCP-only**: outside agents get it, your own app's agent never sees it. Use it for the export, sync, or handoff an outside tool needs and your own agent has no reason to call.
 
@@ -205,6 +205,8 @@ On `approval_required`, the chat UI renders an **Approve / Deny** affordance on 
 - **Deny** dismisses the affordance locally. Nothing is re-issued, so the action never runs.
 
 `approvedToolCalls` is a field on the chat request (`AgentChatRequest.approvedToolCalls`). Keys that are not present in it stay paused. Approving one call never approves any other call. Because the key is content-addressed, an approval only authorizes that exact call with those exact arguments. If the model later proposes a different send, that becomes a new key and needs its own fresh approval.
+
+The re-issued turn also carries the call's pending ask id in `approvedToolCallAskIds`. The server runs the call only while that ask is still pending for the same user and thread, so a key on its own approves nothing, and only the app's own pages can relay an approval through `agentNative.submitChat`.
 
 ### End-to-end {#flow}
 

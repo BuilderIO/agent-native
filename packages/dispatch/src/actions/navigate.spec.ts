@@ -8,7 +8,10 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (action: unknown) => action,
 }));
 
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 

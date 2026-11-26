@@ -17,6 +17,7 @@ const isUnreadable = (args: { key: string; scope: string; scopeId: string }) =>
   unreadable.has(args.key) ||
   unreadable.has(`${args.scope}:${args.scopeId}:${args.key}`);
 const roleRef = vi.hoisted(() => ({ role: "owner" as string | null }));
+const trustedRuntimeRef = vi.hoisted(() => ({ value: true }));
 const readErrorRef = vi.hoisted(() => ({ error: null as Error | null }));
 const { AppSecretDecryptionError, CredentialStoreUnavailableError } =
   vi.hoisted(() => ({
@@ -120,6 +121,7 @@ vi.mock("../server/personal-provider-key-policy.js", () => ({
 
 vi.mock("../server/credential-provider.js", () => ({
   CredentialStoreUnavailableError,
+  isTrustedSelfHostedRuntime: () => trustedRuntimeRef.value,
   prefetchSecrets: (keys: readonly string[]) => prefetchSecretsMock(keys),
   resolveSecretDetailed: async (key: string) => {
     if (readErrorRef.error) throw readErrorRef.error;
@@ -272,6 +274,7 @@ describe("channel settings", () => {
     prefetchSecretsMock.mockReset().mockResolvedValue(undefined);
     readErrorRef.error = null;
     roleRef.role = "owner";
+    trustedRuntimeRef.value = true;
     mounted = {
       adapters: [
         fakeAdapter("telegram", TELEGRAM_KEYS),
@@ -662,6 +665,22 @@ describe("channel settings", () => {
     expect(
       store.get("workspace:solo:owner@example.com:TELEGRAM_BOT_TOKEN"),
     ).toBe("fake-bot-token");
+  });
+
+  it("refuses a caller with no organization on a hosted deployment", async () => {
+    trustedRuntimeRef.value = false;
+    await expect(
+      saveMessagingChannelCredentials({ ...OWNER, orgId: null }, "telegram", {
+        TELEGRAM_BOT_TOKEN: "fake-bot-token",
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, errorCode: "forbidden" });
+    await expect(
+      setMessagingChannelEnabled({ ...OWNER, orgId: null }, "telegram", true),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mounted.setEnabled).not.toHaveBeenCalled();
+    expect(
+      store.get("workspace:solo:owner@example.com:TELEGRAM_BOT_TOKEN"),
+    ).toBeUndefined();
   });
 
   it("refuses members, unknown keys, and deployment-only keys", async () => {

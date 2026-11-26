@@ -65,6 +65,7 @@ type ContentBlockRenderContext = BlockRenderContext & {
 
 const ERROR_MESSAGES: Record<ClipPlayerError, string> = {
   clip_embed_disabled: "clipEmbed.disabled",
+  clip_embed_unavailable: "clipEmbed.flagUnavailable",
   document_not_found: "clipEmbed.notFound",
   clips_not_configured: "clipEmbed.notConfigured",
   clip_not_found: "clipEmbed.notFound",
@@ -85,6 +86,7 @@ const ERROR_MESSAGES: Record<ClipPlayerError, string> = {
 
 /** Failures that may clear up on their own, so the reader can ask again. */
 const RETRYABLE = new Set<ClipPlayerError>([
+  "clip_embed_unavailable",
   "clip_redaction_pending",
   "clip_rate_limited",
   "clips_unreachable",

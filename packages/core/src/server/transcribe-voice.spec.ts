@@ -82,7 +82,8 @@ vi.mock("../transcription/builder-transcription.js", () => ({
   transcribeWithBuilder,
 }));
 
-const { createTranscribeVoiceHandler } = await import("./transcribe-voice.js");
+const { createTranscribeVoiceHandler, localTranscribeBaseUrl } =
+  await import("./transcribe-voice.js");
 
 async function post(event: unknown = { node: {} }) {
   const handler = createTranscribeVoiceHandler() as unknown as (
@@ -478,5 +479,119 @@ describe("transcribe-voice client disconnect signal", () => {
 
     expect(signals).toHaveLength(1);
     expect(signals[0]!.aborted).toBe(true);
+  });
+});
+
+describe("transcribe-voice local loopback engine", () => {
+  const ENV = "AGENT_NATIVE_LOCAL_TRANSCRIBE_URL";
+
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "auto";
+    state.secrets = {};
+    state.hasGatewayCredential = false;
+    delete process.env[ENV];
+  });
+
+  afterEach(() => {
+    delete process.env[ENV];
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the local engine when configured on loopback", async () => {
+    process.env[ENV] = "http://127.0.0.1:8787";
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        return new Response(JSON.stringify({ text: "local hello" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await expect(post()).resolves.toEqual({ text: "local hello" });
+    expect(urls).toEqual(["http://127.0.0.1:8787/transcribe"]);
+  });
+
+  it("ignores a non-loopback URL and never contacts it", async () => {
+    process.env[ENV] = "https://engine.example.com";
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        throw new Error("unexpected fetch");
+      }),
+    );
+
+    const result = await post();
+    expect(urls.some((url) => url.includes("engine.example.com"))).toBe(false);
+    expect(result.error).toBeTruthy();
+  });
+
+  it("falls through to the provider chain when the local engine fails", async () => {
+    process.env[ENV] = "http://127.0.0.1:8787";
+    state.provider = "gemini";
+    state.secrets = { GOOGLE_GENERATIVE_AI_API_KEY: "test-gemini-key" };
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        if (String(url).startsWith("http://127.0.0.1:8787")) {
+          return new Response("engine down", { status: 502 });
+        }
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "gemini hello" }] } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+
+    await expect(post()).resolves.toEqual({ text: "gemini hello" });
+    expect(urls[0]).toBe("http://127.0.0.1:8787/transcribe");
+    expect(urls.some((url) => url.includes("generativelanguage"))).toBe(true);
+  });
+});
+
+describe("localTranscribeBaseUrl loopback boundary", () => {
+  const ENV = "AGENT_NATIVE_LOCAL_TRANSCRIBE_URL";
+  afterEach(() => {
+    delete process.env[ENV];
+  });
+
+  it("accepts loopback hosts and strips the trailing slash", () => {
+    for (const value of [
+      "http://localhost:8787/",
+      "http://127.0.0.1:8787",
+      "http://[::1]:8787/engine/",
+    ]) {
+      process.env[ENV] = value;
+      expect(localTranscribeBaseUrl()).toBeTruthy();
+    }
+    process.env[ENV] = "http://127.0.0.1:8787/";
+    expect(localTranscribeBaseUrl()).toBe("http://127.0.0.1:8787");
+  });
+
+  it("refuses remote hosts, non-http schemes and invalid values", () => {
+    for (const value of [
+      "https://engine.example.com",
+      "http://192.168.1.5:8787",
+      "http://10.0.0.1:8787",
+      "file:///tmp/engine",
+      "not a url",
+      "",
+      "   ",
+    ]) {
+      process.env[ENV] = value;
+      expect(localTranscribeBaseUrl()).toBeNull();
+    }
+    delete process.env[ENV];
+    expect(localTranscribeBaseUrl()).toBeNull();
   });
 });

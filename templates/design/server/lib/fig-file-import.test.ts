@@ -18,24 +18,27 @@ vi.mock("@agent-native/core/file-upload", () => fileUploadMocks);
 
 import { buildCodeLayerProjection } from "../../shared/code-layer.js";
 import {
-  convertDecodedFigToEditableHtml as convertShared,
-  inspectDecodedFig,
-} from "../../shared/fig-to-frames.js";
-import {
   assertSafeDecodedFigDocument,
   decodeFig,
   decodeKiwiContainer,
-} from "./fig-file-decoder.js";
+} from "../../shared/fig-file-decoder.js";
 import {
-  convertDecodedFigToEditableHtml,
-  importFigFileToEditableHtml,
-} from "./fig-file-import.js";
-import { BROWSER_FIG_LIMITS, SERVER_FIG_LIMITS } from "./fig-file-limits.js";
+  BROWSER_FIG_LIMITS,
+  SERVER_FIG_LIMITS,
+} from "../../shared/fig-file-limits.js";
 import {
   collectTopLevelFrames,
   renderHtmlTemplates,
   type FigNode,
-} from "./fig-file-to-html.js";
+} from "../../shared/fig-file-to-html.js";
+import {
+  convertDecodedFigToEditableHtml as convertShared,
+  inspectDecodedFig,
+} from "../../shared/fig-to-frames.js";
+import {
+  convertDecodedFigToEditableHtml,
+  importFigFileToEditableHtml,
+} from "./fig-file-import.js";
 
 function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
   const header = Buffer.alloc(12);

@@ -1,11 +1,10 @@
-import { describe, expect, it } from "vitest";
-
 import {
   durationTicks,
   EMPTY_DURATION,
   formatDuration,
   isEmptyDuration,
-} from "./format-duration";
+} from "@agent-native/toolkit/dashboard/format-duration";
+import { describe, expect, it } from "vitest";
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;

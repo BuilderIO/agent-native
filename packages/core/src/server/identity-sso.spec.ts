@@ -17,6 +17,7 @@ const adapterUsers: Array<{
   id: string;
   email: string;
   emailVerified?: boolean;
+  twoFactorEnabled?: boolean;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> = [];
 const signUpEmailMock = vi.fn(async ({ body }: any) => {
@@ -45,6 +46,7 @@ const findUserByEmailMock = vi.fn(async (email: string) => {
           id: user.id,
           email: user.email,
           emailVerified: user.emailVerified === true,
+          twoFactorEnabled: user.twoFactorEnabled ?? false,
         },
         accounts: user.accounts,
       }
@@ -147,6 +149,16 @@ vi.mock("./better-auth-instance.js", () => ({
     linkAccount: (...args: any[]) => linkAccountMock(...args),
     updateUser: (...args: any[]) => updateUserMock(...args),
   }),
+}));
+const membershipsMock = vi.fn(
+  async (
+    _email: string,
+    _options?: { fresh?: boolean },
+  ): Promise<Array<{ orgId: string }> | null> => [{ orgId: "org-1" }],
+);
+vi.mock("../org/context.js", () => ({
+  listOrgMemberships: (email: string, options?: { fresh?: boolean }) =>
+    membershipsMock(email, options),
 }));
 const provisionFederatedOrganizationMock = vi.fn(async () => "linked");
 vi.mock("../org/federation.js", () => ({
@@ -301,6 +313,8 @@ beforeEach(() => {
   adapterUsers.length = 0;
   stateCounter = 0;
   getSessionMock.mockReset().mockResolvedValue(null);
+  membershipsMock.mockReset().mockResolvedValue([{ orgId: "org-1" }]);
+  provisionFederatedOrganizationMock.mockClear();
   createOAuthSessionMock.mockClear();
   signUpEmailMock.mockClear();
   googleAuthRequiredMock.mockReset().mockResolvedValue(false);
@@ -529,6 +543,213 @@ describe("identity SSO browser contract", () => {
       "/sign-in?sso=unavailable&return=%2Fwelcome",
     );
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("rejects an absent account in existing-accounts-only mode without writes", async () => {
+    defineAppConfig({
+      app: { name: "mail" },
+      auth: { identitySsoExistingAccountsOnly: true },
+    });
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"c".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+    expect(signUpEmailMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/sign-in?sso=unavailable&return=%2Finbox",
+    );
+  });
+
+  it.each<
+    [
+      string,
+      {
+        emailVerified: boolean;
+        twoFactorEnabled?: boolean;
+        accounts?: Array<{ providerId: string; accountId: string }>;
+      },
+      Array<{ orgId: string }> | null,
+      { email: string } | null,
+    ]
+  >([
+    [
+      "unverified account",
+      { emailVerified: false },
+      [{ orgId: "org-1" }],
+      null,
+    ],
+    [
+      "MFA account",
+      { emailVerified: true, twoFactorEnabled: true },
+      [{ orgId: "org-1" }],
+      null,
+    ],
+    ["missing membership", { emailVerified: true }, [], null],
+    ["unreadable membership", { emailVerified: true }, null, null],
+    [
+      "conflicting link",
+      {
+        emailVerified: true,
+        accounts: [{ providerId: "agent-native", accountId: "other" }],
+      },
+      [{ orgId: "org-1" }],
+      null,
+    ],
+    [
+      "different browser session",
+      { emailVerified: true },
+      [{ orgId: "org-1" }],
+      { email: "bob@example.test" },
+    ],
+  ])(
+    "rejects %s without mutations",
+    async (_label, props, memberships, current) => {
+      defineAppConfig({
+        app: { name: "mail" },
+        auth: { identitySsoExistingAccountsOnly: true },
+      });
+      adapterUsers.push({
+        id: "alice",
+        email: "alice@example.test",
+        accounts: [],
+        ...props,
+      });
+      membershipsMock.mockResolvedValue(memberships);
+      const { loginEvent, state } = await startLogin();
+      getSessionMock.mockResolvedValue(current);
+      await handleIdentitySso(
+        event(
+          `/_agent-native/identity/callback?code=${"c".repeat(43)}&state=${state}`,
+          { cookies: { ...loginEvent.cookies } },
+        ),
+        "/callback",
+      );
+      expect(createOAuthSessionMock).not.toHaveBeenCalled();
+      expect(signUpEmailMock).not.toHaveBeenCalled();
+      expect(linkAccountMock).not.toHaveBeenCalled();
+      expect(updateUserMock).not.toHaveBeenCalled();
+      expect(acceptPendingInvitationsForEmailMock).not.toHaveBeenCalled();
+      expect(provisionFederatedOrganizationMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("admits an existing verified member without provisioning even with org claims", async () => {
+    defineAppConfig({
+      app: { name: "mail" },
+      auth: { identitySsoExistingAccountsOnly: true },
+    });
+    adapterUsers.push({
+      id: "alice",
+      email: "alice@example.test",
+      emailVerified: true,
+      accounts: [],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                org_id: "other",
+                org_name: "Other",
+                org_role: "owner",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"c".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalledOnce();
+    expect(membershipsMock).toHaveBeenCalledWith("alice@example.test", {
+      fresh: true,
+    });
+    expect(signUpEmailMock).not.toHaveBeenCalled();
+    expect(linkAccountMock).not.toHaveBeenCalled();
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(acceptPendingInvitationsForEmailMock).not.toHaveBeenCalled();
+    expect(provisionFederatedOrganizationMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects bootstrap activation before creating a local session", async () => {
+    defineAppConfig({
+      app: { name: "mail" },
+      auth: { identitySsoExistingAccountsOnly: true },
+    });
+    adapterUsers.push({
+      id: "alice",
+      email: "alice@example.test",
+      emailVerified: true,
+      accounts: [],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion(),
+              bootstrap_activation: "a".repeat(43),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"c".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses bootstrap in existing-accounts-only mode", async () => {
+    defineAppConfig({
+      app: { name: "mail" },
+      auth: { identitySsoExistingAccountsOnly: true },
+    });
+    expect(
+      (
+        await handleIdentitySso(
+          event("/_agent-native/identity/bootstrap"),
+          "/bootstrap",
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await handleIdentitySso(
+          event("/_agent-native/identity/bootstrap/binding"),
+          "/bootstrap/binding",
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await handleIdentitySso(
+          event("/_agent-native/identity/bootstrap/binding"),
+          "/_agent-native/identity/bootstrap/binding",
+        )
+      ).status,
+    ).toBe(404);
   });
 
   it("exchanges the code server-to-server, binds state/PKCE, and links the verified email", async () => {

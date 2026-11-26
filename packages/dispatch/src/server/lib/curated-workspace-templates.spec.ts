@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getDispatchConfig: vi.fn<() => Record<string, unknown>>(() => ({})),
   listWorkspaceApps: vi.fn(),
+}));
+
+vi.mock("./dispatch-config.js", () => ({
+  hostedCatalogEnabled: () => mocks.getDispatchConfig().hostedCatalog !== false,
 }));
 
 vi.mock("./app-creation-store.js", () => ({
@@ -52,5 +57,12 @@ describe("curated workspace templates", () => {
       includeAgentCards: false,
       includeArchived: true,
     });
+  });
+
+  it("lists nothing when the deployment turns the hosted catalog off", async () => {
+    mocks.listWorkspaceApps.mockClear();
+    mocks.getDispatchConfig.mockReturnValueOnce({ hostedCatalog: false });
+    await expect(listCuratedWorkspaceTemplates()).resolves.toEqual([]);
+    expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
   });
 });

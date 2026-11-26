@@ -25,7 +25,9 @@ import { deleteStoredAgentFrames } from "../server/lib/agent-frame-store.js";
 import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import { loadRecordingMediaBytes } from "../server/lib/public-agent-context.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
+import { stopRichRecording } from "../server/lib/recording-policy.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
+import { deleteStoredRecordingTracks } from "../server/lib/recording-tracks.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   failBurn,
@@ -312,6 +314,9 @@ export async function burnRedactionsFor(args: {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),
     );
+    // Before the swap, so a track this burn can't delete below can't be
+    // finalized again once the owner clears the marks that hold the clip.
+    await stopRichRecording(existing.ownerEmail, args.recordingId);
   } catch (error) {
     await discardUpload();
     throw error;
@@ -333,6 +338,10 @@ export async function burnRedactionsFor(args: {
       filmstripRows: 0,
       filmstripFrameWidth: 0,
       filmstripFrameHeight: 0,
+      // A secret can sit in the page, input and transcript tracks too, so a
+      // rich recording goes back to flat and its tracks are deleted below.
+      mediaFormat: "flat",
+      richBytes: 0,
       mediaUpdatedAt: burnedAt,
       updatedAt: burnedAt,
     })
@@ -378,6 +387,15 @@ export async function burnRedactionsFor(args: {
     failedDeletes.push(`agent frames of ${args.recordingId}`);
     console.warn(
       `[burn-recording-redactions] could not delete stored agent frames for ${args.recordingId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  try {
+    failedDeletes.push(...(await deleteStoredRecordingTracks(existing)));
+  } catch (err) {
+    failedDeletes.push(`tracks of ${args.recordingId}`);
+    console.warn(
+      `[burn-recording-redactions] could not delete the tracks of ${args.recordingId}:`,
       err instanceof Error ? err.message : String(err),
     );
   }

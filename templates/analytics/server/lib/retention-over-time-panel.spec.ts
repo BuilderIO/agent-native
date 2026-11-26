@@ -1,10 +1,11 @@
 import { createRequire } from "node:module";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { FIRST_PARTY_BIGQUERY_RETENTION_SQL } from "./canonical-first-party-dashboard-repair";
 import { buildPanel } from "./first-party-metric-catalog";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -72,7 +73,11 @@ function offsetDate(isoDate: string, n: number): string {
 describe("retention-over-time panel SQL", () => {
   let client: PGliteClient;
 
-  afterEach(async () => {
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
     await client?.close();
   });
 
@@ -158,7 +163,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("emits a full date spine with independently maturing 1-7d/7-14d rates instead of zero-filling immature days", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
 
     const today = (
@@ -224,7 +229,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("splits 1-7d content/chat return into paid and untagged signups", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -305,7 +310,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("keeps an account that signed up long before the activity window in its signup channel", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -359,7 +364,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("reads chat readiness at prompt and unanswered turns per app", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -412,7 +417,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("scopes both current activity and prior cohort history to the selected App", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -459,7 +464,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("counts server-started chats, ignores passive sessions, and joins changed emails by auth identity", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -515,7 +520,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("applies the email filter to the latest email for each authenticated identity", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -573,7 +578,7 @@ describe("retention-over-time panel SQL", () => {
   ])(
     "filters $panelId by the latest email on its canonical identity",
     async ({ panelId, returnDays }) => {
-      client = await PGlite.create("memory://");
+      await resetPublicSchema(client);
       await createAnalyticsEventsTable(client);
       const today = (
         (await client.query(
@@ -628,7 +633,7 @@ describe("retention-over-time panel SQL", () => {
   );
 
   it("requires auth_user_id and uses it as the cohort key", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
     const today = (
       (await client.query(
@@ -687,7 +692,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("sizes a bounded spine to the same calendar days as the shared time-range filter", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
 
     const today = (
@@ -713,7 +718,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("keeps preset cohorts' first-seen history beyond the selected spine", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
 
     const today = (
@@ -748,7 +753,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("keeps the oldest 365d anchor's trailing cohort inside the base lookback", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
 
     const today = (
@@ -787,7 +792,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("runs custom historical dates across the full range and return windows", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
 
     const today = (
@@ -853,7 +858,7 @@ describe("retention-over-time panel SQL", () => {
   });
 
   it("bounds wide custom source scans to the capped spine and its lookbacks", async () => {
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     await createAnalyticsEventsTable(client);
 
     const today = (

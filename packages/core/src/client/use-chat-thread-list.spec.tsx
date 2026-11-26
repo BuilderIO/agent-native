@@ -284,6 +284,56 @@ describe("useChatThreadList", () => {
     expect(latest.error).toBeNull();
   });
 
+  it("opts into edit grouping on every page and resets when grouping changes", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      const params = new URL(url, "http://test.local").searchParams;
+      const offset = Number(params.get("offset"));
+      return jsonResponse({
+        threads: [row(`thread-${offset}`)],
+        hasMore: offset === 0,
+      });
+    });
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      apiUrl: "/api/chat",
+      pageSize: 1,
+      query: "  quarterly  ",
+      scope: { type: "project", id: "project-one" },
+      includeExternal: true,
+      includeArchived: true,
+      includeHidden: true,
+    };
+    await mount(options);
+    expect(requestedUrls()[0].searchParams.has("collapseEdits")).toBe(false);
+    fetchMock.mockClear();
+    await mount({ ...options, collapseEdits: true });
+    await act(async () => {
+      await latest.loadMore();
+    });
+    expect(requestedUrls()).toHaveLength(2);
+    expect(
+      requestedUrls().map((url) => Number(url.searchParams.get("offset"))),
+    ).toEqual([0, 1]);
+    for (const url of requestedUrls()) {
+      expect(Object.fromEntries(url.searchParams)).toMatchObject({
+        collapseEdits: "1",
+        ownership: "mine",
+        limit: "1",
+        q: "quarterly",
+        scopeType: "project",
+        scopeId: "project-one",
+        includeExternal: "1",
+        includeArchived: "1",
+        includeHidden: "1",
+      });
+    }
+    fetchMock.mockClear();
+    await mount({ ...options, collapseEdits: false });
+    expect(requestedUrls()).toHaveLength(1);
+    expect(requestedUrls()[0].searchParams.has("collapseEdits")).toBe(false);
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["thread-0"]);
+  });
+
   it("requests archived threads when enabled", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ threads: [], hasMore: false }));
     await mount({
@@ -1016,6 +1066,7 @@ describe("useChatThreadList", () => {
     ["API", { apiUrl: "/another/chat" }],
     ["page size", { pageSize: 3 }],
     ["external threads", { includeExternal: true }],
+    ["edit grouping", { collapseEdits: true }],
     ["archived threads", { includeArchived: false }, { includeArchived: true }],
     ["enabled", { enabled: false }],
   ])(

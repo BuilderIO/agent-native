@@ -13,6 +13,7 @@ import { createSharesTable, type ShareRole } from "./schema.js";
 
 vi.mock("../db/client.js", () => {
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => sharedClient,
     getScopedDbExec: () => undefined,
     isProductionServerlessFunctionRuntime: () => false,
@@ -52,7 +53,7 @@ let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: ReturnType<typeof drizzle>;
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE restricted_docs (
       id TEXT PRIMARY KEY,
@@ -510,7 +511,16 @@ describe("assertSharingChange", () => {
       .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
       .all("doc-guarded");
     expect(shares).toEqual([]);
-    expect(seen).toEqual([{ id: "doc-guarded", change: { kind: "grant" } }]);
+    expect(seen).toEqual([
+      {
+        id: "doc-guarded",
+        change: {
+          kind: "grant",
+          principalType: "user",
+          principalId: orgMemberEmail,
+        },
+      },
+    ]);
   });
 
   it("allows a share grant and visibility change the hook accepts", async () => {
@@ -534,8 +544,8 @@ describe("assertSharingChange", () => {
       ).resolves.toMatchObject({ ok: true, visibility: "org" });
     });
     expect(seen.map((s) => s.change)).toEqual([
-      { kind: "grant" },
-      { kind: "grant" },
+      { kind: "grant", principalType: "user", principalId: orgMemberEmail },
+      { kind: "grant", principalType: "user", principalId: orgMemberEmail },
       { kind: "visibility", visibility: "org" },
       { kind: "visibility", visibility: "org" },
     ]);
@@ -570,7 +580,10 @@ describe("assertSharingChange", () => {
     expect(shares).toEqual([]);
     expect(
       seen.filter((s) => s.id === "doc-raced").map((s) => s.change),
-    ).toEqual([{ kind: "grant" }, { kind: "grant" }]);
+    ).toEqual([
+      { kind: "grant", principalType: "user", principalId: orgMemberEmail },
+      { kind: "grant", principalType: "user", principalId: orgMemberEmail },
+    ]);
   });
 
   it("restores an updated share to its previous role when the post-write check refuses", async () => {

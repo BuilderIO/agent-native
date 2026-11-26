@@ -11,7 +11,16 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { upsertAnalysis } from "../server/lib/dashboards-store";
+import {
+  isAnalysisIdTaken,
+  requireAnalysisAccess,
+  upsertAnalysis,
+} from "../server/lib/dashboards-store";
+import {
+  expectedUpdatedAtArg,
+  guardWrite,
+  idempotencyKeyArg,
+} from "../server/lib/guarded-writes";
 import { hasDataQueryAttempt } from "../server/lib/real-data-actions";
 
 const MAX_RESULT_MARKDOWN_CHARS = 60_000;
@@ -115,7 +124,8 @@ export default defineAction({
   description:
     "Legacy compatibility only: use this to re-run or update an existing saved analysis when the user explicitly names its legacy analysis id or asks to preserve that legacy record. Do not call this to create a new saved analysis, report, visualization, or bespoke workflow; new requests become dashboards, using update-dashboard and embedding any bespoke extension as one or more dashboard panels. Stores the legacy analysis question, instructions for re-running, data sources used, and compact results. " +
     "Do not use this as scratch storage, a transient summary, or a duplicate companion artifact for a dashboard. " +
-    "Call this only after you've gathered real evidence and include non-empty, compact resultData with structured evidence from those data-source action results. For qualitative analyses, resultData may include call/message IDs, short transcript excerpts, coded themes, mention counts, and sentiment labels derived from actual source records. Never include full Gong transcripts, full tool outputs, or bulk raw provider payloads.",
+    "Call this only after you've gathered real evidence and include non-empty, compact resultData with structured evidence from those data-source action results. For qualitative analyses, resultData may include call/message IDs, short transcript excerpts, coded themes, mention counts, and sentiment labels derived from actual source records. Never include full Gong transcripts, full tool outputs, or bulk raw provider payloads. " +
+    "External MCP clients can only update an existing analysis.",
   schema: z.object({
     id: z
       .string()
@@ -163,8 +173,11 @@ export default defineAction({
       .describe(
         "Required compact structured data (JSON) backing the analysis. Include row samples, aggregate metrics, call/message IDs, short transcript/message excerpts, coded theme counts, sentiment labels, and explicit provider error details from the real data-source actions used. Do not include full transcripts, full tool outputs, or raw provider payload dumps.",
       ),
+    expectedUpdatedAt: expectedUpdatedAtArg("analysis"),
+    idempotencyKey: idempotencyKeyArg,
   }),
   http: false,
+  mcpTool: true,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -175,7 +188,7 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const runCtx = getRequestRunContext();
     if (
       !args.dataSources.length ||
@@ -186,19 +199,52 @@ export default defineAction({
     }
     assertCompactAnalysisPayload(args);
     const { orgId, email } = resolveScope();
-    await upsertAnalysis(
-      args.id,
-      {
-        name: args.name,
-        description: args.description,
-        question: args.question,
-        instructions: args.instructions,
-        dataSources: args.dataSources,
-        resultMarkdown: args.resultMarkdown,
-        resultData: args.resultData,
+    const ctx = { email, orgId };
+    const body = {
+      name: args.name,
+      description: args.description,
+      question: args.question,
+      instructions: args.instructions,
+      dataSources: args.dataSources,
+      resultMarkdown: args.resultMarkdown,
+      resultData: args.resultData,
+    };
+    const guard = guardWrite({
+      action: "save-analysis",
+      target: { kind: "analysis", id: args.id },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: body,
+    });
+    guard.requireKey();
+    // External clients only update: a fence names a version, so the store
+    // never creates under one.
+    const external = actionContext?.caller === "mcp";
+    if (external) guard.requireFence();
+    const outcome = await guard.run(
+      // Rechecked before a replay after a failed write: an analysis the
+      // caller can no longer see is not a create.
+      async () => {
+        if (external || (await isAnalysisIdTaken(args.id))) {
+          await requireAnalysisAccess(args.id, ctx, "editor");
+        }
       },
-      { email, orgId },
+      () =>
+        guard.active
+          ? upsertAnalysis(
+              args.id,
+              body,
+              ctx,
+              args.expectedUpdatedAt,
+              guard.onCommit,
+            )
+          : upsertAnalysis(args.id, body, ctx),
     );
+    if ("replayed" in outcome) {
+      return { id: args.id, analysisId: args.id, ...outcome.replayed };
+    }
     return {
       id: args.id,
       analysisId: args.id,
@@ -212,6 +258,7 @@ export default defineAction({
         view: "analyses",
         params: { analysisId: args.id },
       }),
+      ...guard.resultFields(outcome.written),
       message: `Analysis "${args.name}" saved as ${args.id}. Users can view it at /analyses/${args.id} and re-run it anytime for fresh results.`,
     };
   },

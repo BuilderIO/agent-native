@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { OverlayPerson } from "../shared/api.js";
 
 export default defineAction({
+  mcpTool: "search",
   description: "Get overlay people for calendar view",
   schema: z.object({}),
   http: { method: "GET" },

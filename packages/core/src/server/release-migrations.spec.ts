@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
     runAutomationSchedulerHealthMigrations: vi.fn(async () => {}),
     runFrameworkSchemaEnsures: vi.fn(async () => {}),
     ensureSharingAccessIndexes: vi.fn(async () => 0),
+    ensureSharesTableColumns: vi.fn(async () => 0),
     order: [] as string[],
     identitySsoMigrations: [
       {
@@ -68,6 +69,7 @@ vi.mock("../app-config/index.js", () => ({
   getAppConfig: mocks.getAppConfig,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   isLocalDatabase: mocks.isLocalDatabase,
   getDatabaseUrl: mocks.getDatabaseUrl,
 }));
@@ -112,6 +114,9 @@ vi.mock("./better-auth-migrations.js", () => ({
 }));
 vi.mock("./release-schema.js", () => ({
   runFrameworkSchemaEnsures: mocks.runFrameworkSchemaEnsures,
+}));
+vi.mock("../sharing/share-columns.js", () => ({
+  ensureSharesTableColumns: mocks.ensureSharesTableColumns,
 }));
 vi.mock("../sharing/indexes.js", () => ({
   ensureSharingAccessIndexes: mocks.ensureSharingAccessIndexes,

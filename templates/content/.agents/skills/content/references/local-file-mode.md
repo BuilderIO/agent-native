@@ -12,8 +12,10 @@ folders to SQL-backed documents. The UI uses folder rows: **Pull** calls
 `sync-local-folder-source`, **Check** runs the same action with
 `dryRun: true`, and **Push** uses the source-scoped `export-content-source`.
 Imported files become ordinary SQL documents in the target space's canonical
-Files collection. Preserve frontmatter `id` across renames; missing files and
-concurrent changes become reviewable incoming change sets instead of
+Files collection. Saving or pushing a page into a file that already exists
+keeps that file's own frontmatter and Markdown and changes only the lines the
+page's edits touched. Preserve frontmatter `id` across renames; missing files
+and concurrent changes become reviewable incoming change sets instead of
 silently deleting or overwriting a page. SQL stores only opaque connection
 identity, relative paths, and hashes. Disconnecting a folder keeps both the
 Content pages and disk files.

@@ -661,9 +661,7 @@ function WorkspaceResources() {
       {resource.data ? (
         <ResourceEditor
           resource={resource.data}
-          onSave={(content) =>
-            updateResource.mutate({ id: resource.data.id, content })
-          }
+          saveContent={(attempt) => updateResource.mutateAsync(attempt)}
         />
       ) : null}
     </div>

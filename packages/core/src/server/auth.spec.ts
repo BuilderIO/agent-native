@@ -318,6 +318,59 @@ describe("server/auth", () => {
     }, 15_000);
   });
 
+  describe("password recovery without an email provider", () => {
+    it("refuses the reset request honestly instead of claiming a link was sent", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response(null, { status: 200 })),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getRefusedLocalDatabaseSource: () => null,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./email.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("./email.js")>()),
+        getDeploymentEmailReadiness: vi.fn(() => MISSING_EMAIL_READINESS),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(typeof handler).toBe("function");
+      const response = await handler(
+        createJsonPostEvent("/_agent-native/auth/ba/request-password-reset", {
+          email: "owner@example.com",
+        }),
+      );
+      // The deployment cannot deliver mail, so the page must not tell the user
+      // to check an inbox that will never receive a link (QA AUTH-03).
+      expect(response).toBeInstanceOf(Response);
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error:
+          "Password recovery isn't available on this deployment because no email provider is configured. Ask an administrator to reset your password.",
+      });
+    }, 15_000);
+  });
+
   describe("resolveAuthLoginMode", () => {
     it("defaults to magic link only when email is ready", async () => {
       const { resolveAuthLoginMode } =
@@ -355,6 +408,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -470,6 +524,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -538,6 +593,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -643,6 +699,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -817,6 +874,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -901,6 +959,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -1029,6 +1088,7 @@ describe("server/auth", () => {
         })),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -1579,6 +1639,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute,
           transaction: async (
@@ -1782,6 +1843,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => {
           const execute = vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -1869,6 +1931,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => {
           const execute = vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -1940,6 +2003,7 @@ describe("server/auth", () => {
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -1982,6 +2046,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => {
           const execute = vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -2059,6 +2124,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -2233,6 +2299,7 @@ describe("server/auth", () => {
         resumeIdentityRekeysForEmail: vi.fn(async () => {}),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -2430,6 +2497,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: mockExecute,
           transaction: async (
@@ -2571,6 +2639,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: mockExecute,
           transaction: async (
@@ -2645,6 +2714,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: mockExecute,
           transaction: async (
@@ -2687,6 +2757,7 @@ describe("server/auth", () => {
 
       const authError = new Error("auth store unavailable");
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -2960,6 +3031,7 @@ describe("server/auth", () => {
         });
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
         }),
@@ -3114,6 +3186,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
@@ -3276,7 +3349,7 @@ describe("server/auth", () => {
     });
 
     it("preserves matching Builder preview proxy return URLs in OAuth state", async () => {
-      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
@@ -3411,6 +3484,60 @@ describe("server/auth", () => {
         "https://agent-workspace.builder.io/_agent-native/google/callback",
       );
       expect(rejectedState.returnUrl).toBeUndefined();
+    });
+
+    it("drops Builder preview proxy return URLs in production OAuth state", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "state-secret"),
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { decodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const authUrlHandler = app.use.mock.calls.find(
+        (call: unknown[]) => call[0] === "/_agent-native/google/auth-url",
+      )?.[1];
+      const previewOrigin =
+        "https://940ebc5a83164aa6a37dde445e494f3a-electric-cliff-2caez1jb.builderio.xyz";
+      const result = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: {
+            return: `${previewOrigin}/dispatch?builder.preview=interact`,
+          },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+            referer: `${previewOrigin}/?builder.preview=interact`,
+          },
+        }),
+      );
+      const state = decodeOAuthState(
+        new URL(result.url).searchParams.get("state") || undefined,
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+      expect(state.returnUrl).toBeUndefined();
     });
 
     it("uses a derived A2A secret for Google OAuth state in production workspaces", async () => {
@@ -4397,6 +4524,56 @@ describe("server/auth", () => {
       );
     });
 
+    it("redirects Labs branch-alias Google callbacks to the alias origin", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("BETTER_AUTH_SECRET", "preview-relay-state-secret");
+      const { autoMountAuth } = await import("./auth.js");
+      const {
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        encodeOAuthState,
+        encodeNetlifyPreviewGoogleOAuthRelayState,
+      } = await import("./google-oauth.js");
+      vi.stubEnv(
+        AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+        "shared-netlify-google-oauth-relay-secret-32",
+      );
+      const callbackUri =
+        "https://c-f53058ae5fc7--agent-native-labs-workspace.netlify.app/_agent-native/google/callback";
+      const innerState = encodeOAuthState({
+        redirectUri:
+          "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+      });
+      const outerState = encodeNetlifyPreviewGoogleOAuthRelayState(
+        innerState,
+        callbackUri,
+      );
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "google-code", state: outerState },
+          headers: {
+            host: "beta.dispatch.agent-native.com",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+
+      expect((result as Response).status).toBe(302);
+      const location = new URL(
+        (result as Response).headers.get("location") ?? "",
+      );
+      expect(location.origin).toBe(new URL(callbackUri).origin);
+      expect(location.pathname).toBe("/_agent-native/google/callback");
+      expect(location.searchParams.get("state")).toBe(innerState);
+    });
+
     it("relays mounted-app callbacks when only the workspace app id survives", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -5187,6 +5364,87 @@ describe("server/auth", () => {
       ).toBe("login");
     });
 
+    it("delegates shared workspace roots to app loaders while protected reads stay unauthorized", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/starter");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({
+        app: { homePath: "/home" },
+        workspace: { isWorkspace: true, authMode: "shared" },
+      });
+      const { autoMountAuth } = await import("./auth.js");
+      const getSession = vi.fn(async () => null);
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession,
+        loginHtml: "<html><body>QA login</body></html>",
+      });
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      for (const path of ["/", "/starter//"])
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      expect(getSession).not.toHaveBeenCalled();
+      const action = createMockEvent({
+        path: "/_agent-native/actions/list-private-items",
+      });
+      await expect(guard(action)).resolves.toMatchObject({
+        error: "Unauthorized",
+      });
+      expect(action.res.status).toBe(401);
+      expect(await guard(createMockEvent({ path: "/sign-in" }))).toBeInstanceOf(
+        Response,
+      );
+    });
+
+    it.each(["isolated", undefined])(
+      "keeps the independent root auth document for workspace mode %s",
+      async (authMode) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        defineAppConfig({
+          app: { homePath: "/home" },
+          workspace: { isWorkspace: true, authMode },
+        });
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app, {
+          getSession: async () => null,
+          loginHtml: "<html><body>QA login</body></html>",
+        });
+        const guard = app.use.mock.calls
+          .map((call: any[]) => call[0])
+          .find((arg: unknown) => typeof arg === "function");
+        expect(await guard(createMockEvent({ path: "/" }))).toBeInstanceOf(
+          Response,
+        );
+      },
+    );
+
+    it("keeps the explicit sign-in destination for a separate UI in a shared workspace", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({
+        app: { homePath: "/home" },
+        workspace: { isWorkspace: true, authMode: "shared" },
+      });
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml: "<html><body>QA login</body></html>",
+      });
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(await guard(createMockEvent({ path: "/sign-in" }))).toBeInstanceOf(
+        Response,
+      );
+    });
+
     it("serves the public home with the same cached auth document and head handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/starter");
@@ -5777,6 +6035,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -5863,6 +6122,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -5960,6 +6220,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -6502,6 +6763,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6594,6 +6856,7 @@ describe("server/auth", () => {
           getBetterAuthSync: vi.fn(() => undefined),
         }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
           isLocalDatabase: () => true,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6677,6 +6940,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6735,6 +6999,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6781,6 +7046,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6881,6 +7147,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6931,6 +7198,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6990,6 +7258,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7063,6 +7332,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7117,6 +7387,7 @@ describe("server/auth", () => {
           getBetterAuthSync: vi.fn(() => undefined),
         }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({
             execute: vi.fn(async () => {
               if (databaseRefused) throw refusal;
@@ -7300,6 +7571,7 @@ describe("server/auth", () => {
         getBetterAuthSync: () => undefined,
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -7335,6 +7607,85 @@ describe("server/auth", () => {
       expect(isSessionResolutionUnavailable(event)).toBe(true);
     });
 
+    it("reads the session again after a brief database cooldown instead of answering 503", async () => {
+      // The hosted database refused logins for seconds at a time under our own
+      // background-function load. A signed-in user got a 503 page for it. The db
+      // layer reports how much of its reconnect cooldown is left, so the session
+      // read waits that out once.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const cooldown = Object.assign(
+        new Error(
+          "Database is refusing connection attempts; not attempting again for 40ms. Last failure: WebSocket ErrorEvent",
+        ),
+        { name: "DbConnectCooldownError" },
+      );
+      let reads = 0;
+      const getSession = vi.fn(async () => {
+        reads += 1;
+        if (reads === 1) throw cooldown;
+        return { user: { id: "u1", email: "cooldown@example.test" } };
+      });
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => ({ api: { getSession } }),
+        getBetterAuthSync: () => undefined,
+      }));
+
+      const { autoMountAuth, isSessionResolutionUnavailable } =
+        await import("./auth.js");
+      const app = createMockApp();
+      await expect(autoMountAuth(app)).resolves.toBe(true);
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+      const event = createMockEvent({
+        path: "/_agent-native/auth/session",
+        headers: { cookie: "an_session=refreshable" },
+      });
+      const result = await sessionHandler(event);
+
+      expect(reads).toBe(2);
+      expect(event.res.status).not.toBe(503);
+      expect(isSessionResolutionUnavailable(event)).toBe(false);
+      expect((result as { email?: string }).email).toBe(
+        "cooldown@example.test",
+      );
+    });
+
+    it("does not wait on a database failure that a retry cannot fix", async () => {
+      const { sessionReadRetryDelayMs } = await import("./auth.js");
+      // A cooldown longer than the budget, or an unrelated error, must fail fast:
+      // a slow page is not better than a fast one for a broken database.
+      expect(
+        sessionReadRetryDelayMs(
+          new Error(
+            "Database is refusing connection attempts; not attempting again for 9000ms. Last failure: x",
+          ),
+        ),
+      ).toBeNull();
+      expect(
+        sessionReadRetryDelayMs(new Error("relation does not exist")),
+      ).toBeNull();
+      expect(
+        sessionReadRetryDelayMs(
+          new Error(
+            "DB connect timed out after 8000ms (connection terminated)",
+          ),
+        ),
+      ).toBe(250);
+      expect(
+        sessionReadRetryDelayMs(
+          new Error(
+            'NeonDbError: Server error (HTTP status 500): {"message":"server login has been failing, cached error: partial pkt in login phase (server_login_retry)","neon:retryable":true}',
+          ),
+        ),
+      ).toBe(250);
+    });
+
     it("answers an action 503 and reports the real cause once when no session could be resolved", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -7358,6 +7709,7 @@ describe("server/auth", () => {
         getBetterAuthSync: () => undefined,
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -7405,6 +7757,139 @@ describe("server/auth", () => {
       consoleError.mockRestore();
     });
 
+    it.each(["token", "error"] as const)(
+      "redeems a durable %s from another instance despite a cached challenge",
+      async (completion) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        const flowId = "qa-test-cross-instance";
+        const verifier = "qa-test-cross-instance-verifier-123456789";
+        const sessions = new Map<string, string>();
+        const execute = vi.fn(
+          async (query: string | { sql: string; args?: unknown[] }) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            const args = typeof query === "string" ? [] : (query.args ?? []);
+            const ledger = storeLedgerResult(sql);
+            if (ledger) return ledger;
+            const key = String(args[0]);
+            if (sql.includes("INSERT INTO sessions")) {
+              sessions.set(key, String(args[1]));
+              return { rows: [] };
+            }
+            const email = sessions.get(key);
+            if (sql.includes("SELECT email FROM sessions")) {
+              return { rows: email ? [{ email }] : [] };
+            }
+            if (
+              sql.includes("DELETE FROM sessions") &&
+              email &&
+              args[2] === email
+            ) {
+              sessions.delete(key);
+              return { rows: [{ email }] };
+            }
+            return { rows: [] };
+          },
+        );
+        vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
+          getDbExec: () => ({ execute }),
+          isLocalDatabase: () => false,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => ({
+            handler: vi.fn(async () => new Response("{}")),
+            api: { getSession: vi.fn(async () => null) },
+          })),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+        const instanceA = await import("./auth.js");
+        const appA = createMockApp();
+        await instanceA.autoMountAuth(appA);
+        const verifierHash = await instanceA.registerDesktopExchange(
+          flowId,
+          verifier,
+        );
+        const poll = appA.use.mock.calls.find(
+          (call: unknown[]) =>
+            call[0] === "/_agent-native/auth/desktop-exchange",
+        )?.[1];
+        const event = (value = verifier) =>
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: flowId },
+            headers: { "x-agent-native-desktop-verifier": value },
+          });
+        await expect(poll(event())).resolves.toEqual({
+          pending: true,
+          flow: flowId.slice(-10),
+        });
+
+        // Separate module state models the callback landing on another worker.
+        vi.resetModules();
+        const instanceB = await import("./auth.js");
+        expect(instanceB.registerDesktopExchange).not.toBe(
+          instanceA.registerDesktopExchange,
+        );
+        if (completion === "token") {
+          await instanceB.setDesktopExchange(
+            flowId,
+            "qa-test-session",
+            "qa-test@example.test",
+            verifierHash,
+          );
+          const appB = createMockApp();
+          await instanceB.autoMountAuth(appB);
+          const pollB = appB.use.mock.calls.find(
+            (call: unknown[]) =>
+              call[0] === "/_agent-native/auth/desktop-exchange",
+          )?.[1];
+          await expect(
+            pollB(event("qa-test-wrong-verifier-123456789012345")),
+          ).resolves.toEqual({ error: "Invalid desktop exchange verifier." });
+          expect(sessions.has(`dex:${flowId}`)).toBe(true);
+        } else {
+          instanceB.setDesktopExchangeError(flowId, {
+            message: "QA test denied",
+            code: "qa_test_denied",
+          });
+          await vi.waitFor(() => {
+            expect(
+              sessions.get(`dex:${flowId}`)?.startsWith("__error__::"),
+            ).toBe(true);
+          });
+        }
+        await expect(
+          poll(event("qa-test-wrong-verifier-123456789012345")),
+        ).resolves.toEqual({ error: "Invalid desktop exchange verifier." });
+        expect(sessions.has(`dex:${flowId}`)).toBe(true);
+        const [first, second] = await Promise.all([
+          poll(event()),
+          poll(event()),
+        ]);
+        const expected =
+          completion === "token"
+            ? { token: "qa-test-session", email: "qa-test@example.test" }
+            : {
+                error: "QA test denied",
+                message: "QA test denied",
+                code: "qa_test_denied",
+              };
+        expect([first, second]).toContainEqual(expected);
+        expect([first, second]).toContainEqual({
+          pending: true,
+          flow: flowId.slice(-10),
+        });
+        expect(sessions.has(`dex:${flowId}`)).toBe(false);
+        await expect(poll(event())).resolves.toEqual({
+          pending: true,
+          flow: flowId.slice(-10),
+        });
+      },
+    );
+
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -7430,6 +7915,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7535,6 +8021,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7634,6 +8121,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7706,6 +8194,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7762,6 +8251,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7819,6 +8309,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7887,6 +8378,124 @@ describe("server/auth", () => {
         message: "Google sign-in was cancelled. Try again when you're ready.",
         code: "access_denied",
       });
+    });
+
+    it("sends a cancelled browser sign-in back to the app's sign-in page, not the root (QA AUTH-04)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_BASE_PATH", "/mail-app");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response(null, { status: 200 })),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { encodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/callback",
+      )?.[1];
+      const state = encodeOAuthState({
+        redirectUri:
+          "https://labs.agent-native.com/_agent-native/google/callback",
+        returnUrl: "/mail-app/home?split=important",
+      });
+      const response = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { state, error: "access_denied" },
+          headers: {
+            host: "labs.agent-native.com",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+      const body = await (response as Response).text();
+      // The reason stays visible, and the link returns to THIS app's sign-in
+      // page with the continuation -- "/" landed on /dispatch/chat and dropped
+      // both the app and the ?c= continuation.
+      expect(body).toContain("Google sign-in was cancelled");
+      const href = /href="([^"]*sign-in[^"]*)"/.exec(body)?.[1];
+      expect(href).toBeDefined();
+      expect(href).toContain("/mail-app/sign-in");
+      expect(href).toContain("c=");
+      expect(href).not.toBe("/");
+    });
+
+    it("surfaces a stale or consumed sign-in link with a specific message", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => false,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { encodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/callback",
+      )?.[1];
+      expect(callbackHandler).toBeTypeOf("function");
+
+      const validState = encodeOAuthState({
+        redirectUri:
+          "https://agent-workspace.builder.io/_agent-native/google/callback",
+        desktop: true,
+        flowId: "flow-stale",
+      });
+      // Tamper the signature to simulate a stale or consumed link.
+      const staleState = validState.slice(0, -4) + "abcd";
+
+      const response = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { state: staleState, code: "auth-code" },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      await expect((response as Response).text()).resolves.toContain(
+        "This sign-in link is invalid or has expired. Start the sign-in process again.",
+      );
     });
 
     it("preserves APP_BASE_PATH and the public prefix for Better Auth", async () => {
@@ -8141,6 +8750,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8202,6 +8812,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8260,6 +8871,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8320,6 +8932,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8382,6 +8995,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8777,6 +9391,7 @@ describe("server/auth", () => {
         activeOrgId: null,
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -8889,6 +9504,7 @@ describe("server/auth", () => {
         activeOrgId: "org-1",
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9032,6 +9648,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9147,6 +9764,7 @@ describe("server/auth", () => {
         activeOrgId: "org-1",
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9230,6 +9848,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
@@ -9317,6 +9936,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9512,6 +10132,7 @@ describe("server/auth", () => {
       );
       const db = { execute };
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => db,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -9877,6 +10498,84 @@ describe("server/auth", () => {
     );
   });
 
+  describe("deployment domain credential verification", () => {
+    it("resolves canonical verification for an allowed delegated session", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_ALLOWED_EMAIL_DOMAINS", "builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("../db/client.js", async (original) => ({
+        ...(await original<object>()),
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [{ email_verified: true }] })),
+        }),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+      const auth = await import("./auth.js");
+      await auth.autoMountAuth(createMockApp(), {
+        getSession: async () => ({ email: "qa-test@builder.io" }),
+      });
+      const session = await auth.getSession(createMockEvent());
+      expect(session?.email).toBe("qa-test@builder.io");
+      expect(session?.emailVerified).toBe(true);
+    });
+    it.each([
+      ["outside@example.test", false],
+      ["qa-test@builder.io", true],
+    ])("checks browser-cookie identity %s", async (email, accepted) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_ALLOWED_EMAIL_DOMAINS", "builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+      const auth = await import("./auth.js");
+      await auth.autoMountAuth(createMockApp(), {
+        getSession: async () => null,
+        getBrowserSession: async () => ({
+          email: String(email),
+          emailVerified: true,
+        }),
+      });
+      const session = await auth.getBrowserCookieSession(
+        createMockEvent({ headers: { cookie: "qa-test=1" } }),
+      );
+      expect(session !== null).toBe(accepted);
+    });
+  });
+
+  describe("deployment domain session policy", () => {
+    it.each([
+      ["outside@example.test", true, false],
+      ["person@builder.io.attacker.test", true, false],
+      ["person@builder.io", false, false],
+      ["person@builder.io", true, true],
+    ])(
+      "checks verified deployment membership for %s",
+      async (email, emailVerified, accepted) => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("AUTH_ALLOWED_EMAIL_DOMAINS", "builder.io");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        vi.doMock("../org/context.js", () => ({
+          resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+        }));
+        const auth = await import("./auth.js");
+        await auth.autoMountAuth(createMockApp(), {
+          getSession: async () => ({
+            email: String(email),
+            emailVerified: Boolean(emailVerified),
+          }),
+        });
+        const session = await auth.getSession(createMockEvent());
+        expect(session !== null).toBe(accepted);
+      },
+    );
+  });
+
   describe("getSession", () => {
     it.each([
       { "x-forwarded-host": "" },
@@ -9942,6 +10641,7 @@ describe("server/auth", () => {
           : { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10324,6 +11024,7 @@ describe("server/auth", () => {
           })),
         }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({
             execute: vi.fn(async () => ({ rows: [] })),
           }),
@@ -10397,6 +11098,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10421,6 +11123,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10445,6 +11148,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10473,6 +11177,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10619,6 +11324,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10662,6 +11368,7 @@ describe("server/auth", () => {
           return { rows: [] };
         });
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: mockExecute }),
           isLocalDatabase: () => true,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10808,13 +11515,14 @@ describe("server/auth", () => {
         await database.exec(`
           CREATE TABLE sessions (token TEXT PRIMARY KEY, email TEXT, created_at BIGINT NOT NULL);
           CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT, email_verified BOOLEAN);
-          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL);
+          CREATE TABLE "session" (token TEXT PRIMARY KEY, user_id TEXT, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
           INSERT INTO "user" VALUES ('user-1', 'session@example.com', TRUE);
           INSERT INTO "session" VALUES
             ('active-token', 'user-1', NOW() + INTERVAL '1 hour'),
             ('expired-token', 'user-1', NOW() - INTERVAL '1 hour');
         `);
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({
             execute: async (
               input: string | { sql: string; args?: unknown[] },
@@ -10901,6 +11609,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10958,6 +11667,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11033,6 +11743,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11101,6 +11812,7 @@ describe("server/auth", () => {
           },
         );
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: mockExecute }),
           isLocalDatabase: () => true,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11188,6 +11900,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11244,6 +11957,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11288,6 +12002,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11339,6 +12054,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11376,6 +12092,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11422,6 +12139,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11464,6 +12182,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11508,6 +12227,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11575,6 +12295,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11615,6 +12336,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11679,6 +12401,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11721,6 +12444,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12287,6 +13011,7 @@ describe("server/auth", () => {
 
         const mockExecute = vi.fn(async () => ({ rows: [] }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: mockExecute }),
           isLocalDatabase: () => false,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12327,6 +13052,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12358,6 +13084,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12395,6 +13122,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12451,6 +13179,7 @@ describe("server/auth", () => {
         signupMethod: "google",
         authUserId: "better-auth-user-id",
         email: "user@gmail.com",
+        emailVerified: true,
         name: "Google User",
         attribution: {
           referral_source: "plan_share",
@@ -12461,6 +13190,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_google_1",
         sessionId: "session_google_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -12476,6 +13206,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12526,6 +13257,7 @@ describe("server/auth", () => {
         signupMethod: "google",
         authUserId: "better-auth-user-id",
         email: "user@gmail.com",
+        emailVerified: true,
         name: "Google User",
         attribution: {
           referral_source: "docs",
@@ -12536,6 +13268,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_state_1",
         sessionId: "session_state_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -12551,6 +13284,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12596,6 +13330,7 @@ describe("server/auth", () => {
           origin: "mcp_oauth",
           anonymousId: undefined,
           sessionId: undefined,
+          consent: { performance: "withheld", targeting: "withheld" },
         }),
       );
       expect(trackSignupEvent.mock.calls[0]?.[0].attribution).toBeUndefined();
@@ -12613,6 +13348,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12662,6 +13398,7 @@ describe("server/auth", () => {
           attribution: undefined,
           anonymousId: "anon_state_targeting_revoked",
           sessionId: "session_state_targeting_revoked",
+          consent: { performance: "allowed", targeting: "withheld" },
         }),
       );
     });
@@ -12677,6 +13414,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12718,6 +13456,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13629,6 +14368,7 @@ describe("server/auth", () => {
       }));
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13690,6 +14430,84 @@ describe("server/auth", () => {
         available: false,
         reason: "existing-user",
       });
+    });
+
+    it("refuses local-dev sign-in to proxied requests and in a public dev container", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+      delete process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT;
+      delete process.env.AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV;
+      delete process.env.FUSION_ENVIRONMENT;
+      delete process.env.FUSION_POD_UID;
+      const createBetterAuthSessionForEmail = vi.fn(async (email: string) => ({
+        email,
+        token: "better-auth-dev-session",
+        userId: "dev-user",
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        createBetterAuthSessionForEmail,
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+        isDeployPreview: vi.fn(() => false),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        withDbExec: (_exec: unknown, fn: () => Promise<unknown>) => fn(),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const localDevHandler = app.use.mock.calls.find(
+        (call: unknown[]) => call[0] === "/_agent-native/auth/local-dev",
+      )?.[1];
+
+      const signIn = (headers: Record<string, string> = {}) => {
+        const event = createMockEvent({
+          path: "/_agent-native/auth/local-dev",
+          headers: { host: "localhost:8080", ...headers },
+        });
+        event.req.method = "POST";
+        event.node.req.method = "POST";
+        const socket = { remoteAddress: "127.0.0.1" };
+        event.req.context = { clientAddress: "127.0.0.1" };
+        event.req.ip = "127.0.0.1";
+        event.node.req.socket = socket;
+        event.node.req.connection = socket;
+        return localDevHandler(event);
+      };
+
+      for (const headers of [
+        { "x-forwarded-for": "203.0.113.7" },
+        { "x-forwarded-host": "preview.example.dev" },
+        { forwarded: "for=203.0.113.7" },
+        { "x-real-ip": "203.0.113.7" },
+        { host: "preview.example.dev" },
+      ]) {
+        await expect(signIn(headers)).resolves.toEqual({ error: "Not found" });
+      }
+
+      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      await expect(signIn()).resolves.toEqual({ error: "Not found" });
+      expect(createBetterAuthSessionForEmail).not.toHaveBeenCalled();
+
+      vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+      await expect(signIn()).resolves.toEqual({ ok: true });
+
+      vi.stubEnv("FUSION_ENVIRONMENT", "");
+      vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "");
+      await expect(signIn()).resolves.toEqual({ ok: true });
     });
 
     it("keeps the endpoint out of custom auth and rejects production, previews, and remote peers", async () => {

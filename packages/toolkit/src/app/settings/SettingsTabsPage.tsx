@@ -158,6 +158,8 @@ export interface SettingsTabsPageProps {
   className?: string;
   navClassName?: string;
   navHeader?: ReactNode;
+  /** Pinned under the settings nav, such as a Sign out button. */
+  navFooter?: ReactNode;
   contentClassName?: string;
   enableSearch?: boolean;
   searchPlaceholder?: string;
@@ -165,6 +167,8 @@ export interface SettingsTabsPageProps {
   generalSearchEntries?: SettingsSearchEntry[];
   value?: string;
   onValueChange?: (tabId: string) => void;
+  /** The redesigned shell's page for a bare `/settings` or an unknown page id. Defaults to Profile. */
+  defaultPage?: string;
   /** The redesigned shell's app group label. Defaults to the template's display name. */
   appName?: string;
   /** The redesigned shell's app group icon. Defaults to the template's icon. */
@@ -393,6 +397,7 @@ function SettingsTabsPageContent({
   className,
   navClassName,
   navHeader,
+  navFooter,
   contentClassName,
   enableSearch = true,
   searchPlaceholder = "Search settings",
@@ -986,6 +991,7 @@ function SettingsTabsPageContent({
             ))}
           </nav>
         )}
+        {navFooter ? <div className="mt-auto pt-2">{navFooter}</div> : null}
       </div>
       <div
         id={`settings-tabpanel-${selectedTab?.id ?? "general"}`}
@@ -1053,10 +1059,12 @@ function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
         value={props.value}
         initialValue={initialValueRef.current}
         onValueChange={props.onValueChange}
+        defaultPage={props.defaultPage}
         appName={props.appName}
         appIcon={props.appIcon}
         appId={props.appId}
         whatsNewMarkdown={props.whatsNewMarkdown}
+        navFooter={props.navFooter}
       />
     </Suspense>
   );

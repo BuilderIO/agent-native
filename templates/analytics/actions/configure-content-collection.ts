@@ -7,11 +7,15 @@ import { z } from "zod";
 
 import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js";
 import {
+  agentNativeSignupsSettingsUpdateSchema,
   contentCollectionConfigSchema,
   ga4PropertyIdSchema,
+  searchConsoleHistoryMonthsSchema,
+  searchConsoleQueriesPerPageSchema,
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
+  youtubeChannelSchema,
 } from "../server/lib/content-metrics/config.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
 import {
@@ -45,10 +49,34 @@ export default defineAction({
       .describe(
         "Numeric GA4 property ID that measures the blog. Required for this collection's pageviews; never falls back to the shared GA4_PROPERTY_ID. Omit to keep the saved value or pass null to clear it.",
       ),
+    dailyDev: cliBoolean
+      .optional()
+      .describe(
+        "Collect daily visits from daily.dev to each blog article (on by default). Reads sessions that landed with daily.dev's via=dailydev tag or referrer from the same GA4 property, so it needs no other connection.",
+      ),
     searchConsole: cliBoolean
       .optional()
       .describe(
-        "Collect daily Search Console clicks and impressions. Turn on only after a property owner has given the service account access.",
+        "Collect daily Search Console clicks, impressions and average position. Turn on only after a property owner has given the service account access.",
+      ),
+    searchConsoleHistoryMonths: z.coerce
+      .number<string | number>()
+      .pipe(searchConsoleHistoryMonthsSchema)
+      .optional()
+      .describe(
+        "How many months back to fill Search Console history, 1 to 16 (default 16, all Search Console keeps). The first run reads the last 90 days; later runs fill older days 90 at a time, and query weeks a few at a time.",
+      ),
+    searchConsoleQueries: cliBoolean
+      .optional()
+      .describe(
+        "Collect each page's top Search Console queries per week (on by default whenever Search Console is). The API is free.",
+      ),
+    searchConsoleQueriesPerPage: z.coerce
+      .number<string | number>()
+      .pipe(searchConsoleQueriesPerPageSchema)
+      .optional()
+      .describe(
+        "Most queries kept per page per week, by impressions, 1 to 100 (default 25). Changing it reads the query history again.",
       ),
     searchConsoleSites: z
       .array(storedSearchConsoleSiteSchema)
@@ -60,7 +88,24 @@ export default defineAction({
     signups: signupsSettingsUpdateSchema
       .optional()
       .describe(
-        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own, as Source signups), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
+    agentNativeSignups: agentNativeSignupsSettingsUpdateSchema
+      .optional()
+      .describe(
+        "Agent-Native signups settings, merged into the saved ones: enabled, eventsTable (this organization's first-party analytics events, project.dataset.table) and maxBytesBilled. Signups whose link has utm_source set to the blog's host and utm_content set to an article's handle count for that article, as Agent-Native signups. Measure maxBytesBilled with estimate-content-signups-cost and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
+    youtube: cliBoolean
+      .optional()
+      .describe(
+        "Collect every video on youtubeChannels with its lifetime views, likes and comments, read once a day. Needs a YouTube Data API key under Data Sources; a run costs about one quota unit per 25 videos of the key's 10,000 a day.",
+      ),
+    youtubeChannels: z
+      .array(youtubeChannelSchema)
+      .max(20)
+      .optional()
+      .describe(
+        'YouTube channels to collect, replacing the saved list, each a channel ID or @handle, e.g. ["@Builderio"]. A run reads at most 10,000 videos in all.',
       ),
   }),
   run: async (
@@ -69,9 +114,16 @@ export default defineAction({
       builderBlog,
       ga4,
       ga4PropertyId,
+      dailyDev,
       searchConsole,
       searchConsoleSites,
+      searchConsoleHistoryMonths,
+      searchConsoleQueries,
+      searchConsoleQueriesPerPage,
       signups,
+      agentNativeSignups,
+      youtube,
+      youtubeChannels,
     },
     ctx,
   ) => {
@@ -92,11 +144,27 @@ export default defineAction({
         propertyId:
           ga4PropertyId === undefined ? saved.ga4.propertyId : ga4PropertyId,
       },
+      dailyDev: { enabled: dailyDev ?? saved.dailyDev.enabled },
       searchConsole: {
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,
+        historyMonths:
+          searchConsoleHistoryMonths ?? saved.searchConsole.historyMonths,
+      },
+      searchConsoleQueries: {
+        enabled: searchConsoleQueries ?? saved.searchConsoleQueries.enabled,
+        perPage:
+          searchConsoleQueriesPerPage ?? saved.searchConsoleQueries.perPage,
       },
       signups: { ...saved.signups, ...signups },
+      agentNativeSignups: {
+        ...saved.agentNativeSignups,
+        ...agentNativeSignups,
+      },
+      youtube: {
+        enabled: youtube ?? saved.youtube.enabled,
+        channels: youtubeChannels ?? saved.youtube.channels,
+      },
     });
     if (enabled && config.searchConsole.enabled) {
       z.array(searchConsoleSiteSchema)

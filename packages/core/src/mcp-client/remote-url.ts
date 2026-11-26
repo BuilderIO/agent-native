@@ -117,3 +117,65 @@ export function validateRemoteUrl(
   }
   return { ok: false, error: `Unsupported protocol: ${url.protocol}` };
 }
+
+const HIDDEN_URL_PART = "[hidden]";
+
+// A segment right after one of these names is the credential itself, whatever
+// its length (a Zapier-style `/s/<secret>/mcp`).
+const SECRET_PATH_LABELS = new Set([
+  "s",
+  "k",
+  "key",
+  "keys",
+  "apikey",
+  "api-key",
+  "api_key",
+  "token",
+  "tokens",
+  "secret",
+  "secrets",
+  "bearer",
+  "credential",
+  "credentials",
+]);
+
+function isSecretShapedSegment(segment: string): boolean {
+  return (
+    /^[A-Za-z0-9_.~=-]{16,}$/.test(segment) &&
+    (/\d/.test(segment) || (/[a-z]/.test(segment) && /[A-Z]/.test(segment)))
+  );
+}
+
+/**
+ * How a member who cannot manage the organization sees an organization MCP
+ * server's URL. Many of those URLs carry their key, so only the origin and
+ * path are shown, with userinfo, the query, the fragment and any path segment
+ * that looks like a key hidden. A URL that cannot be read is hidden whole.
+ */
+export function maskRemoteUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return HIDDEN_URL_PART;
+  }
+  let previous = "";
+  const path = url.pathname
+    .split("/")
+    .map((segment) => {
+      const assignment = /^([^=]+)=(.+)$/.exec(segment);
+      const shown = assignment
+        ? `${assignment[1]}=${HIDDEN_URL_PART}`
+        : segment &&
+            (SECRET_PATH_LABELS.has(previous.toLowerCase()) ||
+              isSecretShapedSegment(segment))
+          ? HIDDEN_URL_PART
+          : segment;
+      previous = segment;
+      return shown;
+    })
+    .join("/");
+  const userinfo = url.username || url.password ? `${HIDDEN_URL_PART}@` : "";
+  const query = url.search ? `?${HIDDEN_URL_PART}` : "";
+  return `${url.protocol}//${userinfo}${url.host}${path}${query}`;
+}

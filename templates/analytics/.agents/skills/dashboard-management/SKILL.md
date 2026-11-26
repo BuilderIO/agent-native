@@ -151,15 +151,72 @@ collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
 `searchConsoleSites` and turn it on.
 
+Search Console also writes `search_console_position_weighted`: average
+position times impressions, so a range's average position is
+`SUM(position_weighted)` over the impressions of the same pages and days,
+never an average of daily averages. Days collected before position was stored
+have impressions but no position, so leave them out of the divisor, as the
+Content view's Articles table does. Each run fills about 90 more days of
+history backward, up to `searchConsoleHistoryMonths` (1 to 16, default 16,
+all Search Console keeps).
+The `search_console_queries` step writes `analytics_content_search_queries`:
+each article's top `searchConsoleQueriesPerPage` queries (default 25) per
+Monday-to-Sunday week, with `clicks`, `impressions` and `position_weighted`.
+It runs only while Search Console runs (turn it off alone with
+`searchConsoleQueries: false`), rereads the newest two finished weeks each run
+and fills a few older weeks a run. Search Console leaves rare and private
+queries out, so an article's queries add up to less than its clicks. A run's
+`detail` notes a day that hit Search Console's daily row limit. Until the
+page-level step has succeeded under the current properties, the queries step
+stops as `not_configured`, waiting for the daily page numbers that say which
+weeks are final. A week arrives some days after its Sunday, so a panel over a
+rolling range should reach back to the newest stored week, as the Search
+queries panel does, or a 7-day range can come up empty.
+
 The `signups` step writes `signups_first_touch` per article: people who
 first landed on the article and later signed up, on the day of that first
-visit, so a window's days add up to its total. It is the only step that reads
-the warehouse. It stays `not_configured` until `configure-content-collection`
-sets its `signups` tables, `signupSource`, `signupsSince` and
-`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
-run, free) and get the spend approved before turning the step on. Each run
-dry-runs first, stops as `cost_limited` without querying when the estimate is
-over the cap, and runs the join with that cap as BigQuery's billing limit.
+visit, so a window's days add up to its total. It reads the warehouse. It
+stays `not_configured` until `configure-content-collection` sets its `signups`
+tables, `signupSource`, `signupsSince` and `maxBytesBilled`. Measure the cap
+with `estimate-content-signups-cost` (a dry run, free) and get the spend
+approved before turning the step on. Each run dry-runs first, stops as
+`cost_limited` without querying when the estimate is over the cap, and runs the
+join with that cap as BigQuery's billing limit.
+
+The `agent_native_signups` step writes `agent_native_signups` per article:
+signups in the organization's own first-party analytics (the Agent-Native
+apps' signups) whose link has `utm_source` set to the blog's host and
+`utm_content` set to the article's handle, on the signup day. A tag that names
+no collected article, such as `/hackathon`, is never credited, and test
+identities don't count. It reads the warehouse behind the same dry run and cap:
+set `agentNativeSignups.eventsTable` and `maxBytesBilled` with
+`configure-content-collection`, and measure the cap with
+`estimate-content-signups-cost` and `step: "agent_native_signups"`, which
+prices the first run's 90-day backfill. Later runs read back three days.
+
+The `daily_dev` step writes `daily_dev_sessions` per article: GA4 sessions
+that landed on it with daily.dev's `via=dailydev` tag or from a daily.dev
+session source, read from the collection's GA4 property, so it needs nothing
+else and reads back three days like pageviews. Like pageviews, it writes a 0
+for each article on each day it reads, so a count GA4 later drops is cleared.
+The `youtube` step stores every video on `youtube.channels` (channel IDs or
+`@handles`, set with `configure-content-collection --youtubeChannels`) as a
+`youtube` item and writes `youtube_views`, `youtube_likes` and
+`youtube_comments`: counts to date, dated the day they were read, with the
+channel's ID in the item's `metadata.channelId`. A count the channel hides has
+no row, so the Videos table shows only counts from a video's newest read.
+Views gained is the difference between two reads, and a video first read
+after its channel's first read (by channel ID) starts from 0, as the YouTube
+tab does. A successful read stamps every video it returns with an
+`updated_at` after the run started, so the tab takes the videos stamped since
+the newest successful `youtube` run started as that read: its chart shows only
+channels that read covered, and its Videos table only videos it covered, so a
+channel taken off `youtube.channels` or a deleted video drops off while its
+rows stay stored. It needs
+`YOUTUBE_API_KEY` under Data Sources → YouTube, stays off until turned on,
+reports `not_configured` without channels or a key, and costs about one
+quota unit per 25 videos of the key's free 10,000 a day. A run whose channels
+have more than 10,000 videos in all fails rather than storing part of them.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing
@@ -167,7 +224,8 @@ data callout has no `tab`, so it shows on every tab. It joins the expected
 sources to their latest run in the last 30 days, so it names each source whose
 run failed, hit the cost cap or isn't connected, and each one with no run in
 that window; keep that pattern rather than letting a missing row read as
-"nothing missing". The
+"nothing missing". YouTube, which is off by default, is named only once it
+has run. The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
 instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`
@@ -175,7 +233,14 @@ lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
 compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
 rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
 uncollected day would draw as a zero instead of a gap. Pivot only where a
-missing row is a real zero, like an author's week without signups. Content is a
+missing row is a real zero, like an author's week without signups. A pivoted
+daily line or area is also filled through today; the YouTube chart is stacked
+bars, which aren't filled, because its days end before today. Each daily
+chart's "Since collection began" starts at the first day of its own metric, so
+16 months of search history doesn't stretch the signups charts. Its Search tab
+has clicks per full month since collection began, each article's clicks
+against the same 28 days a year before, top queries for the time range, and
+queries close to page one or seen near the top but rarely clicked. Content is a
 built-in: turning collection on with `configure-content-collection` lists it
 in the organization's Dashboards at `content-view` (`contentDashboardId` in the
 result). It is read-only; build on it with `duplicate-dashboard`.
@@ -519,6 +584,18 @@ backticks or `#` outside strings, and nested block comments.
 Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
+
+**A point with no x value needs `{{drillXIsNull}}`.** A row whose x is null
+plots at a "No value" tick, and a click on it sends `{{drillX}}` as an empty
+string, the same as a row whose x is `''`. `{{drillXIsNull}}` is `'true'` for
+that click and `'false'` for every other, so match both:
+`(country = '{{drillX}}' OR ('{{drillXIsNull}}' = 'true' AND country IS NULL))`.
+When the column isn't a string, such as a `DATE`, the database reads an empty
+`{{drillX}}` as an invalid date and fails the query, even where the `OR`
+doesn't need it, so compare with `CAST(NULLIF('{{drillX}}', '') AS DATE)`
+instead. A template that doesn't use
+`{{drillXIsNull}}` opens the chart's aggregate rows for a "No value" click,
+not records.
 
 **Record templates can't use `:list` variables.** With nothing selected,
 `{{appFilter:list}}` renders as the bare name `__empty_list_filter__`. BigQuery

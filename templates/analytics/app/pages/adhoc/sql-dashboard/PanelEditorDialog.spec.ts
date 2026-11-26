@@ -1,3 +1,5 @@
+import { mergeUnchangedPanelFields } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,8 +8,6 @@ import {
   panelToForm,
   type PanelFormValues,
 } from "./PanelEditorDialog";
-import { mergeUnchangedPanelFields } from "./types";
-import type { SqlPanel } from "./types";
 
 const baseForm: PanelFormValues = {
   title: "Pipeline Widget",

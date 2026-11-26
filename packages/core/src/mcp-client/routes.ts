@@ -83,6 +83,7 @@ import {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
+import { maskRemoteUrl } from "./remote-url.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { addWorkspaceConnectionMcpServers } from "./workspace-connection-servers.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
@@ -115,17 +116,24 @@ function redactHeaders(
   return out;
 }
 
+// An org server's URL often carries its key, so only the people who manage the
+// org see it whole. A missing role is not one of them.
+function canSeeOrgServerUrls(role: string | null): boolean {
+  return role === "owner" || role === "admin";
+}
+
 function projectForClient(
   stored: StoredRemoteMcpServer,
   scope: RemoteMcpScope,
   ownerId: string,
   status: ServerStatus,
+  revealUrl: boolean,
 ): ClientServer {
   return {
     id: stored.id,
     scope,
     name: stored.name,
-    url: stored.url,
+    url: revealUrl ? stored.url : maskRemoteUrl(stored.url),
     headers: redactHeaders(stored.headers),
     authMode: stored.oauthSecretKey
       ? "oauth"
@@ -1002,6 +1010,7 @@ async function handleList(
         "user",
         email ?? "",
         statusFor(manager, mergedConfigKey("user", s, email ?? "")),
+        true,
       ),
     ),
     org: orgServers.map((s) =>
@@ -1010,6 +1019,7 @@ async function handleList(
         "org",
         orgId ?? "",
         statusFor(manager, mergedConfigKey("org", s, orgId ?? "")),
+        canSeeOrgServerUrls(role),
       ),
     ),
     orgId,
@@ -1102,6 +1112,7 @@ async function handleAdd(
       scope,
       scopeId,
       statusFor(manager, mergedId),
+      true,
     ),
   };
 }
@@ -1259,7 +1270,7 @@ async function handleReconnectExisting(
     setResponseStatus(event, 400);
     return { error: 'scope query param must be "user" or "org"' };
   }
-  const { email, orgId } = await resolveContextForRequest(event);
+  const { email, orgId, role } = await resolveContextForRequest(event);
 
   let scopeId: string | null = null;
   if (parsedScope === "user") {
@@ -1297,7 +1308,13 @@ async function handleReconnectExisting(
     }
   }
   const status = reconnectStatusForClient(manager, mergedId);
-  const projected = projectForClient(server, parsedScope, scopeId, status);
+  const projected = projectForClient(
+    server,
+    parsedScope,
+    scopeId,
+    status,
+    parsedScope === "user" || canSeeOrgServerUrls(role),
+  );
   return {
     ok: true,
     server: projected,

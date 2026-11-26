@@ -175,6 +175,97 @@ async function findMember(
   });
 }
 
+type SSOProviderRow = {
+  providerId: string;
+  organizationId?: string | null;
+  domain: string;
+  domainVerified?: boolean | null;
+};
+
+type FederatedReader = Pick<DBTransactionAdapter, "findOne" | "findMany">;
+
+function emailDomainMatches(email: string, domains: string): boolean {
+  const emailDomain = normalizeEmail(email).split("@")[1];
+  if (!emailDomain) return false;
+  return domains
+    .split(",")
+    .map((domain) => domain.trim().toLowerCase())
+    .some(
+      (domain) =>
+        domain.length > 0 &&
+        (emailDomain === domain || emailDomain.endsWith(`.${domain}`)),
+    );
+}
+
+async function isActiveMember(
+  database: Pick<DBTransactionAdapter, "findOne">,
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  const member = await findMember(database, orgId, email);
+  return Boolean(member && member.federationRemovalPendingAt == null);
+}
+
+async function ssoProviderMayAssert(
+  database: FederatedReader,
+  provider: SSOProviderRow,
+  email: string,
+): Promise<boolean> {
+  if (provider.domainVerified !== true) return false;
+  if (emailDomainMatches(email, provider.domain)) return true;
+  return provider.organizationId
+    ? isActiveMember(database, provider.organizationId, email)
+    : false;
+}
+
+export async function resolveFrameworkSSOUser(
+  input: { providerId: string; email: string },
+  database: FederatedReader,
+): Promise<
+  | { action: "continue" }
+  | { action: "link"; userId: string; profile: "preserve" }
+  | { action: "reject"; code: string; message: string }
+> {
+  const email = normalizeEmail(input.email);
+  const provider = await database.findOne<SSOProviderRow>({
+    model: "ssoProvider",
+    where: [{ field: "providerId", value: input.providerId }],
+  });
+  if (!provider || !(await ssoProviderMayAssert(database, provider, email))) {
+    return {
+      action: "reject",
+      code: "SSO_EMAIL_NOT_COVERED",
+      message:
+        "This sign-in provider is not verified for this email address's domain",
+    };
+  }
+  const existing = await database.findOne<UserRow>({
+    model: "user",
+    where: [{ field: "email", value: email, mode: "insensitive" }],
+  });
+  return existing
+    ? { action: "link", userId: existing.id, profile: "preserve" }
+    : { action: "continue" };
+}
+
+async function scimConnectionMayLink(
+  database: FederatedReader,
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  if (await isActiveMember(database, orgId, email)) return true;
+  if (!getAppConfig().access.sso.enabled) return false;
+  const providers = await database.findMany<SSOProviderRow>({
+    model: "ssoProvider",
+    where: [{ field: "organizationId", value: orgId }],
+  });
+  return providers.some(
+    (provider) =>
+      provider.domainVerified === true &&
+      emailDomainMatches(email, provider.domain),
+  );
+}
+
 async function findUserById(
   database: Pick<DBTransactionAdapter, "findOne">,
   userId: string,
@@ -380,6 +471,15 @@ export function createFrameworkSCIMIdentity(): SCIMIdentity {
         where: [{ field: "email", value: email, mode: "insensitive" }],
       });
       if (!user) return { action: "create" };
+      if (
+        !(await scimConnectionMayLink(
+          context.database,
+          input.provisioningDomainId,
+          email,
+        ))
+      ) {
+        return { action: "create" };
+      }
       return { action: "link", userId: user.id, profile: "preserve" };
     },
 

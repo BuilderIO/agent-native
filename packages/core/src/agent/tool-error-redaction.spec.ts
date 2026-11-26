@@ -53,4 +53,39 @@ describe("tool error redaction", () => {
     expect(redacted).toContain('"secretsCount": 2');
     expect(redacted).toContain('"mySecret": "keep"');
   });
+
+  it("redacts a connection-string password after the tool error prefix", () => {
+    const postgres = sanitizeToolErrorText(
+      "Error running postgres://user:pw@host/db: refused",
+    );
+    const mysql = sanitizeToolErrorText(
+      "Error running mysql://root:hunter2@db.internal:3306/app: Access denied",
+    );
+
+    expect(postgres).toBe(
+      "Error running postgres://[REDACTED]@host/db: refused",
+    );
+    expect(mysql).toBe(
+      "Error running mysql://[REDACTED]@db.internal:3306/app: Access denied",
+    );
+    expect(postgres).not.toContain("pw");
+    expect(mysql).not.toContain("hunter2");
+  });
+
+  it("redacts a connection string that follows a tool name prefix", () => {
+    const redacted = sanitizeToolErrorText(
+      "Error running db-query: connect ECONNREFUSED postgres://user:pw@host/db",
+    );
+
+    expect(redacted).toBe(
+      "Error running db-query: connect ECONNREFUSED postgres://[REDACTED]@host/db",
+    );
+    expect(redacted).not.toContain("pw");
+  });
+
+  it("keeps a tool name that looks like a credential readable", () => {
+    const text = "Error running create_token: token rejected";
+
+    expect(sanitizeToolErrorText(text)).toBe(text);
+  });
 });

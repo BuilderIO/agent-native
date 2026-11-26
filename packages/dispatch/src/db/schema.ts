@@ -119,25 +119,14 @@ export const dispatchDreamProposals = table("dispatch_dream_proposals", {
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const vaultSecrets = table("vault_secrets", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull(),
-  orgId: text("org_id"),
-  name: text("name").notNull(),
-  credentialKey: text("credential_key").notNull(),
-  value: text("value").notNull(),
-  provider: text("provider"),
-  description: text("description"),
-  createdBy: text("created_by").notNull(),
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
-
 export const vaultGrants = table("vault_grants", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  // The `app_secrets` row id. Core checks a grant by `credentialKey` alone;
+  // rows written before that column existed have none and match nothing.
   secretId: text("secret_id").notNull(),
+  credentialKey: text("credential_key"),
   appId: text("app_id").notNull(),
   grantedBy: text("granted_by").notNull(),
   status: text("status").notNull(),

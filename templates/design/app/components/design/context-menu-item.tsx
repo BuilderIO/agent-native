@@ -2,7 +2,6 @@ import {
   ContextMenuItem,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { cn } from "@/lib/utils";
 
 export const MENU_CONTENT_CLASS =
   "w-52 min-w-[200px] data-[state=open]:!animate-none data-[state=closed]:!animate-none";
@@ -30,10 +29,7 @@ export function CanvasMenuItem({
     <ContextMenuItem
       disabled={disabled}
       onSelect={onSelect}
-      className={cn(
-        destructive &&
-          "text-destructive focus:bg-destructive/10 focus:text-destructive",
-      )}
+      variant={destructive ? "destructive" : "default"}
     >
       {description ? (
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">

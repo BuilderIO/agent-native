@@ -129,6 +129,10 @@
       "dist/app/feedback/index.d.ts",
       "dist/app/feedback/index.js"
     ],
+    "./app/filters": [
+      "dist/app/filters/index.d.ts",
+      "dist/app/filters/index.js"
+    ],
     "./app/integrations": [
       "dist/app/integrations/index.d.ts",
       "dist/app/integrations/index.js"

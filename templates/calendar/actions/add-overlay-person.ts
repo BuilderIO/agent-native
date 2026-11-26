@@ -7,6 +7,12 @@ import type { OverlayPerson } from "../shared/api.js";
 import { getNextOverlayColor } from "../shared/overlay-colors.js";
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Add a person to the caller's calendar overlay list (subscribed peers), assigning the next available color. No-op if the person is already on the list.",
   schema: z.object({

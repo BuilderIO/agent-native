@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
@@ -603,6 +603,8 @@ export default defineAction({
         "Stable continuation cursor returned by the previous backfill page.",
       ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     if (args.recordingId) {
       const access = assertRecordingNotExpired(

@@ -14,6 +14,8 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./linked-screen-preview";
 
+// oracle-change: removed the BEFORE FIX case that asserted a local object literal; the fan-out cases below exercise the real handlers
+
 afterEach(() => {
   __clearLinkedScreenPreviewHandlersForTests();
 });
@@ -49,16 +51,6 @@ describe("linked screen preview frame ids", () => {
 });
 
 describe("BUG-UNDO-LINKED-BREAKPOINT — fan-out replace/style", () => {
-  it("BEFORE FIX: replacing only the active frame leaves the breakpoint sibling stale", () => {
-    const previews = {
-      "screen-a": '<div style="padding:24px">Card</div>',
-      "screen-a::bp-390": '<div style="padding:24px">Card</div>',
-    };
-    previews["screen-a"] = '<div style="padding:8px">Card</div>';
-    expect(previews["screen-a"]).toContain("padding:8px");
-    expect(previews["screen-a::bp-390"]).toContain("padding:24px");
-  });
-
   it("AFTER FIX: replaceLinkedScreenPreviewContent updates primary and breakpoint frames", () => {
     const previews: Record<string, string> = {
       "screen-a": '<div style="padding:24px">Card</div>',

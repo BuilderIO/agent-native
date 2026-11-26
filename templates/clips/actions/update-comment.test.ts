@@ -1,17 +1,19 @@
+import { ReviewCommentRevisionConflictError } from "@agent-native/core/review";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type CommentRow = {
+type KitComment = {
   id: string;
-  recordingId: string;
+  resourceType: string;
+  resourceId: string;
   authorEmail: string;
-  content: string;
-  organizationId: string;
-  mentionsJson: string | null;
+  body: string;
+  mentions: Array<{ label: string; email: string }>;
   updatedAt: string;
+  revision: number;
 };
 
 const state = vi.hoisted(() => ({
-  rows: [] as CommentRow[],
+  comments: [] as KitComment[],
   conflict: false,
 }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
@@ -20,6 +22,7 @@ const mockGetUserEmail = vi.hoisted(() =>
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockIsOrgMember = vi.hoisted(() => vi.fn());
+const kitUpdates = vi.hoisted(() => [] as unknown[]);
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
@@ -27,6 +30,7 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mockGetUserEmail(),
+  getRequestOrgId: () => null,
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -47,71 +51,41 @@ vi.mock("../server/lib/recordings.js", () => ({
     left.trim().toLowerCase() === right.trim().toLowerCase(),
 }));
 
-vi.mock("drizzle-orm", () => ({
-  and: (...conditions: unknown[]) => ({ type: "and", conditions }),
-  eq: (column: unknown, value: unknown) => ({
-    type: "eq",
-    column,
-    value,
-  }),
-  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
-    strings,
-    values,
-  })),
+vi.mock("../server/lib/recording-comments.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/recording-comments.js")
+  >()),
+  findRecordingComment: async (id: string) =>
+    state.comments.find((comment) => comment.id === id) ?? null,
 }));
 
-function matches(row: CommentRow, condition: any): boolean {
-  if (condition.type === "and") {
-    return condition.conditions.every((item: any) => matches(row, item));
-  }
-  if (condition.type === "eq") {
-    const key = String(condition.column).split(".").pop() as keyof CommentRow;
-    return row[key] === condition.value;
-  }
-  return true;
-}
-
-vi.mock("../server/db/index.js", () => {
-  const column = (name: string) => `recordingComments.${name}`;
-  const schema = {
-    recordingComments: {
-      id: column("id"),
-      recordingId: column("recordingId"),
-      authorEmail: column("authorEmail"),
-      content: column("content"),
-      organizationId: column("organizationId"),
-      mentionsJson: column("mentionsJson"),
-      updatedAt: column("updatedAt"),
+vi.mock("@agent-native/core/review/actions/update-review-comment", () => ({
+  default: {
+    run: async (args: {
+      commentId: string;
+      body: string;
+      mentions: KitComment["mentions"];
+      expectedRevision?: number;
+    }) => {
+      kitUpdates.push(args);
+      const comment = state.comments.find(({ id }) => id === args.commentId);
+      if (!comment) throw new Error(`Comment not found: ${args.commentId}`);
+      if (state.conflict) {
+        throw new ReviewCommentRevisionConflictError(
+          comment.id,
+          comment.revision + 1,
+        );
+      }
+      Object.assign(comment, {
+        body: args.body,
+        mentions: args.mentions,
+        updatedAt: new Date().toISOString(),
+        revision: comment.revision + 1,
+      });
+      return { ...comment };
     },
-  };
-
-  const db = {
-    select: () => ({
-      from: () => ({
-        where: (condition: unknown) => ({
-          limit: async (limit: number) =>
-            state.rows.filter((row) => matches(row, condition)).slice(0, limit),
-        }),
-      }),
-    }),
-    update: () => ({
-      set: (patch: Partial<CommentRow>) => ({
-        where: (condition: unknown) => ({
-          returning: async () => {
-            if (state.conflict) return [];
-            const matchingRows = state.rows.filter((row) =>
-              matches(row, condition),
-            );
-            matchingRows.forEach((row) => Object.assign(row, patch));
-            return matchingRows.map(({ id }) => ({ id }));
-          },
-        }),
-      }),
-    }),
-  };
-
-  return { getDb: () => db, schema };
-});
+  },
+}));
 
 import action from "./update-comment";
 
@@ -121,20 +95,22 @@ async function run(args: { id: string; content: string }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  kitUpdates.length = 0;
   mockAssertAccess.mockResolvedValue({
     role: "viewer",
-    resource: { enableComments: true },
+    resource: { enableComments: true, organizationId: "org-1" },
   });
   state.conflict = false;
-  state.rows = [
+  state.comments = [
     {
       id: "comment-1",
-      recordingId: "recording-1",
+      resourceType: "recording",
+      resourceId: "recording-1",
       authorEmail: "author@example.com",
-      content: "Original text",
-      organizationId: "org-1",
-      mentionsJson: null,
+      body: "Original text",
+      mentions: [],
       updatedAt: "2026-07-29T00:00:00.000Z",
+      revision: 3,
     },
   ];
   mockGetUserEmail.mockReturnValue("author@example.com");
@@ -162,7 +138,8 @@ describe("update-comment", () => {
       "recording-1",
       "viewer",
     );
-    expect(state.rows[0]?.content).toBe("Original text");
+    expect(state.comments[0]?.body).toBe("Original text");
+    expect(kitUpdates).toEqual([]);
   });
 
   it("updates an author's comment with normalized email matching", async () => {
@@ -179,10 +156,18 @@ describe("update-comment", () => {
       mentions: [],
       updatedAt: expect.any(String),
     });
-    expect(state.rows[0]).toMatchObject({
-      content: "Updated text",
+    expect(state.comments[0]).toMatchObject({
+      body: "Updated text",
       updatedAt: result.updatedAt,
     });
+    expect(kitUpdates).toEqual([
+      expect.objectContaining({
+        resourceType: "recording",
+        resourceId: "recording-1",
+        commentId: "comment-1",
+        expectedRevision: 3,
+      }),
+    ]);
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "recording",
       "recording-1",
@@ -200,19 +185,19 @@ describe("update-comment", () => {
   });
 
   it("preserves an existing mention when the optional field is omitted", async () => {
-    state.rows[0].content = "Original text @Member";
-    state.rows[0].mentionsJson = JSON.stringify([
-      { email: "member@example.com", name: "Member" },
-    ]);
+    state.comments[0].body = "Original text @Member";
+    state.comments[0].mentions = [
+      { label: "Member", email: "member@example.com" },
+    ];
 
     const result = await run({
       id: "comment-1",
       content: "Updated text @Member",
     });
 
-    expect(state.rows[0].mentionsJson).toBe(
-      JSON.stringify([{ email: "member@example.com", name: "Member" }]),
-    );
+    expect(state.comments[0].mentions).toEqual([
+      { label: "Member", email: "member@example.com" },
+    ]);
     expect(result.mentions).toEqual([{ name: "Member" }]);
   });
 
@@ -222,7 +207,7 @@ describe("update-comment", () => {
     await expect(
       run({ id: "comment-1", content: "Updated text" }),
     ).rejects.toThrow("changed before this edit could be saved");
-    expect(state.rows[0]?.content).toBe("Original text");
+    expect(state.comments[0]?.body).toBe("Original text");
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 });

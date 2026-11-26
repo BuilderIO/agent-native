@@ -115,10 +115,50 @@ describe("configure-content-collection", () => {
           searchConsole: {
             enabled: false,
             sites: [{ siteUrl: "legacy.example.test" }],
+            historyMonths: 16,
           },
         }),
       }),
     );
+  });
+
+  function parsed(input: Record<string, unknown>) {
+    const schema = configure.schema;
+    if (!schema) throw new Error("configure-content-collection has no schema");
+    return schema.parse(input);
+  }
+
+  it("sets Search Console history and query settings and keeps them on later saves", async () => {
+    await configure.run(
+      parsed({
+        enabled: true,
+        searchConsole: false,
+        searchConsoleHistoryMonths: "6",
+        searchConsoleQueries: "false",
+        searchConsoleQueriesPerPage: 10,
+      }),
+    );
+    const written = mocks.write.mock.lastCall?.[1].config;
+    expect(written.searchConsole.historyMonths).toBe(6);
+    expect(written.searchConsoleQueries).toEqual({
+      enabled: false,
+      perPage: 10,
+    });
+
+    mocks.read.mockResolvedValue({ config: written });
+    await configure.run(parsed({ enabled: true, searchConsole: false }));
+    const rewritten = mocks.write.mock.lastCall?.[1].config;
+    expect(rewritten.searchConsole.historyMonths).toBe(6);
+    expect(rewritten.searchConsoleQueries).toEqual({
+      enabled: false,
+      perPage: 10,
+    });
+  });
+
+  it("rejects history beyond the 16 months Search Console keeps", () => {
+    expect(() =>
+      parsed({ enabled: true, searchConsoleHistoryMonths: 17 }),
+    ).toThrow();
   });
 
   it("does not enable collection when dashboard installation fails", async () => {
@@ -172,6 +212,7 @@ describe("configure-content-collection", () => {
           searchConsole: {
             enabled: true,
             sites: [{ siteUrl: "legacy.example.test" }],
+            historyMonths: 16,
           },
         }),
       }),
@@ -198,6 +239,7 @@ describe("configure-content-collection", () => {
           searchConsole: {
             enabled: true,
             sites: [{ siteUrl: "sc-domain:example.test" }],
+            historyMonths: 16,
           },
         }),
       }),

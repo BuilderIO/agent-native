@@ -107,7 +107,7 @@ vi.mock("@agent-native/core/client/review/use-review", () => ({
   useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
-import { isTrustedReviewAttachmentUrl } from "./ReviewCommentItem.js";
+import { isTrustedReviewAttachmentUrl } from "./review-comment-images.js";
 import { serializeReviewComposerDoc } from "./ReviewComposerText.js";
 import { ReviewThreadPanel } from "./ReviewThreadPanel.js";
 vi.mock("@agent-native/toolkit/clipboard", () => ({ writeClipboardText }));
@@ -437,6 +437,40 @@ describe("ReviewThreadPanel sidebar layout", () => {
       }),
     );
     expect(container.textContent).not.toContain("Send to agent");
+  });
+
+  it("labels the comment box's formatting bar with the labels it's given", () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          placeholder="Leave feedback"
+          formatLabels={{ toolbar: "Mise en forme", bold: "Gras" }}
+        />,
+      );
+    });
+
+    const composer = container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Leave feedback"]',
+    );
+    setEditorValue(composer, "Make it bold");
+    act(() => {
+      const { editor } = requireEditor(composer);
+      editor.view.focus();
+      editor.commands.setTextSelection({ from: 9, to: 13 });
+    });
+
+    const toolbar = document.querySelector<HTMLElement>(
+      "[data-review-format-toolbar]",
+    );
+    expect(toolbar?.getAttribute("aria-label")).toBe("Mise en forme");
+    expect(toolbar?.querySelector('button[aria-label="Gras"]')).not.toBeNull();
+    // A label left out stays English.
+    expect(
+      toolbar?.querySelector('button[aria-label="Italic"]'),
+    ).not.toBeNull();
   });
 
   it("clears a submitted comment immediately and restores it only when the draft is still untouched", async () => {

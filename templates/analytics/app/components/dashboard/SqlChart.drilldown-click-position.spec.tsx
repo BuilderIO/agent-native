@@ -36,9 +36,9 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
-import { SqlChart, type ChartDatum } from "./SqlChart";
+import { SqlChart, type ChartDatum } from "./SqlChartQuery";
 
 const CHART_SIZE = { width: 640, height: 320 };
 
@@ -190,6 +190,7 @@ describe("SqlChart drill-down click position", () => {
       await clickChartAt(plot.left + plot.width / 2, plot.top + 10);
       expect(onDatumClick).toHaveBeenLastCalledWith({
         x: "",
+        xIsNull: true,
         series: undefined,
         value: undefined,
       });

@@ -548,10 +548,13 @@ vi.mock("../db/client.js", async () => {
     },
   };
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => {
       if (!dbAvailable.value) throw new Error("db not configured");
       return exec;
     },
+    dbConnectGateRemainingMs: () => 0,
+    dbRecentTimeoutMs: () => Infinity,
   };
 });
 
@@ -737,7 +740,7 @@ describe("awareness-store", () => {
       "_collab_awareness_anonymous_expiry_idx",
     ]);
 
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await pglite.exec(`
         CREATE TABLE _collab_awareness (
@@ -926,7 +929,7 @@ describe("awareness-store", () => {
       actor_email: "owner@example.com",
     });
 
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     try {
       await pglite.exec(`
         CREATE TABLE _collab_awareness (

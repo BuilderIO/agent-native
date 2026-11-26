@@ -19,6 +19,8 @@ const holder = vi.hoisted(() => ({
   jobHealthFail: undefined as undefined | Error,
   jobLastError: null as string | null,
   connectionDetail: undefined as string | undefined,
+  connectionOwners: [] as (string | undefined)[],
+  alsoReported: [] as string[],
 }));
 
 vi.mock("@agent-native/core/action", async () => {
@@ -86,9 +88,13 @@ vi.mock("../server/lib/factory-workflow-job.js", () => ({
   },
 }));
 vi.mock("../server/lib/factory-workflow-connections.js", () => ({
-  readProviderConnections: async (providers: string[]) => {
+  readProviderConnections: async (
+    providers: string[],
+    identity: { ownerEmail?: string },
+  ) => {
+    holder.connectionOwners.push(identity.ownerEmail);
     if (holder.connectionsFail) throw holder.connectionsFail;
-    return providers.map((provider) => ({
+    return [...providers, ...holder.alsoReported].map((provider) => ({
       provider,
       status: provider === "slack" ? "connected" : "not connected",
       connectWith: "vault",
@@ -160,6 +166,8 @@ beforeEach(async () => {
   holder.jobHealthFail = undefined;
   holder.jobLastError = null;
   holder.connectionDetail = undefined;
+  holder.connectionOwners = [];
+  holder.alsoReported = [];
   store = createDrizzleTripwireStore({ getDatabase: () => world.db as never });
   counter = 0;
 });
@@ -401,6 +409,7 @@ describe("get-workflow-diagnostics", () => {
     expect(bundle.truncated).toEqual([]);
     expect(bundle.unavailable).toEqual([]);
     expect(bytes(bundle)).toBeLessThanOrEqual(DIAGNOSTICS_MAX_BYTES);
+    expect(holder.connectionOwners).toEqual([workflow.ownerEmail]);
   });
 
   it("lists the factory's workflows when none is named", async () => {
@@ -411,6 +420,38 @@ describe("get-workflow-diagnostics", () => {
     expect(bundle.workflows).toHaveLength(1);
     expect(bundle.runs).toHaveLength(10);
     expect(bundle.connections.length).toBeGreaterThan(0);
+    expect(holder.connectionOwners).toEqual([undefined]);
+  });
+
+  it("says whose Content status it is: the asking person's factory-wide, a teammate owner's for their workflow, and keeps Content's setup steps whole while other providers' details stay short", async () => {
+    const workflow = await seedWorkflow();
+    const mine = await addWorkflow(world, { ownerEmail: kit.USER_EMAIL });
+    holder.alsoReported = ["content"];
+    const steps = `Connect it for yourself: Settings, Integrations, Add custom integration: Content's MCP server, https://content.agent-native.com/_agent-native/mcp, with "Personal" chosen, then sign in to Content.`;
+    holder.connectionDetail = steps;
+
+    const factoryWide = await run({ factoryId: "factory-1" });
+    const named = await run({
+      factoryId: "factory-1",
+      workflowId: workflow.id,
+    });
+    const own = await run({ factoryId: "factory-1", workflowId: mine.id });
+
+    const content = (bundle: typeof factoryWide) =>
+      bundle.connections.find(
+        (entry: { provider: string }) => entry.provider === "content",
+      );
+    expect(content(factoryWide)?.detail).toBe(
+      `Checked for the person asking. Each workflow's Content steps use its owner's connection; name a workflowId for that owner's. ${steps}`,
+    );
+    expect(content(named)?.detail).toBe(
+      `Checked for the workflow's owner, a teammate; get-factory-workflow names them. ${steps}`,
+    );
+    expect(content(own)?.detail).toBe(steps);
+    const slack = factoryWide.connections.find(
+      (entry: { provider: string }) => entry.provider === "slack",
+    );
+    expect(slack?.detail).toBe(`${steps.slice(0, 159)}…`);
   });
 
   it("calls a waiting item overdue by its own workflow's `wait_overdue` threshold, not a flat ten minutes", async () => {

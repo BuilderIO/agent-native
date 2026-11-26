@@ -96,9 +96,9 @@ test("legacy hashless outbox content rebases without overwriting newer source", 
 }) => {
   test.setTimeout(60_000);
   const staleNotice =
-    "This screen changed elsewhere. Your last edit was not saved.";
+    "This page changed elsewhere. Your last edit was not saved.";
   app.allowFailure(
-    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    /^error toast This page changed elsewhere\. Your last edit was not saved\.$/,
     "the scenario's stale entry is reported",
   );
   // html/body carry canonical node ids too: without them,

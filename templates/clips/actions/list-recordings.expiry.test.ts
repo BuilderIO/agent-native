@@ -18,6 +18,7 @@ import {
 } from "vitest";
 
 import * as schema from "../server/db/schema.js";
+import { reviewComments } from "../server/lib/recording-comments.js";
 
 const identity = vi.hoisted(() => ({
   email: "viewer@example.test" as string | undefined,
@@ -104,7 +105,7 @@ describe("list recordings expiry with PostgreSQL", () => {
       schema.recordingViewers,
       schema.recordingViews,
       schema.recordingAgentViews,
-      schema.recordingComments,
+      reviewComments,
       schema.recordingReactions,
       schema.recordingEvents,
       schema.recordingContentBindings,
@@ -449,4 +450,85 @@ describe("list recordings expiry with PostgreSQL", () => {
       ).toEqual([{ summaryMd: override ? "Fake generated notes" : null }]);
     },
   );
+
+  it("filters list-recordings and view-screen case-insensitively across title, description, and transcript", async () => {
+    identity.email = "owner@example.test";
+    await db.insert(schema.recordings).values([
+      {
+        id: "rec-title-match",
+        organizationId: "fake-org",
+        ownerEmail: "owner@example.test",
+        title: "Onboarding Walkthrough",
+        description: "",
+        kind: "video",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "rec-transcript-match",
+        organizationId: "fake-org",
+        ownerEmail: "owner@example.test",
+        title: "Weekly Demo",
+        description: "Covers pricing tiers",
+        kind: "video",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "rec-other",
+        organizationId: "fake-org",
+        ownerEmail: "owner@example.test",
+        title: "Quarterly Retro",
+        description: "Team notes",
+        kind: "video",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.recordingTranscripts).values({
+      recordingId: "rec-transcript-match",
+      ownerEmail: "owner@example.test",
+      fullText: "Here is the onboarding flow for new teammates.",
+      segmentsJson: "[]",
+      status: "ready",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const listResult = await action.run(
+      action.schema.parse({ view: "library", search: "ONBOARDING" }),
+    );
+    expect(listResult.recordings.map((r) => r.id).sort()).toEqual([
+      "rec-title-match",
+      "rec-transcript-match",
+    ]);
+
+    const countResult = await action.run(
+      action.schema.parse({
+        view: "library",
+        search: "ONBOARDING",
+        countOnly: true,
+      }),
+    );
+    expect(countResult.total).toBe(2);
+
+    const prevNavigation = identity.navigation;
+    identity.navigation = {
+      view: "library",
+      search: "ONBOARDING",
+    } as typeof identity.navigation;
+    try {
+      const screenResult = JSON.parse(await screen.run({}));
+      expect(screenResult.library.search).toBe("ONBOARDING");
+      expect(screenResult.library.count).toBe(2);
+      expect(
+        screenResult.library.recordings.map((r: { id: string }) => r.id).sort(),
+      ).toEqual(["rec-title-match", "rec-transcript-match"]);
+    } finally {
+      identity.navigation = prevNavigation;
+    }
+  });
 });

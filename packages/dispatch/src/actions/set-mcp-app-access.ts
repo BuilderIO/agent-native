@@ -9,6 +9,7 @@ import listMcpAppAccess from "./list-mcp-app-access.js";
 const modeSchema = z.enum(["all-apps", "selected-apps"]);
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Set which apps are available through Dispatch's unified MCP gateway.",
   schema: z.object({

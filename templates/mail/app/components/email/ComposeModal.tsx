@@ -5,7 +5,7 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
-import type { ComposeState } from "@shared/types";
+import type { ComposeAttachment, ComposeState } from "@shared/types";
 import {
   IconX,
   IconMinus,
@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCanManageStorage } from "@/hooks/use-can-manage-storage";
 import {
   draftRevisionPromptArg,
   FOCUS_COMPOSE_DRAFT_EVENT,
@@ -59,15 +60,17 @@ import {
 import { useSettings } from "@/hooks/use-emails";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
+import { useStorageSetupLabels } from "@/hooks/use-storage-setup-labels";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import {
-  toastStorageSetupFailure,
+  reportImageUploadFailure,
   toastUploadFailure,
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
+import { AttachFromContentButton } from "./AttachFromContentButton";
 import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
@@ -211,6 +214,7 @@ interface ComposeModalProps {
   onDiscard: (id: string) => void;
   onStageForSend: (id: string) => void;
   onRestoreAfterSend: (id: string) => void;
+  onSettleForSend?: (staged: ComposeState) => Promise<ComposeState>;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
   onRegisterComposeCommands?: (commands: ComposePaletteCommands | null) => void;
@@ -236,6 +240,7 @@ export function ComposeModal({
   onDiscard,
   onStageForSend,
   onRestoreAfterSend,
+  onSettleForSend,
   onNewDraft,
   onFlush,
   onRegisterComposeCommands,
@@ -244,6 +249,8 @@ export function ComposeModal({
   onSendInMail,
 }: ComposeModalProps) {
   const t = useT();
+  const canManageStorage = useCanManageStorage();
+  const storageSetupLabels = useStorageSetupLabels();
   const formatters = useFormatters();
   const isMobile = useIsMobile();
   const isCard = presentation === "card";
@@ -280,6 +287,7 @@ export function ComposeModal({
   const focusNewDraftIdRef = useRef<string | null>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  const pendingAttachesRef = useRef(new Map<string, number>());
 
   const [sidebarRight, setSidebarRight] = useState(16);
   useEffect(() => {
@@ -428,6 +436,10 @@ export function ComposeModal({
   const handleSend = async (explicitlyMarkDone = false) => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
+    if (pendingAttachesRef.current.has(activeId)) {
+      toast.error(t("mail.toasts.waitForAttachments"));
+      return;
+    }
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
       return;
@@ -491,18 +503,25 @@ export function ComposeModal({
       const sendingToastId = toast(t("mail.compose.sending"), {
         duration: Infinity,
       });
-      void sendEmail
-        .mutateAsync({
-          to: expandAliasTokens(draftSnapshot.to, aliases),
-          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
-          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
-          subject: draftSnapshot.subject,
-          body: draftSnapshot.body,
-          replyToId: draftSnapshot.replyToId,
-          replyToThreadId: draftSnapshot.replyToThreadId,
-          accountEmail: draftSnapshot.accountEmail,
-          attachments: draftSnapshot.attachments,
+      void (onSettleForSend?.(draftSnapshot) ?? Promise.resolve(draftSnapshot))
+        .catch((error: unknown) => {
+          undoOptimistic?.();
+          throw error;
         })
+        .then((sendable) =>
+          sendEmail.mutateAsync({
+            to: expandAliasTokens(draftSnapshot.to, aliases),
+            cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+            bcc:
+              expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+            subject: draftSnapshot.subject,
+            body: draftSnapshot.body,
+            replyToId: draftSnapshot.replyToId,
+            replyToThreadId: draftSnapshot.replyToThreadId,
+            accountEmail: draftSnapshot.accountEmail,
+            attachments: sendable.attachments,
+          }),
+        )
         .then((result) => {
           toast(t("mail.toasts.messageSent"), {
             id: sendingToastId,
@@ -561,6 +580,10 @@ export function ComposeModal({
 
   const handleSendLater = async (runAt: number) => {
     if (!activeDraft || !activeId || schedulingRef.current || isCard) return;
+    if (pendingAttachesRef.current.has(activeId)) {
+      toast.error(t("mail.toasts.waitForAttachments"));
+      return;
+    }
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
       return;
@@ -784,27 +807,37 @@ export function ComposeModal({
     onUpdate(activeId, partial);
   };
 
-  const storageSetupLabels = {
-    builderRefused: t("mail.toasts.storageBuilderRefused"),
-    storageRefused: t("mail.toasts.storageRefused"),
-    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
-    openStorageSettings: t("mail.toasts.openStorageSettings"),
-    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
-    useOwnStorage: t("mail.toasts.useOwnStorage"),
+  const addAttachments = (draftId: string, added: ComposeAttachment[]) => {
+    const draft = draftsRef.current.find((item) => item.id === draftId);
+    if (!draft) return;
+    const attachments = [...(draft.attachments ?? []), ...added];
+    draftsRef.current = draftsRef.current.map((item) =>
+      item.id === draftId ? { ...item, attachments } : item,
+    );
+    onUpdate(draftId, { attachments });
+  };
+
+  const trackAttach = (draftId: string, change: 1 | -1) => {
+    const count = (pendingAttachesRef.current.get(draftId) ?? 0) + change;
+    if (count > 0) pendingAttachesRef.current.set(draftId, count);
+    else pendingAttachesRef.current.delete(draftId);
   };
 
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
+    const draftId = activeId;
+    trackAttach(draftId, 1);
     try {
-      const attachments = await uploadFiles(files);
-      const existing = activeDraft.attachments ?? [];
-      onUpdate(activeId, { attachments: [...existing, ...attachments] });
+      addAttachments(draftId, await uploadFiles(files));
     } catch (error) {
       toastUploadFailure(
         error,
         t("mail.toasts.failedToAttachFile"),
         storageSetupLabels,
+        canManageStorage,
       );
+    } finally {
+      trackAttach(draftId, -1);
     }
   };
 
@@ -813,11 +846,12 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
-        reportWriteFailure(err, {
-          label: t("mail.toasts.failedToUploadImage"),
-        });
-      }
+      reportImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        storageSetupLabels,
+        canManageStorage,
+      );
       throw err;
     }
   };
@@ -826,6 +860,14 @@ export function ComposeModal({
     const file = await openFilePicker("*/*");
     if (!file) return;
     await handleAttachFiles([file]);
+  };
+
+  const handleAttachContentPage = (attachment: ComposeAttachment) => {
+    if (activeId) addAttachments(activeId, [attachment]);
+  };
+
+  const handleContentAttachPending = (pending: boolean) => {
+    if (activeId) trackAttach(activeId, pending ? 1 : -1);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -1171,7 +1213,7 @@ export function ComposeModal({
           )}
 
           {/* Toolbar */}
-          <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-y-2 border-t border-border px-3 py-2">
             <div className="flex items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1236,6 +1278,13 @@ export function ComposeModal({
                     {t("mail.compose.attachFile")}
                   </TooltipContent>
                 </Tooltip>
+              )}
+              {!isCard && (
+                <AttachFromContentButton
+                  onAttach={handleAttachContentPage}
+                  onPendingChange={handleContentAttachPending}
+                  className="text-muted-foreground hover:text-foreground"
+                />
               )}
 
               {/* The card has no in-app agent chat to generate with. */}
@@ -1306,7 +1355,7 @@ export function ComposeModal({
                 <IconExternalLink className="h-3.5 w-3.5 rtl:-scale-x-100" />
               </Button>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="ms-auto flex items-center gap-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button

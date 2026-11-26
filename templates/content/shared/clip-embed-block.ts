@@ -85,3 +85,11 @@ export function clipEmbedRecordingIdFromRaw(raw: unknown): string | null {
   const id = RAW_RECORDING_ID.exec(raw.trim())?.[1];
   return isClipRecordingId(id) ? id : null;
 }
+
+const RAW_ORIGIN = /^<ClipEmbed\b[^>]*\sorigin="([^"]*)"/;
+
+export function clipEmbedOriginFromRaw(raw: unknown): ClipEmbedOrigin | null {
+  if (typeof raw !== "string") return null;
+  const origin = RAW_ORIGIN.exec(raw.trim())?.[1];
+  return CLIP_EMBED_ORIGINS.find((known) => known === origin) ?? null;
+}

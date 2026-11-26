@@ -259,6 +259,69 @@ describe("MemberRow organization controls", () => {
     expect(container.textContent).toContain("Invite members");
   });
 
+  function renderInviteCard(
+    role: "admin" | "member",
+    options: { showDisabledInviteForMembers?: boolean; onInvite?: () => void },
+  ) {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <MembersTableCard
+            members={[]}
+            totalMembers={0}
+            pendingInvites={[]}
+            isLoadingMembers={false}
+            isFetchingMembers={false}
+            membersError={null}
+            onRetryMembers={vi.fn()}
+            currentUserEmail={`${role}@example.test`}
+            currentUserRole={role}
+            groups={[]}
+            canManageGroups={false}
+            memberOffset={0}
+            memberSearch=""
+            activeMemberSearch=""
+            hasNextPage={false}
+            nextMemberOffset={null}
+            onMemberPageChange={vi.fn()}
+            onMemberSearchChange={vi.fn()}
+            onCreateGroup={vi.fn()}
+            {...options}
+          />
+        </TooltipProvider>,
+      );
+    });
+    return Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Invite members",
+    );
+  }
+
+  it("hides Invite from a member unless the disabled invite is asked for", () => {
+    expect(renderInviteCard("member", {})).toBeUndefined();
+
+    const invite = renderInviteCard("member", {
+      showDisabledInviteForMembers: true,
+    });
+    expect(invite?.disabled).toBe(true);
+    expect(invite?.parentElement?.getAttribute("tabindex")).toBe("0");
+  });
+
+  it("opens the app's invite flow instead of the inline form", () => {
+    const onInvite = vi.fn();
+    const invite = renderInviteCard("admin", {
+      onInvite,
+      showDisabledInviteForMembers: true,
+    });
+    expect(invite?.disabled).toBe(false);
+    act(() => invite?.click());
+    expect(onInvite).toHaveBeenCalledTimes(1);
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "Invite members",
+      ),
+    ).toBe(true);
+  });
+
   it("uses a search-specific empty state", () => {
     act(() => {
       root.render(

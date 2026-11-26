@@ -1,9 +1,10 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 
 import type { H3Event } from "h3";
 
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, getEnclosingTransactionDbExec } from "../db/client.js";
 import { withDatabaseErrorProvenance } from "../db/errors.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { iconValueSchema, type IconValue } from "../icons/index.js";
@@ -71,6 +72,36 @@ type FederatedMemberOperation =
 export type FederatedMembershipValidation =
   | { active: true; role: OrgRole }
   | { active: false; role: null };
+
+type MembershipSnapshot = {
+  phase: "reconcile" | "read";
+  validated: Map<
+    string,
+    { authority: string; identityId: string; role: OrgRole }
+  >;
+};
+const membershipSnapshots = new AsyncLocalStorage<MembershipSnapshot>();
+
+export async function withFederatedMembershipSnapshot<T, R>(
+  reconcile: () => Promise<T>,
+  read: (result: T) => Promise<R>,
+): Promise<R> {
+  const state: MembershipSnapshot = {
+    phase: "reconcile",
+    validated: new Map(),
+  };
+  return membershipSnapshots.run(state, async () => {
+    const result = await reconcile();
+    state.phase = "read";
+    return read(result);
+  });
+}
+
+export function federatedSnapshotTransaction() {
+  return membershipSnapshots.getStore()?.phase === "read"
+    ? getEnclosingTransactionDbExec()
+    : undefined;
+}
 
 function requestEventFromContext(): H3Event | undefined {
   const requestOrigin = getRequestContext()?.requestOrigin;
@@ -172,6 +203,7 @@ async function federationRolloutState(
     return (await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
       userEmail: email,
       userKey: email,
+      transaction: federatedSnapshotTransaction(),
       ...(orgId ? { orgId } : {}),
     }))
       ? "enabled"
@@ -535,6 +567,23 @@ export async function validateFederatedOrganizationMembership(
     );
   }
 
+  const snapshot = membershipSnapshots.getStore();
+  const snapshotKey = `${input.orgId}\0${email}`;
+  if (snapshot?.phase === "read") {
+    const verified = snapshot.validated.get(snapshotKey);
+    if (
+      !verified ||
+      verified.authority !== identityAuthority ||
+      verified.identityId !== identityId ||
+      verified.role !== localRole
+    ) {
+      throw new Error(
+        "Federated membership changed before the navigation snapshot.",
+      );
+    }
+    return { active: true, role: localRole };
+  }
+
   const sent = await sendFederationAssertion(
     event,
     {
@@ -602,6 +651,13 @@ export async function validateFederatedOrganizationMembership(
       }),
     );
     invalidateMemberOrgCaches();
+  }
+  if (snapshot?.phase === "reconcile") {
+    snapshot.validated.set(snapshotKey, {
+      authority: identityAuthority,
+      identityId,
+      role: body.memberRole,
+    });
   }
   return { active: true, role: body.memberRole };
 }

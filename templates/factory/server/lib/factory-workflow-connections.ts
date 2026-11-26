@@ -7,9 +7,16 @@ import {
   getCredentialContext,
   getEmailReadiness,
   resolveBuilderOAuthRequestAccessState,
+  runWithRequestContext,
 } from "@agent-native/core/server";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 
+import {
+  CONTENT_CONNECT_STEPS,
+  CONTENT_UNREACHABLE,
+  contentMcpDeps,
+  ownerContentServers,
+} from "../connectors/content-workflow.js";
 import {
   resolveFactoryConnectorSources,
   type ConnectorReading,
@@ -256,6 +263,43 @@ async function connectorConnection(
   );
 }
 
+async function contentConnection(identity: {
+  userEmail: string;
+  orgId: string;
+  ownerEmail?: string | undefined;
+}): Promise<ProviderConnection> {
+  const owner = identity.ownerEmail ?? identity.userEmail;
+  const servers = await attempt(async () =>
+    runWithRequestContext({ userEmail: owner, orgId: identity.orgId }, () =>
+      ownerContentServers(contentMcpDeps(owner)),
+    ),
+  );
+  if (!servers.ok) return unknown("content", "settings", servers.message);
+  const { saved, reachable } = servers.value;
+  const someoneElse = owner !== identity.userEmail;
+  if (saved.length === 1 && reachable.length === 0) {
+    return unknown(
+      "content",
+      "settings",
+      someoneElse
+        ? `This workflow writes to Content as its owner, ${owner}, whose saved connection Factory could not reach or lacks the tools this step needs. Only they can fix it: in their own account, Settings, Integrations, sign in to Content again if it asks.`
+        : CONTENT_UNREACHABLE,
+    );
+  }
+  return known(
+    "content",
+    "settings",
+    saved.length === 1,
+    saved.length === 0
+      ? someoneElse
+        ? `This workflow writes to Content as its owner, ${owner}, who has not connected it. They connect it for themselves: ${CONTENT_CONNECT_STEPS}.`
+        : `Connect it for yourself: ${CONTENT_CONNECT_STEPS}.`
+      : someoneElse
+        ? `Content is connected ${saved.length} times for this workflow's owner, ${owner}, so which to use is unclear. Only they can fix it: in their own account, keep one connection and remove the others.`
+        : `Content is connected ${saved.length} times, so which to use is unclear. Keep one connection and remove the others.`,
+  );
+}
+
 const BUILDER_RUN_SCOPE = "builder:agents:run";
 
 /**
@@ -303,7 +347,11 @@ async function builderConnection(identity: {
  */
 export async function readProviderConnections(
   providers: readonly string[],
-  identity: { userEmail: string; orgId: string },
+  identity: {
+    userEmail: string;
+    orgId: string;
+    ownerEmail?: string | undefined;
+  },
 ): Promise<ProviderConnection[]> {
   const wanted = [...new Set(providers)].sort();
   const connectors = wanted.some((p) =>
@@ -350,6 +398,8 @@ export async function readProviderConnections(
       );
     } else if (provider === "builder") {
       result.push(await builderConnection(identity));
+    } else if (provider === "content") {
+      result.push(await contentConnection(identity));
     } else {
       const connectWith = WORKSPACE_CONNECTION_PROVIDERS.has(provider)
         ? "workspace-connection"

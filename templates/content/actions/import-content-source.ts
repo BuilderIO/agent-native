@@ -544,8 +544,9 @@ export default defineAction({
             (lockedTitleChanged ||
               lockedContentChanged ||
               lockedDescriptionChanged ||
+              lockedIconChanged ||
               lockedSourceChanged) &&
-            locked.agentTextLocked === 1 &&
+            locked.agentTextLocked !== 0 &&
             isAgentCall(ctx)
           ) {
             return {

@@ -45,14 +45,18 @@ async function createRunCodeToolEntries(
     };
 
     try {
-      const { initDataPrograms, createDataProgramActions } =
-        await import("../../data-programs/index.js");
+      const {
+        initDataPrograms,
+        createDataProgramActions,
+        registerScheduledDataProgramRefresh,
+      } = await import("../../data-programs/index.js");
       const appId = resolveDataProgramsAppId();
       initDataPrograms({
         appId,
         getActions: supplier,
         evaluator: runCodeOptions?.evaluator,
       });
+      registerScheduledDataProgramRefresh(appId);
       Object.assign(
         entries,
         createDataProgramActions({

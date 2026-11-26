@@ -16,6 +16,7 @@ related_features:
     "content.feature.when-this-happens-that-follows",
     "content.feature.collect-structured-input",
     "content.feature.work-on-content-inside-another-application",
+    "content.feature.use-content-from-chatgpt",
   ]
 roadmap_boundary: "feature"
 acceptance_summary: "Every operation exposes one typed Action contract for UI, agent, automation, and API callers."

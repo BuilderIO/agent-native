@@ -453,7 +453,6 @@ export function shouldDisableExportsUntilCanvasFramesExist(args: {
 
 export function shouldEscapeToOverview(args: {
   activeTool: DesignTool;
-  drawMode: boolean;
   mode: EditorMode;
   pinMode: boolean;
   selectedElement: ElementInfo | null;
@@ -462,7 +461,6 @@ export function shouldEscapeToOverview(args: {
 }) {
   const {
     activeTool,
-    drawMode,
     mode,
     pinMode,
     selectedElement,
@@ -473,7 +471,6 @@ export function shouldEscapeToOverview(args: {
     viewMode === "single" &&
     !selectedElement &&
     selectedLayerIds.length === 0 &&
-    !drawMode &&
     !pinMode &&
     mode === "edit" &&
     activeTool === "move"

@@ -318,6 +318,7 @@ const RETURNED: Record<string, () => Promise<Record<string, unknown>[]>> = {
 // jira-workflow.spec.ts and sentry-workflow.spec.ts hold these to their declarations exactly.
 const DECLARED_ELSEWHERE = [
   "builder.check",
+  "content.upsertRow",
   "jira.getIssue",
   "jira.listTransitions",
   "jira.transitionIssue",

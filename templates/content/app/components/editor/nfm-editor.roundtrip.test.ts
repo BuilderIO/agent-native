@@ -41,6 +41,21 @@ describe("inline text source offsets", () => {
       source: "`  edge  `",
       offsets: [2, 3, 4, 5, 6, 7, 8],
     },
+    {
+      text: "<br>",
+      source: "`<br>`",
+      offsets: [1, 2, 3, 4, 5],
+    },
+    {
+      text: "a\nb",
+      source: "`a`<br>`b`",
+      offsets: [1, 2, 8, 9],
+    },
+    {
+      text: "x\n",
+      source: "`x`<br>",
+      offsets: [1, 2, 7],
+    },
   ])(
     "keeps code serialization and every visible boundary aligned for $source",
     ({ text, source, offsets }) => {
@@ -61,6 +76,8 @@ const CASES: Array<{ name: string; nfm: string }> = [
     nfm: 'Intro with **bold**, *italic*, ~~strike~~, `code`, <span underline="true">underline</span>, <span color="red">red text</span>, a [link](https://example.com).',
   },
   { name: "inline math", nfm: "before $a^2 + b^2$ after" },
+  { name: "tag in inline code", nfm: "Use `<br>` or `<br/>` as text." },
+  { name: "line break between code spans", nfm: "`first`<br>`second`" },
   { name: "block color paragraph", nfm: 'Colored paragraph {color="red"}' },
   {
     name: "headings",

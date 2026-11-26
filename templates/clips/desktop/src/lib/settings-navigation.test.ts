@@ -4,7 +4,10 @@ import {
   asDesktopSettingsTab,
   DESKTOP_SETTINGS_TABS,
   initialDesktopSettingsTab,
+  visibleDesktopSettingsTabs,
 } from "./settings-navigation";
+
+const LAB_GATED_TABS = ["meetings", "dictation"];
 
 describe("desktop settings navigation", () => {
   it("preserves an explicitly requested tab", () => {
@@ -37,5 +40,38 @@ describe("desktop settings navigation", () => {
     expect(new Set(DESKTOP_SETTINGS_TABS).size).toBe(
       DESKTOP_SETTINGS_TABS.length,
     );
+  });
+
+  it.each(DESKTOP_SETTINGS_TABS)(
+    "shows %s with every Lab off only if no Lab gates it",
+    (tab) => {
+      expect(
+        visibleDesktopSettingsTabs({
+          meetings: false,
+          dictation: false,
+        }).includes(tab),
+      ).toBe(!LAB_GATED_TABS.includes(tab));
+    },
+  );
+
+  it("gates Meetings and Dictation on their own Labs", () => {
+    expect(
+      visibleDesktopSettingsTabs({ meetings: true, dictation: false }),
+    ).toContain("meetings");
+    expect(
+      visibleDesktopSettingsTabs({ meetings: true, dictation: false }),
+    ).not.toContain("dictation");
+    expect(
+      visibleDesktopSettingsTabs({ meetings: false, dictation: true }),
+    ).toContain("dictation");
+    expect(
+      visibleDesktopSettingsTabs({ meetings: false, dictation: true }),
+    ).not.toContain("meetings");
+  });
+
+  it("keeps the sidebar in the declared tab order", () => {
+    expect(
+      visibleDesktopSettingsTabs({ meetings: true, dictation: true }),
+    ).toEqual([...DESKTOP_SETTINGS_TABS]);
   });
 });

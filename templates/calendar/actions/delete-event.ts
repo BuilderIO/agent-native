@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -17,6 +18,12 @@ import {
 } from "./event-action-helpers.js";
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   searchHints: ["cancel a meeting", "remove a meeting"],
   description:
     "Delete or remove ONE Google Calendar event. For recurring events, choose just this instance, all events in the series, or this and following events. For more than one event — any 'remove all …' / 'clear …' request — use delete-events instead; never call this in a loop.",
@@ -52,8 +59,9 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
-  needsApproval: ({ sendUpdates, notificationMessage, removeOnly }) =>
-    !removeOnly && (sendUpdates === "all" || !!notificationMessage?.trim()),
+  needsApproval: ({ sendUpdates, notificationMessage, removeOnly }, ctx) =>
+    isOutsideAgentCall(ctx) ||
+    (!removeOnly && (sendUpdates === "all" || !!notificationMessage?.trim())),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {

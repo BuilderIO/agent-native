@@ -1,6 +1,10 @@
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
+import {
+  formatLocaleNumber,
+  useReaderLocale,
+} from "../app/shared/reader-locale.js";
 import { cn } from "../utils.js";
 
 const THEMES = { light: "", dark: ".dark" } as const;
@@ -99,22 +103,27 @@ ${colorConfig
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
 
-const ChartTooltipContent = React.forwardRef<
-  HTMLDivElement,
-  RechartsPrimitive.TooltipProps<string | number, string> &
-    React.ComponentProps<"div"> & {
-      active?: boolean;
-      payload?: ReadonlyArray<
-        RechartsPrimitive.TooltipPayloadEntry<string | number, string>
-      >;
-      label?: React.ReactNode;
-      hideLabel?: boolean;
-      hideIndicator?: boolean;
-      indicator?: "line" | "dot" | "dashed";
-      nameKey?: string;
-      labelKey?: string;
-    }
->(
+type ChartTooltipContentProps = RechartsPrimitive.TooltipProps<
+  string | number,
+  string
+> &
+  React.ComponentProps<"div"> & {
+    active?: boolean;
+    payload?: ReadonlyArray<
+      RechartsPrimitive.TooltipPayloadEntry<string | number, string>
+    >;
+    label?: React.ReactNode;
+    hideLabel?: boolean;
+    hideIndicator?: boolean;
+    indicator?: "line" | "dot" | "dashed";
+    nameKey?: string;
+    labelKey?: string;
+  };
+
+const ChartTooltipContent: React.ForwardRefExoticComponent<
+  React.PropsWithoutRef<ChartTooltipContentProps> &
+    React.RefAttributes<HTMLDivElement>
+> = React.forwardRef<HTMLDivElement, ChartTooltipContentProps>(
   (
     {
       active,
@@ -134,6 +143,7 @@ const ChartTooltipContent = React.forwardRef<
     ref,
   ) => {
     const { config } = useChart();
+    const readerLocale = useReaderLocale();
 
     const tooltipLabel = React.useMemo(() => {
       if (hideLabel || !payload?.length) {
@@ -242,7 +252,9 @@ const ChartTooltipContent = React.forwardRef<
                       </div>
                       {item.value && (
                         <span className="font-mono font-medium tabular-nums text-foreground">
-                          {item.value.toLocaleString()}
+                          {typeof item.value === "number"
+                            ? formatLocaleNumber(item.value, readerLocale)
+                            : item.value}
                         </span>
                       )}
                     </div>
@@ -258,7 +270,7 @@ const ChartTooltipContent = React.forwardRef<
 );
 ChartTooltipContent.displayName = "ChartTooltip";
 
-const ChartLegend = RechartsPrimitive.Legend;
+const ChartLegend: typeof RechartsPrimitive.Legend = RechartsPrimitive.Legend;
 
 const ChartLegendContent = React.forwardRef<
   HTMLDivElement,

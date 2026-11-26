@@ -1,30 +1,16 @@
-import { data, useParams } from "react-router";
+import { isKnownMailView } from "@shared/mail-routes";
+import { data, Navigate, useLocation, useParams } from "react-router";
 
 import messages from "@/i18n/en-US";
 import { InboxPage } from "@/pages/InboxPage";
 import { NotFound } from "@/pages/NotFound";
 
+export { isKnownMailView };
+
 const SEO_TITLE =
   "Mail - Open Source AI email client and Superhuman alternative";
 const SEO_DESCRIPTION =
   "Open Source AI email client for Gmail triage, drafting, organization, follow-ups, and inbox workflows built around shared actions.";
-
-const KNOWN_MAIL_VIEWS = new Set([
-  "inbox",
-  "unread",
-  "starred",
-  "snoozed",
-  "scheduled",
-  "sent",
-  "drafts",
-  "archive",
-  "trash",
-  "all",
-]);
-
-export function isKnownMailView(view: string | undefined): boolean {
-  return !view || KNOWN_MAIL_VIEWS.has(view);
-}
 
 export function loader({ params }: { params: { view?: string } }) {
   if (!isKnownMailView(params.view)) {
@@ -50,6 +36,10 @@ export function meta({ params }: { params: { view?: string } }) {
 
 export default function ViewRoute() {
   const { view } = useParams<{ view: string }>();
+  const location = useLocation();
+  if (view === "scheduled") {
+    return <Navigate to={`/drafts${location.search}`} replace />;
+  }
   if (!isKnownMailView(view)) {
     return <NotFound />;
   }

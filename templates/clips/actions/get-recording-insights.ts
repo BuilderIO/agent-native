@@ -22,6 +22,7 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

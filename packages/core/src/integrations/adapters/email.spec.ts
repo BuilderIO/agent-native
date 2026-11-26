@@ -19,6 +19,7 @@ vi.mock("../config-store.js", () => ({
 }));
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async () => {
       throw new Error("no table");
@@ -63,7 +64,7 @@ describe("emailAdapter inbound sender verification", () => {
     expect(msg?.senderVerified).toBe(true);
   });
 
-  it("marks SPF=pass as verified", async () => {
+  it("does not treat SPF=pass without aligned DKIM as verified", async () => {
     const msg = await parseSendGrid({
       from: "user@member.test",
       to: "agent@host.test",
@@ -72,7 +73,7 @@ describe("emailAdapter inbound sender verification", () => {
       dkim: "{@member.test : none}",
       SPF: "pass",
     });
-    expect(msg?.senderVerified).toBe(true);
+    expect(msg?.senderVerified).toBe(false);
   });
 
   it("treats a spoofed From with no passing auth as UNVERIFIED (fail closed)", async () => {
@@ -108,16 +109,61 @@ describe("emailAdapter inbound sender verification", () => {
     expect(msg?.senderVerified).toBe(true);
   });
 
-  it("reads DKIM pass from the Authentication-Results header", async () => {
+  it("ignores Authentication-Results headers carried in the message", async () => {
+    for (const headers of [
+      "Authentication-Results: mx.host.test; dkim=pass header.d=member.test; spf=fail",
+      "Authentication-Results: x; spf=pass",
+      [
+        "Authentication-Results: mx.host.test; dkim=fail header.d=member.test",
+        "Authentication-Results: other.test; dkim=pass header.d=member.test",
+      ].join("\r\n"),
+    ]) {
+      const msg = await parseSendGrid({
+        from: "user@member.test",
+        to: "agent@host.test",
+        subject: "ar header",
+        text: "hi",
+        dkim: "{@member.test : fail}",
+        SPF: "softfail",
+        headers,
+      });
+      expect(msg?.senderVerified).toBe(false);
+    }
+  });
+
+  it("does not align a single-label DKIM signer with the From domain", async () => {
     const msg = await parseSendGrid({
       from: "user@member.test",
       to: "agent@host.test",
-      subject: "ar header",
+      subject: "tld signer",
       text: "hi",
-      headers:
-        "Authentication-Results: mx.host.test; dkim=pass header.d=member.test; spf=fail",
+      dkim: "{@test : pass}",
     });
-    expect(msg?.senderVerified).toBe(true);
+    expect(msg?.senderVerified).toBe(false);
+  });
+
+  it("does not read verification from a Resend payload's headers", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "");
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    hoisted.rawBody = JSON.stringify({
+      type: "email.received",
+      data: {
+        from: "user@member.test",
+        to: ["agent@host.test"],
+        subject: "resend",
+        text: "hi",
+        headers: [
+          {
+            name: "Authentication-Results",
+            value: "other.test; dkim=pass header.d=member.test; spf=pass",
+          },
+        ],
+        spf: "pass",
+      },
+    });
+    const msg = await emailAdapter().parseIncomingMessage(fakeEvent());
+    expect(msg).not.toBeNull();
+    expect(msg?.senderVerified).toBe(false);
   });
 });
 

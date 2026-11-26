@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isOutsideAgentCall } from "./action-caller.js";
+import { isAgentCaller, isOutsideAgentCall } from "./action-caller.js";
 import type { ActionCaller, ActionRunContext } from "./action.js";
 
 const callers = {
@@ -72,5 +72,30 @@ describe("isOutsideAgentCall", () => {
     expect(
       isOutsideAgentCall({ caller: "future-caller" } as ActionRunContext),
     ).toBe(true);
+  });
+});
+
+describe("isAgentCaller", () => {
+  it.each(["agent", "tool", "mcp", "webmcp", "a2a"] as const)(
+    "treats a %s call as an agent",
+    (caller) => {
+      expect(isAgentCaller({ caller })).toBe(true);
+      expect(isAgentCaller(caller)).toBe(true);
+    },
+  );
+
+  it.each([
+    "frontend",
+    "http",
+    "cli",
+    "automation",
+    "mcp-widget",
+    "mcp-widget-write",
+  ] as const)("does not treat a %s call as an agent", (caller) => {
+    expect(isAgentCaller({ caller })).toBe(false);
+  });
+
+  it("does not treat a missing caller as an agent", () => {
+    expect(isAgentCaller(undefined)).toBe(false);
   });
 });

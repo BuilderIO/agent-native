@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import "./intelligence.js";
+import {
+  createJoinedQuery,
+  fixtureColumnValue,
+} from "../../test-utils/joined-query.js";
+
 const testString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -9,9 +15,10 @@ const testString = (value: unknown) =>
 
 type Condition =
   | { op: "access" }
+  | { op: "never" }
   | { op: "and"; conditions: Condition[] }
   | { op: "or"; conditions: Condition[] }
-  | { op: "eq"; col: Column; val: unknown }
+  | { op: "eq" | "ne" | "lowerEq"; col: Column; val: unknown }
   | { op: "inArray"; col: Column; vals: unknown[] }
   | { op: "like"; col: Column; val: unknown }
   | { op: "captureSourceAccessible" };
@@ -83,6 +90,7 @@ const mocks = vi.hoisted(() => {
       "tagsJson",
       "entitiesJson",
       "evidenceJson",
+      "provenanceJson",
       "publishedResourcePath",
       "supersedesId",
       "supersededById",
@@ -110,12 +118,14 @@ const mocks = vi.hoisted(() => {
     sources: [] as Row[],
     captures: [] as Row[],
     knowledge: [] as Row[],
+    audiences: [] as Row[],
   };
 
   const tableRows = (tableRef: Row) => {
     if (tableRef === schema.brainSources) return rows.sources;
     if (tableRef === schema.brainRawCaptures) return rows.captures;
     if (tableRef === schema.brainKnowledge) return rows.knowledge;
+    if (tableRef === schema.brainCaptureAudiences) return rows.audiences;
     return [];
   };
 
@@ -129,6 +139,7 @@ const mocks = vi.hoisted(() => {
   const matches = (row: Row, condition?: Condition): boolean => {
     if (!condition) return true;
     if (condition.op === "access") return true;
+    if (condition.op === "never") return false;
     if (condition.op === "captureSourceAccessible") {
       return rows.sources.some((source) => source.id === row.sourceId);
     }
@@ -138,9 +149,27 @@ const mocks = vi.hoisted(() => {
     if (condition.op === "or") {
       return condition.conditions.some((item) => matches(row, item));
     }
-    if (condition.op === "eq") return row[condition.col.name] === condition.val;
+    if (condition.op === "eq") {
+      const value = condition.val;
+      return (
+        fixtureColumnValue(row, condition.col) ===
+        (value &&
+        typeof value === "object" &&
+        "table" in value &&
+        "name" in value
+          ? fixtureColumnValue(row, value as Column)
+          : value)
+      );
+    }
+    if (condition.op === "ne")
+      return fixtureColumnValue(row, condition.col) !== condition.val;
+    if (condition.op === "lowerEq")
+      return (
+        testString(fixtureColumnValue(row, condition.col)).toLowerCase() ===
+        testString(condition.val).toLowerCase()
+      );
     if (condition.op === "inArray") {
-      return condition.vals.includes(row[condition.col.name]);
+      return condition.vals.includes(fixtureColumnValue(row, condition.col));
     }
     if (condition.op === "like") {
       const value = testString(row[condition.col.name] ?? "").toLowerCase();
@@ -191,6 +220,10 @@ const mocks = vi.hoisted(() => {
     hybridSearchArtifacts: vi.fn(),
     db: {
       select: vi.fn(() => ({ from })),
+      selectDistinct: vi.fn((selection: Record<string, Column>) => ({
+        from: (tableRef: Row) =>
+          createJoinedQuery(selection, tableRef, tableRows, matches),
+      })),
     },
   };
 });
@@ -225,10 +258,14 @@ vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
   desc: (column: Column) => ({ column }),
   eq: (col: Column, val: unknown) => ({ op: "eq", col, val }),
+  ne: (col: Column, val: unknown) => ({ op: "ne", col, val }),
   inArray: (col: Column, vals: unknown[]) => ({ op: "inArray", col, vals }),
   or: (...conditions: Condition[]) => ({ op: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join("${}");
+    if (text === "false") return { op: "never" };
+    if (text.startsWith("lower(") && text.includes(" = "))
+      return { op: "lowerEq", col: values[0], val: values[1] };
     if (text.startsWith("lower(")) {
       return { op: "like", col: values[0] as Column, val: values[1] };
     }
@@ -237,6 +274,15 @@ vi.mock("drizzle-orm", () => ({
   },
 }));
 
+import { bindFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
+import { publicCaptureTitle } from "./capture-sanitization.js";
+import {
+  parseCaptureMetadata,
+  publicCaptureExternalId,
+  publicCaptureMetadata,
+  withheldPassageCount,
+  withOmissionReceipt,
+} from "./search-index-contracts.js";
 import {
   buildFederatedSearchCoverage,
   buildSnippet,
@@ -255,7 +301,7 @@ const OK_LANES = {
   semantic: { status: "ok" as const },
 };
 
-function resetRows() {
+async function resetRows() {
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.hybridSearchArtifacts.mockReset();
   mocks.hybridSearchArtifacts.mockResolvedValue({
@@ -468,10 +514,18 @@ function resetRows() {
       updatedAt: now,
     },
   );
+  for (const row of mocks.rows.knowledge)
+    if (row.evidenceJson !== "[]")
+      await bindFixtureProvenance(row, mocks.rows.captures);
   for (const capture of mocks.rows.captures) {
     capture.sensitivityDisposition = "allowed";
     capture.sensitivityPolicyVersion = "1";
     capture.audienceAclHash = "acl-hash";
+    mocks.rows.audiences.push({
+      captureId: capture.id,
+      audienceId: "aud_org",
+      aclHash: "acl-hash",
+    });
   }
 }
 
@@ -783,6 +837,76 @@ describe("Brain semantic capture hits", () => {
     });
   }
 
+  it("omits an undated Markdown capture's fallback time from semantic results", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+      title: "Manual",
+    });
+    seedSemanticCapture({
+      id: "markdown:undated.md",
+      sourceId: "source-manual",
+      metadata: {},
+    });
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows[0]?.capturedAt).toBeUndefined();
+    expect(rows[0]?.citation?.capturedAt).toBeUndefined();
+  });
+
+  it("returns the supplied Markdown time rather than an index timestamp", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+      title: "Manual",
+    });
+    seedSemanticCapture({
+      id: "markdown:dated.md",
+      sourceId: "source-manual",
+      metadata: { capturedAtSource: "manual-markdown" },
+    });
+    const capture = mocks.rows.captures.find(
+      (row) => row.id === "markdown:dated.md",
+    );
+    if (!capture) throw new Error("Missing capture fixture");
+    capture.capturedAt = "2026-05-20T15:00:00.000Z";
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows[0]?.capturedAt).toBe("2026-05-20T15:00:00.000Z");
+    expect(rows[0]?.citation?.capturedAt).toBe("2026-05-20T15:00:00.000Z");
+  });
+
+  it("preserves semantic timestamp behavior for other manual captures", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+      title: "Manual",
+    });
+    seedSemanticCapture({
+      id: "ordinary-capture",
+      sourceId: "source-manual",
+      metadata: {},
+    });
+    const capture = mocks.rows.captures.find(
+      (row) => row.id === "ordinary-capture",
+    );
+    if (!capture) throw new Error("Missing capture fixture");
+    capture.capturedAt = "2026-05-20T15:00:00.000Z";
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows[0]?.capturedAt).toBe(capturedAt);
+    expect(rows[0]?.citation?.capturedAt).toBeUndefined();
+  });
+
   it("returns Slack channel, content, date and permalink for semantic hits", async () => {
     seedSemanticCapture({
       id: "capture-semantic-slack",
@@ -846,6 +970,40 @@ describe("Brain semantic capture hits", () => {
     expect(rows[0]?.content).toBeTruthy();
   });
 
+  it("reports manual transcript withholding on semantic hits", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+    });
+    seedSemanticCapture({
+      id: "capture-semantic-manual",
+      sourceId: "source-manual",
+      metadata: {
+        passageQuarantine: { version: 1, withheldPassages: 2 },
+        sourceUrl: "https://example.test/private-transcript",
+        meetingTopic: "https://example.test/private-transcript",
+      },
+    });
+    const capture = mocks.rows.captures.find(
+      (row) => row.id === "capture-semantic-manual",
+    );
+    if (!capture) throw new Error("missing test capture");
+    capture.kind = "transcript";
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows).toMatchObject([
+      {
+        id: "capture-semantic-manual",
+        withheldPassages: 2,
+        sourceUrl: null,
+        location: null,
+      },
+    ]);
+  });
+
   it("does not enrich semantic hits whose capture is outside the allowed scope", async () => {
     seedSemanticCapture({
       id: "capture-semantic-blocked",
@@ -902,5 +1060,116 @@ describe("Brain semantic capture hits", () => {
         semantic: { status: "failed", error: "pgvector down" },
       },
     });
+  });
+  it("uses source authority when equally relevant captures also match the direct lexical lane", async () => {
+    mocks.rows.knowledge.length = 0;
+    const baseline = {
+      ...mocks.rows.captures[0],
+      title: "Release plan",
+      content: "Release plan approved for beta",
+      sensitivityDisposition: "allowed",
+    };
+    mocks.rows.captures.splice(
+      0,
+      mocks.rows.captures.length,
+      { ...baseline, id: "low-authority", sourceId: "source-slack" },
+      { ...baseline, id: "high-authority", sourceId: "source-generic" },
+    );
+    const lowSource = mocks.rows.sources.find(
+      (row) => row.id === "source-slack",
+    );
+    const highSource = mocks.rows.sources.find(
+      (row) => row.id === "source-generic",
+    );
+    if (!lowSource || !highSource)
+      throw new Error("Authority fixtures unavailable");
+    lowSource.configJson = JSON.stringify({ answerPolicy: { authority: 0 } });
+    highSource.configJson = JSON.stringify({
+      answerPolicy: { authority: 100 },
+    });
+    const rows = await searchEverythingRows({
+      query: "Release plan",
+      type: "capture",
+    });
+    expect(rows.map((row) => row.id)).toEqual([
+      "high-authority",
+      "low-authority",
+    ]);
+  });
+
+  it("keeps saved-query results inside every cited source, not just the primary source", async () => {
+    const knowledge = mocks.rows.knowledge.find(
+      (row) => row.id === "knowledge-freemium-current",
+    );
+    if (!knowledge) throw new Error("Fixture knowledge unavailable");
+    knowledge.evidenceJson = JSON.stringify([
+      {
+        captureId: "capture-freemium-current",
+        sourceId: "source-slack",
+        quote: "Decision: retire",
+      },
+      {
+        captureId: "capture-retention-open-question",
+        sourceId: "source-generic",
+        quote: "Open question",
+      },
+    ]);
+    await bindFixtureProvenance(knowledge, mocks.rows.captures);
+    const result = await searchEverythingRows({
+      query: "freemium",
+      type: "knowledge",
+      sourceIds: ["source-slack"],
+    });
+    expect(result).toEqual([]);
+    const allowed = await searchEverythingRows({
+      query: "freemium",
+      type: "knowledge",
+      sourceIds: ["source-slack", "source-generic"],
+    });
+    expect(allowed.some((row) => row.id === "knowledge-freemium-current")).toBe(
+      true,
+    );
+  });
+});
+
+describe("receipt-free transcripts with an omission marker", () => {
+  it("masks a locator-shaped capture title only for a partial capture", () => {
+    expect(publicCaptureTitle("www.example.test/full", true)).toBe(
+      "Transcript excerpt",
+    );
+    expect(publicCaptureTitle("www.example.test/full", false)).toBe(
+      "www.example.test/full",
+    );
+    expect(publicCaptureTitle("Weekly sync", true)).toBe("Weekly sync");
+  });
+
+  const metadataJson = JSON.stringify({
+    sourceUrl: "https://example.test/full",
+  });
+  const content = "Alex: hello\n[…]\nSam: wrapping up";
+
+  it("counts as partial with an unknown number of withheld passages", () => {
+    const receipted = withOmissionReceipt(metadataJson, content, "transcript");
+    const metadata = parseCaptureMetadata(receipted);
+    expect(withheldPassageCount(metadata, "manual", "transcript")).toBeNull();
+    expect(
+      publicCaptureExternalId("recording.md", metadata, "transcript"),
+    ).toBe(null);
+    expect(publicCaptureMetadata(metadata)).not.toHaveProperty("sourceUrl");
+  });
+
+  it("leaves complete transcripts, documents and existing receipts alone", () => {
+    expect(withOmissionReceipt(metadataJson, "Alex: hello", "transcript")).toBe(
+      metadataJson,
+    );
+    expect(withOmissionReceipt(metadataJson, content, "document")).toBe(
+      metadataJson,
+    );
+    const receipted = JSON.stringify({
+      passageQuarantine: { version: 1, withheldPassages: 2 },
+    });
+    expect(withOmissionReceipt(receipted, content, "transcript")).toBe(
+      receipted,
+    );
   });
 });

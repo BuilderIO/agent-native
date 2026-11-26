@@ -2,6 +2,9 @@
 // left raw they give every session its own branch.
 const ID_SEGMENT =
   /^(?:\d+|[0-9a-f]{8,}(?:-[0-9a-f]{4,})*|(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,})$/i;
+// A route template segment such as :shareId, from events that report the route
+// instead of the path.
+const TEMPLATE_SEGMENT = /^:[\w-]+$/;
 // A path such as /invite/alice@example.com names a person; it must not become
 // a tree key, a label, or a line in a shared capture manifest.
 const EMAIL_SEGMENT = /@|%40/i;
@@ -29,6 +32,7 @@ export function normalizeJourneyPath(path: string | null): string | null {
           : -1;
   const segments = parts.map((segment, index) => {
     if (EMAIL_SEGMENT.test(segment)) return ":email";
+    if (TEMPLATE_SEGMENT.test(segment) && segment !== ":email") return ":id";
     return index === resourceRouteIdIndex || ID_SEGMENT.test(segment)
       ? ":id"
       : segment;

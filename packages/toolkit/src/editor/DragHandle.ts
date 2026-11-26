@@ -1,5 +1,9 @@
-import { Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
+import { type Editor, Extension } from "@tiptap/core";
+import type {
+  Node as ProseMirrorNode,
+  NodeType,
+  ResolvedPos,
+} from "@tiptap/pm/model";
 import {
   Plugin,
   PluginKey,
@@ -17,6 +21,17 @@ import type {
   XmlText as YXmlText,
 } from "yjs";
 
+import {
+  blockRemovalRange,
+  forEachListItemBlock,
+  insertBlockAt,
+  isList,
+  isListItem,
+  moveBlockTransaction,
+  nestedListOffset,
+  positionBelowBlock,
+} from "./listItemBlocks.js";
+
 export const DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR = ".visual-editor-wrapper";
 
 // The block menu and drag act while focus is outside the editor. Apps that
@@ -30,6 +45,11 @@ function markUserAction(tr: Transaction) {
 
 export interface DragHandleOptions {
   wrapperSelector: string;
+  /**
+   * Gives each list item its own grip, menu and drag, as a block of its own,
+   * in place of one for the whole list. Off by default.
+   */
+  listItems?: boolean;
   getDragTransferData?: (context: {
     view: EditorView;
     node: ProseMirrorNode;
@@ -66,6 +86,8 @@ export type DragHandleMenuRequest = {
   dispatch: (tr: Transaction) => void;
   duplicate: () => void;
   remove: () => void;
+  /** Adds an empty paragraph above the block, with the caret in it. */
+  insertAbove: () => void;
   insertBelow: () => void;
   /** Tells the grip the menu closed. */
   onClose: () => void;
@@ -108,6 +130,7 @@ type DropTarget = {
   targetPos: number;
   targetNodeSize: number;
   rect: DOMRect;
+  lineLeft: number | null;
 };
 
 export type DragHandleDropPlacement = "before" | "after" | "left" | "right";
@@ -194,13 +217,7 @@ function watchYBlock(
 ): YBlock | undefined {
   const binding = getYBinding(view);
   if (!binding) return undefined;
-  const index = view.state.doc.resolve(pos).index();
-  const candidate =
-    index < binding.type.length ? binding.type.get(index) : null;
-  const element =
-    candidate && binding.mapping.get(candidate) === view.state.doc.child(index)
-      ? candidate
-      : null;
+  const element = yElementAt(binding, view.state.doc, pos);
   const watched = element ?? binding.type;
   const observe = () => {
     if (isMenuEdit() || block.changedElsewhere) return;
@@ -243,7 +260,12 @@ function trackMenuBlock(
     const from = tr.mapping.map(tracked.pos, 1);
     const to = tr.mapping.map(tracked.pos + tracked.node.nodeSize, -1);
     if (from >= to) return null;
-    const $pos = tr.doc.resolve(tr.mapping.map(tracked.pos, -1));
+    const start = tr.mapping.map(tracked.pos, -1);
+    const same = tr.doc.nodeAt(start);
+    if (same?.type === tracked.node.type && isListItem(same)) {
+      return { ...tracked, pos: start, node: same };
+    }
+    const $pos = tr.doc.resolve(start);
     const node = tr.doc.maybeChild($pos.index(0));
     return node
       ? { ...tracked, pos: $pos.posAtIndex($pos.index(0), 0), node }
@@ -255,24 +277,60 @@ function trackMenuBlock(
     : null;
 }
 
-/**
- * The block's index, -1 once it is gone or something else changed it, or
- * null while it is known by its DOM.
- */
-function findYBlockIndex(view: EditorView, block: YBlock) {
+function yElementAt(
+  binding: YBinding,
+  doc: ProseMirrorNode,
+  pos: number,
+): YXmlElement | YXmlText | null {
+  const $pos = doc.resolve(pos);
+  let parent: YXmlFragment | YXmlElement = binding.type;
+  for (let depth = 0; depth <= $pos.depth; depth += 1) {
+    const index = $pos.index(depth);
+    if (index >= parent.length) return null;
+    const candidate = parent.get(index);
+    if (depth === $pos.depth) {
+      return binding.mapping.get(candidate) === $pos.node(depth).child(index)
+        ? candidate
+        : null;
+    }
+    parent = candidate as YXmlElement;
+  }
+  return null;
+}
+
+function findYBlockPos(view: EditorView, block: YBlock) {
   const binding = getYBinding(view);
   if (!binding || block.changedElsewhere) return -1;
   if (!block.element) return null;
-  const index = binding.type.toArray().indexOf(block.element);
-  return index !== -1 &&
-    binding.mapping.get(block.element) === view.state.doc.maybeChild(index)
-    ? index
-    : -1;
+  const path: number[] = [];
+  let current: YXmlElement | YXmlText = block.element;
+  for (;;) {
+    const parent = current.parent as YXmlElement | YXmlFragment | null;
+    const index = parent ? parent.toArray().indexOf(current) : -1;
+    if (!parent || index === -1) return -1;
+    path.unshift(index);
+    if (parent === binding.type) break;
+    current = parent as YXmlElement;
+  }
+  let node = view.state.doc;
+  let pos = 0;
+  for (const [depth, index] of path.entries()) {
+    const child = node.maybeChild(index);
+    if (!child) return -1;
+    let childPos = depth === 0 ? 0 : pos + 1;
+    for (let sibling = 0; sibling < index; sibling += 1) {
+      childPos += node.child(sibling).nodeSize;
+    }
+    node = child;
+    pos = childPos;
+  }
+  return binding.mapping.get(block.element) === node ? pos : -1;
 }
 
 type DragHandleRegistration = {
   view: EditorView;
   wrapperSelector: string;
+  listItems: boolean;
   getDragTransferData?: DragHandleOptions["getDragTransferData"];
   receiveDragTransferData?: DragHandleOptions["receiveDragTransferData"];
   handleDrop?: DragHandleOptions["handleDrop"];
@@ -340,6 +398,19 @@ const selectNear = (tr: Transaction, pos: number, bias: -1 | 1) =>
     ),
   );
 
+const dropPosPastListEdge = (
+  $item: ResolvedPos,
+  direction: -1 | 1,
+): number | null => {
+  const $list = $item.doc.resolve($item.before());
+  if (isListItem($list.parent)) return null;
+  const neighbor = $list.parent.maybeChild($list.index() + direction);
+  if (!neighbor) return null;
+  return direction < 0
+    ? $list.pos - neighbor.nodeSize
+    : $item.after() + neighbor.nodeSize;
+};
+
 const dispatchAndFocus = (view: EditorView, tr: Transaction) => {
   view.dispatch(tr.scrollIntoView());
   view.focus();
@@ -368,24 +439,29 @@ export function duplicateBlockTransaction(
 
 /**
  * The edit that deletes the block at `pos` and puts the caret where it was.
- * The page's last block leaves an empty paragraph.
+ * A list's only item takes its list along, and the page's last block leaves
+ * an empty paragraph.
  */
 export function deleteBlockTransaction(
   state: EditorState,
   pos: number,
   node: ProseMirrorNode,
 ): Transaction {
-  const end = pos + node.nodeSize;
+  const { from, to } = blockRemovalRange(state.doc, pos, node);
   // A schema may leave paragraphs out, though its types list every name.
   const paragraph = state.schema.nodes.paragraph as NodeType | undefined;
-  if (state.doc.childCount <= 1 && paragraph) {
+  if (
+    state.doc.childCount <= 1 &&
+    state.doc.resolve(from).depth === 0 &&
+    paragraph
+  ) {
     const replacement = paragraph.createAndFill() ?? paragraph.create();
-    const tr = state.tr.replaceWith(pos, end, replacement);
-    return markUserAction(selectNear(tr, pos + 1, 1));
+    const tr = state.tr.replaceWith(from, to, replacement);
+    return markUserAction(selectNear(tr, from + 1, 1));
   }
-  const tr = state.tr.delete(pos, end);
+  const tr = state.tr.delete(from, to);
   return markUserAction(
-    selectNear(tr, pos, pos >= tr.doc.content.size ? -1 : 1),
+    selectNear(tr, from, from >= tr.doc.content.size ? -1 : 1),
   );
 }
 
@@ -621,21 +697,71 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       wrapperSelector: DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
       getDragTransferData: undefined,
       receiveDragTransferData: undefined,
+      listItems: false,
     };
   },
 
   addKeyboardShortcuts() {
+    const listItems = this.options.listItems === true;
+    const caretItem = (state: EditorState) => {
+      const { $from, $to } = state.selection;
+      if (!listItems || !$from.sameParent($to) || $from.depth < 2) return null;
+      const node = $from.node(-1);
+      return isListItem(node) && $from.index(-1) === 0
+        ? { node, pos: $from.before(-1) }
+        : null;
+    };
+    const keepCaret = (tr: Transaction, state: EditorState, shift: number) =>
+      tr.setSelection(
+        TextSelection.create(
+          tr.doc,
+          state.selection.anchor + shift,
+          state.selection.head + shift,
+        ),
+      );
+    const duplicateCaretItem = (editor: Editor) => {
+      const item = caretItem(editor.state);
+      if (!item) return false;
+      const tr = duplicateBlockTransaction(editor.state, item.pos, item.node);
+      if (tr) {
+        keepCaret(tr, editor.state, item.node.nodeSize);
+        dispatchAndFocus(editor.view, tr);
+      }
+      return true;
+    };
+    const moveItem = (editor: Editor, direction: -1 | 1) => {
+      const { state } = editor;
+      const item = caretItem(state);
+      if (!item || !editor.isEditable) return false;
+      const $item = state.doc.resolve(item.pos);
+      const sibling = $item.parent.maybeChild($item.index() + direction);
+      const dropPos = !sibling
+        ? dropPosPastListEdge($item, direction)
+        : direction < 0
+          ? item.pos - sibling.nodeSize
+          : item.pos + item.node.nodeSize + sibling.nodeSize;
+      if (dropPos === null) return false;
+      const moved = moveBlockTransaction(state, item.pos, item.node, dropPos);
+      if (!moved) return false;
+      keepCaret(moved.tr, state, moved.pos - item.pos);
+      editor.view.dispatch(markUserAction(moved.tr).scrollIntoView());
+      return true;
+    };
+
     return {
       "Mod-d": ({ editor }) => {
         const { selection } = editor.state;
-        if (!(selection instanceof NodeSelection) || !editor.isEditable) {
-          return false;
+        if (!editor.isEditable) return false;
+        if (!(selection instanceof NodeSelection)) {
+          return duplicateCaretItem(editor);
         }
         duplicateNodeAt(editor.view, selection.from, selection.node);
         // Even a copy the document refuses mustn't open the browser's bookmark
         // dialog over a selected block.
         return true;
       },
+      "Mod-Shift-ArrowUp": ({ editor }) => moveItem(editor, -1),
+      "Mod-Shift-ArrowDown": ({ editor }) => moveItem(editor, 1),
     };
   },
 
@@ -646,6 +772,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     const receiveDragTransferData = this.options.receiveDragTransferData;
     const handleDrop = this.options.handleDrop;
     const openHostMenu = this.options.openMenu;
+    const listItems = this.options.listItems === true;
     let handle: HTMLElement | null = null;
     let menu: HTMLElement | null = null;
     let hostMenu: { close: () => void } | null = null;
@@ -675,19 +802,58 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       );
     };
 
-    const getTopLevelBlocks = (editorView: EditorView): HoverBlock[] => {
+    const blocksOf = (doc: ProseMirrorNode) => {
+      const blocks: Array<{ node: ProseMirrorNode; pos: number }> = [];
+      const visit = (node: ProseMirrorNode, pos: number) => {
+        blocks.push({ node, pos });
+      };
+      if (listItems) forEachListItemBlock(doc, visit);
+      else doc.forEach(visit);
+      return blocks;
+    };
+
+    const itemRect = (
+      editorView: EditorView,
+      item: ProseMirrorNode,
+      pos: number,
+      dom: HTMLElement,
+    ) => {
+      const rect = dom.getBoundingClientRect();
+      const list = editorView.nodeDOM(
+        editorView.state.doc.resolve(pos).before(),
+      );
+      const left =
+        list instanceof HTMLElement
+          ? list.getBoundingClientRect().left
+          : rect.left;
+      const nestedOffset = nestedListOffset(item);
+      const nested =
+        nestedOffset === null
+          ? null
+          : editorView.nodeDOM(pos + 1 + nestedOffset);
+      const nestedTop =
+        nested instanceof HTMLElement
+          ? nested.getBoundingClientRect().top
+          : rect.bottom;
+      const bottom = clamp(nestedTop, rect.top, rect.bottom);
+      return new DOMRect(left, rect.top, rect.right - left, bottom - rect.top);
+    };
+
+    const getHoverBlocks = (editorView: EditorView): HoverBlock[] => {
       const blocks: HoverBlock[] = [];
 
-      editorView.state.doc.forEach((_node, offset) => {
-        const dom = editorView.nodeDOM(offset);
-        if (!(dom instanceof HTMLElement)) return;
+      for (const { node, pos } of blocksOf(editorView.state.doc)) {
+        const dom = editorView.nodeDOM(pos);
+        if (!(dom instanceof HTMLElement)) continue;
 
         blocks.push({
           node: dom,
-          pmPos: offset,
-          rect: dom.getBoundingClientRect(),
+          pmPos: pos,
+          rect: isListItem(node)
+            ? itemRect(editorView, node, pos, dom)
+            : dom.getBoundingClientRect(),
         });
-      });
+      }
 
       return blocks;
     };
@@ -706,7 +872,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       clientX: number,
       clientY: number,
     ): HoverBlock | null => {
-      const blocks = getTopLevelBlocks(editorView);
+      const blocks = getHoverBlocks(editorView);
       if (blocks.length === 0) return null;
 
       const sideOutset = getHoverSideOutset();
@@ -885,28 +1051,24 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           : null;
       }
       const { doc } = context.view.state;
-      const yIndex = context.yBlock
-        ? findYBlockIndex(context.view, context.yBlock)
+      const yPos = context.yBlock
+        ? findYBlockPos(context.view, context.yBlock)
         : null;
-      if (yIndex === -1) return null;
-      let sourcePos = 0;
-      for (let index = 0; index < doc.childCount; index += 1) {
-        const sourceNode = doc.child(index);
-        if (
-          yIndex === null
-            ? context.view.nodeDOM(sourcePos) === context.sourceBlock
-            : index === yIndex
-        ) {
-          return {
+      if (yPos === -1) return null;
+      const block =
+        yPos === null
+          ? blocksOf(doc).find(
+              ({ pos }) => context.view.nodeDOM(pos) === context.sourceBlock,
+            )
+          : { node: doc.nodeAt(yPos), pos: yPos };
+      return block?.node
+        ? {
             ...context,
-            sourcePos,
-            sourceNode,
-            sourceNodeSize: sourceNode.nodeSize,
-          };
-        }
-        sourcePos += sourceNode.nodeSize;
-      }
-      return null;
+            sourcePos: block.pos,
+            sourceNode: block.node,
+            sourceNodeSize: block.node.nodeSize,
+          }
+        : null;
     };
 
     const duplicateBlock = (context: DragHandleMenuContext) => {
@@ -926,18 +1088,30 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       );
     };
 
-    const insertParagraphBelow = (context: DragHandleMenuContext) => {
+    const insertParagraph = (
+      context: DragHandleMenuContext,
+      side: "above" | "below",
+    ) => {
       const resolved = resolveMenuContext(context);
       const paragraph = resolved?.view.state.schema.nodes.paragraph;
       if (!resolved || !paragraph) return;
 
-      const insertPos = resolved.sourcePos + resolved.sourceNodeSize;
-      const paragraphNode = paragraph.createAndFill() ?? paragraph.create();
-      const tr = resolved.view.state.tr.insert(insertPos, paragraphNode);
-      tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
+      const insertPos =
+        side === "above"
+          ? resolved.sourcePos
+          : resolved.sourcePos + resolved.sourceNodeSize;
+      const item = isListItem(resolved.sourceNode)
+        ? resolved.sourceNode.type.createAndFill()
+        : null;
+      const block = item ?? paragraph.createAndFill() ?? paragraph.create();
+      const tr = resolved.view.state.tr.insert(insertPos, block);
+      tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
       resolved.view.dispatch(markUserAction(tr).scrollIntoView());
       resolved.view.focus();
     };
+
+    const insertParagraphBelow = (context: DragHandleMenuContext) =>
+      insertParagraph(context, "below");
 
     const resolveMenuAnchorRect = (
       ...candidates: Array<Element | null | undefined>
@@ -1069,6 +1243,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           },
           duplicate: () => duplicateBlock(block),
           remove: () => deleteBlock(block),
+          insertAbove: () => insertParagraph(block, "above"),
           insertBelow: () => insertParagraphBelow(block),
           onClose: () => {
             if (hostMenu !== entry) return;
@@ -1172,17 +1347,32 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             : "after";
       }
       const before = placement === "before" || placement === "left";
+      const pos = before
+        ? block.pmPos
+        : registration.listItems
+          ? positionBelowBlock(node, block.pmPos)
+          : block.pmPos + node.nodeSize;
 
       return {
         registration,
         view,
         block: block.node,
         placement,
-        pos: before ? block.pmPos : block.pmPos + node.nodeSize,
+        pos,
         targetPos: block.pmPos,
         targetNodeSize: node.nodeSize,
         rect: block.rect,
+        lineLeft: registration.listItems ? listEdgeAt(view, pos) : null,
       };
+    };
+
+    const listEdgeAt = (view: EditorView, pos: number) => {
+      const $pos = view.state.doc.resolve(pos);
+      if (!isList($pos.parent)) return null;
+      const list = view.nodeDOM($pos.before());
+      return list instanceof HTMLElement
+        ? list.getBoundingClientRect().left
+        : null;
     };
 
     const findAnyDropTarget = (
@@ -1284,9 +1474,10 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
       const top =
         target.placement === "before" ? target.rect.top : target.rect.bottom;
-      session.dropLine.style.left = `${editorRect.left - wrapperRect.left}px`;
+      const lineLeft = target.lineLeft ?? editorRect.left;
+      session.dropLine.style.left = `${lineLeft - wrapperRect.left}px`;
       session.dropLine.style.top = `${top - wrapperRect.top}px`;
-      session.dropLine.style.width = `${editorRect.width}px`;
+      session.dropLine.style.width = `${editorRect.right - lineLeft}px`;
       session.dropLine.style.height = "3px";
     };
 
@@ -1435,7 +1626,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         !menuPanned &&
         active instanceof Element &&
         active.matches("input, textarea") &&
-        active.closest('[role="menu"]') &&
+        active.closest('[role="menu"], [role="dialog"]') &&
         typeof window.matchMedia === "function" &&
         window.matchMedia("(pointer: coarse)").matches
       ) {
@@ -1495,6 +1686,18 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
             if (handled) {
               dropCommitted = true;
+            } else if (target.view === session.view && listItems) {
+              const moved = moveBlockTransaction(
+                session.view.state,
+                sourceStart,
+                sourceNode,
+                dropPos,
+              );
+              if (moved) {
+                caretPos = moved.pos;
+                session.view.dispatch(markUserAction(moved.tr));
+                dropCommitted = true;
+              }
             } else if (target.view === session.view) {
               const insertPos =
                 dropPos > sourceStart ? dropPos - sourceNode.nodeSize : dropPos;
@@ -1509,8 +1712,12 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               dropCommitted = true;
             } else {
               try {
+                const $source = session.view.state.doc.resolve(sourceStart);
+                const sourceBlock = isListItem(sourceNode)
+                  ? $source.parent.type.create(null, sourceNode)
+                  : sourceNode;
                 const targetNode = target.view.state.schema.nodeFromJSON(
-                  sourceNode.toJSON(),
+                  sourceBlock.toJSON(),
                 );
                 target.registration.receiveDragTransferData?.(transferData, {
                   view: target.view,
@@ -1518,15 +1725,24 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                   pos: dropPos,
                   sourceView: session.view,
                 });
-                const insertTr = target.view.state.tr.insert(
-                  dropPos,
-                  targetNode,
-                );
+                const insertTr = target.view.state.tr;
+                if (!target.registration.listItems) {
+                  insertTr.insert(dropPos, targetNode);
+                } else if (
+                  insertBlockAt(insertTr, dropPos, targetNode) === null
+                ) {
+                  throw new RangeError("The block doesn't fit there");
+                }
                 target.view.dispatch(markUserAction(insertTr).scrollIntoView());
 
-                const deleteTr = session.view.state.tr.delete(
+                const removed = blockRemovalRange(
+                  session.view.state.doc,
                   sourceStart,
-                  sourceEnd,
+                  sourceNode,
+                );
+                const deleteTr = session.view.state.tr.delete(
+                  removed.from,
+                  removed.to,
                 );
                 session.view.dispatch(markUserAction(deleteTr));
                 dropCommitted = true;
@@ -1628,6 +1844,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           const registration: DragHandleRegistration = {
             view: editorView,
             wrapperSelector,
+            listItems,
             getDragTransferData,
             receiveDragTransferData,
             handleDrop,

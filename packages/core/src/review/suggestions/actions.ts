@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction, fail } from "../../action.js";
+import { defineAction, fail, isOutsideAgentCall } from "../../action.js";
 import { getDbExec, type DbExec } from "../../db/client.js";
 import { notifyReviewComment } from "../notifications.js";
 import {
@@ -263,6 +263,7 @@ export const createResourceSuggestion = defineAction({
     resourceType,
     resourceId,
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
       args.resourceType,
@@ -413,7 +414,14 @@ export const updateResourceSuggestion = defineAction({
       .array(operation)
       .min(1)
       .describe(
-        "Replacement proposal operations against the suggestion's existing canonical basis.",
+        "Replacement proposal operations against the suggestion's existing canonical basis, or against baseRevision when it is given.",
+      ),
+    baseRevision: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The resource revision the operations were written against, when it is newer than the suggestion's own; the amendment moves the suggestion onto it. Omission keeps the suggestion's basis.",
       ),
     summary: z
       .string()
@@ -431,6 +439,7 @@ export const updateResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const initial = await getSuggestion(args.id);
     if (!initial)
@@ -458,6 +467,7 @@ export const updateResourceSuggestion = defineAction({
       observedRevision: args.observedRevision,
       operations: args.operations,
       summary: args.summary ?? null,
+      baseRevision: args.baseRevision,
     });
     return db.transaction(async (tx) => {
       const current = await getSuggestion(args.id, tx);
@@ -496,14 +506,27 @@ export const updateResourceSuggestion = defineAction({
           errorCode: "suggestion_conflict",
         });
       }
+      const targets = new Set(
+        current.operations.map((operation) => operation.targetId ?? null),
+      );
+      if (
+        args.operations.some(
+          (operation) => !targets.has(operation.targetId ?? null),
+        )
+      )
+        fail("An amendment must edit what the suggestion edits", {
+          statusCode: 422,
+          errorCode: "suggestion_invalid",
+        });
       const adapter = getSuggestionAdapter(current.adapterKind);
       if (!adapter || adapter.version !== current.adapterVersion)
         throw new Error("Suggestion adapter version is unavailable");
+      const baseRevision = args.baseRevision ?? current.baseRevision;
       const operations =
         (await adapter.validateProposal({
           resourceType: current.resourceType,
           resourceId: current.resourceId,
-          baseRevision: current.baseRevision,
+          baseRevision,
           operations: args.operations,
           ctx: { ...(ctx as any), transaction: tx, suggestionAccess: access },
         })) ?? args.operations;
@@ -514,6 +537,7 @@ export const updateResourceSuggestion = defineAction({
         args.summary ?? current.summary,
         args.idempotencyKey,
         request,
+        baseRevision,
       );
       if (!updated)
         fail("The suggestion changed; refresh before editing", {
@@ -558,6 +582,7 @@ export const listResourceSuggestions = defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -587,6 +612,7 @@ export const getResourceSuggestion = defineAction({
     );
     return url ? { url, label: "Open suggestion" } : null;
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -633,6 +659,8 @@ export const decideResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -834,6 +862,7 @@ export const getResourceSuggestionProposalByCreationKey = defineAction({
     "Find an earlier proposal creation by its idempotency key before recomputing an edit.",
   schema: z.object({ idempotencyKey: z.string().min(1).max(200) }),
   readOnly: true,
+  mcpTool: "search",
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();
@@ -887,6 +916,7 @@ export const createResourceSuggestionProposal = defineAction({
     resourceType,
     resourceId,
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -1161,6 +1191,8 @@ export const decideResourceSuggestionProposal = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();

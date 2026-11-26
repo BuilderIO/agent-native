@@ -1,0 +1,61 @@
+/*
+ * Part: tooltip
+ *
+ *   <div class="tooltip-positioner">          Base UI Tooltip.Positioner
+ *     <div class="tooltip-popup" role="tooltip" Base UI Tooltip.Popup
+ *          [data-open] [data-instant] [data-starting-style]
+ *          [data-ending-style] [data-side] [data-anchor-hidden]>
+ *
+ * Only a tooltip opened by a hover delay animates in. One opened by focus or
+ * during the provider's skip window (`data-instant`) appears at once, and
+ * none animates out.
+ */
+
+@layer components {
+  .tooltip-positioner {
+    z-index: var(--layer-tooltip);
+  }
+
+  .tooltip-popup {
+    z-index: var(--layer-tooltip);
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: var(--space-1) var(--space-2);
+    border: 0;
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-3);
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    transform-origin: var(--transform-origin);
+  }
+
+  .tooltip-popup[data-open]:not([data-instant]) {
+    animation: tooltip-enter var(--duration-2) var(--ease-enter);
+  }
+
+  /* Closing mid-animation must not hold the popup on screen. */
+  .tooltip-popup[data-ending-style] {
+    animation: none;
+  }
+
+  .tooltip-popup[data-anchor-hidden] {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tooltip-popup[data-open] {
+      animation: none;
+    }
+  }
+
+  @keyframes tooltip-enter {
+    from {
+      opacity: 0;
+      scale: 0.95;
+    }
+  }
+}

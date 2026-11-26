@@ -5,6 +5,7 @@ const context = vi.hoisted(() => ({
     view: "library",
     recordingId: "rec-test",
     meetingId: undefined as string | undefined,
+    search: undefined as string | undefined,
   },
   meeting: null as Record<string, unknown> | null,
   meetingSegmentsJson: "[]",
@@ -19,6 +20,8 @@ const context = vi.hoisted(() => ({
 const TABLES = vi.hoisted(() => ({
   recordings: {
     id: "recordings.id",
+    title: "recordings.title",
+    description: "recordings.description",
     ownerEmail: "recordings.ownerEmail",
     organizationId: "recordings.organizationId",
     archivedAt: "recordings.archivedAt",
@@ -93,15 +96,7 @@ const makeRealDb = vi.hoisted(() => () => ({
                   severity: "low",
                 },
               ]
-            : table === "recordingComments"
-              ? [
-                  {
-                    id: "comment-test",
-                    content: "Fake discussion",
-                    authorEmail: "author@example.com",
-                  },
-                ]
-              : [];
+            : [];
         return {
           where: () =>
             Object.assign(Promise.resolve(rows), {
@@ -219,7 +214,11 @@ vi.mock("drizzle-orm", () => ({
   not: (value: unknown) => ({ kind: "not", value }),
   notInArray: (column: unknown, values: unknown) =>
     mockNotInArray(column, values),
-  sql: vi.fn(),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    kind: "sql",
+    text: strings.join("?"),
+    values,
+  }),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -237,10 +236,22 @@ vi.mock("../server/db/index.js", () => ({
       origin: "bindings.origin",
     },
     recordingViewers: "recordingViewers",
-    recordingComments: "recordingComments",
     recordingTranscripts: { recordingId: "transcripts.recordingId" },
     recordingBrowserDiagnostics: { recordingId: "diagnostics.recordingId" },
     recordingBugReports: TABLES.recordingBugReports,
+  },
+}));
+
+vi.mock("../server/lib/recording-comments.js", () => ({
+  listRecordingComments: async () => {
+    context.childReads("recordingComments");
+    return [
+      {
+        id: "comment-test",
+        content: "Fake discussion",
+        authorEmail: "author@example.com",
+      },
+    ];
   },
 }));
 
@@ -369,6 +380,25 @@ describe("view-screen library view on a cold start", () => {
         ]),
       }),
     );
+  });
+
+  it("filters library recordings when navigation.search is active", async () => {
+    context.navigation.search = "Onboarding";
+    try {
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.library.search).toBe("Onboarding");
+      const whereArg = mockRecordingsWhere.mock.calls[0]?.[0] as {
+        conditions: Array<{ kind: string; text?: string; values?: unknown[] }>;
+      };
+      const searchCondition = whereArg.conditions.find(
+        (c) => c.kind === "sql" && c.text?.includes("LIKE"),
+      );
+      expect(searchCondition).toBeDefined();
+      expect(searchCondition?.text).toContain("lower(");
+      expect(searchCondition?.values).toContain("%onboarding%");
+    } finally {
+      context.navigation.search = undefined;
+    }
   });
 });
 

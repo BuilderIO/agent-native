@@ -349,6 +349,7 @@ describe("package lifecycle CLI", () => {
     expect(spawn).toHaveBeenCalledWith("npm", ["install"], {
       cwd: root,
       stdio: "inherit",
+      shell: false,
     });
   });
 

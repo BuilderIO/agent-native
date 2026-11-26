@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import {
   buildCodeLayerProjection,
@@ -69,7 +70,6 @@ describe("runDuplicateSelection component links", () => {
       handleDuplicateScreen: vi.fn(),
       lastDuplicateTransformRef: { current: null },
       overviewSelectedScreenIds: [fileId],
-      remapMotionTracksForClone: vi.fn(),
       runtimeStructureInsertRevisionRef: { current: 0 },
       selectedCanvasSelector: '[data-agent-native-node-id="card"]',
       selectedElement: null,
@@ -160,7 +160,6 @@ describe("runDuplicateSelection component links", () => {
       handleDuplicateScreen: () => {},
       lastDuplicateTransformRef: { current: null },
       overviewSelectedScreenIds: [fileId],
-      remapMotionTracksForClone: () => {},
       selectedCanvasSelector: node.selector,
       selectedElement: null,
       selectedLayerIdsState: [node.id],
@@ -235,7 +234,6 @@ describe("runDuplicateSelection component links", () => {
     const applyLinkedComponentEdit = vi.fn();
     const applyFileContentUpdate = vi.fn();
     const applyLocalContentUpdate = vi.fn();
-    const remapMotionTracksForClone = vi.fn();
 
     runDuplicateSelection({
       activeFile: file,
@@ -251,7 +249,6 @@ describe("runDuplicateSelection component links", () => {
       handleDuplicateScreen: () => {},
       lastDuplicateTransformRef: { current: null },
       overviewSelectedScreenIds: [fileId],
-      remapMotionTracksForClone,
       selectedCanvasSelector: "",
       selectedElement: null,
       selectedLayerIdsState: nodes.map((snapshot) => snapshot.node.id),
@@ -266,8 +263,7 @@ describe("runDuplicateSelection component links", () => {
     expect(applyLinkedComponentEdit).toHaveBeenCalledOnce();
     expect(applyFileContentUpdate).not.toHaveBeenCalled();
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
-    expect(remapMotionTracksForClone).not.toHaveBeenCalled();
-    const [targetFileId, targetNodeId, edit, _selectionBefore, onApplied] =
+    const [targetFileId, targetNodeId, edit, _selectionBefore] =
       applyLinkedComponentEdit.mock.calls[0]!;
     expect(targetFileId).toBe(fileId);
     expect(targetNodeId).toBe("main");
@@ -279,13 +275,5 @@ describe("runDuplicateSelection component links", () => {
     expect(edit.selectionNodeIds).toHaveLength(2);
     expect(new Set(edit.selectionNodeIds).size).toBe(2);
     expect(edit.selectionNodeIds).not.toEqual(["label-a", "label-b"]);
-    expect(onApplied).toEqual(expect.any(Function));
-
-    onApplied();
-    expect(remapMotionTracksForClone).toHaveBeenCalledOnce();
-    expect(remapMotionTracksForClone).toHaveBeenCalledWith(
-      expect.any(Map),
-      fileId,
-    );
   });
 });

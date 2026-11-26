@@ -1,0 +1,136 @@
+/*
+ * Part: card
+ *
+ *   <div class="card" data-variant="surface|ghost">
+ *     ...                                  any content; an Inset runs to its edge
+ *   <a href class="card" ...>              a card that is a link
+ *   <button class="card" ...>              a card that is a button
+ *
+ * Radix Themes' card on the system's scale: 12px of padding. Surface is the raised surface with a hairline drawn over its
+ * content, so media an Inset runs to the edge keeps the edge. Ghost has no
+ * frame: its padding hangs outside the box, so its content lines up with
+ * the content around it and its hover fill shows around it. A card that
+ * renders as a link, button or label takes hover, pressed and focus states.
+ * The corner is `--shape-card`, so a `data-radius` above it reaches it.
+ *
+ * Card hands Inset its padding, radius and edge as the `--inset-*`
+ * properties inset.css documents; Inset reads nothing else of the card.
+ */
+
+@layer components {
+  .card {
+    --_card-padding: var(--space-3);
+    --_card-border-width: 1px;
+    --_card-radius: calc(var(--shape-card) * var(--corner-scale, 1));
+    --_card-line: var(--line-subtle);
+
+    --inset-border-width: var(--_card-border-width);
+    --inset-border-radius: var(--_card-radius);
+    --inset-padding-top: calc(var(--_card-padding) - var(--_card-border-width));
+    --inset-padding-right: calc(
+      var(--_card-padding) - var(--_card-border-width)
+    );
+    --inset-padding-bottom: calc(
+      var(--_card-padding) - var(--_card-border-width)
+    );
+    --inset-padding-left: calc(
+      var(--_card-padding) - var(--_card-border-width)
+    );
+
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    padding: var(--_card-padding);
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--_card-radius);
+    corner-shape: var(--corner-shape, round);
+    color: var(--fg-default);
+    font-weight: var(--font-weight-regular);
+    font-style: normal;
+    text-align: start;
+    text-decoration: none;
+    outline-style: none;
+    transition-property: background-color;
+    transition-duration: var(--duration-1);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  /* The edge, over the content so media an Inset brings to the edge keeps it. */
+  .card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    corner-shape: inherit;
+    box-shadow: inset 0 0 0 var(--_card-border-width) var(--_card-line);
+    pointer-events: none;
+    transition: box-shadow var(--duration-1) var(--ease-standard);
+  }
+
+  button.card {
+    width: 100%;
+    font: inherit;
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  .card[data-variant="surface"] {
+    background-color: var(--surface-raised);
+  }
+
+  .card[data-variant="ghost"] {
+    --_card-border-width: 0px;
+    margin: calc(var(--_card-padding) * -1);
+    background-color: transparent;
+  }
+
+  /* A button doesn't stretch as a block does; this one spans its margins too. */
+  button.card[data-variant="ghost"] {
+    width: calc(100% + var(--_card-padding) * 2);
+  }
+
+  /* ---- a card that is a control ---- */
+
+  @media (hover: hover) {
+    .card[data-variant="surface"]:is(a[href], button, label):hover {
+      --_card-line: var(--gray-a7);
+    }
+
+    .card[data-variant="ghost"]:is(a[href], button, label):hover {
+      background-color: var(--gray-a3);
+    }
+  }
+
+  .card[data-variant="surface"]:is(a[href], button, label)[data-popup-open] {
+    --_card-line: var(--gray-a7);
+  }
+
+  .card[data-variant="ghost"]:is(a[href], button, label)[data-popup-open] {
+    background-color: var(--gray-a3);
+  }
+
+  .card[data-variant="surface"]:is(a[href], button, label):active:not(
+      [data-popup-open]
+    ) {
+    --_card-line: var(--gray-a6);
+  }
+
+  .card[data-variant="ghost"]:is(a[href], button, label):active:not(
+      [data-popup-open]
+    ) {
+    background-color: var(--gray-a4);
+  }
+
+  .card:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+  @media (forced-colors: active) {
+    .card[data-variant="surface"]::after {
+      border: var(--_card-border-width) solid CanvasText;
+    }
+  }
+}

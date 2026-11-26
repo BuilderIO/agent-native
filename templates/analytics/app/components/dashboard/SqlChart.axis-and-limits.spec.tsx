@@ -44,14 +44,17 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
-} from "@shared/tokens/app-series-colors";
+} from "@agent-native/toolkit/dashboard/tokens/app-series-colors";
 
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
-
-import { SqlChart, sortTooltipPayloadItems, tableFillColumn } from "./SqlChart";
+import {
+  SqlChart,
+  sortTooltipPayloadItems,
+  tableFillColumn,
+} from "./SqlChartQuery";
 
 const CHART_SIZE = { width: 640, height: 320 };
 

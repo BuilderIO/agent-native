@@ -10,6 +10,8 @@ export interface Notification {
   metadata?: Record<string, unknown>;
   createdAt: string;
   readAt: string | null;
+  /** Set when the reader filed the notification away; archived rows leave the inbox tabs. */
+  archivedAt?: string | null;
   deliveredChannels: string[];
 }
 

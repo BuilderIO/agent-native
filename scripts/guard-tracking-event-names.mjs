@@ -4,7 +4,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { requireAddedLines } from "./lib/changed-lines.mjs";
+import {
+  diffBaseCommit,
+  execGuardCommand,
+  readCommitFile,
+  requireAddedLines,
+} from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -31,6 +36,70 @@ function isCanonicalEventName(name) {
 
 function isReservedEventName(name) {
   return name.startsWith("$") || RESERVED_EVENT_NAMES.has(name);
+}
+
+export function eventNameCounts(source) {
+  const counts = new Map();
+  for (const match of source.matchAll(EVENT_CALL)) {
+    counts.set(match[2], (counts.get(match[2]) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function namesBeyondBase(headSource, baseSource, names) {
+  const head = eventNameCounts(headSource);
+  const base = eventNameCounts(baseSource);
+  return new Set(
+    [...names].filter((name) => (head.get(name) ?? 0) > (base.get(name) ?? 0)),
+  );
+}
+
+export function renamedFrom(nameStatus) {
+  const renames = new Map();
+  for (const line of nameStatus.split("\n")) {
+    const [status, from, to] = line.split("\t");
+    if (status?.startsWith("R") && from && to) renames.set(to, from);
+  }
+  return renames;
+}
+
+let baseFiles;
+
+function baseFilesOf() {
+  if (baseFiles) return baseFiles;
+  const commit = diffBaseCommit(REPO_ROOT);
+  if (commit === null) {
+    console.error("guard:tracking-event-names: no diff base");
+    process.exit(2);
+  }
+  const renames = renamedFrom(
+    execGuardCommand(
+      "git",
+      [
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--name-status",
+        "--find-renames",
+        "--diff-filter=R",
+        commit,
+      ],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    ),
+  );
+  baseFiles = { commit, renames };
+  return baseFiles;
+}
+
+function baseSourceOf(relativePath) {
+  const { commit, renames } = baseFilesOf();
+  const basePath = renames.get(relativePath) ?? relativePath;
+  const listed = execGuardCommand(
+    "git",
+    ["ls-tree", "--name-only", commit, "--", basePath],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  );
+  return listed.trim() ? readCommitFile(REPO_ROOT, commit, basePath) : "";
 }
 
 function relative(absolutePath) {
@@ -61,6 +130,7 @@ function main() {
     }
 
     filesChecked += 1;
+    const fileViolations = [];
     for (const match of source.matchAll(EVENT_CALL)) {
       const start = match.index ?? 0;
       const end = start + match[0].length;
@@ -74,12 +144,21 @@ function main() {
       const name = match[2];
       callsChecked += 1;
       if (isCanonicalEventName(name) || isReservedEventName(name)) continue;
-      violations.push({
+      fileViolations.push({
         file: relativePath,
         line: startLine,
         name,
       });
     }
+    if (fileViolations.length === 0) continue;
+    const newNames = namesBeyondBase(
+      source,
+      baseSourceOf(relativePath),
+      fileViolations.map((violation) => violation.name),
+    );
+    violations.push(
+      ...fileViolations.filter((violation) => newNames.has(violation.name)),
+    );
   }
 
   if (violations.length === 0) {

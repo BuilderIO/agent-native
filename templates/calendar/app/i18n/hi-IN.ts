@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google Calendar ने अनुरोध सीमित कर दिए हैं। सहेजे गए इवेंट पुराने हो सकते हैं।",
     connect: "कनेक्ट करें",
     connected: "कनेक्टेड",
     connecting: "कनेक्ट कर रहे हैं...",
@@ -147,6 +149,9 @@ export default {
     googleCalendarSettings: "Google Calendar सेटिंग",
     hideCalendar: "कैलेंडर छिपाएं",
     myCalendars: "मेरे कैलेंडर",
+    calendarDescription: "विवरण",
+    calendarDescriptionPlaceholder: "यह कैलेंडर किसलिए है?",
+    calendarDescriptionHint: "सही कैलेंडर चुनने के लिए एजेंट इसे पढ़ते हैं।",
     feedsGroup: "फ़ीड",
     managePeerAvailability: "साझा उपलब्धता प्रबंधित करें",
     nextYear: "अगला वर्ष",
@@ -541,11 +546,26 @@ export default {
     connectZoom: "Zoom कनेक्ट करें",
     copyBookingLink: "बुकिंग लिंक कॉपी करें",
     copyLink: "लिंक कॉपी करें",
+    copySingleUseLink: "एक बार इस्तेमाल होने वाला लिंक कॉपी करें",
+    singleUseLinkCopied:
+      "एक बार इस्तेमाल होने वाला लिंक कॉपी हो गया। इससे एक ही बुकिंग हो सकती है।",
+    singleUseLinkReady: "एक बार इस्तेमाल होने वाला लिंक तैयार है",
+    singleUseLinkCreateFailed: "एक बार इस्तेमाल होने वाला लिंक नहीं बन सका",
+    singleUseLinkUsed: "यह लिंक पहले ही इस्तेमाल हो चुका है",
+    singleUseLinkInvalid: "यह लिंक अब काम नहीं करता",
+    singleUseLinkAskForNew:
+      "यह लिंक सिर्फ़ एक बुकिंग के लिए था। जिसने भेजा है, उनसे नया लिंक माँगें।",
     createFirstLink: "अपना पहला लिंक बनाएं",
     createLink: "लिंक बनाएं",
     custom: "कस्टम",
     customLink: "कस्टम लिंक",
     customLinkDescription: "किसी भी मीटिंग को URL पेस्ट करें",
+    reminderEmail: "रिमाइंडर ईमेल",
+    reminderEmailDescription:
+      "बुकिंग करने वाले व्यक्ति और उनके जोड़े गए मेहमानों को भेजा जाता है।",
+    reminderOff: "कोई रिमाइंडर नहीं",
+    reminderOneHour: "1 घंटा पहले",
+    reminderOneDay: "1 दिन पहले",
     date: "दिनांक",
     dateAndTime: "तारीख और समय",
     dateSelection: "तारीख चयन",

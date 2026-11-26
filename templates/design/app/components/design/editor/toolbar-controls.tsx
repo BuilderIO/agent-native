@@ -144,7 +144,7 @@ export function DesignToolbarTool({
                   data-option={option.key}
                   onSelect={option.onSelect}
                   className={cn(
-                    "text-popover-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:text-muted-foreground",
+                    "text-popover-foreground data-[disabled]:text-muted-foreground",
                     option.dimmed && "opacity-50",
                   )}
                 >

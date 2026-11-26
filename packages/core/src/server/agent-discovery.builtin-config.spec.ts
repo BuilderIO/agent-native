@@ -2,7 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   discoverAgents,
@@ -76,11 +85,39 @@ function ids(agents: Array<{ id: string }>): string[] {
   return agents.map((agent) => agent.id).sort();
 }
 
+let isolatedCwd: string;
+
+beforeAll(() => {
+  isolatedCwd = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-discovery-builtin-cwd-"),
+  );
+  fs.mkdirSync(path.join(isolatedCwd, "packages/core/src/server"), {
+    recursive: true,
+  });
+  fs.writeFileSync(
+    path.join(isolatedCwd, "packages/core/src/server/agent-discovery.ts"),
+    "",
+  );
+  fs.mkdirSync(path.join(isolatedCwd, "templates"), { recursive: true });
+  fs.writeFileSync(
+    path.join(isolatedCwd, "package.json"),
+    JSON.stringify({
+      name: "agentnative",
+      "agent-native": { workspaceCore: "@agent-native/core" },
+    }),
+  );
+});
+
+afterAll(() => {
+  fs.rmSync(isolatedCwd, { recursive: true, force: true });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   for (const key of ENV_KEYS) vi.stubEnv(key, "");
   vi.stubEnv("NODE_ENV", "test");
   vi.stubEnv("APP_URL", "https://workspace.example.test");
+  vi.spyOn(process, "cwd").mockReturnValue(isolatedCwd);
   resetBuiltinAgentsConfigForTests();
   mocks.resourceList.mockResolvedValue([]);
   mocks.resourceGet.mockResolvedValue(null);

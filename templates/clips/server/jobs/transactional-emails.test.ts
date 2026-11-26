@@ -4,7 +4,16 @@ const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 let db: ReturnType<typeof drizzle>;
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
@@ -58,11 +67,20 @@ async function createTables() {
   )`);
 }
 
-beforeEach(async () => {
-  mocks.getUserSetting.mockResolvedValue(null);
+beforeAll(async () => {
   client = await PGlite.create("memory://");
   db = drizzle(client);
   await createTables();
+});
+
+beforeEach(async () => {
+  mocks.getUserSetting.mockResolvedValue(null);
+  const { rows } = await client.query(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+  );
+  await client.exec(
+    `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+  );
 });
 
 function recording(
@@ -353,8 +371,11 @@ async function setup(enabledAt = "2026-08-01T00:00:00.000Z") {
   };
 }
 
-afterEach(async () => {
+afterEach(() => {
   vi.restoreAllMocks();
+});
+
+afterAll(async () => {
   await client.close();
 });
 

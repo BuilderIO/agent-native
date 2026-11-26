@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import { redactSensitiveText } from "../server/lib/search.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 
 const queueStatuses = ["queued", "processing", "done", "failed"] as const;
 const queueIssues = ["all", "failed", "stale", "retryable"] as const;
@@ -134,7 +135,10 @@ export async function readDistillationQueue(
   );
   const baseClauses = [
     eq(schema.brainIngestQueue.operation, "distill"),
-    accessFilter(schema.brainSources, schema.brainSourceShares),
+    and(
+      accessFilter(schema.brainSources, schema.brainSourceShares),
+      personalGoogleSourceFilter(),
+    ),
     captureVisibility,
   ];
   if (args.sourceId) {
@@ -295,5 +299,6 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: readDistillationQueue,
 });

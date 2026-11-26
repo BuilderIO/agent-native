@@ -3,9 +3,39 @@
 import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@shared/figma-clipboard-decode", () => ({
+  MAX_CLIPBOARD_BUFFER_BYTES: 8 * 1024 * 1024,
+  decodeFigmaClipboardFrames: () => ({
+    frames: [
+      {
+        html: "<div></div>",
+        fileName: "card.html",
+        frameName: "Card",
+        width: 10,
+        height: 10,
+        x: 0,
+        y: 0,
+        wrapsLooseNode: false,
+        sourceOffset: null,
+      },
+    ],
+    warnings: [],
+    unresolvedImageRefs: [],
+    nodeCount: 1,
+    format: "kiwi",
+  }),
+}));
+
+vi.spyOn(console, "error").mockImplementation(() => {});
 const toastError = vi.fn();
+const toastInfo = vi.fn();
 vi.mock("sonner", () => ({
-  toast: { error: (...args: unknown[]) => toastError(...args) },
+  toast: {
+    error: (...args: unknown[]) => toastError(...args),
+    info: (...args: unknown[]) => toastInfo(...args),
+    loading: () => "progress",
+    dismiss: () => {},
+  },
 }));
 
 import { getDesignClipboardTrustToken } from "@/lib/design-clipboard";
@@ -55,8 +85,11 @@ function harness(): Harness {
         return true;
       },
       hasCanvasClipboard: false,
-      importFigmaClipboardIntoDesign: async (content) => {
-        imported.push(content);
+      designToolPasteBusyRef: ref(false),
+      importDesignToolPaste: async (paste) => {
+        imported.push(
+          `${paste.tool}:${paste.layers.map((layer) => layer.title).join(",")}`,
+        );
       },
       lastWrittenClipboardMarkerRef: ref<string | null>(null),
       lastWrittenClipboardPlainTextRef: ref<string | null>(null),
@@ -88,11 +121,49 @@ function pasteEvent(
 
 beforeEach(() => {
   toastError.mockClear();
+  toastInfo.mockClear();
   document.body.innerHTML = "";
 });
 
+const PAPER_HTML = `<html><head><!--<paper-paste-start data-embed="${JSON.stringify(
+  {
+    topLevelNodeIds: ["n0"],
+    nodes: { n0: { id: "n0", label: "Frame", component: "Frame", styles: {} } },
+    parentToChildrenIndex: {},
+  },
+)}"></paper-paste-start>--></head><body>Node IDs: 1-0</body></html>`;
+
 describe("runEditorPaste", () => {
-  it("imports a Figma paste made while the agent composer holds focus", () => {
+  it("imports a Paper frame instead of pasting its 'Node IDs' text", async () => {
+    const h = harness();
+    const event = pasteEvent({
+      "text/html": PAPER_HTML,
+      "text/plain": "Node IDs: 1-0",
+    });
+    runEditorPaste(h.args, event);
+
+    await vi.waitFor(() => expect(h.imported).toEqual(["paper:Frame"]));
+    expect(event.defaultPrevented).toBe(true);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("says so when a Paper paste is damaged rather than ignoring it", async () => {
+    const h = harness();
+    const event = pasteEvent({
+      "text/html": PAPER_HTML.replace("topLevelNodeIds", "other"),
+    });
+    runEditorPaste(h.args, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(h.imported).toEqual([]);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.import.errors.paperPasteFailed",
+      expect.objectContaining({ description: expect.any(String) }),
+    );
+  });
+
+  it("imports a Figma copy made while the agent composer holds focus", async () => {
     const composer = document.createElement("div");
     composer.setAttribute("contenteditable", "true");
     document.body.append(composer);
@@ -101,8 +172,43 @@ describe("runEditorPaste", () => {
     const event = pasteEvent({ "text/html": FIGMA_HTML }, composer);
     runEditorPaste(h.args, event);
 
-    expect(h.imported).toEqual([FIGMA_HTML]);
+    await vi.waitFor(() => expect(h.imported).toEqual(["figma:Card"]));
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("ignores a repeat paste while the first design-tool copy is still importing", async () => {
+    const h = harness();
+    let finish: () => void = () => {};
+    h.args.importDesignToolPaste = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    runEditorPaste(h.args, pasteEvent({ "text/html": PAPER_HTML }));
+    await vi.waitFor(() =>
+      expect(h.args.designToolPasteBusyRef.current).toBe(true),
+    );
+    const second = pasteEvent({ "text/html": PAPER_HTML });
+    runEditorPaste(h.args, second);
+    expect(second.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(toastInfo).toHaveBeenCalled());
+    finish();
+    await vi.waitFor(() =>
+      expect(h.args.designToolPasteBusyRef.current).toBe(false),
+    );
+  });
+
+  it("claims a design-tool copy without decoding it when the viewer cannot edit", async () => {
+    const h = harness();
+    h.args.canEditDesign = false;
+    const event = pasteEvent({ "text/html": PAPER_HTML });
+    runEditorPaste(h.args, event);
+    expect(event.defaultPrevented).toBe(true);
+    await Promise.resolve();
+    expect(h.imported).toEqual([]);
+    expect(h.args.designToolPasteBusyRef.current).toBe(false);
+    expect(toastInfo).toHaveBeenCalledWith(
+      "designEditor.import.pasteNeedsEditAccess",
+    );
   });
 
   it("leaves a Figma paste to a composer that claims pastes as context", () => {
@@ -121,14 +227,14 @@ describe("runEditorPaste", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it("imports a Figma paste made while a panel textarea holds focus", () => {
+  it("imports a Figma copy made while a panel textarea holds focus", async () => {
     const textarea = document.createElement("textarea");
     document.body.append(textarea);
 
     const h = harness();
     runEditorPaste(h.args, pasteEvent({ "text/plain": FIGMA_HTML }, textarea));
 
-    expect(h.imported).toEqual([FIGMA_HTML]);
+    await vi.waitFor(() => expect(h.imported).toEqual(["figma:Card"]));
   });
 
   it("still leaves ordinary text pastes to the focused field", () => {

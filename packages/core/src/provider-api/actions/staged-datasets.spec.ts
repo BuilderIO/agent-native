@@ -124,3 +124,10 @@ describe("staged dataset action factories", () => {
     });
   });
 });
+
+it("keeps the staged dataset actions in the app, off MCP", () => {
+  const actions = createStagedDatasetActions();
+  expect(actions.query.mcpTool).toBe(false);
+  expect(actions.list.mcpTool).toBe(false);
+  expect(actions.delete.mcpTool).toBe(false);
+});

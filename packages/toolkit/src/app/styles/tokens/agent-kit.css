@@ -14,10 +14,20 @@
   --agent-kit-accent: hsl(var(--primary));
   --agent-kit-accent-text: hsl(var(--primary-foreground));
   --agent-kit-danger: hsl(var(--destructive));
+  /* Themes size --destructive as a fill; as text it can sit under 3:1. */
+  --agent-kit-danger-text: color-mix(
+    in srgb,
+    hsl(var(--destructive)) 60%,
+    hsl(var(--foreground))
+  );
   --agent-kit-success: hsl(var(--success, var(--primary)));
   --agent-kit-warning-color: hsl(var(--agent-kit-warning));
   --agent-kit-focus: hsl(var(--ring));
+  --agent-kit-progress-color: hsl(217 91% 60%);
+  --agent-kit-diff-added-color: hsl(var(--agent-kit-positive));
+  --agent-kit-diff-removed-color: hsl(var(--destructive));
 
+  --agent-kit-body-font-size: 0.875rem;
   --agent-kit-density-font-size: 0.8125rem;
   --agent-kit-density-line-height: 1.25rem;
   --agent-kit-supporting-font-size: 0.75rem;
@@ -43,10 +53,16 @@
   --agent-kit-composer-block-padding-start: 0.5rem;
   --agent-kit-composer-block-padding-end: 1rem;
   --agent-kit-composer-min-height: 4.75rem;
-  --agent-kit-composer-radius: 1.25rem;
+  /* agentkit/react/styles.css maps elements onto this scale. */
+  --agent-kit-radius-xs: 0.25rem;
+  --agent-kit-radius-sm: 0.5rem;
+  --agent-kit-radius-md: 0.75rem;
+  --agent-kit-radius-lg: 1rem;
+  --agent-kit-composer-radius: var(--agent-kit-radius-lg);
   --agent-kit-composer-surface: var(--agent-kit-raised-surface);
   --agent-kit-composer-border-mix: 82%;
-  --agent-kit-composer-focus-ring-mix: 40%;
+  /* Keeps the focus border at 3:1+; the editor has no other focus indicator. */
+  --agent-kit-composer-focus-ring-mix: 70%;
   --agent-kit-composer-border-color: color-mix(
     in srgb,
     hsl(var(--border)) var(--agent-kit-composer-border-mix),
@@ -104,9 +120,10 @@
 }
 
 :is(.dark, :root[data-theme="dark"]:not(.light)) {
+  --agent-kit-progress-color: hsl(213 94% 68%);
   --agent-kit-composer-surface: var(--agent-kit-subtle-surface);
   --agent-kit-composer-border-mix: 80%;
-  --agent-kit-composer-focus-ring-mix: 40%;
+  --agent-kit-composer-focus-ring-mix: 70%;
   --agent-kit-composer-border-color: color-mix(
     in srgb,
     hsl(var(--border)) var(--agent-kit-composer-border-mix),

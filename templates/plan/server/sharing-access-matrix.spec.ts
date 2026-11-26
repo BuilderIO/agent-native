@@ -50,6 +50,7 @@ import {
   LOCAL_PLAN_OWNER_EMAIL,
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
+import { listPlanCommentRows } from "./lib/plan-comments.js";
 import { PLANS_TABLE_DDL } from "./test-support/plans-test-schema.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -722,6 +723,24 @@ describe("public review link", () => {
     expect((await rawPlan(planId)).title).toBe("Plan");
   });
 
+  it("serves a stored legacy document to viewers without its handlers", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+    await setVisibility(OWNER, undefined, planId, "public");
+    await db
+      .update(planSchema.plans)
+      .set({
+        html: "<!doctype html><html><body><h1>Legacy</h1><svg/onload=run()></svg></body></html>",
+      })
+      .where(eq(planSchema.plans.id, planId));
+
+    const got = await asUser({ userEmail: OTHER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    const served = [got.html, got.plan.html].join("\n");
+    expect(served).toContain("<h1>Legacy</h1>");
+    expect(served).not.toMatch(/onload/i);
+  });
+
   it("an anonymous public-link VIEWER can read but cannot comment", async () => {
     const planId = await createPlanAs(OWNER, undefined);
     await setVisibility(OWNER, undefined, planId, "public");
@@ -1027,11 +1046,10 @@ describe("adversarial", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
 
-    const [row] = await db
-      .select()
-      .from(planSchema.planComments)
-      .where(eq(planSchema.planComments.id, commentId));
-    expect((row as any).consumedAt).toBeNull();
+    const stored = (await listPlanCommentRows(planId)).find(
+      (row) => row.id === commentId,
+    );
+    expect(stored?.consumedAt).toBeNull();
   });
 });
 

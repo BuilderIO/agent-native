@@ -1,11 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconCheck,
-  IconChevronDown,
-  IconComponents,
-  IconTemplate,
-} from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconTemplate } from "@tabler/icons-react";
 
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
 import { Badge } from "@/components/ui/badge";
@@ -23,14 +18,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { cn } from "@/lib/utils";
 
 export interface PromptTemplateOption {
@@ -41,17 +28,7 @@ export interface PromptTemplateOption {
   width?: number | null;
   height?: number | null;
   previewHtml?: string | null;
-  designSystemId?: string | null;
   isBuiltIn: boolean;
-}
-
-export interface PromptDesignSystemOption {
-  id: string;
-  title: string;
-  description?: string | null;
-  isDefault?: boolean;
-  colors?: string[];
-  ready: boolean;
 }
 
 export function TemplatePickerControl({
@@ -207,126 +184,4 @@ export function TemplatePickerControl({
       </PopoverContent>
     </Popover>
   );
-}
-
-export function DesignSystemPickerControl({
-  designSystems,
-  loading,
-  selectedId,
-  onChange,
-  onSelectClosed,
-}: {
-  designSystems: PromptDesignSystemOption[];
-  loading: boolean;
-  selectedId: string | null;
-  onChange: (id: string | null) => void;
-  onSelectClosed?: () => void;
-}) {
-  const t = useT();
-  const selected =
-    designSystems.find((system) => system.id === selectedId) ?? null;
-  return loading ? (
-    <Skeleton className="h-9 w-full rounded-md" />
-  ) : designSystems.length > 0 ? (
-    <Select
-      value={selectedId ?? "none"}
-      onValueChange={(value) => {
-        trackEvent("design_system_selected", {
-          app_name: "design",
-          template_name: "design",
-          has_design_system: value !== "none",
-        });
-        onChange(value === "none" ? null : value);
-      }}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) onSelectClosed?.();
-      }}
-    >
-      <SelectTrigger className="min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-        <IconComponents className="size-4 shrink-0 text-muted-foreground" />
-        <span
-          className="min-w-0 flex-1 truncate text-start"
-          title={selected?.title ?? t("promptDialog.noDesignSystem")}
-        >
-          {selected?.title ?? t("promptDialog.noDesignSystem")}
-        </span>
-      </SelectTrigger>
-      <SelectContent data-agent-native-prompt-select>
-        <SelectItem value="none" className="text-xs">
-          {t("promptDialog.noDesignSystem")}
-        </SelectItem>
-        {designSystems.map((system) => (
-          <SelectItem
-            key={system.id}
-            value={system.id}
-            disabled={!system.ready}
-            className="py-2 text-xs"
-          >
-            <span className="flex min-w-0 items-center gap-2.5">
-              {system.colors && system.colors.length > 0 ? (
-                <span
-                  className="flex shrink-0 items-center gap-1"
-                  data-design-system-swatches
-                >
-                  {system.colors.map((color, index) => (
-                    <span
-                      key={`${system.id}-${index}-${color}`}
-                      className="size-3 rounded-full border border-border/60"
-                      style={{ background: color }}
-                    />
-                  ))}
-                </span>
-              ) : null}
-              <span className="min-w-0 truncate">{system.title}</span>
-              {!system.ready ? (
-                <span className="shrink-0 text-muted-foreground">
-                  {t("promptDialog.designSystemIndexing")}
-                </span>
-              ) : null}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  ) : (
-    <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
-      <IconComponents className="size-4 shrink-0" />
-      <span className="truncate">{t("promptDialog.noDesignSystem")}</span>
-    </div>
-  );
-}
-
-export function designSystemPickerOptions(
-  systems: Array<{
-    id: string;
-    title: string;
-    description?: string | null;
-    isDefault?: boolean;
-    data: string;
-  }>,
-): PromptDesignSystemOption[] {
-  return systems.map((system) => {
-    let colors: string[] | undefined;
-    try {
-      const parsed = JSON.parse(system.data || "{}") as {
-        colors?: Record<string, unknown>;
-      };
-      const values = Object.values(parsed.colors ?? {}).filter(
-        (value): value is string =>
-          typeof value === "string" && value.trim().length > 0,
-      );
-      colors = values.length > 0 ? values.slice(0, 5) : undefined;
-      // coercion-ok: absent swatches are a rendered state, not a failure.
-    } catch {
-      colors = undefined;
-    }
-    return {
-      id: system.id,
-      title: system.title,
-      description: system.description,
-      isDefault: system.isDefault,
-      colors,
-      ready: isDesignSystemUsableForGeneration(system.data),
-    };
-  });
 }

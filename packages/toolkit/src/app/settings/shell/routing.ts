@@ -219,6 +219,14 @@ export function resolveSettingsRoute(
     const joined = segments.join(":");
     const pageId = segments[0]!;
     const directPage = pages.find((page) => page.id === pageId);
+    if (directPage?.nestedRoutes) {
+      return {
+        page: pageId,
+        sub: segments.slice(1).join("/") || null,
+        anchor: hash || null,
+        legacy: false,
+      };
+    }
     if (directPage && isCoreSettingsPageId(pageId)) {
       const pattern = segments.length > 1 && resolveSettingsIdPattern(joined);
       if (pattern) return redirectRoute(pattern, pages, hash || null);

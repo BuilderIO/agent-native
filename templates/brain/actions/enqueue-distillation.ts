@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getAccessibleCapture } from "../server/lib/brain.js";
@@ -16,6 +15,7 @@ export default defineAction({
     instructions: z.string().optional(),
     payload: optionalJsonRecordSchema,
   }),
+  mcpTool: "search",
   run: async (args) => {
     const access = await getAccessibleCapture(args.captureId);
     if (!access) throw new Error(`No access to capture ${args.captureId}`);
@@ -27,14 +27,12 @@ export default defineAction({
         `Capture ${args.captureId} is already ${access.capture.status}`,
       );
     }
-    if (access.capture.status === "ignored") {
-      await assertAccess("brain-source", access.capture.sourceId, "editor");
-    }
     return enqueueCaptureDistillation({
       capture: access.capture,
       priority: args.priority,
       instructions: args.instructions,
       payload: args.payload,
+      reconsiderIgnored: args.reconsiderIgnored,
     });
   },
 });

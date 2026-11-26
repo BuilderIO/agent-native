@@ -1,0 +1,18 @@
+@layer components {
+  :is(.layout-stack, .layout-inline, .layout-grid) {
+    min-inline-size: 0;
+    gap: var(--layout-gap, var(--space-2));
+  }
+  .layout-stack {
+    display: flex;
+    flex-direction: column;
+  }
+  .layout-inline {
+    display: flex;
+    align-items: center;
+  }
+  .layout-grid {
+    display: grid;
+    grid-template-columns: var(--layout-columns, minmax(0, 1fr));
+  }
+}

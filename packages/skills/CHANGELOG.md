@@ -1,5 +1,490 @@
 # @agent-native/skills
 
+## 0.4.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0a08ec4]
+- Updated dependencies [4ce600d]
+- Updated dependencies [a3032a6]
+- Updated dependencies [e2b0256]
+- Updated dependencies [4c03a31]
+- Updated dependencies [9a8fff4]
+- Updated dependencies [581bf53]
+- Updated dependencies [f0dadea]
+- Updated dependencies [8c8475a]
+- Updated dependencies [3cf91b8]
+- Updated dependencies [dbbbd2d]
+- Updated dependencies [890321f]
+- Updated dependencies [5a5160b]
+- Updated dependencies
+- Updated dependencies [fbb491e]
+- Updated dependencies [415f03e]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [e792a5e]
+  - @agent-native/core@0.235.0
+
+## 0.4.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [4a34f01]
+- Updated dependencies [33e0e8c]
+- Updated dependencies [7210d1c]
+- Updated dependencies [1c54a03]
+- Updated dependencies [f3976d7]
+- Updated dependencies [e466d90]
+- Updated dependencies [feadc42]
+- Updated dependencies [2573f75]
+- Updated dependencies [135e0a3]
+- Updated dependencies [1419c5a]
+- Updated dependencies [14b0089]
+- Updated dependencies [fa3a0fd]
+- Updated dependencies [fe85161]
+- Updated dependencies
+- Updated dependencies [bf2d0b4]
+- Updated dependencies [f7de4d5]
+- Updated dependencies [7f630e8]
+- Updated dependencies [e023573]
+- Updated dependencies [d1f5fae]
+- Updated dependencies [309bd05]
+- Updated dependencies [d114e46]
+- Updated dependencies [8b8f1a3]
+- Updated dependencies [0315ffa]
+- Updated dependencies [124141d]
+- Updated dependencies [e11a707]
+- Updated dependencies [559944d]
+- Updated dependencies [343d243]
+- Updated dependencies [2a4c4f5]
+- Updated dependencies [a07c17a]
+- Updated dependencies [971ad70]
+  - @agent-native/core@0.234.0
+
+## 0.4.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [b049c7c]
+- Updated dependencies [c71955a]
+- Updated dependencies [b71c09c]
+- Updated dependencies [77579d5]
+- Updated dependencies [05c5e64]
+- Updated dependencies [a20bef8]
+- Updated dependencies [c862f58]
+- Updated dependencies [42b7e78]
+- Updated dependencies [b9ad2ba]
+- Updated dependencies [39871df]
+- Updated dependencies [c541b37]
+- Updated dependencies [40a841b]
+- Updated dependencies [3f67b62]
+- Updated dependencies
+- Updated dependencies [380b147]
+- Updated dependencies [6e1e604]
+- Updated dependencies [acad739]
+- Updated dependencies [244edec]
+- Updated dependencies [7550059]
+- Updated dependencies [c1f6efc]
+- Updated dependencies [99ab0f0]
+- Updated dependencies [6f96822]
+- Updated dependencies [ca51135]
+- Updated dependencies [7789e80]
+- Updated dependencies [8604fbb]
+- Updated dependencies [70a4b3f]
+- Updated dependencies [9128163]
+- Updated dependencies [15a226b]
+- Updated dependencies [98e4444]
+- Updated dependencies [0998ade]
+- Updated dependencies [b7b1029]
+- Updated dependencies [3ecdd02]
+- Updated dependencies [48793f1]
+- Updated dependencies [4b68858]
+- Updated dependencies [70a4b3f]
+- Updated dependencies [b755252]
+- Updated dependencies [b1197d4]
+- Updated dependencies [f011519]
+- Updated dependencies [8787418]
+- Updated dependencies [0c35897]
+  - @agent-native/core@0.233.0
+
+## 0.4.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 862e5bf: `skills add` now checks the git ref of a GitHub source before cloning and stops with an "Invalid source ref" error if it contains anything other than letters, digits, `.`, `_`, `/`, and `-`, or starts with `-`. Package-manager commands on Windows now go through a quoted command line instead of an unquoted shell.
+- Updated dependencies [be7b76a]
+- Updated dependencies [dd11f68]
+- Updated dependencies [43c82f1]
+- Updated dependencies [0f4643c]
+- Updated dependencies [7d73a2e]
+- Updated dependencies [2d3661c]
+- Updated dependencies [3a185b9]
+- Updated dependencies [4502521]
+- Updated dependencies [abf512f]
+- Updated dependencies [bf07e40]
+- Updated dependencies [062955d]
+- Updated dependencies [abf512f]
+- Updated dependencies [85b37f1]
+- Updated dependencies [44e3803]
+- Updated dependencies [089091b]
+- Updated dependencies [43c82f1]
+- Updated dependencies [0c77205]
+- Updated dependencies [2d3661c]
+- Updated dependencies [43c82f1]
+- Updated dependencies [75c90a5]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [5be6e23]
+- Updated dependencies [1314760]
+- Updated dependencies [962e79d]
+- Updated dependencies [4f80390]
+- Updated dependencies [a6affb8]
+- Updated dependencies [43c82f1]
+- Updated dependencies [862e5bf]
+- Updated dependencies [205f078]
+- Updated dependencies [b578994]
+- Updated dependencies [6363906]
+- Updated dependencies [56c5a76]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [75c90a5]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [ccb0316]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [d4e0116]
+- Updated dependencies [9508ba0]
+- Updated dependencies [ba8ddd5]
+- Updated dependencies [43c82f1]
+- Updated dependencies [793d773]
+- Updated dependencies [22cc51c]
+- Updated dependencies [fa3c6d2]
+- Updated dependencies [41c2b0e]
+- Updated dependencies [cf35296]
+- Updated dependencies [6d231e9]
+- Updated dependencies [8629141]
+- Updated dependencies [f67e71b]
+- Updated dependencies [a6d83c7]
+- Updated dependencies [2848774]
+- Updated dependencies [43c82f1]
+- Updated dependencies [93ee658]
+- Updated dependencies [20cd8b7]
+- Updated dependencies [43c82f1]
+- Updated dependencies [a6c569c]
+- Updated dependencies [ca81d31]
+- Updated dependencies [43c82f1]
+- Updated dependencies [43c82f1]
+- Updated dependencies [30a7e14]
+- Updated dependencies [0a90ec1]
+- Updated dependencies [67b4202]
+- Updated dependencies [43c82f1]
+- Updated dependencies [862e5bf]
+- Updated dependencies [c8d851d]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [43c82f1]
+- Updated dependencies [43c82f1]
+- Updated dependencies [75c90a5]
+- Updated dependencies [43c82f1]
+- Updated dependencies [0956607]
+- Updated dependencies [642f2a0]
+- Updated dependencies [ac21d0b]
+- Updated dependencies
+- Updated dependencies [554a6aa]
+- Updated dependencies [0341d35]
+- Updated dependencies [2ed6bcf]
+- Updated dependencies [3c8b439]
+- Updated dependencies [3c8b439]
+- Updated dependencies [f63105f]
+- Updated dependencies [f2b5851]
+- Updated dependencies [798b8b1]
+- Updated dependencies [862e5bf]
+- Updated dependencies [efcefaa]
+- Updated dependencies [35ff895]
+- Updated dependencies [eff1145]
+- Updated dependencies [7cfc978]
+- Updated dependencies [13bd13e]
+- Updated dependencies [02a4f47]
+- Updated dependencies [26622ed]
+- Updated dependencies [36e3dcd]
+- Updated dependencies [bbb1fc4]
+- Updated dependencies [c42b10b]
+- Updated dependencies [adb8282]
+- Updated dependencies [2308970]
+- Updated dependencies [75c90a5]
+- Updated dependencies [91c224a]
+- Updated dependencies [43c82f1]
+- Updated dependencies [9a59177]
+- Updated dependencies [abf512f]
+- Updated dependencies [43c82f1]
+- Updated dependencies [d09e703]
+- Updated dependencies [ba3ef91]
+- Updated dependencies [658a9f5]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [05e6e34]
+- Updated dependencies [d855c8a]
+- Updated dependencies [32e2797]
+- Updated dependencies [2e43eec]
+- Updated dependencies [8d3ea4f]
+- Updated dependencies [4537c00]
+- Updated dependencies [8815d89]
+- Updated dependencies [a46cbdd]
+- Updated dependencies [4afd461]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [72e02ef]
+- Updated dependencies [abf512f]
+- Updated dependencies [abf512f]
+- Updated dependencies [4701235]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [08abf8f]
+- Updated dependencies [1995091]
+- Updated dependencies [0acd938]
+- Updated dependencies [708b59e]
+- Updated dependencies [2d92e7d]
+- Updated dependencies [d471c42]
+- Updated dependencies [3c2c2f1]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [675a614]
+- Updated dependencies [032c910]
+- Updated dependencies [aabbdba]
+- Updated dependencies [cb3d88c]
+- Updated dependencies [abf512f]
+- Updated dependencies [abf512f]
+- Updated dependencies [abf512f]
+- Updated dependencies [384bcc5]
+- Updated dependencies [eea5c17]
+- Updated dependencies [68cd6e5]
+- Updated dependencies [bc7c1b3]
+- Updated dependencies [e037d08]
+- Updated dependencies [862e5bf]
+- Updated dependencies [66de1ad]
+- Updated dependencies [1a0a9db]
+- Updated dependencies [99491ba]
+- Updated dependencies [abf512f]
+- Updated dependencies [862e5bf]
+- Updated dependencies [e01adee]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [862e5bf]
+- Updated dependencies [43c82f1]
+- Updated dependencies [43c82f1]
+- Updated dependencies [88dad0f]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [25164d9]
+- Updated dependencies [bbc14e5]
+- Updated dependencies [4ddc78e]
+- Updated dependencies [6f7869b]
+- Updated dependencies [c7fcaf0]
+- Updated dependencies [8599a50]
+- Updated dependencies [b91cb5a]
+- Updated dependencies [dc0b85b]
+- Updated dependencies [ddbb81e]
+- Updated dependencies [55925c6]
+- Updated dependencies [0cc6bb3]
+- Updated dependencies [d799e8b]
+  - @agent-native/core@0.232.0
+
+## 0.4.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9f49abc]
+- Updated dependencies [d863c6a]
+- Updated dependencies [270fe47]
+- Updated dependencies [2755d62]
+- Updated dependencies [ad4194c]
+- Updated dependencies [50f7168]
+- Updated dependencies [290db53]
+- Updated dependencies [3d92e2e]
+- Updated dependencies
+- Updated dependencies [eaa852f]
+- Updated dependencies [f3980e1]
+  - @agent-native/core@0.231.0
+
+## 0.4.9
+
+### Patch Changes
+
+- e0a5b1c: Turn Claude skill links that older `agent-native upgrade` runs wrote as absolute paths back into copies, and copy linked folders as files when installing or bundling skills.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [f6464e1]
+- Updated dependencies [98fe7e4]
+- Updated dependencies [816c571]
+- Updated dependencies [34ab03a]
+- Updated dependencies [1036aaf]
+- Updated dependencies [fedd657]
+- Updated dependencies [f6bff31]
+- Updated dependencies [6d0b54c]
+- Updated dependencies [6d0b54c]
+- Updated dependencies [0741e05]
+- Updated dependencies [3fc2440]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [dce0894]
+- Updated dependencies [3fc2440]
+- Updated dependencies [0794eec]
+- Updated dependencies [0794eec]
+- Updated dependencies [6d0b54c]
+- Updated dependencies [adfa327]
+- Updated dependencies [e0a5b1c]
+- Updated dependencies [675f590]
+- Updated dependencies [ba7c2f9]
+- Updated dependencies [01e4cc6]
+- Updated dependencies
+- Updated dependencies [8360101]
+- Updated dependencies [2f65a06]
+- Updated dependencies [39d9a53]
+- Updated dependencies [438dcd8]
+- Updated dependencies [2e8e783]
+- Updated dependencies [2e8e783]
+- Updated dependencies [d7645b9]
+- Updated dependencies [f53f27f]
+- Updated dependencies [485f84a]
+- Updated dependencies [485f84a]
+- Updated dependencies [aa71167]
+- Updated dependencies [485f84a]
+- Updated dependencies [d1de438]
+- Updated dependencies [8743f5d]
+- Updated dependencies [aa71167]
+- Updated dependencies [2e1e77e]
+- Updated dependencies [99e6f1d]
+- Updated dependencies [428b8b9]
+  - @agent-native/core@0.230.0
+
+## 0.4.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e04e57c]
+- Updated dependencies [cdf52f4]
+- Updated dependencies [a4a4f9e]
+- Updated dependencies [9af0433]
+- Updated dependencies [fd79105]
+- Updated dependencies [aa0f567]
+- Updated dependencies [4ec7533]
+- Updated dependencies [4a2b64d]
+- Updated dependencies [dfe5aa0]
+- Updated dependencies [31c3b35]
+- Updated dependencies [b2d106b]
+- Updated dependencies [5d8c5a6]
+- Updated dependencies [232c492]
+- Updated dependencies [6e21c72]
+- Updated dependencies [2a5ad45]
+- Updated dependencies [3420968]
+- Updated dependencies [3420968]
+- Updated dependencies [3420968]
+- Updated dependencies [d9515da]
+- Updated dependencies [62bbf91]
+- Updated dependencies [f152dfe]
+- Updated dependencies
+- Updated dependencies [fd05133]
+- Updated dependencies [59a97ba]
+- Updated dependencies [65eafd8]
+- Updated dependencies [dd24195]
+- Updated dependencies [9af0433]
+- Updated dependencies [9cbe92b]
+- Updated dependencies [7e17b65]
+- Updated dependencies [9af0433]
+- Updated dependencies [d6b72f4]
+- Updated dependencies [cd02f94]
+- Updated dependencies [58b52d0]
+- Updated dependencies [3420968]
+- Updated dependencies [79bc394]
+- Updated dependencies [5e5c149]
+- Updated dependencies [3069c20]
+- Updated dependencies [e79c1ae]
+- Updated dependencies [a6ccc79]
+- Updated dependencies [c7d628a]
+- Updated dependencies [9af0433]
+- Updated dependencies [9af0433]
+- Updated dependencies [5e5c149]
+- Updated dependencies [88c2e4b]
+- Updated dependencies [cd02f94]
+- Updated dependencies [77bf28a]
+- Updated dependencies [453ecb4]
+- Updated dependencies [7b2d487]
+  - @agent-native/core@0.229.0
+
+## 0.4.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [209a53c]
+- Updated dependencies [d2e71a8]
+- Updated dependencies
+- Updated dependencies [77f6fe8]
+  - @agent-native/core@0.228.2
+
+## 0.4.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/core@0.228.1
+
+## 0.4.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [993b03f]
+- Updated dependencies [ade88da]
+- Updated dependencies [8656de2]
+- Updated dependencies [b8a2878]
+- Updated dependencies [b078cde]
+- Updated dependencies [d471558]
+- Updated dependencies [bcedcd7]
+- Updated dependencies [2a944bc]
+- Updated dependencies [356f01b]
+- Updated dependencies [c6a683e]
+- Updated dependencies [0242915]
+- Updated dependencies [93d563d]
+- Updated dependencies [62a11a7]
+- Updated dependencies [8656de2]
+- Updated dependencies [fdc453e]
+- Updated dependencies [8175f2d]
+- Updated dependencies [1e3f234]
+- Updated dependencies [5df9bf2]
+- Updated dependencies [5ad4cb1]
+- Updated dependencies [bb5924c]
+- Updated dependencies [d95423d]
+- Updated dependencies
+- Updated dependencies [04ea3a8]
+- Updated dependencies [1e3f234]
+- Updated dependencies [1db1e6e]
+- Updated dependencies [7750ead]
+- Updated dependencies [c141e72]
+- Updated dependencies [6d10a7d]
+- Updated dependencies [60a7b14]
+- Updated dependencies [90992b0]
+- Updated dependencies [0fe0d51]
+- Updated dependencies [03fa669]
+- Updated dependencies [b84ba17]
+- Updated dependencies [8656de2]
+- Updated dependencies [03f5217]
+- Updated dependencies [b199a27]
+- Updated dependencies [3815f47]
+- Updated dependencies [bea9322]
+- Updated dependencies [bea9322]
+- Updated dependencies [aca9f1a]
+- Updated dependencies [638152f]
+- Updated dependencies [b6222c2]
+- Updated dependencies [99619f8]
+- Updated dependencies [78738f3]
+- Updated dependencies [5978d74]
+- Updated dependencies [44c685e]
+- Updated dependencies [4ca54a4]
+- Updated dependencies [bdefc2e]
+- Updated dependencies [da0d6d2]
+- Updated dependencies [ef8ad16]
+- Updated dependencies [4960415]
+  - @agent-native/core@0.228.0
+
 ## 0.4.4
 
 ### Patch Changes
@@ -2699,104 +3184,5 @@
 - Updated dependencies
 - Updated dependencies [a026821]
   - @agent-native/core@0.174.1
-
-## 0.2.705
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies [d9e978f]
-- Updated dependencies [b4c3864]
-- Updated dependencies [b4c3864]
-- Updated dependencies [b4c3864]
-- Updated dependencies [536e193]
-- Updated dependencies
-- Updated dependencies [b4c3864]
-- Updated dependencies [f22b29b]
-- Updated dependencies [eae6742]
-  - @agent-native/core@0.174.0
-
-## 0.2.704
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies [1417ba5]
-- Updated dependencies [191f4d3]
-- Updated dependencies
-- Updated dependencies [a4b36e0]
-- Updated dependencies [a4b36e0]
-- Updated dependencies [a4b36e0]
-- Updated dependencies [7265794]
-- Updated dependencies [1417ba5]
-  - @agent-native/core@0.173.1
-
-## 0.2.703
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-- Updated dependencies [460080b]
-- Updated dependencies [460080b]
-  - @agent-native/core@0.173.0
-
-## 0.2.702
-
-### Patch Changes
-
-- Updated dependencies [200e63b]
-  - @agent-native/core@0.172.10
-
-## 0.2.701
-
-### Patch Changes
-
-- Updated dependencies [36c79f9]
-  - @agent-native/core@0.172.9
-
-## 0.2.700
-
-### Patch Changes
-
-- Updated dependencies [e248449]
-  - @agent-native/core@0.172.8
-
-## 0.2.699
-
-### Patch Changes
-
-- Updated dependencies [be8c373]
-  - @agent-native/core@0.172.7
-
-## 0.2.698
-
-### Patch Changes
-
-- Updated dependencies [415a6d8]
-- Updated dependencies [3fa1b09]
-- Updated dependencies [6f0392b]
-  - @agent-native/core@0.172.6
-
-## 0.2.697
-
-### Patch Changes
-
-- Updated dependencies [5a6204c]
-  - @agent-native/core@0.172.5
-
-## 0.2.696
-
-### Patch Changes
-
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-  - @agent-native/core@0.172.4
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

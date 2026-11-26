@@ -12,7 +12,9 @@ export {
 } from "../agentkit/capabilities.js";
 export {
   defineAppConfig,
+  defineAppConfigSection,
   getAppConfig,
+  getAppConfigSchema,
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
@@ -21,6 +23,9 @@ export {
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type AppConfigSection,
+  type AppConfigSections,
+  type AppConfigSectionSchema,
   type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
@@ -67,16 +72,23 @@ export {
   toVsCodeOpenUrl,
   OPEN_ROUTE_SUBPATH,
   DESKTOP_OPEN_URL,
+  DESKTOP_DEEP_LINK_PROTOCOLS,
   VSCODE_OPEN_URL,
   type DeepLinkInput,
+  type DesktopDeepLinkProtocol,
 } from "./deep-link.js";
 export { createOpenRouteHandler, type OpenRouteOptions } from "./open-route.js";
+export {
+  VISUAL_EDIT_CAPABILITY_ACTIONS,
+  visualEditCapabilityDesignId,
+} from "./visual-edit-capability.js";
 export {
   createEmbedStartRouteHandler,
   buildEmbedStartPath,
   type EmbedStartRouteOptions,
 } from "./embed-route.js";
 export {
+  FULL_APP_EMBED_SCOPE,
   createEmbedSessionTicket,
   consumeEmbedSessionTicket,
   normalizeEmbedTargetPath,
@@ -127,6 +139,7 @@ export {
   type AuthOptions,
 } from "./auth.js";
 export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { declaredLinkOrigin } from "./origin-allowlist.js";
 export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
@@ -397,10 +410,15 @@ export {
 } from "./embedded.js";
 export {
   createThread,
+  registerChatThreadSharingPolicy,
+  getQueuedSubmissionReceipt,
+  mutateThreadQueuedMessages,
+  QueuedSubmissionAdmissionError,
   getThread,
   listThreads,
   searchThreads,
   updateThreadData,
+  replaceThreadData,
   deleteThread,
   setThreadArchived,
   setThreadPinned,
@@ -413,6 +431,7 @@ export {
   type ChatThreadListRow,
   type ListThreadsOptions,
 } from "../chat-threads/store.js";
+export { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
 export {
   createResourcesPlugin,
   defaultResourcesPlugin,
@@ -591,14 +610,17 @@ export {
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,
+  getRequestIdentityAuthenticatedAtMs,
   getAmbientUserEmail,
   getAmbientOrgId,
   getRequestTimezone,
   getRequestRunContext,
   getCredentialContext,
   isIntegrationCallerRequest,
+  normalizeViewportMode,
   type RequestContext,
   type RequestRunContext,
+  type ViewportMode,
 } from "./request-context.js";
 export {
   loadFirstRunBuilderCreditsV2Assignment,
@@ -679,6 +701,7 @@ export {
   NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,
+  oauthCallbackOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
@@ -809,6 +832,7 @@ export {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  hasOwnStoredBuilderOAuthGrantForUse,
   resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
   type BuilderOAuthRequestAccessState,
@@ -973,6 +997,7 @@ export {
   runRecurringSweepHandlers,
   type RecurringSweepContext,
   type RecurringSweepHandler,
+  type RecurringSweepHandlerOptions,
 } from "../jobs/sweep-hooks.js";
 export {
   hasJobRunner,
@@ -1048,3 +1073,14 @@ export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;
 }
 export { appStateListKeysByKeySuffixPrefix } from "./application-state-maintenance.js";
+export {
+  PROVIDER_PAUSE_FORBIDDEN,
+  assertProviderPauseOperator,
+  isProviderPauseOperator,
+  type ProviderPauseCaller,
+} from "./provider-pause-operator.js";
+export type {
+  AgentChatRunCompleteOutcome,
+  AgentChatRunNotStartedDetails,
+  AgentChatRunProjectionOutcome,
+} from "./agent-chat/plugin-options.js";

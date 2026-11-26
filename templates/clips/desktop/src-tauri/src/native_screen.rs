@@ -149,8 +149,10 @@ mod custom_capture;
 pub(crate) use custom_capture::extract_mono_audio;
 #[cfg(target_os = "macos")]
 use custom_capture::{
-    prepare_clip_sink, start_custom_screencapturekit_backend_at, ClosedSegmentFile,
-    CustomCaptureResume, CustomScreenCaptureWriter, PreparedClipSink, SegmentFence,
+    prepare_clip_sink, start_audio_capture, start_camera_capture,
+    start_custom_screencapturekit_backend_at, start_screen_capture, AudioCapture, CameraCapture,
+    ClosedSegmentFile, CustomCaptureResume, CustomScreenCaptureWriter, PreparedClipSink,
+    RichAudioTaps, ScreenCapture, SegmentFence,
 };
 #[cfg(target_os = "macos")]
 mod live_upload;
@@ -161,6 +163,20 @@ use live_upload::{
     attach_live_uploader_to_session, cancel_clip_live_upload, finalize_clip_live_upload,
     start_clip_live_uploader, LiveUpload,
 };
+#[cfg(target_os = "macos")]
+mod audio_track;
+#[cfg(target_os = "macos")]
+mod camera_track;
+#[cfg(target_os = "macos")]
+mod input_track;
+#[cfg(target_os = "macos")]
+mod rich_recording;
+#[cfg(target_os = "macos")]
+use rich_recording::{attach_rich_recording, RichRecording};
+#[cfg(target_os = "macos")]
+mod screen_track;
+#[cfg(target_os = "macos")]
+mod track_upload;
 mod upload_sizing;
 use upload_sizing::{
     avconvert_presets, encode_is_worth_uploading, kept_original_expired, transcode_dimensions,
@@ -400,6 +416,9 @@ struct NativeFullscreenSession {
     #[cfg(target_os = "macos")]
     live_upload: Option<LiveUpload>,
     had_live_upload: bool,
+    /// Clips' rich recording tracks, kept only when the webview asked for them.
+    #[cfg(target_os = "macos")]
+    rich_recording: Option<RichRecording>,
     disk_monitor_stop: Option<Arc<AtomicBool>>,
 }
 
@@ -2914,6 +2933,8 @@ pub async fn native_fullscreen_recording_begin(
     local_only: Option<bool>,
     has_camera: Option<bool>,
     include_camera_overlay: bool,
+    rich_tracks: Option<bool>,
+    camera_label: Option<String>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     #[cfg(not(target_os = "macos"))]
     {
@@ -2929,6 +2950,8 @@ pub async fn native_fullscreen_recording_begin(
             local_only,
             has_camera,
             include_camera_overlay,
+            rich_tracks,
+            camera_label,
         );
         return Err("Native full-screen recording is currently macOS-only.".into());
     }
@@ -3050,6 +3073,18 @@ pub async fn native_fullscreen_recording_begin(
                     include_audio,
                     has_camera.unwrap_or(false),
                 );
+                if rich_tracks.unwrap_or(false) {
+                    attach_rich_recording(
+                        &app,
+                        session,
+                        &recording_id,
+                        server_url.as_deref(),
+                        auth_token.as_deref(),
+                        cookie.as_deref(),
+                        has_camera.unwrap_or(false),
+                        camera_label.as_deref(),
+                    );
+                }
                 persist_active_recording_intent(
                     session,
                     &recording_id,
@@ -3145,6 +3180,18 @@ pub async fn native_fullscreen_recording_begin(
             include_audio,
             has_camera.unwrap_or(false),
         );
+        if rich_tracks.unwrap_or(false) {
+            attach_rich_recording(
+                &app,
+                session,
+                &recording_id,
+                server_url.as_deref(),
+                auth_token.as_deref(),
+                cookie.as_deref(),
+                has_camera.unwrap_or(false),
+                camera_label.as_deref(),
+            );
+        }
         persist_active_recording_intent(
             session,
             &recording_id,
@@ -3458,6 +3505,9 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 if !upload.verification_pending {
                     clear_saved_recording_after_success(&app, &saved);
                 }
+                if let Some(rich) = session.rich_recording.take() {
+                    rich.finish(verified_duration_ms as u64);
+                }
                 emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
                 Ok(NativeFullscreenUploadResult {
                     recording_id,
@@ -3655,6 +3705,47 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
     }
 }
 
+/// Quitting: static state is never dropped and the quit may skip destructors,
+/// so a rich recording's tap, second stream and uploaders are stopped here and
+/// its folder deleted, and so is every tracks folder of a recording already
+/// stopped, whose tracks wait or send in the background. Nothing would send
+/// their tracks after this run.
+#[cfg(target_os = "macos")]
+pub(crate) fn stop_rich_recording_on_exit(state: &NativeFullscreenRecordingState) {
+    let rich = state
+        .inner
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_mut()
+        .and_then(|session| session.rich_recording.take());
+    if let Some(rich) = rich {
+        rich.quit();
+    }
+    rich_recording::remove_tracks_folders_in_use();
+}
+
+/// Deletes the tracks folders earlier runs left beside their recordings, on a
+/// thread of its own.
+#[cfg(target_os = "macos")]
+pub(crate) fn remove_leftover_rich_tracks(app: &AppHandle) {
+    let dir = match pending_uploads_dir(app) {
+        Ok(dir) => dir,
+        Err(error) => {
+            eprintln!("[rich-tracks] leftover tracks folders not checked: {error}");
+            return;
+        }
+    };
+    let pid = std::process::id();
+    let spawned = std::thread::Builder::new()
+        .name("clips-rich-tracks-sweep".into())
+        .spawn(move || {
+            rich_recording::remove_leftover_tracks_folders(&dir, pid);
+        });
+    if let Err(error) = spawned {
+        eprintln!("[rich-tracks] leftover tracks folders not checked: {error}");
+    }
+}
+
 fn terminate_screencapture_child_before_detach(session: &mut NativeFullscreenSession) {
     if !matches!(
         session.backend.as_ref(),
@@ -3782,23 +3873,10 @@ pub async fn native_fullscreen_recording_pause(
                 false
             };
         if soft_paused {
-            #[cfg(target_os = "macos")]
-            if let Err(error) = ensure_camera_bubble_capture_preference_restored(
-                &app,
-                &state,
-                Some(session.restart.alignment_generation),
-            ) {
-                return Err(mark_pause_failure(
-                    session,
-                    format!("Unable to restore camera privacy after pausing: {error}"),
-                ));
-            }
-            session.paused_at = Some(Instant::now());
-            eprintln!(
-                "[clips-tray] soft-paused {} (writer/file/live upload kept alive)",
-                session.restart.safe_id
-            );
-            return Ok(());
+            let generation = session.restart.alignment_generation;
+            return finish_soft_pause(session, || {
+                ensure_camera_bubble_capture_preference_restored(&app, &state, Some(generation))
+            });
         }
     }
 
@@ -3809,6 +3887,10 @@ pub async fn native_fullscreen_recording_pause(
             session.restart.safe_id
         );
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(rich) = session.rich_recording.take() {
+        rich.abandon("the recording lost its live upload when it paused");
     }
     if session.backend.is_none() {
         #[cfg(target_os = "macos")]
@@ -3942,6 +4024,9 @@ pub async fn native_fullscreen_recording_resume(
                 .checked_add(paused_for)
                 .unwrap_or(session.paused_total);
             session.paused_at = None;
+            if let Some(rich) = session.rich_recording.as_mut() {
+                rich.resume(paused_for);
+            }
             eprintln!(
                 "[clips-tray] soft-resumed {} after {}ms paused (single continuous file, paused_total={}ms)",
                 session.restart.safe_id,
@@ -4175,6 +4260,10 @@ fn take_and_finalize_active_session(
     if let Some(stop) = &session.disk_monitor_stop {
         stop.store(true, Ordering::Relaxed);
     }
+    #[cfg(target_os = "macos")]
+    if let Some(rich) = session.rich_recording.as_mut() {
+        rich.stop_capture();
+    }
     let stop_outcome = finalize_active_backend(&mut session, true);
     recover_from_unusable_current_segment(&mut session, "final stop", false);
     println!(
@@ -4231,6 +4320,31 @@ fn finalize_active_backend(
         return Ok(());
     };
     stop_native_recording(&mut backend, wait_for_finalize)
+}
+
+/// The capture pipeline has just soft-paused. Its tracks pause with it before
+/// anything else here can fail, or they would keep capturing a recording that
+/// is paused.
+#[cfg(target_os = "macos")]
+fn finish_soft_pause(
+    session: &mut NativeFullscreenSession,
+    restore_camera_privacy: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if let Some(rich) = session.rich_recording.as_mut() {
+        rich.pause();
+    }
+    if let Err(error) = restore_camera_privacy() {
+        return Err(mark_pause_failure(
+            session,
+            format!("Unable to restore camera privacy after pausing: {error}"),
+        ));
+    }
+    session.paused_at = Some(Instant::now());
+    eprintln!(
+        "[clips-tray] soft-paused {} (writer/file/live upload kept alive)",
+        session.restart.safe_id
+    );
+    Ok(())
 }
 
 fn mark_pause_failure(session: &mut NativeFullscreenSession, message: impl Into<String>) -> String {
@@ -4302,6 +4416,10 @@ fn discard_session(session: &mut NativeFullscreenSession) {
     if let Some(live) = session.live_upload.take() {
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
     }
+    #[cfg(target_os = "macos")]
+    if let Some(rich) = session.rich_recording.take() {
+        rich.discard();
+    }
     if let Some(stop) = &session.disk_monitor_stop {
         stop.store(true, Ordering::Relaxed);
     }
@@ -4320,7 +4438,10 @@ fn discard_session(session: &mut NativeFullscreenSession) {
 mod detached_discard_tests {
     use super::*;
 
-    fn hardware_free_session(path: PathBuf, segments: Vec<PathBuf>) -> NativeFullscreenSession {
+    pub(super) fn hardware_free_session(
+        path: PathBuf,
+        segments: Vec<PathBuf>,
+    ) -> NativeFullscreenSession {
         NativeFullscreenSession {
             backend: None,
             path,
@@ -4357,6 +4478,8 @@ mod detached_discard_tests {
             #[cfg(target_os = "macos")]
             live_upload: None,
             had_live_upload: false,
+            #[cfg(target_os = "macos")]
+            rich_recording: None,
             disk_monitor_stop: None,
         }
     }
@@ -6985,6 +7108,8 @@ fn new_fullscreen_session(
         #[cfg(target_os = "macos")]
         live_upload: None,
         had_live_upload: false,
+        #[cfg(target_os = "macos")]
+        rich_recording: None,
         disk_monitor_stop: None,
     }
 }
@@ -7090,12 +7215,7 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 const SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "macos")]
-static PENDING_CAPTURE_STOP_WORKERS: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(target_os = "macos")]
-pub(crate) fn pending_capture_stop_workers() -> usize {
-    PENDING_CAPTURE_STOP_WORKERS.load(Ordering::SeqCst)
-}
+pub(crate) use crate::capture_stop::{pending_capture_stop_workers, run_bounded_capture_stop};
 
 #[cfg(target_os = "macos")]
 pub(crate) fn refuse_if_capture_stop_pending() -> Result<(), String> {
@@ -7105,30 +7225,6 @@ pub(crate) fn refuse_if_capture_stop_pending() -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
-where
-    F: FnOnce() -> Result<(), String> + Send + 'static,
-{
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    PENDING_CAPTURE_STOP_WORKERS.fetch_add(1, Ordering::SeqCst);
-    std::thread::spawn(move || {
-        let result = stop();
-        PENDING_CAPTURE_STOP_WORKERS.fetch_sub(1, Ordering::SeqCst);
-        let _ = tx.send(result);
-    });
-    match rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
-            "custom ScreenCaptureKit stop timed out after {}s; continuing finalization",
-            timeout.as_secs()
-        )),
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err("custom ScreenCaptureKit stop worker disconnected".into())
-        }
-    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -11230,6 +11326,8 @@ mod segment_recovery_tests {
             #[cfg(target_os = "macos")]
             live_upload: None,
             had_live_upload: false,
+            #[cfg(target_os = "macos")]
+            rich_recording: None,
             disk_monitor_stop: None,
         }
     }

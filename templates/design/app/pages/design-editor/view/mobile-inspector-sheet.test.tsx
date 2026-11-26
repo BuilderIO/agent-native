@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -16,10 +17,7 @@ vi.mock("@/components/design/EditPanel", () => ({
 
 type SheetArgs = Parameters<typeof renderMobileInspectorSheet>[0];
 
-function sheetArgs(overrides: {
-  minimalUi: boolean;
-  motionDockOpen?: boolean;
-}): SheetArgs {
+function sheetArgs(overrides: { minimalUi: boolean }): SheetArgs {
   return {
     editorCore: {
       t: (key: string) => key,
@@ -28,7 +26,6 @@ function sheetArgs(overrides: {
     } as unknown as EditorCore,
     editorHistory: {
       minimalUi: overrides.minimalUi,
-      motionDockOpen: overrides.motionDockOpen ?? false,
     } as unknown as EditorHistory,
     editorLiveEditsAndPresence: {
       initialGenerationChromeLimited: false,
@@ -75,34 +72,6 @@ describe("mobile inspector sheet", () => {
     });
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.className).toContain("w-[min(92vw,360px)]");
-    await unmount();
-  });
-
-  it("keeps the inspector non-modal and above the Motion dock", async () => {
-    const { unmount } = await mount(
-      sheetArgs({ minimalUi: false, motionDockOpen: true }),
-    );
-    const trigger = document.querySelector(
-      'button[aria-label="editPanel.properties"]',
-    );
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog).not.toBeNull();
-    expect(dialog?.getAttribute("aria-modal")).toBeNull();
-    expect(dialog?.className).toContain("w-[min(max(240px,48vw),360px)]");
-    expect(dialog?.style.height).toBe("auto");
-    expect(document.querySelector("[data-radix-dialog-overlay]")).toBeNull();
-
-    await act(async () => {
-      document.body.dispatchEvent(
-        new MouseEvent("pointerdown", { bubbles: true }),
-      );
-    });
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     await unmount();
   });
 });

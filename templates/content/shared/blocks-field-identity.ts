@@ -185,12 +185,13 @@ function nodeMarkdown(node: PMNode): string {
 
 const EMPTY_PARAGRAPH_MARKDOWN = nodeMarkdown({ type: "paragraph" });
 
-export function snapshotBlocksFieldMarkdown(
-  markdown: string,
-): BlocksFieldBlockSnapshot[] {
-  const snapshots: BlocksFieldBlockSnapshot[] = [];
-  const doc = nfmToDoc(markdown);
-
+export function visitBlocksFieldBlocks(
+  doc: PMNode,
+  visitor: (
+    node: PMNode,
+    place: { path: string; parentPath: string | null; position: number },
+  ) => void,
+): void {
   function visit(nodes: PMNode[] | undefined, parentPath: string | null) {
     let blockPosition = 0;
     for (let index = 0; index < (nodes?.length ?? 0); index++) {
@@ -200,12 +201,27 @@ export function snapshotBlocksFieldMarkdown(
         parentPath === null
           ? `${blockPosition}`
           : `${parentPath}.${blockPosition}`;
+      visitor(node, { path, parentPath, position: blockPosition });
+      visit(node.content, path);
+      blockPosition++;
+    }
+  }
+  visit(doc.content, null);
+}
+
+export function snapshotBlocksFieldMarkdown(
+  markdown: string,
+): BlocksFieldBlockSnapshot[] {
+  const snapshots: BlocksFieldBlockSnapshot[] = [];
+  visitBlocksFieldBlocks(
+    nfmToDoc(markdown),
+    (node, { path, parentPath, position }) => {
       const canonical = JSON.stringify(stableNodeValue(node));
       snapshots.push({
         path,
         parentPath,
         kind: node.type,
-        position: blockPosition,
+        position,
         addressable: !NON_ADDRESSABLE_NODE_TYPES.has(node.type),
         contentHash: `block_${hashString(canonical)}`,
         markdown: nodeMarkdown(node),
@@ -215,13 +231,55 @@ export function snapshotBlocksFieldMarkdown(
             ? node.attrs.blockId
             : null,
       });
-      visit(node.content, path);
-      blockPosition++;
-    }
-  }
-
-  visit(doc.content, null);
+    },
+  );
   return snapshots;
+}
+
+export function blocksFieldShape(
+  places: Iterable<{ path: string; kind: string }>,
+): string {
+  const lines: string[] = [];
+  for (const { path, kind } of places) lines.push(`${path}:${kind}`);
+  return `shape_${hashString(lines.join("\n"))}`;
+}
+
+export function blocksFieldTreeShape(doc: PMNode): string {
+  const places: { path: string; kind: string }[] = [];
+  visitBlocksFieldBlocks(doc, (node, { path }) =>
+    places.push({ path, kind: node.type }),
+  );
+  return blocksFieldShape(places);
+}
+
+export function isAddressableBlocksFieldKind(kind: string): boolean {
+  return BLOCK_NODE_TYPES.has(kind) && !NON_ADDRESSABLE_NODE_TYPES.has(kind);
+}
+
+export function blocksFieldPathsById(
+  blocks: readonly Pick<BlocksFieldBlock, "id" | "parentId" | "position">[],
+): Map<string, string> {
+  const byId = new Map(blocks.map((block) => [block.id, block]));
+  const paths = new Map<string, string>();
+  const resolving = new Set<string>();
+  const pathOf = (id: string): string | null => {
+    const known = paths.get(id);
+    if (known !== undefined) return known;
+    const block = byId.get(id);
+    if (!block || resolving.has(id)) return null;
+    resolving.add(id);
+    const parentPath = block.parentId === null ? null : pathOf(block.parentId);
+    resolving.delete(id);
+    if (block.parentId !== null && parentPath === null) return null;
+    const path =
+      parentPath === null
+        ? `${block.position}`
+        : `${parentPath}.${block.position}`;
+    paths.set(id, path);
+    return path;
+  };
+  for (const block of blocks) pathOf(block.id);
+  return paths;
 }
 
 function deterministicBlockId(
@@ -335,27 +393,65 @@ function uniqueIndexByKey<T>(
   return index;
 }
 
-function characterBigrams(value: string): Set<string> {
-  const normalized = value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
-  if (normalized.length < 2) return new Set(normalized ? [normalized] : []);
-  const result = new Set<string>();
-  for (let index = 0; index < normalized.length - 1; index++) {
-    result.add(normalized.slice(index, index + 2));
-  }
-  return result;
+const TEXT_PIECE_LENGTH = 4;
+
+// Whitespace is left out, so the parts of a split or merge read the same as
+// the text they came from. Accented letters typed as a letter and a combining
+// mark compare the same as the single character.
+function comparableText(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase().replace(/\s+/g, "");
 }
 
-const MIN_EDIT_SIMILARITY = 0.45;
-
-function editSimilarity(left: string, right: string): number {
-  const leftBigrams = characterBigrams(left);
-  const rightBigrams = characterBigrams(right);
-  if (leftBigrams.size === 0 || rightBigrams.size === 0) return 0;
-  let shared = 0;
-  for (const bigram of leftBigrams) {
-    if (rightBigrams.has(bigram)) shared++;
+// Comparable text as counted, overlapping four-character pieces, with its
+// start and end marked.
+function textPieces(text: string): Map<string, number> {
+  const pieces = new Map<string, number>();
+  if (!text) return pieces;
+  const marked = `\u0002${text}\u0003`;
+  const last = Math.max(0, marked.length - TEXT_PIECE_LENGTH);
+  for (let index = 0; index <= last; index++) {
+    const piece = marked.slice(index, index + TEXT_PIECE_LENGTH);
+    pieces.set(piece, (pieces.get(piece) ?? 0) + 1);
   }
-  return (2 * shared) / (leftBigrams.size + rightBigrams.size);
+  return pieces;
+}
+
+const MIN_SURVIVING_TEXT = 0.5;
+
+// How many of the old text's pieces the new text still contains, out of all
+// of them.
+function survivingText(
+  oldText: string,
+  newText: string,
+): { kept: number; total: number } {
+  const oldComparable = comparableText(oldText);
+  const newComparable = comparableText(newText);
+  // One or two characters and both marks make a single piece, which any
+  // added text breaks. Text that short survives where the new text starts or
+  // ends with it.
+  if (oldComparable && oldComparable.length + 2 <= TEXT_PIECE_LENGTH) {
+    const survives =
+      newComparable.startsWith(oldComparable) ||
+      newComparable.endsWith(oldComparable);
+    return { kept: survives ? 1 : 0, total: 1 };
+  }
+  const oldPieces = textPieces(oldComparable);
+  const newPieces = textPieces(newComparable);
+  let total = 0;
+  let kept = 0;
+  for (const [piece, count] of oldPieces) {
+    total += count;
+    kept += Math.min(count, newPieces.get(piece) ?? 0);
+  }
+  return { kept, total };
+}
+
+// An edit keeps at least half of a block's text, however much it adds.
+// Unrelated prose shares common words and letter pairs, but few runs of four
+// characters.
+function keepsText(oldText: string, newText: string): boolean {
+  const { kept, total } = survivingText(oldText, newText);
+  return total > 0 && kept >= total * MIN_SURVIVING_TEXT;
 }
 
 function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
@@ -367,12 +463,6 @@ function appendTo<T>(map: Map<string, T[]>, key: string, value: T) {
 function startsWithBlock(whole: string, part: string): boolean {
   const prefix = part.trim();
   return prefix.length > 0 && whole.trimStart().startsWith(prefix);
-}
-
-// A split or merge keeps most of its text: the one block on one side reads
-// like the blocks on the other side joined together.
-function keepsText(whole: string, parts: readonly string[]): boolean {
-  return editSimilarity(whole, parts.join("\n")) >= MIN_EDIT_SIMILARITY;
 }
 
 interface PreviousSibling {
@@ -409,9 +499,19 @@ export function reconcileBlocksFieldIdentity(args: {
   const previousLiveById = new Map(
     previousLive.map((block, index) => [block.id, index]),
   );
+  const previousDeletedById = new Map(
+    previousDeleted.map((block) => [block.id, block]),
+  );
+  const recoveredIds = new Set<string>();
   for (let nextIndex = 0; nextIndex < snapshots.length; nextIndex++) {
     const explicitId = args.preferredIdsByPath?.[snapshots[nextIndex]!.path];
     if (!explicitId) continue;
+    const deleted = previousDeletedById.get(explicitId);
+    if (deleted && !recoveredIds.has(explicitId)) {
+      recoveredIds.add(explicitId);
+      assigned.set(nextIndex, deleted);
+      continue;
+    }
     const previousIndex = previousLiveById.get(explicitId);
     if (previousIndex === undefined || matchedPrevious.has(previousIndex)) {
       continue;
@@ -430,7 +530,13 @@ export function reconcileBlocksFieldIdentity(args: {
   );
   for (const [key, previousIndex] of previousExact) {
     const nextIndex = nextExact.get(key);
-    if (nextIndex === undefined) continue;
+    if (
+      nextIndex === undefined ||
+      matchedPrevious.has(previousIndex) ||
+      assigned.has(nextIndex)
+    ) {
+      continue;
+    }
     matchedPrevious.add(previousIndex);
     assigned.set(nextIndex, previousLive[previousIndex]!);
   }
@@ -573,17 +679,19 @@ export function reconcileBlocksFieldIdentity(args: {
           if (!firstPrevious || !firstNext) continue;
           const previousMarkdown = firstPrevious.block.markdown;
           const nextMarkdown = firstNext.snapshot.markdown;
+          // A split's new blocks, joined, keep the old block's text; a
+          // merge's one new block keeps the old blocks' text.
           const split =
             !manyPrevious &&
             manyNext &&
             (previousMarkdown === EMPTY_PARAGRAPH_MARKDOWN ||
               (startsWithBlock(previousMarkdown, nextMarkdown) &&
-                keepsText(previousMarkdown, nextTexts)));
+                keepsText(previousMarkdown, nextTexts.join("\n"))));
           const merge =
             manyPrevious &&
             !manyNext &&
             startsWithBlock(nextMarkdown, previousMarkdown) &&
-            keepsText(nextMarkdown, previousTexts);
+            keepsText(previousTexts.join("\n"), nextMarkdown);
           const rewrite = allowRewrite && !manyPrevious && !manyNext;
           if (split || merge || rewrite) {
             pair(firstPrevious, firstNext.index);
@@ -632,8 +740,15 @@ export function reconcileBlocksFieldIdentity(args: {
       if (assigned.has(nextIndex)) continue;
       const snapshot = snapshots[nextIndex]!;
       if (previous.kind !== snapshot.kind) continue;
-      const score = editSimilarity(previous.markdown, snapshot.markdown);
-      if (score < MIN_EDIT_SIMILARITY) continue;
+      const { kept, total } = survivingText(
+        previous.markdown,
+        snapshot.markdown,
+      );
+      if (total === 0 || kept < total * MIN_SURVIVING_TEXT) continue;
+      // Pairs rank by how much text they share, not by the share of the old
+      // text: a short old block that a new one contains whole must not win
+      // over the longer block the new one was edited from.
+      const score = kept;
       const previousBest = bestNextForPrevious.get(previousIndex);
       if (!previousBest || score > previousBest.score) {
         bestNextForPrevious.set(previousIndex, { index: nextIndex, score });
@@ -657,7 +772,6 @@ export function reconcileBlocksFieldIdentity(args: {
     previousDeleted,
     (block) => `${block.kind}\0${block.contentHash}`,
   );
-  const recoveredIds = new Set<string>();
   const idByPath = new Map<string, string>();
   const nextBlocks = snapshots.map((snapshot, nextIndex) => {
     const explicitId = args.preferredIdsByPath?.[snapshot.path];
@@ -666,12 +780,14 @@ export function reconcileBlocksFieldIdentity(args: {
       const recoveredIndex = recoverable.get(
         `${snapshot.kind}\0${snapshot.contentHash}`,
       );
-      if (recoveredIndex !== undefined) {
-        previous = previousDeleted[recoveredIndex];
-        if (previous) {
-          recoveredIds.add(previous.id);
-          recoverable.delete(`${snapshot.kind}\0${snapshot.contentHash}`);
-        }
+      const recovered =
+        recoveredIndex === undefined
+          ? undefined
+          : previousDeleted[recoveredIndex];
+      if (recovered && !recoveredIds.has(recovered.id)) {
+        previous = recovered;
+        recoveredIds.add(recovered.id);
+        recoverable.delete(`${snapshot.kind}\0${snapshot.contentHash}`);
       }
     }
     if (explicitId && usedIds.has(explicitId) && explicitId !== previous?.id) {
@@ -740,6 +856,29 @@ export function reconcileBlocksFieldIdentity(args: {
   };
 }
 
+export function catchUpBlocksFieldIdentity(
+  stored: StoredBlocksFieldIdentity,
+  markdown: string,
+): StoredBlocksFieldIdentity {
+  let provisionalIndex = 0;
+  const taken = new Set(stored.blocks.map((block) => block.id));
+  const createId = () => {
+    let id: string;
+    do {
+      id = `block_${hashString(`${stored.fieldId}\0${markdown}\0${provisionalIndex++}`)}`;
+    } while (taken.has(id));
+    taken.add(id);
+    return id;
+  };
+  return reconcileBlocksFieldIdentity({
+    documentId: "stale-read",
+    propertyId: stored.fieldId,
+    previous: stored,
+    markdown,
+    createId,
+  });
+}
+
 export function exposeBlocksFieldIdentity(
   stored: StoredBlocksFieldIdentity,
   markdown: string,
@@ -748,15 +887,7 @@ export function exposeBlocksFieldIdentity(
   if (currentHash === stored.contentHash) {
     return publicIdentity(stored, "materialized");
   }
-  let provisionalIndex = 0;
-  const reconciled = reconcileBlocksFieldIdentity({
-    documentId: "stale-read",
-    propertyId: stored.fieldId,
-    previous: stored,
-    markdown,
-    createId: () =>
-      `block_${hashString(`${stored.fieldId}\0${markdown}\0${provisionalIndex++}`)}`,
-  });
+  const reconciled = catchUpBlocksFieldIdentity(stored, markdown);
   return publicIdentity({ ...reconciled, revision: stored.revision }, "stale");
 }
 

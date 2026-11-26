@@ -1,7 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type { ContentDatabaseRowPatchBatchResult } from "../shared/api.js";
+import {
+  contentOutputContract,
+  patchDatabaseItemsOutputSchema,
+} from "./_content-output-contracts.js";
 import { withContentWebhookDelivery } from "./_content-webhooks.js";
 import {
   databasePropertyEntriesSchema,
@@ -9,9 +14,12 @@ import {
 } from "./_database-property-input.js";
 import {
   DATABASE_ROW_PATCH_LIMIT,
-  databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
+  databaseMutationTargetInputSchema,
+  fenceRowPatchReceipt,
   patchDatabaseRows,
+  reconcileRowPatchReceipt,
+  rowPatchReceiptLocator,
 } from "./_database-row-mutation.js";
 import { expectedPropertyGenerationsSchema } from "./_property-generations.js";
 
@@ -51,7 +59,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
 });
 const agentSchema = schema
   .extend({
-    target: databaseMutationAgentTargetSchema.strict(),
+    target: databaseMutationTargetInputSchema.strict(),
     rows: z
       .array(rowPatchSchema.omit({ propertyValues: true }).strict())
       .min(1)
@@ -61,11 +69,23 @@ const agentSchema = schema
   .strict();
 
 export default defineAction({
-  description: `Apply a different sparse patch to each of up to ${DATABASE_ROW_PATCH_LIMIT} existing rows of one Content collection in one atomic call, for example a distinct rank per row. Copy the target, schemaRevision, and every row's itemId, document.id, and rowRevision from one fresh get-content-database read. Either every row is written or none is: a stale row revision or invalid entry writes nothing and the error lists every affected row, so reread only those rows and resend. Retrying with the same idempotencyKey and payload replays the stored receipt. Returns one verified receipt per row with the patched values read back. Use update-database-item for a single row.`,
+  description: `Apply a different sparse patch to each of up to ${DATABASE_ROW_PATCH_LIMIT} existing rows of one Content collection in one atomic call, for example a distinct rank per row. Copy the target, schemaRevision, and every row's itemId, document.id, and rowRevision from one fresh get-content-database read. Either every row is written or none is: a stale row revision or invalid entry writes nothing and the error lists every affected row, so reread only those rows and resend. Retrying with the same idempotencyKey and payload replays the stored receipt, whose replay field says its readback is from the original write; read get-content-database for current values. Returns one verified receipt per row with the patched values read back. Use update-database-item for a single row.`,
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
   schema,
+  outputSchema: contentOutputContract<ContentDatabaseRowPatchBatchResult>(
+    patchDatabaseItemsOutputSchema,
+  ),
+  mcpOutputSchema: true,
+  mcpScript: "write",
+  mcpScriptWrite: {
+    rowBound: (args) => args.rows.length,
+    receiptLocator: rowPatchReceiptLocator,
+    reconcile: reconcileRowPatchReceipt,
+    fence: fenceRowPatchReceipt,
+    destructive: true,
+  },
   audit: {
     recordInputs: false,
     target: (args) => ({
@@ -81,6 +101,8 @@ export default defineAction({
         : "Patched Content collection rows";
     },
   },
+  changeResource: (input) =>
+    documentChangeResource(input.target.databaseDocumentId),
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     return withContentWebhookDelivery(context, () =>

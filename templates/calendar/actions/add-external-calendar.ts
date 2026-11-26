@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { getUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
+import { mutateExternalCalendars } from "../server/lib/external-calendars.js";
 import { fetchICalName } from "../server/lib/ical-fetcher.js";
 import type { ExternalCalendar } from "../shared/api.js";
 
@@ -21,6 +22,12 @@ const CALENDAR_COLORS = [
 ];
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Add an external calendar subscription from an ICS or webcal:// URL",
   schema: z.object({
@@ -60,12 +67,10 @@ export default defineAction({
       color: args.color ?? autoColor,
     };
 
-    const updated = [...existing, newCalendar];
-    await putUserSetting(
-      email,
-      "external-calendars",
-      updated as unknown as Record<string, unknown>,
-    );
+    await mutateExternalCalendars(email, (current) => [
+      ...current,
+      newCalendar,
+    ]);
     return newCalendar;
   },
 });

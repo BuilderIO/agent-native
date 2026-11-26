@@ -5,6 +5,7 @@ import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { createResourceGrant } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Grant an app access to a workspace resource (skill, instruction, agent, knowledge pack, or MCP server). Admin only.",
   authorize: authorizeDispatchAdmin,

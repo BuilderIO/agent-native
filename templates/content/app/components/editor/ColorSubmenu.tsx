@@ -28,6 +28,31 @@ export function chosenColor(current: string | null, choice: string) {
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 type ColorChoice = { color: string; label: string };
 
+/** A choice's sample: a lettered square for text, a filled one for background. */
+export function ColorSwatch({ color }: { color: string }) {
+  const name = color.replace(/_bg$/, "");
+  const isDefault = name === DEFAULT_TEXT;
+  return color.endsWith("_bg") ? (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "size-5 shrink-0 rounded border border-border",
+        !isDefault && `content-block-bg--${name}`,
+      )}
+    />
+  ) : (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded border border-border text-xs font-semibold",
+        !isDefault && `content-block-color--${name}`,
+      )}
+    >
+      A
+    </span>
+  );
+}
+
 /** Each colour a block can take, by group, with its label. */
 export function blockColorChoices(t: Translate): {
   text: ColorChoice[];
@@ -67,41 +92,18 @@ export function ColorChoices({
   const choices = blockColorChoices(t);
   const text = choices.text.filter(({ label }) => shows(label));
   const background = choices.background.filter(({ label }) => shows(label));
-  const choice = ({ color, label }: ColorChoice) => {
-    const name = color.replace(/_bg$/, "");
-    const isBackground = color.endsWith("_bg");
-    const isDefault = name === DEFAULT_TEXT;
-    return (
-      <DropdownMenuRadioItem
-        key={color}
-        indicator="check"
-        // Type-to-find would otherwise read the text swatch's "A" first.
-        textValue={label}
-        value={color}
-      >
-        {isBackground ? (
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-5 shrink-0 rounded border border-border",
-              !isDefault && `content-block-bg--${name}`,
-            )}
-          />
-        ) : (
-          <span
-            aria-hidden="true"
-            className={cn(
-              "flex size-5 shrink-0 items-center justify-center rounded border border-border text-xs font-semibold",
-              !isDefault && `content-block-color--${name}`,
-            )}
-          >
-            A
-          </span>
-        )}
-        {label}
-      </DropdownMenuRadioItem>
-    );
-  };
+  const choice = ({ color, label }: ColorChoice) => (
+    <DropdownMenuRadioItem
+      key={color}
+      indicator="check"
+      // Type-to-find would otherwise read the text swatch's "A" first.
+      textValue={label}
+      value={color}
+    >
+      <ColorSwatch color={color} />
+      {label}
+    </DropdownMenuRadioItem>
+  );
 
   return (
     <DropdownMenuRadioGroup
@@ -135,10 +137,12 @@ export function ColorSubmenu({
   value,
   onChange,
   onEscapeKeyDown,
+  collisionBoundary,
 }: {
   value: string | null;
   onChange: (color: string | null) => void;
   onEscapeKeyDown?: () => void;
+  collisionBoundary?: Element | null;
 }) {
   const t = useT();
   return (
@@ -149,6 +153,7 @@ export function ColorSubmenu({
           "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",
           instantCloseMenuClass,
         )}
+        collisionBoundary={collisionBoundary}
         collisionPadding={8}
         onEscapeKeyDown={onEscapeKeyDown}
       >

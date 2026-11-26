@@ -683,6 +683,7 @@ export default {
     monitoring: "Monitoring - Analytics",
     agents: "Admin - Analytics",
     session: "Session Replay - Analytics",
+    sessionReport: "Session Report - Analytics",
     tool: "Tool - Analytics",
     extensions: "Extensions - Analytics",
     overview: "Overview - Analytics",
@@ -776,6 +777,10 @@ export default {
     flagsUnavailable: "Feature flags are unavailable",
     flagsUnreachable:
       "The workspace directory could not be reached. Retry when its connection is available.",
+    verifiedFlagChangeOrg:
+      "Verified at {{time}}: {{flag}} in {{app}} is set to {{availability}} for this organization.",
+    verifiedFlagChangeGlobal:
+      "Verified at {{time}}: {{flag}} in {{app}} is set to {{availability}} for every organization.",
     flagsEmpty: "No workspace apps reported flags",
     flagsEmptyDetail:
       "Registered flags will appear here when connected apps are ready.",
@@ -955,6 +960,8 @@ export default {
     resetFilters: "Reset filters",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
+    collapseDescription: "Collapse description",
+    expandDescription: "Expand description",
     drilldownChartPoints: "Chart points",
     drilldownPreviousPage: "Previous page of chart points",
     drilldownNextPage: "Next page of chart points",
@@ -974,6 +981,8 @@ export default {
       "The chart shows {{chart}}, but {{total}} records matched",
     drilldownAggregateOnly:
       "This panel only has aggregate rows. Rows matching the clicked point are highlighted.",
+    drilldownNoXValueAggregateOnly:
+      "This panel can't open records for a point with no value, so it shows aggregate rows. Rows matching the clicked point are highlighted.",
     drilldownNoRecords: "No matching records",
     drilldownNoRecordsIncomplete:
       "No records loaded. The result is incomplete, so some records may still match.",
@@ -1933,6 +1942,27 @@ export default {
     emptyStepVisit: "Visit app",
     installSnippetTitle: "Add session replay",
     backToSessions: "Back to sessions",
+    createReport: "Create report",
+    createReportTooltip:
+      "Have the agent write a report on this session: what went wrong, its key moments and how to reproduce it.",
+    createReportMessage: "Write a report on this session.",
+    reportCount: "Reports ({{count}})",
+    reportsUnavailable: "Reports unavailable",
+    reportNeedsLab: "Session reports are part of the Sessions triage Lab.",
+    reportNotFound: "This report doesn't exist, or it isn't shared with you.",
+    reportLoadFailed: "Couldn't load this report: {{message}}",
+    reportBackToSession: "Back to session",
+    reportTitleLabel: "Report title",
+    reportSummaryLabel: "Summary",
+    reportSummaryPlaceholder: "What went wrong, and why",
+    reportKeyMoments: "Key moments",
+    reportReproSteps: "Steps to reproduce",
+    reportErrorIssue: "Error issue",
+    reportCommit: "Commit",
+    reportNoCommit: "The session reported no commit",
+    reportSaveFailed: "Couldn't save the report: {{message}}",
+    reportDelete: "Delete report",
+    reportDeleteTitle: "Delete this report? Its agent links stop working.",
     copyForAgent: "Copy for agent",
     copyForAgentTooltip:
       "Copy a temporary private link an agent can use to inspect this replay.",
@@ -2255,6 +2285,15 @@ export default {
     addedBy: "Added by {{email}}",
     more: "+{{count}} more",
     flagLabel: "Data notes",
+  },
+  citedIn: {
+    menu: "Cited in",
+    menuTooltip: "Content pages with charts from this dashboard",
+    empty: "No Content pages you can open hold charts from this dashboard yet",
+    unavailable:
+      "Couldn't reach Content to list these pages. Try again in a minute.",
+    untitledPage: "Untitled",
+    more: "Content checked only the most recently edited pages, so there may be more.",
   },
   annotations: {
     menu: "Annotations",

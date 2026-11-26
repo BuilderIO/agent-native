@@ -1,4 +1,5 @@
 import type { DbExec } from "../db/client.js";
+import type { ActivityNotificationResult } from "../server/activity-notifications.js";
 import type { Visibility } from "../sharing/schema.js";
 
 export type ReviewResourceRole =
@@ -42,15 +43,54 @@ export interface ReviewResourceContext {
 export interface ReviewableResourceRegistration {
   type: string;
   displayName?: string;
+  /** Where a comment email links: the resource, or the comment's place on it. */
   resolveUrl?: (
     resourceId: string,
+    comment?: ReviewComment,
   ) => Promise<string | null | undefined> | string | null | undefined;
+  /**
+   * The resource's title. Comment emails name it, as in `Ada commented on
+   * "Q3 plan"`, and say "review" without it.
+   */
+  resolveTitle?: (
+    resourceId: string,
+  ) => Promise<string | null | undefined> | string | null | undefined;
+  /** How this resource's comment emails can be turned off. */
+  email?: {
+    /**
+     * The user setting whose `emailNotifications: false` turns them off,
+     * when the app keeps its own. Defaults to the kit's.
+     */
+    preferenceKey?: string;
+    /** Where people change it, named in each email, such as "Slides settings". */
+    settingsName?: string;
+    /**
+     * Sends a new comment's emails in place of the kit's, for an app that
+     * keeps its own. What it returns is the comment's `notified`; return null
+     * when the emails go out after the write answers. A keyed comment calls
+     * it once: the kit marks the comment's emails sent before it calls, so a
+     * retried or duplicate write never sends them again, even when some
+     * failed.
+     */
+    send?: (
+      comment: ReviewComment,
+    ) => Promise<ActivityNotificationResult | null>;
+  };
   resolveAccess?: (
     resourceId: string,
     ctx?: ReviewResourceContext,
   ) => Promise<ReviewResourceAccess | null> | ReviewResourceAccess | null;
   /** Who may comment, and where a new thread goes. */
   comments?: ReviewCommentPolicy;
+  /**
+   * Set while the app's own actions still write this resource's comments,
+   * mirroring each into the kit with `mirrorReviewComments`. Through the kit
+   * everyone then only reads them: its actions refuse every comment write on
+   * the resource with this message, which should name the app's own actions.
+   * Each person's own state, such as muting a thread or marking it read,
+   * still works, since it isn't part of the comments.
+   */
+  commentsWrittenByApp?: string;
   /**
    * What a comment can attach to, by anchor kind. Once a resource declares
    * any, every anchored comment on it names one, and its anchor must pass that
@@ -79,6 +119,15 @@ export interface ReviewCommentPolicy {
    * people. A thread with a mention always goes to people.
    */
   unmentionedRoute?: ReviewResolutionTarget;
+  /** The lowest role that may resolve and reopen threads. Defaults to `editor`. */
+  resolveRole?: ReviewResourceRole;
+  /**
+   * Whether an agent needs its person's approval to delete anyone else's
+   * comment, as an editor may. Without that approval the kit's delete keeps
+   * an agent to its own comments, checked again as the thread locks.
+   * Defaults to false.
+   */
+  agentDeleteApproval?: boolean;
 }
 
 export interface ReviewAnchorKind {

@@ -59,6 +59,7 @@ vi.mock("./ThemeFamilySettings.js", () => ({
 }));
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { ThemeProvider } from "next-themes";
 
 import { createToolkitI18nCatalog } from "../../i18n.js";
 import { PreferencesSettings } from "./PreferencesSettings.js";
@@ -83,6 +84,7 @@ describe("PreferencesSettings", () => {
         defaultFamily: "agent-native",
       },
     };
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -97,12 +99,14 @@ describe("PreferencesSettings", () => {
   async function render() {
     await act(async () => {
       root.render(
-        <AgentNativeI18nProvider
-          catalog={toolkitI18nCatalog}
-          persistPreference={false}
-        >
-          <PreferencesSettings />
-        </AgentNativeI18nProvider>,
+        <ThemeProvider attribute="class" storageKey="crm:theme" enableSystem>
+          <AgentNativeI18nProvider
+            catalog={toolkitI18nCatalog}
+            persistPreference={false}
+          >
+            <PreferencesSettings />
+          </AgentNativeI18nProvider>
+        </ThemeProvider>,
       );
     });
   }
@@ -136,6 +140,9 @@ describe("PreferencesSettings", () => {
       "Used for timestamps and scheduled automations.",
     );
 
+    const theme = container.querySelector("#theme");
+    expect(theme?.textContent).toBe("ThemeSystem");
+
     const themeFamily = container.querySelector("#theme-family");
     expect(themeFamily?.textContent).toContain("Theme family");
     expect(
@@ -167,6 +174,44 @@ describe("PreferencesSettings", () => {
     );
 
     expect(html).not.toContain('id="theme-family"');
+    expect(html).not.toContain('id="theme"');
+  });
+
+  it("lets any account choose System, Light or Dark", async () => {
+    sessionState.value = {
+      session: { email: "person@example.com" },
+      status: "authenticated",
+    };
+    await render();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '#theme button[role="combobox"]',
+    );
+    expect(trigger?.textContent).toBe("System");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    const options = [
+      ...document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    ];
+    expect(options.map((option) => option.textContent.trim())).toEqual([
+      "System",
+      "Light",
+      "Dark",
+    ]);
+
+    act(() => options[2]?.click());
+
+    expect(window.localStorage.getItem("crm:theme")).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(trigger?.textContent).toBe("Dark");
   });
 
   it("never shows the theme switch to a non-Builder account", async () => {

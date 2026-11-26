@@ -59,6 +59,7 @@ export default defineAction({
       }
     }),
   http: { method: "GET" },
+  mcpTool: false,
   run: async ({ excludeIds, deviceId, afterCreatedAt, afterId }) => {
     const ownerEmail = getCurrentOwnerEmail();
     const items = await getDb()

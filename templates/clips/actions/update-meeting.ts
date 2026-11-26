@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -53,6 +53,11 @@ export default defineAction({
       ),
     visibility: z.enum(["private", "org", "public"]).optional(),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    ((args.visibility !== undefined && args.visibility !== "private") ||
+      args.shareTranscript === true),
+  mcpTool: "search",
   run: async (args) => {
     const updatesSharing =
       args.shareTranscript !== undefined || args.visibility !== undefined;

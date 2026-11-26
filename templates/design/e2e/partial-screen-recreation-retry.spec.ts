@@ -152,7 +152,6 @@ test("partial Screen recreation retry restores each recreated file and membershi
     await action(page, "create-design", {
       title: "Partial Screen restore " + Date.now(),
       projectType: "prototype",
-      designSystemId: null,
     }),
     "create-design",
   );

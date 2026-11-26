@@ -4,6 +4,9 @@ import type {
   ContentDatabaseSource,
   ContentDatabaseSourceFieldMapping,
 } from "@shared/api";
+import { FILES_PROPERTY_TYPES } from "@shared/properties";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -42,6 +45,8 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-content-database")>()),
   useAddContentDatabaseSourceFieldProperty: () => mutations.addSourceField,
 }));
+
+import { contentDatabaseQueryKey } from "@/hooks/use-content-database";
 
 import { AddProperty } from "./DocumentProperties";
 
@@ -227,5 +232,95 @@ describe("Add Property picker", () => {
     expect(onConnectSource).toHaveBeenCalledTimes(1);
     expect(queryByLabel(SEARCH)).toBeNull();
     expect(mutations.configure.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  function ReadCollection({
+    systemRole,
+    children,
+  }: {
+    systemRole: string | null;
+    children: ReactNode;
+  }) {
+    const queryClient = useQueryClient();
+    useState(() =>
+      queryClient.setQueryData(contentDatabaseQueryKey("document"), {
+        database: { id: "database", systemRole },
+      }),
+    );
+    return children;
+  }
+
+  it("draws nothing on a system collection that takes no new properties", async () => {
+    const { rerender } = renderUi(
+      <ReadCollection systemRole="workspaces">
+        <AddProperty documentId="document" databaseId="database" />
+      </ReadCollection>,
+    );
+    expect(queryByLabel("editor.properties.addProperty")).toBeNull();
+
+    rerender(
+      <ReadCollection key="ordinary" systemRole={null}>
+        <AddProperty documentId="document" databaseId="database" />
+      </ReadCollection>,
+    );
+    expect(queryByLabel("editor.properties.addProperty")).not.toBeNull();
+  });
+
+  it("offers Files only the types its sidebar can use, and no source fields", async () => {
+    renderUi(
+      <ReadCollection systemRole="files">
+        <AddProperty
+          documentId="document"
+          databaseId="database"
+          source={articles}
+        />
+      </ReadCollection>,
+    );
+    await openPicker();
+
+    for (const type of FILES_PROPERTY_TYPES) {
+      expect(queryByLabel(addTypeLabel(type))).not.toBeNull();
+    }
+    for (const type of ["relation", "files_media", "blocks", "created_time"]) {
+      expect(queryByLabel(addTypeLabel(type))).toBeNull();
+    }
+    expect(queryByLabel("editor.properties.sourceField(Budget)")).toBeNull();
+  });
+
+  it("offers the types a page's property list names over the cached read", async () => {
+    renderUi(
+      <AddProperty
+        documentId="document"
+        databaseId="database"
+        propertyTypes={["text", "number"]}
+      />,
+    );
+    await openPicker();
+
+    expect(queryByLabel(addTypeLabel("text"))).not.toBeNull();
+    expect(queryByLabel(addTypeLabel("number"))).not.toBeNull();
+    expect(queryByLabel(addTypeLabel("select"))).toBeNull();
+  });
+
+  it("shows a translated refusal when the collection refuses the type", async () => {
+    mutations.configure.mutateAsync.mockRejectedValue(
+      Object.assign(new Error("Files can't take a text property."), {
+        errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      }),
+    );
+    renderUi(
+      <AddProperty
+        documentId="document"
+        databaseId="database"
+        propertyTypes={["text"]}
+      />,
+    );
+    await openPicker();
+
+    await click(byLabel(addTypeLabel("text")));
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      "editor.properties.addPropertyFailed editor.properties.addPropertyTypeUnsupported(editor.propertyTypes.text)",
+    );
   });
 });

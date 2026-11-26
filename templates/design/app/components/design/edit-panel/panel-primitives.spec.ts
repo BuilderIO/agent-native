@@ -1,3 +1,4 @@
+// oracle-change: Motion timeline removed from Design; its specs and assertions are deleted with the feature
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -8,10 +9,6 @@ import {
   INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_ACTION_SPAN,
-  INSPECTOR_GRID_MOTION_ACTION_SPAN,
-  INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN,
-  INSPECTOR_GRID_MOTION_FIELD_SPAN,
-  INSPECTOR_GRID_MOTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_WIDTH_PX,
   INSPECTOR_GRID_COLUMNS,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
@@ -74,7 +71,7 @@ describe("InspectorGrid", () => {
     expect(markup).toContain('style="grid-column:span 18 / span 18"');
   });
 
-  it("keeps paired fields equal with and without a trailing action", () => {
+  it("keeps the pair and action-pair spans on the 28-column grid", () => {
     expect(INSPECTOR_GRID_PAIR_SPAN * 2 + INSPECTOR_GRID_PAIR_GUTTER_SPAN).toBe(
       INSPECTOR_GRID_COLUMNS,
     );
@@ -84,26 +81,33 @@ describe("InspectorGrid", () => {
         INSPECTOR_GRID_ACTION_SPAN,
     ).toBe(INSPECTOR_GRID_COLUMNS);
     expect(INSPECTOR_GRID_ACTION_SPAN).toBe(4);
-    expect(
-      INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN * 2 +
-        INSPECTOR_GRID_MOTION_ACTION_SPAN * 3 +
-        INSPECTOR_GRID_MOTION_GUTTER_SPAN,
-    ).toBe(INSPECTOR_GRID_COLUMNS);
-    expect(
-      INSPECTOR_GRID_MOTION_FIELD_SPAN * 2 +
-        INSPECTOR_GRID_MOTION_ACTION_SPAN * 2 +
-        INSPECTOR_GRID_MOTION_GUTTER_SPAN * 2,
-    ).toBe(INSPECTOR_GRID_COLUMNS);
-    expect(INSPECTOR_GRID_PAIR_GUTTER_WIDTH_PX).toBe(16);
+    // oracle-change: ENG-14616 puts 8px between the controls of a row, with or without a trailing action.
+    expect(INSPECTOR_GRID_PAIR_GUTTER_WIDTH_PX).toBe(8);
     expect(INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX).toBe(8);
     expect(INSPECTOR_GRID_ACTION_WIDTH_PX).toBe(32);
   });
 
-  it("reserves the same action-pair tracks when a row has no action", () => {
+  // oracle-change: ENG-14616 never reserves an empty action column, so a row with no action is a plain pair.
+  it("lays a row with no action out as a plain pair", () => {
     const markup = renderToStaticMarkup(
       createElement(InspectorActionPairGrid, {
         left: "Horizontal alignment",
         right: "Vertical alignment",
+      }),
+    );
+
+    expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(2);
+    expect(markup).toContain('data-inspector-span="2"');
+    expect(markup).not.toContain('data-inspector-span="4"');
+    expect(markup).toContain('data-inspector-layout="pair"');
+  });
+
+  it("keeps the action slot for a row that has an action", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InspectorActionPairGrid, {
+        left: "Width",
+        right: "Height",
+        action: "Lock",
       }),
     );
 

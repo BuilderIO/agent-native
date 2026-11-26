@@ -18,6 +18,7 @@ import {
   IconAt,
   IconFocus2,
   IconMoodSmile,
+  IconPhoto,
   IconSend,
 } from "@tabler/icons-react";
 import {
@@ -28,12 +29,20 @@ import {
   type ReactNode,
   type TextareaHTMLAttributes,
 } from "react";
+import { toast } from "sonner";
 
 import { isComposingKey, isCommentSendKey } from "./comment-send-key.js";
+import {
+  ReviewCommentImageStrip,
+  useReviewCommentImageUpload,
+  type ReviewCommentImage,
+  type ReviewCommentImageUpload,
+} from "./review-comment-images.js";
 import {
   ReviewComposerEditor,
   type ReviewComposerEditorHandle,
 } from "./ReviewComposerEditor.js";
+import type { ReviewComposerFormatLabels } from "./ReviewComposerToolbar.js";
 import {
   ReviewMentionPicker,
   reviewMentionOptionId,
@@ -41,10 +50,16 @@ import {
 } from "./ReviewMentionPicker.js";
 
 const DEFAULT_COMPOSER_EMOJIS = ["👍", "❤️", "🎉", "👀"] as const;
+const NO_IMAGES: readonly ReviewCommentImage[] = [];
 const EMAIL_LOCAL_PART_BOUNDARY = /(?:^|\s)[^\s@]*[\p{L}\p{N}][^\s@]*[+-]$/u;
 const NAME_CHAR = /[\p{L}\p{M}\p{N}_]/u;
+// Lists, quotes, code and links look and space out as the posted comment
+// draws them. Code sits on the page's background, as the field is the shade
+// a posted comment's code has. The placeholder shows on the box's only
+// paragraph while it's empty: TipTap's empty-editor class misses a change that
+// empties the box at once, such as sending.
 const EDITOR_CLASS =
-  "min-w-0 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-5 text-foreground outline-none [&>p]:m-0 [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]";
+  "min-w-0 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-5 text-foreground outline-none [&_p]:m-0 [&_ul]:list-disc [&_ul]:ps-5 [&_ol]:list-decimal [&_ol]:ps-5 [&_blockquote]:border-s-2 [&_blockquote]:border-border [&_blockquote]:ps-2.5 [&_blockquote]:text-muted-foreground [&>ul]:my-2 [&>ol]:my-2 [&>blockquote]:my-2 [&>pre]:my-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_code]:rounded [&_code]:bg-background [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em] [&_pre]:whitespace-pre-wrap [&_pre]:rounded [&_pre]:bg-background [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&>p.is-empty:only-child]:before:pointer-events-none [&>p.is-empty:only-child]:before:float-start [&>p.is-empty:only-child]:before:h-0 [&>p.is-empty:only-child]:before:text-muted-foreground [&>p.is-empty:only-child]:before:content-[attr(data-placeholder)]";
 
 export interface ReviewCommentComposerProps {
   value: string;
@@ -73,16 +88,43 @@ export interface ReviewCommentComposerProps {
   showCommentTools?: boolean | undefined;
   /** Rendered at the end of the left tools group, e.g. an image button. */
   commentToolsEnd?: ReactNode;
-  /** Rendered between the text and the toolbar, e.g. image thumbnails. */
+  /** Rendered between the text and the toolbar, under any images. */
   attachments?: ReactNode;
+  /**
+   * The comment's images. With `onImagesChange`, the box takes up to five
+   * from its image button, a paste or a drop, shows them over its toolbar,
+   * and sends with images alone.
+   */
+  images?: readonly ReviewCommentImage[] | undefined;
+  onImagesChange?: ((images: ReviewCommentImage[]) => void) | undefined;
+  /** Uploads one image; the app's own file upload unless given. */
+  uploadImage?: ReviewCommentImageUpload | undefined;
+  /** Hears an image that couldn't upload; a toast says so unless given. */
+  onImageUploadError?: ((error: unknown) => void) | undefined;
+  /**
+   * At most this many images, up to five; less when the comment keeps other
+   * attachments the server counts toward its five.
+   */
+  maxImages?: number | undefined;
+  /**
+   * The draft the images go to, its `target`, for a box that moves between
+   * drafts: an image still uploading when it changes isn't added to the next.
+   */
+  imageTarget?: string | null | undefined;
+  attachImageLabel?: string | undefined;
+  removeImageLabel?: string | undefined;
+  imageUploadFailedLabel?: string | undefined;
   emojiChoices?: readonly string[];
   emojiLabel?: string | undefined;
   mentionLabel?: string | undefined;
   agentsLabel?: string | undefined;
   noMentionsLabel?: string | undefined;
   mentionFailedLabel?: string | undefined;
+  /** Names for the formatting bar over selected text and its link field. */
+  formatLabels?: Partial<ReviewComposerFormatLabels> | undefined;
   submittingTarget?: ReviewResolutionTarget | null | undefined;
   disabled?: boolean | undefined;
+  submitDisabled?: boolean | undefined;
   showCommentAction?: boolean;
   /**
    * Show the agent action. Defaults to whether `agentAction` is passed, so the
@@ -127,14 +169,25 @@ export function ReviewCommentComposer({
   showCommentTools = false,
   commentToolsEnd,
   attachments,
+  images = NO_IMAGES,
+  onImagesChange,
+  uploadImage,
+  onImageUploadError,
+  maxImages,
+  imageTarget,
+  attachImageLabel = "Attach image",
+  removeImageLabel = "Remove image",
+  imageUploadFailedLabel = "Couldn't upload the image",
   emojiChoices = DEFAULT_COMPOSER_EMOJIS,
   emojiLabel = "Add emoji",
   mentionLabel = "Mention someone",
   agentsLabel = "Agents",
   noMentionsLabel = "No people found",
   mentionFailedLabel = "Couldn't load people",
+  formatLabels,
   submittingTarget = null,
   disabled = false,
+  submitDisabled = false,
   showCommentAction = true,
   showAgentAction,
   agentAction,
@@ -153,7 +206,24 @@ export function ReviewCommentComposer({
   const resolvedPlaceholder =
     placeholder ?? (variant === "reply" ? "Reply" : "Add a comment...");
   const showAgent = showAgentAction ?? Boolean(agentAction);
-  const canSubmit = Boolean(value.trim()) && !disabled;
+  const imagesOn = onImagesChange !== undefined;
+  const imageUpload = useReviewCommentImageUpload({
+    images,
+    onImagesChange,
+    upload: uploadImage,
+    onUploadError:
+      onImageUploadError ?? (() => toast.error(imageUploadFailedLabel)),
+    disabled,
+    maxImages,
+    target: imageTarget,
+  });
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  // An image is a comment on its own, once it's uploaded.
+  const canSubmit =
+    (Boolean(value.trim()) || images.length > 0) &&
+    !disabled &&
+    !submitDisabled &&
+    !imageUpload.uploading;
   const editorRef = useRef<ReviewComposerEditorHandle>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const [editorReady, setEditorReady] = useState(false);
@@ -332,7 +402,14 @@ export function ReviewCommentComposer({
         setMentionActiveIndex((activeMentionIndex + step + count) % count);
         return true;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      // Shift+Enter still starts a line, and Cmd/Ctrl+Enter still sends.
+      if (
+        (event.key === "Enter" || event.key === "Tab") &&
+        !event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+      ) {
         const mention = filteredMentionOptions.at(activeMentionIndex);
         if (mention) {
           event.preventDefault();
@@ -346,7 +423,8 @@ export function ReviewCommentComposer({
       event.key === "@" &&
       !event.metaKey &&
       !event.ctrlKey &&
-      !event.altKey
+      !event.altKey &&
+      !editorRef.current?.isInCode()
     ) {
       const textBefore = editorRef.current?.getTextBeforeCaret() ?? "";
       const previousCharacter = [...textBefore].pop();
@@ -360,6 +438,17 @@ export function ReviewCommentComposer({
         syncMention();
         return true;
       }
+    }
+    // In a list or code block, Enter goes on with it, as in a document. Enter
+    // on an empty list item ends the list, and the next Enter sends.
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      editorRef.current?.enterContinuesBlock()
+    ) {
+      return false;
     }
     if (
       isCommentSendKey(event) &&
@@ -391,9 +480,11 @@ export function ReviewCommentComposer({
     focused ||
     hasContent ||
     Boolean(attachments) ||
+    images.length > 0 ||
+    imageUpload.uploading ||
     emojiOpen ||
     mentionMenuOpen;
-  const hasTools = showCommentTools || Boolean(commentToolsEnd);
+  const hasTools = showCommentTools || Boolean(commentToolsEnd) || imagesOn;
   const sendButton = showCommentAction ? (
     <Button
       type="submit"
@@ -441,6 +532,29 @@ export function ReviewCommentComposer({
               : "border-transparent",
           )}
           {...focusWithinProps}
+          // A file dragged over the box is the box's, so a drop zone under
+          // it, such as Design's canvas, never takes it too.
+          onDragEnter={(event) => {
+            if (imagesOn && isFileDrag(event)) event.stopPropagation();
+          }}
+          onDragLeave={(event) => {
+            if (imagesOn && isFileDrag(event)) event.stopPropagation();
+          }}
+          onDragOver={(event) => {
+            if (!imagesOn || !isFileDrag(event)) return;
+            event.stopPropagation();
+            event.preventDefault();
+          }}
+          // A drop on the editor is its own; this takes one on the rest of
+          // the field. Other files are taken too, so the page doesn't open
+          // them.
+          onDrop={(event) => {
+            if (!imagesOn || !isFileDrag(event)) return;
+            event.stopPropagation();
+            if (!event.defaultPrevented)
+              imageUpload.addFiles(Array.from(event.dataTransfer.files));
+            event.preventDefault();
+          }}
           onClick={(event) => {
             if (
               !disabled &&
@@ -480,16 +594,34 @@ export function ReviewCommentComposer({
                     : undefined
                 }
                 className={cn(EDITOR_CLASS, expanded && "min-h-10")}
+                formatLabels={formatLabels}
                 onTextChange={updateValue}
                 onCaretChange={syncMention}
                 onKeyDown={handleKeyDown}
+                onImageFiles={imagesOn ? imageUpload.addFiles : undefined}
                 onReady={() => setEditorReady(true)}
               />
             </div>
             {expanded ? null : sendButton}
           </div>
-          {expanded && attachments ? (
-            <div data-review-composer-attachments="" className="px-2 pb-2">
+          {expanded && (images.length > 0 || attachments) ? (
+            <div
+              data-review-composer-attachments=""
+              className="flex flex-col gap-1.5 px-2 pb-2"
+            >
+              <ReviewCommentImageStrip
+                images={images}
+                onRemove={
+                  onImagesChange
+                    ? (index) =>
+                        onImagesChange(
+                          images.filter((_, current) => current !== index),
+                        )
+                    : undefined
+                }
+                removeLabel={removeImageLabel}
+                disabled={disabled}
+              />
               {attachments}
             </div>
           ) : null}
@@ -561,6 +693,44 @@ export function ReviewCommentComposer({
                       <IconAt className="size-4" />
                     </Button>
                   ) : null}
+                  {imagesOn ? (
+                    <>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        data-review-image-button=""
+                        className="size-7 rounded-full text-muted-foreground"
+                        disabled={disabled || imageUpload.remaining === 0}
+                        aria-label={attachImageLabel}
+                        onClick={() => imageInputRef.current?.click()}
+                      >
+                        {imageUpload.uploading ? (
+                          <Spinner className="size-4" />
+                        ) : (
+                          <IconPhoto className="size-4" />
+                        )}
+                      </Button>
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        data-review-image-input=""
+                        // The button above is the one named, tabbable control,
+                        // and it clicks this input.
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        className="hidden"
+                        onChange={(event) => {
+                          imageUpload.addFiles(
+                            Array.from(event.currentTarget.files ?? []),
+                          );
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </>
+                  ) : null}
                   {commentToolsEnd ? (
                     <div data-review-comment-tools-end="" className="shrink-0">
                       {commentToolsEnd}
@@ -627,4 +797,8 @@ export function ReviewCommentComposer({
       </div>
     </form>
   );
+}
+
+function isFileDrag(event: { dataTransfer: DataTransfer | null }): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
 }

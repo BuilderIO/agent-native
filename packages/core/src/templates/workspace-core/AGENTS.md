@@ -89,10 +89,10 @@ slugs and fallback details; use package docs for APIs and skills for workflows.
 
 ## Actions
 
-| Action | Purpose |
-| --- | --- |
-| `docs-search` | Search version-matched framework docs by query or slug, or list |
-| `source-search` | Search core/toolkit sources and optional template corpus |
+| Action          | Purpose                                                         |
+| --------------- | --------------------------------------------------------------- |
+| `docs-search`   | Search version-matched framework docs by query or slug, or list |
+| `source-search` | Search core/toolkit sources and optional template corpus        |
 
 For external integrations, check the provider connection catalog first; use its
 scoped resolver before app-local vault/OAuth/settings. Keep setup UI limited to

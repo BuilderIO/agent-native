@@ -23,7 +23,6 @@ read `node_modules/@agent-native/core/docs/AGENTS.md` and search its `content/`
 with `rg`. See `packages/shared/AGENTS.md` for workspace conventions and
 `workspace-conventions` for advanced doc lookup.
 
-
 ## Core rules
 
 - Normal app data must flow through actions. Keep app code in `apps/<app>` and
@@ -58,6 +57,9 @@ resources to All apps only for global guidance.
 - Reuse provider connections and scoped resolvers. Framework apps use
   `resolveSecret`; workspace apps use the connector helper. Request missing
   keys through Dispatch vault, not a non-admin's `.env`.
+- Save to Content as the signed-in person, in a message: `call-agent` to
+  `content`, or `invokeAgent()` with `userEmail`, `orgDomain` and `orgSecret`
+  from `resolveA2ACallerAuth()`. Never ask for a Content token or put one in env.
 - Verify `/<app-id>` on the workspace gateway serves the new app before saying
   it is created; app servers start lazily.
 

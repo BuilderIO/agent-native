@@ -49,6 +49,7 @@ export default defineAction({
   readOnly: true,
   // Connections are per user, so a shared browser cache must not keep them.
   persistInBrowser: false,
+  mcpTool: false,
   run: async (args, ctx): Promise<ListWorkspaceConnectionScopesResult> => {
     const appId =
       ctx?.appId?.trim() ||

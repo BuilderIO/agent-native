@@ -7,6 +7,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertCommentAiEditsResolve,
+  commentAiEditErrors,
+} from "../server/lib/comment-ai-edits.js";
+import {
   CommentAiOperationError,
   commentThreadDigest,
   completeCommentAiAttempt,
@@ -17,6 +21,11 @@ import {
   updateCommentAiRequest,
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
+import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
+import {
+  assertInteractiveHtmlBlocks,
+  savePiecesOfCheckedEdit,
+} from "../server/lib/interactive-html-blocks.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
 import {
   createWithSavedUnits,
@@ -139,8 +148,9 @@ function targetError(kind: "missing" | "ambiguous" | "overlapping") {
 
 export default defineAction({
   description:
-    "Propose anchored edits against the latest text the comment is on (the Page body, or its Blocks field tab), reviewed in the comment thread that asked for them. Pass the latest attemptId from get-comment-ai-context. Unrelated edits are tolerated when each exact target remains unique; missing, repeated, or overlapping targets become typed review conflicts. New edits on the same comment replace the requester's earlier pending ones, so never ask them to reject those.",
+    "Propose anchored edits against the latest text the comment is on (the Page body, or its Blocks field tab), reviewed in the comment thread that asked for them. Pass the latest attemptId from get-comment-ai-context. Unrelated edits are tolerated when each exact target remains unique. A find that is missing, repeated, or overlapping in an unchanged Page is refused with nothing saved, so correct it and call again with the same attemptId; one a later Page change broke becomes a typed review conflict. New edits on the same comment replace the requester's earlier pending ones, so never ask them to reject those.",
   schema: payloadSchema,
+  errors: commentAiEditErrors,
   run: async (args, ctx) => {
     const request = await requireCommentAiRequest("suggest");
     if (request.status === "suggested") {
@@ -148,6 +158,11 @@ export default defineAction({
     }
     const verification = await verifyCommentAiAttempt(request, args.attemptId);
     const { text } = verification.source;
+    assertCommentAiEditsResolve(verification, text.content, args.edits);
+    const edited = resolveDocumentTextEdits(text.content, args.edits);
+    if (edited.ok && !verification.attempt.payloadJson) {
+      assertInteractiveHtmlBlocks(ctx, text.content, edited.content);
+    }
     try {
       const payload = payloadSchema.parse(
         await retainCommentAiAttemptPayload(request, args.attemptId, args),
@@ -207,14 +222,16 @@ export default defineAction({
       // under its own key, because a retry may propose different edits.
       const suggestion =
         operations.length === 1
-          ? await createSuggestion.run(
-              {
-                ...proposal,
-                idempotencyKey: `comment-ai:${args.attemptId}:suggestion`,
-                operations: operations.map(onText),
-                metadata,
-              },
-              ctx,
+          ? await savePiecesOfCheckedEdit(() =>
+              createSuggestion.run(
+                {
+                  ...proposal,
+                  idempotencyKey: `comment-ai:${args.attemptId}:suggestion`,
+                  operations: operations.map(onText),
+                  metadata,
+                },
+                ctx,
+              ),
             )
           : (
               await createWithSavedUnits({
@@ -222,17 +239,20 @@ export default defineAction({
                 idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
                 ctx,
                 create: (labels) =>
-                  createSuggestionProposal.run(
-                    {
-                      ...proposal,
-                      idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
-                      suggestions: operations.map((operation, index) => ({
-                        summary: markdownSuggestionOperationSummary(operation),
-                        operations: [onText({ ...operation, ordinal: 0 })],
-                        metadata: { ...metadata, reviewUnit: labels[index] },
-                      })),
-                    },
-                    ctx,
+                  savePiecesOfCheckedEdit(() =>
+                    createSuggestionProposal.run(
+                      {
+                        ...proposal,
+                        idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
+                        suggestions: operations.map((operation, index) => ({
+                          summary:
+                            markdownSuggestionOperationSummary(operation),
+                          operations: [onText({ ...operation, ordinal: 0 })],
+                          metadata: { ...metadata, reviewUnit: labels[index] },
+                        })),
+                      },
+                      ctx,
+                    ),
                   ),
               })
             ).suggestions[0]!;
@@ -313,4 +333,5 @@ export default defineAction({
       throw typed;
     }
   },
+  changeResource: commentAiChangeResource,
 });

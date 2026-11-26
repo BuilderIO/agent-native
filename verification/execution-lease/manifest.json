@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "c87b5d2c7d420ae3b656cf377b30c1b4236a1e4e",
+    "syncCommit": "ec9702f606fbb6485a4ecde465328c85e33d5ea5",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -148,7 +148,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "updateRunAborted",
-        "sha256": "34303f17ade3a74ef977841622fa7490e66a11690220ed17636dfeb69757e2da"
+        "sha256": "16c9b7bbad101afb547b6bb9447aab90931bfe94781caf5ad2057cc934f1efb1"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -163,7 +163,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "reapSingleStaleRun",
-        "sha256": "723c3b8e0e0b71bfa6890cf4121fe8ea4eb4a938935f92991a4d6f4c7fbecf03"
+        "sha256": "a275bf98c65610718f2fc60ef3ef35ebfbb4de5ae3ae55658e47c8905f967582"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -188,7 +188,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "tryClaimRunSlot",
-        "sha256": "c617c9cbe5fdaf593867baf554c19295e2f6fbbf0e6840d921173c045e377137"
+        "sha256": "e6126146016be0bd2737352c53137222aab4b3c64235bfb5622d43776ec233da"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -218,7 +218,7 @@
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "name": "invokeAction",
-        "sha256": "530252addcb7a19384335eb899a99f55e6c5229dee825fb982a193987d885287"
+        "sha256": "56c76e786c209b83e122550c8bcb11aa2e6253f81fc1755d8ef027cdbf2c983f"
       },
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
@@ -280,7 +280,7 @@
       {
         "file": "packages/core/src/action.ts",
         "name": "actionCallIntent",
-        "sha256": "86deadcfd567252bcc5af5f0f0f78b10044c69ce6b93b5cc6ecd28fa7963e4b5"
+        "sha256": "02c950638cce4ee7c8266d545cc667d8baed0940bfe2fa1d6c69ac8df368dced"
       },
       {
         "file": "packages/core/src/action.ts",

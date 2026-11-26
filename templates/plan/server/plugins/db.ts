@@ -1,12 +1,18 @@
 // guard:allow-unscoped -- schema migrations and data backfills run system-wide
 // during startup, not in a user-scoped request path.
 import {
+  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
+  type MigrationRunResult,
 } from "@agent-native/core/db";
 
 import * as schema from "../db/schema.js";
+import {
+  addMissingPlanCommentsToReviewKit,
+  type PlanCommentCopyReport,
+} from "../lib/plan-comment-mirror.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -453,7 +459,42 @@ ON plans(owner_email, COALESCE(org_id, ''), COALESCE(edition_series, 'daily'), e
 WHERE kind = 'edition' AND edition_issue_number IS NOT NULL`,
     },
   },
+  {
+    version: 45,
+    name: "plan-comments-copy-to-review-kit",
+    sql: {},
+    run: async () => {},
+  },
+  {
+    version: 46,
+    name: "plan-comments-copy-to-review-kit-again",
+    sql: {},
+    run: async () => {},
+  },
+  {
+    version: 47,
+    name: "plan-comments-add-missing-to-review-kit",
+    sql: {},
+    run: addMissingPlanComments,
+  },
 ];
+
+async function addMissingPlanComments(): Promise<MigrationRunResult> {
+  let report: PlanCommentCopyReport;
+  try {
+    report = await addMissingPlanCommentsToReviewKit();
+  } catch (error) {
+    console.error(
+      "[db] Couldn't copy plan comments to the review kit; it runs again on the next start:",
+      error instanceof Error ? error.message : error,
+    );
+    return deferMigration();
+  }
+  console.log(
+    `[db] Checked ${report.comments} comment(s) on ${report.plans} plan(s); added ${report.added} the review kit lacked`,
+  );
+  if (report.failedPlans.length > 0) return deferMigration();
+}
 
 export const runPlanMigrations = runMigrations(planMigrations, {
   table: "plans_migrations",

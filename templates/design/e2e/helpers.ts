@@ -248,10 +248,9 @@ export async function panTargetIntoUnobscuredCanvas(
         const surfaceRect = surface.getBoundingClientRect();
         const leftShell = bounds('[data-design-chrome-region="left-shell"]');
         const rightPanel = bounds('[data-design-chrome-region="right-panel"]');
-        const topBar = bounds('[data-design-chrome-region="top-bar"]');
         const visible = {
           left: Math.max(0, surfaceRect.left, leftShell?.right ?? 0) + inset,
-          top: Math.max(0, surfaceRect.top, topBar?.bottom ?? 0) + inset,
+          top: Math.max(0, surfaceRect.top) + inset,
           right:
             Math.min(
               innerWidth,
@@ -461,7 +460,11 @@ export async function expandAllLayers(page: Page): Promise<void> {
   for (let depth = 0; depth < 128; depth += 1) {
     const expand = page.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
-    await expand.click({ timeout: 5_000 });
+    try {
+      await expand.click({ timeout: 5_000 });
+    } catch (error) {
+      if ((await expand.count()) > 0) throw error;
+    }
     await page.waitForTimeout(100);
   }
   const remaining = await page
@@ -474,10 +477,6 @@ export async function expandAllLayers(page: Page): Promise<void> {
   }
 }
 
-/**
- * The Frame group's main button. It arms whichever of Frame and Screen was used
- * last, so it is found by its group, not by a label.
- */
 export function frameToolButton(page: Page): Locator {
   return page
     .locator(
@@ -492,7 +491,7 @@ const MENU_TOOL_GROUP = {
   Hand: "Move",
   Scale: "Move",
   Frame: "Frame",
-  Screen: "Frame",
+  Page: "Frame",
   Rectangle: "Shapes",
   Line: "Shapes",
   Arrow: "Shapes",
@@ -525,7 +524,7 @@ export async function selectTool(page: Page, tool: ToolbarTool): Promise<void> {
 
 export async function pickFrameMode(
   page: Page,
-  mode: "Frame" | "Screen",
+  mode: "Frame" | "Page",
 ): Promise<void> {
   await selectTool(page, mode);
 }
@@ -552,6 +551,16 @@ export async function openAppMenuSubmenu(
   await page.getByRole("menuitem", { name: submenu, exact: true }).hover();
 }
 
+export function must<T>(value: T | null | undefined, what: string): T {
+  if (value == null) throw new Error(`${what} is missing`);
+  return value;
+}
+
+export const EDIT_MODE_BUTTON =
+  '[data-design-bottom-toolbar] button[aria-label="Edit"]';
+export const INTERACT_MODE_BUTTON =
+  '[data-design-bottom-toolbar] button[aria-label="Interact"]';
+
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await resetPersistedCanvasState(page);
   const startedAt = Date.now();
@@ -559,9 +568,8 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
     waitUntil: "domcontentloaded",
   });
   await waitForEditorBoot(page, startedAt);
-  const designMode = page.locator(
-    '[data-design-top-bar] [data-design-mode="edit"]',
-  );
+  // oracle-change: the mode switch moved from the top bar to the bottom toolbar; phones boot with the left drawer closed, so every width checks the switch
+  const designMode = page.locator(EDIT_MODE_BUTTON);
   await expect(designMode).toBeVisible();
   await expect(designMode).toHaveAttribute("aria-pressed", "true");
   await waitForDesignPreviewReady(page);
@@ -616,22 +624,32 @@ export async function waitForDesignPreviewReady(page: Page): Promise<void> {
   }
 }
 
+export async function openPageOverview(page: Page): Promise<void> {
+  await openAppMenuSubmenu(page, "View");
+  const toOverview = page.getByRole("menuitem", {
+    name: "Page overview",
+    exact: true,
+  });
+  const toCurrent = page.getByRole("menuitem", {
+    name: "Current page",
+    exact: true,
+  });
+  await expect(toOverview.or(toCurrent)).toBeVisible();
+  if (await toOverview.isVisible()) {
+    await toOverview.click();
+    await expect(toOverview).toHaveCount(0);
+    return;
+  }
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
+
 export async function enterDirectMode(
   page: Page,
   _options?: { screenId?: string; waitForBridgeReady?: boolean },
 ): Promise<void> {
   const screenId = _options?.screenId ?? activeScreenTargetFromUrl(page);
-  const allScreens = page
-    .locator("aside")
-    .first()
-    .getByRole("button", { name: "All screens" });
-  if (
-    (await allScreens.count()) > 0 &&
-    (await allScreens.getAttribute("aria-current")) !== "page"
-  ) {
-    await allScreens.click();
-    await expect(allScreens).toHaveAttribute("aria-current", "page");
-  }
+  await openPageOverview(page);
   await waitForDesignPreviewReady(page);
   // The board surface iframe carries no data-screen-iframe-id, so a `screen=`
   // URL that targets the board never matches a Screen iframe.
@@ -719,15 +737,15 @@ export async function enterInteractView(
   // Double-click the screen label to open its focused view before entering Interact.
   await screenShell.locator("[data-frame-title]").first().dblclick();
   await expect(previewIframe).toBeVisible();
-  await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
-    .click();
+  await page.locator(INTERACT_MODE_BUTTON).click();
   await expect(screenShell).toHaveAttribute(
     "data-screen-interact-mode",
     "true",
   );
   await expect(
-    page.locator("[data-design-top-bar] [data-design-interact-route]"),
+    page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
   // Interact loads the page afresh with only its own bridges, so the preview
   // is a new iframe; the screen still has exactly one.

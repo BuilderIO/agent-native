@@ -19,17 +19,27 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveCommentBlocksField } from "../server/lib/comment-blocks-field.js";
 import {
+  attachableCommentImages,
+  commentWriteByAgent,
+} from "../server/lib/comment-images.js";
+import {
   assertMentionsInText,
   submittedCommentMentions,
 } from "../server/lib/comment-mention-input.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { displayNameFromEmail } from "../shared/author-name.js";
 import {
   COMMENT_ANCHOR_BLOCK_TYPES,
   nfmCommentAnchorBlocks,
   type CommentAnchorBlockType,
 } from "../shared/comment-block-anchor.js";
+import {
+  MAX_COMMENT_IMAGES,
+  MAX_SUBMITTED_COMMENT_IMAGES,
+  serializeStoredCommentImages,
+} from "../shared/comment-images.js";
 import {
   personMentions,
   readStoredCommentMentions,
@@ -42,19 +52,11 @@ import {
   enqueueCommentWebhooks,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 import {
   listPropertiesForAllDocumentDatabases,
   listPropertiesForDocument,
 } from "./_property-utils.js";
-
-function displayNameFromEmail(email: string): string {
-  const localPart = email.split("@")[0] ?? "";
-  const words = localPart
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1));
-  return words.join(" ");
-}
 
 const commentSchema = z.object({
   documentId: z.string().describe("Document ID"),
@@ -138,6 +140,13 @@ const commentSchema = z.object({
     .optional()
     .describe(
       'JSON-encoded mentions, one per @name in text order (one entry covers a person named again). People: {"email":"a@x.com","name":"A"}; agents: {"kind":"agent","model":"<model id>","name":"<label>"}. A malformed list, or an entry no @name in the text reaches, is rejected with a 400.',
+    ),
+  attachments: z
+    .array(z.unknown())
+    .max(MAX_SUBMITTED_COMMENT_IMAGES)
+    .optional()
+    .describe(
+      `Up to ${MAX_COMMENT_IMAGES} images, each { url, name, contentType } as uploaded to this page through the comment box, which only a signed-in person can do. Each must be one the caller uploaded to this page; an agent can't attach images.`,
     ),
 });
 
@@ -374,6 +383,14 @@ export async function addCommentWithGuard(
   const mentions = submittedCommentMentions(args.mentions ?? []);
   assertMentionsInText(content, mentions);
   const mentionsJson = serializeStoredCommentMentions(mentions);
+  const images = args.attachments?.length
+    ? await attachableCommentImages({
+        documentId,
+        userEmail: email,
+        images: args.attachments,
+        byAgent: commentWriteByAgent(ctx),
+      })
+    : [];
   const submissionSource = commentSubmissionSource(ctx?.caller);
   const submissionRunId = ctx?.runId ?? null;
   const submissionThreadId =
@@ -503,6 +520,7 @@ export async function addCommentWithGuard(
     blockId: blockId ?? null,
     blockType,
     mentionsJson,
+    attachmentsJson: serializeStoredCommentImages(images),
     authorEmail: email,
     authorName: name,
     submissionSource,
@@ -581,11 +599,16 @@ export async function addCommentWithGuard(
         { statusCode: 400, errorCode: "comment_quote_not_found" },
       );
     }
-    await assertAccess("document", documentId, "commenter", {
+    const current = await assertAccess("document", documentId, "commenter", {
       userEmail: email,
-      orgId: ctx?.orgId ?? undefined,
+      ...(ctx?.orgId != null ? { orgId: ctx.orgId } : {}),
       transaction: getDbExec(),
     });
+    // After the receipt, so a retry of a comment that landed first replays.
+    assertAgentsMayCommentOnPage(
+      current.resource as { agentTextLocked?: number | null },
+      ctx,
+    );
     if (args.threadId && args.parentId) {
       const [root] = await tx
         .select()
@@ -675,6 +698,7 @@ export async function addCommentWithGuard(
     submissionSource,
     content,
     mentions: personMentions(mentions),
+    imageCount: images.length,
     isReply: Boolean(parentId ?? args.threadId),
   });
 

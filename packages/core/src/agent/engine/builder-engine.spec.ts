@@ -332,9 +332,28 @@ describe("createBuilderEngine", () => {
     const events = await collectEvents(engine.stream(BASE_OPTS));
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // Changed on purpose: a run with no
+    // signed-in member reports that reason; a signed-in run with nothing
+    // connected still reports missing credentials (next test).
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.error).toContain("no signed-in workspace member");
+    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toMatch(/free tier/i);
+  });
+
+  it("reports missing credentials, not the run reason, when a signed-in member has nothing connected", async () => {
+    credentialState.builderPrivateKey = null;
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = false;
+    oauthState.accessToken = null;
+    vi.unstubAllEnvs();
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(stop?.error).toContain("Settings > Agent > AI providers");
-    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toContain("no signed-in workspace member");
+    expect(stop?.error).not.toMatch(/free tier/i);
   });
 
   it("uses per-user Builder OAuth without legacy space credentials", async () => {
@@ -459,6 +478,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -508,6 +529,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -1065,8 +1088,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 401,
-      code: "unauthorized",
-      message: "Invalid key",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
@@ -1472,8 +1497,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1966,8 +1993,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid or inactive personal access token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1992,12 +2021,19 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
-    expect(stop?.error).toBe("Invalid or inactive personal access token");
+    expect(stop?.error).toBe(
+      "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+    );
+    expect(stop?.error).not.toContain(
+      "Invalid or inactive personal access token",
+    );
     expect(
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       code: "builder_auth_error",
-      message: "Invalid or inactive personal access token",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -2722,6 +2758,42 @@ describe("createBuilderEngine", () => {
     );
   });
 
+  it.each([
+    ["invalid_request", "errorCode"],
+    ["error", "errorCode"],
+    ["error", "code"],
+  ] as const)(
+    "keeps a request_not_read stop (reason %s, %s) terminal when the message looks transient",
+    async (reason, codeField) => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason,
+              requestId: "req_unread",
+              error:
+                'Model "gpt-6-luna" did not read the request; the upstream provider timed out.',
+              [codeField]: "request_not_read",
+            },
+          ]),
+        ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.reason).toBe("error");
+      expect(stop?.errorCode).toBe("request_not_read");
+      expect(stop?.providerRetryable).toBe(false);
+    },
+  );
+
   it("treats an uncoded masked envelope on invalid_request as a non-retryable internal error", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal(
@@ -2748,9 +2820,18 @@ describe("createBuilderEngine", () => {
     expect(logged).toContain("requestId=req_masked_envelope");
     expect(logged).toContain("providerMessagePresent=true");
     expect(logged).toContain("code=builder_gateway_internal_error");
-    expect(logged).toMatch(
-      /requestShape=\{"model":"[^"]+","payloadBytes":\d+,"toolCount":\d+,"messageCount":\d+\}/,
+    expect(logged).toContain(
+      `requestShape=${JSON.stringify(stop?.requestShape)}`,
     );
+    expect(stop?.requestShape).toMatchObject({
+      payloadBytes: expect.any(Number),
+      toolCount: 0,
+      messageCount: 1,
+      toolBytes: 0,
+      systemBytes: expect.any(Number),
+      maxOutputTokens: DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
+      reasoningEffort: null,
+    });
     expect(logged).not.toContain("Sorry, this was caused by an internal error");
   });
 
@@ -2822,7 +2903,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.providerRetryable).toBe(true);
   });
 
-  it("keeps an uncoded non-envelope invalid_request terminal as invalid_request", async () => {
+  it("keeps an uncoded invalid_request terminal and carries its request ID", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -2843,9 +2924,24 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.errorCode).toBe("invalid_request");
     expect(stop?.providerRetryable).toBe(false);
+    expect(stop?.requestId).toBe("req_plain_invalid");
   });
 
-  it("marks unclassified no-detail gateway stop errors as retryable", async () => {
+  it.each([
+    { reason: "refusal" },
+    { reason: "content-filter" },
+    { reason: "error", errorCode: "content_filter" },
+  ])("preserves a typed gateway refusal ($reason)", async (stop) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonlResponse([{ type: "stop", ...stop }])),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(events.at(-1)).toEqual({ type: "stop", reason: "refusal" });
+  });
+
+  it("keeps unclassified no-detail gateway stop errors as failures", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -3000,6 +3096,106 @@ describe("createBuilderEngine", () => {
     }
   });
 
+  it.each([
+    { code: "overloaded_error", classification: "overloaded_error" },
+    { code: "  OvErLoAdEd_ErRoR  ", classification: "overloaded_error" },
+    { code: "rate_limited", classification: "rate_limited" },
+    { code: "rate_limit_exceeded", classification: "rate_limit_exceeded" },
+    {
+      code: "too_many_concurrent_requests",
+      classification: "too_many_concurrent_requests",
+    },
+    { code: "invalid_request", classification: "invalid_request" },
+    { code: "invalid_request_error", classification: "invalid_request_error" },
+    {
+      code: "provider_internal_error",
+      classification: "provider_internal_error",
+    },
+    {
+      code: "builder_gateway_internal_error",
+      classification: "builder_gateway_internal_error",
+    },
+    {
+      code: "context_length_exceeded",
+      classification: "context_length_exceeded",
+    },
+    { code: "input_too_long", classification: "input_too_long" },
+    { code: undefined, classification: undefined },
+    { code: "private_canary_code_4c7d1e", classification: undefined },
+    { code: "  private_canary_Unknown_4c7d1e  ", classification: undefined },
+    {
+      code: "overloaded_error_private_canary_4c7d1e",
+      classification: undefined,
+    },
+  ])(
+    "captures only a known no-detail provider classification for $code",
+    async ({ code, classification }) => {
+      const events: TrackingEvent[] = [];
+      const contexts: captureErrorModule.CaptureErrorContext[] = [];
+      registerTrackingProvider({
+        name: "gateway-no-detail-classification",
+        track: (event) => events.push(event),
+      });
+      const unregister = captureErrorModule.registerErrorCaptureProvider(
+        "gateway-no-detail-classification",
+        (error, context) => {
+          contexts.push(context);
+          captureException(error, context);
+        },
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code,
+              requestId: "req_no_detail",
+              providerNote: "private_canary_note_4c7d1e",
+            },
+          ]),
+        ),
+      );
+      try {
+        const streamEvents = await collectEvents(
+          createBuilderEngine().stream(BASE_OPTS),
+        );
+        expect(
+          streamEvents.find((event) => event.type === "stop"),
+        ).toMatchObject({
+          reason: "error",
+          error: "Gateway error (no detail)",
+          errorCode: code ?? "builder_gateway_error",
+        });
+        expect(contexts).toHaveLength(1);
+        expect(contexts[0].tags?.providerErrorCode).toBe(classification);
+        expect(contexts[0].contexts?.builderGateway?.providerErrorCode).toBe(
+          classification,
+        );
+        const exceptions = events.filter(
+          (event) => event.name === "$exception",
+        );
+        expect(exceptions).toHaveLength(1);
+        expect(exceptions[0].properties?.exceptionTags).toMatchObject({
+          errorCode: "builder_gateway_error",
+          ...(classification ? { providerErrorCode: classification } : {}),
+        });
+        if (!classification) {
+          expect(exceptions[0].properties?.exceptionTags).not.toHaveProperty(
+            "providerErrorCode",
+          );
+        }
+        expect(JSON.stringify([contexts, exceptions])).not.toContain(
+          "private_canary",
+        );
+      } finally {
+        unregister();
+        unregisterTrackingProvider("gateway-no-detail-classification");
+      }
+    },
+  );
+
   it("captures no-detail gateway stop errors to Sentry with model + requestId tags", async () => {
     const captureSpy = vi
       .spyOn(captureErrorModule, "captureError")
@@ -3085,6 +3281,44 @@ describe("createBuilderEngine", () => {
     expect(stop?.requestShape?.payloadBytes).toBe(
       new TextEncoder().encode(sentBody).length,
     );
+    const body = JSON.parse(sentBody);
+    expect(stop?.requestShape?.toolBytes).toBe(
+      new TextEncoder().encode(JSON.stringify(body.tools)).length,
+    );
+    expect(stop?.requestShape?.systemBytes).toBe(
+      new TextEncoder().encode(JSON.stringify(body.system)).length,
+    );
+  });
+
+  it("diagnoses a reasoning-only stop without logging its content", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "thinking-delta", text: "Private reasoning content" },
+          { type: "usage", inputTokens: 900, outputTokens: 64_000 },
+          { type: "stop", reason: "max_tokens" },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        model: "gpt-6-luna",
+        maxOutputTokens: 64_000,
+        reasoningEffort: "low",
+      }),
+    );
+
+    expect(events.at(-1)).toEqual({ type: "stop", reason: "max_tokens" });
+    const logged = warning.mock.calls.flat().join(" ");
+    expect(logged).toContain("empty stop reason=max_tokens");
+    expect(logged).toContain('"maxOutputTokens":64000');
+    expect(logged).toContain('"reasoningEffort":"low"');
+    expect(logged).toContain("outputTokens=64000");
+    expect(logged).not.toContain("Private reasoning content");
   });
 
   it("caps Builder provider tools at 128 and keeps tool-search", async () => {
@@ -3321,36 +3555,41 @@ describe("createBuilderEngine", () => {
     expect(body).not.toHaveProperty("reasoning_effort");
   });
 
-  it("sends the real reasoning_effort for a GPT model when tools are present", async () => {
-    const fetchSpy = vi
-      .fn()
-      .mockResolvedValue(
-        jsonlResponse([
-          { type: "stop", reason: "end_turn", requestId: "req_1" },
-        ]),
+  it.each(["high", "low"] as const)(
+    "sends %s GPT reasoning effort and includes the configured budget with tools",
+    async (reasoningEffort) => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValue(
+          jsonlResponse([
+            { type: "stop", reason: "end_turn", requestId: "req_1" },
+          ]),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const engine = createBuilderEngine();
+      await collectEvents(
+        engine.stream({
+          ...BASE_OPTS,
+          model: "gpt-6-luna",
+          maxOutputTokens: 128_000,
+          reasoningEffort,
+          tools: [
+            {
+              name: "list_items",
+              description: "List items",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+        }),
       );
-    vi.stubGlobal("fetch", fetchSpy);
 
-    const engine = createBuilderEngine();
-    await collectEvents(
-      engine.stream({
-        ...BASE_OPTS,
-        model: "gpt-5-6-luna",
-        reasoningEffort: "high",
-        tools: [
-          {
-            name: "list_items",
-            description: "List items",
-            inputSchema: { type: "object", properties: {} },
-          },
-        ],
-      }),
-    );
-
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.tools).toHaveLength(1);
-  });
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.max_tokens).toBe(128_000);
+      expect(body.reasoning_effort).toBe(reasoningEffort);
+      expect(body.tools).toHaveLength(1);
+    },
+  );
 
   it("omits reasoning_effort for a GPT model when explicit effort is none", async () => {
     const fetchSpy = vi

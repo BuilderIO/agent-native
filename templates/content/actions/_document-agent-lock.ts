@@ -1,8 +1,9 @@
 import { ActionContractError, isOutsideAgentCall } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { agentLevelFromStored } from "../shared/agent-level.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
 export type CallProvenance = Pick<
@@ -67,31 +68,88 @@ export function isAgentCall(ctx: CallProvenance | undefined) {
   );
 }
 
+type StoredAgentLevel = { agentTextLocked?: number | null };
+
+function agentsMayOnlyView() {
+  return new ActionContractError(
+    "A person has set agents to Can view on this page, so agents can only read it: they can't edit it, comment, react or suggest edits. Only a person can change that, from the page's Share panel.",
+    { errorCode: "AGENT_VIEW_ONLY", statusCode: 403 },
+  );
+}
+
 /**
- * Agents set to Can comment on a page: a person keeps its title, body,
- * description and tabs out of agents' reach, while agents can still comment
- * and suggest edits. It keeps connected agents out of the text; it isn't a
- * permission, since they act for someone who could turn it off. A space's
- * catalog entry always takes the space's name, so its title follows a rename
- * of the space's Files page; that page's own level is the one that holds it.
+ * Agents set to Can comment or Can view on a page: a person keeps its title,
+ * body, description, icon and tabs out of agents' reach. At Can comment agents
+ * can still comment and suggest edits. It keeps connected agents out of the
+ * text; it isn't a permission, since they act for someone who could turn it
+ * off. A space's catalog entry always takes the space's name, so its title
+ * follows a rename of the space's Files page; that page's own level is the one
+ * that holds it.
  */
 export function assertAgentsMayEditPageText(
-  document: { agentTextLocked?: number | null } | undefined,
+  document: StoredAgentLevel | undefined,
   ctx: CallProvenance | undefined,
 ) {
   if (!document?.agentTextLocked || !isAgentCall(ctx)) return;
+  if (agentLevelFromStored(document.agentTextLocked) === "view") {
+    throw agentsMayOnlyView();
+  }
   throw new ActionContractError(
-    "A person has locked the text of this page against agents. Comment on it, or propose the change with suggest-document-edit for a person to accept.",
+    "A person has set agents to Can comment on this page, so agents can't change its text. Comment on it, or propose the change with suggest-document-edit for a person to accept. Agents can't unlock it: only a person can change that, from the page's Share panel.",
     { errorCode: "AGENT_TEXT_LOCKED", statusCode: 403 },
   );
 }
 
+/**
+ * Agents set to Can view on a page: on top of the text, they can't comment,
+ * reply, react or suggest edits there, and nothing an agent starts writes
+ * comments into it.
+ */
+export function assertAgentsMayCommentOnPage(
+  document: StoredAgentLevel | undefined,
+  ctx: CallProvenance | undefined,
+) {
+  if (agentLevelFromStored(document?.agentTextLocked) !== "view") return;
+  if (isAgentCall(ctx)) throw agentsMayOnlyView();
+}
+
+/** The same refusal for a caller that has checked access but holds no row. */
+export async function assertAgentsMayCommentOnPageId(
+  documentId: string,
+  ctx: CallProvenance | undefined,
+) {
+  if (!isAgentCall(ctx)) return;
+  // guard:allow-unscoped — callers have checked access; this reads only the level.
+  const [page] = await getDb()
+    .select({ agentTextLocked: schema.documents.agentTextLocked })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId))
+    .limit(1);
+  assertAgentsMayCommentOnPage(page, ctx);
+}
+
+/**
+ * Ask AI hands a person's comment to an agent, so a page set to Can view
+ * refuses it whoever asks.
+ */
+export function assertAiMayAnswerOnPage(
+  document: StoredAgentLevel | undefined,
+) {
+  if (agentLevelFromStored(document?.agentTextLocked) !== "view") return;
+  throw new ActionContractError(
+    "Agents can only view this page, so AI can't answer comments on it. Someone who manages the page can change that in Share.",
+    { errorCode: "AGENT_VIEW_ONLY", statusCode: 403 },
+  );
+}
+
+/** A refusal from the page's agent level, at Can comment or Can view. */
 export function isAgentTextLockRefusal(
   error: unknown,
 ): error is ActionContractError {
   return (
     error instanceof ActionContractError &&
-    error.errorCode === "AGENT_TEXT_LOCKED"
+    (error.errorCode === "AGENT_TEXT_LOCKED" ||
+      error.errorCode === "AGENT_VIEW_ONLY")
   );
 }
 
@@ -125,9 +183,10 @@ export async function assertAgentsMayEditPagesText(
       .where(
         and(
           inArray(schema.documents.id, documentIds.slice(start, start + 500)),
-          eq(schema.documents.agentTextLocked, 1),
+          ne(schema.documents.agentTextLocked, 0),
         ),
       )
+      .orderBy(desc(schema.documents.agentTextLocked))
       .limit(1);
     assertAgentsMayEditPageText(lockedPage, ctx);
   }

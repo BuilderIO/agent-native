@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import {
@@ -23,6 +26,7 @@ export const navigateSchema = z.object({
   includeDone: optionalBooleanQueryParam().describe(
     "When true, show completed tasks on /tasks",
   ),
+  intent: navigationIntentSchema,
 });
 
 export default defineAction({
@@ -30,6 +34,7 @@ export default defineAction({
     "Navigate the Tasks UI to a view, optionally selecting a task or custom field.",
   schema: navigateSchema,
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const view = resolveNavView(args.view);
     const nav: Record<string, string | boolean> = { view };

@@ -6,6 +6,7 @@ const mockGetUserSetting = vi.fn();
 const mockTrackDomainJoined = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute }),
   isLocalDatabase: () => true,
 }));
@@ -219,7 +220,21 @@ describe("autoJoinDomainMatchingOrgs", () => {
     expect(out.joined).toEqual([]);
     expect(out.activeOrgId).toBeNull();
     const args = mockExecute.mock.calls[0][0].args;
-    expect(args).toEqual(["existing@builder.io", "builder.io"]);
+    expect(args).toEqual([
+      "existing@builder.io",
+      "existing@builder.io",
+      "builder.io",
+    ]);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockTrackDomainJoined).not.toHaveBeenCalled();
+  });
+
+  it("does not rejoin a deactivated member through the domain", async () => {
+    queueSelect([
+      { orgId: "builder_io", isMember: false, isDeactivated: true },
+    ]);
+    const out = await autoJoinDomainMatchingOrgs("gone@builder.io");
+    expect(out).toEqual({ joined: [], activeOrgId: null });
     expect(mockExecute).toHaveBeenCalledTimes(1);
     expect(mockTrackDomainJoined).not.toHaveBeenCalled();
   });
@@ -256,6 +271,10 @@ describe("autoJoinDomainMatchingOrgs", () => {
     queueSelect([]);
     await autoJoinDomainMatchingOrgs("Mixed@Builder.IO");
     const args = mockExecute.mock.calls[0][0].args;
-    expect(args).toEqual(["mixed@builder.io", "builder.io"]);
+    expect(args).toEqual([
+      "mixed@builder.io",
+      "mixed@builder.io",
+      "builder.io",
+    ]);
   });
 });

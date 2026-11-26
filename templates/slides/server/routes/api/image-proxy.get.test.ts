@@ -1,6 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { sharedDeckContainsImage } from "./image-proxy.get";
+import handler, { sharedDeckContainsImage } from "./image-proxy.get";
+
+vi.mock("@agent-native/core/server", () => ({
+  getSession: async () => ({ email: "owner@example.com" }),
+}));
+
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
+  getQuery: () => ({ url: "https://cdn.example.com/a.png" }),
+}));
+
+vi.mock("../../lib/fetch-remote-image.js", () => ({
+  fetchRemoteImage: async () => ({
+    ok: true,
+    contentType: "image/png",
+    body: Buffer.from("png-bytes"),
+  }),
+}));
 
 describe("sharedDeckContainsImage", () => {
   it("matches only image sources stored in the shared slide snapshot", () => {
@@ -80,5 +97,30 @@ describe("sharedDeckContainsImage", () => {
     expect(
       sharedDeckContainsImage(slides, "https://cdn.example.com/fake.png"),
     ).toBe(false);
+  });
+});
+
+describe("image proxy response headers", () => {
+  it("serves proxied bytes under a sandbox policy without a wildcard origin", async () => {
+    const headers: Record<string, string> = {};
+    const event = {
+      context: {},
+      node: {
+        req: { url: "/api/image-proxy?url=https://cdn.example.com/a.png" },
+        res: {
+          setHeader: (name: string, value: string) => {
+            headers[name.toLowerCase()] = value;
+          },
+        },
+      },
+    };
+    const body = await handler(event as never);
+
+    expect(Buffer.isBuffer(body)).toBe(true);
+    expect(headers["content-type"]).toBe("image/png");
+    expect(headers["content-security-policy"]).toBe(
+      "default-src 'none'; sandbox",
+    );
+    expect(headers["access-control-allow-origin"]).toBeUndefined();
   });
 });

@@ -1224,6 +1224,7 @@ export default {
     monitoring: "Surveillance - Analytics",
     agents: "Agents - Analytique",
     session: "Relecture de session - Analytics",
+    sessionReport: "Rapport de session - Analytics",
     tool: "Outil - Analytics",
     extensions: "Extensions-Analytics",
     overview: "Présentation - Analytics",
@@ -1405,6 +1406,8 @@ export default {
     resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
+    collapseDescription: "Réduire la description",
+    expandDescription: "Développer la description",
     drilldownChartPoints: "Points du graphique",
     drilldownPreviousPage: "Page précédente des points du graphique",
     drilldownNextPage: "Page suivante des points du graphique",
@@ -1424,6 +1427,8 @@ export default {
       "Le graphique affiche {{chart}}, mais {{total}} enregistrements correspondent",
     drilldownAggregateOnly:
       "Ce panneau ne contient que des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
+    drilldownNoXValueAggregateOnly:
+      "Ce panneau ne peut pas ouvrir d’enregistrements pour un point sans valeur ; il affiche donc des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
     drilldownNoRecords: "Aucun enregistrement correspondant",
     drilldownNoRecordsIncomplete:
       "Aucun enregistrement chargé. Le résultat est incomplet : des enregistrements peuvent tout de même correspondre.",
@@ -1913,6 +1918,29 @@ export default {
     emptyStepVisit: "Visiter l'application",
     installSnippetTitle: "Ajouter la relecture de session",
     backToSessions: "Retour aux sessions",
+    createReport: "Créer un rapport",
+    createReportTooltip:
+      "Demandez à l’agent de rédiger un rapport sur cette session : ce qui n’a pas fonctionné, ses moments clés et comment le reproduire.",
+    createReportMessage: "Rédige un rapport sur cette session.",
+    reportCount: "Rapports ({{count}})",
+    reportsUnavailable: "Rapports indisponibles",
+    reportNeedsLab:
+      "Les rapports de session font partie du Lab de tri des sessions.",
+    reportNotFound: "Ce rapport n’existe pas ou n’a pas été partagé avec vous.",
+    reportLoadFailed: "Impossible de charger ce rapport : {{message}}",
+    reportBackToSession: "Retour à la session",
+    reportTitleLabel: "Titre du rapport",
+    reportSummaryLabel: "Résumé",
+    reportSummaryPlaceholder: "Ce qui n’a pas fonctionné, et pourquoi",
+    reportKeyMoments: "Moments clés",
+    reportReproSteps: "Étapes pour reproduire",
+    reportErrorIssue: "Problème d’erreur",
+    reportCommit: "Commit",
+    reportNoCommit: "La session n’a signalé aucun commit",
+    reportSaveFailed: "Impossible d’enregistrer le rapport : {{message}}",
+    reportDelete: "Supprimer le rapport",
+    reportDeleteTitle:
+      "Supprimer ce rapport ? Ses liens pour agents cesseront de fonctionner.",
     copyForAgent: "Copier pour l'agent",
     copyForAgentTooltip:
       "Copiez un lien privé temporaire qu’un agent peut utiliser pour inspecter cette relecture.",
@@ -2187,6 +2215,10 @@ export default {
     flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
     flagsUnreachable:
       "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
+    verifiedFlagChangeOrg:
+      "Vérifié à {{time}} : {{flag}} dans {{app}} est réglé sur {{availability}} pour cette organisation.",
+    verifiedFlagChangeGlobal:
+      "Vérifié à {{time}} : {{flag}} dans {{app}} est réglé sur {{availability}} pour toutes les organisations.",
     flagsEmpty: "Aucune application n'a signalé d'indicateur",
     flagsEmptyDetail:
       "Les indicateurs enregistrés apparaîtront ici lorsque les applications connectées seront prêtes.",
@@ -2351,6 +2383,15 @@ export default {
     addedBy: "Ajouté par {{email}}",
     more: "+{{count}} de plus",
     flagLabel: "Notes sur les données",
+  },
+  citedIn: {
+    menu: "Cité dans",
+    menuTooltip: "Pages Content contenant des graphiques de ce tableau de bord",
+    empty:
+      "Aucune page Content que vous pouvez ouvrir ne contient encore de graphiques de ce tableau de bord",
+    unavailable: "Impossible de joindre Content. Réessayez dans une minute.",
+    untitledPage: "Sans titre",
+    more: "Content n'a vérifié que les pages modifiées le plus récemment ; il peut y en avoir d'autres.",
   },
   annotations: {
     menu: "Annotations",

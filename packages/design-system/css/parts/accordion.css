@@ -1,0 +1,105 @@
+/*
+ * Part: accordion
+ *
+ *   <div class="accordion">                         Base UI Accordion.Root
+ *     <div class="accordion-item" [data-open]>      Accordion.Item
+ *       <h3 class="accordion-header">               Accordion.Header
+ *         <button class="accordion-trigger"         Accordion.Trigger [data-panel-open]
+ *           <svg class="accordion-chevron">
+ *       <div class="accordion-panel">               Accordion.Panel [data-open]
+ *
+ * Rows divided by hairlines; a trigger is a 32px row with its chevron
+ * turning as the panel opens, and the panel animates its height. Radix
+ * Themes has no accordion, so it takes Base UI's props and no others.
+ */
+
+@layer components {
+  .accordion {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .accordion-item {
+    border-bottom: 1px solid var(--line-subtle);
+  }
+
+  .accordion-header {
+    margin: 0;
+    font: inherit;
+  }
+
+  .accordion-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--control-height-4);
+    padding: var(--space-2) 0;
+    border: 0;
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background: transparent;
+    color: var(--fg-default);
+    font: inherit;
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    text-align: start;
+    cursor: pointer;
+    outline-style: none;
+  }
+
+  .accordion-trigger:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(-1 * var(--focus-ring-width));
+  }
+
+  .accordion-trigger[data-disabled] {
+    cursor: not-allowed;
+    color: var(--fg-disabled);
+  }
+
+  .accordion-trigger[data-disabled] .accordion-chevron {
+    color: inherit;
+  }
+
+  .accordion-chevron {
+    flex-shrink: 0;
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+    color: var(--fg-muted);
+    transition: rotate var(--duration-2) var(--ease-standard);
+  }
+
+  .accordion-trigger[data-panel-open] .accordion-chevron {
+    rotate: 180deg;
+  }
+
+  .accordion-panel {
+    height: var(--accordion-panel-height);
+    overflow: hidden;
+    color: var(--fg-muted);
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    transition: height var(--duration-2) var(--ease-standard);
+  }
+
+  .accordion-panel[data-starting-style],
+  .accordion-panel[data-ending-style] {
+    height: 0;
+  }
+
+  /* Spacing inside the panel, so the height animation includes it. */
+  .accordion-panel > :last-child {
+    padding-bottom: var(--space-2);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .accordion-chevron,
+    .accordion-panel {
+      transition: none;
+    }
+  }
+}

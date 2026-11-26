@@ -7,6 +7,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
 
+export class SingleUseLinkUnavailableError extends Error {}
+
 async function readErrorMessage(res: Response, fallback: string) {
   try {
     const body = (await res.json()) as { error?: string; message?: string };
@@ -99,12 +101,18 @@ export function useCreateBooking() {
       start: string;
       end: string;
       slug: string;
+      singleUseToken?: string;
     }) => {
       const res = await fetch(appApiPath("/api/bookings/create"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+      if (res.status === 410) {
+        throw new SingleUseLinkUnavailableError(
+          await readErrorMessage(res, "Failed to create booking"),
+        );
+      }
       if (!res.ok) {
         throw new Error(
           await readErrorMessage(res, "Failed to create booking"),

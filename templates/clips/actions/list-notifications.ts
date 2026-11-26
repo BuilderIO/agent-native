@@ -5,6 +5,11 @@ import { and, desc, gte, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  clipsMentions,
+  liveRecordingComments,
+  reviewComments,
+} from "../server/lib/recording-comments.js";
 import { canReceiveRecordingActivity } from "../server/lib/recording-page-access.js";
 import {
   getCurrentOwnerEmail,
@@ -12,7 +17,6 @@ import {
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
 import { canReadRecordingComments } from "../shared/comment-access.js";
-import { parseCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
@@ -22,6 +26,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(200),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const me = getCurrentOwnerEmail();
@@ -78,27 +83,33 @@ export default defineAction({
     const mentionPattern = `%"email":"${me.toLowerCase()}"%`;
     const commentScope = myRecordingIds.length
       ? or(
-          inArray(schema.recordingComments.recordingId, myRecordingIds),
-          sql`lower(${schema.recordingComments.mentionsJson}) LIKE ${mentionPattern}`,
+          inArray(reviewComments.resourceId, myRecordingIds),
+          sql`lower(${reviewComments.mentionsJson}) LIKE ${mentionPattern}`,
         )
-      : sql`lower(${schema.recordingComments.mentionsJson}) LIKE ${mentionPattern}`;
+      : sql`lower(${reviewComments.mentionsJson}) LIKE ${mentionPattern}`;
 
     const [comments, reactions] = await Promise.all([
       commentRecordingIds.length
         ? db
-            .select()
-            .from(schema.recordingComments)
+            .select({
+              id: reviewComments.id,
+              recordingId: reviewComments.resourceId,
+              authorEmail: reviewComments.authorEmail,
+              authorName: reviewComments.authorName,
+              content: reviewComments.body,
+              mentionsJson: reviewComments.mentionsJson,
+              createdAt: reviewComments.createdAt,
+            })
+            .from(reviewComments)
             .where(
               and(
-                inArray(
-                  schema.recordingComments.recordingId,
-                  commentRecordingIds,
-                ),
-                gte(schema.recordingComments.createdAt, cutoff),
+                liveRecordingComments(),
+                inArray(reviewComments.resourceId, commentRecordingIds),
+                gte(reviewComments.createdAt, cutoff),
                 commentScope,
               ),
             )
-            .orderBy(desc(schema.recordingComments.createdAt))
+            .orderBy(desc(reviewComments.createdAt))
             .limit(args.limit)
         : Promise.resolve([]),
       myRecordingIds.length
@@ -116,14 +127,20 @@ export default defineAction({
         : Promise.resolve([]),
     ]);
 
-    const commentRows = comments.filter(
-      (comment) =>
-        !sameOwnerEmail(comment.authorEmail, me) &&
-        (myRecordingIdSet.has(comment.recordingId) ||
-          parseCommentMentions(comment.mentionsJson).some(
-            (mention) => mention.email === me.toLowerCase(),
-          )),
-    );
+    const commentRows = comments
+      .map((comment) => ({
+        ...comment,
+        authorEmail: comment.authorEmail ?? "",
+        mentions: clipsMentions(comment.mentionsJson),
+      }))
+      .filter(
+        (comment) =>
+          !sameOwnerEmail(comment.authorEmail, me) &&
+          (myRecordingIdSet.has(comment.recordingId) ||
+            comment.mentions.some(
+              (mention) => mention.email === me.toLowerCase(),
+            )),
+      );
     const reactionRows = reactions.filter(
       (r) => !sameOwnerEmail(r.viewerEmail, me),
     );
@@ -135,9 +152,7 @@ export default defineAction({
     const items = [
       ...commentRows.map((c) => ({
         id: `c:${c.id}`,
-        kind: (parseCommentMentions(c.mentionsJson).some(
-          (mention) => mention.email === me.toLowerCase(),
-        )
+        kind: (c.mentions.some((mention) => mention.email === me.toLowerCase())
           ? "mention"
           : "comment") as "mention" | "comment",
         recordingId: c.recordingId,

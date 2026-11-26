@@ -46,6 +46,8 @@ export const ACTION_HEADERS = {
 export const EDITOR = ".content-editor.ProseMirror";
 export const ACTIVE_EDITOR = `${EDITOR}:not([hidden] *)`;
 
+const READ_RETRIES = 3;
+
 export async function getActionResponse(
   page: Page,
   name: string,
@@ -55,6 +57,7 @@ export async function getActionResponse(
     params,
     headers: ACTION_HEADERS,
     timeout: 30_000,
+    maxRetries: READ_RETRIES,
   });
 }
 
@@ -239,7 +242,7 @@ export async function postUiAction(
 export async function getDocument(page: Page, id: string) {
   const response = await page.request.get(
     "/_agent-native/actions/get-document",
-    { params: { id }, headers: ACTION_HEADERS },
+    { params: { id }, headers: ACTION_HEADERS, maxRetries: READ_RETRIES },
   );
   const text = await response.text();
   expect(response.ok(), `get-document (${response.status()}): ${text}`).toBe(
@@ -258,7 +261,11 @@ export async function getDocument(page: Page, id: string) {
 export async function getPreviewDraft(page: Page, documentId: string) {
   const response = await page.request.get(
     "/_agent-native/actions/get-preview-document-draft",
-    { params: { documentId }, headers: ACTION_HEADERS },
+    {
+      params: { documentId },
+      headers: ACTION_HEADERS,
+      maxRetries: READ_RETRIES,
+    },
   );
   const text = await response.text();
   expect(
@@ -637,6 +644,7 @@ export class TabSet {
   private readonly stranded = new WeakSet<Request>();
   private readonly heldAnswers = new WeakMap<Request, SaveAnswer>();
   private readonly answered = new WeakSet<Request>();
+  private readonly gated = new WeakSet<Request>();
   private readonly fetching = new Set<Request>();
 
   private constructor(readonly context: BrowserContext) {}
@@ -843,6 +851,10 @@ export class TabSet {
     return this.stranded.has(request);
   }
 
+  timeThroughGate(request: Request) {
+    this.gated.add(request);
+  }
+
   /**
    * Fetch the answer to a save a SaveGate holds, and keep it. If the save
    * already settled, the set records the answer as late instead.
@@ -1013,6 +1025,7 @@ export class TabSet {
     if (
       !late &&
       sentAt !== undefined &&
+      this.gated.has(request) &&
       savesBody(new URL(request.url()).pathname)
     )
       record.saveDurationsMs.push(Date.now() - sentAt);
@@ -1149,6 +1162,7 @@ export class SaveGate {
   private async handle(route: Route) {
     const request = route.request();
     if (request.method() !== "POST") return route.continue();
+    this.tabs.timeThroughGate(request);
     if (this.latencyMs > 0) await delay(this.latencyMs);
     // A save whose page went away is settled, and Playwright has dropped it.
     if (this.tabs.isStranded(request)) return;

@@ -1,17 +1,9 @@
+import type { RecorderStage } from "@shared/recorder-stage";
+
 export type RecordingVisibilityAction = "pause" | "resume" | null;
 
 type RecordingVisibilityMode = "screen" | "camera" | "screen+camera";
-type RecordingVisibilityRecorderState =
-  | "idle"
-  | "pickingSources"
-  | "countdown"
-  | "recording"
-  | "paused"
-  | "stopping"
-  | "compressing"
-  | "uploading"
-  | "complete"
-  | "error";
+type RecordingVisibilityRecorderState = RecorderStage;
 
 export interface RecordingVisibilityDecision {
   action: RecordingVisibilityAction;

@@ -9,6 +9,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Queued draft ID"),
   }),
+  mcpTool: false,
   run: async (args) => {
     return openQueuedDraftInComposer(args.id);
   },

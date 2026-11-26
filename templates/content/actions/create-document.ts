@@ -36,6 +36,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertAnalyticsTablesFitAudience,
+  sharesAudience,
+  widerAudience,
+} from "../server/lib/analytics-chart-sharing.js";
+import {
   documentCreationAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
@@ -43,11 +48,13 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import {
   syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { isLocalSourceDirectoryId } from "../shared/local-source-directory.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -56,7 +63,10 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
-import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
+import {
+  NFM_CONTAINER_SYNTAX,
+  NFM_INTERACTIVE_HTML_SYNTAX,
+} from "./_nfm-syntax.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -410,12 +420,15 @@ function parseDocumentCreationProvenance(
 export default defineAction({
   searchHints: ["new page", "write a doc", "notes page"],
   description:
-    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and resolved spaceId for subsequent get-document or edit-document calls. If creativeContextProjectionStatus is pending, the document is committed; retry the same arguments with the returned id to repair its projection without creating a duplicate.",
+    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID, resolved spaceId, the saved body and its revision; pass that revision to edit-document as baseRevision, with no get-document call in between. It also returns the urlPath to link the page by its title in your reply. If creativeContextProjectionStatus is pending, the document is committed; retry the same arguments with the returned id to repair its projection without creating a duplicate.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
     id: z
       .string()
+      .refine((id) => !isLocalSourceDirectoryId(id), {
+        message: "That ID is reserved for linked folder rows.",
+      })
       .optional()
       .describe(
         "Optional pre-generated document ID for optimistic UI. When replaying a create result with creativeContextProjectionStatus pending, use its returned id and the same arguments.",
@@ -437,7 +450,7 @@ export default defineAction({
       .describe(
         "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
           'shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
-          NFM_CONTAINER_SYNTAX,
+          `${NFM_CONTAINER_SYNTAX} ${NFM_INTERACTIVE_HTML_SYNTAX}`,
       ),
     preserveLeadingTitleHeading: z
       .boolean()
@@ -507,6 +520,7 @@ export default defineAction({
         content = content.slice(h1Match[0].length).trimStart();
       }
     }
+    assertInteractiveHtmlBlocks(ctx, null, content);
 
     let parentId = args.parentId || null;
     const icon = args.icon
@@ -746,6 +760,13 @@ export default defineAction({
       orgId = spaceAccess.space.orgId;
       visibility = orgId ? "org" : "private";
     }
+
+    // A new page takes its place's sharing, so a table copied from an
+    // Analytics dashboard (in a duplicate, say) can't reach more people than
+    // the dashboard, nor than the parent's shares reach.
+    await assertAnalyticsTablesFitAudience(content, async () =>
+      widerAudience(visibility, await sharesAudience(orgId, inheritedShares)),
+    );
 
     const now = new Date().toISOString();
     await verifyPrivateIconAssignment({

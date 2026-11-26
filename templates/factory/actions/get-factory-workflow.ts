@@ -99,7 +99,11 @@ export default defineAction({
         ...workflowSummaryView(workflow),
         version: graphVersion,
         currentVersion: workflow.version,
-        connections: await readGraphConnections(graph, scoped),
+        connections: await readGraphConnections(
+          graph,
+          scoped,
+          workflow.ownerEmail,
+        ),
         hasDraft: await scoped.store.hasWorkflowDraft(
           scoped.scope,
           workflowId,

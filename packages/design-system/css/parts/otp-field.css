@@ -1,0 +1,123 @@
+/*
+ * Part: otp-field
+ *
+ *   <div class="otp-field"                         Base UI OTPField.Root
+ *        data-variant="surface|soft"
+ *        [data-color] [data-radius] [data-complete] [data-disabled]>
+ *     <input class="otp-field-input"                OTPField.Input, one per character
+ *            [data-filled] [data-invalid] [data-disabled] [aria-invalid]>
+ *     <div class="otp-field-separator">             OTPField.Separator, between groups
+ *
+ * A row of square boxes, each drawn as an Input's surface or soft field:
+ * md and sm are the 24 and 20px control heights, square, with
+ * the character centered in tabular figures. Each box takes the focus ring
+ * as it takes the caret; an invalid field edges every box in the danger
+ * color.
+ */
+
+@layer components {
+  .otp-field {
+    --_box: var(--control-height-3);
+    --_font-size: var(--control-font-size-3);
+    --_line-height: var(--control-line-height-3);
+    --_radius: var(--radius-3);
+
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- boxes ---- */
+
+  .otp-field-input {
+    box-sizing: border-box;
+    flex-shrink: 0;
+    width: var(--_box);
+    height: var(--_box);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: max(
+      calc(var(--_radius) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
+    corner-shape: var(--corner-shape, round);
+    font: inherit;
+    font-size: var(--_font-size);
+    line-height: var(--_line-height);
+    font-weight: var(--font-weight-medium);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    outline-style: none;
+    transition-property: background-color, box-shadow;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .otp-field-input::placeholder {
+    color: var(--fg-subtle);
+    opacity: 1;
+  }
+
+  .otp-field-separator {
+    flex-shrink: 0;
+    width: var(--space-2);
+    height: 1px;
+    background-color: var(--line-strong);
+  }
+
+  /* ---- variants ---- */
+
+  .otp-field[data-variant="surface"] .otp-field-input {
+    background-color: var(--fill-field);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    color: var(--fg-default);
+  }
+
+  .otp-field[data-variant="soft"] .otp-field-input {
+    background-color: var(--accent-a3);
+    color: var(--accent-12);
+  }
+
+  .otp-field[data-variant="soft"] .otp-field-input::placeholder {
+    color: var(--accent-text);
+  }
+
+  @media (hover: hover) {
+    .otp-field[data-variant="surface"] .otp-field-input:hover {
+      box-shadow: inset 0 0 0 1px var(--gray-a8);
+    }
+  }
+
+  .otp-field-input:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- invalid and disabled ---- */
+
+  .otp-field[data-variant]
+    .otp-field-input:is([data-invalid], [aria-invalid="true"]) {
+    box-shadow: inset 0 0 0 1px var(--fill-danger);
+  }
+
+  .otp-field-input:is([data-invalid], [aria-invalid="true"]):focus-visible {
+    outline-color: var(--fill-danger);
+  }
+
+  .otp-field .otp-field-input:disabled {
+    cursor: not-allowed;
+    color: var(--fg-disabled);
+  }
+
+  .otp-field[data-variant="surface"] .otp-field-input:disabled {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+
+  .otp-field[data-variant="soft"] .otp-field-input:disabled {
+    background-color: var(--gray-a3);
+  }
+}

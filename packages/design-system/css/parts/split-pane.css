@@ -1,0 +1,117 @@
+@layer components {
+  .split-pane {
+    /* A parent splitter may be previewing while this splitter is idle. */
+    --split-pane-preview: initial;
+    --_handle: var(--split-pane-handle-size, var(--space-2));
+    --_pane: min(
+      var(--split-pane-preview, var(--split-pane-size)),
+      max(0px, calc(100% - var(--_handle)))
+    );
+    display: grid;
+    min-inline-size: 0;
+    min-block-size: 0;
+    grid-template-columns: var(--_pane) var(--_handle) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "panel handle content";
+  }
+  .split-pane[data-side="end"] {
+    grid-template-columns: minmax(0, 1fr) var(--_handle) var(--_pane);
+    grid-template-areas: "content handle panel";
+  }
+  .split-pane[data-axis="block"] {
+    grid-template-rows: var(--_pane) var(--_handle) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "panel" "handle" "content";
+  }
+  .split-pane[data-axis="block"][data-side="end"] {
+    grid-template-rows: minmax(0, 1fr) var(--_handle) var(--_pane);
+    grid-template-areas: "content" "handle" "panel";
+  }
+  /* Only the grid container reads the drag geometry. Inheriting it into a
+     document or inspector makes WebKit recalculate every descendant on drag. */
+  .split-pane
+    > :is(.split-pane-panel, .split-pane-content, .split-pane-handle) {
+    --_pane: initial;
+    --split-pane-preview: initial;
+    --split-pane-size: initial;
+  }
+  .split-pane-panel,
+  .split-pane-content {
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: auto;
+  }
+  .split-pane-panel {
+    grid-area: panel;
+  }
+  .split-pane-content {
+    grid-area: content;
+  }
+  .split-pane-handle {
+    grid-area: handle;
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    touch-action: none;
+    user-select: none;
+    outline: none;
+    cursor: col-resize;
+  }
+  .split-pane-handle[aria-orientation="horizontal"] {
+    cursor: row-resize;
+  }
+  .split-pane-handle[aria-disabled="true"] {
+    cursor: default;
+    touch-action: auto;
+  }
+  .split-pane-handle::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inline-size: 1px;
+    background: var(--split-pane-line, var(--line-default));
+    pointer-events: none;
+  }
+  .split-pane[data-axis="block"] > .split-pane-handle::before {
+    inset-block: auto;
+    inset-inline: 0;
+    block-size: 1px;
+    inline-size: auto;
+  }
+  .split-pane-handle:is(
+      :hover:not([aria-disabled="true"]),
+      :focus-visible,
+      [data-dragging]
+    )::before {
+    background: var(--line-focus);
+    inline-size: var(--focus-ring-width);
+  }
+  .split-pane[data-axis="block"]
+    > .split-pane-handle:is(
+      :hover:not([aria-disabled="true"]),
+      :focus-visible,
+      [data-dragging]
+    )::before {
+    inline-size: auto;
+    block-size: var(--focus-ring-width);
+  }
+  @media (pointer: coarse) {
+    .split-pane {
+      --_handle: max(
+        var(--split-pane-handle-size, var(--space-2)),
+        var(--size-3)
+      );
+    }
+  }
+  @media (forced-colors: active) {
+    .split-pane-handle::before {
+      background: CanvasText;
+      forced-color-adjust: none;
+    }
+    .split-pane-handle:is(:focus-visible, [data-dragging]) {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
+  }
+}

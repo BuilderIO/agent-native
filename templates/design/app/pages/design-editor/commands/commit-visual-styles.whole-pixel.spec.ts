@@ -61,7 +61,6 @@ function commitArgs(): CommitVisualStylesArgs {
     t: (key: string) => key,
     undoManagerRef: ref(null),
     updateLiveScreenSnapshotContent: vi.fn(() => false),
-    upsertMotionKeyframesFromStyles: vi.fn(),
     viewModeRef: ref("single"),
     ydoc: null,
   };

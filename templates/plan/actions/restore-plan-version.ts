@@ -1,10 +1,15 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import {
+  listPlanCommentRows,
+  writePlanCommentRows,
+} from "../server/lib/plan-comments.js";
 import {
   createPlanVersionSnapshot,
   parsePlanVersionSnapshot,
@@ -67,6 +72,7 @@ export default defineAction({
     const now = nowIso();
 
     let lostSaveRace = false;
+    await ensureReviewTables();
     const restoreWrite = db.transaction(async (tx) => {
       const updatedRows = await tx
         .update(schema.plans)
@@ -102,6 +108,16 @@ export default defineAction({
       }
 
       const survivingSectionIds = new Set(snapshot.sections.map((s) => s.id));
+      await writePlanCommentRows(
+        tx,
+        planId,
+        [],
+        (await listPlanCommentRows(planId))
+          .filter(
+            (row) => row.sectionId && !survivingSectionIds.has(row.sectionId),
+          )
+          .map((row) => ({ id: row.id, sectionId: null, updatedAt: now })),
+      );
       const commentAnchorMap = new Map<string, string>();
       if (survivingSectionIds.size > 0) {
         const anchored = await tx

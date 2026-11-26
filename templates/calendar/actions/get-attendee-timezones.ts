@@ -6,6 +6,7 @@ import { z } from "zod";
 export type AttendeeTimezones = Record<string, string>;
 
 export default defineAction({
+  mcpTool: "search",
   description:
     "Get saved per-attendee IANA timezone overrides (email → timezone). Used to show each guest's local time on event details.",
   schema: z.object({}),

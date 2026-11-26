@@ -13,26 +13,35 @@ metadata:
 # Build an App
 
 Done means one useful domain workflow with a designed route, shared UI/agent
-actions, correct access, agent context, and a smoke run that proves its key
-rule. Finish a narrow slice before expanding it.
+actions, correct access, agent context, and the visual and interactive gates
+in `app-quality-bar`. Finish a narrow slice before expanding it.
 
 This skill edits source files. If this session cannot write files (a deployed
 app's runtime agent), say the change needs a code session and stop.
 
-The four-area parity rule from `adding-a-feature` (UI, action, instructions,
+The four-area feature checklist from `adding-a-feature` (UI, action, instructions,
 application state) applies to everything you add. This skill supplies the
 order and decisions; use the edit-point reference for the scaffold you have.
 
 ## 1. Orient
 
-Read `AGENTS.md`, this skill, and only the files you will edit. Skip broad repo
-surveys, `README.md`, and `DESIGN.md`. Use the bundled docs/source commands in
+Read `AGENTS.md`, `DESIGN.md` if present, `product-judgment`, and `app-quality-bar`.
+Run `product-judgment` Step 0 before writing code: grep `packages/core` and
+`@agent-native/toolkit/craft` (plus `agent-native-toolkit` kits) so you reuse
+existing primitives instead of rebuilding state boundaries, shortcut managers,
+destructive dialogs, or optimistic hooks. Inspect the closest existing screen or
+action and the files you will edit. Use the bundled docs/source commands in
 `AGENTS.md` only to answer a concrete API question; do not web-research
 framework APIs.
 
 ## 2. Decide
 
-Choose these six things before writing code:
+Run `product-judgment` Steps 1–2 before writing code: choose one or two
+interaction patterns, write or update `DESIGN.md` as the single required design
+contract with the 6-Axis Judgment Card and 3-Option Decision Block (chosen and
+rejected UX options), and register `app.manifest.ts` with real screens,
+entities, `viewPolicy`, and `suggestableCapabilities`. Choose these six things
+before writing code:
 
 1. **Slice**: the one workflow that proves the app. For a booking app: create a
    booking, reject an overlap, cancel, weekly grid per room. Name what you are
@@ -116,16 +125,26 @@ The access table, the concurrency pattern, and the security rules are in
 - Load and write data with `useActionQuery` and `useActionMutation` from
   `@agent-native/core/client/hooks`. No `fetch`, and no `/api/*` routes for app
   data. Those routes are only for uploads, webhooks, OAuth callbacks, and streaming.
-- While data loads, show a `Skeleton` in the shape of the final layout, not a
-  spinner or "Loading…".
-- Writes should feel instant. In `onMutate`, update `["action", "<name>", params]`
-  with `setQueryData`; in `onError`, roll back and show
-  `toast.error(actionErrorMessage(error) ?? "<fallback>")`.
+- Use `@agent-native/toolkit/craft` primitives by default:
+  - `ResourceStateBoundary` for every async surface (requires a layout-matched
+    `skeleton`, an actionable `empty` CTA, and an `error` retry path — never a
+    spinner, bare `"Loading…"`, or dead-end `"Could not load"` screen).
+  - `useOptimisticAction` (or `onMutate` + `setQueryData` with `onError`
+    rollback and `toast.error(actionErrorMessage(error) ?? "<fallback>")`) so
+    writes acknowledge in `<100ms` and show a pending state within `<400ms`.
+  - `SafeDestructiveAction` for destructive verbs: instant optimistic action +
+    undo affordance when reversible, accessible `AlertDialog` confirmation when
+    irreversible — never `window.confirm`, `alert`, or `prompt`.
+  - `useCommandRegistry` for portable `Mod` (`Cmd`/`Ctrl`) shortcuts, `j`/`k`,
+    `Esc`, and `?` shortcut help that automatically ignore editable inputs.
+- Style with semantic tokens from `@agent-native/toolkit/styles.css` (which
+  bundles `craft-tokens.css`: `--success`/`--warning`/`--info`, `--surface-0..3`,
+  `--density-*`, `--dur-instant`/`--dur-fast`/`--dur-panel`, `tabular-nums`, and
+  `640px` chat-companion `@container` utilities).
 - Import controls from `@/components/ui/*`. When one is missing (dialog,
   select, skeleton, alert-dialog), add a one-line re-export like `button.tsx`:
   `export * from "@agent-native/toolkit/ui/dialog";`.
-- Use Tabler icons only. Confirm with `AlertDialog`; never use `window.confirm`,
-  `alert`, or `prompt`.
+- Use Tabler icons only.
 - Don't add a page title that repeats the nav item, a subtitle under a title,
   or a stats strip. The data is the page. For visual direction, see `frontend-design`.
 - Follow the app's existing localization pattern for user-facing copy.
@@ -145,7 +164,7 @@ runtime prompt cuts the file off at 6,000 characters. Cover:
 
 Keep the action table aligned with the scaffold's primary tool list when one
 exists; other actions should remain discoverable through `tool-search`. Leave
-unrelated AGENTS.md sections, README, and DESIGN.md as they are.
+unrelated AGENTS.md sections as they are.
 
 ### Real-time
 
@@ -172,18 +191,21 @@ made from a stale view. See `real-time-sync`.
    message; read back the saved state through the matching list/get action.
    The CLI prints the failure message, not its structured `errorCode`, so also
    verify any code-specific behavior in the action contract or browser.
-4. Run one browser smoke on the domain route:
-   - create a record
-   - trigger the rejection: a toast appears and nothing is written
-   - cancel or undo, repeat the previously rejected write, and confirm it
-     succeeds
+4. Run the `$0` static craft audit (`pnpm tsx scripts/guard-craft-slop.ts <app-dir>`)
+   and review the 5 Human-Team Lenses from `product-judgment` before capturing
+   screenshots. Then apply the canonical 12-row visual rubric and capture loop
+   from `skills/turn-into-app/references/review-loop.md` and
+   `app-quality-bar/visual-review.md`. Give the screenshots, rubric, and brief to
+   a blind reviewer and use the lower score per row. Fix and recapture until the
+   review passes (mean >= 4.0, every row >= 3, zero automatic fails).
+5. Run the 60-second automated Playwright walkthrough from `app-quality-bar`.
+   Cover empty, populated, split pane at 520 px or narrower, and error
+   recovery. Click every navigation item, create and edit, reload and verify
+   persistence, and test three manifest-driven chat prompts. Fail on
+   `Loading...`, native dialogs, or unexpected full-page reloads.
+6. Stop the dev server and close the tab. Keep readiness pending when a gate
+   could not run or failed.
 
-   Inspect console and network failures. Fix errors from the new route or actions
-   and identify existing scaffold messages separately. The only expected 4xx/5xx
-   is the rejection being tested. Capture the finished workflow.
-5. Stop the dev server and close the tab.
-
-Skip the production build, unrelated test suites, and README or DESIGN rewrites.
 To triage failures, see `references/verification.md`.
 
 ## 5. Report
@@ -194,6 +216,8 @@ check you didn't run.
 
 ## Related
 
-- `adding-a-feature`: the parity checklist for each later feature in this app.
+- `product-judgment`: 5-step pre-flight (primitive inventory, 6-Axis Judgment
+  Card, 3-Option Decision Block, 5 Human-Team Lenses, and escalation boundary).
+- `adding-a-feature`: the feature checklist for each later feature in this app.
 - `frontend-design`, `actions`, `sharing`, `real-time-sync`, and `security`:
   go deeper on one area when the references aren't enough.

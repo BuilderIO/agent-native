@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
 import {
@@ -391,7 +392,6 @@ export async function provisionContentSpaces(
       }
     }
     if (!existingFavorites) {
-      const accessibleSpaceIds = spaces.map((space) => space.id);
       const legacyFavorites: Array<typeof schema.documents.$inferSelect> =
         await tx
           .select()
@@ -399,24 +399,31 @@ export async function provisionContentSpaces(
           .where(
             and(
               eq(schema.documents.isFavorite, 1),
-              inArray(schema.documents.spaceId, accessibleSpaceIds),
+              or(
+                eq(schema.documents.spaceId, personalSpaceId),
+                ...memberships.map((membership) =>
+                  and(
+                    eq(
+                      schema.documents.spaceId,
+                      organizationContentSpaceId(membership.orgId),
+                    ),
+                    accessFilter(
+                      schema.documents,
+                      schema.documentShares,
+                      { userEmail: email, orgId: membership.orgId },
+                      "viewer",
+                      { includePublic: true },
+                    ),
+                  ),
+                ),
+              ),
             ),
           );
-      const roleByOrgId = new Map(
-        memberships.map((membership) => [membership.orgId, membership.role]),
+      const visibleLegacyFavorites = legacyFavorites.filter(
+        (document) =>
+          document.spaceId !== personalSpaceId ||
+          normalizeContentSpaceEmail(document.ownerEmail) === email,
       );
-      const visibleLegacyFavorites = legacyFavorites.filter((document) => {
-        if (!document.orgId) {
-          return normalizeContentSpaceEmail(document.ownerEmail) === email;
-        }
-        return (
-          normalizeContentSpaceEmail(document.ownerEmail) === email ||
-          document.visibility === "org" ||
-          document.visibility === "public" ||
-          roleByOrgId.get(document.orgId) === "owner" ||
-          roleByOrgId.get(document.orgId) === "admin"
-        );
-      });
       if (visibleLegacyFavorites.length > 0) {
         await tx
           .insert(schema.contentDatabaseItems)

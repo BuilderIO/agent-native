@@ -19,6 +19,7 @@ import {
   RUNTIME_PAUSE_AFTER,
   runtimeFailureNextRun,
   pausedMessage,
+  transientPauseProbeAt,
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
@@ -395,5 +396,43 @@ describe("withDeliveryNote", () => {
     expect(withDeliveryNote("Gateway returned 502")).toBe(
       "Gateway returned 502. No delivery was confirmed.",
     );
+  });
+});
+
+describe("transientPauseProbeAt", () => {
+  it("probes a transient pause one backoff after it paused", () => {
+    const pausedAt = "2026-11-20T11:00:00.000Z";
+    expect(
+      transientPauseProbeAt({
+        pausedReason: "http_429",
+        pausedAt,
+        consecutiveFailures: RUNTIME_PAUSE_AFTER,
+      }),
+    ).toBe(Date.parse(pausedAt) + 4 * 60 * 60_000);
+    expect(transientPauseProbeAt({ pausedReason: "http_503", pausedAt })).toBe(
+      Date.parse(pausedAt) + 4 * 60 * 60_000,
+    );
+    expect(
+      transientPauseProbeAt({
+        pausedReason: "http_503",
+        pausedAt,
+        consecutiveFailures: 12,
+      }),
+    ).toBe(Date.parse(pausedAt) + 6 * 60 * 60_000);
+  });
+
+  it("probes at once when the pause time is unreadable", () => {
+    expect(
+      transientPauseProbeAt({ pausedReason: "http_429", pausedAt: "soon" }),
+    ).toBe(0);
+  });
+
+  it("has no probe for a pause that needs the owner", () => {
+    expect(
+      transientPauseProbeAt({
+        pausedReason: "missing_credentials",
+        pausedAt: "2026-11-20T11:00:00.000Z",
+      }),
+    ).toBeNull();
   });
 });

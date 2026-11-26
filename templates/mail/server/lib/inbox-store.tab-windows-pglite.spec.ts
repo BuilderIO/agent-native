@@ -15,6 +15,7 @@ function syntheticRows(count: number) {
     return seed / 0x7fffffff;
   };
   const labelChoices = [
+    ["CATEGORY_PERSONAL"],
     [],
     [AI_LABEL_ID],
     ["Label_work"],
@@ -45,11 +46,11 @@ function syntheticRows(count: number) {
       accountEmail: account,
       threadId: `thread-${i}`,
       historyId: "1",
-      inInbox: next() < 0.9 ? 1 : 0,
+      inInbox: i === 0 || i === 3 || next() < 0.9 ? 1 : 0,
       isUnread: unread > 0 ? 1 : 0,
       isStarred: 0,
       isImportant: 0,
-      isAutomated: next() < 0.25 ? 1 : 0,
+      isAutomated: i === 0 || i === 3 ? 2 : next() < 0.25 ? 1 : 0,
       latestDate: base + Math.floor(next() * 20) * 60_000,
       latestMessageId: `msg-${i}`,
       subject: `Subject ${i}`,
@@ -85,6 +86,37 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
     vi.resetModules();
   });
 
+  it("reclassifies only legacy rows in the newest 74 inbox conversations", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const [{ default: initializeMailDb }, { getDb, schema }, store] =
+      await Promise.all([
+        import("../plugins/db.js"),
+        import("../db/index.js"),
+        import("./inbox-store.js"),
+      ]);
+    await initializeMailDb({});
+    const rows = syntheticRows(120).map((row, index) => ({
+      ...row,
+      id: `legacy-${index}`,
+      threadId: `legacy-${index}`,
+      ownerEmail: OWNER,
+      accountEmail: "owner@example.com",
+      inInbox: 1,
+      latestDate: index,
+      isAutomated: index < 46 || index === 70 ? 0 : 2,
+    }));
+    await getDb().insert(schema.mailInboxThreads).values(rows);
+    expect(
+      await store.readRecentLegacyThreadIds(OWNER, "owner@example.com"),
+    ).toEqual(["legacy-70"]);
+    expect(
+      await store.readRecentLegacyThreadIds(OWNER, "owner@example.com", true),
+    ).toEqual([
+      "legacy-70",
+      ...Array.from({ length: 46 }, (_, i) => `legacy-${45 - i}`),
+    ]);
+  });
+
   it("returns the same counts, page, and previews for every built-in tab", async () => {
     vi.stubEnv("DATABASE_URL", "pglite:memory");
     const [{ default: initializeMailDb }, { getDb, schema }, store, tabs] =
@@ -96,8 +128,27 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
       ]);
     await initializeMailDb({});
 
-    const rows = syntheticRows(240);
+    const rows = syntheticRows(240).map((row, index) =>
+      index === 1
+        ? {
+            ...row,
+            inInbox: 1,
+            isAutomated: 0,
+            messageCount: 2,
+            labelIdsJson: JSON.stringify(["INBOX", "CATEGORY_PERSONAL"]),
+          }
+        : row,
+    );
+    expect(
+      rows.some((row) => row.labelIdsJson.includes("CATEGORY_PERSONAL")),
+    ).toBe(true);
     await getDb().insert(schema.mailInboxThreads).values(rows);
+    const storedRows = await store.readInboxThreads(OWNER, {
+      accountEmails: ACCOUNTS,
+    });
+    expect(
+      storedRows.find((row) => row.threadId === "thread-1")?.isAutomated,
+    ).toBeNull();
 
     const labelMapByAccount = new Map<string, Map<string, string>>([
       [
@@ -108,18 +159,6 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
         ]),
       ],
       [ACCOUNTS[1], new Map([["Label_work", "Work"]])],
-    ]);
-    const aiLabelIdsByAccount = new Map(
-      ACCOUNTS.map((account) => [
-        account,
-        store.aiImportantLabelIds(labelMapByAccount.get(account)),
-      ]),
-    );
-    // The literal label name is a candidate too: inboxRowToItem keeps an
-    // unmapped raw id as its own name.
-    expect(aiLabelIdsByAccount.get(ACCOUNTS[0])).toEqual([
-      AI_LABEL_ID,
-      "agent-native-important",
     ]);
 
     const configs = [
@@ -179,7 +218,6 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
                 ownerEmail: OWNER,
                 accountEmails,
                 tabs: resolved,
-                aiLabelIdsByAccount,
                 pageTabId: tab.id,
                 pageOffset: offset,
                 pageLimit,
@@ -244,13 +282,11 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
       return originalExecute(query);
     }) as typeof exec.execute;
 
-    const aiLabelIdsByAccount = new Map(ACCOUNTS.map((a) => [a, []]));
     const tabs = [{ id: "__inbox_all__", kind: "all" }];
     const base = {
       ownerEmail: OWNER,
       accountEmails: ACCOUNTS,
       tabs,
-      aiLabelIdsByAccount,
       pageTabId: "__inbox_all__",
       pageUnreadOnly: false,
       previewLimit: 50,

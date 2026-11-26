@@ -5,7 +5,9 @@ import {
   useId,
   useRef,
   useState,
+  type AriaAttributes,
   type KeyboardEvent,
+  type MutableRefObject,
   type PointerEvent,
   type ReactNode,
 } from "react";
@@ -51,7 +53,7 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   label: string;
   value: number;
   onChange: (value: number, meta: ScrubInputChangeMeta) => void;
-  textValue?: string;
+  textValue?: string | undefined;
   onTextCommit?: (
     draft: string,
     meta: ScrubInputChangeMeta,
@@ -74,6 +76,26 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   steppers?: boolean;
   decrementLabel?: string;
   incrementLabel?: string;
+  /** Rendered after the input, inside the field. */
+  trailing?: ReactNode;
+  /** Runs before the field's own keys; return true to skip them. */
+  onInputKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => boolean | void;
+  onDraftChange?: (draft: string) => void;
+  inputAriaProps?: Pick<
+    AriaAttributes,
+    | "aria-activedescendant"
+    | "aria-autocomplete"
+    | "aria-controls"
+    | "aria-expanded"
+  > & { role?: "combobox" };
+  apiRef?: MutableRefObject<ScrubInputApi | null>;
+}
+
+export interface ScrubInputApi {
+  /** Drops an uncommitted draft and shows the field's value again. */
+  resetDraft: () => void;
+  focus: () => void;
+  blur: () => void;
 }
 
 export type ScrubInputTextCommitResult =
@@ -152,6 +174,11 @@ export function VisualScrubInput({
   steppers = false,
   decrementLabel = "Decrease",
   incrementLabel = "Increase",
+  trailing,
+  onInputKeyDown,
+  onDraftChange,
+  inputAriaProps,
+  apiRef,
 }: ScrubInputProps) {
   const resolvedMixedLabel = mixedLabel ?? "Mixed";
   const generatedId = useId();
@@ -367,7 +394,28 @@ export function VisualScrubInput({
     }
   };
 
+  if (apiRef) {
+    apiRef.current = {
+      resetDraft: () => {
+        rawDraftChangedRef.current = false;
+        const shown = mixed
+          ? resolvedMixedLabel
+          : (textValue ??
+            formatScrubValue(value, {
+              ...(unit !== undefined ? { unit } : {}),
+              ...(displayUnit !== undefined ? { displayUnit } : {}),
+              ...(precision !== undefined ? { precision } : {}),
+            }));
+        draftRef.current = shown;
+        setDraft(shown);
+      },
+      focus: () => inputRef.current?.focus(),
+      blur: () => inputRef.current?.blur(),
+    };
+  }
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (onInputKeyDown?.(event) === true) return;
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
       const direction = event.key === "ArrowUp" ? 1 : -1;
@@ -640,6 +688,7 @@ export function VisualScrubInput({
         placeholder={placeholder}
         inputMode={onTextCommit ? "text" : "decimal"}
         aria-label={ariaLabel ?? label}
+        {...inputAriaProps}
         data-design-history-hotkeys="true"
         onFocus={(event) => {
           setFocused(true);
@@ -662,6 +711,7 @@ export function VisualScrubInput({
           rawDraftChangedRef.current = true;
           draftRef.current = event.target.value;
           setDraft(event.target.value);
+          onDraftChange?.(event.target.value);
         }}
         onKeyDown={handleKeyDown}
         onPointerDown={handleInputPointerDown}
@@ -673,6 +723,7 @@ export function VisualScrubInput({
           steppers && "text-center",
         )}
       />
+      {trailing}
       {steppers && stepperButton(1, incrementLabel)}
     </div>
   );

@@ -775,10 +775,6 @@ export {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_ACTION_SPAN,
-  INSPECTOR_GRID_MOTION_ACTION_SPAN,
-  INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN,
-  INSPECTOR_GRID_MOTION_FIELD_SPAN,
-  INSPECTOR_GRID_MOTION_GUTTER_SPAN,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
   INSPECTOR_GRID_PAIR_SPAN,
   INSPECTOR_GRID_ROW_PX,
@@ -838,10 +834,13 @@ export function PanelSection({
           : undefined
       }
     >
-      <div data-design-inspector-section-header className="px-2">
+      <div
+        data-design-inspector-section-header
+        className="px-[var(--design-inspector-section-padding-inline)]"
+      >
         <InspectorGrid
           className="min-h-[var(--design-section-height)] items-center"
-          layout={actions ? "header-actions" : "columns"}
+          layout="header-actions"
         >
           <InspectorGridCell span={actions ? 20 : 28}>
             <div className="flex min-w-0 items-center">{heading}</div>

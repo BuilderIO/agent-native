@@ -11,7 +11,11 @@ vi.mock("../use-session.js", () => sessionMocks);
 const analyticsMocks = vi.hoisted(() => ({ trackEvent: vi.fn() }));
 vi.mock("../analytics.js", () => analyticsMocks);
 
-import { useFeatureFlag, useFeatureFlags } from "./use-feature-flag.js";
+import {
+  useFeatureFlag,
+  useFeatureFlags,
+  useFeatureFlagState,
+} from "./use-feature-flag.js";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -32,13 +36,12 @@ describe("useFeatureFlag / useFeatureFlags session gating", () => {
     vi.clearAllMocks();
   });
 
-  function mountProbe(Probe: React.FC) {
+  function mountProbe(Probe: React.FC, queryClient = new QueryClient()) {
     const container = document.createElement("div");
     document.body.appendChild(container);
     containers.push(container);
     const root = createRoot(container);
     roots.push(root);
-    const queryClient = new QueryClient();
     return act(async () =>
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -88,6 +91,128 @@ describe("useFeatureFlag / useFeatureFlags session gating", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(value).toBe(true);
   });
+
+  it("hides cached values on refresh failure and restores them after recovery", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ composer: true }))
+        .mockResolvedValueOnce(new Response("unavailable", { status: 500 }))
+        .mockResolvedValueOnce(jsonResponse({ composer: true })),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let flag = false;
+    let flags: Record<string, boolean> = {};
+    let state = { status: "loading", enabled: false };
+    function Probe() {
+      flag = useFeatureFlag("composer");
+      flags = useFeatureFlags();
+      state = useFeatureFlagState("composer");
+      return null;
+    }
+    await mountProbe(Probe, client);
+    await vi.waitFor(() => expect(flag).toBe(true));
+    expect(flags).toEqual({ composer: true });
+    expect(state).toEqual({ status: "ready", enabled: true });
+
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: ["action", "get-feature-flags"],
+      });
+    });
+    await vi.waitFor(() =>
+      expect(state).toEqual({ status: "unavailable", enabled: false }),
+    );
+    expect(flag).toBe(false);
+    expect(flags).toEqual({});
+
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: ["action", "get-feature-flags"],
+      });
+    });
+    await vi.waitFor(() =>
+      expect(state).toEqual({ status: "ready", enabled: true }),
+    );
+    expect(flag).toBe(true);
+    expect(flags).toEqual({ composer: true });
+  });
+
+  it.each(["flag", "flags", "state", "fresh state"])(
+    "automatically retries a failed refresh for %s",
+    async (kind) => {
+      sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ composer: true }))
+        .mockResolvedValueOnce(new Response("unavailable", { status: 500 }))
+        .mockResolvedValueOnce(jsonResponse({ composer: true }));
+      vi.stubGlobal("fetch", fetchMock);
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      let value: unknown;
+      function FlagProbe() {
+        value = useFeatureFlag("composer");
+        return null;
+      }
+      function FlagsProbe() {
+        value = useFeatureFlags();
+        return null;
+      }
+      function StateProbe() {
+        value = useFeatureFlagState("composer", {
+          freshOnMount: kind === "fresh state",
+        });
+        return null;
+      }
+      const Probe =
+        kind === "flag"
+          ? FlagProbe
+          : kind === "flags"
+            ? FlagsProbe
+            : StateProbe;
+      const enabled =
+        kind === "flag"
+          ? true
+          : kind === "flags"
+            ? { composer: true }
+            : { status: "ready", enabled: true };
+      const disabled =
+        kind === "flag"
+          ? false
+          : kind === "flags"
+            ? {}
+            : { status: "unavailable", enabled: false };
+      await mountProbe(Probe, client);
+      await vi.waitFor(() => expect(value).toEqual(enabled));
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          await client.invalidateQueries({
+            queryKey: ["action", "get-feature-flags"],
+          });
+          await vi.advanceTimersByTimeAsync(1);
+        });
+        expect(value).toEqual(disabled);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_001);
+        });
+        expect(value).toEqual(enabled);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("does not fire while the session is still loading", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "loading" });

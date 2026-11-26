@@ -2,6 +2,7 @@ import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import {
   ACTION_EXECUTION_KEY,
   isActionDefinitionError,
+  isMcpScriptWriteContract,
   namedActionDefinitionError,
   validateSearchHints,
 } from "../action.js";
@@ -73,13 +74,37 @@ export function preserveActionFlags(
   ) {
     out.schema = entry.schema;
   }
+  if (
+    entry.outputSchema &&
+    typeof entry.outputSchema === "object" &&
+    "~standard" in entry.outputSchema
+  ) {
+    out.outputSchema = entry.outputSchema as Flag<"outputSchema">;
+  }
+  if (
+    entry.agentInputSchema &&
+    typeof entry.agentInputSchema === "object" &&
+    "~standard" in entry.agentInputSchema
+  ) {
+    out.agentInputSchema = entry.agentInputSchema;
+  }
   if (isPlainObject(entry.access)) {
     out.access = entry.access as Flag<"access">;
   }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
-  if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (typeof entry.mcpTool === "boolean" || entry.mcpTool === "search") {
+    out.mcpTool = entry.mcpTool;
+  }
   if (isMcpAnnotations(entry.mcpAnnotations)) {
     out.mcpAnnotations = entry.mcpAnnotations;
+  }
+  if (entry.mcpScript === "read") out.mcpScript = "read";
+  if (
+    entry.mcpScript === "write" &&
+    isMcpScriptWriteContract(entry.mcpScriptWrite)
+  ) {
+    out.mcpScript = "write";
+    out.mcpScriptWrite = entry.mcpScriptWrite;
   }
   const outputContract = entry.mcpOutputContract;
   if (
@@ -108,7 +133,21 @@ export function preserveActionFlags(
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
+  if (entry.requiresSignedInBrowser === true) {
+    out.requiresSignedInBrowser = true;
+  }
+  if (entry.opensAnotherAppEmbed === true) {
+    out.opensAnotherAppEmbed = true;
+  }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (
+    entry.userTurn === "read" ||
+    entry.userTurn === "approval" ||
+    entry.userTurn === "direct"
+  ) {
+    out.userTurn = entry.userTurn;
+  }
+  if (entry.requiresUserTurn === true) out.requiresUserTurn = true;
   if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;
@@ -182,6 +221,18 @@ export function preserveActionFlags(
     typeof entry.needsApproval === "function"
   ) {
     out.needsApproval = entry.needsApproval as Flag<"needsApproval">;
+  }
+  if (typeof entry.approvalLabel === "function") {
+    out.approvalLabel = entry.approvalLabel as Flag<"approvalLabel">;
+  }
+  if (typeof entry.mcpNeedsApproval === "function") {
+    out.mcpNeedsApproval = entry.mcpNeedsApproval as Flag<"mcpNeedsApproval">;
+  }
+  if (typeof entry.approvalNotice === "function") {
+    out.approvalNotice = entry.approvalNotice as Flag<"approvalNotice">;
+  }
+  if (entry.approvalProof === "review-page") {
+    out.approvalProof = entry.approvalProof;
   }
   if (typeof entry.allowPersistentApproval === "boolean") {
     out.allowPersistentApproval = entry.allowPersistentApproval;

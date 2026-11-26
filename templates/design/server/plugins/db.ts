@@ -1,10 +1,12 @@
 import {
   ensureAdditiveColumns,
   getDbExec,
+  isUniqueViolation,
   runMigrations,
 } from "@agent-native/core/db";
 
 import * as schema from "../db/schema.js";
+import { renameLaterDuplicateDesignFilenames } from "../lib/design-filename-duplicates.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -608,6 +610,70 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
     name: "design-file-content-operation-receipts",
     sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revisions TEXT NOT NULL DEFAULT '{}'`,
   },
+  {
+    version: 49,
+    name: "design-visual-edit-pending-author",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS author_email TEXT`,
+  },
+  {
+    version: 50,
+    name: "design-visual-edit-pending-handoff-records",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS handoff_records TEXT NOT NULL DEFAULT '[]'`,
+  },
+  {
+    version: 51,
+    name: "design-visual-edit-pending-publisher-session",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS publisher_session_hash TEXT`,
+  },
+  {
+    version: 52,
+    name: "design-history-content-manifests",
+    sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_hash TEXT;
+      CREATE OR REPLACE FUNCTION design_files_set_content_hash()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF TG_OP = 'INSERT'
+          OR NEW.content IS DISTINCT FROM OLD.content
+          OR NEW.content_hash IS DISTINCT FROM OLD.content_hash THEN
+          NEW.content_hash := encode(sha256(convert_to(NEW.content, 'UTF8')), 'hex');
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      DO $$
+      BEGIN
+        CREATE TRIGGER design_files_content_hash
+          BEFORE INSERT OR UPDATE ON design_files
+          FOR EACH ROW
+          EXECUTE FUNCTION design_files_set_content_hash();
+      EXCEPTION WHEN duplicate_object THEN
+        NULL;
+      END;
+      $$;
+      CREATE TABLE IF NOT EXISTS design_contents (
+        design_id TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (now()::text),
+        PRIMARY KEY (design_id, hash)
+      );
+      CREATE TABLE IF NOT EXISTS design_version_files (
+        version_id TEXT NOT NULL,
+        design_id TEXT NOT NULL,
+        entry_kind TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        file_created_at TEXT,
+        content_hash TEXT NOT NULL,
+        source TEXT NOT NULL,
+        PRIMARY KEY (version_id, entry_kind, file_id)
+      );
+      CREATE INDEX IF NOT EXISTS design_version_files_design_hash_idx
+        ON design_version_files (design_id, content_hash)`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =
@@ -654,26 +720,61 @@ export const runDesignMigrations = runMigrations(designMigrations, {
  * permission errors are swallowed there). A failed migration entry blocks
  * every later entry in the list forever: it crashes the process outright in
  * local dev, and on serverless it silently stops applying anything past it on
- * every cold start. So this runs as its own best-effort step instead: created
- * when possible, safely skipped (with a warning) when legacy duplicates block
- * it. `add-localhost-screens.ts`'s insert path tolerates either outcome — it
+ * every cold start. So this runs as its own best-effort step instead. When
+ * legacy duplicates block the filename index, the later file of each pair
+ * gets the next free name and the index is created after all. A boot repairs
+ * a bounded number of designs; if more remain, or the index still fails, it
+ * is skipped with a warning and the next boot carries on.
+ * `add-localhost-screens.ts`'s insert path tolerates either outcome — it
  * catches a real unique-violation from this index and falls back to updating
  * the row that won the race, and is a no-op/no-crash path when the index
  * isn't present yet.
  */
 async function ensureDesignFilesUniqueIndex(): Promise<void> {
-  try {
-    await getDbExec().execute(
+  const createFilenameIndex = () =>
+    getDbExec().execute(
       `CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_filename_unique_idx ON design_files (design_id, filename)`,
     );
+  try {
+    await createFilenameIndex();
   } catch (err) {
-    console.warn(
-      "[db] design_files_design_filename_unique_idx not created — likely " +
-        "pre-existing duplicate (design_id, filename) rows from the " +
-        "add-localhost-screens race predating this fix. New concurrent " +
-        "inserts remain best-effort until the duplicates are cleaned up:",
-      err instanceof Error ? err.message : err,
-    );
+    let repaired = false;
+    try {
+      // Only duplicates are worth a repair. Another failure, such as a
+      // missing permission, would just scan the table on every cold start.
+      const repair = isUniqueViolation(err)
+        ? await renameLaterDuplicateDesignFilenames()
+        : undefined;
+      if (repair?.remaining) {
+        console.info(
+          `[db] gave ${repair.renamed} design file(s) that shared a filename ` +
+            "with an older file in the same design the next free name; more " +
+            "designs share names and are repaired on the next boot",
+        );
+      } else if (repair && repair.renamed > 0) {
+        await createFilenameIndex();
+        repaired = true;
+        console.info(
+          `[db] gave ${repair.renamed} design file(s) that shared a filename with an ` +
+            "older file in the same design the next free name, then created " +
+            "design_files_design_filename_unique_idx",
+        );
+      }
+    } catch (repairErr) {
+      console.warn(
+        "[db] renaming duplicate design filenames failed:",
+        repairErr instanceof Error ? repairErr.message : repairErr,
+      );
+    }
+    if (!repaired) {
+      console.warn(
+        "[db] design_files_design_filename_unique_idx not created — likely " +
+          "pre-existing duplicate (design_id, filename) rows from the " +
+          "add-localhost-screens race predating this fix. New concurrent " +
+          "inserts remain best-effort until the duplicates are cleaned up:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
   try {
     await getDbExec().execute(

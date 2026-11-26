@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -9,7 +10,6 @@ import {
   resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -21,11 +21,18 @@ import {
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import {
+  completePlanCommentRow,
+  findPlanCommentRow,
+  listPlanCommentRows,
+  writePlanCommentRows,
+} from "../server/lib/plan-comments.js";
+import {
   buildUpdatedPlanCommentRows,
   commentResolutionFields,
   emitPlanCommented,
   loadPlanBundle,
   nowIso,
+  toComment,
   writeEvent,
 } from "../server/plans.js";
 import type { PlanComment } from "../shared/types.js";
@@ -146,29 +153,8 @@ export default defineAction({
     const db = getDb();
     const now = nowIso();
 
-    const [existing] = await db
-      .select({
-        id: schema.planComments.id,
-        planId: schema.planComments.planId,
-        parentCommentId: schema.planComments.parentCommentId,
-        sectionId: schema.planComments.sectionId,
-        kind: schema.planComments.kind,
-        anchor: schema.planComments.anchor,
-        message: schema.planComments.message,
-        createdBy: schema.planComments.createdBy,
-        authorEmail: schema.planComments.authorEmail,
-        resolutionTarget: schema.planComments.resolutionTarget,
-        mentionsJson: schema.planComments.mentionsJson,
-        status: schema.planComments.status,
-      })
-      .from(schema.planComments)
-      .where(
-        and(
-          eq(schema.planComments.id, args.commentId),
-          eq(schema.planComments.planId, args.planId),
-          isNull(schema.planComments.deletedAt),
-        ),
-      );
+    await ensureReviewTables();
+    const existing = await findPlanCommentRow(args.planId, args.commentId);
 
     if (!existing) {
       throw new Error(
@@ -183,9 +169,9 @@ export default defineAction({
       requestEmail: commentRequestEmail,
       now,
     });
-    const bundle = await loadPlanBundle(args.planId);
+    const comments = await listPlanCommentRows(args.planId);
     const commentsById = new Map(
-      bundle.comments.map((comment) => [
+      comments.map((comment) => [
         comment.id,
         {
           id: comment.id,
@@ -196,58 +182,46 @@ export default defineAction({
     const threadRootId = rootCommentIdFor(existing, commentsById);
     const existingThreadCommentIds = threadCommentIdsFor(
       threadRootId,
-      bundle.comments,
+      comments,
     );
     const updatedCommentIds =
       existingThreadCommentIds.length > 0
         ? existingThreadCommentIds
         : [existing.id];
 
-    let insertedNoteId: string | undefined;
-    if (args.resolutionNote) {
-      const noteRows = buildUpdatedPlanCommentRows({
-        planId: args.planId,
-        comments: [
-          {
-            parentCommentId: threadRootId,
-            kind: existing.kind,
-            status: args.status,
-            message: args.resolutionNote,
-            createdBy: "agent" as const,
-          },
-        ],
-        existingComments: bundle.comments,
-        requestEmail: commentRequestEmail,
-        requestName: requesterName,
-        now,
-      });
-      const noteRow = noteRows[0];
-      if (noteRow) {
-        await db.insert(schema.planComments).values(noteRow);
-        insertedNoteId = noteRow.id;
-      }
-    }
-    const allUpdatedCommentIds = insertedNoteId
-      ? [...updatedCommentIds, insertedNoteId]
-      : updatedCommentIds;
-
-    for (const commentId of allUpdatedCommentIds) {
-      await db
-        .update(schema.planComments)
-        .set({
-          status: args.status,
-          resolvedBy: resolution.resolvedBy,
-          resolvedAt: resolution.resolvedAt,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.planComments.id, commentId),
-            eq(schema.planComments.planId, args.planId),
-            isNull(schema.planComments.deletedAt),
-          ),
-        );
-    }
+    const noteRow = args.resolutionNote
+      ? buildUpdatedPlanCommentRows({
+          planId: args.planId,
+          comments: [
+            {
+              parentCommentId: threadRootId,
+              kind: existing.kind,
+              status: args.status,
+              message: args.resolutionNote,
+              createdBy: "agent" as const,
+            },
+          ],
+          existingComments: comments.map(toComment),
+          requestEmail: commentRequestEmail,
+          requestName: requesterName ?? null,
+          now,
+        })[0]
+      : undefined;
+    const insertedNoteId = noteRow?.id;
+    const resolved = {
+      status: args.status,
+      resolvedBy: resolution.resolvedBy,
+      resolvedAt: resolution.resolvedAt,
+      updatedAt: now,
+    };
+    await db.transaction(async (tx) => {
+      await writePlanCommentRows(
+        tx,
+        args.planId,
+        noteRow ? [{ ...completePlanCommentRow(noteRow), ...resolved }] : [],
+        updatedCommentIds.map((id) => ({ id, ...resolved })),
+      );
+    });
 
     await writeEvent({
       planId: args.planId,

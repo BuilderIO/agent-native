@@ -85,11 +85,24 @@ describe("AgentsShareTab", () => {
     );
     expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual([
       "false",
+      "false",
       "true",
     ]);
+    const viewItem = items.shift();
     const commentItem = items.shift();
     const editItem = items.shift();
-    if (!commentItem || !editItem) throw new Error("No level items");
+    if (!viewItem || !commentItem || !editItem) {
+      throw new Error("No level items");
+    }
+    expect(viewItem.textContent).toContain("agentChat.share.canView");
+    expect(viewItem.textContent).toContain(
+      "editor.toolbar.agentLevelViewDescription",
+    );
+    expect(viewItem.textContent).not.toContain(
+      "editor.toolbar.agentLevelDefault",
+    );
+    expect(commentItem.textContent).toContain("agentChat.share.canComment");
+    expect(editItem.textContent).toContain("agentChat.share.canEdit");
     expect(editItem.textContent).toContain("editor.toolbar.agentLevelDefault");
 
     await act(async () =>
@@ -99,6 +112,37 @@ describe("AgentsShareTab", () => {
     );
 
     expect(onLevelChange).toHaveBeenCalledWith("comment");
+  });
+
+  it("shows Can view and what it means", async () => {
+    await show({ level: "view" });
+
+    expect(levelMenu().textContent).toBe("agentChat.share.canView");
+    expect(container.textContent).toContain(
+      "editor.toolbar.agentLevelViewDescription",
+    );
+  });
+
+  it("picks Can view from the menu", async () => {
+    const onLevelChange = vi.fn();
+    await show({ onLevelChange });
+
+    await act(async () =>
+      levelMenu().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
+    const viewItem = document.body.querySelector<HTMLElement>(
+      '[role="menuitemradio"]',
+    );
+    if (!viewItem) throw new Error("No Can view item");
+    await act(async () =>
+      viewItem.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
+
+    expect(onLevelChange).toHaveBeenCalledWith("view");
   });
 
   it("shows the level read-only to someone who can't manage the page", async () => {

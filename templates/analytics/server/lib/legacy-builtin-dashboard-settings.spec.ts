@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -34,6 +42,7 @@ import {
   loadBuiltinDashboard,
 } from "./builtin-dashboards.js";
 import { DATA_NOTES_MIGRATION_SQL } from "./data-notes-migration.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const TABLES = [
   `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
@@ -50,13 +59,18 @@ const TABLES = [
 describe("legacy settings before the built-in dashboard deploy pass", () => {
   type Client = Awaited<ReturnType<typeof PGlite.create>>;
   let client: Client;
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     mocks.getDb.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     for (const statement of TABLES) await client.exec(statement);
-  });
-  afterEach(async () => {
-    await client.close();
   });
   async function setting(key: string, value: unknown) {
     await client.query(`INSERT INTO settings (key, value) VALUES ($1, $2)`, [

@@ -51,7 +51,10 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
+import {
+  contentDatabaseSourceManagedPropertyIds,
+  contentDatabaseSourceWritebackPropertyIds,
+} from "../shared/source-field-policy.js";
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
@@ -97,9 +100,14 @@ export type DatabasePropertySchema = {
     propertyId: string | null;
     writeOwner: string;
     readOnly: number;
+    mappingType: string;
+    sourceFieldKey: string;
+    sourceType: string;
+    sourceTable: string;
     sourceMetadataJson: string;
   }>;
   sourceManagedPropertyIds: Set<string>;
+  sourceWritebackPropertyIds: Set<string>;
 };
 
 export async function readDatabasePropertySchema(
@@ -117,6 +125,10 @@ export async function readDatabasePropertySchema(
         propertyId: schema.contentDatabaseSourceFields.propertyId,
         writeOwner: schema.contentDatabaseSourceFields.writeOwner,
         readOnly: schema.contentDatabaseSourceFields.readOnly,
+        mappingType: schema.contentDatabaseSourceFields.mappingType,
+        sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+        sourceType: schema.contentDatabaseSources.sourceType,
+        sourceTable: schema.contentDatabaseSources.sourceTable,
         sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
       })
       .from(schema.contentDatabaseSourceFields)
@@ -134,7 +146,35 @@ export async function readDatabasePropertySchema(
     sourceFields,
     sourceManagedPropertyIds:
       contentDatabaseSourceManagedPropertyIds(sourceFields),
+    sourceWritebackPropertyIds:
+      contentDatabaseSourceWritebackPropertyIds(sourceFields),
   };
+}
+
+export function sourceSavesValueEdits(
+  schema: Pick<DatabasePropertySchema, "sourceWritebackPropertyIds">,
+  propertyId: string,
+  type: string,
+) {
+  return (
+    schema.sourceWritebackPropertyIds.has(propertyId) &&
+    type !== "relation" &&
+    !isBlocksPropertyType(type as DocumentPropertyType)
+  );
+}
+
+export function sourceAllowsValueEdit(
+  schema: Pick<
+    DatabasePropertySchema,
+    "sourceManagedPropertyIds" | "sourceWritebackPropertyIds"
+  >,
+  propertyId: string,
+  type: string,
+) {
+  return (
+    !schema.sourceManagedPropertyIds.has(propertyId) ||
+    sourceSavesValueEdits(schema, propertyId, type)
+  );
 }
 
 export function nanoid(size = 12): string {
@@ -700,7 +740,7 @@ export async function listPropertiesForDatabase(
   } = {},
 ): Promise<DocumentProperty[]> {
   const db = getDb();
-  const { definitions, sourceManagedPropertyIds } =
+  const { definitions, sourceManagedPropertyIds, sourceWritebackPropertyIds } =
     options.propertySchema ??
     (await readDatabasePropertySchema(db, databaseId));
 
@@ -806,7 +846,18 @@ export async function listPropertiesForDatabase(
         includeContainerDerivedValues &&
         !definition.systemRole &&
         !isComputedPropertyType(type) &&
-        !sourceManagedPropertyIds.has(definition.id),
+        sourceAllowsValueEdit(
+          { sourceManagedPropertyIds, sourceWritebackPropertyIds },
+          definition.id,
+          type,
+        ),
+      ...(sourceSavesValueEdits(
+        { sourceWritebackPropertyIds },
+        definition.id,
+        type,
+      )
+        ? { sourceWriteback: true }
+        : {}),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -849,7 +900,7 @@ export async function listPropertiesForDatabase(
   return withTargets;
 }
 
-function serializePropertyDefinition(
+export function serializePropertyDefinition(
   definition: typeof schema.documentPropertyDefinitions.$inferSelect,
 ) {
   const type = definition.type as DocumentPropertyType;
@@ -893,7 +944,7 @@ export async function listPropertiesForDatabaseDocuments(
   const db = getDb();
   const result = new Map<string, DocumentProperty[]>();
   if (valueDocuments.length === 0) return result;
-  const { definitions, sourceManagedPropertyIds } =
+  const { definitions, sourceManagedPropertyIds, sourceWritebackPropertyIds } =
     options.propertySchema ??
     (await readDatabasePropertySchema(db, databaseId));
   if (definitions.length === 0) {
@@ -1024,7 +1075,18 @@ export async function listPropertiesForDatabaseDocuments(
         editable:
           !definition.systemRole &&
           !isComputedPropertyType(propertyDefinition.type) &&
-          !sourceManagedPropertyIds.has(definition.id),
+          sourceAllowsValueEdit(
+            { sourceManagedPropertyIds, sourceWritebackPropertyIds },
+            definition.id,
+            propertyDefinition.type,
+          ),
+        ...(sourceSavesValueEdits(
+          { sourceWritebackPropertyIds },
+          definition.id,
+          propertyDefinition.type,
+        )
+          ? { sourceWriteback: true }
+          : {}),
         ...(blocksFieldIdentityById &&
         isBlocksPropertyType(propertyDefinition.type)
           ? {

@@ -220,7 +220,6 @@ function PinBox({
           : "transparent",
       }}
     >
-      {/* outer border */}
       <rect
         x={0.75}
         y={0.75}
@@ -232,7 +231,6 @@ function PinBox({
         strokeWidth={1.5}
       />
 
-      {/* inner element rect — represents the selected element */}
       <rect
         x={INNER_X}
         y={INNER_Y}
@@ -270,8 +268,6 @@ function PinBox({
         />
       )}
 
-      {/* edge pins — visual strokes */}
-      {/* left pin: from outer edge toward inner rect */}
       <line
         x1={MARGIN}
         y1={CENTER}
@@ -282,7 +278,6 @@ function PinBox({
         strokeLinecap="round"
         strokeDasharray={lDash}
       />
-      {/* right pin */}
       <line
         x1={BOX - MARGIN}
         y1={CENTER}
@@ -293,7 +288,6 @@ function PinBox({
         strokeLinecap="round"
         strokeDasharray={rDash}
       />
-      {/* top pin */}
       <line
         x1={CENTER}
         y1={MARGIN}
@@ -304,7 +298,6 @@ function PinBox({
         strokeLinecap="round"
         strokeDasharray={tDash}
       />
-      {/* bottom pin */}
       <line
         x1={CENTER}
         y1={BOX - MARGIN}
@@ -319,7 +312,6 @@ function PinBox({
       {/* invisible click + hover targets — rendered on top of strokes */}
       {interactive && !disabled && (
         <>
-          {/* left pin hit area */}
           <rect
             x={0}
             y={CENTER - HIT_CROSS / 2}
@@ -333,7 +325,6 @@ function PinBox({
             role="button"
             aria-label={labels.left}
           />
-          {/* right pin hit area */}
           <rect
             x={BOX - MARGIN - PIN_LEN - HIT_LONG / 2}
             y={CENTER - HIT_CROSS / 2}
@@ -347,7 +338,6 @@ function PinBox({
             role="button"
             aria-label={labels.right}
           />
-          {/* top pin hit area */}
           <rect
             x={CENTER - HIT_CROSS / 2}
             y={0}
@@ -361,7 +351,6 @@ function PinBox({
             role="button"
             aria-label={labels.top}
           />
-          {/* bottom pin hit area */}
           <rect
             x={CENTER - HIT_CROSS / 2}
             y={BOX - MARGIN - PIN_LEN - HIT_LONG / 2}

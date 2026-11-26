@@ -36,6 +36,10 @@ export interface OwnedMutantResult extends MutantIdentity {
   testsCompleted?: number;
 }
 
+/**
+ * One worker of the matrix. Workers of the same group mutate the same ranges
+ * and own the group's mutants whose id is `part` modulo `parts`.
+ */
 export interface ShardMetadata {
   head: string;
   base: string;
@@ -44,6 +48,8 @@ export interface ShardMetadata {
   testScopeHash: string;
   shardIndex: number;
   shardCount: number;
+  part: number;
+  parts: number;
 }
 
 export interface ShardReceipt extends ShardMetadata {
@@ -54,13 +60,21 @@ export interface ShardReceipt extends ShardMetadata {
   ownedMutants: OwnedMutantResult[];
 }
 
+/** What the plan gives one worker: its group's ranges, specs, and files. */
+export interface ExpectedShard {
+  group: number;
+  part: number;
+  parts: number;
+  scopeHash: string;
+  testScopeHash: string;
+  files: readonly string[];
+}
+
 export interface ExpectedShardSet {
   head: string;
   base: string;
   configHash: string;
-  scopeHash: string;
-  testScopeHash: string;
-  shardCount: number;
+  shards: readonly ExpectedShard[];
 }
 
 export interface AggregatedMutationFiles {
@@ -72,8 +86,6 @@ export interface AggregatedMutationFiles {
       mutants: Array<Omit<OwnedMutantResult, "file">>;
     }
   >;
-  inventoryHash: string;
-  testInventoryHash: string;
 }
 
 const TERMINAL_STATUSES = new Set<TerminalMutantStatus>([
@@ -425,11 +437,20 @@ function shardMetadata(value: unknown, label: string): ShardMetadata {
     ),
     shardIndex: safeInteger(input.shardIndex, `${label}.shardIndex`),
     shardCount: safeInteger(input.shardCount, `${label}.shardCount`, 1),
+    part: safeInteger(input.part, `${label}.part`),
+    parts: safeInteger(input.parts, `${label}.parts`, 1),
   };
   if (metadata.shardIndex >= metadata.shardCount) {
     return invalid(`${label}.shardIndex must be less than shardCount`);
   }
+  if (metadata.part >= metadata.parts) {
+    return invalid(`${label}.part must be less than parts`);
+  }
   return metadata;
+}
+
+function owns(metadata: ShardMetadata, { id }: MutantIdentity): boolean {
+  return Number(id) % metadata.parts === metadata.part;
 }
 
 function filesAndInventory(reportValue: unknown, testIds: ReadonlySet<string>) {
@@ -569,8 +590,8 @@ function parseReceipt(value: unknown, index: number): ShardReceipt {
     ),
   );
 
-  const expectedOwned = inventory.filter(
-    ({ id }) => Number(id) % metadata.shardCount === metadata.shardIndex,
+  const expectedOwned = inventory.filter((identity) =>
+    owns(metadata, identity),
   );
   if (ownedMutants.length !== expectedOwned.length) {
     return invalid(`receipts[${index}] is missing or has extra owned results`);
@@ -605,15 +626,20 @@ function compareMetadata(
   expected: ExpectedShardSet,
   index: number,
 ): void {
-  for (const key of [
-    "head",
-    "base",
-    "configHash",
-    "scopeHash",
-    "testScopeHash",
-    "shardCount",
-  ] as const) {
-    if (actual[key] !== expected[key]) {
+  const shard = expected.shards[actual.shardIndex];
+  if (!shard) invalid(`receipts[${index}].shardIndex is not in the plan`);
+  const want: Omit<ShardMetadata, "shardIndex"> = {
+    head: expected.head,
+    base: expected.base,
+    configHash: expected.configHash,
+    scopeHash: shard.scopeHash,
+    testScopeHash: shard.testScopeHash,
+    shardCount: expected.shards.length,
+    part: shard.part,
+    parts: shard.parts,
+  };
+  for (const key of Object.keys(want) as (keyof typeof want)[]) {
+    if (actual[key] !== want[key]) {
       invalid(`receipts[${index}].${key} does not match the expected run`);
     }
   }
@@ -637,11 +663,7 @@ export function createShardReceipt(
     );
   }
   const ownedMutants = inventory
-    .filter(
-      ({ id }) =>
-        Number(id) % validatedMetadata.shardCount ===
-        validatedMetadata.shardIndex,
-    )
+    .filter((identity) => owns(validatedMetadata, identity))
     .map((identity) => {
       const result = statuses.get(`${identity.file}\0${identity.id}`);
       if (!result)
@@ -658,40 +680,17 @@ export function createShardReceipt(
   };
 }
 
-/** Reconstructs the full terminal Stryker file report from a complete shard set. */
-export function aggregateShardReceipts(
-  receipts: readonly unknown[],
-  expected: ExpectedShardSet,
-): AggregatedMutationFiles {
-  const count = safeInteger(expected.shardCount, "expected.shardCount", 1);
-  if (receipts.length !== count) {
-    return invalid(`expected ${count} receipts, received ${receipts.length}`);
-  }
-  const rawMetadata = receipts.map((receipt, index) =>
-    shardMetadata(receipt, `receipts[${index}]`),
-  );
-  const rawIndices = new Set<number>();
-  rawMetadata.forEach((metadata, index) => {
-    compareMetadata(metadata, expected, index);
-    if (rawIndices.has(metadata.shardIndex)) {
-      invalid(`duplicate shard index ${metadata.shardIndex}`);
-    }
-    rawIndices.add(metadata.shardIndex);
-  });
-  for (let index = 0; index < count; index += 1) {
-    if (!rawIndices.has(index)) invalid(`missing shard index ${index}`);
-  }
-  const parsed = receipts.map(parseReceipt);
-  const byIndex = new Map<number, ShardReceipt>();
-  parsed.forEach((receipt) => {
-    byIndex.set(receipt.shardIndex, receipt);
-  });
-  const ordered = [...byIndex.values()].sort(
-    (a, b) => a.shardIndex - b.shardIndex,
-  );
-  const first = ordered[0];
-  if (!first) return invalid("no shard receipts were provided");
-  for (const receipt of ordered.slice(1)) {
+/**
+ * Reconstructs the merged report for one group: every worker of the group
+ * instrumented the same ranges, and together they own each mutant once.
+ */
+function aggregateGroup(
+  members: readonly ShardReceipt[],
+  planned: readonly string[],
+): AggregatedMutationFiles["files"] {
+  const first = members[0];
+  if (!first) return invalid("a planned group has no receipts");
+  for (const receipt of members.slice(1)) {
     if (receipt.inventoryHash !== first.inventoryHash) {
       invalid("shards disagree on mutant inventory or source hash");
     }
@@ -705,9 +704,19 @@ export function aggregateShardReceipts(
       invalid("shards disagree on test inventory");
     }
   }
+  // Stryker leaves files whose ranges yield no mutants (imports, re-exports)
+  // out of its report, so a planned file may be absent but never foreign.
+  const foreign = Object.keys(first.files).filter(
+    (file) => !planned.includes(file),
+  );
+  if (foreign.length > 0) {
+    invalid(
+      `receipts[${first.shardIndex}] reports unplanned files ${foreign.join(", ")}`,
+    );
+  }
 
   const terminalById = new Map<string, OwnedMutantResult>();
-  for (const receipt of ordered) {
+  for (const receipt of members) {
     for (const mutant of receipt.ownedMutants) {
       if (terminalById.has(mutant.id)) {
         invalid(`multiple shards report mutant ${mutant.id}`);
@@ -715,34 +724,89 @@ export function aggregateShardReceipts(
       terminalById.set(mutant.id, mutant);
     }
   }
-  const fileMutants = new Map<string, Array<Omit<OwnedMutantResult, "file">>>();
+  const files: AggregatedMutationFiles["files"] = {};
+  for (const [file, source] of Object.entries(first.files)) {
+    files[file] = { ...source, mutants: [] };
+  }
   for (const identity of first.inventory) {
     const result = terminalById.get(identity.id);
     if (!result || !sameIdentity(identity, result)) {
       invalid(`missing terminal owner result for mutant ${identity.id}`);
     }
-    const { file: _file, ...reportMutant } = result;
-    const current = fileMutants.get(identity.file) ?? [];
-    current.push(reportMutant);
-    fileMutants.set(identity.file, current);
+    const { file, ...reportMutant } = result;
+    const entry = files[file];
+    if (!entry) return invalid(`mutant ${identity.id} has no file`);
+    entry.mutants.push(reportMutant);
+  }
+  return files;
+}
+
+/**
+ * Reconstructs the full terminal Stryker file report from a complete shard
+ * set. Groups own disjoint files and may report only files the plan gave
+ * them, so a receipt from another plan cannot pass. Stryker numbers mutants
+ * per run, so the merged report renumbers them.
+ */
+export function aggregateShardReceipts(
+  receipts: readonly unknown[],
+  expected: ExpectedShardSet,
+): AggregatedMutationFiles {
+  const count = expected.shards.length;
+  if (count === 0) return invalid("the plan has no shards");
+  if (receipts.length !== count) {
+    return invalid(`expected ${count} receipts, received ${receipts.length}`);
+  }
+  const rawIndices = new Set<number>();
+  receipts.forEach((receipt, index) => {
+    const metadata = shardMetadata(receipt, `receipts[${index}]`);
+    compareMetadata(metadata, expected, index);
+    if (rawIndices.has(metadata.shardIndex)) {
+      invalid(`duplicate shard index ${metadata.shardIndex}`);
+    }
+    rawIndices.add(metadata.shardIndex);
+  });
+  const groups = new Map<
+    number,
+    { planned: readonly string[]; members: ShardReceipt[] }
+  >();
+  for (const receipt of receipts.map(parseReceipt)) {
+    const shard = expected.shards[receipt.shardIndex];
+    if (!shard) return invalid(`shard ${receipt.shardIndex} is not planned`);
+    const group = groups.get(shard.group) ?? {
+      planned: shard.files,
+      members: [],
+    };
+    group.members.push(receipt);
+    groups.set(shard.group, group);
+  }
+
+  const merged: AggregatedMutationFiles["files"] = {};
+  const owners = new Map<string, number>();
+  for (const [group, { planned, members }] of [...groups].sort(
+    ([a], [b]) => a - b,
+  )) {
+    members.sort((a, b) => a.shardIndex - b.shardIndex);
+    for (const [file, entry] of Object.entries(
+      aggregateGroup(members, planned),
+    )) {
+      const owner = owners.get(file);
+      if (owner !== undefined) {
+        invalid(`groups ${owner} and ${group} both report ${file}`);
+      }
+      owners.set(file, group);
+      merged[file] = entry;
+    }
   }
 
   const files = Object.fromEntries(
-    Object.entries(first.files)
-      .sort(([a], [b]) => compareStrings(a, b))
-      .map(([file, source]) => [
-        file,
-        {
-          ...source,
-          mutants: (fileMutants.get(file) ?? []).sort((a, b) =>
-            compareIdentities({ file, ...a }, { file, ...b }),
-          ),
-        },
-      ]),
+    Object.entries(merged).sort(([a], [b]) => compareStrings(a, b)),
   );
-  return {
-    files,
-    inventoryHash: first.inventoryHash,
-    testInventoryHash: first.testInventoryHash,
-  };
+  let nextId = 0;
+  for (const [file, entry] of Object.entries(files)) {
+    entry.mutants.sort((a, b) =>
+      compareIdentities({ file, ...a }, { file, ...b }),
+    );
+    for (const mutant of entry.mutants) mutant.id = String(nextId++);
+  }
+  return { files };
 }

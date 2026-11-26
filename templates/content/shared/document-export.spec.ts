@@ -223,6 +223,35 @@ describe("document export", () => {
     expect(exportPayload.content).toContain("<strong>Ship it</strong>");
   });
 
+  it("keeps a link's underscores out of emphasis in HTML exports", () => {
+    const url = "https://design.example.test/design/a_1_b";
+    const html = buildDocumentExport({
+      id: "doc_1",
+      title: "Links",
+      content: `[launch_1](${url}) and _real_ emphasis`,
+      format: "html",
+    }).content;
+    expect(html).toContain(
+      `<a href="${url}">launch_1</a> and <em>real</em> emphasis`,
+    );
+  });
+
+  it("keeps linked images, and digits after an image, in HTML exports", () => {
+    const html = buildDocumentExport({
+      id: "doc_1",
+      title: "Images",
+      content:
+        "[![Launch](https://example.test/launch.png)](https://example.test/page) and ![Chart](https://example.test/chart.png)5 items",
+      format: "html",
+    }).content;
+    expect(html).toContain(
+      '<a href="https://example.test/page"><img src="https://example.test/launch.png" alt="Launch" /></a>',
+    );
+    expect(html).toContain(
+      '<img src="https://example.test/chart.png" alt="Chart" />5 items',
+    );
+  });
+
   it("renders inline and block math in standalone HTML exports", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",

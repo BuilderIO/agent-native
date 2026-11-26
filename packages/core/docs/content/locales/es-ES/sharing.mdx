@@ -125,6 +125,8 @@ Cada recurso que se puede compartir tiene un botón para compartir en su encabez
 
 Los cambios de visibilidad se guardan de inmediato. Un tipo de recurso cuyo contenido es fácil de pasar por alto puede pedir confirmación primero: los chats definen `confirmOrgVisibility: true` en su registro, así que pasar un chat de `Private` a `Organization` espera hasta que la persona confirma. Cancelar o Escape mantiene el acceso actual. Si falla el guardado, el cuadro de diálogo muestra el error y se puede volver a intentar. La confirmación existe solo en la UI de uso compartido, así que el agente y cualquier otro llamador siguen cambiando la visibilidad directamente con `set-resource-visibility` y la política de uso compartido del recurso sigue decidiendo qué está permitido.
 
+Un tipo de recurso también puede llevar consigo recursos relacionados cuando se vuelve público o deja de serlo. Content registra `publicFollowers`, que devuelve las subpáginas de una página: al hacer pública la página, también se hacen públicas, y al volver a hacerla privada o solo para la organización, se lleva las que siguen públicas. Los recursos relacionados que quien llama no puede administrar conservan su propia configuración, todo el cambio se guarda o falla a la vez, y `set-resource-visibility` devuelve en `followersChanged` cuántos cambiaron con él. El diálogo de compartir indica cuántos son públicos con el recurso cuando la app pasa `publicFollowersLabel` a `ShareButton`. Se rechaza un cambio que arrastraría más de `MAX_PUBLIC_FOLLOWERS` (500).
+
 El botón de compartir es una importación única:
 
 ```tsx

@@ -1,6 +1,16 @@
 import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  UNSAFE_DataRouterStateContext,
+  resolvePath,
   useLocation,
   useNavigate,
   type Location,
@@ -9,8 +19,10 @@ import {
 
 import { isWorkspaceAppPath } from "./api-path.js";
 import {
+  compareAndSetClientAppState,
   deleteClientAppState,
   readClientAppState,
+  registerBeforeAgentTurnFlush,
   setClientAppState,
 } from "./application-state.js";
 import {
@@ -22,6 +34,11 @@ import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
 } from "./chat-view-transition.js";
+import { postScreenSettled } from "./screen-settled.js";
+import {
+  currentSessionScope,
+  subscribeSessionScope,
+} from "./session-identity.js";
 import { postAgentNativeWorkspaceAppRoute } from "./workspace-app-navigation.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
@@ -47,7 +64,7 @@ export interface UseSemanticNavigationStateOptions<
   keepalive?: boolean;
   writeDebounceMs?: number;
   getCommandDedupKey?: (command: NavigateCommand) => string;
-  onCommand: (command: NavigateCommand) => void | Promise<void>;
+  onCommand: (command: NavigateCommand, key: string) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -242,6 +259,11 @@ export function useSemanticNavigationState<
     writeDebounceMs = 0,
   } = options;
 
+  const sessionScope = useSyncExternalStore(
+    subscribeSessionScope,
+    currentSessionScope,
+    currentSessionScope,
+  );
   const browserTabId = useMemo(
     () =>
       normalizeBrowserTabId(options.browserTabId) ??
@@ -291,35 +313,80 @@ export function useSemanticNavigationState<
 
   // `null` is safe as "never written": a null state serializes to a string, so
   // the token itself is never null.
-  const lastNavigationWriteRef = useRef<unknown>(null);
+  const lastNavigationWriteRef = useRef<{
+    scope: object;
+    token: unknown;
+  } | null>(null);
+  const navigationWriteRef = useRef({ navigationKeys, navigationState });
+  navigationWriteRef.current = { navigationKeys, navigationState };
 
   useEffect(() => {
     if (!enabled) return;
-    if (lastNavigationWriteRef.current === navigationWriteDedup) return;
-    lastNavigationWriteRef.current = navigationWriteDedup;
-
-    const write = () => {
-      for (const key of navigationKeys) {
-        setClientAppState(key, navigationState, {
-          keepalive,
-          requestSource,
-        }).catch((error) => onErrorRef.current?.(error));
-      }
+    if (
+      lastNavigationWriteRef.current?.scope === sessionScope &&
+      lastNavigationWriteRef.current.token === navigationWriteDedup
+    )
+      return;
+    lastNavigationWriteRef.current = {
+      scope: sessionScope,
+      token: navigationWriteDedup,
     };
 
-    if (writeDebounceMs > 0) {
-      const timer = setTimeout(write, writeDebounceMs);
-      return () => clearTimeout(timer);
-    }
-    write();
+    const { navigationKeys, navigationState } = navigationWriteRef.current;
+    let active = true;
+    const write = () =>
+      Promise.all(
+        navigationKeys.map((key) =>
+          setClientAppState(key, navigationState, {
+            keepalive,
+            ...(requestSource ? { requestSource } : {}),
+          }),
+        ),
+      ).then(() => {});
+    const reportError = (error: unknown) => {
+      if (active && currentSessionScope() === sessionScope)
+        onErrorRef.current?.(error);
+    };
+
+    let pending = true;
+    let inFlight: Promise<void> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      if (!active || currentSessionScope() !== sessionScope) return;
+      if (inFlight) return inFlight;
+      if (!pending) return;
+      pending = false;
+      clearTimeout(timer);
+      inFlight = write()
+        .catch((error: unknown) => {
+          if (active && currentSessionScope() === sessionScope) pending = true;
+          throw error;
+        })
+        .finally(() => {
+          inFlight = undefined;
+        });
+      return inFlight;
+    };
+    const unregister = registerBeforeAgentTurnFlush(flush);
+    if (writeDebounceMs > 0)
+      timer = setTimeout(() => {
+        flush()?.catch(reportError);
+      }, writeDebounceMs);
+    else flush()?.catch(reportError);
+    return () => {
+      active = false;
+      if (pending || inFlight) lastNavigationWriteRef.current = null;
+      pending = false;
+      clearTimeout(timer);
+      unregister();
+    };
   }, [
     enabled,
     keepalive,
-    navigationKeys,
-    navigationState,
     navigationWriteDedup,
     requestSource,
     writeDebounceMs,
+    sessionScope,
   ]);
 
   const commandQuery =
@@ -342,6 +409,16 @@ export function useSemanticNavigationState<
       },
     });
 
+  useEffect(() => {
+    if (!enabled) return;
+    const refreshCommand = () => {
+      void queryClient.invalidateQueries({ queryKey: commandQueryKey });
+    };
+    window.addEventListener("agentNative:refresh-data", refreshCommand);
+    return () =>
+      window.removeEventListener("agentNative:refresh-data", refreshCommand);
+  }, [enabled, queryClient, commandQueryKey]);
+
   const clearCommand = useCallback(async () => {
     await Promise.all(
       commandKeys.map((key) =>
@@ -363,10 +440,30 @@ export function useSemanticNavigationState<
       getCommandDedupKeyRef.current?.(envelope.command) ??
       defaultCommandDedupKey(envelope.command);
     const consume = () => {
-      deleteClientAppState(envelope.key, { requestSource }).catch((error) =>
-        onErrorRef.current?.(error),
-      );
+      const writeOptions = requestSource ? { requestSource } : {};
       queryClient.setQueryData(commandQueryKey, null);
+      if (
+        envelope.command === null ||
+        typeof envelope.command !== "object" ||
+        Array.isArray(envelope.command)
+      ) {
+        void deleteClientAppState(envelope.key, writeOptions).catch((error) =>
+          onErrorRef.current?.(error),
+        );
+        return;
+      }
+      void compareAndSetClientAppState(
+        envelope.key,
+        envelope.command as Record<string, unknown>,
+        null,
+        writeOptions,
+      ).then(
+        (changed) => {
+          if (!changed)
+            void queryClient.invalidateQueries({ queryKey: commandQueryKey });
+        },
+        (error) => onErrorRef.current?.(error),
+      );
     };
 
     if (lastProcessedDedupKeyRef.current === dedupKey) {
@@ -376,8 +473,8 @@ export function useSemanticNavigationState<
     lastProcessedDedupKeyRef.current = dedupKey;
     consume();
 
-    Promise.resolve(onCommandRef.current(envelope.command)).catch((error) =>
-      onErrorRef.current?.(error),
+    Promise.resolve(onCommandRef.current(envelope.command, envelope.key)).catch(
+      (error) => onErrorRef.current?.(error),
     );
   }, [commandQuery.data, commandQueryKey, enabled, queryClient, requestSource]);
 
@@ -398,6 +495,7 @@ export function useAgentRouteState<
   const { navigationKey = "navigation", commandKey = "navigate" } = options;
 
   const location = useLocation();
+  const routerState = useContext(UNSAFE_DataRouterStateContext);
   const navigate = useNavigate();
   const defaultTabId = defaultBrowserTabId();
   const explicitTabId = normalizeBrowserTabId(options.browserTabId);
@@ -414,6 +512,30 @@ export function useAgentRouteState<
   const requestSource = requestSourceFollowsDefault
     ? browserTabId
     : options.requestSource;
+  const [pendingAck, setPendingAck] = useState<{
+    writeId: string;
+    url: string;
+    tabId: string;
+  }>();
+  const ackedWriteId = useRef<string>(undefined);
+  useEffect(() => {
+    if (
+      options.enabled === false ||
+      !pendingAck ||
+      pendingAck.tabId !== browserTabId ||
+      pendingAck.writeId === ackedWriteId.current
+    )
+      return;
+    if (currentRouterPath(location) !== pendingAck.url) return;
+    if (
+      routerState &&
+      (routerState.navigation.state !== "idle" ||
+        routerState.revalidation !== "idle")
+    )
+      return;
+    ackedWriteId.current = pendingAck.writeId;
+    postScreenSettled(pendingAck);
+  }, [browserTabId, location, options.enabled, pendingAck, routerState]);
   const writeGlobalNavigation = options.writeGlobalNavigation ?? false;
   const readGlobalCommandFallback = options.readGlobalCommandFallback ?? false;
 
@@ -485,10 +607,11 @@ export function useAgentRouteState<
     beforeCommandRead: options.beforeCommandRead,
     enabled: options.enabled,
     keepalive: options.keepalive,
-    writeDebounceMs: options.writeDebounceMs,
+    writeDebounceMs: options.writeDebounceMs ?? 200,
     getCommandDedupKey: options.getCommandDedupKey,
     onError: options.onError,
-    onCommand: (command) => {
+    onCommand: (command, key) => {
+      setPendingAck(undefined);
       const target = options.getCommandPath(command);
       if (!target) return;
       const workspaceAppTarget = typeof target !== "string";
@@ -503,6 +626,20 @@ export function useAgentRouteState<
         );
       }
       options.onNavigate?.(command, path);
+      const writeId = (command as { _writeId?: unknown } | null)?._writeId;
+      if (
+        !workspaceAppTarget &&
+        browserTabId &&
+        key === appStateKeyForBrowserTab(commandKey, browserTabId) &&
+        typeof writeId === "string"
+      ) {
+        const targetUrl = resolvePath(path, location.pathname);
+        setPendingAck({
+          writeId,
+          tabId: browserTabId,
+          url: targetUrl.pathname + targetUrl.search + targetUrl.hash,
+        });
+      }
       if (!workspaceAppTarget && path === currentRouterPath(location)) return;
 
       const navigateOptions = options.navigateOptions;

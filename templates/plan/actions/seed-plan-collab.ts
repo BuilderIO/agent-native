@@ -13,6 +13,7 @@ export default defineAction({
     "Initialize a plan's live editor, or one of its block editors, from saved content exactly once.",
   agentTool: false,
   deferLoading: false,
+  automatic: true,
   schema: z.object({
     planId: z.string().min(1),
     blockId: z.string().min(1).optional(),

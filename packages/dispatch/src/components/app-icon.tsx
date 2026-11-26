@@ -121,7 +121,7 @@ export function AppIcon({
 }: {
   id: string;
   name: string;
-  icon?: string;
+  icon?: string | undefined;
   color?: string;
   className?: string;
   size?: "sm" | "md";

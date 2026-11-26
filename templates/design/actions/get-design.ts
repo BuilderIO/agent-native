@@ -8,7 +8,6 @@ import {
   getAppConfig,
 } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import {
   currentAccess,
   resolveAccess,
@@ -21,7 +20,6 @@ import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import { designFileOrder } from "../server/lib/design-file-order.js";
 import { isHumanCaller, trackDesign } from "../server/lib/design-tracking.js";
 import "../server/db/index.js";
-import getDesignSystem from "./get-design-system.js";
 import { getDesignSchema } from "./get-design.schema.js";
 
 const DESIGN_VIEW_TRACK_WINDOW_MS = 30 * 60 * 1000;
@@ -100,7 +98,7 @@ function trackDesignView(
 
 export default defineAction({
   description:
-    "Get a design project by ID. Returns the full design data and linked `designSystem.agentContext` when readable. By default, returns all associated files; pass `includeFileContent=false` for file metadata only, then pass a `fileId` to read just one file. Treat design-system context as authoritative before authoring or restyling.",
+    "Get a design project by ID. Returns the full design data. By default, returns all associated files; pass `includeFileContent=false` for file metadata only, then pass a `fileId` to read just one file.",
   schema: getDesignSchema,
   readOnly: true,
   requiresAuth: false,
@@ -233,10 +231,6 @@ export default defineAction({
             )
             .where(fileFilter)
             .orderBy(...fileOrder);
-    const designSystem = await loadAgentDesignSystemContext(
-      typeof row.designSystemId === "string" ? row.designSystemId : null,
-      getDesignSystem,
-    );
 
     if (ctx && !reviewPreview && isHumanCaller(ctx)) {
       trackDesignView(ctx, id, access.role, row.visibility);
@@ -247,10 +241,10 @@ export default defineAction({
       title: row.title,
       description: row.description,
       projectType: row.projectType,
-      designSystemId: row.designSystemId,
       liveCollaborationEnabled: row.liveCollaborationEnabled === true,
-      designSystem,
-      data: designDataForAccessRole(row.data ?? null, access.role),
+      data: designDataForAccessRole(row.data ?? null, access.role, {
+        liveCollaborationEnabled: row.liveCollaborationEnabled === true,
+      }),
       visibility: row.visibility,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

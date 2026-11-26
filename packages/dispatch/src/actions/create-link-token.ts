@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createLinkToken } from "../server/lib/dispatch-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Create a /link token so a Slack or Telegram user can bind to their personal dispatch identity.",
   schema: z.object({

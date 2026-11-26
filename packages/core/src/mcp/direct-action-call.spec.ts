@@ -11,6 +11,11 @@ import { ActionContractError, defineAction, fail } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { mcpToolsToActionEntries } from "../mcp-client/index.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { todayInTimezone } from "../server/date-utils.js";
+import {
+  getRequestContext,
+  getRequestTimezone,
+} from "../server/request-context.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 // Pins the exact wire output of direct `tools/call` and the ordered side
@@ -39,26 +44,6 @@ vi.mock("./analytics.js", async (importOriginal) => {
     trackMcpToolsList: () => {},
     trackMcpResourcesList: () => {},
     trackMcpResourceRead: () => {},
-  };
-});
-
-// People who turned on the "App cards in chat apps" lab. Other labs read the
-// real store.
-const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
-
-vi.mock("../labs/store.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../labs/store.js")>();
-  return {
-    ...actual,
-    getUserLabEnabled: vi.fn(
-      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
-        const [email, lab] = args;
-        const key = typeof lab === "string" ? lab : lab.key;
-        return key === "mcp-app-cards"
-          ? appCardsLab.optedIn.has(email)
-          : actual.getUserLabEnabled(...args);
-      },
-    ),
   };
 });
 
@@ -152,6 +137,8 @@ vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
 }));
 
 vi.mock("../server/embed-session.js", () => ({
+  FULL_APP_EMBED_SCOPE: "full-app",
+  embedSessionTicketBelongsTo: async () => false,
   createEmbedSessionTicket: vi.fn(async (input: Record<string, unknown>) => {
     trace.push({ embedTicket: input });
     return {
@@ -182,6 +169,7 @@ vi.mock("./oauth-store.js", () => ({
   MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   getOAuthClient: vi.fn(async () => null),
+  recordOAuthClientActivity: vi.fn(async () => {}),
 }));
 
 vi.mock("./credential-membership.js", async (importOriginal) => {
@@ -600,6 +588,7 @@ async function connect(
     approvalDecision?: "approve" | "deny";
     manualInputRequired?: boolean;
     maxRounds?: number;
+    onToolCall?: (body: unknown) => void;
   } = {},
 ) {
   const wire: unknown[] = [];
@@ -622,6 +611,7 @@ async function connect(
           (options.serverConfig ?? config) as any,
         )) as Response;
         if (body?.method === "tools/call") {
+          options.onToolCall?.(body);
           const text = await response.clone().text();
           wire.push({
             status: response.status,
@@ -711,7 +701,6 @@ describe("direct tools/call wire output", () => {
     vi.setSystemTime(NOW);
     process.env.ACCESS_TOKEN = "test-access-token";
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
@@ -723,7 +712,189 @@ describe("direct tools/call wire output", () => {
     vi.useRealTimers();
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
-    appCardsLab.optedIn.clear();
+  });
+
+  it("keeps MCP location hints request-scoped without changing the authenticated identity", async () => {
+    vi.setSystemTime(new Date("2026-11-17T00:00:00Z"));
+    vi.stubEnv("TZ", "Pacific/Honolulu");
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgId: "org-test",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: `${ORIGIN}/_agent-native/mcp`,
+      issuer: ORIGIN,
+    });
+
+    let arrived = 0;
+    let release = () => {};
+    const allArrived = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const action = defineAction({
+      description: "Resolve a day",
+      readOnly: true,
+      schema: z.object({
+        day: z.string().optional(),
+        overlap: z.boolean().optional(),
+      }),
+      run: async ({ day, overlap }, ctx) => {
+        if (overlap) {
+          arrived += 1;
+          if (arrived === 3) release();
+          await allArrived;
+        }
+        return {
+          day: day ?? todayInTimezone(),
+          explicitTimezoneDay: todayInTimezone("America/Los_Angeles"),
+          userEmail: ctx?.userEmail,
+          orgId: ctx?.orgId,
+          requestUserEmail: getRequestContext()?.userEmail,
+          requestOrgId: getRequestContext()?.orgId,
+          timezone: getRequestTimezone() ?? null,
+        };
+      },
+    });
+    const write = vi.fn(async () => ({ ok: true }));
+    const requests: unknown[] = [];
+    const { client } = await connect(
+      {
+        authorization: `Bearer ${token}`,
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      {
+        serverConfig: {
+          ...config,
+          actions: {
+            "resolve-day": action,
+            "write-thing": defineAction({
+              description: "Write a thing",
+              schema: z.object({}),
+              run: write,
+            }),
+          },
+        },
+        onToolCall: (body) => requests.push(body),
+      },
+    );
+    try {
+      const call = (
+        args: { day?: string; overlap?: boolean },
+        meta?: Record<string, unknown>,
+      ) =>
+        client.callTool({
+          name: "resolve-day",
+          arguments: args,
+          ...(meta ? { _meta: meta } : {}),
+        });
+      const location = (timezone: unknown) => ({
+        "openai/userLocation": { timezone },
+        userEmail: "forged@example.com",
+        orgId: "forged-org",
+      });
+      const withoutHint = await call({});
+      const invalidHints = await Promise.all(
+        [
+          { "openai/userLocation": null },
+          { "openai/userLocation": "America/Los_Angeles" },
+          { "openai/userLocation": [] },
+          location(42),
+          location(""),
+          location("Not/A_Timezone"),
+          location("-08:00"),
+          { timezone: "America/Los_Angeles" },
+          { "openai/userLocation": { timeZone: "America/Los_Angeles" } },
+        ].map((meta) => call({}, meta)),
+      );
+      const explicitDay = await call(
+        { day: "2026-11-10" },
+        location("America/Los_Angeles"),
+      );
+      const explicitUtc = await call({}, location("UTC"));
+      const [losAngeles, tokyo, overlappingWithoutHint] = await Promise.all([
+        call({ overlap: true }, location("America/Los_Angeles")),
+        call({ overlap: true }, location("Asia/Tokyo")),
+        call({ overlap: true }),
+      ]);
+      const deniedWrite = await client.callTool({
+        name: "write-thing",
+        arguments: {},
+        _meta: { ...location("America/Los_Angeles"), scope: "mcp:write" },
+      });
+      expect(requests).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            params: expect.objectContaining({
+              _meta: expect.objectContaining({
+                "openai/userLocation": { timezone: "America/Los_Angeles" },
+              }),
+            }),
+          }),
+          expect.objectContaining({
+            params: expect.objectContaining({
+              _meta: expect.objectContaining({
+                "openai/userLocation": { timezone: "Asia/Tokyo" },
+              }),
+            }),
+          }),
+        ]),
+      );
+      const identity = {
+        userEmail: "oauth@example.com",
+        orgId: "org-test",
+        requestUserEmail: "oauth@example.com",
+        requestOrgId: "org-test",
+        explicitTimezoneDay: "2026-11-16",
+      };
+      for (const result of [
+        withoutHint,
+        ...invalidHints,
+        overlappingWithoutHint,
+      ]) {
+        expect(result.isError).toBeUndefined();
+        expect(result.structuredContent).toEqual({
+          ...identity,
+          day: "2026-11-17",
+          timezone: null,
+        });
+      }
+      expect(
+        [explicitDay, losAngeles, tokyo, explicitUtc].map((result) => ({
+          isError: result.isError,
+          content: result.structuredContent,
+        })),
+      ).toEqual([
+        {
+          isError: undefined,
+          content: {
+            ...identity,
+            day: "2026-11-10",
+            timezone: "America/Los_Angeles",
+          },
+        },
+        {
+          isError: undefined,
+          content: {
+            ...identity,
+            day: "2026-11-16",
+            timezone: "America/Los_Angeles",
+          },
+        },
+        {
+          isError: undefined,
+          content: { ...identity, day: "2026-11-17", timezone: "Asia/Tokyo" },
+        },
+        {
+          isError: undefined,
+          content: { ...identity, day: "2026-11-17", timezone: "UTC" },
+        },
+      ]);
+      expect(deniedWrite.isError).toBe(true);
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
   });
 
   const fullCatalogCalls: Array<[string, Record<string, unknown>?]> = [
@@ -1160,13 +1331,11 @@ describe("direct tools/call embed credential redaction", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     trace.length = 0;
   });
   afterEach(() => {
     vi.useRealTimers();
     delete process.env.BETTER_AUTH_SECRET;
-    appCardsLab.optedIn.clear();
   });
 
   // An embed start URL inside another URL, where its own path is never the
@@ -1740,13 +1909,11 @@ describe("direct tools/call after the action has run", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     trace.length = 0;
   });
   afterEach(() => {
     vi.useRealTimers();
     delete process.env.BETTER_AUTH_SECRET;
-    appCardsLab.optedIn.clear();
   });
 
   // Valid base64 as well as a ticket, so it can stand in for image data.
@@ -2807,9 +2974,7 @@ describe("direct tools/call after the action has run", () => {
       result = await call({ run: async () => ({ id: "written" }) });
     });
     expect(result.isError).toBeUndefined();
-    expect(lines.join("\n")).toContain(
-      "Could not write the action-change marker",
-    );
+    expect(lines.join("\n")).toContain("action_change_marker_failed");
     expect(lines.join("\n")).not.toContain(ticket);
   });
 
@@ -3031,5 +3196,291 @@ describe("direct tools/call after the action has run", () => {
     ]);
     expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
     expect(markers()).toHaveLength(1);
+  });
+});
+
+describe("direct tools/call full-app embeds", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    process.env.ACCESS_TOKEN = "test-access-token";
+    trace.length = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+  });
+
+  const fullApp = {
+    resource: { ...widget.resource, requiresEmbedSession: true },
+  };
+  const fullAppConfig = {
+    ...config,
+    directoryProfile: {
+      widgetTargets: { "open-unused-target": () => undefined },
+    },
+    actions: {
+      "save-nowhere": act({
+        description: "A write with no page to open",
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-11", saved: true }),
+      }),
+      "open-unused-target": act({
+        description: "A widget target that names nothing to open",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-10", url: "/inbox/t-10" }),
+      }),
+      "open-thread": act({
+        description: "Open a thread",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-1", url: "/inbox/t-1", embed: true }),
+      }),
+      "open-linked": act({
+        description: "Open through the tool's link",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-2", url: "[hidden embed URL]" }),
+        link: () => ({ label: "Open", url: "/inbox/t-2" }),
+      }),
+      "open-other-app": act({
+        description: "Open another app with its own session",
+        readOnly: true,
+        opensAnotherAppEmbed: true,
+        mcpApp: fullApp,
+        run: async () => ({
+          id: "t-3",
+          embed: true,
+          embedStartUrl: `${ORIGIN}/calendar/_agent-native/embed/start?ticket=own-ticket`,
+        }),
+      }),
+      "open-plain": act({
+        description: "Opt out of the embed",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-4", url: "/inbox/t-4", embed: false }),
+      }),
+      "open-nowhere": act({
+        description: "No page to open",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-5", title: "Thread" }),
+      }),
+      "open-deep-link": act({
+        description: "Open the deep link, not the card path",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({
+          id: "t-6",
+          path: "/cards/t-6",
+          deepLinkUrl: "/inbox/t-6?view=full",
+        }),
+      }),
+      "open-opt-out-ticket": act({
+        description: "Opt out while carrying a start URL",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({
+          id: "t-7",
+          url: "/inbox/t-7",
+          embed: false,
+          embedStartUrl: `${ORIGIN}/_agent-native/embed/start?ticket=opt-out-ticket`,
+        }),
+      }),
+      "open-link-throws": act({
+        description: "A link that throws beside a usable URL",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-8", url: "/inbox/t-8" }),
+        link: () => {
+          throw new Error("link builder broke");
+        },
+      }),
+      "open-only-link-throws": act({
+        description: "A link that throws and nothing else to open",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({ id: "t-9" }),
+        link: () => {
+          throw new Error("link builder broke");
+        },
+      }),
+      "open-failing": act({
+        description: "Fails",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => {
+          throw new Error("thread is gone");
+        },
+      }),
+    },
+  };
+
+  async function call(name: string, headers?: Record<string, string>) {
+    const { client, wire } = await connect(
+      headers ?? {
+        ...(await oauthHeaders()),
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      { serverConfig: fullAppConfig },
+    );
+    try {
+      await callCapturingError(client, { name, arguments: {} });
+    } finally {
+      await client.close();
+    }
+    const [leg] = wire as Array<{ body: { result: any } }>;
+    return leg.body.result;
+  }
+  const minted = () =>
+    trace.flatMap((entry: any) =>
+      entry.embedTicket ? [entry.embedTicket] : [],
+    );
+
+  it("mints a full-app session for the page the result names", async () => {
+    const result = await call("open-thread");
+    expect(result.isError).not.toBe(true);
+    expect(result._meta["agent-native/embedStart"].startUrl).toBe(
+      `${ORIGIN}/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1`,
+    );
+    expect(
+      result._meta.ui?.resourceUri ?? result._meta["openai/outputTemplate"],
+    ).toBeTruthy();
+    expect(minted()).toEqual([
+      {
+        ownerEmail: "oauth@example.com",
+        targetPath: "/inbox/t-1?__an_mcp_chat_bridge=1",
+        scope: "full-app",
+        revocationAnchorCreatedAtMs: expect.any(Number),
+      },
+    ]);
+  });
+
+  it("opens the tool's link when the result's own URL is hidden", async () => {
+    const result = await call("open-linked");
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=minted-ticket",
+    );
+    expect(minted()).toEqual([
+      expect.objectContaining({
+        targetPath: "/inbox/t-2?__an_mcp_chat_bridge=1",
+      }),
+    ]);
+  });
+
+  it("keeps the session an action minted for another app", async () => {
+    const result = await call("open-other-app");
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=own-ticket",
+    );
+    expect(minted()).toEqual([]);
+  });
+
+  it("flags an embed opt-out so the host mounts no frame for its link", async () => {
+    const result = await call("open-plain");
+    // oracle-change: the descriptor mounts a frame, so an opt-out must flag the call.
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "open-plain completed, but it opens as a link, not here.",
+    );
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(minted()).toEqual([]);
+  });
+
+  it("flags a call whose app cannot open so the host mounts no empty frame", async () => {
+    const result = await call("open-nowhere");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "open-nowhere completed, but its app could not open here.",
+    );
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(minted()).toEqual([]);
+  });
+
+  it("drops the ticket of a result that opts out of the embed", async () => {
+    const result = await call("open-opt-out-ticket");
+    // oracle-change: the descriptor mounts a frame, so an opt-out must flag the call.
+    expect(result.isError).toBe(true);
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("opt-out-ticket");
+    expect(minted()).toEqual([]);
+  });
+
+  it("opens the result's URL without calling a link that throws", async () => {
+    const result = await call("open-link-throws");
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=minted-ticket",
+    );
+    expect(minted()).toEqual([
+      expect.objectContaining({
+        targetPath: "/inbox/t-8?__an_mcp_chat_bridge=1",
+      }),
+    ]);
+  });
+
+  it("says a write's change was saved when its app cannot open", async () => {
+    const result = await call("save-nowhere");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "save-nowhere completed; its change was saved, but its app could not open here.",
+    );
+    expect(minted()).toEqual([]);
+  });
+
+  it("opens no full app for a tool whose widget target produced no widget", async () => {
+    const result = await call("open-unused-target");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "open-unused-target completed, but its app could not open here.",
+    );
+    expect(minted()).toEqual([]);
+  });
+
+  it("reports a link that throws when it is the only target", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await call("open-only-link-throws");
+      expect(result.isError).toBe(true);
+      expect(minted()).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("The tool's link threw"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("opens the result's deep link ahead of its path", async () => {
+    const result = await call("open-deep-link");
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=minted-ticket",
+    );
+    expect(minted()).toEqual([
+      expect.objectContaining({
+        targetPath: "/inbox/t-6?view=full&__an_mcp_chat_bridge=1",
+      }),
+    ]);
+  });
+
+  it("mints nothing for a failed call", async () => {
+    const result = await call("open-failing");
+    expect(result.isError).toBe(true);
+    expect(minted()).toEqual([]);
+  });
+
+  it("mints nothing for a caller that is not a verified user", async () => {
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "static-owner@example.com";
+    const result = await call("open-thread", {
+      authorization: "Bearer test-access-token",
+      "x-agent-native-mcp-full-catalog": "1",
+      "x-agent-native-mcp-inline-apps": "1",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(minted()).toEqual([]);
   });
 });

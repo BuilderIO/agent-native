@@ -21,6 +21,7 @@ const rawClient = {
 };
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
@@ -115,7 +116,7 @@ function as<T>(userEmail: string, orgId: string | undefined, fn: () => T) {
 
 beforeEach(async () => {
   resetAppConfigForTests();
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetAuditInitForTests();
   isStoredEngineUsableForRequest.mockReset();
   isStoredEngineUsableForRequest.mockResolvedValue(true);

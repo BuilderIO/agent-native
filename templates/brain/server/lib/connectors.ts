@@ -1,6 +1,7 @@
+import { fail } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import { normalizeGitHubRepoRef } from "../../shared/source-config-validation.js";
 import type {
@@ -11,7 +12,11 @@ import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
+  BrainCaptureConcurrentError,
   createCapture,
+  commitPreparedCapture,
+  prepareCapture,
+  type PreparedCapture,
   nanoid,
   nowIso,
   parseJson,
@@ -20,11 +25,27 @@ import {
   stableJson,
 } from "./brain.js";
 import { BrainClassifierUnavailableError } from "./capture-sanitization.js";
+import {
+  invalidateGoogleCaptureAudiences,
+  invalidateGoogleSourceAudiences,
+} from "./google-source-access.js";
+import { requirePersonalGoogleSourceOwner } from "./google-source-connection.js";
+import { withGoogleSourceLock } from "./google-source-lock.js";
+import {
+  GoogleSourceTransientError,
+  readGoogleSourcePage,
+} from "./google-sources.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
+import {
+  parseCaptureMetadata,
+  publicCaptureMetadata,
+  withOmissionReceipt,
+} from "./search-index-contracts.js";
 import {
   ensureSlackPublicChannelMembership,
   type SlackChannelJoinResponse,
 } from "./slack-channel-membership.js";
+import { personalGoogleSourceFilter } from "./source-access.js";
 import {
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
@@ -63,15 +84,36 @@ export interface ConnectorSyncResult {
   stats?: Record<string, unknown>;
 }
 
+async function createCaptureRetryingOnce(
+  values: Parameters<typeof createCapture>[0],
+) {
+  try {
+    return await createCapture(values);
+  } catch (error) {
+    if (!(error instanceof BrainCaptureConcurrentError)) throw error;
+    return await createCapture(values);
+  }
+}
+
 async function createConnectorCapture(
   values: Parameters<typeof createCapture>[0],
 ) {
   try {
-    return { capture: await createCapture(values), blocked: false };
+    return { capture: await createCaptureRetryingOnce(values), blocked: false };
   } catch (error) {
     if (error instanceof BrainCaptureBlockedError) {
       return { capture: null, blocked: true };
     }
+    throw error;
+  }
+}
+
+async function commitConnectorCapture(prepared: PreparedCapture) {
+  try {
+    return { capture: await commitPreparedCapture(prepared), blocked: false };
+  } catch (error) {
+    if (error instanceof BrainCaptureBlockedError)
+      return { capture: null, blocked: true };
     throw error;
   }
 }
@@ -421,7 +463,11 @@ function transcriptItems(config: Record<string, unknown>) {
   return raw
     .map((item) => {
       if (typeof item === "string") {
-        return { title: "Imported capture", content: item };
+        return {
+          title: "Imported capture",
+          content: item,
+          kind: "transcript" as const,
+        };
       }
       if (!item || typeof item !== "object") return null;
       const record = item as Record<string, unknown>;
@@ -605,6 +651,7 @@ async function summarizeSlackPilotSource(sourceId: string) {
         and(
           accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
           eq(schema.brainKnowledge.sourceId, sourceId),
+          isNull(schema.brainKnowledge.intelligenceKind),
         ),
       ),
     db
@@ -727,7 +774,9 @@ export function connectorErrorMessage(error: unknown): string {
 }
 
 function transientRetryAt(error: unknown): string | undefined {
-  return error instanceof BrainClassifierUnavailableError && error.retryAfterMs
+  return (error instanceof BrainClassifierUnavailableError ||
+    error instanceof GoogleSourceTransientError) &&
+    error.retryAfterMs
     ? new Date(Date.now() + error.retryAfterMs).toISOString()
     : undefined;
 }
@@ -1115,7 +1164,7 @@ async function createSlackThreadCapture(input: {
   });
   if (!normalized) return { capture: null, blocked: false };
   try {
-    const capture = await createCapture({
+    const capture = await createCaptureRetryingOnce({
       sourceId: input.source.id,
       externalId: normalized.externalId,
       title: normalized.title,
@@ -1943,6 +1992,7 @@ async function githubRefsFromLinkedSources(
       .select({
         id: schema.brainRawCaptures.id,
         title: schema.brainRawCaptures.title,
+        kind: schema.brainRawCaptures.kind,
         content: schema.brainRawCaptures.content,
         metadataJson: schema.brainRawCaptures.metadataJson,
       })
@@ -1971,9 +2021,14 @@ async function githubRefsFromLinkedSources(
 
     for (const capture of captures) {
       if (refsByKey.size >= options.refLimit) break;
-      const metadata = parseJson<Record<string, unknown>>(
-        capture.metadataJson,
-        {},
+      const metadata = publicCaptureMetadata(
+        parseCaptureMetadata(
+          withOmissionReceipt(
+            capture.metadataJson,
+            capture.content,
+            capture.kind,
+          ),
+        ),
       );
       const linkedFrom = {
         sourceId,
@@ -2196,7 +2251,10 @@ async function syncFromConfiguredItems(
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -2222,7 +2280,10 @@ async function syncFromConfiguredItems(
       .set({ lastError: message, status: "error", updatedAt: nowIso() })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -2352,7 +2413,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       );
     }
 
-    const settings = await readBrainSettings();
+    const settings = await readBrainSettings(source.orgId);
     const publicExclusionPatterns =
       settings.publicChannelExclusionPatterns ?? [];
     const channelsById = new Map<string, SlackChannel>();
@@ -2624,7 +2685,10 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -2664,7 +2728,10 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -2733,7 +2800,8 @@ export async function refreshSlackThreadCapture(
       !channel.is_private &&
       matchesPublicChannelExclusion(
         channel,
-        (await readBrainSettings()).publicChannelExclusionPatterns ?? [],
+        (await readBrainSettings(source.orgId))
+          .publicChannelExclusionPatterns ?? [],
       )
     ) {
       throw new Error(
@@ -2773,7 +2841,10 @@ export async function refreshSlackThreadCapture(
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -2975,7 +3046,10 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -3014,7 +3088,10 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -3446,7 +3523,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         })
         .where(
           and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
             eq(schema.brainSources.id, source.id),
           ),
         ),
@@ -3517,7 +3597,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         })
         .where(
           and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
             eq(schema.brainSources.id, source.id),
           ),
         ),
@@ -3683,7 +3766,10 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
         })
         .where(
           and(
-            accessFilter(schema.brainSources, schema.brainSourceShares),
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
             eq(schema.brainSources.id, source.id),
           ),
         );
@@ -3855,7 +3941,10 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -3896,7 +3985,10 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
       })
       .where(
         and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
           eq(schema.brainSources.id, source.id),
         ),
       );
@@ -3951,6 +4043,234 @@ const clipsConnector: Connector = {
     ),
 };
 
+class GoogleSourceChangedError extends Error {
+  constructor() {
+    super(
+      "Source changed during sync. The old page was discarded; sync the current source again.",
+    );
+    this.name = "GoogleSourceChangedError";
+  }
+}
+
+function sameGoogleSourceBinding(
+  current: SourceRow | undefined,
+  expected: SourceRow,
+) {
+  return (
+    current !== undefined &&
+    current.provider === expected.provider &&
+    current.ownerEmail === expected.ownerEmail &&
+    current.configJson === expected.configJson &&
+    current.cursorJson === expected.cursorJson
+  );
+}
+
+function sameGoogleSourceSnapshot(
+  current: SourceRow | undefined,
+  expected: SourceRow,
+) {
+  return (
+    current !== undefined &&
+    sameGoogleSourceBinding(current, expected) &&
+    current.status === expected.status &&
+    current.status !== "paused" &&
+    current.status !== "archived"
+  );
+}
+
+async function syncGoogle(source: SourceRow): Promise<ConnectorSyncResult> {
+  requirePersonalGoogleSourceOwner(source.ownerEmail);
+  const initialAccess = await assertAccess("brain-source", source.id, "editor");
+  const initial = initialAccess.resource as SourceRow;
+  if (initial.status === "paused" || initial.status === "archived")
+    fail("Resume this Google source before syncing it.", {
+      errorCode: "google_source_inactive",
+    });
+  if (!sameGoogleSourceSnapshot(initial, source))
+    throw new GoogleSourceChangedError();
+  const run = await createRun(source);
+  let heartbeat = startRunLeaseHeartbeat(run);
+  const captures: ConnectorSyncResult["captures"] = [];
+  let sensitivityBlocked = 0;
+  let providerReadFailed = false;
+  try {
+    const page = await readGoogleSourcePage(source).catch((error: unknown) => {
+      providerReadFailed = true;
+      throw error;
+    });
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
+    const withdrawnExternalIds = [
+      ...page.inaccessibleExternalIds,
+      ...page.skippedItems.map((item) => item.externalId),
+    ];
+    const proceed = await withGoogleSourceLock(source.id, async (current) => {
+      if (!sameGoogleSourceBinding(current, source)) return false;
+      if (!sameGoogleSourceSnapshot(current, source)) {
+        if (withdrawnExternalIds.length)
+          await invalidateGoogleCaptureAudiences(
+            source.id,
+            withdrawnExternalIds,
+          );
+        return false;
+      }
+      await renewRunLease(run);
+      if (page.startsCycle) await invalidateGoogleSourceAudiences(source.id);
+      if (withdrawnExternalIds.length)
+        await invalidateGoogleCaptureAudiences(source.id, withdrawnExternalIds);
+      return true;
+    });
+    if (!proceed) throw new GoogleSourceChangedError();
+    heartbeat = startRunLeaseHeartbeat(run);
+    const prepared: PreparedCapture[] = [];
+    for (const input of page.captures) {
+      heartbeat.assertHealthy();
+      const access = await assertAccess("brain-source", source.id, "editor");
+      if (!sameGoogleSourceSnapshot(access.resource as SourceRow, source))
+        throw new GoogleSourceChangedError();
+      try {
+        prepared.push(
+          await prepareCapture({
+            ...input,
+            metadata: { ...input.metadata, syncRunId: run.runId },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof BrainCaptureBlockedError)) throw error;
+        sensitivityBlocked += 1;
+      }
+    }
+    await heartbeat.stop();
+    heartbeat.assertHealthy();
+    return await withGoogleSourceLock(source.id, async (current) => {
+      if (!sameGoogleSourceSnapshot(current, source))
+        throw new GoogleSourceChangedError();
+      await renewRunLease(run);
+      for (const item of prepared) {
+        heartbeat.assertHealthy();
+        const result = await commitConnectorCapture(item);
+        if (result.capture) captures.push(serializeCapture(result.capture));
+        if (result.blocked) sensitivityBlocked += 1;
+      }
+      const stats = {
+        capturesCreated: captures.length,
+        sensitivityBlocked,
+        inaccessible: page.inaccessibleExternalIds.length,
+        skippedOversized: page.skippedItems.length,
+        hasMore: page.hasMore,
+      };
+      const skippedMessage = page.skippedItems.length
+        ? `Skipped ${page.skippedItems.length} oversized items; their prior evidence was withdrawn.`
+        : null;
+      await getDb()
+        .update(schema.brainSources)
+        .set({
+          cursorJson: stableJson(page.cursor),
+          lastSyncedAt: page.hasMore ? source.lastSyncedAt : nowIso(),
+          lastError: skippedMessage,
+          status: sql`case when ${schema.brainSources.status} in ('paused', 'archived') then ${schema.brainSources.status} else 'active' end`,
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
+            eq(schema.brainSources.id, source.id),
+          ),
+        );
+      await finishRun(run, "success", stats);
+      return {
+        runId: run.runId,
+        sourceId: source.id,
+        provider: source.provider,
+        status: "success" as const,
+        capturesCreated: captures.length,
+        captures,
+        stats,
+        message: [
+          page.hasMore
+            ? "Imported one Google source page; more items remain for the next sync."
+            : "Google source sync complete.",
+          ...(skippedMessage ? [skippedMessage] : []),
+        ].join(" "),
+      };
+    });
+  } catch (error) {
+    captures.length = 0;
+    await heartbeat.stop();
+    return withGoogleSourceLock(source.id, async (current) => {
+      const sourceChanged =
+        error instanceof GoogleSourceChangedError ||
+        !sameGoogleSourceSnapshot(current, source);
+      const message = connectorErrorMessage(
+        sourceChanged ? new GoogleSourceChangedError() : error,
+      );
+      const retryAt = sourceChanged ? undefined : transientRetryAt(error);
+      if (sourceChanged) {
+        if (providerReadFailed && sameGoogleSourceBinding(current, source))
+          await invalidateGoogleSourceAudiences(source.id);
+        await finishRun(
+          run,
+          "error",
+          { capturesCreated: 0, sourceChanged: true },
+          message,
+        );
+        return {
+          runId: run.runId,
+          sourceId: source.id,
+          provider: source.provider,
+          status: "error" as const,
+          capturesCreated: 0,
+          captures: [],
+          stats: { sourceChanged: true },
+          message,
+        };
+      }
+      await invalidateGoogleSourceAudiences(source.id);
+      await renewRunLease(run);
+      await getDb()
+        .update(schema.brainSources)
+        .set({
+          cursorJson: stableJson(retryAt ? { transientRetryAt: retryAt } : {}),
+          lastError: message,
+          status: sql`case when ${schema.brainSources.status} in ('paused', 'archived') then ${schema.brainSources.status} else 'error' end`,
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            and(
+              accessFilter(schema.brainSources, schema.brainSourceShares),
+              personalGoogleSourceFilter(),
+            ),
+            eq(schema.brainSources.id, source.id),
+          ),
+        );
+      await finishRun(
+        run,
+        "error",
+        {
+          capturesCreated: captures.length,
+          sensitivityBlocked,
+          retryable: Boolean(retryAt),
+        },
+        message,
+      );
+      return {
+        runId: run.runId,
+        sourceId: source.id,
+        provider: source.provider,
+        status: "error" as const,
+        capturesCreated: captures.length,
+        captures,
+        stats: { retryable: Boolean(retryAt) },
+        message,
+      };
+    });
+  }
+}
+
 const connectors: Record<BrainSourceProvider, Connector> = {
   manual: manualConnector,
   generic: manualConnector,
@@ -3959,6 +4279,9 @@ const connectors: Record<BrainSourceProvider, Connector> = {
   granola: granolaConnector,
   github: githubConnector,
   zoom: zoomConnector,
+  gmail: { sync: syncGoogle },
+  google_calendar: { sync: syncGoogle },
+  google_drive: { sync: syncGoogle },
 };
 
 export async function runConnectorSync(source: SourceRow) {

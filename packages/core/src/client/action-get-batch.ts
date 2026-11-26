@@ -4,6 +4,7 @@ import {
   type ActionBatchItemResult,
   type ActionBatchResponse,
 } from "../shared/action-batch.js";
+import { actionTransportError } from "./action-error.js";
 
 // The batch route refuses bodies over 256 KiB with 413. Chunks stop well below
 // that, so a long query string costs a smaller batch, not a failed one.
@@ -26,6 +27,7 @@ export interface ActionGetRequest {
   init: RequestInit;
   headers: Record<string, string>;
   batchUrl: string;
+  batchGroup?: string;
 }
 
 interface PendingGet {
@@ -81,7 +83,11 @@ function flush(): void {
   // (for example X-Request-Source) go out as separate batches.
   const groups = new Map<string, PendingGet[]>();
   for (const item of items) {
-    const key = JSON.stringify(item.request.headers);
+    const key = JSON.stringify([
+      item.request.batchUrl,
+      item.request.headers,
+      item.request.batchGroup ?? "",
+    ]);
     const group = groups.get(key);
     if (group) group.push(item);
     else groups.set(key, [item]);
@@ -135,13 +141,13 @@ function sendEachSingle(items: PendingGet[]): void {
 function sendSingle(item: PendingGet): void {
   fetch(item.request.url, item.request.init).then(
     (response) => settle(item, () => item.resolve(response)),
-    (error) => settle(item, () => item.reject(error)),
+    (error) => settle(item, () => item.reject(actionTransportError(error))),
   );
 }
 
 async function sendBatch(items: PendingGet[]): Promise<void> {
   const { batchUrl, headers } = items[0].request;
-  let response: Response;
+  let response: Response | undefined;
   let text: string;
   try {
     response = await fetch(batchUrl, {
@@ -152,7 +158,8 @@ async function sendBatch(items: PendingGet[]): Promise<void> {
     });
     text = await response.text();
   } catch (error) {
-    for (const item of items) settle(item, () => item.reject(error));
+    for (const item of items)
+      settle(item, () => item.reject(actionTransportError(error, response)));
     return;
   }
 

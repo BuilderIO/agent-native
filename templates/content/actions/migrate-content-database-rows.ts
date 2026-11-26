@@ -7,8 +7,14 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { chunks } from "./_batch-utils.js";
+import {
+  assertNoColumnRuleOn,
+  toColumnRuleDefinition,
+} from "./_column-rules.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -213,6 +219,7 @@ export async function runMigration(
         validatePlan(
           args.plan,
           await snapshotMigration(tx, args.plan.databaseId),
+          { ctx },
         );
         return null;
       });
@@ -402,12 +409,13 @@ export async function runMigration(
             validatePlan(
               args.plan,
               await snapshotMigration(tx, args.plan.databaseId),
+              { ctx },
             );
             await flushMigrationDocuments(args.plan.rows);
           }
         }
         const snapshot = await snapshotMigration(tx, args.plan.databaseId);
-        validatePlan(args.plan, snapshot);
+        validatePlan(args.plan, snapshot, { ctx });
         const preDigest = snapshotDigest(snapshot);
         const orderedIds = snapshot.rows.map((row: any) => ({
           itemId: row.item.id,
@@ -741,6 +749,10 @@ export async function runMigration(
         );
         for (const prior of priors) {
           const version = versions.get(prior.versionId)!;
+          const [applied] = await tx
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, prior.documentId));
           const restoredRows = await tx
             .update(schema.documents)
             .set({
@@ -760,6 +772,14 @@ export async function runMigration(
             throw new Error(
               `Rollback row ${prior.documentId} changed concurrently.`,
             );
+          await syncAnalyticsChartCitations(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: prior.documentId,
+              before: applied.content,
+              after: version.content,
+            },
+          );
         }
         const ids = rollback.createdPropertyIds ?? [];
         if (ids.length) {
@@ -841,6 +861,10 @@ export async function runMigration(
         )
       )
         throw new Error("Legacy property is missing or unsafe to finalize.");
+      // A rule set since the plan was checked still holds its columns.
+      const ruleDefinitions = current.definitions.map(toColumnRuleDefinition);
+      for (const propertyId of legacyIds)
+        assertNoColumnRuleOn(ruleDefinitions, propertyId, "delete");
       if (legacyIds.length) {
         await tx
           .delete(schema.documentPropertyValues)
@@ -937,5 +961,10 @@ export default defineAction({
   mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
+  // Only apply writes rows; validate and verify read them.
+  changeResource: (input) =>
+    input.phase === "apply"
+      ? documentChangeResource(input.plan.databaseDocumentId)
+      : null,
   run: (args, ctx) => runMigration(args as MigrationInput, ctx),
 });

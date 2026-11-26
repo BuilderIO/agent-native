@@ -20,10 +20,9 @@ import type { DesignLeftPanel } from "@/pages/design-editor/types";
 export interface NavigationState {
   view: string;
   designId?: string;
-  designSystemId?: string;
   templateId?: string;
   editorView?: "single" | "overview";
-  mode?: "edit" | "annotate" | "interact";
+  mode?: "edit" | "comment" | "interact";
   /**
    * Ignored: the inspector has no tabs. Only the legacy `extensions` value is
    * still read, as an alias for the Tools left panel.
@@ -31,8 +30,8 @@ export interface NavigationState {
   inspectorTab?: string;
   /** Alias for `inspectorTab`. */
   inspector?: string;
-  leftPanel?: DesignLeftPanel;
-  panel?: DesignLeftPanel;
+  leftPanel?: DesignLeftPanel | "tokens";
+  panel?: DesignLeftPanel | "tokens";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -43,13 +42,14 @@ export interface NavigationState {
   interactDevice?: string;
   interactTheme?: InteractThemeMode;
   path?: string;
+  search?: string;
 }
 
 export interface DesignEditorCommand {
   designId: string;
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
-  mode?: "edit" | "annotate" | "interact";
+  mode?: "edit" | "comment" | "interact";
   leftPanel?: DesignLeftPanel;
   panel?: DesignLeftPanel;
   fileId?: string;
@@ -66,6 +66,14 @@ export interface DesignEditorCommand {
 }
 
 const FOCUSED_SCREEN_ZOOM = 100;
+
+/**
+ * Hands a navigate command to the editor already open in this tab. The stored
+ * copy reaches that editor only when its write comes back through sync,
+ * seconds later, and until then the editor writes its own panel, screen and
+ * zoom back over the address the command just set.
+ */
+export const DESIGN_EDITOR_COMMAND_EVENT = "agent-native:design-editor-command";
 
 export function designEditorCommandKey(browserTabId?: string): string {
   return browserTabId
@@ -111,10 +119,8 @@ function legacyInspectorLeftPanel(value: unknown) {
 
 function normalizeEditorMode(
   value: unknown,
-): "edit" | "annotate" | "interact" | undefined {
-  return value === "edit" || value === "annotate" || value === "interact"
-    ? value
-    : undefined;
+): "edit" | "comment" | "interact" | undefined {
+  return value === "edit" || value === "interact" ? value : undefined;
 }
 
 export function editorPathFromCommand(cmd: NavigationState): string | null {
@@ -142,6 +148,27 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
 
   const query = params.toString();
   return `/design/${encodeURIComponent(cmd.designId)}${query ? `?${query}` : ""}`;
+}
+
+export function homeSearchFromSearchParams(
+  searchParams: URLSearchParams,
+): string | undefined {
+  return searchParams.get("search")?.trim() || undefined;
+}
+
+export function commandPathFromNavigation(cmd: NavigationState): string {
+  const editorPath = editorPathFromCommand(cmd);
+  if (editorPath) return editorPath;
+  if (cmd.view === "templates") {
+    return cmd.templateId
+      ? `/templates?templateId=${encodeURIComponent(cmd.templateId)}`
+      : "/templates";
+  }
+  if (cmd.view === "present" && cmd.designId) return `/present/${cmd.designId}`;
+  if (cmd.view === "settings") return "/settings";
+  const search = cmd.search?.trim();
+  if (search) return `/home?${new URLSearchParams({ search }).toString()}`;
+  return "/home";
 }
 
 export function editorCommandFromNavigate(
@@ -178,6 +205,24 @@ export function editorCommandFromNavigate(
   return command;
 }
 
+/**
+ * Stores the command for an editor still to open on its design, and hands it
+ * to one already open in this tab.
+ */
+export function sendDesignEditorCommand(
+  command: DesignEditorCommand,
+  browserTabId?: string,
+): void {
+  for (const key of designEditorCommandKeysForTab(browserTabId)) {
+    setClientAppState(key, command).catch(() => {});
+  }
+  window.dispatchEvent(
+    new CustomEvent<DesignEditorCommand>(DESIGN_EDITOR_COMMAND_EVENT, {
+      detail: command,
+    }),
+  );
+}
+
 export function useNavigationState(enabled = true) {
   const params = useParams();
   const location = useLocation();
@@ -193,6 +238,7 @@ export function useNavigationState(enabled = true) {
 
   useAgentRouteState<NavigationState>({
     browserTabId,
+    writeDebounceMs: 300,
     getNavigationState: ({ pathname, search }) => {
       const state: NavigationState = { view: "list" };
       const searchParams = new URLSearchParams(search);
@@ -223,10 +269,6 @@ export function useNavigationState(enabled = true) {
         }
         const tool = normalizeDesignTool(searchParams.get("tool"));
         if (tool) state.tool = tool;
-      } else if (pathname.startsWith("/design-systems")) {
-        state.view = "design-systems";
-        const designSystemId = searchParams.get("designSystemId");
-        if (designSystemId) state.designSystemId = designSystemId;
       } else if (pathname.startsWith("/templates")) {
         state.view = "templates";
       } else if (pathname.startsWith("/present/")) {
@@ -239,33 +281,17 @@ export function useNavigationState(enabled = true) {
       const templateId = searchParams.get("templateId");
       if (templateId) state.templateId = templateId;
 
+      if (state.view === "list") {
+        const homeSearch = homeSearchFromSearchParams(searchParams);
+        if (homeSearch) state.search = homeSearch;
+      }
+
       return state;
     },
-    getCommandPath: (cmd) => {
-      const editorPath = editorPathFromCommand(cmd);
-      if (editorPath) return editorPath;
-      if (cmd.view === "design-systems") {
-        return cmd.designSystemId
-          ? `/design-systems?designSystemId=${encodeURIComponent(cmd.designSystemId)}`
-          : "/design-systems";
-      }
-      if (cmd.view === "templates") {
-        return cmd.templateId
-          ? `/templates?templateId=${encodeURIComponent(cmd.templateId)}`
-          : "/templates";
-      }
-      if (cmd.view === "present" && cmd.designId)
-        return `/present/${cmd.designId}`;
-      if (cmd.view === "settings") return "/settings";
-      return "/home";
-    },
+    getCommandPath: commandPathFromNavigation,
     onNavigate: (cmd, path) => {
       const command = editorCommandFromNavigate(cmd, path);
-      if (!command) return;
-      const keys = designEditorCommandKeysForTab(browserTabId);
-      for (const key of keys) {
-        setClientAppState(key, command).catch(() => {});
-      }
+      if (command) sendDesignEditorCommand(command, browserTabId);
     },
     enabled,
   });

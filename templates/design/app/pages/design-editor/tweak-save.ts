@@ -1,4 +1,7 @@
-import type { TweakSelections } from "@shared/resolve-tweaks";
+import {
+  tweakSelectionsHash,
+  type TweakSelections,
+} from "@shared/resolve-tweaks";
 
 import { classifyDesignSaveFailure } from "./save-failure";
 
@@ -6,6 +9,22 @@ export interface PendingTweakSave {
   selections: TweakSelections;
   revision: number;
   expectedSelectionsHash: string;
+  /** Also-accepted base once this tab's own in-flight save lands. */
+  inFlightSelectionsHash?: string;
+}
+
+export interface ConfirmedTweakSelections {
+  selections: TweakSelections;
+  hash: string;
+  selectionsRevision: number;
+  /** Revision of the save that produced this base; absent when seeded from the server. */
+  revision?: number;
+}
+
+/** The one save this tab has on the wire, and the base it leaves if it lands. */
+export interface InFlightTweakSave {
+  revision: number;
+  selectionsHashIfApplied: string;
 }
 
 export function createQueuedTweakSave(
@@ -32,34 +51,47 @@ export function rebaseTweakSaveForSend(
   };
 }
 
-export function retainLatestFailedTweakSave(
-  queued: PendingTweakSave | null,
-  failed: PendingTweakSave,
-): PendingTweakSave {
-  return queued && queued.revision > failed.revision ? queued : failed;
+/** The persisted map a save leaves behind: apply-tweaks merges over the base. */
+export function selectionsHashIfApplied(
+  confirmed: ConfirmedTweakSelections,
+  selections: TweakSelections,
+): string {
+  return tweakSelectionsHash(
+    { ...confirmed.selections, ...selections },
+    confirmed.selectionsRevision + 1,
+  );
 }
 
 export function clearCompletedTweakSave(
   queued: PendingTweakSave | null,
   completedRevision: number,
 ): PendingTweakSave | null {
-  return queued?.revision === completedRevision ? null : queued;
+  return queued && queued.revision <= completedRevision ? null : queued;
 }
 
 type TweakSaveKeepaliveAttempt =
   | { accepted: true; completion: Promise<unknown> }
   | { accepted: false; completion: null };
 
+/**
+ * Starts the request in the same task as the page-exit event: a closing page
+ * gets no later turn, so waiting on IndexedDB first means nothing is sent.
+ * Resolves true once the server took the save; the journaled copy is cleared
+ * only after both it and the request finished.
+ */
 export async function sendJournaledTweakSaveKeepalive(options: {
   journal: () => Promise<boolean>;
   send: () => TweakSaveKeepaliveAttempt;
   acknowledge: () => Promise<unknown>;
 }): Promise<boolean> {
-  if (!(await options.journal())) return false;
   const attempt = options.send();
-  if (!attempt.accepted) return false;
+  const journaled = options.journal();
+  if (!attempt.accepted) {
+    await journaled;
+    return false;
+  }
   await attempt.completion;
-  await options.acknowledge();
+  if (await journaled) await options.acknowledge();
   return true;
 }
 

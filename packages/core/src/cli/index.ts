@@ -3,8 +3,11 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+
+import crossSpawn from "cross-spawn";
 
 import {
   clearAgentNativeNitroPresetMarker,
@@ -231,19 +234,45 @@ function findViteJsEntry(): string | null {
 }
 
 function findTsxBin(): string {
-  const localTsx = path.resolve("node_modules/.bin/tsx");
-  if (fs.existsSync(localTsx)) return localTsx;
-  return "tsx";
+  return findBinUpwards("tsx") ?? "tsx";
 }
 
-function findTypeScriptCompilerBin(): string {
-  const localTsc = path.resolve("node_modules/.bin/tsc");
-  if (fs.existsSync(localTsc)) return localTsc;
+function findTypeScriptCompilerBin(): string | undefined {
+  const names =
+    process.platform === "win32"
+      ? ["tsc.cmd", "tsc", "tsgo.cmd", "tsgo"]
+      : ["tsc", "tsgo"];
+  return findBinUpwards(names);
+}
 
-  const localTsgo = path.resolve("node_modules/.bin/tsgo");
-  if (fs.existsSync(localTsgo)) return localTsgo;
-
-  return "tsc";
+function runTypeScriptCompiler(args: string[]): void {
+  const compiler = findTypeScriptCompilerBin();
+  if (process.platform === "win32" && args.some((arg) => /[\r\n]/.test(arg))) {
+    throw new Error(
+      "Cannot run the TypeScript compiler with a newline in an argument on Windows.",
+    );
+  }
+  run(compiler ?? "tsc", args, {
+    shell: false,
+    spawnProcess: process.platform === "win32" ? crossSpawn.spawn : spawn,
+    onError: (error) => {
+      if (error.code === "ENOENT") {
+        console.error(error.message);
+        console.error(
+          "Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed.",
+        );
+        process.exit(1);
+      }
+      if (error.code === "EACCES") {
+        console.error(error.message);
+        console.error(
+          "Permission denied while executing the TypeScript compiler. Check executable and directory permissions, the compiler location on PATH, and mount options such as noexec.",
+        );
+        process.exit(1);
+      }
+      throw error;
+    },
+  });
 }
 
 function isReactRouterFramework(): boolean {
@@ -325,10 +354,7 @@ function isWorkspaceRoot(): boolean {
   if (!fs.existsSync(pkgPath)) return false;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-    return (
-      typeof pkg?.["agent-native"]?.workspaceCore === "string" &&
-      fs.existsSync(path.resolve("apps"))
-    );
+    return typeof pkg?.["agent-native"]?.workspaceCore === "string";
   } catch {
     return false;
   }
@@ -350,6 +376,26 @@ function extractNodeInspectFlag(args: string[]): {
   return { inspectFlag, rest };
 }
 
+/**
+ * The exit status the CLI reports for a finished child (57526).
+ *
+ * `code ?? 0` made a child killed by a signal look successful, so a SIGKILLed `tsc` passed a preflight that then shipped. A signal exit is 128 plus the
+ * signal's number, the shell convention: nonzero for a caller that only asks "did it fail", and still the signal for a caller that asks which.
+ */
+export function childExitCode(
+  code: number | null,
+  signal: NodeJS.Signals | string | null,
+): number {
+  if (signal) {
+    const number =
+      typeof signal === "string"
+        ? (os.constants.signals as Record<string, number>)[signal]
+        : undefined;
+    return typeof number === "number" ? 128 + number : 1;
+  }
+  return code ?? 1;
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
@@ -357,10 +403,17 @@ function run(
     stdio?: "inherit" | "pipe";
     env?: NodeJS.ProcessEnv;
     shell?: boolean;
+    onError?: (error: NodeJS.ErrnoException) => void;
+    spawnProcess?: typeof spawn;
   },
 ) {
-  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
-  child.on("exit", (code) => process.exit(code ?? 0));
+  const child = (opts?.spawnProcess ?? spawn)(
+    cmd,
+    cmdArgs,
+    cliSpawnOptions(opts),
+  );
+  if (opts?.onError) child.on("error", opts.onError);
+  child.on("exit", (code, signal) => process.exit(childExitCode(code, signal)));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       child.kill(sig);
@@ -616,7 +669,7 @@ switch (command) {
       );
       process.exit(1);
     }
-    run(process.execPath, [serverEntry, ...args]);
+    run(process.execPath, [serverEntry, ...args], { shell: false });
     break;
   }
 
@@ -656,7 +709,7 @@ switch (command) {
         declarations,
         ...identityArgs,
       ]);
-    else run(process.execPath, [script, ...identityArgs]);
+    else run(process.execPath, [script, ...identityArgs], { shell: false });
     break;
   }
 
@@ -728,7 +781,7 @@ switch (command) {
         process.exit((error as { status?: number | null }).status ?? 1);
       }
     }
-    run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);
+    runTypeScriptCompiler(["--noEmit", ...args]);
     break;
   }
 
@@ -1036,6 +1089,16 @@ switch (command) {
     break;
   }
 
+  case "netlify-deploy": {
+    import("./netlify-deploy.js")
+      .then((m) => m.runNetlifyDeploy(args))
+      .catch((err) => {
+        console.error("Netlify deploy failed:", err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "amplify-stream": {
     import("./amplify-stream.js")
       .then((m) => m.runAmplifyStream(args))
@@ -1102,6 +1165,16 @@ switch (command) {
   case "audit-agent-web": {
     import("./audit-agent-web.js")
       .then((m) => m.runAuditAgentWeb(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "capture-evidence": {
+    import("./capture-evidence.js")
+      .then((m) => m.runCaptureEvidence(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -1221,6 +1294,9 @@ Usage:
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
+  agent-native netlify-deploy   Zip workspace functions deterministically and
+                                run 'netlify deploy', so unchanged functions
+                                are not re-uploaded
   agent-native amplify-stream   Build a Nitro streaming Lambda and connect it
                                 to an AWS Amplify branch
   agent-native setup-agents     Create symlinks for all agent tools
@@ -1254,6 +1330,10 @@ Usage:
                                 unless --apply; --builds also selects build/,
                                 dist/, .output/ and .netlify bundles.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
+  agent-native capture-evidence Capture bounded evidence of a page effect in one
+                                browser session (viewports, geometry, motion,
+                                GPU facts, source slices) into a manifest.
+                                Run with --help for options.
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its
                                 threshold. A CI deploy gate. --json for CI,

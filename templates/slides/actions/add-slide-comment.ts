@@ -1,28 +1,17 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server";
+import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
+import replyReviewComment from "@agent-native/core/review/actions/reply-review-comment";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import { notifyDeckComment } from "../server/lib/comment-notifications.js";
 import {
-  AGENT_AUTHOR_NAME,
-  commentAuthorKind,
-} from "../shared/comment-author.js";
-import {
-  serializeSlideCommentAnchor,
-  slideCommentAnchorSchema,
-} from "../shared/slide-comment-anchor.js";
-import { withUniqueSlideIds } from "../shared/slide-ids.js";
-
-function displayNameFromEmail(email: string): string {
-  const local = email.split("@")[0] || email;
-  return local.charAt(0).toUpperCase() + local.slice(1);
-}
+  DECK_REVIEW_RESOURCE,
+  findSlideComment,
+  SLIDE_POINT_ANCHOR,
+  slideCommentAuthorName,
+  slideReviewContext,
+} from "../server/lib/slide-comments.js";
+import { slideCommentAnchorSchema } from "../shared/slide-comment-anchor.js";
 
 const addSlideCommentSchema = z
   .object({
@@ -101,113 +90,64 @@ export default defineAction({
     }
     await assertAccess("deck", deckId, "commenter");
 
-    const id = Math.random().toString(36).slice(2, 14);
-    const threadId = requestedThreadId ?? id;
-    const authorEmail = getRequestUserEmail();
-    if (!authorEmail) throw new Error("no authenticated user");
-    const authorKind = commentAuthorKind(ctx?.caller);
-    const authorName =
-      authorKind === "agent"
-        ? AGENT_AUTHOR_NAME
-        : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
-
-    const db = getDb();
-    await db.transaction(async (tx) => {
-      const [deck] = await tx
-        .select({ id: schema.decks.id, data: schema.decks.data })
-        .from(schema.decks)
-        .where(eq(schema.decks.id, deckId))
-        .for("update");
-      if (!deck) {
-        fail(`Deck not found: ${deckId}`, {
-          errorCode: "not_found",
-          statusCode: 404,
-        });
-      }
-      const deckData: unknown = withUniqueSlideIds(
-        deckId,
-        JSON.parse(deck.data),
-      );
-      const slides = (deckData as { slides?: unknown } | null)?.slides;
-      if (!Array.isArray(slides)) {
-        throw new Error(`Deck has invalid slide data: ${deckId}`);
-      }
-      if (
-        !slides.some(
-          (slide) =>
-            Boolean(slide) &&
-            typeof slide === "object" &&
-            (slide as { id?: unknown }).id === slideId,
-        )
-      ) {
-        fail(`Slide not found in deck: ${slideId}`, {
-          errorCode: "not_found",
-          statusCode: 404,
-        });
-      }
-
-      if (requestedThreadId) {
-        const threadRows = await tx
-          .select({
-            id: schema.slideComments.id,
-            resolved: schema.slideComments.resolved,
-          })
-          .from(schema.slideComments)
-          .where(
-            and(
-              eq(schema.slideComments.deckId, deckId),
-              eq(schema.slideComments.slideId, slideId),
-              eq(schema.slideComments.threadId, requestedThreadId),
-            ),
-          )
-          .for("update");
-        const thread = threadRows[0];
-        if (!thread) {
-          fail("Comment thread not found on this slide", {
-            errorCode: "not_found",
-            statusCode: 404,
-          });
-        }
-        if (thread.resolved) {
-          fail("Reopen this comment thread before replying", {
-            errorCode: "comment_thread_resolved",
-            statusCode: 409,
-          });
-        }
-
-        if (!threadRows.some((row) => row.id === parentId)) {
-          fail("Parent comment not found in this thread", {
-            errorCode: "not_found",
-            statusCode: 404,
-          });
-        }
-      }
-
-      await tx.insert(schema.slideComments).values({
-        id,
-        deckId,
-        slideId,
-        threadId,
-        parentId: parentId ?? null,
-        content: content.trim(),
-        quotedText: quotedText ?? null,
-        anchor: serializeSlideCommentAnchor(anchor),
-        authorEmail,
-        authorName,
-        authorKind,
+    const reviewCtx = slideReviewContext(ctx);
+    const authorEmail = reviewCtx.userEmail;
+    if (!authorEmail) {
+      fail("Sign in required to comment.", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
       });
-    });
+    }
+    const shared = {
+      resourceType: DECK_REVIEW_RESOURCE,
+      resourceId: deckId,
+      body: content,
+      authorName: slideCommentAuthorName(ctx, authorEmail),
+      ...(quotedText ? { metadata: { quotedText } } : {}),
+    };
 
-    const notified = await notifyDeckComment({
-      deckId,
-      slideId,
-      threadId,
-      authorEmail,
-      authorName,
-      content,
-      isReply: requestedThreadId !== undefined,
-    });
+    if (requestedThreadId && parentId) {
+      const parent = await findSlideComment(deckId, parentId);
+      if (
+        !parent ||
+        parent.threadId !== requestedThreadId ||
+        parent.surfaceId !== slideId
+      ) {
+        fail("Parent comment not found in this thread", {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
+      if (parent.status === "resolved") {
+        fail("Reopen this comment thread before replying", {
+          errorCode: "comment_thread_resolved",
+          statusCode: 409,
+        });
+      }
+      const reply = await replyReviewComment.run(
+        { ...shared, commentId: parent.id },
+        reviewCtx,
+      );
+      return {
+        id: reply.id,
+        threadId: reply.threadId,
+        notified: reply.notified,
+      };
+    }
 
-    return { id, threadId, notified };
+    const comment = await createReviewComment.run(
+      {
+        ...shared,
+        surfaceId: slideId,
+        anchor: anchor ?? null,
+        anchorKind: anchor ? SLIDE_POINT_ANCHOR : null,
+      },
+      reviewCtx,
+    );
+    return {
+      id: comment.id,
+      threadId: comment.threadId,
+      notified: comment.notified,
+    };
   },
 });

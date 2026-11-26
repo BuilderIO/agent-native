@@ -1,4 +1,9 @@
 import { canonicalizeNfm, nfmToDoc } from "@shared/nfm";
+import {
+  applyMarkdownSuggestionOperation,
+  applyMarkdownSuggestionWithSiblings,
+  supportedSuggestionStructure,
+} from "@shared/suggestion-apply";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 import { describe, expect, it } from "vitest";
 
@@ -252,6 +257,135 @@ describe("editor-normalized revisions", () => {
       ).toEqual(["Filled"]);
     },
   );
+});
+
+describe("formatting on both sides of a frame edge", () => {
+  const table = [
+    "Intro.",
+    "",
+    "| alpha | beta |",
+    "| --- | --- |",
+    "| gamma | delta |",
+    "",
+    "End.",
+  ].join("\n");
+  const callout = [
+    "Intro.",
+    "",
+    '<callout icon="💡">',
+    "\tCallout text",
+    "</callout>",
+    "",
+    "After callout",
+  ].join("\n");
+
+  type Edit = [from: string, to: string];
+  const cases: Array<[string, string, [Edit, Edit]]> = [
+    [
+      "two whole cells side by side",
+      table,
+      [
+        ["alpha", "**alpha**"],
+        ["beta", "**beta**"],
+      ],
+    ],
+    [
+      "the end of one cell and the start of the next",
+      table,
+      [
+        ["alpha", "al**pha**"],
+        ["beta", "**be**ta"],
+      ],
+    ],
+    [
+      "the last cell of a row and the first of the next",
+      table,
+      [
+        ["beta", "**beta**"],
+        ["gamma", "**gamma**"],
+      ],
+    ],
+    [
+      "both sides of a callout's end",
+      callout,
+      [
+        ["Callout text", "**Callout text**"],
+        ["After callout", "**After callout**"],
+      ],
+    ],
+    [
+      "removed bold on two whole cells side by side",
+      table.replace("| alpha | beta |", "| **alpha** | **beta** |"),
+      [
+        ["**alpha**", "alpha"],
+        ["**beta**", "beta"],
+      ],
+    ],
+  ];
+
+  it.each(cases)("suggests %s as one change per frame", (_, page, edits) => {
+    const canonical = canonicalizeNfm(page);
+    const after = edits.reduce(
+      (text, [from, to]) => text.replace(from, to),
+      canonical,
+    );
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: page,
+      after,
+      replacements: [],
+    });
+    expect(operations).toHaveLength(2);
+    expect(
+      draftSuggestionAnchors(operations, after).map(({ from, to }) =>
+        after.slice(from, to),
+      ),
+    ).toEqual(operations.map((operation) => operation.after.changedText));
+    const [first, second] = operations as [
+      (typeof operations)[number],
+      (typeof operations)[number],
+    ];
+    for (const [operation, [from, to]] of [
+      [first, edits[0]],
+      [second, edits[1]],
+    ] as const) {
+      expect(
+        supportedSuggestionStructure(
+          operation.before.markdown,
+          operation.after.markdown,
+        ),
+      ).not.toBeNull();
+      const alone = applyMarkdownSuggestionOperation(page, operation);
+      expect(alone && canonicalizeNfm(alone)).toBe(canonical.replace(from, to));
+    }
+    for (const order of [
+      [first, second],
+      [second, first],
+    ]) {
+      let content: string | null = page;
+      const accepted: Array<{ from: number; to: number }> = [];
+      for (const operation of order) {
+        content =
+          content &&
+          applyMarkdownSuggestionWithSiblings(content, operation, accepted);
+        accepted.push({ from: operation.anchor.from, to: operation.anchor.to });
+      }
+      expect(content && canonicalizeNfm(content)).toBe(after);
+    }
+  });
+
+  it("keeps touching formatting in one frame as one change", () => {
+    const page = "First line.\n\nSecond line.";
+    const after = canonicalizeNfm(page)
+      .replace("First line.", "**First line.**")
+      .replace("Second line.", "**Second line.**");
+    expect(
+      markdownSuggestionOperationsForEditorRevision({
+        before: page,
+        after,
+        replacements: [],
+      }),
+    ).toHaveLength(1);
+  });
 });
 
 describe("mixed text and formatting proposals", () => {

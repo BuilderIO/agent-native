@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   resolveOrgIdForEmail: vi.fn(),
   resolveSecret: vi.fn(),
   resolveSlackBotTokenForIncoming: vi.fn(),
+  resolveIntegrationTokenBundle: vi.fn(),
+  saveIntegrationScope: vi.fn(),
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -28,6 +30,8 @@ vi.mock("@agent-native/core/integrations", async () => {
     evaluateIntegrationScopePolicy: mocks.evaluateIntegrationScopePolicy,
     getIntegrationScope: mocks.getIntegrationScope,
     resolveSlackBotTokenForIncoming: mocks.resolveSlackBotTokenForIncoming,
+    resolveIntegrationTokenBundle: mocks.resolveIntegrationTokenBundle,
+    saveIntegrationScope: mocks.saveIntegrationScope,
   };
 });
 
@@ -45,6 +49,10 @@ vi.mock("@agent-native/core/server", async () => {
     resolveSecret: mocks.resolveSecret,
   };
 });
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type {
   IncomingMessage,
@@ -985,6 +993,148 @@ describe("managed Slack execution identity", () => {
     );
     expect(mocks.resolveLinkedOwner).not.toHaveBeenCalled();
     expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
+  it("retries initial Slack provider failures without changing existing scope policy", async () => {
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/integrations")
+    >("@agent-native/core/integrations");
+    const { closeDbExec } = await import("@agent-native/core/db");
+    const dir = mkdtempSync(join(tmpdir(), "dispatch-scope-recovery-"));
+    vi.stubEnv("DATABASE_URL", `pglite:${dir}`);
+    vi.stubEnv("DISPATCH_DATABASE_URL", undefined);
+    mocks.evaluateIntegrationScopePolicy.mockImplementation(
+      actual.evaluateIntegrationScopePolicy,
+    );
+    mocks.getIntegrationScope.mockImplementation(actual.getIntegrationScope);
+    mocks.saveIntegrationScope.mockImplementation(actual.saveIntegrationScope);
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValue("managed-token");
+    mocks.resolveIntegrationTokenBundle.mockResolvedValue({
+      accessToken: "managed-token",
+    });
+    const access = {
+      ownerEmail: "installer@example.test",
+      orgId: "org-managed",
+    };
+    const key = (conversationId: string) => ({
+      platform: "slack",
+      tenantId: "T-RETRY",
+      conversationId,
+    });
+    const incoming = (senderId: string, channelId: string) =>
+      slackIncoming({
+        senderId,
+        triggerKind: "mention",
+        conversationType: "channel",
+        platformContext: { teamId: "T-RETRY", channelId },
+      });
+    try {
+      let senderFailure = false;
+      let conversationFailure = true;
+      let externalShared = false;
+      vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("users.info")) {
+          return new Response(
+            JSON.stringify(
+              senderFailure
+                ? { ok: false, error: "temporarily_unavailable" }
+                : {
+                    ok: true,
+                    user: { profile: { email: "member@example.test" } },
+                  },
+            ),
+          );
+        }
+        return new Response(
+          JSON.stringify(
+            conversationFailure
+              ? { ok: false, error: "temporarily_unavailable" }
+              : {
+                  ok: true,
+                  channel: externalShared ? { is_ext_shared: true } : {},
+                },
+          ),
+        );
+      });
+
+      await expect(
+        resolveDispatchExecutionContext(incoming("U-CHANNEL", "C-CHANNEL")),
+      ).rejects.toThrow("unverified_conversation_disabled");
+      expect(
+        await actual.getIntegrationScope(key("C-CHANNEL"), access),
+      ).toBeNull();
+      expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
+      conversationFailure = false;
+      await expect(
+        resolveDispatchExecutionContext(incoming("U-CHANNEL", "C-CHANNEL")),
+      ).resolves.toMatchObject({ principalType: "service" });
+      const channelScope = await actual.getIntegrationScope(
+        key("C-CHANNEL"),
+        access,
+      );
+      expect(channelScope).toMatchObject({ trust: "trusted" });
+
+      senderFailure = true;
+      externalShared = true;
+      await expect(
+        resolveDispatchExecutionContext(incoming("U-SENDER", "C-SENDER")),
+      ).rejects.toThrow("unverified_conversation_disabled");
+      expect(
+        await actual.getIntegrationScope(key("C-SENDER"), access),
+      ).toBeNull();
+      senderFailure = false;
+      externalShared = false;
+      await expect(
+        resolveDispatchExecutionContext(incoming("U-SENDER", "C-SENDER")),
+      ).resolves.toMatchObject({ principalType: "service" });
+      expect(
+        await actual.getIntegrationScope(key("C-SENDER"), access),
+      ).toMatchObject({ trust: "trusted" });
+      expect(mocks.saveIntegrationScope).toHaveBeenCalledTimes(2);
+
+      if (!channelScope) throw new Error("Scope was not persisted");
+      let configured = await actual.saveIntegrationScope(
+        {
+          ...channelScope,
+          trust: "unknown",
+          defaultModel: "admin-model",
+          policy: { ...channelScope.policy, allowExternalShared: true },
+        },
+        access,
+      );
+      await expect(
+        resolveDispatchExecutionContext(incoming("U-CHANNEL", "C-CHANNEL")),
+      ).rejects.toThrow("unverified_conversation_disabled");
+      expect(
+        await actual.getIntegrationScope(key("C-CHANNEL"), access),
+      ).toEqual(configured);
+      configured = await actual.saveIntegrationScope(
+        {
+          ...configured,
+          policy: { ...configured.policy, allowUnknownTrust: true },
+        },
+        access,
+      );
+      const allowed = incoming("U-CHANNEL", "C-CHANNEL");
+      await expect(
+        resolveDispatchExecutionContext(allowed),
+      ).resolves.toMatchObject({
+        scopeId: configured.id,
+        ownerEmail: configured.serviceOwnerEmail,
+      });
+      expect(allowed.platformContext.defaultModel).toBe("admin-model");
+      expect(
+        await actual.getIntegrationScope(key("C-CHANNEL"), access),
+      ).toEqual(configured);
+      expect(mocks.saveIntegrationScope).toHaveBeenCalledTimes(2);
+    } finally {
+      await closeDbExec();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps a managed channel on its service principal even when Alice is verified", async () => {

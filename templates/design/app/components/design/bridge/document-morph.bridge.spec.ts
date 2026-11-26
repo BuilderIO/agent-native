@@ -976,7 +976,7 @@ describe("morph edge cases", () => {
         );
 
         // The seed branch used to adopt the incoming head as its baseline, so
-        // the first breakpoint/motion/token write never reached the document
+        // the first breakpoint/token write never reached the document
         // and every later diff was measured against a head never applied.
         expect(
           await page

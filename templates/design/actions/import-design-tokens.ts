@@ -3414,8 +3414,7 @@ export default defineAction({
     "spacing, radii, and fonts. A DTCG `$type` is saved as the token's type; " +
     "other tokens get a type guessed from their name. Persists the imported values " +
     "through the same CSS-var tweak bridge used by " +
-    "apply-design-token-edit. For Figma/.fig and full local-code indexing, use " +
-    "the Builder-backed design-system import flow.",
+    "apply-design-token-edit.",
   schema: tokenImportSchema,
   maxBodyBytes: DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES,
   run: async ({ designId, source, files, text }, context) => {

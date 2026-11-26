@@ -21,6 +21,7 @@ vi.mock("../app-config/index.js", () => ({
 import {
   BETTER_AUTH_REQUIRED_SCHEMA,
   DEFAULT_REQUIRED_SCHEMA,
+  readMigrationSchemaClause,
   formatRuntimeDebugFingerprint,
   getDatabaseRuntimeFingerprint,
   getEffectiveDatabaseEnvStatus,
@@ -350,5 +351,97 @@ describe("runtime diagnostics", () => {
 
     expect(result.ok).toBe(true);
     expect(result.missingTables).not.toContain("jwks");
+  });
+});
+
+describe("migration schema clause (D210)", () => {
+  const fakeExec = (answers: Record<string, unknown>) => ({
+    execute: async (sql: unknown) => {
+      const text = String(sql);
+      const key = Object.keys(answers).find((needle) => text.includes(needle));
+      if (!key) return { rows: [], rowsAffected: 0 };
+      const value = answers[key];
+      if (value instanceof Error) throw value;
+      return { rows: value as unknown[], rowsAffected: 0 };
+    },
+  });
+
+  it("reads every discovered ledger with its newest version, plus index and lock facts", async () => {
+    const exec = fakeExec({
+      "information_schema.columns": [
+        { table_name: "mail2_migrations" },
+        { table_name: "calendar_studio_migrations" },
+      ],
+      'from "mail2_migrations"': [{ rows: 20, max_version: 20 }],
+      'from "calendar_studio_migrations"': [{ rows: 19, max_version: 19 }],
+      pg_index: [{ n: 0 }],
+      pg_locks: [{ n: 0 }],
+    });
+    const clause = await readMigrationSchemaClause(exec as never);
+    expect(clause.checked).toBe(true);
+    expect(clause.error).toBeUndefined();
+    expect(clause.ledgers).toEqual([
+      { table: "mail2_migrations", rows: 20, maxVersion: 20 },
+      { table: "calendar_studio_migrations", rows: 19, maxVersion: 19 },
+    ]);
+    expect(clause.invalidIndexes).toBe(0);
+    expect(clause.waitingLocks).toBe(0);
+    expect(clause.readAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("reports an unreadable ledger as unchecked, never as an empty pass", async () => {
+    const exec = fakeExec({
+      "information_schema.columns": [{ table_name: "mail2_migrations" }],
+      'from "mail2_migrations"': new Error(
+        'relation "mail2_migrations" does not exist',
+      ),
+    });
+    const clause = await readMigrationSchemaClause(exec as never);
+    expect(clause.checked).toBe(false);
+    expect(clause.error).toMatch(/does not exist/);
+    expect(clause.ledgers).toEqual([]);
+  });
+
+  it("never quotes a discovered name that is not a plain identifier", async () => {
+    const seen: string[] = [];
+    const exec = {
+      execute: async (sql: unknown) => {
+        const text = String(sql);
+        seen.push(text);
+        if (text.includes("information_schema.columns"))
+          return {
+            rows: [
+              { table_name: 'mail2_migrations"; drop table users; --' },
+              { table_name: "mail2_migrations" },
+            ],
+            rowsAffected: 0,
+          };
+        if (text.includes('from "mail2_migrations"'))
+          return { rows: [{ rows: 1, max_version: 1 }], rowsAffected: 0 };
+        return { rows: [{ n: 0 }], rowsAffected: 0 };
+      },
+    };
+    const clause = await readMigrationSchemaClause(exec as never);
+    expect(clause.ledgers.map((l) => l.table)).toEqual(["mail2_migrations"]);
+    expect(seen.some((sql) => sql.includes("drop table"))).toBe(false);
+  });
+
+  it("does not pay for the ledger queries unless the caller asks", async () => {
+    mockExecute.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes("information_schema.tables")) return { rows: [] };
+      if (text.includes("information_schema.columns"))
+        return { rows: [{ column_name: "id", table_name: "agent_runs" }] };
+      return { rows: [], rowsAffected: 0 };
+    });
+    const result = await runDatabaseSchemaHealthCheck({
+      exec: { execute: mockExecute } as never,
+    });
+    expect(result.migrations).toBeUndefined();
+    expect(
+      mockExecute.mock.calls.some(([sql]) =>
+        String(sql).includes("information_schema.columns"),
+      ),
+    ).toBe(false);
   });
 });

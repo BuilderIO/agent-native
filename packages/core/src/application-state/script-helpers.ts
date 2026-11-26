@@ -15,7 +15,7 @@ import {
   type AppStateCompareAndSetOperation,
 } from "./store.js";
 
-async function resolveSessionId(): Promise<string> {
+export async function resolveSessionId(): Promise<string> {
   try {
     const { getRequestUserEmail } =
       await import("../server/request-context.js");
@@ -152,7 +152,7 @@ export async function resolveCurrentRequestStateTab(): Promise<{
   }
   if (!slot) return { tabId: null, unavailable: false };
   const target = await slot.resolve();
-  if (target.kind === "last-used") {
+  if (target.kind === "requested" || target.kind === "last-used") {
     const tabId = normalizeBrowserTabId(target.tabId);
     if (tabId) return { tabId, unavailable: false };
   }

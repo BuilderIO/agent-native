@@ -188,7 +188,6 @@ test("deleted Screen recreation remaps nested text history and duplicate target"
     await action(page, "create-design", {
       title: "Delete Screen descendant history " + Date.now(),
       projectType: "prototype",
-      designSystemId: null,
     }),
     "create-design",
   );
@@ -477,7 +476,6 @@ test("sequential Screen deletion Undo preserves surviving variant order", async 
     await action(page, "create-design", {
       title: "Sequential Screen history " + Date.now(),
       projectType: "prototype",
-      designSystemId: null,
     }),
     "create-design",
   );

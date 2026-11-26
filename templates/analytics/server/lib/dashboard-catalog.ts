@@ -1,4 +1,5 @@
-import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
+import type { SqlDashboardConfig } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
@@ -973,7 +974,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "content-view",
     name: "Content",
     description:
-      "Blog articles ranked by first-touch signups, with signups by author, new and rising articles, and each source's last run, from the daily content collection.",
+      "Blog articles ranked by first-touch signups, with signups by author, new and rising articles, Google search queries, positions and clicks against a year before, and each source's last run, from the daily content collection.",
     category: "Acquisition",
     defaultDashboardId: "content-view",
     dataSources: ["first-party"],
@@ -987,7 +988,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "seo",
       "signups",
     ],
-    panelCount: 11,
+    panelCount: 18,
     version: CATALOG_VERSION,
     buildConfig: () => seedConfig("content-view"),
   },

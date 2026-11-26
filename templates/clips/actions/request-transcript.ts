@@ -1,7 +1,15 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq, isNull, or } from "drizzle-orm";
@@ -19,6 +27,7 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import {
+  hasImportedTranscript,
   hasTranscriptContent,
   saveTranscriptVersion,
 } from "../server/lib/transcript-versions.js";
@@ -99,7 +108,7 @@ function recordingTrackingSource(
 
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
-  "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
+  "The audio is often a screen recording where the person types or taps without talking. Keyboard keystrokes, clicks and taps are not speech. Examples that must return segments: [] : steady typing, tapping a glass, mouse clicks, fan noise. A single short word like 'Hello' or 'Okay' heard only amid typing or noise is a false detection: return segments: []. Do not describe screen activity, UI changes, silence, music, or non-speech sounds, and do not write labels such as [keyboard typing]. Return an empty transcript when there are no spoken words. Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions.";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
 const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
@@ -1039,6 +1048,12 @@ const requestTranscriptAction = defineAction({
         "Internal — set only by the bounded automatic retry scheduler after a transient failure (ffmpeg timeout, transient provider error). Do not set this when calling request-transcript manually or from the agent; omitting it means the retry budget never applies to this call.",
       ),
   }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.regenerate === true &&
+    (await resolveAccess("recording", args.recordingId)) !== null &&
+    (await hasImportedTranscript(args.recordingId)),
+  mcpTool: "search",
   run: async (args, context?: ActionRunContext) => {
     const access = assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),
@@ -1187,10 +1202,12 @@ const requestTranscriptAction = defineAction({
       : undefined;
 
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
-    const regeneratingReadyTranscript = Boolean(
-      args.regenerate &&
+    const hasReadyTranscriptText = Boolean(
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim(),
+    );
+    const regeneratingReadyTranscript = Boolean(
+      args.regenerate && hasReadyTranscriptText,
     );
     const regeneratingFrom: StartedFromTranscript | undefined =
       regeneratingReadyTranscript
@@ -1235,6 +1252,24 @@ const requestTranscriptAction = defineAction({
             existingNativeTranscript.source === IMPORTED_TRANSCRIPT_SOURCE,
         });
       }
+    }
+
+    // A no-speech result is settled for callers that did not ask to redo it, so
+    // they don't pay for another provider run. A forced request is the user's
+    // Retry on the "No speech detected" panel and still runs.
+    if (
+      !args.force &&
+      !args.regenerate &&
+      existingNativeTranscript?.status === "ready" &&
+      !existingNativeTranscript.fullText?.trim() &&
+      (existingNativeTranscript.segmentsJson ?? "[]").trim() === "[]"
+    ) {
+      return {
+        recordingId: args.recordingId,
+        status: "ready" as const,
+        skipped: true,
+        reason: "no-speech",
+      };
     }
 
     // Past here the transcript comes from the recording's audio. A ready
@@ -1397,12 +1432,52 @@ const requestTranscriptAction = defineAction({
         }
 
         if (!fullText) {
-          builderError = "Builder transcription returned no speech.";
           await writeTranscriptCleanupState(args.recordingId, {
             status: "builder-transcription-empty",
             provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-            failureReason: builderError,
+            failureReason: "Builder transcription returned no speech.",
           });
+          // The provider answered; there was nothing to say. A transcript that
+          // already has text, whether regenerated or retried as language
+          // mismatched, is never replaced with an empty one: it falls through
+          // to keep the existing transcript.
+          if (!hasReadyTranscriptText) {
+            const kept = await writeTranscriptOrKeepImport(db, {
+              recordingId: args.recordingId,
+              ownerEmail,
+              status: "ready",
+              failureReason: null,
+              language: normalizedTranscript.language ?? "en",
+              segmentsJson: "[]",
+              fullText: "",
+              now,
+              mediaUpdatedAt,
+            });
+            if (kept) return kept;
+            await writeAppState("refresh-signal", { ts: Date.now() });
+            await clearBuilderCreditsExhausted();
+            track(
+              "recording_completed",
+              {
+                app_name: "clips",
+                template_name: "clips",
+                recording_attempt_id: args.recordingId,
+                output_id: args.recordingId,
+                output_type: "clip",
+                duration_s: Math.round(rec.durationMs / 1000),
+                has_transcript: false,
+                transcription_source: "builder",
+              },
+              recordingTrackingSource(ownerEmail, context),
+            );
+            return {
+              recordingId: args.recordingId,
+              status: "ready" as const,
+              segments: 0,
+              provider: "builder",
+            };
+          }
+          builderError = "Builder transcription returned no speech.";
         }
 
         if (fullText) {

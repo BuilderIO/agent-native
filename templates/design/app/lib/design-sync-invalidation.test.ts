@@ -32,7 +32,6 @@ const agentUpdate = {
 
 const DEPENDS_ON_CONTENT = [
   "get-design",
-  "get-motion-timeline",
   "index-design-tokens",
   "list-source-files",
   "read-source-file",
@@ -48,6 +47,7 @@ const UNRELATED = [
   "get-visual-edit-pending",
   "list-resource-shares",
   "list-review-comments",
+  "read-brief-titles",
 ];
 
 describe("design sync invalidation", () => {

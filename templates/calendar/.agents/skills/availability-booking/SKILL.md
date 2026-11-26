@@ -73,6 +73,38 @@ booking links only show slots when the owner and every co-host can be checked as
 free. When a booking is confirmed, the app creates the Google Calendar event on
 the owner's connected account and adds co-hosts as invited attendees.
 
+### Reminder emails
+
+Each booking link emails a reminder to the guest who booked, and any guests they
+added, before the meeting. `reminderMinutes` on `create-booking-link` and
+`update-booking-link` sets when: `1440` for 1 day before (the default), `60` for
+1 hour before, or `0` for none. Leaving it out of an update keeps the current
+setting. The host gets no reminder; their own calendar reminds them.
+
+A booking made after its reminder time gets none, a cancelled booking gets none,
+and a rescheduled booking is reminded for its new time. Turning a link's
+reminder off stops the reminders it hasn't sent yet.
+
+### Single-use links
+
+A single-use link is a one-time URL for an active booking link: the first
+booking made through it uses it up, and the page then tells later visitors to
+ask for a new link. Use one when the user wants to give one person a link that
+stops working once they've booked. It's the booking link's own URL plus a
+`once` code, so it doesn't hide the reusable link.
+
+```bash
+pnpm action create-single-use-link --bookingLinkId <id>
+```
+
+Give the person the returned `url` (`/book/{username}/{slug}?once={token}`).
+`list-single-use-links --bookingLinkId <id>` shows each URL as `available`,
+`used` (with the `bookingId` it made) or `revoked`, and
+`revoke-single-use-link --bookingLinkId <id> --token <token>` turns off one that
+hasn't been used. Cancelling or rescheduling the booking doesn't reopen the
+URL; the guest's manage link still works. Pausing the booking link stops its
+single-use URLs too, and deleting it deletes them.
+
 ### Peer working-hours hard filtering
 
 A co-host gets working-hours-aware scheduling only when the owner has also
@@ -199,6 +231,8 @@ Bookings are the confirmed appointments. They are stored in SQL via Drizzle ORM 
 | "Block off Friday afternoons"     | Update the Friday schedule to end at 12:00                     |
 | "Show my bookings"                | Navigate to `/bookings`                                        |
 | "Show my booking links"           | Navigate to `/booking-links`                                   |
+| "Send Sam a link that works once" | `create-single-use-link`, then give Sam the returned `url`     |
+| "Remind people an hour before"    | `update-booking-link` with `reminderMinutes: 60`               |
 
 ## Important Notes
 

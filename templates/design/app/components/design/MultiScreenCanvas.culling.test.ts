@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +25,14 @@ import {
 } from "./multi-screen/culling";
 import { SURFACE_PADDING } from "./multi-screen/overview-layout";
 import type { FrameGeometry, Point } from "./multi-screen/types";
+
+// oracle-change: removed MultiScreenCanvas.tsx source greps; the culling tier and lifecycle cases on the pure helpers remain
+// oracle-change(templates/design/app/components/design/DesignCanvas.iframe-pan.guard.test.ts): source-text greps of DesignCanvas.tsx and embedded-wheel.bridge.ts only
+// oracle-change(templates/design/app/components/design/DesignCanvas.spacing-overlay.test.ts): source-text greps of editor-chrome.bridge.ts; padding-interaction.bridge.spec.ts runs the spacing chrome in a browser
+// oracle-change(templates/design/app/components/design/EditPanel.selection-sync.test.ts): source-text grep of EditPanel.tsx keys only
+// oracle-change(templates/design/app/components/design/MultiScreenCanvas.screenCorners.test.ts): source-text grep of MultiScreenCanvas.tsx plus a restatement of the two constants vectorEndpointMarkerRefX returns
+// oracle-change(templates/design/app/components/design/MultiScreenCanvas.zoom-anchor.test.ts): exercised only shared/canvas-math, which canvas-math.test.ts owns
+// oracle-change(templates/design/app/components/design/TweaksPanel.test.tsx): mocked-i18n markup check of a help link, no behaviour
 
 function geom(
   x: number,
@@ -111,24 +117,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     });
   });
 
-  it("measures the initial viewport in a layout effect before first paint", () => {
-    const source = readFileSync(
-      "app/components/design/MultiScreenCanvas.tsx",
-      "utf8",
-    );
-    const measurementStart = source.indexOf(
-      "// Track the pannable surface's own on-screen size",
-    );
-    const measurementBlock = source.slice(
-      measurementStart,
-      measurementStart + 1800,
-    );
-
-    expect(measurementStart).toBeGreaterThanOrEqual(0);
-    expect(measurementBlock).toContain("useLayoutEffect(() => {");
-    expect(measurementBlock).toContain("surface.getBoundingClientRect()");
-  });
-
   it("uses one mount/hide lifecycle for primary and breakpoint iframes", () => {
     expect(getScreenContentCullState("placeholder")).toEqual({
       shouldMount: false,
@@ -146,23 +134,6 @@ describe("MultiScreenCanvas viewport culling", () => {
       shouldMount: false,
       isHidden: false,
     });
-
-    const source = readFileSync(
-      "app/components/design/MultiScreenCanvas.tsx",
-      "utf8",
-    );
-    expect(source.match(/getScreenContentCullState\(cullTier\)/g)).toHaveLength(
-      2,
-    );
-    expect(source).toContain(
-      "visibleBreakpointWidths(screen.breakpointWidths, metadata.width)",
-    );
-    expect(
-      source.match(/loading=\{cullTier === "visible" \? "eager" : "lazy"\}/g),
-    ).toHaveLength(1);
-    expect(source).toContain(
-      'isExportPreview || cullTier === "visible" ? "eager" : "lazy"',
-    );
   });
 
   describe("bounded live iframe allocation", () => {

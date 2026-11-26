@@ -13,6 +13,7 @@ import {
 } from "vitest";
 
 import * as schema from "../server/db/schema.js";
+import { reviewComments } from "../server/lib/recording-comments.js";
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -78,16 +79,16 @@ async function seedMatch(
     updatedAt: now,
   });
   if (source === "comment")
-    await db.insert(schema.recordingComments).values({
+    await db.insert(reviewComments).values({
       id: "comment-" + id,
-      organizationId: "fake-workspace",
-      recordingId: id,
-      threadId: "thread-" + id,
+      resourceType: "recording",
+      resourceId: id,
+      threadId: "comment-" + id,
+      status: "open",
+      anchorJson: JSON.stringify({ videoTimestampMs: 1000 }),
       authorEmail: "owner@example.test",
-      content: "Fake needle discussion " + id,
-      videoTimestampMs: 1000,
+      body: "Fake needle discussion " + id,
       createdAt: now,
-      updatedAt: now,
     });
   if (source === "transcript")
     await db.insert(schema.recordingTranscripts).values({
@@ -106,13 +107,13 @@ describe("recording search with PostgreSQL queries", () => {
     for (const table of [
       schema.recordings,
       schema.recordingTranscripts,
-      schema.recordingComments,
+      reviewComments,
     ])
       await createQueryTable(table);
     vi.spyOn(Date, "now").mockReturnValue(Date.parse(now));
   });
   beforeEach(async () => {
-    await db.delete(schema.recordingComments);
+    await db.delete(reviewComments);
     await db.delete(schema.recordingTranscripts);
     await db.delete(schema.recordings);
   });
@@ -374,4 +375,10 @@ describe("recording search with PostgreSQL queries", () => {
       expect(result.results.map((row) => row.id)).toEqual(["fake-recording"]);
     },
   );
+
+  it("tells agents to use navigate to show filtered results in the Library UI", () => {
+    expect(action.description).toMatch(/navigate/i);
+    expect(action.description).toMatch(/library/i);
+    expect(action.description).toMatch(/search/i);
+  });
 });

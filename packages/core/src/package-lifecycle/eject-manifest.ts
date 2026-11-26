@@ -313,6 +313,7 @@ function isSafeRelativePath(value: string): boolean {
   return (
     value.length > 0 &&
     !value.startsWith("/") &&
+    !/^[A-Za-z]:/.test(value) &&
     !value.includes("\\") &&
     !value.includes("\0") &&
     value.split("/").every(isSafePathSegment)

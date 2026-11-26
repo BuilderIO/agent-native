@@ -1,0 +1,5 @@
+@import "./icon-button.css";
+@import "../parts/menu.css";
+@import "./tabs.css";
+@import "../parts/split-pane.css";
+@import "../parts/dock-workspace.css";

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { SLACK_UNFURL_SCOPES } from "../server/lib/slack-oauth.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Get the OAuth URL to connect Agent-Native Clips for Slack. Open the returned URL in a popup or new tab.",
   schema: z.object({
@@ -14,6 +15,7 @@ export default defineAction({
       .describe("Same-origin path to return to after Slack connects."),
   }),
   http: { method: "GET" },
+  mcpTool: false,
   run: async (args) => {
     if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET) {
       throw new Error(

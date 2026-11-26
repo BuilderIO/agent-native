@@ -28,6 +28,7 @@ import type {
   DocumentProperty,
   DocumentPropertyRelationTarget,
 } from "@shared/api";
+import { privateMediaIdFromSrc } from "@shared/private-media";
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_TYPE_LABELS,
@@ -76,6 +77,7 @@ import {
   IconPlus,
   IconPlugConnected,
   IconSearch,
+  IconSparkles,
   IconSquareCheck,
   IconUpload,
   IconX,
@@ -89,6 +91,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -152,6 +155,7 @@ import {
 import {
   documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
+  useCollectionAddablePropertyTypes,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
   useDeleteDocumentProperty,
@@ -163,6 +167,12 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import { BuilderArticleAutosavePanel } from "./database-sources/BuilderArticleAutosave";
+import {
+  ColumnFillCellActions,
+  columnFillCellLabel,
+  useColumnFillCell,
+} from "./database/column-fill";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -221,6 +231,11 @@ interface DocumentPropertiesProps {
   leaveReadFailureToPage?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
+  /**
+   * Show each value in full, wrapping beside its name, as Info does. Rows on
+   * the page itself keep values to one line.
+   */
+  wrapValues?: boolean;
 }
 
 export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
@@ -705,6 +720,8 @@ export function mergeFilesMediaItems(items: string[], pendingLink: string) {
 export function filesMediaLabel(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "File";
+  // A private upload's link ends in its ID, which says nothing to a reader.
+  if (privateMediaIdFromSrc(trimmed)) return "Image";
   try {
     const url = new URL(trimmed);
     const pathParts = url.pathname.split("/").filter(Boolean);
@@ -716,6 +733,7 @@ export function filesMediaLabel(value: string) {
 }
 
 export function filesMediaKind(value: string) {
+  if (privateMediaIdFromSrc(value.trim())) return "Image";
   const label = filesMediaLabel(value).toLowerCase();
   if (/\.(png|jpe?g|gif|webp|svg|avif)$/.test(label)) return "Image";
   if (/\.(mp4|mov|webm|m4v)$/.test(label)) return "Video";
@@ -1023,6 +1041,7 @@ export function DocumentProperties({
   leaveReadFailureToPage = false,
   popoversPortalled = true,
   popoverContainer,
+  wrapValues = false,
 }: DocumentPropertiesProps) {
   const t = useT();
   const propertiesQuery = useDocumentProperties(documentId, databaseId);
@@ -1077,7 +1096,37 @@ export function DocumentProperties({
         (property) => property.definition.visibility === "always_hide",
       )
     : [];
-  const moreProperties = [...hiddenInViewProperties, ...emptyProperties];
+  // Someone who can't manage the schema still finds a hidden Property while a
+  // Comment on it is written or its threads are open, so it has a row there.
+  const comments = usePropertyComments();
+  const commentedIds = [
+    comments?.pendingPropertyId,
+    comments?.selectedPropertyId,
+    comments?.inline?.openPropertyId,
+  ];
+  const commentedHiddenProperties = canManageSchema
+    ? []
+    : orderedProperties.filter(
+        (property) =>
+          !isListable(property) &&
+          commentedIds.includes(property.definition.id),
+      );
+  const moreProperties = [
+    ...hiddenInViewProperties,
+    ...emptyProperties,
+    ...commentedHiddenProperties,
+  ];
+  // A new Comment waiting under a Property in Info stays in reach when the
+  // rows give way to a failed read, named by the row's early copy, so its
+  // words are neither lost nor in the way of another Comment.
+  const waitingPropertyId = comments?.inline
+    ? comments.pendingPropertyId
+    : null;
+  const waitingPropertyName = loaded
+    ? data.properties.find(
+        (property) => property.definition.id === waitingPropertyId,
+      )?.definition.name
+    : undefined;
   const collapsedCount = moreProperties.length + alwaysHiddenProperties.length;
   const propertyRow = (property: DocumentProperty) => (
     <PropertyRow
@@ -1089,6 +1138,7 @@ export function DocumentProperties({
       canManageSchema={canManageSchema}
       popoversPortalled={popoversPortalled}
       popoverContainer={popoverContainer}
+      wrapValues={wrapValues}
       t={t}
     />
   );
@@ -1096,10 +1146,24 @@ export function DocumentProperties({
   return (
     <div className="mt-5 border-y border-transparent py-1">
       {readFailed && !leaveReadFailureToPage ? (
-        <QueryErrorState
-          compact
-          onRetry={() => void propertiesQuery.refetch()}
-        />
+        <>
+          <QueryErrorState
+            compact
+            onRetry={() => void propertiesQuery.refetch()}
+          />
+          {waitingPropertyId && comments?.inline ? (
+            <div className="mt-2" data-property-waiting-comment>
+              {waitingPropertyName ? (
+                <p className="px-2 pb-0.5 text-sm text-muted-foreground">
+                  {waitingPropertyName}
+                </p>
+              ) : null}
+              <PropertyThreadsBox propertyId={waitingPropertyId}>
+                {comments.inline.renderThreads(waitingPropertyId)}
+              </PropertyThreadsBox>
+            </div>
+          ) : null}
+        </>
       ) : readFailed && !loaded ? null : isLoading ||
         !loaded ||
         rowViewPending ? (
@@ -1142,15 +1206,18 @@ export function DocumentProperties({
         </CollapsedProperties>
       ) : null}
 
-      {showSchemaRows && databaseId ? (
+      {showSchemaRows &&
+      databaseId &&
+      !(loaded && data.canAddProperties === false) ? (
         // Add property, drawn on expectation, holds its place even before any
         // Property answer, and can't be used until this viewer's rights are
-        // confirmed.
+        // confirmed. A collection that refuses new properties drops it.
         <div className="contents" inert={!canManageSchema || undefined}>
           <AddProperty
             databaseDocumentId={databaseDocumentId ?? documentId}
             documentId={documentId}
             databaseId={databaseId}
+            propertyTypes={loaded ? data.addablePropertyTypes : undefined}
             popoversPortalled={popoversPortalled}
             popoverContainer={popoverContainer}
           />
@@ -1219,16 +1286,18 @@ function CollapsedProperties({
   const [open, setOpen] = useState(false);
   if (withoutLine && !open) setOpen(true);
   // Keyed on which Property holds the Comment, so a different one opens a line
-  // that was closed by hand.
+  // that was closed by hand, as does Info asking back the new Comment in it.
   const heldHere = (id: string | null | undefined) =>
     id && opensForProperties.some((property) => property.definition.id === id)
       ? id
       : null;
   const pendingHere = heldHere(comments?.pendingPropertyId);
   const selectedHere = heldHere(comments?.selectedPropertyId);
+  const inlineHere = heldHere(comments?.inline?.openPropertyId);
+  const revealKey = comments?.inline?.revealKey;
   useEffect(() => {
-    if (pendingHere || selectedHere) setOpen(true);
-  }, [pendingHere, selectedHere]);
+    if (pendingHere || selectedHere || inlineHere) setOpen(true);
+  }, [pendingHere, selectedHere, inlineHere, revealKey]);
   const Chevron = open ? IconChevronDown : IconChevronRight;
 
   return (
@@ -1270,6 +1339,7 @@ function PropertyRow({
   canManageSchema,
   popoversPortalled,
   popoverContainer,
+  wrapValues,
   t,
 }: {
   property: DocumentProperty;
@@ -1279,31 +1349,32 @@ function PropertyRow({
   canManageSchema: boolean;
   popoversPortalled: boolean;
   popoverContainer?: HTMLElement | null | undefined;
+  wrapValues: boolean;
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
   const commentState = usePropertyCommentRowState(property.definition.id);
   const editable = canEditValues && property.editable;
   const value = (
-    <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
-      {displayValue(property, t, "compact", {
+    <div
+      className={cn(
+        "min-w-0 flex-1 whitespace-normal break-words text-left text-sm",
+        wrapValues
+          ? "[&_.truncate]:whitespace-normal [&_.truncate]:break-words"
+          : "max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate",
+      )}
+    >
+      {displayValue(property, t, wrapValues ? "wrapped" : "compact", {
         interactiveRelations: true,
         interactiveUrls: true,
       })}
     </div>
   );
 
-  return (
+  const row = (
     <div
       className={cn(
         "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[calc(160px-var(--property-name-inset,0px))_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
-        // The Comment control floats at the right edge; room is kept for
-        // it only while it stays visible, so narrow panels keep their values,
-        // or where it would cover the edit button beside a value's links.
-        commentState.enabled &&
-          (commentState.shown ||
-            (editable && propertyValueHasLinks(property))) &&
-          "pr-10",
         commentState.enabled &&
           commentState.pending &&
           "comment-highlight--pending comment-property-row--pending",
@@ -1313,40 +1384,48 @@ function PropertyRow({
       )}
       data-property-row={property.definition.id}
     >
-      {canManageSchema && !property.definition.systemRole ? (
-        <PropertyManagementPopover
-          databaseDocumentId={databaseDocumentId}
-          property={property}
-          documentId={documentId}
-          databaseId={property.definition.databaseId!}
-          icon={Icon}
-          popoverContainer={popoverContainer}
-        />
-      ) : (
-        <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-          <PropertyDefinitionIcon
+      {/* The name column ends with the row's Comment count or button. */}
+      <div className="flex min-w-0 items-center gap-1">
+        {canManageSchema &&
+        !property.definition.systemRole &&
+        property.definition.databaseId ? (
+          <PropertyManagementPopover
+            databaseDocumentId={databaseDocumentId}
             property={property}
-            className="size-4 shrink-0"
+            documentId={documentId}
+            databaseId={property.definition.databaseId}
+            icon={Icon}
+            popoverContainer={popoverContainer}
           />
-          {property.definition.description ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="truncate text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {property.definition.name}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-64">
-                {property.definition.description}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <span className="truncate">{property.definition.name}</span>
-          )}
-        </div>
-      )}
+        ) : (
+          <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+            <PropertyDefinitionIcon
+              property={property}
+              className="size-4 shrink-0"
+            />
+            {property.definition.description ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="truncate text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {property.definition.name}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-64">
+                  {property.definition.description}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className="truncate">{property.definition.name}</span>
+            )}
+          </div>
+        )}
+        {commentState.enabled ? (
+          <PropertyCommentControl property={property} />
+        ) : null}
+      </div>
       {canEditValues &&
       property.builderStatusChoices &&
       property.definition.databaseId ? (
@@ -1372,9 +1451,51 @@ function PropertyRow({
       ) : (
         value
       )}
-      {commentState.enabled ? (
-        <PropertyCommentControl property={property} />
-      ) : null}
+    </div>
+  );
+  const builderAutosave =
+    property.definition.systemRole === "builder_status" ? (
+      <BuilderArticleAutosavePanel
+        documentId={documentId}
+        databaseId={property.definition.databaseId}
+        canEdit={canEditValues}
+      />
+    ) : null;
+  if (!commentState.enabled || !commentState.inlineThreads) {
+    return builderAutosave ? (
+      <>
+        {row}
+        {builderAutosave}
+      </>
+    ) : (
+      row
+    );
+  }
+  return (
+    <>
+      {row}
+      {builderAutosave}
+      <PropertyThreadsBox propertyId={property.definition.id}>
+        {commentState.inlineThreads}
+      </PropertyThreadsBox>
+    </>
+  );
+}
+
+/** The box in Info holding a Property's threads and new Comment. */
+function PropertyThreadsBox({
+  propertyId,
+  children,
+}: {
+  propertyId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="mx-1 mb-2 mt-0.5 overflow-hidden rounded-lg border border-border"
+      data-property-threads={propertyId}
+    >
+      {children}
     </div>
   );
 }
@@ -1513,6 +1634,7 @@ export function PropertyManagementPopover({
   onMoveRight,
   onHide,
   hideDisabled,
+  onFillWithAi,
   popoverContainer,
 }: {
   property: DocumentProperty;
@@ -1534,7 +1656,8 @@ export function PropertyManagementPopover({
   onMoveRight?: () => void | Promise<void>;
   onHide?: () => void | Promise<void>;
   hideDisabled?: boolean;
-  popoverContainer?: HTMLElement | null;
+  onFillWithAi?: (() => void) | undefined;
+  popoverContainer?: HTMLElement | null | undefined;
 }) {
   const t = useT();
   const visibilityScopeId = useId();
@@ -1563,6 +1686,11 @@ export function PropertyManagementPopover({
   const { data: propertiesData } = useDocumentProperties(
     documentId,
     databaseId,
+  );
+  const addableTypes = useCollectionAddablePropertyTypes(
+    databaseDocumentId,
+    databaseId,
+    propertiesData?.addablePropertyTypes,
   );
   const bindSourceField = useContentActionMutation<
     ContentDatabaseResponsePayload,
@@ -1753,13 +1881,10 @@ export function PropertyManagementPopover({
     await configureProperty({ description: nextDescription });
   }
 
-  async function updateType(nextType: DocumentPropertyType) {
+  function updateType(nextType: DocumentPropertyType) {
     if (nextType === property.definition.type) return;
-    await configureProperty({
-      type: nextType,
-      options: defaultPropertyOptions(nextType),
-    });
-    setOpen(false);
+    const label = t("editor.properties.typeChangeUnavailable");
+    reportWriteFailure(new Error(label), { label });
   }
 
   async function updateVisibility(nextVisibility: DocumentPropertyVisibility) {
@@ -1885,6 +2010,17 @@ export function PropertyManagementPopover({
               >
                 {t("editor.properties.editField")}
               </DropdownMenuItem>
+              {onFillWithAi ? (
+                <DropdownMenuItem
+                  data-column-fill-menu-item
+                  onSelect={() => {
+                    requestAnimationFrame(() => onFillWithAi());
+                  }}
+                >
+                  <IconSparkles className="size-4" aria-hidden="true" />
+                  {t("database.fillWithAi")}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
@@ -2108,8 +2244,9 @@ export function PropertyManagementPopover({
                     // Converting into a relation needs a target database;
                     // relations are added from "Add property" instead.
                     (propertyType) =>
-                      propertyType !== "relation" ||
-                      property.definition.type === "relation",
+                      propertyType === property.definition.type ||
+                      (propertyType !== "relation" &&
+                        addableTypes.includes(propertyType)),
                   ).map((propertyType) => {
                     const selected = property.definition.type === propertyType;
                     const disabled = typeIsLocked && !selected;
@@ -2119,7 +2256,7 @@ export function PropertyManagementPopover({
                         disabled={disabled}
                         onSelect={(event) => {
                           event.preventDefault();
-                          void updateType(propertyType);
+                          updateType(propertyType);
                         }}
                       >
                         <span className="flex-1">
@@ -2605,10 +2742,16 @@ export function PropertyValuePopover({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const fillStatusId = useId();
+  const fillCell = useColumnFillCell(property.definition.id, documentId);
+  const fillStatus = fillCell
+    ? columnFillCellLabel(t, fillCell.cell.status)
+    : null;
 
   const editLabel = t("editor.properties.editProperty", {
     name: property.definition.name,
   });
+  const describedBy = fillStatus ? fillStatusId : undefined;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -2631,6 +2774,7 @@ export function PropertyValuePopover({
               <button
                 type="button"
                 aria-label={editLabel}
+                aria-describedby={describedBy}
                 className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
               >
                 <IconEdit className="size-3.5" />
@@ -2643,12 +2787,18 @@ export function PropertyValuePopover({
           <button
             type="button"
             aria-label={editLabel}
+            aria-describedby={describedBy}
             className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {children}
           </button>
         </PopoverTrigger>
       )}
+      {fillStatus ? (
+        <span id={fillStatusId} className="sr-only">
+          {fillStatus}
+        </span>
+      ) : null}
       <PopoverContent
         align="start"
         portalled={portalled}
@@ -2659,6 +2809,11 @@ export function PropertyValuePopover({
           property={property}
           documentId={documentId}
           databaseDocumentId={databaseDocumentId}
+          onDone={() => setOpen(false)}
+        />
+        <ColumnFillCellActions
+          propertyId={property.definition.id}
+          documentId={documentId}
           onDone={() => setOpen(false)}
         />
       </PopoverContent>
@@ -3417,9 +3572,13 @@ function FilesMediaValueEditor({
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  const singleLink = property.sourceWriteback === true;
+
   function addItem(value: string) {
     if (!isValidFilesMediaLink(value)) return;
-    setItems((current) => mergeFilesMediaItems(current, value));
+    setItems((current) =>
+      mergeFilesMediaItems(singleLink ? [] : current, value),
+    );
     setLinkValue("");
   }
 
@@ -3455,10 +3614,11 @@ function FilesMediaValueEditor({
         return;
       }
       setUploading(true);
+      const uploadedUrls: string[] = [];
       try {
-        const uploadedUrls: string[] = [];
+        // Uploads are private to this page: only its readers can load them.
         for (const file of selectedFiles) {
-          uploadedUrls.push(await uploadImageFile(file));
+          uploadedUrls.push(await uploadImageFile(file, { documentId }));
         }
         setItems((current) => [...current, ...uploadedUrls]);
         toast.success(
@@ -3470,13 +3630,17 @@ function FilesMediaValueEditor({
           ),
         );
       } catch (error) {
+        // Images uploaded before the failure stay in the list.
+        if (uploadedUrls.length > 0) {
+          setItems((current) => [...current, ...uploadedUrls]);
+        }
         toast.error(imageUploadErrorMessage(error));
       } finally {
         setUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [fileStorageConfigured, t],
+    [documentId, fileStorageConfigured, t],
   );
 
   useEffect(() => {
@@ -3496,7 +3660,12 @@ function FilesMediaValueEditor({
           linkInputRef.current?.reportValidity();
           return;
         }
-        void save(mergeFilesMediaItems(items, linkValue));
+        void save(
+          mergeFilesMediaItems(
+            singleLink && linkValue.trim() ? [] : items,
+            linkValue,
+          ),
+        );
       }}
     >
       <div className="grid max-h-48 gap-1 overflow-auto">
@@ -3567,15 +3736,17 @@ function FilesMediaValueEditor({
           {t("editor.properties.add")}
         </Button>
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        disabled={!fileStorageConfigured}
-        className="sr-only"
-        onChange={(event) => void uploadFiles(event.currentTarget.files)}
-      />
+      {singleLink ? null : (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          disabled={!fileStorageConfigured}
+          className="sr-only"
+          onChange={(event) => void uploadFiles(event.currentTarget.files)}
+        />
+      )}
       <FileStorageStatusGate
         status={fileUploadStatus}
         open={storageSetupOpen}
@@ -3587,22 +3758,24 @@ function FilesMediaValueEditor({
         }}
       />
       <div className="flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (fileStorageConfigured) {
-              fileInputRef.current?.click();
-            } else {
-              setStorageSetupOpen(true);
-            }
-          }}
-          disabled={mutation.isPending || uploading}
-        >
-          <IconUpload className="size-3.5" />
-          {t("editor.properties.upload")}
-        </Button>
+        {singleLink ? null : (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              if (fileStorageConfigured) {
+                fileInputRef.current?.click();
+              } else {
+                setStorageSetupOpen(true);
+              }
+            }}
+            disabled={mutation.isPending || uploading}
+          >
+            <IconUpload className="size-3.5" />
+            {t("editor.properties.upload")}
+          </Button>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -3869,18 +4042,24 @@ function DateValueEditor({
           onSelect={(_selected, day) => pickDay(day)}
         />
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={showEnd}
-            onChange={(event) => {
-              setShowEnd(event.target.checked);
-              if (!event.target.checked) setEndValue("");
-            }}
-          />
-          {t("database.endDate")}
-        </label>
+      <div
+        className={
+          property.sourceWriteback ? "grid gap-2" : "grid grid-cols-2 gap-2"
+        }
+      >
+        {property.sourceWriteback ? null : (
+          <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showEnd}
+              onChange={(event) => {
+                setShowEnd(event.target.checked);
+                if (!event.target.checked) setEndValue("");
+              }}
+            />
+            {t("database.endDate")}
+          </label>
+        )}
         <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
           <input
             name="property-include-time"
@@ -4188,7 +4367,8 @@ function OptionValueEditor({
   const [optionQuery, setOptionQuery] = useState("");
   const filteredOptions = filterPropertyOptions(options, optionQuery);
   const firstFilteredOption = firstMatchingPropertyOption(options, optionQuery);
-  const canCreateOption = canCreatePropertyOption(options, optionQuery);
+  const canCreateOption =
+    !property.sourceWriteback && canCreatePropertyOption(options, optionQuery);
   const optionSearchInputRef = useRef<HTMLInputElement>(null);
   const currentSelectedIds = useMemo(() => {
     if (property.definition.type === "multi_select") {
@@ -4347,6 +4527,26 @@ function OptionValueEditor({
 }
 
 export function AddProperty({
+  propertyTypes,
+  ...props
+}: ComponentProps<typeof AddPropertyPicker>) {
+  const types = useCollectionAddablePropertyTypes(
+    props.databaseDocumentId ?? props.documentId,
+    props.databaseId,
+    propertyTypes,
+  );
+  if (types.length === 0) return null;
+  const partial = types.length < CREATABLE_DOCUMENT_PROPERTY_TYPES.length;
+  return (
+    <AddPropertyPicker
+      {...props}
+      {...(partial ? { source: null, sources: [] } : {})}
+      propertyTypes={types}
+    />
+  );
+}
+
+function AddPropertyPicker({
   documentId,
   databaseDocumentId = documentId,
   databaseId,
@@ -4359,6 +4559,7 @@ export function AddProperty({
   onConnectSource,
   openRequestId = 0,
   onOpenRequestHandled,
+  propertyTypes,
 }: {
   documentId: string;
   databaseDocumentId?: string;
@@ -4372,6 +4573,7 @@ export function AddProperty({
   onConnectSource?: () => void;
   openRequestId?: number;
   onOpenRequestHandled?: (requestId: number) => void;
+  propertyTypes?: readonly DocumentPropertyType[];
 }) {
   const t = useT();
   const configure = useConfigureDocumentProperty(
@@ -4385,7 +4587,10 @@ export function AddProperty({
   const [sourceHandoffClosing, setSourceHandoffClosing] = useState(false);
   const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
-  const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
+  const filteredPropertyTypes = filterDocumentPropertyTypes(
+    typeQuery,
+    propertyTypes,
+  );
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
   const allSources =
     sources && sources.length > 0 ? sources : source ? [source] : [];
@@ -4509,7 +4714,16 @@ export function AddProperty({
       setRelationDatabaseQuery("");
       setOpen(false);
     } catch (error) {
-      setAddPropertyError(error instanceof Error ? error.message : "");
+      setAddPropertyError(
+        (error as { errorCode?: unknown } | null)?.errorCode ===
+          "SYSTEM_DATABASE_UNSUPPORTED"
+          ? t("editor.properties.addPropertyTypeUnsupported", {
+              type: t(`editor.propertyTypes.${type}`),
+            })
+          : error instanceof Error
+            ? error.message
+            : "",
+      );
     } finally {
       setPendingPropertyType(null);
     }

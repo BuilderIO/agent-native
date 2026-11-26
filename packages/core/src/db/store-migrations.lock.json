@@ -215,6 +215,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "vault-metadata-columns",
+      "checksum": null
     }
   ],
   "application_state": [
@@ -445,6 +449,14 @@
     {
       "name": "chat-thread-inbox-runtime-schema",
       "checksum": null
+    },
+    {
+      "name": "edit-lineage",
+      "checksum": "eccb140e27fc907b"
+    },
+    {
+      "name": "automation-thread-source-app-backfill",
+      "checksum": "4259bccc177a284e"
     }
   ],
   "checkpoints": [
@@ -528,6 +540,14 @@
   "data_programs": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "data-program-runs-credential-uses",
+      "checksum": null
+    },
+    {
+      "name": "data-programs-scheduled-refresh",
       "checksum": null
     }
   ],
@@ -637,6 +657,12 @@
       "checksum": null
     }
   ],
+  "integration_user_grants": [
+    {
+      "name": "baseline",
+      "checksum": "30431cda7738c73b"
+    }
+  ],
   "mcp_approvals": [
     {
       "name": "baseline",
@@ -645,6 +671,24 @@
     {
       "name": "review-page-columns",
       "checksum": "5219a7b9642c4847"
+    },
+    {
+      "name": "approval-notice",
+      "checksum": "e0e1c1d2c5df1bb3"
+    }
+  ],
+  "mcp_chat_turns": [
+    {
+      "name": "baseline",
+      "checksum": "a02324dc63f8bc43"
+    },
+    {
+      "name": "admissions",
+      "checksum": "a5bc553b1278195c"
+    },
+    {
+      "name": "admissions-expiry-index",
+      "checksum": "b2db0a68585f45ec"
     }
   ],
   "mcp_connect": [
@@ -667,9 +711,33 @@
       "checksum": "4b5d5edf48a0f71b"
     }
   ],
+  "mcp_script_ledger": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "sweep-indexes",
+      "checksum": "33eb15c1e6b15f71"
+    }
+  ],
+  "mcp_turn_grants": [
+    {
+      "name": "baseline",
+      "checksum": "03228922a3cb9608"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "49e51b43de935222"
+    }
+  ],
   "notifications": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "notification-archive",
       "checksum": null
     }
   ],
@@ -913,6 +981,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "source-app-provenance",
+      "checksum": null
     }
   ],
   "provider_corpus_jobs": [
@@ -933,6 +1005,36 @@
     {
       "name": "baseline",
       "checksum": null
+    }
+  ],
+  "provider_work": [
+    {
+      "name": "connection-budget-cache-queue",
+      "checksum": "9d276230b659ce06"
+    },
+    {
+      "name": "write-claim-phase",
+      "checksum": "05c569ed5d7658e4"
+    },
+    {
+      "name": "write-completion-notification",
+      "checksum": "2529a5955cdfbe42"
+    },
+    {
+      "name": "write-server-context",
+      "checksum": "6fc177c8e0a65cc3"
+    }
+  ],
+  "provider_write_enqueue": [
+    {
+      "name": "caller-lock",
+      "checksum": "91c10bbefd6b7c42"
+    }
+  ],
+  "provider_write_scheduler": [
+    {
+      "name": "scope-cursor",
+      "checksum": "5718690235204a74"
     }
   ],
   "recap_images": [
@@ -1019,9 +1121,23 @@
       "checksum": null
     }
   ],
+  "runner_session_nonces": [
+    {
+      "name": "baseline",
+      "checksum": "c74da203e8c1aa11"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "8331ca3a62dda83d"
+    }
+  ],
   "sandbox_executions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "sandbox-executions-origin-caller",
       "checksum": null
     }
   ],
@@ -1037,6 +1153,12 @@
     {
       "name": "automation-scheduler-health-lease",
       "checksum": "d6a4998c3d5b4fd1"
+    }
+  ],
+  "search_embeddings": [
+    {
+      "name": "baseline",
+      "checksum": null
     }
   ],
   "search_resources": [
@@ -1080,6 +1202,10 @@
     },
     {
       "name": "removed-markers",
+      "checksum": null
+    },
+    {
+      "name": "source-completeness",
       "checksum": null
     }
   ],
@@ -1213,6 +1339,10 @@
     {
       "name": "v14",
       "checksum": "75d25dd8c52ada33"
+    },
+    {
+      "name": "v15",
+      "checksum": "614ef3f9d1834088"
     }
   ]
 }

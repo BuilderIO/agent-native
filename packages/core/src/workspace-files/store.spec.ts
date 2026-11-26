@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResourcePut = vi.hoisted(() => vi.fn());
+const mockResourcePutIfSnapshot = vi.hoisted(() => vi.fn());
 const mockResourceGetByPath = vi.hoisted(() => vi.fn());
 const mockResourceList = vi.hoisted(() => vi.fn());
 const mockResourceDeleteIfCurrent = vi.hoisted(() => vi.fn());
@@ -15,6 +16,7 @@ vi.mock("../resources/store.js", () => ({
     `__organization__:${encodeURIComponent(orgId)}`,
   isLegacyOrganizationWorkspaceFile: mockIsLegacyOrganizationWorkspaceFile,
   resourcePut: mockResourcePut,
+  resourcePutIfSnapshot: mockResourcePutIfSnapshot,
   resourceGetByPath: mockResourceGetByPath,
   resourceDeleteIfCurrent: mockResourceDeleteIfCurrent,
   resourceList: mockResourceList,
@@ -30,6 +32,7 @@ vi.mock("../server/request-context.js", () => ({
 }));
 
 import {
+  appendWorkspaceFile,
   deleteWorkspaceFile,
   listWorkspaceFiles,
   readWorkspaceFile,
@@ -196,6 +199,199 @@ describe("workspace-files Resources adapter", () => {
       }),
     );
     expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
+  });
+
+  describe("appendWorkspaceFile", () => {
+    const user = { scope: "user", scopeId: "alice@example.com" } as const;
+    const written = (path: string, content: string) => ({
+      before: null,
+      resource: resource(path, content),
+    });
+
+    beforeEach(() => {
+      mockResourceGetByPath.mockReset().mockResolvedValue(null);
+      mockResourcePutIfSnapshot.mockReset();
+    });
+
+    afterEach(() => {
+      mockResourceGetByPath.mockReset();
+    });
+
+    it("appends over the version it read", async () => {
+      const current = resource("notes/log.md", "a\n");
+      mockResourceGetByPath.mockResolvedValue(current);
+      mockResourcePutIfSnapshot.mockResolvedValue(
+        written("notes/log.md", "a\nb\n"),
+      );
+
+      const meta = await appendWorkspaceFile(user, "notes/log.md", "b\n");
+
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith({
+        previous: current,
+        owner: "alice@example.com",
+        path: "notes/log.md",
+        content: "a\nb\n",
+        mimeType: "text/plain",
+        options: expect.objectContaining({ visibility: "workspace" }),
+      });
+      expect(meta.sizeBytes).toBe(4);
+    });
+
+    it("creates the file only if nothing is there yet", async () => {
+      mockResourcePutIfSnapshot.mockResolvedValue(
+        written("notes/log.md", "b\n"),
+      );
+
+      await appendWorkspaceFile(user, "notes/log.md", "b\n");
+
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ previous: null, content: "b\n" }),
+      );
+    });
+
+    it("reads again and keeps a save that landed after its read", async () => {
+      const first = resource("notes/log.md", "a\n");
+      const theirs = resource("notes/log.md", "a\ntheirs\n");
+      mockResourceGetByPath
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce(theirs);
+      mockResourcePutIfSnapshot
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(written("notes/log.md", "a\ntheirs\nb\n"));
+
+      await appendWorkspaceFile(user, "notes/log.md", "b\n");
+
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledTimes(2);
+      expect(mockResourcePutIfSnapshot).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          previous: theirs,
+          content: "a\ntheirs\nb\n",
+        }),
+      );
+    });
+
+    it("gives up without writing when the file keeps changing", async () => {
+      mockResourceGetByPath.mockResolvedValue(resource("notes/log.md", "a"));
+      mockResourcePutIfSnapshot.mockResolvedValue(null);
+
+      await expect(
+        appendWorkspaceFile(user, "notes/log.md", "b"),
+      ).rejects.toThrow(/Nothing was appended/);
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledTimes(5);
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("refuses an append that would pass the file size limit", async () => {
+      mockResourceGetByPath.mockResolvedValue(
+        resource("notes/log.md", "a".repeat(10 * 1024 * 1024)),
+      );
+
+      await expect(
+        appendWorkspaceFile(user, "notes/log.md", "b"),
+      ).rejects.toThrow(/per-file limit/);
+      expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+    });
+
+    it("appends onto an organization file from before organizations", async () => {
+      const legacy = {
+        ...resource("analysis/log.md", "old\n"),
+        owner: "__shared__",
+        metadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org_123",
+        }),
+        createdBy: "system",
+        visibility: "agent_scratch",
+      };
+      mockResourceGetByPath.mockImplementation(async (owner: string) =>
+        owner === "__shared__" ? legacy : null,
+      );
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      mockResourcePutIfSnapshot.mockResolvedValue(
+        written("analysis/log.md", "old\nnew\n"),
+      );
+
+      await appendWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/log.md",
+        "new\n",
+      );
+
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          previous: null,
+          owner: "__organization__:org_123",
+          content: "old\nnew\n",
+          options: expect.objectContaining({
+            createdBy: "system",
+            visibility: "agent_scratch",
+          }),
+        }),
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
+    });
+
+    it("takes its write back and reads again when the file from before organizations changed", async () => {
+      const legacyWith = (content: string) => ({
+        ...resource("analysis/log.md", content),
+        owner: "__shared__",
+        metadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org_123",
+        }),
+      });
+      const before = legacyWith("old\n");
+      const changed = legacyWith("changed\n");
+      const legacyReads = [before, changed];
+      mockResourceGetByPath.mockImplementation(async (owner: string) =>
+        owner === "__shared__" ? (legacyReads.shift() ?? changed) : null,
+      );
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      const first = written("analysis/log.md", "old\nnew\n");
+      mockResourcePutIfSnapshot
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce(written("analysis/log.md", "changed\nnew\n"));
+      mockResourceDeleteIfCurrent
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true);
+
+      await appendWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/log.md",
+        "new\n",
+      );
+
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledTimes(2);
+      expect(mockResourcePutIfSnapshot).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          previous: null,
+          content: "changed\nnew\n",
+        }),
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, before);
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        2,
+        first.resource,
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(3, changed);
+    });
+
+    it("rejects organization appends from non-admin members", async () => {
+      mockGetOrgRoleForEmail.mockResolvedValue("member");
+
+      await expect(
+        appendWorkspaceFile(
+          { scope: "org", scopeId: "org_123" },
+          "analysis/log.md",
+          "new",
+        ),
+      ).rejects.toThrow(/owners and admins/);
+      expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+    });
   });
 
   it("reads resources with offset and maxChars", async () => {

@@ -1,13 +1,13 @@
-import { describe, expect, it } from "vitest";
-
-import { interpolateDashboardPanelSql } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   breakdownRowDimensions,
   buildBreakdownTable,
   isValidPanelBreakdowns,
   planBreakdown,
   rowsForBreakdown,
-} from "./row-breakdown";
+} from "@agent-native/toolkit/dashboard/row-breakdown";
+import { describe, expect, it } from "vitest";
+
+import { interpolateDashboardPanelSql } from "../app/pages/adhoc/sql-dashboard/interpolate";
 
 const PANEL_SQL = `SELECT role{{?breakdown}}, {{breakdown}}{{/breakdown}}, COUNT(*) AS people
 FROM cohort

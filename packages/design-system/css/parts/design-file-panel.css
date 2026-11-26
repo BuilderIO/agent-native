@@ -1,0 +1,189 @@
+@layer components {
+  .design-file-panel {
+    display: flex;
+    flex-direction: column;
+    block-size: 100%;
+    min-block-size: 0;
+    min-inline-size: 0;
+    overflow: hidden;
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    background: var(--design-file-panel-surface, var(--surface-nav));
+    color: var(--fg-default);
+  }
+  .design-file-panel-header,
+  .design-file-panel-section-header,
+  .design-file-panel-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-inline: var(--design-file-panel-inset, var(--space-4));
+    flex: none;
+  }
+  .design-file-panel-header {
+    padding-inline-end: var(--space-2);
+    min-block-size: var(--design-file-panel-header-height, var(--size-6));
+  }
+  .design-file-panel-brand {
+    display: grid;
+    place-items: center;
+    inline-size: var(--control-height-1);
+    margin-inline-end: var(--space-2);
+  }
+  .design-file-panel-header strong {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .design-file-panel > .tabs {
+    --tabs-frame-surface: var(--design-file-panel-surface, var(--surface-nav));
+  }
+  .design-file-panel > .tabs,
+  .design-file-panel > .tabs > .tabs-panel:not([hidden], [inert]),
+  .design-file-panel-section[data-fill],
+  .design-file-panel-section[data-fill] > .design-file-panel-section-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-block-size: 0;
+    gap: 0;
+  }
+  .design-file-panel > .tabs > .tabs-panel {
+    padding: 0;
+    overflow: auto;
+  }
+  .design-file-panel > .tabs > .tabs-panel[inert] {
+    display: none;
+  }
+  .design-file-panel-tabs {
+    margin: var(--space-1) var(--design-file-panel-inset, var(--space-4));
+    flex: none;
+  }
+  .design-file-panel-section-header {
+    min-block-size: var(--design-file-panel-section-height, var(--size-5));
+    justify-content: space-between;
+    padding-inline-end: var(--space-3);
+  }
+  .design-file-panel-section-header > button:first-child {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    background: transparent;
+    color: inherit;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    min-block-size: var(--control-height-3);
+  }
+  .design-file-panel-section-header > button:first-child svg {
+    inline-size: var(--control-height-1);
+    block-size: var(--control-height-1);
+    flex: none;
+  }
+  .design-file-panel-tools {
+    display: grid;
+    gap: var(--space-2);
+    padding: 0 var(--design-file-panel-inset, var(--space-4)) var(--space-2);
+  }
+  .design-file-panel-header > .icon-button {
+    inline-size: var(--size-4);
+  }
+  .design-file-panel-pages {
+    display: flex;
+    flex-direction: column;
+    padding-block-end: var(--space-1);
+  }
+  .design-file-panel-section:not([data-fill]):has(
+      > .design-file-panel-section-content > .design-file-panel-pages
+    ) {
+    display: flex;
+    flex-direction: column;
+    min-block-size: var(--design-file-panel-section-height, var(--size-5));
+    &:has(~ .design-file-panel-section[data-fill]) {
+      max-block-size: var(--design-file-panel-pages-max-height, 50%);
+    }
+  }
+  .design-file-panel-section-content:has(> .design-file-panel-pages) {
+    min-block-size: 0;
+    overflow-y: auto;
+  }
+  .design-file-panel-page {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: var(--layer-tree-row-height, var(--control-height-4));
+    color: inherit;
+    background: transparent;
+    padding: 0 var(--design-file-panel-inset, var(--space-4));
+    border: 0;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+  .design-file-panel-page:hover {
+    background: var(--fill-hover);
+  }
+  .design-file-panel-page[aria-current]:not([aria-current="false"]) {
+    background: var(--brand-a4);
+  }
+  .design-file-panel-page-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    inline-size: var(--control-height-1);
+  }
+  .design-file-panel-page-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .design-file-panel-page-icon svg {
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+  }
+  .design-file-panel .layer-tree-actions {
+    gap: 0;
+  }
+  .design-file-panel .layer-tree-actions > .icon-button {
+    inline-size: var(--control-height-3);
+    block-size: var(--control-height-3);
+  }
+  .design-file-panel-tree {
+    min-block-size: 0;
+    flex: 1;
+    position: relative;
+  }
+  .design-file-panel-section + .design-file-panel-section {
+    box-shadow: inset 0 1px 0 var(--line-subtle);
+  }
+  .design-file-panel-footer {
+    min-block-size: var(--control-height-4);
+    color: var(--fg-muted);
+  }
+  .design-file-panel-footer a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .design-file-panel-footer a:hover {
+    text-decoration: underline;
+  }
+  .design-file-panel
+    :is(
+      .design-file-panel-page,
+      .design-file-panel-section-header > button:first-child,
+      .design-file-panel-footer a
+    ):focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(-1 * var(--focus-ring-width));
+  }
+  @media (forced-colors: active) {
+    .design-file-panel-page[aria-current]:not([aria-current="false"]) {
+      outline: 1px solid Highlight;
+      outline-offset: -1px;
+    }
+  }
+}

@@ -15,7 +15,6 @@ const messages = {
       starred: "Starred",
       snoozed: "Snoozed",
       sent: "Sent",
-      draftQueue: "Cola de borradores",
       scheduled: "Scheduled",
       drafts: "Drafts",
       archive: "Archivo",
@@ -26,7 +25,10 @@ const messages = {
       noteToSelf: "Nota para mí",
     },
     inbox: {
-      atLeastCount: "Al menos {{count}}",
+      conversationsCount: "Conversaciones: {{count}}",
+      conversationsAtLeastCount: "Conversaciones: al menos {{count}}",
+      unreadCount: "Conversaciones no leídas: {{count}}",
+      draftsToReviewCount: "Borradores por revisar: {{count}}",
       syncing: "Sincronizando bandeja...",
     },
     sort: {
@@ -158,8 +160,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Fijar barra lateral",
-      unpinSidebar: "Desfijar barra lateral",
       closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
       aiSettings: "Administrar etiquetas y reglas",
@@ -177,7 +177,7 @@ const messages = {
       filtersLimitReached: "Puedes guardar hasta 20 filtros.",
     },
     tabSettings: {
-      splitInbox: "Bandeja de entrada dividida",
+      splitInbox: "Dividir la bandeja de entrada en pestañas",
       views: "Vistas",
       categories: "Categorías",
       rename: "Cambiar nombre",
@@ -185,7 +185,7 @@ const messages = {
       savedFilters: "Filtros guardados",
       combinedInbox: "Bandeja de entrada combinada",
       allTab: "Pestaña Todo",
-      help: "La bandeja combinada reúne todas las cuentas; desactívala para separar el correo en pestañas.",
+      help: "Muestra las vistas, etiquetas y filtros guardados que elijas como pestañas separadas de la bandeja de entrada. Desactívalo para ver todo el correo de entrada en una sola pestaña.",
       aiSetup: "Configurar etiquetas y reglas de IA",
     },
     accounts: {
@@ -201,9 +201,20 @@ const messages = {
       markRead: "Marcar como leído",
       markUnread: "Marcar como no leído",
       moveTo: "Mover a",
+      labelAs: "Etiquetar como",
+      newLabel: "Nueva etiqueta…",
       moveToTrash: "Mover a la papelera",
       star: "Marcar con estrella",
       unstar: "Quitar estrella",
+      copyLink: "Copiar enlace",
+    },
+    labels: {
+      labelAsPlaceholder: "Etiquetar como…",
+      moveToPlaceholder: "Mover a…",
+      newLabelPlaceholder: "Nombre de la nueva etiqueta",
+      create: "Crear la etiqueta «{{name}}»",
+      empty: "Aún no hay etiquetas. Escribe un nombre para crear una.",
+      alreadyExists: "«{{name}}» ya existe.",
     },
     compose: {
       addImage: "Añadir una imagen",
@@ -213,6 +224,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Aplicar",
       attachFile: "Adjuntar archivo",
+      attachFromContent: "Adjuntar desde Content",
+      searchContentPages: "Buscar páginas de Content",
+      contentPagesLoading: "Cargando páginas…",
+      contentPagesFailed: "No se pudieron cargar tus páginas de Content",
+      contentPagesRetry: "Reintentar",
+      contentPagesEmpty: "No se encontraron páginas",
+      contentFileMarkdown: "Archivo Markdown",
+      contentFilePdf: "Archivo PDF",
+      contentPageFormat: "Adjuntar páginas como",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "Archivo CSV",
       bold: "Negrita",
       cancel: "Cancelar",
       closeAllDrafts: "Cerrar todos los borradores",
@@ -307,14 +330,10 @@ const messages = {
       close: "Cerrar",
     },
     integrations: {
-      addIntegration: "Añadir integración",
       checking: "Comprobando...",
       connect: "Conectar",
       disconnect: "Desconectar",
       getApiKey: "Para obtener tu clave API:",
-      newIntegration: "Nueva integración",
-      newIntegrationPlaceholder:
-        "p. ej. Salesforce CRM — mostrar etapa del trato y actividad reciente del contacto",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enriquecimiento de contactos y datos de empresa",
       hubspotDescription: "Contactos, negocios y tickets de CRM",
@@ -330,8 +349,6 @@ const messages = {
       experience: "Experiencia",
       tickets: "Tickets",
       save: "Guardar",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Actualizar clave",
     },
     recipients: {
@@ -447,10 +464,13 @@ const messages = {
       tryDifferentKeywords: "Prueba con otras palabras clave",
       nothingHere: "Nada aquí todavía",
       loadingMore: "Cargando más...",
+      loadOlder: "Cargar conversaciones anteriores",
       openAllMailForOlder: "Abrir todo el correo para mensajes más antiguos",
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",
+      linkCopied: "Enlace copiado.",
+      linkCopyFailed: "No se pudo copiar el enlace.",
       reportedSpam: "Marcado como spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "No hay conversación seleccionada.",
@@ -463,6 +483,14 @@ const messages = {
         "Se movieron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
       moveSucceeded: "Movido a {{label}}.",
       moveManySucceeded: "Se movieron {{count}} conversaciones a {{label}}.",
+      labelSucceeded: "Se añadió la etiqueta {{label}}.",
+      labelManySucceeded:
+        "Se añadió la etiqueta {{label}} a {{count}} conversaciones.",
+      labelPartialFailed:
+        "Se etiquetaron {{succeeded}} de {{total}} conversaciones; {{failed}} fallaron.",
+      labelFailed: "No se pudo añadir la etiqueta.",
+      labelCreated: "Se creó la etiqueta {{label}}.",
+      createLabelFailed: "No se pudo crear la etiqueta.",
       trashed: "Movido a la papelera.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Email programado enviado.",
@@ -475,6 +503,15 @@ const messages = {
       scheduledCancelled: "Email programado cancelado.",
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "No se pudo adjuntar la página de Content",
+      contentPagePdfTextUnsupported:
+        "Esta página tiene texto que un PDF aún no puede mostrar, como chino, japonés, coreano, árabe, hebreo o hindi. Adjúntala como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página es demasiado larga o ancha para adjuntarla como PDF. Adjúntala como Markdown.",
+      contentPagePdfUnavailable:
+        "Content no pudo crear un PDF de esta página. Adjúntala como Markdown.",
+      waitForAttachments:
+        "Espera a que terminen de añadirse los adjuntos y luego envía.",
       failedToUploadImage: "No se pudo subir la imagen",
       storageBuilderRefused:
         "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",
@@ -485,6 +522,13 @@ const messages = {
       openStorageSettings: "Abrir ajustes de almacenamiento",
       reconnectBuilderStorage: "Volver a conectar Builder.io",
       useOwnStorage: "Usar tu propio almacenamiento",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o pide a un propietario o administrador que configure el almacenamiento y luego inténtalo de nuevo.",
+      storageRefusedAskAdmin:
+        "El bucket de almacenamiento de tu organización rechazó esta subida, así que el archivo no se adjuntó. Pide a un propietario o administrador que revise el bucket y sus claves.",
+      storageNotConfiguredAskAdmin:
+        "El almacenamiento de archivos no está configurado, así que el archivo no se adjuntó. Conecta tu propia cuenta de Builder.io o pide a un propietario o administrador que configure el almacenamiento.",
+      connectBuilderStorage: "Conectar Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",
@@ -521,8 +565,14 @@ const messages = {
       tryAgain: "Intentar de nuevo",
       rateLimitTitle: "Se alcanzó el límite de frecuencia de Gmail",
       loadTitle: "No se pudieron cargar los emails",
+      staleSaved:
+        "No se pudo actualizar el correo. Se muestran las conversaciones guardadas.",
       rateLimitDescription:
         "Demasiadas solicitudes recientes a Google. Esperando un momento antes de reintentar.",
+      limitedListFrom:
+        "Última actualización: {{time}}. Puede que falten correos. Google está limitando las solicitudes de Mail.",
+      limitedList:
+        "Puede que falten correos. Google está limitando las solicitudes de Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:
@@ -623,7 +673,7 @@ const messages = {
       instructionsTitle: "Instrucciones",
       instructionCount: "{{count}} instrucción(es)",
       instructionPlaceholder:
-        "p. ej. Los asuntos como «question for you, Steve» no son deseados",
+        "p. ej. Los asuntos como «quick question for you» no son deseados",
       addInstruction: "Añadir",
       noInstructions: "Aún no hay instrucciones.",
       instructionExample:
@@ -672,19 +722,19 @@ const messages = {
       aiTagsTitle: "Etiquetas de IA",
       ruleHelpLabel: "Explicar las reglas de {{mode}}",
       aiTagRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev añade esta etiqueta al correo que coincida.",
+        "Escribe una instrucción en lenguaje natural. Mail añade esta etiqueta al correo que coincida.",
       importantRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev marca como importante el correo que coincida.",
+        "Escribe una instrucción en lenguaje natural. Mail marca como importante el correo que coincida.",
       skipInboxRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev archiva el correo que coincida para omitir la bandeja de entrada.",
+        "Escribe una instrucción en lenguaje natural. Mail archiva el correo que coincida para omitir la bandeja de entrada.",
       spamRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev añade la etiqueta agent-native-filtered y archiva el correo que coincida. No es el Spam de Gmail.",
+        "Escribe una instrucción en lenguaje natural. Mail añade la etiqueta agent-native-filtered y archiva el correo que coincida. No es el Spam de Gmail.",
       filteredMode: "Filtrado",
       manageSettings: "Administrar",
-      askJev: "Preguntar a Jev",
+      askJev: "Preguntar al agente de Mail",
       askJevPrompt:
         "Ayúdame a ajustar esta regla de Mail: {{condition}}. Pregúntame qué quiero cambiar y luego actualízala.",
-      composerPlaceholder: "Pídele a Jev que organice tu bandeja…",
+      composerPlaceholder: "Pídele al agente de Mail que organice tu bandeja…",
       chatSuggestionFilter: "Filtrar mensajes como este",
       chatSuggestionPriority: "Priorizar los correos de…",
       chatSuggestionArchive:
@@ -762,7 +812,7 @@ const messages = {
       addOpenAiApiKey: "Añadir clave de API de OpenAI",
     },
     draftQueue: {
-      title: "Cola de borradores",
+      title: "Borradores solicitados",
       queueDraft: "Poner borrador en cola",
       reviewer: "Revisor",
       chooseMember: "Elegir miembro",
@@ -787,15 +837,20 @@ const messages = {
       send: "Enviar",
       awaitingApproval: "Pendiente de aprobación",
       newDraftRequest: "Nueva solicitud de borrador",
-      needsOrg: "La cola de borradores necesita una organización activa.",
+      needsOrg:
+        "Las solicitudes de borradores necesitan una organización activa.",
       openSettings: "Abrir ajustes",
       statusInReview: "en revisión",
       awaitingApprovalCount: "{{count}} borradores pendientes de aprobación",
       requestedCount: "{{count}} solicitudes de borrador creadas",
+      requested: "Solicitados",
+      askedBy: "{{name}} pidió:",
+      toReview: "Por revisar",
+      moreOptions: "Más opciones de borradores",
     },
     routeTitles: {
       notFound: "No encontrado - Mail",
-      draftQueue: "Cola de borradores - Mail",
+      draftQueue: "Borradores solicitados - Mail",
       settings: "Ajustes - Mail",
       team: "Equipo - Mail",
       emailThread: "Conversación de email",
@@ -823,9 +878,60 @@ const messages = {
     contacts: {
       noContactSelected: "No hay contacto seleccionado",
     },
+    contactPanel: {
+      addToPanel: "Añadir a este panel",
+      builtIn: "Integrados",
+      connections: "Conexiones",
+      yourWidgets: "Tus widgets",
+      notes: "Notas",
+      attachments: "Adjuntos",
+      recent: "Recientes",
+      connected: "Activado",
+      buildYourOwn: "Crea el tuyo…",
+      buildYourOwnTitle: "Crea el tuyo",
+      back: "Atrás",
+      widgetSees:
+        "Un widget ve el nombre y el correo de esta persona y la conversación que tienes abierta.",
+      widgetDoes:
+        "Puede mostrar tus datos de Mail, llamar a otros servicios con las claves que guardes y llevar sus propias notas.",
+      examplePrompt:
+        'Crea un widget para el panel junto a un correo abierto (espacio "{{slotId}}") y añádelo a mi panel: {{idea}}',
+      exampleDeals:
+        "Mostrar los acuerdos abiertos de esta persona en Salesforce",
+      exampleLinks:
+        "Enlazar al sitio web de la empresa y a la página de LinkedIn de esta persona",
+      addNote: "Añadir una nota",
+      notesLoadError: "No se pudieron cargar las notas.",
+      notesContentUnreachable: "No se pudo conectar con Content.",
+      olderNotesInContent:
+        "Las notas anteriores están en la página de Content.",
+      noteSaveError: "No se pudo guardar la nota.",
+      savedToMailNotes: "Guardado en Notas de Mail",
+      open: "Abrir",
+      openInContent: "Abrir en Content",
+      attachmentsLoadError: "No se pudieron cargar los archivos.",
+      noAttachments: "Aún no hay archivos",
+      moreAttachments: "{{count}} más",
+      meetings: "Reuniones",
+      meetingsUpcoming: "Próximas",
+      meetingsPast: "Anteriores",
+      noMeetings: "No hay reuniones",
+      meetingsLoadError: "No se pudieron cargar las reuniones.",
+      meetingsCalendarUnreachable: "No se pudo conectar con Calendar.",
+      meetingsPartial: "No se pudieron leer algunos calendarios.",
+      noCalendar: "No hay ningún calendario conectado",
+      setUpCalendar: "Configurar Calendar",
+      openInCalendar: "Abrir en Calendar",
+      untitledMeeting: "(Sin título)",
+    },
+    readingPane: {
+      empty: "Ningún correo seleccionado",
+      resizeList: "Cambiar el tamaño de la lista de correos",
+    },
   },
   agent: {
-    emptyState: "Preguntame cualquier cosa sobre tus correos",
+    emptyState:
+      "Soy el agente de Mail. Pregúntame por tu correo o pídeme que lo ordene.",
     suggestionSummarize: "Resume mis correos no leidos",
     suggestionReplies: "Que necesita mi respuesta hoy?",
     suggestionWidget: "Crea un widget personalizado para mi bandeja",
@@ -893,6 +999,7 @@ const messages = {
     autocomplete: "Autocompletar",
     sendAndMarkDone: "Enviar y marcar como hecho",
     autocompleteSaveFailed: "No se pudo guardar el ajuste de autocompletado.",
+    signaturePlaceholder: "Saludos,\nTu nombre",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",
@@ -921,12 +1028,16 @@ const messages = {
     slackDraftRequests: "Solicitudes de borradores",
     slackDraftQueue: "Poner en cola borradores desde Slack",
     slackDraftQueueDescription:
-      "Tus compañeros mencionan al agente en Slack para pedir un borrador de correo. Los borradores esperan revisión en tu cola de borradores.",
-    openDraftQueue: "Abrir cola de borradores",
+      "Tus compañeros mencionan al agente en Slack para pedir un borrador de correo. Revisas cada borrador antes de que se envíe.",
+    openDraftQueue: "Abrir borradores solicitados",
     aiFilter: "Clasificación con IA",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",
+    reading: "Lectura",
+    readingPane: "Panel de lectura",
+    readingPaneSaveFailed: "No se pudo guardar el ajuste del panel de lectura.",
+    readingPaneLoadFailed: "No se pudo cargar el ajuste del panel de lectura.",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },

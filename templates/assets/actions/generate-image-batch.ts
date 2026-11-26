@@ -181,6 +181,7 @@ export default defineAction({
   agentInputSchema: imageBatchAgentInputSchema,
   parallelSafe: true,
   timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
+  mcpTool: "search",
   run: async ({ slots, ...inputBase }, context?: ActionRunContext) => {
     const libraryId = inputBase.libraryId;
     if (!libraryId) {

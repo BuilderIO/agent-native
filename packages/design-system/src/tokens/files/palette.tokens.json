@@ -1,0 +1,58 @@
+{
+  "brand": {
+    "$type": "color",
+    "$value": {
+      "colorSpace": "srgb",
+      "components": [0.101961, 0.439216, 0.921569],
+      "alpha": 1,
+      "hex": "#1a70eb"
+    }
+  },
+  "gray": {
+    "$type": "color",
+    "$value": {
+      "colorSpace": "srgb",
+      "components": [0.552941, 0.552941, 0.552941],
+      "alpha": 1,
+      "hex": "#8d8d8d"
+    }
+  },
+  "background": {
+    "light": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1, 1, 1],
+        "alpha": 1,
+        "hex": "#ffffff"
+      }
+    },
+    "dark": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.066667, 0.066667, 0.066667],
+        "alpha": 1,
+        "hex": "#111111"
+      }
+    }
+  },
+  "status": {
+    "danger": {
+      "$type": "string",
+      "$value": "red"
+    },
+    "warning": {
+      "$type": "string",
+      "$value": "amber"
+    },
+    "success": {
+      "$type": "string",
+      "$value": "green"
+    },
+    "info": {
+      "$type": "string",
+      "$value": "cyan"
+    }
+  }
+}

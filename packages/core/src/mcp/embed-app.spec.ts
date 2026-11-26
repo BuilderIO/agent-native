@@ -441,6 +441,96 @@ describe("embedApp", () => {
     expect([...stored.entries()]).toEqual(storedBeforeUnresolvedTarget);
   });
 
+  it("resolves transplanted link and script URLs against the app origin when the sandbox blocks <base>", () => {
+    const resource = embedApp();
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "demo" })
+        : resource.html;
+    const source = html.match(
+      /    function installBaseUrlFallback\(baseHref\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(source).toBeTruthy();
+
+    class FakeElement {
+      attrs = new Map<string, string>();
+      setAttribute(name: string, value: string) {
+        this.attrs.set(name, value);
+      }
+    }
+    class FakeLink extends FakeElement {
+      private url = "";
+      get href() {
+        return this.url;
+      }
+      set href(value: string) {
+        this.url = value;
+      }
+    }
+    class FakeScript extends FakeElement {}
+    class FakeImage extends FakeElement {}
+    const baseHref = "https://app.example/crm/records/1";
+    const install = (baseURI: string) =>
+      new Function(
+        "document",
+        "Element",
+        "HTMLLinkElement",
+        "HTMLScriptElement",
+        "HTMLImageElement",
+        `${source}; return installBaseUrlFallback;`,
+      )({ baseURI }, FakeElement, FakeLink, FakeScript, FakeImage) as (
+        href: string,
+      ) => void;
+
+    const link = new FakeLink();
+    install("https://sandbox.claudemcpcontent.example/")(baseHref);
+    link.href = "/crm/assets/entry.client-abc.js";
+    expect(link.href).toBe(
+      "https://app.example/crm/assets/entry.client-abc.js",
+    );
+    link.href = "https://cdn.example/x.js";
+    expect(link.href).toBe("https://cdn.example/x.js");
+    const script = new FakeScript();
+    script.setAttribute("src", "/crm/assets/manifest-abc.js");
+    expect(script.attrs.get("src")).toBe(
+      "https://app.example/crm/assets/manifest-abc.js",
+    );
+    script.setAttribute("data-x", "/untouched");
+    expect(script.attrs.get("data-x")).toBe("/untouched");
+
+    class AppliedElement {
+      setAttribute() {}
+    }
+    class AppliedLink {
+      private url = "";
+      get href() {
+        return this.url;
+      }
+      set href(value: string) {
+        this.url = value;
+      }
+    }
+    const nativeSetAttribute = AppliedElement.prototype.setAttribute;
+    new Function(
+      "document",
+      "Element",
+      "HTMLLinkElement",
+      "HTMLScriptElement",
+      "HTMLImageElement",
+      `${source}; return installBaseUrlFallback;`,
+    )(
+      { baseURI: baseHref },
+      AppliedElement,
+      AppliedLink,
+      FakeScript,
+      FakeImage,
+    )(baseHref);
+    expect(AppliedElement.prototype.setAttribute).toBe(nativeSetAttribute);
+    const applied = new AppliedLink();
+    applied.href = "/crm/a.js";
+    expect(applied.href).toBe("/crm/a.js");
+  });
+
   it("forwards transplanted workspace credentials only within the target mount", async () => {
     const resource = embedApp();
     const html =
@@ -516,6 +606,15 @@ describe("embedApp", () => {
         this.headers.set(name.toLowerCase(), value);
       }
     }
+    const appended: Array<{ hasAttribute: (n: string) => boolean }> = [];
+    const fakeDocument = {
+      head: {
+        appendChild(node: { hasAttribute: (n: string) => boolean }) {
+          appended.push(node);
+          return node;
+        },
+      },
+    };
     const sessionStorageObject = { setItem: vi.fn() };
     const installRuntime = new Function(
       "window",
@@ -525,6 +624,7 @@ describe("embedApp", () => {
       "fetch",
       "XMLHttpRequest",
       "EventSource",
+      "document",
       `${runtimeSource}; return installExternalEmbedRuntime;`,
     )(
       windowObject,
@@ -534,6 +634,7 @@ describe("embedApp", () => {
       fetch,
       MockXMLHttpRequest,
       MockEventSource,
+      fakeDocument,
     ) as (config: Record<string, unknown>) => void;
 
     installRuntime({
@@ -622,6 +723,9 @@ describe("embedApp", () => {
       "/deck/reports",
     );
 
+    fetch.mockResolvedValueOnce(new Response("", { status: 503 }));
+    await installedFetch("/deck/_agent-native/auth/session");
+
     const installedEventSource = windowObject.EventSource as (
       url: string,
     ) => unknown;
@@ -654,6 +758,34 @@ describe("embedApp", () => {
       ),
     ).toBe(false);
 
+    const stylesheet = {
+      nodeName: "LINK",
+      rel: "stylesheet",
+      href: "https://host.example/mail/assets/route-abc123.css",
+      attrs: new Map([["crossorigin", ""]]),
+      getAttribute(name: string) {
+        return this.attrs.get(name) ?? null;
+      },
+      hasAttribute(name: string) {
+        return this.attrs.has(name);
+      },
+      removeAttribute(name: string) {
+        this.attrs.delete(name);
+      },
+    };
+    const credentialed = {
+      ...stylesheet,
+      attrs: new Map([
+        ["crossorigin", "use-credentials"],
+        ["integrity", "sha384-x"],
+      ]),
+    };
+    fakeDocument.head.appendChild(credentialed as never);
+    expect(credentialed.attrs.has("crossorigin")).toBe(true);
+    fakeDocument.head.appendChild(stylesheet as never);
+    expect(appended).toContain(stylesheet);
+    expect(stylesheet.hasAttribute("crossorigin")).toBe(false);
+
     locationObject.pathname = "/mail/settings";
     locationObject.href = "https://host.example/mail/settings";
     locationObject.search = "";
@@ -678,6 +810,28 @@ describe("embedApp", () => {
       ),
     ).toBe(false);
 
+    // read_view reports these: the host shows no console for the panel.
+    fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(
+      installedFetch("/mail/_agent-native/auth/session"),
+    ).rejects.toThrow("Failed to fetch");
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: "Approve this call first.",
+          errorCode: "approval_required",
+        }),
+        { status: 409 },
+      ),
+    );
+    await installedFetch("/mail/_agent-native/actions/x", { method: "post" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(windowObject.__agentNativeEmbedRequestFailures).toEqual([
+      "GET /deck/_agent-native/auth/session HTTP 503",
+      "GET /mail/_agent-native/auth/session failed: Failed to fetch (sent without the panel session)",
+      "POST /mail/_agent-native/actions/x HTTP 409 approval_required: Approve this call first. (sent without the panel session)",
+    ]);
+
     // Off the target's mount its reads go out unsigned, still without
     // cookies: neither the signed transport nor the page's.
     const unsignedTransport = fetchTransport(installedFetch as typeof fetch);
@@ -689,6 +843,16 @@ describe("embedApp", () => {
     locationObject.href = "https://host.example/deck/reports";
     expect(fetchTransport(installedFetch as typeof fetch)).toBe(
       signedTransport,
+    );
+
+    // A token the app attached itself is named when it is not the panel's.
+    fetch.mockResolvedValueOnce(new Response("{}", { status: 403 }));
+    await installedFetch("/deck/_agent-native/actions/y", {
+      method: "POST",
+      headers: { Authorization: "Bearer another-session" },
+    });
+    expect(windowObject.__agentNativeEmbedRequestFailures.at(-1)).toBe(
+      "POST /deck/_agent-native/actions/y HTTP 403 (sent with a session other than the panel's)",
     );
   });
 
@@ -968,24 +1132,20 @@ describe("embedApp", () => {
     ]);
   });
 
-  it("checks for ChatGPT's window.openai bridge before loading the standard bridge module", () => {
+  it("loads the remote fallback module lazily", () => {
     const resource = embedApp({ title: "Mail" });
     const html =
       typeof resource.html === "function"
         ? resource.html({ actionName: "manage-draft", appId: "mail" })
         : resource.html;
 
-    const openAiIndex = html.indexOf("window.openai");
-    const dynamicImportIndex = html.indexOf(
+    expect(html).toContain(
       'await import("https://esm.sh/@modelcontextprotocol',
     );
-
-    expect(openAiIndex).toBeGreaterThanOrEqual(0);
-    expect(dynamicImportIndex).toBeGreaterThan(openAiIndex);
     expect(html).not.toContain('import { App } from "https://esm.sh');
   });
 
-  it("waits longer for ChatGPT's bridge before falling back to the generic MCP Apps module", () => {
+  it("gives ChatGPT's bridge longer to appear", () => {
     const resource = embedApp({ title: "Mail" });
     const html =
       typeof resource.html === "function"
@@ -2354,6 +2514,316 @@ return requestFullscreenOnFirstInteraction;`;
     });
   });
 
+  describe("app tools on the open view", () => {
+    const viewToolsFor = (options: {
+      href: string;
+      pageHelper?: unknown;
+      frameSrc?: string;
+      modelContext?: unknown;
+      app?: unknown;
+      windowListeners?: Record<string, Array<(event: unknown) => void>>;
+    }) => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const source = html.match(
+        /const readViewToolName = [\s\S]*?(?=\n    function createNativeMcpAppsBridge\(\))/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const { window } = parseHTML(
+        "<html><head><title>Inbox</title></head><body><main>Invoice from Acme   due Friday</main></body></html>",
+      );
+      const pushed: Array<{ state: unknown; url: string }> = [];
+      const popstates: unknown[] = [];
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = options.windowListeners ?? {};
+      const fakeWindow = {
+        location: { href: options.href },
+        history: {
+          state: { usr: null, key: "a", idx: 3 },
+          pushState(state: unknown, _title: string, url: string) {
+            pushed.push({ state, url });
+            this.state = state;
+          },
+        },
+        dispatchEvent(event: { type: string }) {
+          popstates.push(event.type);
+          return true;
+        },
+        getSelection: () => "",
+        __agentNativeWebMcp: options.pageHelper,
+        addEventListener(type: string, listener: (event: unknown) => void) {
+          (windowListeners[type] ??= []).push(listener);
+        },
+      };
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const localPathFromUrl = (url: URL) =>
+        url.pathname + url.search + url.hash;
+      class FakePopStateEvent {
+        constructor(readonly type: string) {}
+      }
+      if (options.modelContext) {
+        Object.assign(window.document, { modelContext: options.modelContext });
+      }
+      const appFrame = options.frameSrc ? { src: options.frameSrc } : null;
+      return new Function(
+        "window",
+        "document",
+        "objectValue",
+        "localPathFromUrl",
+        "PopStateEvent",
+        "appFrame",
+        "lastFrameSrc",
+        "app",
+        `${source}; return { listViewTools, callViewTool, watchPageTools };`,
+      )(
+        fakeWindow,
+        window.document,
+        objectValue,
+        localPathFromUrl,
+        FakePopStateEvent,
+        appFrame,
+        "https://labs.example.com/_agent-native/embed/start?t=1",
+        options.app ?? null,
+      ) as {
+        watchPageTools(): void;
+        listViewTools(): Promise<Array<{ name: string }>>;
+        callViewTool(params: unknown): Promise<{
+          isError?: boolean;
+          content: Array<{ text: string }>;
+          structuredContent?: Record<string, unknown>;
+        }>;
+      } & { pushed: typeof pushed; popstates: typeof popstates };
+    };
+
+    it("lists read and navigate tools plus the page's own tools", async () => {
+      const pageHelper = {
+        tools: async () => [
+          {
+            name: "select_thread",
+            description: "Select a thread",
+            required: ["id"],
+            readOnly: false,
+          },
+        ],
+        describe: async () => ({
+          name: "select_thread",
+          description: "Select a thread in the list",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+        }),
+        call: async (name: string, args: unknown) => ({
+          id: "1",
+          state: "done",
+          ok: true,
+          tool: name,
+          attempts: 1,
+          result: { selected: args },
+        }),
+      };
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper,
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.map((tool) => tool.name)).toEqual([
+        "read_view",
+        "navigate_view",
+        "select_thread",
+      ]);
+      expect(listed[2]).toMatchObject({
+        description: "Select a thread in the list",
+        inputSchema: { required: ["id"] },
+      });
+
+      const called = await tools.callViewTool({
+        name: "select_thread",
+        arguments: { id: "t1" },
+      });
+      expect(called.isError).toBeUndefined();
+      expect(called.structuredContent).toEqual({ selected: { id: "t1" } });
+    });
+
+    it("calls a page tool on the origin it was listed from", async () => {
+      const calls: unknown[] = [];
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper: {
+          tools: async () => [
+            { name: "archive", origin: "https://labs.example.com" },
+            { name: "archive", origin: "https://widgets.example.com" },
+          ],
+          call: async (name: string, _args: unknown, options: unknown) => {
+            calls.push(options);
+            return { state: "done", ok: true, tool: name, result: "ok" };
+          },
+        },
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.filter((tool) => tool.name === "archive")).toHaveLength(1);
+      await tools.callViewTool({ name: "archive", arguments: {} });
+      expect(calls).toEqual([
+        { waitMs: 40000, origin: "https://labs.example.com" },
+      ]);
+    });
+
+    it("re-announces its tools once the page registers them", async () => {
+      vi.useFakeTimers();
+      try {
+        let notified = 0;
+        const listeners: Array<() => void> = [];
+        const tools = viewToolsFor({
+          href: "https://labs.example.com/mail/inbox",
+          app: { sendToolListChanged: () => notified++ },
+          modelContext: {
+            addEventListener: (_type: string, listener: () => void) =>
+              listeners.push(listener),
+          },
+        });
+
+        tools.watchPageTools();
+        expect(notified).toBe(1);
+        expect(listeners).toHaveLength(1);
+
+        listeners[0]!();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(notified).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reads what the open page shows", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox?q=acme",
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toEqual({
+        path: "/mail/inbox?q=acme",
+        title: "Inbox",
+        visibleText: "Invoice from Acme due Friday",
+      });
+    });
+
+    it("reports why the open page failed to load", async () => {
+      const windowListeners: Record<
+        string,
+        Array<(event: unknown) => void>
+      > = {};
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        windowListeners,
+      });
+      windowListeners.unhandledrejection![0]!({
+        reason: new Error("Failed to fetch dynamically imported module"),
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toMatchObject({
+        errors: ["Failed to fetch dynamically imported module"],
+      });
+    });
+
+    it("moves the transplanted app in place and refuses other origins", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/mail/inbox?q=invoice" },
+      });
+      expect(moved.structuredContent).toEqual({
+        path: "/mail/inbox?q=invoice",
+      });
+
+      for (const path of ["//evil.example/x", "https://evil.example/x", ""]) {
+        const refused = await tools.callViewTool({
+          name: "navigate_view",
+          arguments: { path },
+        });
+        expect(refused.isError).toBe(true);
+      }
+    });
+
+    it("leaves a nested app frame where its session started", async () => {
+      const tools = viewToolsFor({
+        href: "https://sandbox.example/shell",
+        frameSrc: "https://labs.example.com/calendar/week",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/calendar/event/e1" },
+      });
+      expect(moved.isError).toBe(true);
+      expect(moved.content[0]?.text).toContain("nested frame");
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.isError).toBe(true);
+      expect(read.content[0]?.text).toContain("nested frame");
+      expect(await tools.listViewTools()).toEqual([]);
+    });
+
+    it("tells the host its tool list changed when a nested frame mounts", () => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const renderFrameSource = html.match(
+        /    function renderFrame\([^)]*\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(renderFrameSource).toBeTruthy();
+      let notified = 0;
+      const mount = new Function(
+        "document",
+        "body",
+        "stage",
+        "notifyViewToolsChanged",
+        `let appFrame = null;
+let appFrameReady = true;
+let lastFrameSrc = "";
+let appFrameLoadTimer = null;
+const appFrameDocumentState = { loadGeneration: 0 };
+const frameLoadTimeoutMs = 1000;
+const noop = () => {};
+const rememberActiveEmbedSessionTicket = noop;
+const clearFrameReadyTimer = noop;
+const clearFrameLoadTimer = noop;
+const notifyHostHeight = noop;
+const renderFrameFallback = noop;
+const setTimeout = () => 0;
+${renderFrameSource}
+return (src) => { renderFrame(src); return appFrame; };`,
+      )(
+        { createElement: () => ({ addEventListener() {} }) },
+        { dataset: {} },
+        { replaceChildren() {} },
+        () => notified++,
+      ) as (src: string) => { src: string } | null;
+
+      const frame = mount("https://labs.example.com/calendar/week");
+      expect(frame?.src).toBe("https://labs.example.com/calendar/week");
+      expect(notified).toBe(1);
+    });
+
+    it("asks Claude to open the view in its side panel", () => {
+      const resource = embedApp({ title: "Mail" });
+      expect(resource._meta).toEqual({
+        ui: { preferredDisplayMode: "fullscreen" },
+      });
+    });
+  });
+
   it("provides a local MCP App payload fixture for renderer tests", async () => {
     const fixture = await createLocalMcpAppEmbedHarness({
       actionName: "open_app",
@@ -2421,7 +2891,6 @@ return requestFullscreenOnFirstInteraction;`;
     expect(fixture.html).toContain("app.updateModelContext");
     expect(fixture.html).toContain("app.requestDisplayMode");
     expect(fixture.html).toContain("app.sendMessage");
-    expect(fixture.html).toContain("window.openai");
     expect(fixture.html).toContain('"openai:set_globals"');
     expect(fixture.html).toContain("openAiBridge.callTool(startTool, args)");
     expect(fixture.html).toContain("openAiBridge.openExternal");
@@ -2533,6 +3002,7 @@ const WIDGET_CHAT_BRIDGE = "__an_mcp_chat_bridge=1";
 async function mountRestoredWidget(
   callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>,
   catalogMode: "directory" | "app" = "directory",
+  nested = false,
 ) {
   const resource = embedApp({ title: "Slides" });
   const html =
@@ -2578,14 +3048,21 @@ async function mountRestoredWidget(
     locale: "en-US",
     maxHeight: 800,
     callTool: vi.fn(callTool),
-    notifyIntrinsicHeight: vi.fn(),
+    notifyIntrinsicHeight: nested ? undefined : vi.fn(),
     requestDisplayMode: vi.fn(),
     setOpenInAppUrl: vi.fn(),
   };
   const host = "slides-agent-native-com.web-sandbox.oaiusercontent.com";
-  const win = {
+  const hostEvents = new EventTarget();
+  const parent = { postMessage: vi.fn() };
+  const bridgeWindow = {
     openai: bridge,
-    parent: { postMessage: vi.fn() },
+    addEventListener: hostEvents.addEventListener.bind(hostEvents),
+    removeEventListener: hostEvents.removeEventListener.bind(hostEvents),
+  };
+  const win = {
+    openai: nested ? undefined : bridge,
+    parent: nested ? { ...parent, parent: bridgeWindow } : parent,
     location: { href: `https://${host}/`, hostname: host, search: "" },
     screen: { availHeight: 900 },
     addEventListener: (type: string, listener: (event: unknown) => void) => {
@@ -2628,7 +3105,16 @@ async function mountRestoredWidget(
   const stage = document.querySelector("[data-stage]")!;
   return {
     bridge,
+    hostMessages: win.parent.postMessage,
+    respondToHost: async (id: number, result: Record<string, unknown>) => {
+      dispatch("message", {
+        source: win.parent,
+        data: { jsonrpc: "2.0", id, result },
+      });
+      await flush();
+    },
     stageText: () => stage.textContent ?? "",
+    widgetMode: () => document.body.dataset.widgetMode,
     frame: () =>
       stage.querySelector("iframe") as
         | (HTMLIFrameElement & { src: string })
@@ -2651,11 +3137,91 @@ async function mountRestoredWidget(
     },
     resync: async (displayMode: string) => {
       bridge.displayMode = displayMode;
-      dispatch("openai:set_globals");
+      if (nested) {
+        hostEvents.dispatchEvent(new Event("openai:set_globals"));
+      } else {
+        dispatch("openai:set_globals");
+      }
       await flush();
     },
   };
 }
+
+it("loads the ChatGPT tool result and follows globals from an ancestor iframe", async () => {
+  vi.useFakeTimers();
+  try {
+    const shell = await mountRestoredWidget(
+      async () => ({}),
+      "directory",
+      true,
+    );
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+    expect(shell.bridge.setOpenInAppUrl).toHaveBeenCalledWith({
+      href: `${WIDGET_APP_ORIGIN}/deck/deck-1`,
+    });
+    await shell.resync("inline");
+    expect(shell.widgetMode()).toBe("inline");
+    await shell.resync("fullscreen");
+    expect(shell.widgetMode()).toBe("pane");
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("initializes the MCP Apps host while the ChatGPT bridge is active", async () => {
+  vi.useFakeTimers();
+  try {
+    const shell = await mountRestoredWidget(async () => ({}));
+    const messages = () =>
+      shell.hostMessages.mock.calls.map(([message]) => message);
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+    const initialize = messages().find(
+      (message) => message.method === "ui/initialize",
+    );
+    expect(initialize).toEqual(
+      expect.objectContaining({ jsonrpc: "2.0", id: expect.any(Number) }),
+    );
+    await shell.resync("inline");
+    expect(shell.bridge.notifyIntrinsicHeight).toHaveBeenCalledWith({
+      height: 56,
+    });
+    expect(messages().map((message) => message.method)).not.toContain(
+      "ui/notifications/size-changed",
+    );
+
+    await shell.respondToHost(initialize.id, {
+      protocolVersion: "2026-01-26",
+      hostContext: { displayMode: "inline" },
+    });
+    expect(messages().filter((message) => message.jsonrpc === "2.0")).toEqual([
+      initialize,
+      {
+        jsonrpc: "2.0",
+        method: "ui/notifications/initialized",
+        params: {},
+      },
+      {
+        jsonrpc: "2.0",
+        method: "notifications/tools/list_changed",
+        params: {},
+      },
+      {
+        jsonrpc: "2.0",
+        method: "ui/notifications/size-changed",
+        params: { height: 56 },
+      },
+    ]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 describe.each(["directory", "app"] as const)(
   "embedApp %s widget restored after a chat reload",
@@ -2841,3 +3407,23 @@ function renderMcpAppResourceHtml(
     ? resource.html(context)
     : resource.html;
 }
+
+describe("ChatGPT widget init window", () => {
+  it("signals the host it is ready without waiting for ui/initialize", async () => {
+    vi.useFakeTimers();
+    try {
+      const shell = await mountRestoredWidget(async () => ({}));
+      const readySignals = () =>
+        shell.hostMessages.mock.calls.filter(
+          (call: unknown[]) =>
+            (call[0] as { type?: string } | undefined)?.type ===
+            "agentNative.embeddedAppReady",
+        ).length;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readySignals()).toBeGreaterThan(0);
+      expect(shell.frame()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

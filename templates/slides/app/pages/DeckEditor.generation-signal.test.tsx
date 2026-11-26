@@ -389,7 +389,7 @@ vi.mock("@/hooks/use-deck-role", () => ({
   useDeckRole: () => ({ canEdit: true, canComment: true }),
 }));
 vi.mock("@/hooks/use-slide-comments", () => ({
-  useSlideComments: () => ({ data: [] }),
+  useSlideComments: () => ({ data: { threads: [] } }),
 }));
 vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => ({

@@ -16,7 +16,12 @@ import {
   startOfMonth,
 } from "date-fns";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
@@ -35,6 +40,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  SingleUseLinkUnavailableError,
   useAvailableDays,
   useAvailableSlots,
   useCreateBooking,
@@ -139,6 +145,9 @@ export default function BookingPage() {
   const { session } = useSession();
   const { slug, username } = useParams<{ slug: string; username?: string }>();
   const navigate = useNavigate();
+  const { search } = useLocation();
+  const [searchParams] = useSearchParams();
+  const singleUseToken = searchParams.get("once") ?? undefined;
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
   const { data: availability, isLoading: availabilityLoading } =
     usePublicAvailability(slug, username);
@@ -146,20 +155,27 @@ export default function BookingPage() {
     data: bookingLink,
     isLoading: bookingLinkLoading,
     isError: bookingLinkError,
-  } = usePublicBookingLink(slug, username);
+  } = usePublicBookingLink(slug, username, singleUseToken);
   const isRedirecting =
     !!bookingLink && (!!bookingLink.redirectPath || !!bookingLink.redirect);
 
   useEffect(() => {
     if (bookingLink?.redirectPath) {
-      void navigate(bookingLink.redirectPath, { replace: true });
+      void navigate(`${bookingLink.redirectPath}${search}`, { replace: true });
       return;
     }
     if (!bookingLink?.redirect) return;
     const newSlug = bookingLink.redirect;
     const path = username ? `/book/${username}/${newSlug}` : `/book/${newSlug}`;
-    void navigate(path, { replace: true });
-  }, [bookingLink?.redirect, bookingLink?.redirectPath, username, navigate]);
+    void navigate(`${path}${search}`, { replace: true });
+  }, [
+    bookingLink?.redirect,
+    bookingLink?.redirectPath,
+    username,
+    search,
+    navigate,
+  ]);
+  const [singleUseSpent, setSingleUseSpent] = useState(false);
 
   const [step, setStep] = useState<Step>("date");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -335,6 +351,7 @@ export default function BookingPage() {
         start: slot.start,
         end: slot.end,
         slug,
+        ...(singleUseToken !== undefined ? { singleUseToken } : {}),
       },
       {
         onSuccess: (booking: Booking) => {
@@ -342,6 +359,10 @@ export default function BookingPage() {
           setStep("confirmed");
         },
         onError: (error) => {
+          if (error instanceof SingleUseLinkUnavailableError) {
+            setSingleUseSpent(true);
+            return;
+          }
           const message = error instanceof Error ? error.message : undefined;
           toast.error(
             !message || message === "Failed to create booking"
@@ -436,6 +457,30 @@ export default function BookingPage() {
     isRedirecting
   ) {
     return <BookingPageSkeleton />;
+  }
+
+  const singleUseStatus = singleUseSpent
+    ? "used"
+    : bookingLink?.singleUse?.status;
+  if (
+    singleUseStatus &&
+    singleUseStatus !== "available" &&
+    step !== "confirmed"
+  ) {
+    return (
+      <BookingPageShell>
+        <div className="mx-auto mt-[7.5vh] w-full max-w-md rounded-2xl border border-border bg-card/95 p-8 text-center shadow-xl shadow-background/20 backdrop-blur">
+          <h1 className="text-xl font-semibold">
+            {singleUseStatus === "used"
+              ? t("bookingLinks.singleUseLinkUsed")
+              : t("bookingLinks.singleUseLinkInvalid")}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t("bookingLinks.singleUseLinkAskForNew")}
+          </p>
+        </div>
+      </BookingPageShell>
+    );
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {
@@ -727,7 +772,7 @@ export default function BookingPage() {
             <BookingConfirmation
               booking={confirmedBooking}
               customFields={bookingLink?.customFields}
-              onReset={handleReset}
+              onReset={singleUseToken === undefined ? handleReset : undefined}
             />
           )}
         </div>

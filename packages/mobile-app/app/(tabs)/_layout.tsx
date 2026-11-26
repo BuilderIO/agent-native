@@ -43,6 +43,7 @@ export default function TabLayout() {
       >
         <Tabs.Screen name="chat" options={{ title: "Chat" }} />
         <Tabs.Screen name="more" options={{ title: "More" }} />
+        <Tabs.Screen name="tab-app/[id]" options={{ headerShown: true }} />
         {tabNames.map((name) => (
           <Tabs.Screen key={name} name={name} />
         ))}

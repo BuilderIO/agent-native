@@ -38,6 +38,8 @@ type GetSuggestionAction =
   typeof import("@agent-native/core/review/suggestions/actions/get-resource-suggestion").default;
 type DecideSuggestionAction =
   typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
+type AddCommentAction = typeof import("./add-comment.js").default;
+type UpdateCommentAction = typeof import("./update-comment.js").default;
 
 let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
@@ -48,11 +50,21 @@ let listResourceSuggestions: ListSuggestionsAction;
 let updateDocument: UpdateDocumentAction;
 let getResourceSuggestion: GetSuggestionAction;
 let decideResourceSuggestion: DecideSuggestionAction;
+let addComment: AddCommentAction;
+let updateComment: UpdateCommentAction;
 
 const ctx = {
   caller: "cli" as const,
   userEmail: "owner@example.com",
 };
+
+/** A script rewriting the page from its latest read. */
+async function rewriteBody(id: string, content: string) {
+  const { revision } = (await getDocument.run({ id }, ctx)) as {
+    revision: string;
+  };
+  await updateDocument.run({ id, content, baseRevision: revision }, ctx);
+}
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -78,6 +90,8 @@ beforeAll(async () => {
   decideResourceSuggestion = (
     await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion")
   ).default;
+  addComment = (await import("./add-comment.js")).default;
+  updateComment = (await import("./update-comment.js")).default;
 }, 60_000);
 
 afterAll(() => {
@@ -226,7 +240,7 @@ describe("suggest-document-edit", () => {
         expect(replay.suggestionIds).toEqual(result.suggestionIds);
         expect(replay.proposalId).toBe(result.proposalId);
 
-        await updateDocument.run({ id, content: "A newer body." }, ctx);
+        await rewriteBody(id, "A newer body.");
         const staleReplay = (await suggestDocumentEdit.run(
           args,
           ctx,
@@ -624,10 +638,7 @@ describe("suggest-document-edit", () => {
         const first = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
-        await updateDocument.run(
-          { id, content: "The page changed underneath the proposal." },
-          ctx,
-        );
+        await rewriteBody(id, "The page changed underneath the proposal.");
         const retry = (await suggestDocumentEdit.run(args, ctx)) as {
           suggestionId: string;
         };
@@ -669,6 +680,176 @@ describe("suggest-document-edit", () => {
             ctx,
           ),
         ).rejects.toThrow(/already created a different suggested edit/);
+      },
+    );
+  });
+
+  it("links every piece of an edit to the comment it answers, and replays that link", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const before = "We shipped quickly, and the results were good.";
+        const { id, revision } = await createPage(before);
+        const root = (await addComment.run(
+          { documentId: id, content: "Tighten this sentence." },
+          ctx,
+        )) as { id: string; threadId: string };
+        const reply = (await addComment.run(
+          {
+            documentId: id,
+            content: "And say excellent.",
+            threadId: root.threadId,
+            parentId: root.id,
+          },
+          ctx,
+        )) as { id: string };
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `answers-${id}`,
+          find: before,
+          replace: "We shipped quickly and the results were excellent.",
+          summary: "Tighten release sentence",
+          commentId: reply.id,
+        };
+        const result = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionIds: string[];
+        };
+        expect(result.suggestionIds).toHaveLength(2);
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            metadata?: Record<string, unknown>;
+          }>;
+        };
+        const links = result.suggestionIds.map((suggestionId) => {
+          const metadata = listed.suggestions.find(
+            (item) => item.id === suggestionId,
+          )?.metadata;
+          return [
+            metadata?.sourceCommentId,
+            metadata?.sourceThreadId,
+            metadata?.sourceUrl,
+          ];
+        });
+        const link = [
+          reply.id,
+          root.threadId,
+          `/page/${id}?comment=${root.threadId}`,
+        ];
+        expect(links).toEqual([link, link]);
+
+        const replay = (await suggestDocumentEdit.run(
+          args,
+          ctx,
+        )) as typeof result;
+        expect(replay.suggestionIds).toEqual(result.suggestionIds);
+        await expect(
+          suggestDocumentEdit.run({ ...args, commentId: undefined }, ctx),
+        ).rejects.toThrow(/already created a different suggested edit/);
+      },
+    );
+  });
+
+  it("refuses a comment that isn't open on the page's body, and suggests nothing", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("A line to answer.");
+        const other = await createPage("Another page.");
+        const elsewhere = (await addComment.run(
+          { documentId: other.id, content: "On the other page." },
+          ctx,
+        )) as { id: string };
+        const resolved = (await addComment.run(
+          { documentId: id, content: "Already handled." },
+          ctx,
+        )) as { id: string };
+        await updateComment.run({ id: resolved.id, resolved: true }, ctx);
+        const inTab = (await addComment.run(
+          { documentId: id, content: "In another tab." },
+          ctx,
+        )) as { id: string };
+        await getDb()
+          .update(schema.documentComments)
+          .set({ fieldId: "field-notes" })
+          .where(eq(schema.documentComments.id, inTab.id));
+        const onProperty = (await addComment.run(
+          { documentId: id, content: "On the Status Property." },
+          ctx,
+        )) as { id: string; threadId: string };
+        await getDb()
+          .update(schema.documentComments)
+          .set({ propertyId: "prop-status" })
+          .where(eq(schema.documentComments.id, onProperty.id));
+        const propertyReply = (await addComment.run(
+          {
+            documentId: id,
+            content: "Still on the Property.",
+            threadId: onProperty.threadId,
+            parentId: onProperty.id,
+          },
+          ctx,
+        )) as { id: string };
+        const closed = (await addComment.run(
+          { documentId: id, content: "Closed before replies were." },
+          ctx,
+        )) as { id: string; threadId: string };
+        const openReply = (await addComment.run(
+          {
+            documentId: id,
+            content: "A reply left open.",
+            threadId: closed.threadId,
+            parentId: closed.id,
+          },
+          ctx,
+        )) as { id: string };
+        await getDb()
+          .update(schema.documentComments)
+          .set({ resolved: 1 })
+          .where(eq(schema.documentComments.id, closed.id));
+        const suggest = (commentId: string) =>
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `refused-${commentId}`,
+              find: "A line to answer.",
+              replace: "A line answered.",
+              commentId,
+            },
+            ctx,
+          );
+
+        await expect(suggest(elsewhere.id)).rejects.toThrow(
+          /is not on this page/,
+        );
+        await expect(suggest("no-such-comment")).rejects.toThrow(
+          /is not on this page/,
+        );
+        await expect(suggest(resolved.id)).rejects.toThrow(
+          /thread is resolved/,
+        );
+        await expect(suggest(inTab.id)).rejects.toThrow(
+          /another Blocks field tab/,
+        );
+        await expect(suggest(onProperty.id)).rejects.toThrow(
+          /is on a Property/,
+        );
+        await expect(suggest(propertyReply.id)).rejects.toThrow(
+          /is on a Property/,
+        );
+        await expect(suggest(openReply.id)).rejects.toThrow(
+          /thread is resolved/,
+        );
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as { suggestions: unknown[] };
+        expect(listed.suggestions).toEqual([]);
       },
     );
   });
@@ -1179,7 +1360,7 @@ describe("suggest-document-edit", () => {
             "<details>",
             "<details open>",
           );
-          await updateDocument.run({ id, content: opened }, ctx);
+          await rewriteBody(id, opened);
           const before = (await getDocument.run({ id }, ctx)) as {
             content: string;
           };
@@ -1254,7 +1435,7 @@ describe("suggest-document-edit", () => {
             ctx,
           )) as { id: string };
           const edited = canonicalizeNfm(content).replace("Waiting", "Blocked");
-          await updateDocument.run({ id, content: edited }, ctx);
+          await rewriteBody(id, edited);
           const suggestion = await getResourceSuggestion.run(
             { id: created.id },
             ctx,
@@ -1393,6 +1574,117 @@ describe("suggest-document-edit", () => {
       );
     },
   );
+
+  describe("of interactive HTML", () => {
+    const page = (...code: string[]) =>
+      ["Intro", "```html interactive", ...code, "```"].join("\n");
+
+    function suggestOperation(
+      { id, revision }: { id: string; revision: string },
+      content: string,
+      find: string,
+      replace: string,
+      caller: "cli" | "frontend",
+    ) {
+      return runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const createResourceSuggestion = (
+            await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+          ).default;
+          const { buildMarkdownSuggestionOperation } =
+            await import("./suggest-document-edit.js");
+          return createResourceSuggestion.run(
+            {
+              resourceType: "document",
+              resourceId: id,
+              adapterKind: "content.document-markdown",
+              baseRevision: revision,
+              summary: "Change the block",
+              idempotencyKey: `interactive-${caller}-${id}`,
+              operations: [
+                buildMarkdownSuggestionOperation({
+                  content,
+                  find,
+                  replace,
+                  start: content.indexOf(find),
+                }),
+              ],
+            },
+            { ...ctx, caller },
+          );
+        },
+      );
+    }
+
+    it("is refused when an agent's would not work, whichever tool it uses", async () => {
+      const content = page(
+        '<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>',
+      );
+      const created = await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        () => createPage(content),
+      );
+      const refused = { errorCode: "INTERACTIVE_HTML_BLOCK_REFUSED" };
+
+      await expect(
+        suggestOperation(
+          created,
+          content,
+          "cdn.jsdelivr.net/npm",
+          "unpkg.com",
+          "cli",
+        ),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        runWithRequestContext({ userEmail: ctx.userEmail, orgId: null }, () =>
+          suggestDocumentEdit.run(
+            {
+              id: created.id,
+              baseRevision: created.revision,
+              idempotencyKey: `interactive-edit-${created.id}`,
+              find: "cdn.jsdelivr.net/npm",
+              replace: "unpkg.com",
+            },
+            ctx,
+          ),
+        ),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        suggestOperation(
+          created,
+          content,
+          "cdn.jsdelivr.net/npm",
+          "unpkg.com",
+          "frontend",
+        ),
+      ).resolves.toMatchObject({ status: "pending" });
+    });
+
+    it("is checked as the whole edit, not piece by piece", async () => {
+      const content = page("<p>one</p>", "<p>kept</p>", "<p>two</p>");
+      const created = await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        () => createPage(content),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: ctx.userEmail, orgId: null }, () =>
+          suggestDocumentEdit.run(
+            {
+              id: created.id,
+              baseRevision: created.revision,
+              idempotencyKey: `interactive-whole-${created.id}`,
+              find: "<p>one</p>\n<p>kept</p>\n<p>two</p>",
+              replace:
+                '<!--\n<p>kept</p>\n<script src="https://unpkg.com/d3"></script>-->',
+            },
+            ctx,
+          ),
+        ),
+      ).resolves.toMatchObject({ suggestionId: expect.any(String) });
+    });
+  });
 
   it("rejects an ambiguous find", async () => {
     await runWithRequestContext(

@@ -147,10 +147,48 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   duplicate can drop one event and settle another's ambiguous link. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
   plus one overflow row to detect truncation. Each BigQuery page keeps a 25 GB
   billed-byte cap; by default, `maxTotalBytesBilled` reserves that cap for 11
-  pages (275 GB), and can be raised deliberately to 1.275 TB (51 pages). Event
-  page reads also stop at a 45-second deadline. If the aggregate budget or
-  deadline cuts a read, `coverage.truncated` and `notes` identify why; read them
-  before interpreting counts. A truncated event sample skips replay reads and
+  pages (275 GB), and can be raised deliberately to 1.275 TB (51 pages). Only
+  pages that start or collect a BigQuery job count; a page already in the
+  query cache reads free. So when the aggregate budget cuts a read, calling
+  again with `continueWith.observationWatermark` rereads the finished pages
+  free and spends the budget on the ones after them. A page the cache did not
+  keep, because BigQuery returned it with warnings or the cache write failed,
+  bills again: the response note counts those pages, and leaves out
+  `continueWith` when no page the call billed was kept. Event
+  page reads also stop after 15 seconds, and event and follow-up queries after
+  22 in all, leaving the rest of a hosted call's time before its gateway gives
+  up. Tree-format replay lookups run after that budget, so use
+  `format: "summary"` for long windows. Pages after the first run up
+  to ten at a time. If the aggregate budget or time budget cuts a read,
+  `coverage.truncated` and `notes` identify why; read them before interpreting
+  counts. When a time limit stopped it, a note gives an
+  `observationWatermark`: call again within a few minutes with the same
+  arguments plus that value. Pages and follow-ups that finished come from the
+  query cache (writing to it is best-effort), and the BigQuery jobs that were
+  still running keep running, so the next call collects them instead of
+  starting over, even a query that needs longer than one call. Each call gets
+  further; repeat until the note is gone. A job is collected only within an
+  hour of when it started; after that, a call runs the query again. A job
+  that failed within that hour for a reason a new run would repeat
+  (BigQuery's `invalidQuery`, `resourcesExceeded` or `responseTooLarge`) is
+  not run again: the call reports that failure as a failed query, with a
+  `backendReason` such as `resources_exceeded`, and calling again won't
+  finish it. When the
+  event read stopped while waiting on a BigQuery page, `stoppedPage` says
+  which step that page had reached, how long it had taken, and why any earlier
+  job under the same name could not be collected. Its `stage` is one of
+  `preparing`, `checking_cache`, `waiting_for_lock` (another call was
+  running the same page), `authenticating` (getting BigQuery credentials),
+  `submitting`, `checking_existing_job`, `polling`, `saving` or
+  `finished`. A follow-up whose BigQuery query ran out of time reports the
+  same details, without a page number, in its
+  `coverage.followupAggregateRead.stoppedQuery`. An earlier job that failed has
+  BigQuery's own `failureCode`; `stopped` means the job was cancelled. A
+  PostgreSQL-backed app has no jobs to collect, so a follow-up that ran out of
+  its full 20 seconds gets a note to read a shorter range instead. In
+  session mode the watermark pins event time but not receive time, so an event
+  that arrives between calls can still change pages; the read then reports
+  `may_have_shifted`. A truncated event sample skips replay reads and
   returns `sessionsWithReplay: null` because replay availability is unknown. If
   a read truncates, page boundaries may have shifted,
   or the terminal cohort cannot be covered in one query under the
@@ -190,7 +228,8 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   and identity-unavailable sessions. Identity-unavailable session evidence can
   report activity known from that exact session ID, but those sessions are not
   people and never enter person percentages.
-- `personFollowUp.observationWatermark` freezes both event and receive time at a UTC minute boundary, so repeated requests in that minute use the same read boundary.
+- `personFollowUp.observationWatermark` freezes both event and receive time at a UTC minute boundary, so repeated requests in that minute use the same read boundary. Pass it back as the `observationWatermark` argument to read as of that minute later on.
+  Each follow-up query has a 25 GB billed-byte cap.
   `observationFollowupDurationMs` summarizes capped follow-up among canonical
   people. `noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople`
   uses only identified people whose complete 30-day horizon elapsed. It
@@ -218,7 +257,7 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
 - A session is an analytics session id. One that began before `dateFrom`
   starts mid-journey, so start the window a day early.
 - Read `coverage` before using the numbers. `truncated: true` means the event
-  read hit `maxEventRows`, `maxTotalBytesBilled`, or its 45-second deadline, a
+  read hit `maxEventRows`, `maxTotalBytesBilled`, or its time budget, a
   session went past `maxDepth`, or the node list hit `maxNodes`; `notes` says
   which.
   Never report a truncated tree as the whole window.
@@ -354,7 +393,7 @@ pnpm --filter analytics journey:snapshot --week 2026-10-19 --apps clips,design,s
 pnpm --filter analytics journey:snapshot --week 2026-10-19 --apps design --experiment first_run_builder_credits
 ```
 
-`--week` is a closed UTC Monday week. The query starts the previous day to include sessions already underway. Without `--week`, the CLI selects the last full week. It runs the pinned cost preflight and reads one tree per missing app/week/cohort from deployed Analytics; complete trees are cached by app, dates, preset, app URL, and authenticated principal. `--dry-run` prints the request without network access. `--refresh` bypasses existing tree, screenshot, and Design caches and should be used only for an intentional refresh.
+`--week` is a closed UTC Monday week. The query starts the previous day to include sessions already underway. Without `--week`, the CLI selects the last full week. It runs the pinned cost preflight and reads one tree per missing app/week/cohort from deployed Analytics. When a time limit stops a read, it calls again with the returned `continueWith.observationWatermark`, up to 8 calls 10 seconds apart, collecting the queries each call left running, and publishes nothing if the read is still stopped after the last one. Complete trees are cached by app, dates, preset, app URL, and authenticated principal. `--dry-run` prints the request without network access. `--refresh` bypasses existing tree, screenshot, and Design caches and should be used only for an intentional refresh.
 
 The output lives under `.tmp/onboarding-journey-snapshots/runs/<week>/`: each app with captured session frames has a Design canvas, and each app has a per-app tree cache and screenshot manifests; the shared `summary.md` includes the cohort trees. Each canvas has a 36 screenshot-backed frame ceiling allocated across its cohort bands. Multi-band canvases place independent trees side by side and keep each band's own root denominator. Same-app cohort trees use `app::cohort::step` node keys so the source app and band denominator stay distinct. Canvas cache keys include the experiment and cohort layout so different runs cannot overwrite one another. The optional experiment accepts `first_run_builder_credits` and `first_run_builder_credits_v2`; control and credits share one canvas, and `summary.md` reports per-arm forks and matching-step week-over-week changes from the full Analytics trees, including cohorts with zero screenshot frames. The canvas contains only screenshot-backed cohorts. Clips first output is `recording_ready`.
 

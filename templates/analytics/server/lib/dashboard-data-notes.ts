@@ -1,7 +1,8 @@
 import type {
   DashboardAnnotations,
   SqlPanel,
-} from "../../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import {
   dataNotesForPanel,
   panelDrawsDataNotes,

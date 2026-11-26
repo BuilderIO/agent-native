@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
@@ -72,6 +80,7 @@ import {
   compileNativeV2Dashboard,
   getNativeV2DashboardManifest,
 } from "./native-v2-dashboards.js";
+import { resetPublicSchema } from "./testing/pglite-reset.js";
 
 const TABLES = [
   `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
@@ -139,15 +148,19 @@ describe("built-in dashboard deploy pass", () => {
     };
   }
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    await resetPublicSchema(client);
     mocks.getDb.mockReturnValue(drizzle(client, { schema: dbModule.schema }));
     mocks.settings.clear();
     for (const statement of TABLES) await client.exec(statement);
-  });
-
-  afterEach(async () => {
-    await client.close();
   });
 
   it("recognizes legacy hashed Content copies and preserves edits", async () => {

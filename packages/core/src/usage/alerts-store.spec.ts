@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { __resetSchemaSnapshotForTests } from "../db/ddl-guard.js";
 import { USAGE_ALERT_MIGRATIONS } from "./migrations.js";
 import { builderCreditsFromCostCents } from "./store.js";
@@ -27,6 +28,7 @@ const rawClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -43,6 +45,7 @@ const {
   enqueueUsageAlertEvaluation,
   listUsageAlerts,
   saveUsageAlert,
+  setUsageAlertEnabled,
   USAGE_ALERT_DEFAULT_DAILY_USD,
   USAGE_ALERT_DEFAULT_MONTHLY_USD,
   USAGE_ALERT_UNIT_SCALE,
@@ -86,7 +89,7 @@ const { __resetStoreLedgerSnapshotForTests } =
 
 beforeEach(async () => {
   __resetSchemaSnapshotForTests();
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   await pglite.exec(`CREATE TABLE token_usage (
     id BIGINT PRIMARY KEY,
@@ -289,5 +292,88 @@ describe("usage alerts", () => {
       "notification-1",
       access.ownerEmail,
     );
+  });
+});
+
+describe("deployment usage policy", () => {
+  afterEach(() => {
+    resetAppConfigForTests();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("delivers no usage-limit notice where the deployment turns them off", async () => {
+    vi.stubEnv("AGENT_NATIVE_NOTIFICATIONS_USAGE_LIMIT_NOTICES", "false");
+    resetAppConfigForTests();
+    await insertUsage({ id: 1, app: "factory", cost: 1_000_000, input: 1 });
+    enqueueUsageAlertEvaluation({
+      ownerEmail: access.ownerEmail,
+      app: "factory",
+      inputTokens: 1,
+      outputTokens: 0,
+      costCentsX100: 1_000_000,
+    });
+    await _waitForUsageAlertEvaluationsForTests();
+
+    expect(mockNotifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("refuses a new credit-unit rule where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+
+    await expect(
+      saveUsageAlert(
+        { scope: "user", appId: "factory", unit: "builder-credits" },
+        access,
+      ),
+    ).rejects.toThrow("Credit alerts are not available here");
+    const saved = await saveUsageAlert(
+      { scope: "user", appId: "factory", unit: "usd" },
+      access,
+    );
+    expect(saved.rule.unit).toBe("usd");
+  });
+
+  it("neither lists nor notifies an existing credit rule where commercial surfaces are hidden", async () => {
+    const credit = await saveUsageAlert(
+      { scope: "user", appId: "factory", unit: "builder-credits", limit: 1 },
+      access,
+    );
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+
+    const rules = await listUsageAlerts(
+      { scope: "user", appId: "factory" },
+      access,
+    );
+    expect(rules.map((rule) => rule.id)).not.toContain(credit.rule.id);
+    expect(rules.every((rule) => rule.unit !== "builder-credits")).toBe(true);
+    for (const mutate of [
+      () =>
+        saveUsageAlert(
+          { scope: "user", ruleId: credit.rule.id, limit: 2 },
+          access,
+        ),
+      () => setUsageAlertEnabled(credit.rule.id, "user", false, access),
+      () => dismissUsageAlert(credit.rule.id, "user", access),
+    ]) {
+      await expect(mutate()).rejects.toThrow("Usage alert rule was not found.");
+    }
+
+    await insertUsage({ id: 2, app: "factory", cost: 1_000_000, input: 1 });
+    enqueueUsageAlertEvaluation({
+      ownerEmail: access.ownerEmail,
+      app: "factory",
+      inputTokens: 1,
+      outputTokens: 0,
+      costCentsX100: 1_000_000,
+    });
+    await _waitForUsageAlertEvaluationsForTests();
+    for (const call of mockNotifyWithDelivery.mock.calls) {
+      expect(JSON.stringify(call)).not.toMatch(/credit/i);
+    }
   });
 });

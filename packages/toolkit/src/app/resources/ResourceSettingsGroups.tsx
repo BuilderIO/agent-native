@@ -1,3 +1,4 @@
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   filterResourceTree,
@@ -419,21 +420,24 @@ function RemoveResourceDialog({
 }) {
   const t = useT();
   const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const resource = row?.node.resource ?? null;
   const name = resource?.path ?? "";
 
-  useEffect(() => setFailed(false), [resource?.id]);
+  useEffect(() => setFailure(null), [resource?.id]);
 
   const remove = async () => {
     if (!resource || pending) return;
     setPending(true);
-    setFailed(false);
+    setFailure(null);
     try {
       await onRemove(resource);
       onOpenChange(false);
-    } catch {
-      setFailed(true);
+    } catch (error) {
+      setFailure(
+        actionErrorMessage(error) ||
+          t("agentChat.settingsResources.removeFailed", { name }),
+      );
     } finally {
       setPending(false);
     }
@@ -459,12 +463,10 @@ function RemoveResourceDialog({
             <AlertDialogDescription>{affects}</AlertDialogDescription>
           ) : null}
         </AlertDialogHeader>
-        {failed ? (
+        {failure ? (
           <Alert variant="destructive">
             <IconAlertCircle />
-            <AlertDescription>
-              {t("agentChat.settingsResources.removeFailed", { name })}
-            </AlertDescription>
+            <AlertDescription>{failure}</AlertDescription>
           </Alert>
         ) : null}
         <AlertDialogFooter>
@@ -625,7 +627,7 @@ function ResourceSettingsRow({
               </a>
             </DropdownMenuItem>
           )}
-          {!readOnly && (
+          {!readOnly && !resource.inheritedFromAppDefault && (
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onSelect={onRemove}

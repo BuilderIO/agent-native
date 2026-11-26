@@ -5086,7 +5086,7 @@ export default function DeckEditor() {
     activeSlideId,
   );
   const currentSlideThreads: CommentThread[] =
-    currentSlideCommentsQuery.data ?? [];
+    currentSlideCommentsQuery.data?.threads ?? [];
   const unresolvedCommentCount = currentSlideThreads.filter(
     (t) => !t.resolved,
   ).length;
@@ -6347,7 +6347,6 @@ export default function DeckEditor() {
             deckId={id}
             slideId={currentSlide?.id ?? null}
             canComment={canComment}
-            canEdit={canEdit}
             currentUserEmail={session?.email ?? null}
             selectedThreadId={selectedCommentThreadId}
             selectedThreadRequestId={selectedCommentThreadRequestId}

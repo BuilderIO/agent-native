@@ -17,7 +17,7 @@ import type { ImportResult } from "@/lib/design-import";
 import type { PreparedFigImport } from "@/lib/fig-client-import";
 import { FIG_IMPORT_TOAST_ID } from "@/lib/pending-import";
 
-import { BROWSER_FIG_LIMITS } from "../../../../server/lib/fig-file-limits.js";
+import { BROWSER_FIG_LIMITS } from "../../../../shared/fig-file-limits.js";
 import {
   runImportDesignFile,
   type ImportDesignFileArgs,

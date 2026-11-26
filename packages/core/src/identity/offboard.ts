@@ -13,6 +13,8 @@ export type OffboardMemberOptions = {
   transferTo: string;
   orgId?: string | null;
   actorEmail?: string;
+  /** Keep a Deactivated record of the org membership; requires `orgId`. */
+  deactivate?: boolean;
 };
 
 export type OffboardMemberResult = {
@@ -86,6 +88,8 @@ export async function offboardMember(
     throw new Error(
       "A different successor is required before offboarding a member",
     );
+  if (options.deactivate && !options.orgId?.trim())
+    throw new Error("Deactivating a member requires an organization");
 
   await ensureAuditTables();
 
@@ -377,6 +381,36 @@ export async function offboardMember(
             args: [oldEmail],
           })
         : { rowsAffected: 0 };
+    if (options.deactivate && orgId) {
+      // Every grant reads only 'pending' invitation rows, so this record confers nothing.
+      await tx.execute({
+        sql: `UPDATE org_invitations SET status = 'canceled'
+              WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending'`,
+        args: [orgId, oldEmail],
+      });
+      // A repeated removal keeps the first record; replacing it would lose it once the
+      // membership row it is copied from is gone.
+      await tx.execute({
+        sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
+              SELECT ?, m.org_id, ?, ?, ?, 'deactivated', m.role FROM org_members m
+              WHERE m.org_id = ? AND LOWER(m.email) = ?
+                AND NOT EXISTS (
+                  SELECT 1 FROM org_invitations d
+                  WHERE d.org_id = m.org_id AND LOWER(d.email) = ?
+                    AND d.status = 'deactivated'
+                )
+              LIMIT 1`,
+        args: [
+          randomUUID(),
+          oldEmail,
+          options.actorEmail ?? "system",
+          Date.now(),
+          orgId,
+          oldEmail,
+          oldEmail,
+        ],
+      });
+    }
     const memberships = await tx.execute({
       sql: `DELETE FROM org_members WHERE LOWER(email) = ?${
         orgId ? " AND org_id = ?" : ""

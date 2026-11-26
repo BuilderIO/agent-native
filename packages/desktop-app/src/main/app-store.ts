@@ -146,6 +146,7 @@ function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
     devUrl: appConfig.devUrl ?? def.devUrl,
     devCommand: appConfig.devCommand ?? def.devCommand,
     localPath: appConfig.localPath,
+    native: appConfig.native ?? def.native,
     devPort: appConfig.devPort || def.devPort,
   };
 }
@@ -842,4 +843,70 @@ export function resetToDefaults(): AppConfig[] {
     appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
   });
   return apps;
+}
+
+const LOCAL_APP_AUTO_NAMES_FILE = "local-app-auto-names.json";
+
+function getLocalAppAutoNamesPath(): string {
+  return path.join(app.getPath("userData"), LOCAL_APP_AUTO_NAMES_FILE);
+}
+
+function loadLocalAppAutoNames(): Record<string, string> {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(getLocalAppAutoNamesPath(), "utf-8"),
+    ) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return Object.fromEntries(
+      Object.entries(raw).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+  } catch {
+    // coercion-ok: no file yet means Desktop is tracking no placeholder names.
+    return {};
+  }
+}
+
+export function rememberLocalAppAutoName(appId: string, name: string): void {
+  writeJsonFileAtomic(getLocalAppAutoNamesPath(), {
+    ...loadLocalAppAutoNames(),
+    [appId]: name,
+  });
+}
+
+export function syncLocalAppNamesFromPackages(
+  readDisplayName: (localPath: string) => string | null,
+): boolean {
+  const autoNames = loadLocalAppAutoNames();
+  const ids = Object.keys(autoNames);
+  if (ids.length === 0) return false;
+  const apps = loadApps();
+  let changed = false;
+  const nextAutoNames = { ...autoNames };
+  for (const appConfig of apps) {
+    if (!Object.hasOwn(autoNames, appConfig.id) || !appConfig.localPath) {
+      continue;
+    }
+    const placeholder = autoNames[appConfig.id];
+    if (appConfig.name !== placeholder) {
+      delete nextAutoNames[appConfig.id];
+      continue;
+    }
+    const displayName = readDisplayName(appConfig.localPath)?.trim();
+    if (!displayName || displayName === appConfig.name) continue;
+    appConfig.name = displayName.slice(0, 48);
+    nextAutoNames[appConfig.id] = appConfig.name;
+    changed = true;
+  }
+  for (const id of ids) {
+    if (!apps.some((candidate) => candidate.id === id)) {
+      delete nextAutoNames[id];
+    }
+  }
+  if (changed) saveApps(apps);
+  if (JSON.stringify(nextAutoNames) !== JSON.stringify(autoNames)) {
+    writeJsonFileAtomic(getLocalAppAutoNamesPath(), nextAutoNames);
+  }
+  return changed;
 }

@@ -29,6 +29,10 @@ const mentionMembers = vi.hoisted(() => ({
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => mentionMembers.current,
 }));
+vi.mock("./comment-images", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./comment-images")>()),
+  useCommentImageStorage: () => true,
+}));
 const onModelChange = vi.fn();
 const onAiDraftChange = vi.fn();
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({

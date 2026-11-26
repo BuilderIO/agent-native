@@ -25,7 +25,7 @@ import {
   type FigImportToastOwner,
 } from "@/lib/pending-import";
 
-import { BROWSER_FIG_LIMITS } from "../../../../server/lib/fig-file-limits.js";
+import { BROWSER_FIG_LIMITS } from "../../../../shared/fig-file-limits.js";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
