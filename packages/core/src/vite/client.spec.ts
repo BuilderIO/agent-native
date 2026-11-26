@@ -3134,6 +3134,38 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("binds the dev server to loopback while AUTH_DISABLED is on", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const serverHost = async (host?: string) => {
+      const previousCwd = process.cwd();
+      process.chdir(path.join(repositoryRoot(), "templates/chat"));
+      try {
+        const config = await configPlugin.config(
+          host === undefined ? {} : { server: { host } },
+          { command: "serve", mode: "development" },
+        );
+        return config.server.host;
+      } finally {
+        process.chdir(previousCwd);
+      }
+    };
+
+    vi.stubEnv("AUTH_DISABLED", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    vi.stubEnv("FUSION_POD_UID", "");
+    try {
+      expect(await serverHost()).toBe("::");
+      vi.stubEnv("AUTH_DISABLED", "true");
+      expect(await serverHost()).toBe("127.0.0.1");
+      expect(await serverHost("0.0.0.0")).toBe("0.0.0.0");
+      vi.stubEnv("FUSION_POD_UID", "pod-1");
+      expect(await serverHost()).toBe("::");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("denies the served roots' .agent-native state, scoped to those roots", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
