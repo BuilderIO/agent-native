@@ -364,3 +364,97 @@ describe("Enter at the end of a paragraph before another block", () => {
     }
   });
 });
+
+describe("a numbered item added in the middle of a list", () => {
+  const fixture = [
+    "Packing list:",
+    "1. Tent",
+    "2. Stove",
+    "3. Water filter",
+    "4. Headlamp",
+    "That is everything.",
+  ].join("\n");
+
+  it("is one suggestion, drawn as its own item where it was added", () => {
+    const source = mountedEditor(fixture);
+    let presentation: VisualEditorSuggestion | null = null;
+    try {
+      let end = -1;
+      source.editor.state.doc.descendants((node, pos) => {
+        if (end < 0 && node.isTextblock && node.textContent === "Stove")
+          end = pos + node.nodeSize - 1;
+        return end < 0;
+      });
+      source.editor.commands.setTextSelection(end);
+      expect(source.editor.commands.splitListItem("listItem")).toBe(true);
+      source.editor.view.dispatch(
+        source.editor.state.tr.insertText("Rain jacket"),
+      );
+      const draft = docToNfm(source.editor.getJSON());
+      expect(draft).toContain("3. Rain jacket\n4. Water filter\n5. Headlamp");
+      const preview = previewSuggestionDraft(
+        createSuggestionDraftSession({
+          id: "list-item",
+          baseContent: fixture,
+          baseRevision: "one",
+          startedAt: "2026-11-26T00:00:00.000Z",
+        }),
+        draft,
+        null,
+      );
+      if (preview.status !== "ready")
+        throw new Error(`Expected a ready draft, got ${preview.status}`);
+      expect(preview.suggestions).toHaveLength(1);
+      const { operations } = preview.suggestions[0]!;
+      expect(operations).toMatchObject([
+        {
+          kind: "add_text_block",
+          after: {
+            changedText: expect.stringMatching(/^\n?3\. Rain jacket\n?$/),
+          },
+        },
+      ]);
+
+      const [drafted] = documentEditorSuggestionPresentations({
+        savedSuggestions: [],
+        drafts: preview.suggestions,
+        currentMarkdown: draft,
+        editingSuggestionId: null,
+        pendingSuggestionId: null,
+        transitions: new Map(),
+      });
+      const draftSpec = suggestionHighlightSpec(
+        source.editor.state.doc,
+        drafted!,
+      );
+      expect(draftSpec).not.toBeNull();
+      setSuggestionHighlights(source.editor.view, { specs: [draftSpec!] });
+      expect(highlightedText(source.editor, drafted!.id)).toBe("Rain jacket");
+
+      presentation = suggestionPresentation(
+        { id: "saved", status: "pending", operations },
+        fixture,
+      );
+    } finally {
+      source.dispose();
+    }
+    expect(presentation).not.toBeNull();
+    const { editor, dispose } = mountedEditor(fixture);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, presentation!);
+      expect(spec).toMatchObject({ kind: "add_block" });
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      const list = editor.view.dom.querySelector("ol")!;
+      expect(Array.from(list.children, (item) => item.textContent)).toEqual([
+        "Tent",
+        "Stove",
+        "Rain jacket",
+        "Water filter",
+        "Headlamp",
+      ]);
+      expect(docToNfm(editor.getJSON())).toBe(fixture);
+    } finally {
+      dispose();
+    }
+  });
+});

@@ -1288,6 +1288,143 @@ export function markdownSuggestionOperationsForReplacements(input: {
   return isolateSiblingAnchorContexts(result);
 }
 
+const ORDERED_ITEM = /^(\t*)(\d+)([.)] )/;
+const CODE_FENCE = /^\t*(?:```|~~~)/;
+// Past this many line pairs, only the unchanged lines at either end match.
+const MAX_LIST_LINE_CELLS = 250_000;
+
+interface ListLine {
+  key: string;
+  indent: number;
+  item: RegExpExecArray | null;
+  // Inside a code block, past its opening fence.
+  code: boolean;
+}
+
+// Keys each line by its text without an ordered item's number, so an item
+// still matches itself after its list is renumbered. Digits in code are text.
+function listLines(markdown: string): ListLine[] {
+  let inCode = false;
+  return markdown.split("\n").map((line) => {
+    const code = inCode;
+    const fence = CODE_FENCE.test(line);
+    if (fence) inCode = !inCode;
+    const item = code || fence ? null : ORDERED_ITEM.exec(line);
+    return {
+      key: item ? `\0${item[1]}${item[3]}${line.slice(item[0].length)}` : line,
+      indent: /^\t*/.exec(line)![0].length,
+      item,
+      code,
+    };
+  });
+}
+
+// The lines both texts keep, in order: the unchanged lines at either end, then
+// the longest common run of lines between them.
+function sharedLines(
+  before: ListLine[],
+  after: ListLine[],
+): Array<[number, number]> {
+  const pairs: Array<[number, number]> = [];
+  let start = 0;
+  while (
+    start < before.length &&
+    start < after.length &&
+    before[start]!.key === after[start]!.key
+  ) {
+    pairs.push([start, start]);
+    start += 1;
+  }
+  let end = 0;
+  while (
+    end < before.length - start &&
+    end < after.length - start &&
+    before[before.length - 1 - end]!.key === after[after.length - 1 - end]!.key
+  ) {
+    end += 1;
+  }
+  const rows = before.length - start - end;
+  const columns = after.length - start - end;
+  if (rows > 0 && columns > 0 && rows * columns <= MAX_LIST_LINE_CELLS) {
+    const width = columns + 1;
+    const common = new Uint32Array((rows + 1) * width);
+    for (let row = rows - 1; row >= 0; row -= 1) {
+      for (let column = columns - 1; column >= 0; column -= 1) {
+        common[row * width + column] =
+          before[start + row]!.key === after[start + column]!.key
+            ? common[(row + 1) * width + column + 1]! + 1
+            : Math.max(
+                common[(row + 1) * width + column]!,
+                common[row * width + column + 1]!,
+              );
+      }
+    }
+    for (let row = 0, column = 0; row < rows && column < columns; ) {
+      if (before[start + row]!.key === after[start + column]!.key) {
+        pairs.push([start + row, start + column]);
+        row += 1;
+        column += 1;
+      } else if (
+        common[(row + 1) * width + column]! >= common[row * width + column + 1]!
+      ) {
+        row += 1;
+      } else {
+        column += 1;
+      }
+    }
+  }
+  for (let index = end; index > 0; index -= 1)
+    pairs.push([before.length - index, after.length - index]);
+  return pairs;
+}
+
+// The editor numbers a list's items in order, so adding or removing one
+// renumbers every item after it, though only the first item's number is kept.
+// Giving the draft's kept items the page's numbers again, and each new or
+// edited item the number after the item above it, leaves those items as the
+// only change. A draft whose numbers then mean something else, such as a list
+// that starts elsewhere, is left as it was.
+function withPageListNumbers(page: string, draft: string): string {
+  const draftLines = listLines(draft);
+  if (!draftLines.some((line) => line.item)) return draft;
+  const pageLines = listLines(page);
+  const pageNumbers = new Map<number, string>();
+  for (const [pageIndex, draftIndex] of sharedLines(pageLines, draftLines)) {
+    const pageItem = pageLines[pageIndex]!.item;
+    if (pageItem && draftLines[draftIndex]!.item)
+      pageNumbers.set(draftIndex, pageItem[2]!);
+  }
+  const numbered = draft.split("\n");
+  // The number of the last item in each list still open, by indent.
+  const open = new Map<number, number>();
+  let changed = false;
+  draftLines.forEach((line, index) => {
+    if (line.code) return;
+    for (const indent of open.keys())
+      if (indent > line.indent) open.delete(indent);
+    if (!line.item) {
+      open.delete(line.indent);
+      return;
+    }
+    const previous = open.get(line.indent);
+    const number =
+      pageNumbers.get(index) ??
+      (previous === undefined ? line.item[2]! : String(previous + 1));
+    open.set(line.indent, Number(number));
+    if (number === line.item[2]) return;
+    numbered[index] =
+      line.item[1] +
+      number +
+      numbered[index]!.slice(line.item[0].length - line.item[3]!.length);
+    changed = true;
+  });
+  if (!changed) return draft;
+  const renumbered = numbered.join("\n");
+  return canonicalizeNfm(renumbered) === canonicalizeNfm(draft)
+    ? renumbered
+    : draft;
+}
+
 export function markdownSuggestionOperationsForEditorRevision(input: {
   before: string;
   after: string;
@@ -1334,7 +1471,7 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
   });
   const operations = markdownSuggestionOperationsForReplacements({
     before: editorBefore,
-    after: input.after,
+    after: withPageListNumbers(editorBefore, input.after),
     replacements,
   });
   return isolateSiblingAnchorContexts(

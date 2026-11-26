@@ -863,3 +863,107 @@ describe("suggestion decomposition", () => {
     ).toEqual([]);
   });
 });
+
+describe("a numbered list the editor renumbers", () => {
+  const list = (items: string[], start = 1) =>
+    [
+      "Packing list:",
+      ...items.map((item, index) => `${start + index}. ${item}`),
+      "That is everything.",
+    ].join("\n");
+  const before = list(["Tent", "Stove", "Water filter", "Headlamp", "Map"]);
+
+  function editorOperations(after: string, page = before) {
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: page,
+      after,
+      replacements: [],
+    });
+    expect(canonicalizeNfm(proposedFrom(page, operations))).toBe(
+      canonicalizeNfm(after),
+    );
+    return operations;
+  }
+
+  it("suggests an item added mid-list as its own line", () => {
+    const operations = editorOperations(
+      list(["Tent", "Stove", "Water filter", "Rain jacket", "Headlamp", "Map"]),
+    );
+    expect(operations).toMatchObject([
+      {
+        kind: "add_text_block",
+        before: { changedText: "" },
+        after: { changedText: "\n4. Rain jacket" },
+        anchor: { from: before.indexOf("\n4. Headlamp") },
+      },
+    ]);
+  });
+
+  it("suggests removing a mid-list item as its own line", () => {
+    const operations = editorOperations(
+      list(["Tent", "Water filter", "Headlamp", "Map"]),
+    );
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({
+      kind: "delete_text",
+      after: { changedText: "" },
+    });
+    expect(operations[0]!.before.changedText.trim()).toBe("2. Stove");
+  });
+
+  it("keeps the list's start when an item is added first", () => {
+    const page = list(["Tent", "Stove"], 3);
+    const operations = editorOperations(
+      list(["Rain jacket", "Tent", "Stove"], 3),
+      page,
+    );
+    expect(operations).toHaveLength(1);
+    expect(operations[0]!.kind).toBe("add_text_block");
+    expect(operations[0]!.after.changedText.trim()).toBe("3. Rain jacket");
+  });
+
+  it("keeps an item's text edit apart from an item added above it", () => {
+    const operations = editorOperations(
+      list([
+        "Tent",
+        "Rain jacket",
+        "Stove",
+        "Water filter",
+        "Headlamp",
+        "Maps",
+      ]),
+    );
+    expect(operations).toHaveLength(2);
+    expect(operations[0]!.kind).toBe("add_text_block");
+    expect(operations[0]!.after.changedText.trim()).toBe("2. Rain jacket");
+    expect(
+      operations[1]!.before.changedText + operations[1]!.after.changedText,
+    ).not.toMatch(/\d/);
+  });
+
+  it("leaves numbers that change where the list starts", () => {
+    const after = list(["Tent", "Stove", "Water filter", "Headlamp", "Map"], 4);
+    const operations = editorOperations(after);
+    expect(proposedFrom(before, operations)).toBe(after);
+  });
+
+  it("leaves numbered lines in code as typed", () => {
+    const page = ["```", "1. one", "2. two", "```", "1. Tent", "2. Stove"].join(
+      "\n",
+    );
+    const after = [
+      "```",
+      "1. one",
+      "3. two",
+      "```",
+      "1. Tent",
+      "2. Rain jacket",
+      "3. Stove",
+    ].join("\n");
+    const operations = editorOperations(after, page);
+    expect(operations).toHaveLength(2);
+    expect(operations[0]!.after.changedText).toContain("3");
+    expect(operations[1]!.kind).toBe("add_text_block");
+    expect(operations[1]!.after.changedText.trim()).toBe("2. Rain jacket");
+  });
+});
