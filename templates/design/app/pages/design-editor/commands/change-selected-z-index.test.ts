@@ -868,11 +868,13 @@ describe("runChangeSelectedZIndex — overview selection in an unfocused screen"
 </div></body></html>`;
 
   function unfocusedHarness(authoredId: string) {
-    const targetId = buildCodeLayerProjection(PASTED, {
+    const target = buildCodeLayerProjection(PASTED, {
       source: { kind: "design-file", fileId: "pasted-file" },
     }).nodes.find(
       (node) => node.dataAttributes["data-agent-native-node-id"] === authoredId,
-    )!.id;
+    );
+    if (!target) throw new Error(`no projection node for ${authoredId}`);
+    const targetId = target.id;
     const owners = new Map([[targetId, { fileId: "pasted-file" } as never]]);
     const args = {
       canEditDesign: true,

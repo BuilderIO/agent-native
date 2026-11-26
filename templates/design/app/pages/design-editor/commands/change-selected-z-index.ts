@@ -62,7 +62,7 @@ export interface ChangeSelectedZIndexArgs {
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeBreakpointUpperBoundPx?: number | null;
   activeBreakpointWidthStateRef?: RefObject<number | undefined>;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -92,11 +92,6 @@ export interface ChangeSelectedZIndexArgs {
   invalidateRenderedElementInfo?: () => void;
   renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   reportRefusal?: (reason: ZOrderRefusal) => void;
-  /**
-   * Overview selections can live in a screen other than the focused one. When
-   * the selection's owner is such a screen, the edit is read from and written
-   * to that screen through this resolver instead of the focused file.
-   */
   resolveScreen?: (fileId: string) =>
     | {
         file: DesignFile;
@@ -108,7 +103,6 @@ export interface ChangeSelectedZIndexArgs {
       }
     | undefined;
   responsiveEditScopeRef?: RefObject<ResponsiveEditScope>;
-  /** Set by the redirect above: style commits would hit the focused screen. */
   unfocusedScreen?: boolean;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
@@ -549,11 +543,12 @@ export function runChangeSelectedZIndex(
     ownerFileId !== args.activeFile?.id &&
     args.canEditDesign
   ) {
-    const screen = args.resolveScreen?.(ownerFileId);
+    const { resolveScreen, ...focusedArgs } = args;
+    const screen = resolveScreen?.(ownerFileId);
     if (screen) {
       return runChangeSelectedZIndex(
         {
-          ...args,
+          ...focusedArgs,
           activeFile: screen.file,
           getFreshActiveContent: screen.getContent,
           applyLocalContentUpdate: (nextContent) => {
@@ -564,7 +559,6 @@ export function runChangeSelectedZIndex(
               ? result
               : { status: "refused" };
           },
-          resolveScreen: undefined,
           unfocusedScreen: true,
         },
         mode,

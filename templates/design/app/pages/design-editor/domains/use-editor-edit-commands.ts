@@ -783,7 +783,7 @@ export function useEditorEditCommands({
       if (!activeFile && !selectedLayerIdsState.length) return;
       return runChangeSelectedZIndex(
         {
-          activeFile: activeFile as DesignFile,
+          activeFile,
           applyLinkedComponentEdit,
           activeBreakpointUpperBoundPx,
           activeBreakpointWidthStateRef,
