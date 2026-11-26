@@ -62,6 +62,7 @@ async function call(
   method: string,
   url: string,
   body?: unknown,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; text: string }> {
   const res = await fetch(url, {
     method,
@@ -71,6 +72,7 @@ async function call(
       Origin: origin,
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       ...(jar.size ? { Cookie: cookieHeader(jar) } : {}),
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(45_000),
@@ -251,6 +253,8 @@ async function freshReceipt(): Promise<Receipt> {
   };
 }
 
+const ACTION_HEADERS = { "X-Agent-Native-Frontend": "1" };
+
 async function action(
   jar: Jar,
   name: string,
@@ -262,9 +266,15 @@ async function action(
     const qs = new URLSearchParams(
       Object.entries(body ?? {}).map(([k, v]) => [k, String(v)]),
     );
-    return call(jar, "GET", qs.size ? `${base}?${qs}` : base);
+    return call(
+      jar,
+      "GET",
+      qs.size ? `${base}?${qs}` : base,
+      undefined,
+      ACTION_HEADERS,
+    );
   }
-  return call(jar, "POST", base, body ?? {});
+  return call(jar, "POST", base, body ?? {}, ACTION_HEADERS);
 }
 
 async function seedAndReadBack(jar: Jar, slot: string) {

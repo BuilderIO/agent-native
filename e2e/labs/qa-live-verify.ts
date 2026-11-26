@@ -172,15 +172,17 @@ async function inPage<T>(
   method: string,
   url: string,
   body?: unknown,
+  extraHeaders: Record<string, string> = {},
 ) {
   return page.evaluate(
-    async ({ method, url, body }) => {
+    async ({ method, url, body, extraHeaders }) => {
       const res = await fetch(url, {
         method,
         credentials: "include",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
@@ -193,9 +195,11 @@ async function inPage<T>(
       }
       return { status: res.status, json, text: text.slice(0, 300) };
     },
-    { method, url, body },
+    { method, url, body, extraHeaders },
   ) as Promise<{ status: number; json: T | null; text: string }>;
 }
+
+const ACTION_HEADERS = { "X-Agent-Native-Frontend": "1" };
 
 async function callAction<T = Record<string, unknown>>(
   page: Page,
@@ -212,8 +216,10 @@ async function callAction<T = Record<string, unknown>>(
           `${url}?${new URLSearchParams(
             Object.entries(input).map(([k, v]) => [k, String(v)]),
           )}`,
+          undefined,
+          ACTION_HEADERS,
         )
-      : await inPage<T>(page, "POST", url, input);
+      : await inPage<T>(page, "POST", url, input, ACTION_HEADERS);
   if (r.status !== 200 || !r.json)
     throw new Error(`action ${name}: HTTP ${r.status} ${r.text}`);
   return r.json;
