@@ -21,7 +21,7 @@ common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 state_file="$git_dir/worktree-setup.state" # per-worktree, outside the tree
 log="$git_dir/worktree-setup.log"
 state=$(cat "$state_file" 2>/dev/null || true)
-[ "$state" = "done" ] && exit 0
+[ "$state" = "done" ] && [ -d node_modules ] && exit 0
 if [ -L node_modules ]; then
   echo "worktree-setup: node_modules is a symlink, leaving it alone (it resolves workspace code from the checkout it points to)"
   exit 0
@@ -52,7 +52,7 @@ until err=$(ln -s "$$" "$lock" 2>&1); do
 done
 trap 'if [ "$(lock_owner)" = "$$" ]; then rm -f "$lock"; fi' EXIT
 state=$(cat "$state_file" 2>/dev/null || true)
-[ "$state" = "done" ] && exit 0
+[ "$state" = "done" ] && [ -d node_modules ] && exit 0
 
 src=${CODEX_SOURCE_TREE_PATH:-$(git worktree list --porcelain | sed -n '1s/^worktree //p')}
 start=$SECONDS
