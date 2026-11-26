@@ -161,6 +161,7 @@ import {
   resolveNativeAuthCopy,
   signupDomainNotAllowedMessage,
 } from "../shared/auth-copy.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -4980,11 +4981,6 @@ function createAuthGuardFn(
 // never emits it to logs.
 
 let authDisabledWarningLogged = false;
-
-function isAuthDisabled(): boolean {
-  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
-  return value === "1" || value === "true";
-}
 
 function getAuthDisabledSession(event: H3Event): AuthSession | null {
   if (!isAuthDisabled()) return null;

@@ -1029,6 +1029,10 @@ export default {
     exportPreview: {
       rendering: "正在產生預覽…",
       failed: "無法產生預覽",
+      noPreview: "沒有可預覽的畫面",
+      externalPreview: "預覽需要即時應用程式",
+      readOnlyPreview: "唯讀模式下無法預覽",
+      selectionUnresolved: "在此畫面上找不到所選內容",
     },
     framePresets: {
       title: "外框",
@@ -2020,6 +2024,7 @@ export default {
   layersPanel: {
     title: "圖層",
     screens: "頁面",
+    components: "元件",
     resizeScreens: "調整頁面區塊大小",
     thumbnail: "縮圖",
     addScreen: "新增頁面",

@@ -42,6 +42,7 @@ export default defineAction({
         "Disable Creative Context for this generation session only without changing the saved preference.",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const creativeContext = await resolveGenerationCreativeContext({
       query: [args.title, args.brief].filter(Boolean).join("\n"),

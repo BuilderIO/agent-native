@@ -3051,6 +3051,7 @@ export default function RecordingPage() {
         enableComments={recording.enableComments}
         canComment={canComment}
         canDeleteOwnComments={canDeleteOwnComments}
+        canReopenAnyThread={canEdit}
         onSeek={(ms) => playerRef.current?.seek(ms)}
         queryKey={[
           "action",

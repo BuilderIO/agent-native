@@ -80,18 +80,26 @@ export function isLlmCredentialError(
 export function formatLlmCredentialErrorMessage(options?: {
   agentName?: string;
   visitorFacing?: boolean;
+  connectUrl?: string | undefined;
 }): string {
   if (options?.visitorFacing) return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
   const agentName = options?.agentName?.trim();
   if (agentName) {
-    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.`;
+    const where = options?.connectUrl
+      ? `Open ${options.connectUrl} and use the connect prompt in its agent chat`
+      : `Open the ${agentName} app and use the connect prompt in its agent chat`;
+    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. ${where}, then ask me to try again.`;
   }
   return LLM_MISSING_CREDENTIALS_MESSAGE;
 }
 
 export function userFacingLlmCredentialError(
   error: unknown,
-  options?: { agentName?: string; visitorFacing?: boolean },
+  options?: {
+    agentName?: string;
+    visitorFacing?: boolean;
+    connectUrl?: string | undefined;
+  },
 ): string | null {
   return isLlmCredentialError(error)
     ? formatLlmCredentialErrorMessage(options)

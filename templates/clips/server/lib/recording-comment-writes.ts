@@ -1,33 +1,37 @@
-import { fail } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server/request-context";
+  extractReviewMentions,
+  getReviewCommentById,
+  ReviewCommentSubmissionConflictError,
+  reviewCommentIdForClientOperation,
+  type ReviewComment,
+  type ReviewNotificationResult,
+} from "@agent-native/core/review";
+import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
+import replyReviewComment from "@agent-native/core/review/actions/reply-review-comment";
+import { getRequestUserName } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import {
-  parseCommentMentions,
-  type CommentMention,
-} from "../../shared/comment-mentions.js";
+import type { CommentMention } from "../../shared/comment-mentions.js";
 import {
   CONTENT_CLIP_COMMENT_KEY,
   CONTENT_CLIP_COMMENT_KEY_USED,
 } from "../../shared/content-clip-contract.js";
 import { getDb, schema } from "../db/index.js";
-import {
-  notifyRecordingComment,
-  type ClipsActivityNotificationResult,
-} from "./activity-notifications.js";
 import { assertCommentAccess } from "./comment-access.js";
 import { resolveCommentMentions } from "./comment-mentions.js";
 import { firstRow } from "./first-row.js";
 import {
-  mirrorRecordingComments,
-  prepareRecordingCommentMirror,
-} from "./recording-comment-mirror.js";
-import { nanoid } from "./recordings.js";
+  commentClientOperationId,
+  commentVideoTimestampMs,
+  findRecordingComment,
+  kitMentions,
+  RECORDING_REVIEW_RESOURCE,
+  recordingReviewContext,
+  VIDEO_TIME_ANCHOR,
+} from "./recording-comments.js";
 
 /** The `idempotencyKey` argument of the actions that add a comment. */
 export const commentIdempotencyKeySchema = z
@@ -51,58 +55,94 @@ export interface RecordingCommentInput {
   idempotencyKey?: string | undefined;
 }
 
-/**
- * A comment as it was saved. Only the call that saved it sends its
- * notifications; a repeat of a keyed comment gets its ids and nothing to send.
- */
-export type SavedRecordingComment = {
+export interface SavedRecordingComment {
   id: string;
   threadId: string;
   parentId: string | null;
-} & (
-  | {
-      repeated: false;
-      notify: () => Promise<ClipsActivityNotificationResult>;
-    }
-  | { repeated: true }
-);
+  repeated: boolean;
+  notified: ReviewNotificationResult | null;
+}
 
-type CommentTarget = {
+const KEY_USED =
+  "That idempotencyKey was already used for a different comment; send a new key for a new comment.";
+const KEY_DELETED =
+  "The comment saved with that idempotencyKey was deleted; send a new key for a new comment.";
+const KEY_NOT_READY =
+  "The comment saved with that idempotencyKey isn't ready yet; send it again with the same key in a minute.";
+
+interface KeyedComment {
   recordingId: string;
   threadId: string | null;
   parentId: string | null;
   videoTimestampMs: number;
   content: string;
-  /** The resolved mentions' emails, sorted. */
-  mentionEmails: string[];
-};
-
-function mentionEmails(mentions: CommentMention[]): string[] {
-  return mentions.map((mention) => mention.email).sort();
+  mentions: readonly CommentMention[];
 }
 
-/**
- * The comment its author already saved with this key, or null. A key names
- * one comment, so a key sent again with a different one is refused rather
- * than answered with a comment that isn't the one sent.
- */
+function sortedEmails(mentions: readonly { email?: string | null }[]) {
+  const emails = new Set<string>();
+  for (const mention of mentions) {
+    if (mention.email) emails.add(mention.email.trim().toLowerCase());
+  }
+  return [...emails].sort().join("\n");
+}
+
+function refuseKey(message: string): never {
+  fail(message, { statusCode: 409, errorCode: CONTENT_CLIP_COMMENT_KEY_USED });
+}
+
+function replayed(
+  saved: ReviewComment,
+  target: KeyedComment,
+  mentions: readonly { email?: string | null }[],
+): SavedRecordingComment {
+  if (saved.status === "deleted") refuseKey(KEY_DELETED);
+  if (
+    saved.resourceId !== target.recordingId ||
+    saved.parentCommentId !== target.parentId ||
+    (target.threadId !== null && saved.threadId !== target.threadId) ||
+    (target.parentId === null &&
+      commentVideoTimestampMs(saved.anchor) !== target.videoTimestampMs) ||
+    saved.body !== target.content ||
+    sortedEmails(saved.mentions) !== sortedEmails(mentions)
+  ) {
+    refuseKey(KEY_USED);
+  }
+  return {
+    id: saved.id,
+    threadId: saved.threadId,
+    parentId: saved.parentCommentId,
+    repeated: true,
+    notified: null,
+  };
+}
+
 async function savedWithKey(
+  clientOperationId: string,
+  target: KeyedComment,
+): Promise<SavedRecordingComment | null> {
+  const saved = await getReviewCommentById(
+    reviewCommentIdForClientOperation(clientOperationId),
+    {},
+    { bypassScope: true },
+  );
+  return saved
+    ? replayed(saved, target, [
+        ...target.mentions,
+        ...extractReviewMentions(target.content),
+      ])
+    : null;
+}
+
+async function savedBeforeKit(
   authorEmail: string,
   idempotencyKey: string,
-  target: CommentTarget,
+  target: KeyedComment,
 ): Promise<SavedRecordingComment | null> {
   const comments = schema.recordingComments;
   const saved = firstRow(
     await getDb()
-      .select({
-        id: comments.id,
-        recordingId: comments.recordingId,
-        threadId: comments.threadId,
-        parentId: comments.parentId,
-        videoTimestampMs: comments.videoTimestampMs,
-        content: comments.content,
-        mentionsJson: comments.mentionsJson,
-      })
+      .select({ id: comments.id })
       .from(comments)
       .where(
         and(
@@ -113,48 +153,42 @@ async function savedWithKey(
       .limit(1),
   );
   if (!saved) return null;
-  if (
-    saved.recordingId !== target.recordingId ||
-    saved.parentId !== target.parentId ||
-    (target.threadId !== null && saved.threadId !== target.threadId) ||
-    saved.videoTimestampMs !== target.videoTimestampMs ||
-    saved.content !== target.content ||
-    mentionEmails(parseCommentMentions(saved.mentionsJson)).join("\n") !==
-      target.mentionEmails.join("\n")
-  ) {
-    fail(
-      "That idempotencyKey was already used for a different comment; send a new key for a new comment.",
-      { statusCode: 409, errorCode: CONTENT_CLIP_COMMENT_KEY_USED },
-    );
+  const copy = await getReviewCommentById(saved.id, {}, { bypassScope: true });
+  if (!copy) {
+    fail(KEY_NOT_READY, { statusCode: 409, errorCode: "comment_not_ready" });
   }
-  return {
-    id: saved.id,
-    threadId: saved.threadId,
-    parentId: saved.parentId,
-    repeated: true,
-  };
+  return replayed(copy, target, target.mentions);
 }
 
-/**
- * Saves a comment on a recording as the request's signed-in user. Pass the
- * request's headers so a viewer who unlocked a password-protected Clip can
- * comment with that unlock.
- */
+async function unlessKeyConflict<T>(
+  write: () => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await write();
+  } catch (error) {
+    if (error instanceof ReviewCommentSubmissionConflictError) return null;
+    throw error;
+  }
+}
+
 export async function saveRecordingComment(
   args: RecordingCommentInput,
-  requestHeaders?: Headers,
+  ctx?: ActionRunContext,
 ): Promise<SavedRecordingComment> {
-  await assertCommentAccess(args.recordingId, "write", requestHeaders);
+  const access = await assertCommentAccess(
+    args.recordingId,
+    "write",
+    ctx?.requestHeaders,
+  );
 
-  const authorEmail = getRequestUserEmail();
+  const reviewCtx = recordingReviewContext(ctx);
+  const authorEmail = reviewCtx.userEmail;
   if (!authorEmail) {
     throw new Error("Sign in required to comment on recordings.");
   }
   const authorName =
     getRequestUserName()?.trim() || args.authorName?.trim() || null;
 
-  const db = getDb();
-  const id = nanoid();
   const hasParentId = args.parentId !== undefined;
   const hasThreadId = args.threadId !== undefined;
   if (
@@ -165,110 +199,85 @@ export async function saveRecordingComment(
       "Replies must include non-empty threadId and parentId values.",
     );
   }
-  const threadId = args.threadId?.trim() ?? id;
   const parentId = args.parentId?.trim() ?? null;
 
-  const rec = firstRow(
-    await db
-      .select({ organizationId: schema.recordings.organizationId })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .limit(1),
-  );
-  if (!rec) {
-    throw new Error(`Recording not found: ${args.recordingId}`);
-  }
-
+  const recording = access.resource as { organizationId: string | null };
   const mentions = await resolveCommentMentions(
     args.mentions,
-    rec.organizationId,
+    recording.organizationId ?? "",
   );
-
-  const target: CommentTarget = {
-    recordingId: args.recordingId,
-    threadId: parentId ? threadId : null,
-    parentId,
-    videoTimestampMs: args.videoTimestampMs,
-    content: args.content,
-    mentionEmails: mentionEmails(mentions),
-  };
-  const key = args.idempotencyKey;
-  if (key) {
-    const saved = await savedWithKey(authorEmail, key, target);
-    if (saved) return saved;
-  }
-  const now = new Date().toISOString();
-
-  await prepareRecordingCommentMirror();
-  const inserted = await db.transaction(async (tx) => {
-    const locked = await tx
-      .select({ id: schema.recordings.id })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .for("key share");
-    if (locked.length === 0) {
-      throw new Error(`Recording not found: ${args.recordingId}`);
-    }
-    if (parentId) {
-      const parents = await tx
-        .select({ id: schema.recordingComments.id })
-        .from(schema.recordingComments)
-        .where(
-          and(
-            eq(schema.recordingComments.id, parentId),
-            eq(schema.recordingComments.recordingId, args.recordingId),
-            eq(schema.recordingComments.organizationId, rec.organizationId),
-            eq(schema.recordingComments.threadId, threadId),
-          ),
-        )
-        .limit(1);
-      if (parents.length === 0) {
-        throw new Error("Parent comment does not belong to this recording.");
-      }
-    }
-
-    const insert = tx.insert(schema.recordingComments).values({
-      id,
-      recordingId: args.recordingId,
-      organizationId: rec.organizationId,
-      threadId,
-      parentId,
+  let keyedComment: { clientOperationId: string; target: KeyedComment } | null =
+    null;
+  if (args.idempotencyKey) {
+    const clientOperationId = commentClientOperationId(
       authorEmail,
-      authorName,
-      content: args.content,
-      mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
+      args.idempotencyKey,
+    );
+    const target: KeyedComment = {
+      recordingId: args.recordingId,
+      threadId: parentId ? (args.threadId?.trim() ?? null) : null,
+      parentId,
       videoTimestampMs: args.videoTimestampMs,
-      idempotencyKey: key ?? null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    if (key) {
-      const written = await insert
-        .onConflictDoNothing({
-          target: [
-            schema.recordingComments.authorEmail,
-            schema.recordingComments.idempotencyKey,
-          ],
-        })
-        .returning({ id: schema.recordingComments.id });
-      if (written.length === 0) return false;
-    } else {
-      await insert;
-    }
-    await mirrorRecordingComments(tx, args.recordingId, [id]);
-    return true;
-  });
-  if (key) {
-    if (!inserted) {
-      // A repeat with the same key saved it first, since the lookup above.
-      const saved = await savedWithKey(authorEmail, key, target);
-      // The unique index refused the insert, so that row was deleted since.
-      if (!saved) {
-        throw new Error("A comment with this idempotencyKey was just removed.");
-      }
-      return saved;
-    }
+      content: args.content,
+      mentions,
+    };
+    const saved =
+      (await savedWithKey(clientOperationId, target)) ??
+      (await savedBeforeKit(authorEmail, args.idempotencyKey, target));
+    if (saved) return saved;
+    keyedComment = { clientOperationId, target };
   }
+
+  const shared = {
+    resourceType: RECORDING_REVIEW_RESOURCE,
+    resourceId: args.recordingId,
+    body: args.content,
+    authorName,
+    mentions: kitMentions(mentions),
+    ...(keyedComment
+      ? { clientOperationId: keyedComment.clientOperationId }
+      : {}),
+  };
+  const saved = await unlessKeyConflict(async () => {
+    if (!parentId) {
+      return createReviewComment.run(
+        {
+          ...shared,
+          anchor: { videoTimestampMs: args.videoTimestampMs },
+          anchorKind: VIDEO_TIME_ANCHOR,
+        },
+        reviewCtx,
+      );
+    }
+    const parent = await findRecordingComment(parentId);
+    if (
+      !parent ||
+      parent.resourceId !== args.recordingId ||
+      parent.threadId !== args.threadId?.trim()
+    ) {
+      throw new Error("Parent comment does not belong to this recording.");
+    }
+    return replyReviewComment.run(
+      { ...shared, commentId: parent.id },
+      reviewCtx,
+    );
+  });
+  if (!saved) {
+    const replay =
+      keyedComment &&
+      (await savedWithKey(keyedComment.clientOperationId, keyedComment.target));
+    if (!replay) refuseKey(KEY_USED);
+    return replay;
+  }
+
+  const result = {
+    id: saved.id,
+    threadId: saved.threadId,
+    parentId: saved.parentCommentId,
+    repeated: saved.replayed,
+    notified: saved.notified,
+  };
+  if (saved.replayed) return result;
 
   // The comment is saved: a refresh signal that fails must not make its
   // caller report a failure and post it again.
@@ -276,32 +285,16 @@ export async function saveRecordingComment(
     await writeAppState("refresh-signal", { ts: Date.now() });
   } catch (error) {
     console.error(
-      `[clips] refresh signal failed after comment ${id} was saved`,
+      `[clips] refresh signal failed after comment ${saved.id} was saved`,
       error instanceof Error ? error.message : error,
     );
   }
 
   console.log(
-    `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
+    `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${saved.threadId})`,
   );
 
-  return {
-    id,
-    threadId,
-    parentId,
-    repeated: false,
-    notify: () =>
-      notifyRecordingComment({
-        recordingId: args.recordingId,
-        threadId,
-        authorEmail,
-        ...(authorName === null ? {} : { authorName }),
-        content: args.content,
-        mentions,
-        videoTimestampMs: args.videoTimestampMs,
-        isReply: Boolean(parentId),
-      }),
-  };
+  return result;
 }
 
 /**
@@ -316,30 +309,24 @@ export async function saveRecordingReply(
     mentions?: RecordingCommentInput["mentions"];
     idempotencyKey?: string | undefined;
   },
-  requestHeaders?: Headers,
+  ctx?: ActionRunContext,
 ): Promise<SavedRecordingComment> {
-  const parent = firstRow(
-    await getDb()
-      .select()
-      .from(schema.recordingComments)
-      .where(eq(schema.recordingComments.id, args.commentId))
-      .limit(1),
-  );
+  const parent = await findRecordingComment(args.commentId);
   if (!parent) {
     throw new Error(`Comment not found: ${args.commentId}`);
   }
 
   return saveRecordingComment(
     {
-      recordingId: parent.recordingId,
+      recordingId: parent.resourceId,
       threadId: parent.threadId,
       parentId: parent.id,
-      videoTimestampMs: parent.videoTimestampMs,
+      videoTimestampMs: commentVideoTimestampMs(parent.anchor),
       content: args.content,
       authorName: args.authorName,
       mentions: args.mentions,
       idempotencyKey: args.idempotencyKey,
     },
-    requestHeaders,
+    ctx,
   );
 }

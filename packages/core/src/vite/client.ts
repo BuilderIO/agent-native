@@ -56,7 +56,9 @@ import {
 import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
+import { isPublicDevContainer } from "../server/loopback.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import { resolveAgentNativeBuildIdentity } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -5331,7 +5333,11 @@ function createAgentNativeConfig(
     },
     server: {
       ...(userConfig.server ?? {}),
-      host: userConfig.server?.host ?? "::",
+      host:
+        userConfig.server?.host ??
+        (isAuthDisabled(runtimeEnv) && !isPublicDevContainer()
+          ? "127.0.0.1"
+          : "::"),
       port: options.port ?? userConfig.server?.port ?? 8080,
       allowedHosts: options.allowedHosts ??
         userConfig.server?.allowedHosts ?? [

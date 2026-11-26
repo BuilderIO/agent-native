@@ -1,6 +1,5 @@
 import { sql, type DbExec } from "@agent-native/core/db";
 import {
-  getReviewableResource,
   type ReviewableResourceRegistration,
   type ReviewCommentWriteEvent,
   type ReviewResourceAccess,
@@ -14,11 +13,13 @@ import {
 } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { sendRecordingCommentEmails } from "./activity-notifications.js";
 import { commentAccessRefusal } from "./comment-access.js";
 import {
+  isCommentDelete,
   RECORDING_REVIEW_RESOURCE,
   VIDEO_TIME_ANCHOR,
-} from "./recording-comment-mirror.js";
+} from "./recording-comments.js";
 
 const videoTimeAnchorSchema = z
   .object({ videoTimestampMs: z.number().int().min(0) })
@@ -48,7 +49,8 @@ export async function resolveRecordingCommentAccess(
   if (!access) return null;
   const requestHeaders =
     ctx?.requestHeaders instanceof Headers ? ctx.requestHeaders : undefined;
-  if (commentAccessRefusal(recordingId, access, "read", requestHeaders)) {
+  const operation = isCommentDelete(ctx) ? "delete" : "read";
+  if (commentAccessRefusal(recordingId, access, operation, requestHeaders)) {
     return null;
   }
   return {
@@ -99,15 +101,36 @@ async function assertMayResolve(
   );
 }
 
+const OLD_COPIES_DELETED_PER_STATEMENT = 1_000;
+
 export async function guardRecordingCommentWrite(
   event: ReviewCommentWriteEvent,
   tx: DbExec,
 ): Promise<void> {
-  const writtenByClips = getReviewableResource(
-    RECORDING_REVIEW_RESOURCE,
-  )?.commentsWrittenByApp;
-  if (writtenByClips) throw new ForbiddenError(writtenByClips);
-  if (event.type === "deleted") return;
+  if (event.type === "deleted") {
+    for (
+      let start = 0;
+      start < event.commentIds.length;
+      start += OLD_COPIES_DELETED_PER_STATEMENT
+    ) {
+      const ids = event.commentIds.slice(
+        start,
+        start + OLD_COPIES_DELETED_PER_STATEMENT,
+      );
+      // guard:allow-unscoped — the kit checked the deleter's access before its write hook runs; this empties those comments' copies from before the switch, keeping a key so its resend is still refused.
+      await tx.execute(sql`UPDATE recording_comments
+          SET content = '', mentions_json = NULL, emoji_reactions_json = '{}'
+          WHERE recording_id = ${sql.value(event.resourceId)}
+            AND id IN ${sql.in(ids)}
+            AND idempotency_key IS NOT NULL`);
+      // guard:allow-unscoped — the kit checked the deleter's access before its write hook runs; this removes those comments' copies from before the switch that hold no key.
+      await tx.execute(sql`DELETE FROM recording_comments
+          WHERE recording_id = ${sql.value(event.resourceId)}
+            AND id IN ${sql.in(ids)}
+            AND idempotency_key IS NULL`);
+    }
+    return;
+  }
   if (event.type === "anchor-moved") {
     throw new ForbiddenError(
       "A Clips comment stays at the video time it was written at.",
@@ -115,9 +138,12 @@ export async function guardRecordingCommentWrite(
   }
   const recordingId = eventRecordingId(event);
   // guard:allow-unscoped — the kit checked the writer's access before its write hook runs; this reads only whether comments are on.
-  const { rows } = await tx.execute(sql`SELECT enable_comments
+  const read = sql`SELECT enable_comments
       FROM recordings
-     WHERE id = ${sql.value(recordingId)}`);
+     WHERE id = ${sql.value(recordingId)}`;
+  const { rows } = await tx.execute(
+    event.type === "created" ? sql`${read} FOR KEY SHARE` : read,
+  );
   if (!rows[0]?.enable_comments) {
     throw new ForbiddenError("Comments are turned off for this recording.");
   }
@@ -140,8 +166,7 @@ export const recordingReviewResource: ReviewableResourceRegistration = {
     unmentionedRoute: "human",
     resolveRole: "viewer",
   },
+  email: { send: sendRecordingCommentEmails },
   resolveAccess: resolveRecordingCommentAccess,
   onCommentWrite: guardRecordingCommentWrite,
-  commentsWrittenByApp:
-    "Clips comments are written with add-comment, reply-to-comment, update-comment, resolve-comment, react-to-comment and delete-comment.",
 };
