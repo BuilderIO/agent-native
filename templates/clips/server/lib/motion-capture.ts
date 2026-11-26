@@ -450,6 +450,32 @@ export async function getCaptureSession(id: string) {
   };
 }
 
+export async function findRecordingCaptureMarker(
+  recordingId: string,
+  ownerEmail: string,
+  markerId: string,
+) {
+  const rows = await getDb()
+    .select({
+      id: markers.id,
+      label: markers.label,
+      kind: markers.kind,
+      mediaTimeMs: markers.mediaTimeMs,
+      uncertaintyMs: markers.uncertaintyMs,
+    })
+    .from(markers)
+    .innerJoin(sessions, eq(markers.sessionId, sessions.id))
+    .where(
+      and(
+        eq(markers.id, markerId),
+        eq(sessions.recordingId, recordingId),
+        eq(sessions.ownerEmail, ownerEmail),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
 export async function stopCapture(id: string) {
   const ownerEmail = captureOwner();
   const changed = await getDb()
