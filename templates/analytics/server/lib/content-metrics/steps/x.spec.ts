@@ -153,10 +153,13 @@ describe("X counting rule", () => {
   it("counts a quote of an @builderio post or a link to its profile through the link", () => {
     for (const href of [
       "https://x.com/builderio/status/123",
-      "https://x.com/BuilderIO/status/123/photo/1",
       "https://mobile.twitter.com/builderio/status/123",
+      "https://x.com/BuilderIO/status/123/",
+      "https://x.com/builderio/status/123?s=20&t=abc",
+      "https://twitter.com/builderio/status/123#reply",
       "https://x.com/builderio",
       "https://www.x.com/builderio/",
+      "https://x.com/builderio?ref_src=twsrc",
     ]) {
       expect(
         xCountedBy(
@@ -174,6 +177,11 @@ describe("X counting rule", () => {
       "https://x.com/builderio_fan/status/123",
       "https://x.com/builderio/likes",
       "https://x.com/builderio/followers",
+      "https://x.com/BuilderIO/status/123/photo/1",
+      "https://x.com/builderio/status/",
+      "https://x.com/builderio/status/12a",
+      "https://x.com//builderio",
+      "https://x.com/builder%69o",
       "https://x.com/search?q=builderio",
       "https://notx.com/builderio",
     ]) {
@@ -182,6 +190,23 @@ describe("X counting rule", () => {
           post("Look https://t.co/q", [link(href, "https://t.co/q")]),
           STEVE,
           RULE,
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("matches a link to a profile only for a term that is a valid X handle", () => {
+    for (const [term, href] of [
+      ["@builder.io", "https://x.com/builder.io"],
+      ["@[", "https://x.com/["],
+      ["@.*", "https://x.com/anyone"],
+      ["@a_handle_too_long", "https://x.com/a_handle_too_long"],
+    ] as const) {
+      expect(
+        xCountedBy(
+          post("Look https://t.co/q", [link(href, "https://t.co/q")]),
+          STEVE,
+          { links: [], terms: [term] },
         ),
       ).toBeNull();
     }

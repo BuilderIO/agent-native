@@ -78,11 +78,10 @@ export const youtubeChannelSchema = z
     "Use a channel ID (UC...) or an @handle",
   );
 
+export const X_HANDLE = /^@[A-Za-z0-9_]{1,15}$/;
+
 export const xAccountSchema = z.object({
-  handle: z
-    .string()
-    .trim()
-    .regex(/^@[A-Za-z0-9_]{1,15}$/, "Use an X @handle"),
+  handle: z.string().trim().regex(X_HANDLE, "Use an X @handle"),
   allPosts: z.boolean().default(false),
 });
 export type XAccount = z.infer<typeof xAccountSchema>;

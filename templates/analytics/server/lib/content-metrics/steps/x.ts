@@ -15,6 +15,7 @@ import {
   type XUser,
 } from "../../x-api.js";
 import {
+  X_HANDLE,
   X_MONTHLY_CAP_USD,
   xConfigFingerprint,
   type XAccount,
@@ -91,17 +92,18 @@ function linkTarget(href: string, targets: string[]): string | null {
 }
 
 function linksToProfile(post: XPost, handle: string): boolean {
-  const profile = new RegExp(
-    `^/${handle.slice(1).toLowerCase()}(?:/status/\\d+(?:/.*)?)?/?$`,
-  );
+  const profile = `/${handle.slice(1).toLowerCase()}`;
+  const status = `${profile}/status/`;
   return post.links.some((link) =>
     [link.expandedUrl, link.unwoundUrl].some((href) => {
       const parsed = href ? hostAndPath(href) : null;
       if (!parsed) return false;
       const host = parsed.host.replace(/^(?:www|mobile)\./, "");
+      const path = parsed.path.replace(/\/$/, "");
       return (
         (host === "x.com" || host === "twitter.com") &&
-        profile.test(parsed.path)
+        (path === profile ||
+          (path.startsWith(status) && /^\d+$/.test(path.slice(status.length))))
       );
     }),
   );
@@ -148,7 +150,7 @@ export function xCountedBy(
   for (const term of rule.terms) {
     if (
       xTermMatches(text, term) ||
-      (term.startsWith("@") && linksToProfile(post, term))
+      (X_HANDLE.test(term) && linksToProfile(post, term))
     ) {
       return `term:${term}`;
     }
