@@ -48,7 +48,7 @@
   "scripts": {
     "build": "tsc && tsc-alias --resolve-full-paths",
     "dev": "tsc --watch & tsc-alias --watch --resolve-full-paths",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run src --passWithNoTests",
     "prepack": "npm run build",
     "prepublishOnly": "npm run build"
