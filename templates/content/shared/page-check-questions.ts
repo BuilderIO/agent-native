@@ -1,4 +1,7 @@
-import { PAGE_CHECK_QUESTION_MAX_LENGTH } from "./page-checks.js";
+import {
+  PAGE_CHECK_QUESTION_MAX_LENGTH,
+  splitPageCheckSentence,
+} from "./page-checks.js";
 
 export interface WrittenPageCheckQuestion {
   text: string;
@@ -57,9 +60,10 @@ export function readWrittenPageCheckQuestions(
   if (!parsed) return { status: "unreadable" };
   if (typeof parsed.vague === "number" && Array.isArray(parsed.examples)) {
     const text = texts.find((_, index) => index === parsed.vague);
-    const [first, second] = parsed.examples.map((example) =>
-      shortText(example, 120),
-    );
+    const [first, second] = parsed.examples.map((example) => {
+      const short = shortText(example, 120);
+      return short && splitPageCheckSentence(short).join(" – ");
+    });
     if (text && first && second) {
       return { status: "vague", text, examples: [first, second] };
     }
