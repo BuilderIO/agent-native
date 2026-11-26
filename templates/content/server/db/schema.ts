@@ -1433,7 +1433,6 @@ export const contentPageCheckSkips = table(
   ],
 );
 
-/** Yes/no questions a page's checks asked the model, per UTC day. */
 export const contentPageCheckUsage = table(
   "content_page_check_usage",
   {

@@ -31,7 +31,6 @@ function required<T>(value: T | null | undefined): T {
 const words = (count: number) =>
   Array.from({ length: count }, () => "word").join(" ");
 
-/** A sentence's parts, all counts, as the server would save them. */
 function countParts(sentence: string): PageCheckCountPart[] {
   return readPageCheckSentence(sentence).parts.map((part) => {
     if (part.kind !== "count") throw new Error(`Not a count: ${part.text}`);

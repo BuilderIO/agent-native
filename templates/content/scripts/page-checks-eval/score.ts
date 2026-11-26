@@ -19,14 +19,10 @@ export type EvalCheck = { name: string; sentence: string };
 export type EvalParagraph = {
   name: string;
   check: string;
-  /** Seen while writing the question writer's prompt, so reported apart from the rest. */
   dev?: boolean;
   text: string;
-  /** Marked by hand: true when the paragraph doesn't keep its check. */
   breaks: boolean;
-  /** Keeps its check but looks like it doesn't. */
   lookalike?: boolean;
-  /** Tells the model how to answer. */
   orders?: boolean;
 };
 
@@ -39,18 +35,13 @@ export type RecordedAnswers = {
   decider: string;
   recordedOn: string;
   writerPromptDigest: string;
-  /** The writer's reply for each check, as it came back. */
   writerReplies: Record<string, string>;
-  /** Each paragraph's chance of a yes, from the decision model. */
   answers: Record<string, number>;
   repeats: Record<string, number>[];
-  /** Ties each answer to the question and text it was given. */
   digests: Record<string, string>;
 };
 
-/** At its best setting, a check catches at least this many of its 10... */
 export const CAUGHT_AT_LEAST = 8;
-/** ...and marks at most this many of its 15. */
 export const MARKED_AT_MOST = 1;
 
 const partsOf = (check: EvalCheck) =>
@@ -59,16 +50,13 @@ const partsOf = (check: EvalCheck) =>
 const digestOf = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 
-/** Ties the recorded replies to the prompt that wrote them. */
 export const writerPromptDigest = () => digestOf(PAGE_CHECK_WRITER_PROMPT);
 
-/** What the workspace's model is asked to write a check's question, as the app asks it. */
 export const writerRequest = (check: EvalCheck) => ({
   systemPrompt: PAGE_CHECK_WRITER_PROMPT,
   input: pageCheckWriterInput(partsOf(check)),
 });
 
-/** Each check's question, read from the writer's reply the way the app reads it. */
 export function writtenQuestions(
   cases: EvalCases,
   replies: Readonly<Record<string, string>>,
@@ -90,7 +78,6 @@ export function writtenQuestions(
   );
 }
 
-/** What the decision model is asked about one paragraph, as the app asks it. */
 export const paragraphRequest = (question: WrittenQuestion, text: string) =>
   pageCheckDecisionRequest([{ index: 0, part: question }], { markdown: text });
 
@@ -107,7 +94,6 @@ export type SettingScore = {
   lookalikes: number;
   ordersMarked: number;
   orders: number;
-  /** Paragraphs it got wrong. */
   missed: string[];
 };
 
@@ -119,7 +105,6 @@ export type CheckScore = {
   meetsBar: boolean;
 };
 
-/** The setting with the fewest wrong, then the fewest marked, then the default. */
 function bestSetting(settings: readonly SettingScore[]): SettingScore {
   const [best] = [...settings].sort(
     (left, right) =>
@@ -131,7 +116,6 @@ function bestSetting(settings: readonly SettingScore[]): SettingScore {
   return best;
 }
 
-/** Scores each check's paragraphs at every How sure setting. */
 export function scoreChecks(
   cases: EvalCases,
   questions: ReadonlyMap<string, WrittenQuestion>,
@@ -144,7 +128,6 @@ export function scoreChecks(
     const paragraphs = cases.paragraphs
       .filter((paragraph) => paragraph.check === check.name)
       .map((paragraph) => {
-        // An answer is only worth scoring for the question and text it was given.
         const digest = requestDigest(
           paragraphRequest(question, paragraph.text),
         );

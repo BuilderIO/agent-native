@@ -11,7 +11,6 @@ export type WrittenPageCheckQuestions =
   | { status: "vague"; text: string; examples: [string, string] }
   | { status: "unreadable" };
 
-/** What the workspace's AI model is told when it writes a check's questions. */
 export const PAGE_CHECK_WRITER_PROMPT = `A writer keeps a check on part of their page: a short sentence the text should keep, like "Opens with something that happened to a developer this week". A small decision model will answer a yes/no question about that part of the page, and a wrong answer marks text the writer didn't need to change, so the question decides everything.
 
 The user message is JSON with "parts", the check's parts you turn into questions. For each part, write:
@@ -35,6 +34,7 @@ function jsonIn(reply: string): unknown {
   try {
     return JSON.parse(reply.slice(start, end + 1));
   } catch {
+    // coercion-ok: a reply that isn't JSON reads as unreadable, never as an answer.
     return null;
   }
 }
@@ -45,7 +45,6 @@ function shortText(value: unknown, max: number): string | null {
   return text && text.length <= max ? text : null;
 }
 
-/** Reads the writer's reply, and refuses one that doesn't cover every part. */
 export function readWrittenPageCheckQuestions(
   texts: readonly string[],
   reply: string,

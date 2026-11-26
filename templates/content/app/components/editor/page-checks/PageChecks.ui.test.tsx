@@ -494,7 +494,6 @@ function addButton(dialog: HTMLElement) {
   );
 }
 
-/** Lets the dialog's pause after typing pass, and its try settle. */
 async function afterTypingPause() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 750));

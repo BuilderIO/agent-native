@@ -33,14 +33,8 @@ import { firstRow } from "./first-row.js";
 const WRITER_TIMEOUT_MS = 20_000;
 const QUESTION_TIMEOUT_MS = 10_000;
 const ASK_AT_ONCE = 8;
-/**
- * A run starts no new questions after this long, so one request stays short.
- * The places it didn't reach read "changed since the last check" until the
- * next run.
- */
 export const PAGE_CHECK_RUN_BUDGET_MS = 15_000;
 
-/** Who reads a page's text for its yes/no checks, named before they do. */
 export const PAGE_CHECK_DECIDER_NAMES: Record<
   PageCheckDecider,
   { model: string; company: string }
@@ -55,10 +49,6 @@ export function pageCheckDeciderName(
   return { provider, ...PAGE_CHECK_DECIDER_NAMES[provider] };
 }
 
-/**
- * Writes each part's yes/no question with the workspace's AI model. It reads
- * only the check's own words, never the page.
- */
 export async function writePageCheckQuestions(
   texts: readonly string[],
 ): Promise<WrittenPageCheckQuestions> {
@@ -78,10 +68,6 @@ export async function writePageCheckQuestions(
   }
 }
 
-/**
- * The decision model a page's yes/no checks ask: the one its checks already
- * use, or else the first one ready for this person. A check never switches.
- */
 export async function pageCheckDecider(
   ownerEmail: string,
   existing: PageCheckDecider | undefined,
@@ -106,9 +92,6 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// The daily counts are bookkeeping, so trying a check stays a read.
-
-/** Old days' counts are never read again. */
 export async function clearOldPageCheckUsage(documentId: string) {
   const usage = schema.contentPageCheckUsage;
   await withoutWriteObservation(async () => {
@@ -174,10 +157,6 @@ async function askOnce(
   }
 }
 
-/**
- * Asks a place's yes/no questions, each of its part's own model, and counts
- * them against the page's daily limit. Returns each answer by part index.
- */
 export async function askPageCheckQuestions(input: {
   ownerEmail: string;
   documentId: string;
@@ -239,7 +218,6 @@ export async function askPageCheckQuestions(input: {
   return asked;
 }
 
-/** Runs `work` on each item, a few at a time, starting none after `deadline`. */
 export async function eachAtOnce<T>(
   items: readonly T[],
   deadline: number,

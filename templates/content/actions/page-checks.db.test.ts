@@ -6,7 +6,6 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-// No decision model is ready here; yes/no parts have their own tests.
 vi.mock("@agent-native/core/decisions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/decisions")>()),
   getDecisionsStatus: async () => ({

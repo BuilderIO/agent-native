@@ -48,12 +48,10 @@ import {
   type PageChecksState,
 } from "./page-checks-context";
 
-/** Yes/no parts are tried this long after the last keystroke. */
 const TRY_PAUSE_MS = 700;
 
 type Questions = Record<string, Omit<PageCheckQuestionInput, "text">>;
 
-/** What a yes/no part's line says when it can't be asked yet. */
 const PROBLEM_LINES: Record<PageCheckProblem["kind"], string> = {
   unreadable: "pageChecks.couldnt",
   vague: "pageChecks.tooVague",
@@ -125,8 +123,6 @@ function PageCheckForm({
   const [sentence, setSentence] = useState(editing?.sentence ?? "");
   const [scope, setScope] = useState<PageCheckScope>(initialScope);
   const [sure, setSure] = useState<PageCheckSure>(editing?.sure ?? "balanced");
-  // Questions the model wrote, and the ones the person changed. Only a
-  // person's change tries the check again.
   const [written, setWritten] = useState<Questions>(() => questionsOf(editing));
   const [edited, setEdited] = useState<Questions>({});
   const [tried, setTried] = useState<Tried | null>(null);
@@ -183,7 +179,6 @@ function PageCheckForm({
     [asks, edited, questions, scope, trimmed],
   );
 
-  // Only a new key tries again: How sure re-reads the answers in hand.
   const tryInput = useRef({ sentence: trimmed, scope, questions, sure });
   useEffect(() => {
     tryInput.current = { sentence: trimmed, scope, questions, sure };

@@ -1,22 +1,3 @@
-/**
- * The page check eval's steps, since only a signed-in app can reach the
- * models a check uses:
- *
- *   npx tsx scripts/page-checks-eval/run.ts writer
- *     Prints each check's request to the workspace's model, which writes its
- *     yes/no question. Save each reply as it came back in answers.json's
- *     writerReplies, and the prompt's digest as writerPromptDigest.
- *   npx tsx scripts/page-checks-eval/run.ts requests
- *     Prints each paragraph's request to the decision model, for the questions
- *     in those replies. Post each as `decide` from an account with a decision
- *     model, and save the chance of a yes and the request's digest in
- *     answers.json. A changed reply changes every digest for its check, so its
- *     answers and repeats need recording again.
- *   npx tsx scripts/page-checks-eval/run.ts score
- *     Scores the answers against the hand-marked paragraphs at each How sure
- *     setting. The repeats are later runs of the same requests, for measuring
- *     how much the answers vary, not for choosing a setting.
- */
 import { readFileSync } from "node:fs";
 
 import {

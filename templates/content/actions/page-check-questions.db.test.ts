@@ -73,7 +73,6 @@ function textOf(input: DecisionInput): string {
     : "";
 }
 
-/** A stand-in decision model: sure of "developer", unsure of "engineer". */
 async function fakeDecide(request: {
   input: DecisionInput;
   questions: readonly DecisionQuestion[];
@@ -108,7 +107,6 @@ async function fakeDecide(request: {
   };
 }
 
-/** A stand-in writer: one question per part, or "vague" for "good". */
 async function fakeWrite(request: { input: string }) {
   const { parts } = JSON.parse(request.input) as { parts: string[] };
   const vague = parts.findIndex((part) => part.includes("good"));
@@ -383,7 +381,6 @@ describe("yes/no checks", () => {
     });
     expect(decidedProviders()).toEqual([["jev"]]);
 
-    // A new yes/no check on the page asks the same model, not the ready one.
     const second = await addCheck(documentId, "Mentions an engineer");
     expect(second.checks[1]?.parts).toMatchObject([{ decider: "jev" }]);
     expect(

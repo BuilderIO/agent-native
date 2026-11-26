@@ -289,7 +289,6 @@ function questionParts(parts: readonly PageCheckPart[]) {
   );
 }
 
-/** A check's questions, kept when its sentence is edited around them. */
 function questionsOf(
   parts: readonly PageCheckPart[],
 ): PageCheckQuestionInput[] {
@@ -300,7 +299,6 @@ function questionsOf(
   }));
 }
 
-/** The model this page's yes/no checks already ask, if any. */
 async function pageQuestionDecider(documentId: string) {
   const rows = await getDb()
     .select({ parts: schema.contentPageChecks.parts })
@@ -311,10 +309,6 @@ async function pageQuestionDecider(documentId: string) {
   ).find(() => true)?.decider;
 }
 
-/**
- * A sentence's parts: counts as read, and each other part as a yes/no
- * question, kept from `questions` or written by the workspace's AI model.
- */
 async function resolvePageCheckParts(args: {
   documentId: string;
   sentence: string;
@@ -406,10 +400,6 @@ function partsDecider(parts: readonly PageCheckPart[]) {
   return decider ? pageCheckDeciderName(decider) : null;
 }
 
-/**
- * Checks each place, asking yes/no parts a few places at a time. A check
- * with only counts needs no model and no deadline.
- */
 async function checkPlaces(input: {
   ownerEmail: string;
   documentId: string;
@@ -587,8 +577,6 @@ export async function runPageChecks(args: {
     minRole: "editor",
     editorSaved: args.editorSaved,
   });
-  // The open editor's typing pause checks only changed text; anyone else's
-  // run also asks again where a model failed or the day's limit ran out.
   await checkStalePlaces({
     ...args,
     markdown,
@@ -720,7 +708,6 @@ export async function updatePageCheck(args: {
   const row = await loadCheckRow(args.documentId, args.checkId);
   const current = checkFromRow(row);
   const sentence = args.sentence?.trim() ?? current.sentence;
-  // Only new words ask for new questions; How sure alone never asks.
   const parts =
     args.sentence === undefined && args.questions === undefined
       ? current.parts
