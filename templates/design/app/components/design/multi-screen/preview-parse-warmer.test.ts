@@ -169,3 +169,38 @@ it("keeps only a screen's newest queued color count", async () => {
   reply(owner, colorJobs[0]!);
   expect(await fresh).toEqual([new Map()]);
 });
+
+it("drops a requested parse once every requester cancels it", async () => {
+  const warmer = await loadWarmer();
+  const contents = Array.from({ length: 8 }, (_, index) => `<p>${index}</p>`);
+  warmer.requestPreviewParses(contents);
+  const pool = FakeWorker.instances;
+  const [cancelled, ...others] = contents.slice(pool.length);
+  expect(cancelled).toBeDefined();
+  expect(others.every(warmer.isPreviewParsePending)).toBe(true);
+
+  warmer.requestPreviewParses([cancelled]);
+  warmer.cancelPreviewParses([cancelled]);
+  expect(warmer.isPreviewParsePending(cancelled)).toBe(true);
+
+  warmer.cancelPreviewParses([cancelled]);
+  expect(warmer.isPreviewParsePending(cancelled)).toBe(false);
+  expect(others.every(warmer.isPreviewParsePending)).toBe(true);
+
+  const answered = new Set<number>();
+  for (let round = 0; round < 8; round += 1) {
+    for (const worker of pool) {
+      for (const request of worker.posted) {
+        if (answered.has(request.id)) continue;
+        answered.add(request.id);
+        reply(worker, request);
+      }
+    }
+  }
+  const posted = pool.flatMap((worker) => worker.posted);
+  expect(
+    posted.some(
+      (request) => request.kind === "preview" && request.content === cancelled,
+    ),
+  ).toBe(false);
+});

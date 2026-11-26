@@ -92,6 +92,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useSyncExternalStore,
   type CSSProperties,
   type FocusEvent as ReactFocusEvent,
   type MutableRefObject,
@@ -164,7 +165,10 @@ import {
 } from "./inspector/GradientEditor";
 import { sendLinkedScreenPreviewCancelPendingDelete } from "./multi-screen/linked-screen-preview";
 import {
+  cancelPreviewParses,
+  isPreviewParseAwaited,
   isPreviewParsePending,
+  requestPreviewParses,
   wantPreviewParses,
   subscribePreviewParses,
 } from "./multi-screen/preview-parse-warmer";
@@ -353,6 +357,7 @@ const HIT_TEST_PREVIEW_LATE_RESULT_GRACE_MS = 250;
 const HIT_TEST_COMMIT_TIMEOUT_MS = 1200;
 const SCREEN_HOVER_PROMOTE_DELAY_MS = 300;
 const FRAME_LABEL_HEIGHT = 28;
+const SCREEN_CHROME_INSET = 5;
 const FRAME_LABEL_MIN_SCREEN_WIDTH = 20;
 const TRANSFORM_BADGE_OFFSET = 12;
 const TRANSFORM_BADGE_EDGE_PADDING = 8;
@@ -557,6 +562,7 @@ import {
   isFrameWithinOverscannedViewport,
   orderByViewportDistance,
   OVERVIEW_LIVE_SCREEN_BUDGET,
+  OVERVIEW_PAINT_OVERSCAN_FACTOR,
   OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
   resolveLiveEditorScreenIds,
   selectStaticPreviewScreenIds,
@@ -10284,6 +10290,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   const syncScreenPaintSuppression = useCallback(() => {
+    const culledPaintScreenIds = new Set<string>();
+    if (isWheelCameraGestureActive()) {
+      for (const candidate of screenPaintCandidatesRef.current) {
+        if (candidate.tier === "culled") culledPaintScreenIds.add(candidate.id);
+      }
+    }
     applyScreenPaintSuppression(
       screenPaintTargetsRef.current,
       resolveSuppressedScreenIds(
@@ -10294,8 +10306,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           zoomRef.current,
           0,
         ),
+        getOverscannedViewportCanvasBounds(
+          surfaceSizeRef.current,
+          panRef.current,
+          zoomRef.current,
+          OVERVIEW_PAINT_OVERSCAN_FACTOR,
+        ),
+        (FRAME_LABEL_HEIGHT + SCREEN_CHROME_INSET) *
+          chromeScaleFromZoom(zoomRef.current),
       ),
-      { relaxOnly: isWheelCameraGestureActive() },
+      {
+        deferHide: isWheelCameraGestureActive()
+          ? (screenId) => culledPaintScreenIds.has(screenId)
+          : undefined,
+      },
     );
   }, []);
 
@@ -13816,7 +13840,7 @@ function DraftPrimitiveLayer({
               : "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100",
         )}
         style={{
-          inset: preview ? 0 : -5 * chromeScale,
+          inset: preview ? 0 : -SCREEN_CHROME_INSET * chromeScale,
           borderWidth: 1.5 * chromeScale,
           transition: getChromeBorderTransition(chromeSettling),
         }}
@@ -14831,11 +14855,39 @@ const Screen = memo(function Screen({
     !penActive &&
     !creationToolActive &&
     !canvasGestureActive;
+  const parsedContentRef = useRef<string | null>(null);
+  const previewParseAwaited = useSyncExternalStore(
+    subscribePreviewParses,
+    () =>
+      parsedContentRef.current !== screen.content &&
+      isPreviewParseAwaited(screen.content),
+  );
+  useEffect(() => {
+    if (!previewParseAwaited) parsedContentRef.current = screen.content;
+  }, [previewParseAwaited, screen.content]);
   const showStaticPreview =
     (Boolean(staticPreviewHandoff) && !previewUrl) ||
     (!screenContent &&
       iframeAdmitted &&
+      !(previewParseAwaited && !previewUrl) &&
       (shouldMountContent ? !bootDeferred || !previewUrl : staticPreview));
+  useEffect(() => {
+    if (
+      previewParseAwaited &&
+      iframeAdmitted &&
+      !previewUrl &&
+      !screenContent
+    ) {
+      requestPreviewParses([screen.content]);
+      return () => cancelPreviewParses([screen.content]);
+    }
+  }, [
+    iframeAdmitted,
+    previewParseAwaited,
+    previewUrl,
+    screen.content,
+    screenContent,
+  ]);
   const sourcePending = Boolean(
     screen.sourceState && screen.sourceState !== "ready",
   );

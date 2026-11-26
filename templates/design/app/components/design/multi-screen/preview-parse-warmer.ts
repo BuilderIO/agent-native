@@ -16,6 +16,7 @@ let workers: Worker[] | null | undefined;
 let idleWorkers: Worker[] = [];
 let nextRequestId = 0;
 let requestedPreviews: string[] = [];
+const requestCounts = new Map<string, number>();
 let wantedPreviews: string[] = [];
 let queuedPreviews = new Set<string>();
 const inFlightPreviews = new Map<number, string>();
@@ -48,6 +49,7 @@ function stopWorkers() {
   workers = null;
   idleWorkers = [];
   requestedPreviews = [];
+  requestCounts.clear();
   wantedPreviews = [];
   queuedPreviews = new Set();
   inFlightPreviews.clear();
@@ -134,14 +136,33 @@ function previewParseWorkers(): Worker[] | null {
   return workers;
 }
 
-/** Parses these screens ahead of everything the canvas wants; never dropped. */
 export function requestPreviewParses(contents: readonly string[]): void {
   if (!previewParseWorkers()) return;
   for (const content of contents) {
+    requestCounts.set(content, (requestCounts.get(content) ?? 0) + 1);
     if (isParsed(content) || isPreviewParsePending(content)) continue;
     requestedPreviews.push(content);
   }
   dispatch();
+}
+
+export function cancelPreviewParses(contents: readonly string[]): void {
+  if (!workers) return;
+  const dropped = new Set<string>();
+  for (const content of contents) {
+    const remaining = (requestCounts.get(content) ?? 0) - 1;
+    if (remaining > 0) {
+      requestCounts.set(content, remaining);
+    } else {
+      requestCounts.delete(content);
+      dropped.add(content);
+    }
+  }
+  if (dropped.size === 0) return;
+  requestedPreviews = requestedPreviews.filter(
+    (content) => !dropped.has(content),
+  );
+  queuedPreviews = new Set([...requestedPreviews, ...wantedPreviews]);
 }
 
 /**
@@ -179,6 +200,10 @@ export function requestDocumentColorCounts(
   );
   dispatch();
   return counted;
+}
+
+export function isPreviewParseAwaited(content: string): boolean {
+  return previewParseWorkers() !== null && !isParsed(content);
 }
 
 export function isPreviewParsePending(content: string): boolean {

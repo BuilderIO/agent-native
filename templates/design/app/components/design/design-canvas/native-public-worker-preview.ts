@@ -155,6 +155,18 @@ export class NativePublicWorkerPreviewError extends Error {
   }
 }
 
+export const NATIVE_EFFECTS_MANIFEST_TYPE =
+  "application/x-agent-native-effects";
+
+const ENTITY_IN_TYPE_ATTRIBUTE = /\btype\s*=\s*(?:"[^"]*&|'[^']*&|[^\s"'>]*&)/i;
+
+export function mayContainNativeEffectsManifest(html: string): boolean {
+  return (
+    html.includes(NATIVE_EFFECTS_MANIFEST_TYPE) ||
+    ENTITY_IN_TYPE_ATTRIBUTE.test(html)
+  );
+}
+
 export interface NativePublicWorkerPreviewDocument {
   html: string;
   nonce: string;
@@ -166,6 +178,7 @@ export function prepareNativePublicWorkerPreviewDocument(
   html: string,
   approvedHashes: readonly string[] = [],
 ): NativePublicWorkerPreviewDocument | null {
+  if (!mayContainNativeEffectsManifest(html)) return null;
   type Node = DefaultTreeAdapterMap["node"];
   const scripts: string[] = [];
   let inert = false;
@@ -176,8 +189,7 @@ export function prepareNativePublicWorkerPreviewDocument(
       "attrs" in node &&
       node.attrs.some(
         (attr) =>
-          attr.name === "type" &&
-          attr.value === "application/x-agent-native-effects",
+          attr.name === "type" && attr.value === NATIVE_EFFECTS_MANIFEST_TYPE,
       )
     ) {
       if (insideTemplate) inert = true;

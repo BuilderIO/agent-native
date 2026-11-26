@@ -2,6 +2,7 @@ import {
   MAX_WHEEL_TICKS_PER_LEG,
   MIN_CAMERA_TRAVEL_PX,
   SETTLE_AFTER_LEG_MS,
+  percentile,
   WHEEL_DELTA_Y,
   WHEEL_TICK_INTERVAL_MS,
   readCamera,
@@ -13,10 +14,15 @@ import {
   type CanvasBenchAction,
 } from "../lib.ts";
 
+const PAN_METHOD = 2;
+
 const MIN_LEG_TRAVEL_FRACTION = 0.8;
 const RETURN_TOLERANCE_FRACTION = 0.1;
 const MIN_TRAVEL_VIEWPORT_FRACTION = 0.5;
 const SCREEN_FOLLOW_TOLERANCE_PX = 4;
+const GESTURE_EDGE_MS = 300;
+const JIRA_WORST_FRAME_MS = 100;
+const PAN_MIN_TICKS = 200;
 
 export type Leg = {
   direction: "forward" | "back";
@@ -31,6 +37,8 @@ export type PanOptions = {
   tickIntervalMs: number;
   axis?: "x" | "y";
   wheelDelta?: number;
+  minTicks?: number;
+  gestureEndTailMs?: number;
   prepare?(ctx: ActionContext): Promise<void>;
   travelPx?(extent: BoardExtent, viewportSpanPx: number): number;
   screensMustChange?: boolean;
@@ -121,6 +129,9 @@ async function pan(
   const startedAt = performance.now();
   await wheelLeg(ctx, ticks, sign, options);
   const elapsedMs = performance.now() - startedAt;
+  if (options.gestureEndTailMs) {
+    await page.waitForTimeout(options.gestureEndTailMs);
+  }
   const sampled = await ctx.sampler.stop();
   await options.afterLeg?.(ctx);
   await page.waitForTimeout(SETTLE_AFTER_LEG_MS);
@@ -145,6 +156,70 @@ async function pan(
     );
   }
   return leg;
+}
+
+async function sustainedPan(
+  ctx: ActionContext,
+  ticksPerSweep: number,
+  sweeps: number,
+  options: PanOptions,
+): Promise<Leg> {
+  const { page } = ctx;
+  const before = await readCamera(page);
+  if (!before)
+    ctx.fail("canvas camera is unavailable before the sustained pan");
+  await options.beforeLeg?.(ctx);
+  await ctx.sampler.start();
+  const startedAt = performance.now();
+  for (let sweep = 0; sweep < sweeps; sweep += 1) {
+    await wheelLeg(ctx, ticksPerSweep, 1, options);
+    await wheelLeg(ctx, ticksPerSweep, -1, options);
+  }
+  const elapsedMs = performance.now() - startedAt;
+  if (options.gestureEndTailMs) {
+    await page.waitForTimeout(options.gestureEndTailMs);
+  }
+  const sampled = await ctx.sampler.stop();
+  await options.afterLeg?.(ctx);
+  await page.waitForTimeout(SETTLE_AFTER_LEG_MS);
+  const after = await readCamera(page);
+  if (!after) ctx.fail("canvas camera vanished during the sustained pan");
+  return {
+    direction: "back",
+    dx: after.x - before.x,
+    dy: after.y - before.y,
+    elapsedMs,
+    ...sampled,
+  };
+}
+
+function gestureEdgeStats(legs: Leg[], options: PanOptions) {
+  const edge: number[] = [];
+  const steady: number[] = [];
+  for (const leg of legs) {
+    const total = leg.frames.reduce((sum, ms) => sum + ms, 0);
+    let elapsed = 0;
+    for (const ms of leg.frames) {
+      elapsed += ms;
+      const atEdge =
+        elapsed <= GESTURE_EDGE_MS ||
+        elapsed > total - (options.gestureEndTailMs ?? 0);
+      (atEdge ? edge : steady).push(ms);
+    }
+  }
+  const sorted = [...steady].sort((a, b) => a - b);
+  return {
+    steadyFrames: steady.length,
+    steadyP50Ms: sorted.length ? round(percentile(sorted, 0.5)) : null,
+    steadyP95Ms: sorted.length ? round(percentile(sorted, 0.95)) : null,
+    steadyWorstMs: sorted.length ? round(percentile(sorted, 1)) : null,
+    gestureEdgeFrames: edge.length,
+    gestureEdgeWorstMs: edge.length ? round(Math.max(...edge)) : null,
+    framesOver100Ms: [...steady, ...edge].filter(
+      (ms) => ms > JIRA_WORST_FRAME_MS,
+    ).length,
+    jiraWorstFrameBarMs: JIRA_WORST_FRAME_MS,
+  };
 }
 
 export async function runPan(
@@ -228,7 +303,13 @@ export async function runPan(
         );
       }
     }
-    const back = await pan(ctx, "back", ticks, expectedTravelPx, options);
+    const firstBack = await pan(ctx, "back", ticks, expectedTravelPx, options);
+    const sweeps = options.minTicks
+      ? Math.ceil(Math.max(0, options.minTicks - 2 * ticks) / (2 * ticks))
+      : 0;
+    const sustainedLegs: Leg[] = sweeps
+      ? [await sustainedPan(ctx, ticks, sweeps, options)]
+      : [];
     const endCamera = await readCamera(page);
     if (!endCamera)
       ctx.fail(`run ${run}: canvas camera vanished after the back leg`);
@@ -245,13 +326,14 @@ export async function runPan(
     const end = await ctx.checkpoint("end");
     if (!end.visible) ctx.fail(`run ${run}: end shows no screens`);
 
-    const legs = [forward, back];
+    const legs = [forward, firstBack, ...sustainedLegs];
     const frames = legs.flatMap((leg) => leg.frames);
     if (!frames.length) ctx.fail(`run ${run} sampled no frames`);
     const result: ActionResult = {
       frames,
       longFrames: legs.flatMap((leg) => leg.longFrames),
       extra: {
+        panMethod: PAN_METHOD,
         cameraDistancePx: legs.reduce(
           (sum, leg) => sum + Math.hypot(leg.dx, leg.dy),
           0,
@@ -261,6 +343,7 @@ export async function runPan(
           .count(),
         wheelElapsedMs: legs.reduce((sum, leg) => sum + leg.elapsedMs, 0),
         legFrameCounts: legs.map((leg) => leg.frames.length),
+        ...(options.gestureEndTailMs ? gestureEdgeStats(legs, options) : {}),
         pan: {
           clearArea: extent.clear,
           boardHeightPx,
@@ -282,6 +365,8 @@ const action: CanvasBenchAction = {
   async run(ctx: ActionContext) {
     const { result } = await runPan(ctx, "pan", {
       tickIntervalMs: WHEEL_TICK_INTERVAL_MS,
+      minTicks: PAN_MIN_TICKS,
+      gestureEndTailMs: GESTURE_EDGE_MS,
     });
     return result;
   },
