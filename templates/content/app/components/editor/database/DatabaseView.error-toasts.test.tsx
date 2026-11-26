@@ -2294,6 +2294,7 @@ describe("DatabaseView UI regressions", () => {
     await mousePointerDown(trigger);
     await selectMenuItem("editor.comment");
     await act(async () => {
+      // fixed-sleep-ok: lets the closing menu's deferred focus return run, so the check below sees where focus settles
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     // The preview closes when focus leaves it, so the menu must not hand focus
