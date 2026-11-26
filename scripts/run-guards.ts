@@ -1,7 +1,20 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
+
+const SHELL_META_RE = /[|&;<>()$`'"]/;
+
+const rootScripts: Record<string, string> = (() => {
+  const pkgPath = path.join(process.cwd(), "package.json");
+  if (!fs.existsSync(pkgPath)) return {};
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  return pkg.scripts ?? {};
+})();
 
 const guards = [
   "guard:hooks-registered",
@@ -255,12 +268,7 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
 function runGuard(name: GuardName): Promise<GuardResult> {
   const startedAt = Date.now();
   const [command, args] = guardCommand(name);
-  // Node refuses to spawn .cmd/.bat files directly (CVE-2024-27980), and pnpm
-  // is a pnpm.cmd shim on Windows, so run it through the shell there. The
-  // command and args are fixed literals from this file, so joining them into
-  // one command line is safe. Passing no args also avoids Node's DEP0190
-  // warning about unescaped shell args.
-  const useShell = process.platform === "win32";
+  const useShell = process.platform === "win32" && command === "pnpm";
   const child = spawn(
     useShell ? formatCommand([command, args]) : command,
     useShell ? [] : args,
@@ -325,23 +333,37 @@ Environment overrides:
 }
 
 function guardCommand(name: GuardName): [string, string[]] {
+  const extraArgs =
+    args.diff &&
+    (name === "guard:request-storms" || name === "guard:dead-settings-keys")
+      ? ["--diff"]
+      : [];
+
   if (name === "guard:no-heavy-dashboard-list-reads") {
-    return ["node", ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+    return [
+      process.execPath,
+      ["scripts/guard-no-heavy-dashboard-list-reads.mjs"],
+    ];
   }
   if (name === "guard:no-blob-column-predicate") {
-    return ["node", ["scripts/guard-no-blob-column-predicate.mjs"]];
+    return [process.execPath, ["scripts/guard-no-blob-column-predicate.mjs"]];
   }
-  return [
-    "pnpm",
-    [
-      "run",
-      name,
-      ...(args.diff &&
-      (name === "guard:request-storms" || name === "guard:dead-settings-keys")
-        ? ["--diff"]
-        : []),
-    ],
-  ];
+
+  const script = rootScripts[name]?.trim();
+  if (script && !SHELL_META_RE.test(script)) {
+    const tokens = script.split(/\s+/);
+    if (tokens[0] === "node" && tokens.length >= 2) {
+      return [process.execPath, [...tokens.slice(1), ...extraArgs]];
+    }
+    if (tokens[0] === "tsx" && tokens.length >= 2) {
+      return [
+        process.execPath,
+        ["--import", "tsx", ...tokens.slice(1), ...extraArgs],
+      ];
+    }
+  }
+
+  return ["pnpm", ["run", name, ...extraArgs]];
 }
 
 function formatCommand([command, args]: [string, string[]]): string {
@@ -411,7 +433,7 @@ function resolveConcurrency(explicitValue?: string): number | typeof Infinity {
 
   if (envValue) return parseConcurrency(envValue);
 
-  return clamp(Math.floor(availableParallelism() / 2), 2, 6);
+  return clamp(availableParallelism(), 4, 8);
 }
 
 function availableParallelism(): number {
