@@ -6,6 +6,14 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/decisions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/decisions")>()),
+  getDecisionsStatus: async () => ({
+    providerOrder: ["jev", "openai"],
+    providers: [],
+  }),
+}));
+
 const directory = mkdtempSync(join(tmpdir(), "content-page-checks-"));
 const owner = "checks-owner@example.com";
 const editor = "checks-editor@example.com";
@@ -182,7 +190,12 @@ describe("adding and reading checks", () => {
       "count",
       "unread",
     ]);
-    expect(tried.answers).toBeNull();
+    expect(tried).toMatchObject({
+      parts: null,
+      answers: null,
+      problem: { kind: "no_model" },
+      decider: null,
+    });
 
     const counted = await as(editor, () =>
       actions.tryCheck.run(
@@ -201,16 +214,23 @@ describe("adding and reading checks", () => {
     expect((await list(documentId)).checks).toEqual([]);
   });
 
-  it("refuses a sentence it can't read, and more than 20 checks", async () => {
+  it("refuses a sentence it can't read, a yes/no part with no model, and more than 20 checks", async () => {
     const documentId = await newPage();
-    await expect(
+    const add = (sentence: string) =>
       as(editor, () =>
         actions.add.run(
-          { documentId, sentence: "Make it good", scope: { kind: "page" } },
+          { documentId, sentence, scope: { kind: "page" } },
           ctxFor(editor),
         ),
+      );
+    await expect(
+      add(
+        "Under 120 words. Opens with a question. Ends with a link. Names a person.",
       ),
     ).rejects.toMatchObject({ errorCode: "PAGE_CHECK_UNREADABLE" });
+    await expect(add("Opens with a question")).rejects.toMatchObject({
+      errorCode: "PAGE_CHECK_NO_MODEL",
+    });
 
     for (let index = 0; index < 20; index++) {
       await addIntroCheck(documentId);

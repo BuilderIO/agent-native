@@ -56,6 +56,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "each check's last answers on a page; the check actions read them for the page's commenters and write them for its editors",
   "content:content_page_check_skips":
     "places a check was told to leave alone; the check actions read them for the page's commenters and change them for its editors",
+  "content:content_page_check_usage":
+    "how many yes/no questions a page's checks asked today; only the check actions count them, to hold the daily limit",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",

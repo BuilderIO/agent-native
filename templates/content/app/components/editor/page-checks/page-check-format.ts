@@ -1,13 +1,17 @@
 import type { useT } from "@agent-native/core/client/i18n";
 import {
   pageCheckCountDistance,
-  type PageCheckPart,
+  pageCheckPartFinding,
+  type PageCheck,
+  type PageCheckCouldntReason,
   type PageCheckPartResult,
   type PageCheckPlaceAnswer,
   type PageCheckScope,
+  type PageCheckSure,
 } from "@shared/page-checks";
 
 type T = ReturnType<typeof useT>;
+type CheckWording = Pick<PageCheck, "parts" | "sure">;
 
 export function pageCheckScopeLabel(t: T, scope: PageCheckScope): string {
   switch (scope.kind) {
@@ -24,14 +28,18 @@ export function pageCheckScopeLabel(t: T, scope: PageCheckScope): string {
 
 export function pageCheckMissText(
   t: T,
-  parts: readonly PageCheckPart[],
+  check: CheckWording,
   results: readonly PageCheckPartResult[],
 ): string {
   return results
     .flatMap((result, index) => {
-      const part = parts.find((_, at) => at === index);
-      if (!part || result.finding !== "not_fine" || result.count === undefined)
+      const part = check.parts.find((_, at) => at === index);
+      if (!part || pageCheckPartFinding(result, check.sure) !== "not_fine")
         return [];
+      if (part.kind === "question") {
+        return [t("pageChecks.doesntPass", { part: part.text })];
+      }
+      if (result.count === undefined) return [];
       const count = t(`pageChecks.${part.unit}`, { count: result.count });
       const distance = pageCheckCountDistance(part, result.count);
       return [
@@ -46,9 +54,29 @@ export function pageCheckMissText(
     .join(" · ");
 }
 
+export const PAGE_CHECK_SURE_LABELS: Record<PageCheckSure, string> = {
+  sure: "pageChecks.sureSure",
+  balanced: "pageChecks.sureBalanced",
+  more: "pageChecks.sureMore",
+};
+
+const COULDNT_TEXT: Record<PageCheckCouldntReason, string> = {
+  section_deleted: "pageChecks.sectionDeleted",
+  no_model: "pageChecks.couldntNoModel",
+  model_failed: "pageChecks.couldntModelFailed",
+  daily_limit: "pageChecks.couldntDailyLimit",
+};
+
+export function pageCheckCouldntText(
+  t: T,
+  reason: PageCheckCouldntReason | undefined,
+): string {
+  return reason ? t(COULDNT_TEXT[reason]) : t("pageChecks.couldnt");
+}
+
 export function pageCheckAnswerText(
   t: T,
-  parts: readonly PageCheckPart[],
+  check: CheckWording,
   answer: Pick<PageCheckPlaceAnswer, "answer" | "result" | "reason">,
 ): string {
   switch (answer.answer) {
@@ -56,7 +84,7 @@ export function pageCheckAnswerText(
       return t("pageChecks.fine");
     case "not_fine":
       return (
-        (answer.result && pageCheckMissText(t, parts, answer.result.parts)) ||
+        (answer.result && pageCheckMissText(t, check, answer.result.parts)) ||
         t("pageChecks.notFine")
       );
     case "skipped":
@@ -64,15 +92,18 @@ export function pageCheckAnswerText(
     case "changed":
       return t("pageChecks.changed");
     case "couldnt":
-      return answer.reason === "section_deleted"
-        ? t("pageChecks.sectionDeleted")
-        : t("pageChecks.couldnt");
+      return pageCheckCouldntText(
+        t,
+        answer.reason ??
+          answer.result?.parts.find((part) => part.reason !== undefined)
+            ?.reason,
+      );
   }
 }
 
 export function pageCheckSummaryText(
   t: T,
-  parts: readonly PageCheckPart[],
+  check: CheckWording,
   answers: readonly Pick<
     PageCheckPlaceAnswer,
     "answer" | "result" | "reason" | "place"
@@ -81,7 +112,7 @@ export function pageCheckSummaryText(
 ): string {
   if (!each) {
     return answers[0]
-      ? pageCheckAnswerText(t, parts, answers[0])
+      ? pageCheckAnswerText(t, check, answers[0])
       : t("pageChecks.nothingMatches");
   }
   if (answers.length === 0) return t("pageChecks.nothingMatches");
@@ -96,5 +127,5 @@ export function pageCheckSummaryText(
   const unsure =
     counted.find((answer) => answer.answer === "couldnt") ??
     counted.find((answer) => answer.answer === "changed");
-  return unsure ? pageCheckAnswerText(t, parts, unsure) : t("pageChecks.fine");
+  return unsure ? pageCheckAnswerText(t, check, unsure) : t("pageChecks.fine");
 }

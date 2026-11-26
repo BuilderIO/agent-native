@@ -298,7 +298,7 @@ export const PageCheckMarks = memo(function PageCheckMarks({
         if (top === undefined) return null;
         const labels = group.marks.map((mark) =>
           t("pageChecks.markLabel", {
-            answer: pageCheckAnswerText(t, mark.check.parts, mark.answer),
+            answer: pageCheckAnswerText(t, mark.check, mark.answer),
             check: mark.check.sentence,
             place: pageCheckScopeLabel(t, mark.check.scope),
           }),
@@ -359,7 +359,7 @@ export const PageCheckMarks = memo(function PageCheckMarks({
                                 check: mark.check.sentence,
                                 answer: pageCheckAnswerText(
                                   t,
-                                  mark.check.parts,
+                                  mark.check,
                                   mark.answer,
                                 ),
                               }),
@@ -409,7 +409,7 @@ function PageCheckCard({
       data-page-check-card={mark.answer.answer}
     >
       <p className="text-sm font-semibold">
-        {pageCheckAnswerText(t, mark.check.parts, mark.answer)}
+        {pageCheckAnswerText(t, mark.check, mark.answer)}
       </p>
       <p className="text-xs text-muted-foreground">
         {mark.check.sentence}

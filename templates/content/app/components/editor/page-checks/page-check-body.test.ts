@@ -4,7 +4,8 @@ import {
   pageCheckAnswers,
   pageCheckPlaces,
   pageCheckWordingHash,
-  readablePageCheckParts,
+  readPageCheckSentence,
+  type PageCheckCountPart,
   type PageCheckResult,
   type PageCheckScope,
   type PageCheckView,
@@ -30,6 +31,13 @@ function required<T>(value: T | null | undefined): T {
 const words = (count: number) =>
   Array.from({ length: count }, () => "word").join(" ");
 
+function countParts(sentence: string): PageCheckCountPart[] {
+  return readPageCheckSentence(sentence).parts.map((part) => {
+    if (part.kind !== "count") throw new Error(`Not a count: ${part.text}`);
+    return part;
+  });
+}
+
 function editorDoc(markdown: string): ProseMirrorNode {
   return schema.nodeFromJSON(nfmToDoc(markdown));
 }
@@ -39,7 +47,7 @@ function listed(
   scope: PageCheckScope,
   checkedMarkdown: string,
 ): PageCheckView {
-  const parts = required(readablePageCheckParts(sentence));
+  const parts = countParts(sentence);
   const wordingHash = pageCheckWordingHash({ parts, scope });
   const places = pageCheckPlaces(checkedMarkdown, scope);
   const results: PageCheckResult[] =
@@ -60,6 +68,7 @@ function listed(
     parts,
     scope,
     wordingHash,
+    sure: "balanced" as const,
     paused: false,
     createdBy: "editor@example.com",
     createdAt: "2026-11-25T00:00:00.000Z",

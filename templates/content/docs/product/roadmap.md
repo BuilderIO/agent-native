@@ -392,9 +392,9 @@ Put checks on a page so its writing keeps pointing at what doesn't pass, without
 
 **Example workflow:** An editor adds "Under 120 words" to a post's intro, sees "183 words, 63 over" before saving the check, cuts the intro, and watches the dot beside it disappear a few seconds after they stop typing.
 
-**What works today:** Count checks on the page, the intro, a section or each paragraph, with dots beside the text, a Checks list in Info, a header count, Check now, a recheck after typing stops, Skip here and Comment.
+**What works today:** Count and yes/no checks on the page, the intro, a section or each paragraph, with dots beside the text, a Checks list in Info, a header count, Check now, a recheck after typing stops, Skip here and Comment. Yes/no parts name the model that answers them and offer How sure.
 
-**What remains:** Yes/no questions answered by a model with How sure and limits, checks on each section with Only where, and checks on Collection rows.
+**What remains:** Checks on each section with Only where, and checks on Collection rows.
 
 **What this Feature includes:**
 

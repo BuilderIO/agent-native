@@ -53,6 +53,12 @@ describe("check messages", () => {
       expect(messages.commentText).toContain("{{answer}}");
       expect(messages.tabWithCount).toContain("{{tab}}");
       expect(messages.tabWithCount).toContain("{{lookAt}}");
+      expect(messages.doesntPass).toContain("{{part}}");
+      expect(messages.vague).toContain("{{part}}");
+      expect(messages.questionFor).toContain("{{part}}");
+      expect(messages.asks).toContain("{{question}}");
+      expect(messages.modelNotice).toContain("{{model}}");
+      expect(messages.modelNotice).toContain("{{company}}");
     }
   });
 });
