@@ -354,7 +354,10 @@ pnpm action suggest-document-edit --id abc123 \
 ### delete-document
 
 Move a page and all its sub-pages to Trash. IDs, bodies, hierarchy, and
-collection membership remain intact so the subtree can be restored. Agents pass
+collection membership remain intact so the subtree can be restored for 30 days.
+After that a daily job deletes it permanently; a sub-page trashed on its own
+keeps its own 30 days, and restoring a page then trashing it again starts its
+30 days over. Agents pass
 the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
 idempotency key. A conflict means the page changed: read it again before
 deciding to trash it. Collection pages use `delete-content-database` instead.
@@ -364,8 +367,9 @@ pnpm action delete-document --id abc123 \
   --expectedUpdatedAt '<updatedAt>' --idempotencyKey '<uuid>'
 ```
 
-Restore the receipt's `trashRootId` with its `trashedAt` (also listed by
-`list-content-trash`), or permanently delete it only after it is in Trash:
+Before those 30 days pass, restore the receipt's `trashRootId` with its
+`trashedAt` (also listed by `list-content-trash`), or permanently delete it
+sooner, only after it is in Trash:
 
 ```bash
 pnpm action restore-document --id abc123 \

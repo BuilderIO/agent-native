@@ -33,14 +33,47 @@ import {
   PermanentDeleteScopeChangedError,
 } from "../../actions/delete-document.js";
 import { getDb, schema } from "../db/index.js";
+import { firstRow } from "./first-row.js";
 
 export const CONTENT_TRASH_PURGE_TOKEN_KIND = "content-trash-purge-operation";
 export const CONTENT_TRASH_PURGE_WORKER_PATH =
   "/api/_agent-native-background/content-trash-purge-worker";
+export const CONTENT_TRASH_RETENTION_ACTOR =
+  "content-trash-retention@system.invalid";
+export const CONTENT_TRASH_RETENTION_PLAN_MODE = "retention";
 const BATCH_UNITS = 5;
 const LEASE_MS = 2 * 60 * 1000;
 
 class ContentTrashPurgeLeaseLostError extends Error {}
+
+async function stillTrashedDocumentIds(
+  db: ReturnType<typeof getDb>,
+  items: Array<{ documentId: string; ownerEmail: string }>,
+) {
+  if (items.length === 0) return new Set<string>();
+  // guard:allow-unscoped — automatic deletion acts for every owner; it re-checks that each frozen Page is still in Trash with the same owner.
+  const rows = await db
+    .select({
+      id: schema.documents.id,
+      ownerEmail: schema.documents.ownerEmail,
+    })
+    .from(schema.documents)
+    .where(
+      and(
+        inArray(
+          schema.documents.id,
+          items.map(({ documentId }) => documentId),
+        ),
+        isNotNull(schema.documents.trashedAt),
+      ),
+    );
+  const ownerById = new Map(rows.map((row) => [row.id, row.ownerEmail]));
+  return new Set(
+    items
+      .filter((item) => ownerById.get(item.documentId) === item.ownerEmail)
+      .map(({ documentId }) => documentId),
+  );
+}
 
 export async function authorizedTrashDocumentIds(
   db: ReturnType<typeof getDb>,
@@ -144,6 +177,28 @@ export async function processContentTrashPurge(operationId: string) {
     return { accepted: false, reason: "already-claimed-or-terminal" };
 
   try {
+    const planRows = await db
+      .select({ mode: schema.contentTrashPurgePlans.mode })
+      .from(schema.contentTrashPurgePlans)
+      .where(eq(schema.contentTrashPurgePlans.id, claimed.planId))
+      .limit(1);
+    const plan = firstRow(planRows);
+    const retention =
+      claimed.actorEmail === CONTENT_TRASH_RETENTION_ACTOR &&
+      plan?.mode === CONTENT_TRASH_RETENTION_PLAN_MODE;
+    const permittedDocumentIds = (
+      transactionDb: ReturnType<typeof getDb>,
+      items: Array<{ documentId: string; ownerEmail: string }>,
+    ) =>
+      retention
+        ? stillTrashedDocumentIds(transactionDb, items)
+        : authorizedTrashDocumentIds(
+            transactionDb,
+            items.map(({ documentId }) => documentId),
+          );
+    const blockedDetail = retention
+      ? "No longer in Trash when automatic deletion ran"
+      : "Access changed after confirmation in a dependent deletion unit";
     // One transaction per Trash unit. Each unit sorts only its own locks, so
     // holding one unit's pages while locking the next unit's collections
     // would break Content's row-lock order.
@@ -244,9 +299,9 @@ export async function processContentTrashPurge(operationId: string) {
             const items = allPending.filter((item) =>
               unchecked.has(item.unitId),
             );
-            const authorizedIds = await authorizedTrashDocumentIds(
+            const authorizedIds = await permittedDocumentIds(
               transactionDb,
-              items.map(({ documentId }) => documentId),
+              items,
             );
             for (const unitId of unchecked) checkedUnits.add(unitId);
             for (const item of items) {
@@ -267,8 +322,7 @@ export async function processContentTrashPurge(operationId: string) {
               .update(schema.contentTrashPurgePlanItems)
               .set({
                 outcome: "blocked",
-                outcomeDetail:
-                  "Access changed after confirmation in a dependent deletion unit",
+                outcomeDetail: blockedDetail,
                 completedAt,
               })
               .where(

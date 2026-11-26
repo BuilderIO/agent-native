@@ -1549,7 +1549,7 @@ export default defineAction({
       ? null
       : documentChangeResource(input.id),
   description:
-    "Move one page and all its sub-pages to recoverable Trash, guarded by the page's exact updatedAt and an idempotency key. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
+    "Move one page and all its sub-pages to Trash, guarded by the page's exact updatedAt and an idempotency key. Trash deletes them permanently 30 days after they were trashed. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   mcpAnnotations: {

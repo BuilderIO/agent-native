@@ -42,7 +42,7 @@ An editor creates a brief, adds body content and Properties, places it in two Co
 - A Collection row is a Page; membership supplies collection context but never replaces Page identity or creates a primary membership.
 - UI, agents, automations, and APIs use shared Actions and the same authorization boundary.
 - References, comments, Discussion, history, Versions, sources, and exports target the Page identity, not a transient renderer or location.
-- Trash suspends ordinary use without silently reusing the identity; restore returns the Page with its durable context.
+- Trash suspends ordinary use without silently reusing the identity; restore returns the Page with its durable context. Trash keeps each Trash root, with the Pages trashed together with it, for 30 days after it was trashed and then deletes it permanently; Pages already in Trash when this rule shipped got 30 days from its first run.
 
 ## Boundaries and non-goals
 
@@ -62,7 +62,7 @@ Given a person who knows a Page link but lacks access, when they open it through
 
 ## Current evidence
 
-`server/db/schema.ts` defines durable document rows with IDs, content, ownership, source context, and trash attribution. `update-document` persists Page changes through Actions and snapshots prior content. The dedicated Trash surface and `list-content-trash` search authorized deletion roots and nested descendants without changing Page identity; `get-trashed-document` provides a read-only body preview. Planned permanent deletion freezes Page IDs and deletion generations before execution, persists per-item outcomes, and leaves later or changed Trash outside the confirmed scope. This is current Page-lifecycle evidence, not proof of richer property, comment, History, or generic durable-job contracts.
+`server/db/schema.ts` defines durable document rows with IDs, content, ownership, source context, and trash attribution. `update-document` persists Page changes through Actions and snapshots prior content. The dedicated Trash surface and `list-content-trash` search authorized deletion roots and nested descendants without changing Page identity; `get-trashed-document` provides a read-only body preview. Planned permanent deletion freezes Page IDs and deletion generations before execution, persists per-item outcomes, and leaves later or changed Trash outside the confirmed scope. `server/lib/content-trash-retention.ts` makes that deletion a daily system run through the same plans and operations, after recording when it first ran; `actions/content-trash-retention.db.test.ts` covers that start, per-root dates, racing runners, the per-run cap, restored Pages, and resuming a stopped run. This is current Page-lifecycle evidence, not proof of richer property, comment, History, or generic durable-job contracts.
 
 ## Proof plan
 

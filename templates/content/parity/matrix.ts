@@ -146,17 +146,19 @@ export const parityMatrix: ParityRow[] = [
       "app/routes/_app.trash.tsx",
       "app/components/trash/TrashBrowser.tsx",
       "app/components/trash/EmptyTrashDialog.tsx",
+      "app/components/trash/TrashRetentionNotice.tsx",
       "app/hooks/use-content-trash.ts",
     ],
     durableEffect:
-      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs.",
+      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs. A daily system run deletes Trash roots trashed more than 30 days ago through the same plans and operations.",
     uiImplementation:
-      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter.",
+      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter. The retention notice reads get-content-trash-retention.",
     status: "action-backed",
     actions: [
       "execute-content-trash-purge",
       "get-content-trash-purge-plan",
       "get-content-trash-operation",
+      "get-content-trash-retention",
       "get-trashed-document",
       "list-content-trash",
       "permanently-delete-document",
@@ -172,7 +174,9 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/list-content-trash.db.test.ts",
       "actions/content-trash-purge.db.test.ts",
+      "actions/content-trash-retention.db.test.ts",
       "actions/document-trash-mcp.db.test.ts",
+      "app/components/trash/TrashRetentionNotice.test.tsx",
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
     ],
