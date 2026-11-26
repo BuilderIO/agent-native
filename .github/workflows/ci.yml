@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      changelog_only: ${{ steps.scope.outputs.changelog_only }}
       full: ${{ steps.scope.outputs.full }}
       lint: ${{ steps.scope.outputs.lint }}
       has_reports: ${{ steps.feedback.outputs.has_reports }}
@@ -289,23 +290,33 @@ jobs:
   typecheck:
     name: Typecheck
     needs: change-scope
-    if: needs.change-scope.outputs.typecheck == 'true'
+    if: >-
+      needs.change-scope.outputs.typecheck == 'true' ||
+      (needs.change-scope.outputs.typecheck == 'false' && needs.change-scope.outputs.changelog_only == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Verify Typecheck is outside the changelog-only scope
+        if: needs.change-scope.outputs.typecheck == 'false' && needs.change-scope.outputs.changelog_only == 'true'
+        run: echo 'Complete Git diff contains only changelog Markdown entries.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        if: needs.change-scope.outputs.typecheck == 'true'
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
+        if: needs.change-scope.outputs.typecheck == 'true'
         with:
           restore-dist-cache: "true"
 
       - name: Build core declarations before dependent typechecks
-        if: needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}')
+        if: >-
+          needs.change-scope.outputs.typecheck == 'true' &&
+          (needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}'))
         run: pnpm --filter @agent-native/core run build
 
       - name: Typecheck affected workspaces
+        if: needs.change-scope.outputs.typecheck == 'true'
         env:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
