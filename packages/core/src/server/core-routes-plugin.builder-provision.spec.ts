@@ -379,11 +379,11 @@ describe("POST /builder/provision", () => {
     await post({
       provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
     });
-    const [url, init] = upstream.mock.calls[0]!;
+    const [url, init] = upstream.mock.calls[0] ?? [];
     expect(String(url)).toBe(
       "https://api.builder.io/api/v1/accounts/agent-native",
     );
-    expect(init.headers).toMatchObject({
+    expect(init?.headers).toMatchObject({
       "Content-Type": "application/json",
       "x-agent-native-account-version": "agent-native-account-v1",
       "x-agent-native-account-timestamp": expect.stringMatching(/^\d+$/),
