@@ -23,6 +23,7 @@ export default defineAction({
   description:
     "Create a reusable asset template. A template may be global or associated with one Brand Kit.",
   schema: templateFieldsSchema.extend({ title: z.string().min(1) }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");

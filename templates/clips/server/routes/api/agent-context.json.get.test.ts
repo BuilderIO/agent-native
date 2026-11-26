@@ -10,6 +10,9 @@ const mockLoadAgentBrowserDiagnostics = vi.hoisted(() => vi.fn());
 const mockLoadAgentBugReport = vi.hoisted(() => vi.fn());
 const mockParseAgentChapters = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockListComments = vi.hoisted(() =>
+  vi.fn(async (_recordingId: string) => [] as unknown[]),
+);
 const mockHydrateCommentAuthorNames = vi.hoisted(() =>
   vi.fn(async (rows: unknown[]) => rows),
 );
@@ -39,6 +42,10 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
 }));
 
+vi.mock("../../lib/recording-comments.js", () => ({
+  listRecordingComments: (recordingId: string) => mockListComments(recordingId),
+}));
+
 vi.mock("../../lib/user-identities.js", () => ({
   hydrateCommentAuthorNames: (rows: unknown[]) =>
     mockHydrateCommentAuthorNames(rows),
@@ -47,19 +54,6 @@ vi.mock("../../lib/user-identities.js", () => ({
 vi.mock("../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
-    recordingComments: {
-      id: "comments.id",
-      recordingId: "comments.recordingId",
-      threadId: "comments.threadId",
-      parentId: "comments.parentId",
-      authorEmail: "comments.authorEmail",
-      authorName: "comments.authorName",
-      content: "comments.content",
-      videoTimestampMs: "comments.videoTimestampMs",
-      resolved: "comments.resolved",
-      createdAt: "comments.createdAt",
-      updatedAt: "comments.updatedAt",
-    },
     recordingReactions: {
       id: "reactions.id",
       recordingId: "reactions.recordingId",
@@ -105,6 +99,7 @@ describe("/api/agent-context route", () => {
     mockLoadAgentBugReport.mockResolvedValue(null);
     mockParseAgentChapters.mockReturnValue([]);
     mockBuildPublicAgentContext.mockReturnValue({ ok: true });
+    mockListComments.mockResolvedValue([]);
     mockGetDb.mockReturnValue({
       select: vi.fn(() => {
         const builder: any = {
@@ -140,21 +135,9 @@ describe("/api/agent-context route", () => {
       const savedComment = {
         id: "comment-test",
         content: "Fake saved comment",
+        videoTimestampMs: 0,
       };
-      mockGetDb.mockReturnValue({
-        select: (fields: { count?: unknown }) => {
-          const rows = "count" in fields ? [{ count: 1 }] : [savedComment];
-          const query = {
-            from: (): unknown => query,
-            where: (): unknown => query,
-            orderBy: (): unknown => query,
-            limit: async () => rows,
-            then: (resolve: (rows: unknown[]) => unknown) =>
-              Promise.resolve(rows).then(resolve),
-          };
-          return query;
-        },
-      });
+      mockListComments.mockResolvedValue([savedComment]);
       await handler({} as unknown as Parameters<typeof handler>[0]);
       expect(mockBuildPublicAgentContext).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -166,8 +149,9 @@ describe("/api/agent-context route", () => {
   );
 
   it("passes comments and reactions into the shared agent payload", async () => {
-    const comments = Array.from({ length: 101 }, (_, index) => ({
+    const comments = Array.from({ length: 250 }, (_, index) => ({
       id: `c${index}`,
+      videoTimestampMs: index,
     }));
     const reactions = Array.from({ length: 101 }, (_, index) => ({
       id: `r${index}`,
@@ -190,12 +174,11 @@ describe("/api/agent-context route", () => {
     const db = {
       select: vi
         .fn()
-        .mockReturnValueOnce(makeBuilder(comments))
         .mockReturnValueOnce(makeBuilder(reactions))
-        .mockReturnValueOnce(makeBuilder([{ count: 250 }]))
         .mockReturnValueOnce(makeBuilder([{ count: 120 }])),
     };
     mockGetDb.mockReturnValue(db as any);
+    mockListComments.mockResolvedValue(comments);
 
     await handler({} as any);
 
@@ -209,8 +192,9 @@ describe("/api/agent-context route", () => {
         reactionsTruncated: true,
       }),
     );
-    expect(limitValues).toEqual([101, 101]);
-    expect(db.select.mock.calls[0][0]).toHaveProperty("authorEmail");
-    expect(db.select.mock.calls[1][0]).not.toHaveProperty("viewerEmail");
+    expect(mockListComments).toHaveBeenCalledWith("rec-1");
+    expect(limitValues).toEqual([101]);
+    const selected = db.select.mock.calls.map(([fields]) => fields);
+    expect(selected[0]).not.toHaveProperty("viewerEmail");
   });
 });

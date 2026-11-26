@@ -1,7 +1,17 @@
 import { getUserSetting } from "@agent-native/core/settings";
 
+import {
+  DEFAULT_CONTACT_PANEL_WIDGETS,
+  normalizeContactPanelWidgets,
+  type ContactPanelWidgets,
+} from "../../shared/contact-panel-widgets.js";
 import { normalizeSignature } from "../../shared/signature.js";
 import type { SavedMailFilter, UserSettings } from "../../shared/types.js";
+
+export type MailSettingsPatch = Omit<
+  Partial<UserSettings>,
+  "contactPanelWidgets"
+> & { contactPanelWidgets?: Partial<ContactPanelWidgets> };
 
 export const DEFAULT_SETTINGS: UserSettings = {
   name: "",
@@ -17,6 +27,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   showAllTab: true,
   undoSendDelay: 5,
   tracking: { opens: false, clicks: false },
+  contactPanelWidgets: DEFAULT_CONTACT_PANEL_WIDGETS,
 };
 
 export async function readSettings(email: string): Promise<UserSettings> {
@@ -26,13 +37,22 @@ export async function readSettings(email: string): Promise<UserSettings> {
 
 export function mergeSettings(
   current: UserSettings,
-  patch: Partial<UserSettings>,
+  patch: MailSettingsPatch,
 ): UserSettings {
+  const { contactPanelWidgets, ...rest } = patch;
   return {
     ...current,
-    ...patch,
+    ...rest,
     ...(patch.signature !== undefined
       ? { signature: normalizeSignature(patch.signature) }
+      : {}),
+    ...(contactPanelWidgets !== undefined
+      ? {
+          contactPanelWidgets: normalizeContactPanelWidgets(
+            contactPanelWidgets,
+            normalizeContactPanelWidgets(current.contactPanelWidgets),
+          ),
+        }
       : {}),
   };
 }
@@ -165,6 +185,9 @@ export function normalizeMailSettings(
           ? data.showAllTab
           : DEFAULT_SETTINGS.showAllTab,
       previewPane: data.previewPane === "off" ? "off" : "right",
+      contactPanelWidgets: normalizeContactPanelWidgets(
+        data.contactPanelWidgets,
+      ),
       ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }

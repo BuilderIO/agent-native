@@ -18,11 +18,11 @@ import {
   canSubmitInlineCommentDraft,
   canEditPlanContentRole,
   commentAuthorEmails,
+  commentMenuIsOpen,
   commentThreadsForVisualSurfaceMode,
   commentThreadsForVisibility,
   defaultInlineCommentDraftForPlanContext,
   isPlanCommentShortcutEditableTarget,
-  mentionQueryAtCaret,
   localPlanBridgeRetryDelay,
   nativeMarkerPlacementForAnchor,
   runtimeAnnotationFromThread,
@@ -112,6 +112,7 @@ function rect(left: number, top: number, width: number, height: number) {
   } as DOMRect;
 }
 
+// oracle-change: the mention-query test went with Plan's own comment editor; the kit's comment box finds mentions now
 describe("plan comment thread UI model", () => {
   it("keeps the plan readable when an action response omits event history", () => {
     const bundle = {
@@ -292,6 +293,45 @@ describe("plan comment thread UI model", () => {
     marker.remove();
     menu.remove();
     outside.remove();
+  });
+
+  it("keeps the comment popover open for the kit's reaction and row menus", () => {
+    const popover = document.createElement("div");
+    const kitMenu = document.createElement("div");
+    const reaction = document.createElement("button");
+    kitMenu.setAttribute("data-review-popover", "");
+    kitMenu.append(reaction);
+    document.body.append(popover, kitMenu);
+
+    expect(shouldKeepCommentPopoverOpenForTarget(reaction, popover)).toBe(true);
+
+    popover.remove();
+    kitMenu.remove();
+  });
+
+  it("lets an open menu or mention list take Escape before the comment does", () => {
+    const menu = document.createElement("div");
+    menu.setAttribute("data-review-popover", "");
+    document.body.append(menu);
+
+    menu.setAttribute("data-state", "closed");
+    expect(commentMenuIsOpen()).toBe(false);
+    menu.setAttribute("data-state", "open");
+    expect(commentMenuIsOpen()).toBe(true);
+
+    menu.setAttribute("data-review-format-toolbar", "");
+    expect(commentMenuIsOpen()).toBe(false);
+    const linkField = document.createElement("input");
+    menu.append(linkField);
+    expect(commentMenuIsOpen()).toBe(true);
+    linkField.remove();
+
+    menu.removeAttribute("data-review-format-toolbar");
+    menu.removeAttribute("data-review-popover");
+    menu.setAttribute("data-comment-popover-portal", "");
+    expect(commentMenuIsOpen()).toBe(true);
+
+    menu.remove();
   });
 
   it("filters comment threads for the toolbar visibility modes", () => {
@@ -1289,28 +1329,5 @@ describe("plan comment thread UI model", () => {
     });
 
     expect(prompt).toBeNull();
-  });
-
-  it("detects mention queries when Chrome splits typed content into text nodes", () => {
-    const root = document.createElement("div");
-    root.contentEditable = "true";
-    root.append(
-      document.createTextNode("@"),
-      document.createTextNode("t"),
-      document.createTextNode("i"),
-    );
-    document.body.append(root);
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.setStart(root, root.childNodes.length);
-    range.collapse(true);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-
-    const query = mentionQueryAtCaret(root);
-
-    expect(query?.query).toBe("ti");
-    expect(query?.range.toString()).toBe("@ti");
-    root.remove();
   });
 });

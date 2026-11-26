@@ -45,6 +45,7 @@ import {
 } from "../../lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
+import { listRecordingComments } from "../../lib/recording-comments.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
@@ -380,25 +381,9 @@ export default defineEventHandler(async (event) => {
 
   const comments =
     rec.enableComments || viewerIsOwner
-      ? await db
-          .select()
-          .from(schema.recordingComments)
-          .where(eq(schema.recordingComments.recordingId, recordingId))
-          .orderBy(
-            asc(schema.recordingComments.videoTimestampMs),
-            asc(schema.recordingComments.createdAt),
-          )
+      ? await listRecordingComments(recordingId)
       : [];
   const hydratedComments = await hydrateCommentAuthorNames(comments);
-  const commentMentions = new Map(
-    hydratedComments.map((comment) => [
-      comment.id,
-      displayCommentMentions(comment.mentionsJson),
-    ]),
-  );
-  for (const comment of hydratedComments) {
-    Reflect.deleteProperty(comment, "mentionsJson");
-  }
 
   const reactions = rec.enableReactions
     ? await db
@@ -594,10 +579,10 @@ export default defineEventHandler(async (event) => {
       authorEmail: c.authorEmail,
       authorName: c.authorName,
       content: c.content,
-      mentions: commentMentions.get(c.id) ?? [],
+      mentions: displayCommentMentions(c.mentions),
       videoTimestampMs: c.videoTimestampMs,
       emojiReactionsJson: c.emojiReactionsJson,
-      resolved: Boolean(c.resolved),
+      resolved: c.resolved,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     })),
