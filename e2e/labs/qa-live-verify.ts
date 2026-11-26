@@ -4,6 +4,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "@playwright/test";
 
 import { waitForVerificationEmail } from "../signup/lib/mailosaur.ts";
+import { readCalendarSettingsFocus } from "./qa-calendar-focus.ts";
 import { LABS_QA_ORIGIN, labsQaEmailLink } from "./qa-email-link.ts";
 import {
   assertReadOnlyQaTarget,
@@ -646,9 +647,31 @@ async function main() {
     }
     await shot(page, "after");
     for (const [i, step] of (target.verify ?? []).entries()) {
-      await timed(`verify ${i + 1} ${JSON.stringify(step).slice(0, 120)}`, () =>
-        runStep(page, step),
-      );
+      const beforeFocus =
+        provider === "browserbase" &&
+        emailLinkMode &&
+        target.app === "calendar-2" &&
+        "expectVisible" in step &&
+        step.expectVisible === ".calendar-settings-dialog:focus-within"
+          ? readCalendarSettingsFocus(page)
+          : undefined;
+      try {
+        await timed(
+          `verify ${i + 1} ${JSON.stringify(step).slice(0, 120)}`,
+          () => runStep(page, step),
+        );
+      } catch (error) {
+        if (beforeFocus) {
+          const [before, afterFailure] = await Promise.all([
+            beforeFocus,
+            readCalendarSettingsFocus(page),
+          ]);
+          if (before || afterFailure) {
+            receipt.calendarSettingsFocus = { before, afterFailure };
+          }
+        }
+        throw error;
+      }
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
