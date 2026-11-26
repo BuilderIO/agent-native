@@ -475,12 +475,7 @@ describe("Builder account provisioning", () => {
     });
 
     it("marks a non-Error rejection as unreachable with a fixed message", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => {
-          throw "socket closed";
-        }),
-      );
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue("socket closed"));
       const error = await failure();
       expect(error.transport).toBe("unreachable");
       expect(error.message).toBe("Builder account provisioning failed");
