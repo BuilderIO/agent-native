@@ -55,6 +55,7 @@ import {
 } from "../org/service-principal-guard.js";
 import { isActionGranted } from "../org/service-principal-policy.js";
 import { isDeploymentEmailDomainAllowed } from "../org/signup-admission.js";
+import { canonicalResourcePath } from "../resources/path-form.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -2531,21 +2532,25 @@ function readOnlyResourceEntry(
         ) ||
         args.action !== "read" ||
         (args.scope !== "personal" && args.scope !== "shared") ||
-        typeof args.path !== "string" ||
-        !args.path ||
-        args.path.startsWith("/") ||
-        args.path.includes("\\") ||
-        args.path
+        typeof args.path !== "string"
+      ) {
+        throw new Error("Invalid resource read arguments");
+      }
+      const name = canonicalResourcePath(args.path);
+      if (
+        !name ||
+        name.includes("\\") ||
+        name
           .split("/")
           .some((part) => !part || part === "." || part === "..") ||
-        /[\x00-\x1f\x7f]/.test(args.path)
+        /[\x00-\x1f\x7f]/.test(name)
       ) {
         throw new Error("Invalid resource read arguments");
       }
       const { readScopedResourceForMcp, readScopedSkillForMcp } =
         await import("../resources/store.js");
       const signal = actionContext?.signal;
-      const resource = args.path.startsWith("skills/")
+      const resource = name.startsWith("skills/")
         ? await readScopedSkillForMcp({
             identity,
             scope: args.scope,

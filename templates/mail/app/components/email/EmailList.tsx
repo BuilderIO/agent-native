@@ -103,7 +103,10 @@ import {
   releaseSuppressionClaims,
   type AccountError,
 } from "@/hooks/use-emails";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  isKeyboardShortcutTarget,
+  useKeyboardShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import {
   useConfirmUncertainScheduledEmail,
   useDeleteScheduledJob,
@@ -606,6 +609,15 @@ function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
     </div>
   );
 }
+
+const LIST_NAVIGATION_KEYS = new Set([
+  "j",
+  "k",
+  "J",
+  "K",
+  "ArrowDown",
+  "ArrowUp",
+]);
 
 export function EmailList({
   emails: emailsProp,
@@ -1394,6 +1406,32 @@ export function EmailList({
     [navigate, onNavigateThread, searchParams, threadId, view],
   );
 
+  const syncedThreadIdRef = useRef<string | null>(null);
+  const syncedMessageIdRef = useRef<string | null>(null);
+  const closedThreadIdRef = useRef<string | null>(null);
+
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!LIST_NAVIGATION_KEYS.has(event.key)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isKeyboardShortcutTarget(event.target, event.key)) return;
+      containerRef.current?.setAttribute("data-keyboard-nav", "");
+    };
+    const onMouseMove = (event: MouseEvent) => {
+      const last = lastPointerRef.current;
+      if (last && last.x === event.clientX && last.y === event.clientY) return;
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      containerRef.current?.removeAttribute("data-keyboard-nav");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousemove", onMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousemove", onMouseMove);
+    };
+  }, []);
+
   const moveFocus = useCallback(
     (delta: number) => {
       setSelectedIds(new Set());
@@ -1404,9 +1442,19 @@ export function EmailList({
           (t) => t.latestMessage.id === focusedIdRef.current,
         );
       }
+      const base = current === -1 ? 0 : current;
+      const baseEmail = (threads[base] as ThreadSummary | undefined)
+        ?.latestMessage;
+      const opensCurrent =
+        readingPane &&
+        !threadId &&
+        Math.abs(delta) === 1 &&
+        baseEmail !== undefined &&
+        !baseEmail.isDraft &&
+        (baseEmail.threadId || baseEmail.id) !== closedThreadIdRef.current;
       const next = Math.max(
         0,
-        Math.min(threads.length - 1, (current === -1 ? 0 : current) + delta),
+        Math.min(threads.length - 1, base + (opensCurrent ? 0 : delta)),
       );
       const nextThread = threads[next] as ThreadSummary | undefined;
       if (!nextThread) return;
@@ -1416,7 +1464,14 @@ export function EmailList({
       // Scrolling the focused row into view is handled by the effect that
       // watches `focusedIndex` and calls `rowVirtualizer.scrollToIndex`.
     },
-    [threads, setFocusedId, setSelectedIds, readingPane, previewThread],
+    [
+      threads,
+      setFocusedId,
+      setSelectedIds,
+      readingPane,
+      threadId,
+      previewThread,
+    ],
   );
 
   const extendSelection = useCallback(
@@ -2125,6 +2180,28 @@ export function EmailList({
   }, [threads, focusedId, setFocusedId]);
 
   useEffect(() => {
+    if (!threadId) {
+      if (syncedThreadIdRef.current) {
+        closedThreadIdRef.current = syncedThreadIdRef.current;
+      }
+      syncedThreadIdRef.current = null;
+      return;
+    }
+    closedThreadIdRef.current = null;
+    const open = threads.find(
+      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+    );
+    if (!open) return;
+    if (syncedThreadIdRef.current === threadId) {
+      const rowChanged = open.latestMessage.id !== syncedMessageIdRef.current;
+      if (!rowChanged || focusedId !== syncedMessageIdRef.current) return;
+    }
+    syncedThreadIdRef.current = threadId;
+    syncedMessageIdRef.current = open.latestMessage.id;
+    setFocusedId(open.latestMessage.id);
+  }, [threadId, threads, focusedId, setFocusedId]);
+
+  useEffect(() => {
     if (threads.length === 0) return;
     warmThreads(
       threads.slice(0, 3).map((t) => ({
@@ -2355,7 +2432,7 @@ export function EmailList({
     [archiveThreadKeys],
   );
 
-  const handleHoverThread = useCallback(
+  const handleFocusRow = useCallback(
     (thread: ThreadSummary) => {
       setFocusedId(thread.latestMessage.id);
     },
@@ -3134,7 +3211,7 @@ export function EmailList({
                   onCancelSchedule={handleCancelScheduled}
                   onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
                   onRetryUncertainScheduled={handleRetryUncertainScheduled}
-                  onHover={handleHoverThread}
+                  onFocusRow={handleFocusRow}
                   onPrefetch={prefetchThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}

@@ -1,6 +1,9 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import type { DragHandleMenuRequest } from "@agent-native/toolkit/editor";
+import {
+  type DragHandleMenuRequest,
+  isListItem,
+} from "@agent-native/toolkit/editor";
 import { docToNfm, longestRun } from "@shared/nfm";
 import {
   IconCheck,
@@ -43,6 +46,7 @@ import { cn } from "@/lib/utils";
 
 import {
   blockActionLocks,
+  blockColorTarget,
   blockCommentRange,
   canTurnInto,
   currentTurnIntoTarget,
@@ -62,6 +66,7 @@ import {
 } from "./block-menu-placement";
 import {
   blockMenuEntry,
+  blockMenuTitle,
   type BlockAt,
   type BlockMenuSwitch,
 } from "./block-menu-registry";
@@ -366,14 +371,20 @@ export function BlockActionsMenu({
 
   const block = request.getBlock();
   const node = block?.node ?? null;
+  const parent = block
+    ? request.view.state.doc.resolve(block.pos).parent
+    : null;
   const entry = node ? blockMenuEntry(node) : null;
-  const title =
-    node && entry ? entry.title(node, t) : t("editor.blockMenu.block");
+  const title = node
+    ? blockMenuTitle(node, parent, t)
+    : t("editor.blockMenu.block");
   const turnTargets =
     !suggesting && node && canTurnInto(node) ? TURN_INTO_TARGETS : [];
-  const currentTarget = node ? currentTurnIntoTarget(node) : null;
-  const colorable = !suggesting && !!node && takesBlockColor(node.type.name);
-  const color: string | null = node?.attrs.color ?? null;
+  const currentTarget = node ? currentTurnIntoTarget(node, parent) : null;
+  const colorBlock = block ? blockColorTarget(block.node, block.pos) : null;
+  const colorable =
+    !suggesting && !!colorBlock && takesBlockColor(colorBlock.node.type.name);
+  const color: string | null = colorBlock?.node.attrs.color ?? null;
   const commentRange =
     onComment && block ? blockCommentRange(block.node, block.pos) : null;
   const locks = block
@@ -450,7 +461,7 @@ export function BlockActionsMenu({
     const tr = request.view.state.tr;
     if (!edit(tr, latest.pos)) return;
     const restyled = tr.doc.nodeAt(latest.pos);
-    if (restyled) {
+    if (restyled && !tr.selectionSet) {
       tr.setSelection(
         TextSelection.near(
           tr.doc.resolve(latest.pos + restyled.nodeSize - 1),
@@ -469,8 +480,18 @@ export function BlockActionsMenu({
 
   const setColor = (next: string | null) =>
     restyleBlock((tr, pos) => {
-      if (!takesBlockColor(tr.doc.nodeAt(pos)?.type.name ?? "")) return false;
-      tr.setNodeAttribute(pos, "color", next);
+      const current = tr.doc.nodeAt(pos);
+      const target = current && blockColorTarget(current, pos);
+      if (!target || !takesBlockColor(target.node.type.name)) return false;
+      tr.setNodeAttribute(target.pos, "color", next);
+      if (target.pos !== pos) {
+        tr.setSelection(
+          TextSelection.near(
+            tr.doc.resolve(target.pos + target.node.nodeSize - 1),
+            -1,
+          ),
+        );
+      }
       return true;
     });
 
@@ -500,11 +521,14 @@ export function BlockActionsMenu({
     const latest = request.getBlock();
     if (!latest) return;
     const { doc } = request.view.state;
-    let index = 0;
-    doc.forEach((_child, offset, childIndex) => {
-      if (offset === latest.pos) index = childIndex;
+    const $block = doc.resolve(latest.pos);
+    const index = $block.index(0);
+    const list = isListItem(latest.node) ? $block.parent : null;
+    const json = latest.node.toJSON();
+    const nfm = docToNfm({
+      type: "doc",
+      content: [list ? { type: list.type.name, content: [json] } : json],
     });
-    const nfm = docToNfm({ type: "doc", content: [latest.node.toJSON()] });
     const excerpt = nfm.slice(0, ASK_AGENT_MAX_CHARS);
     const fence = "~".repeat(Math.max(3, longestRun(excerpt, /~+/g) + 1));
     sendToAgentChat({
@@ -513,12 +537,15 @@ export function BlockActionsMenu({
       message: " ",
       submit: false,
       openSidebar: true,
-      contextLabel: blockMenuEntry(latest.node).title(latest.node, t),
+      contextLabel: blockMenuTitle(latest.node, list, t),
       context: [
         "The user attached this block from the Content page they are editing, and will say what they want done with it.",
         documentId ? `Document ID: ${documentId}` : null,
         `Block type: ${latest.node.type.name}`,
         `Block position: ${index + 1} of ${doc.childCount} top-level blocks`,
+        list
+          ? `List item: ${$block.index() + 1} of ${list.childCount}${$block.depth > 1 ? ", nested in another item" : ""}`
+          : null,
         "",
         excerpt === nfm
           ? "The block as NFM:"
