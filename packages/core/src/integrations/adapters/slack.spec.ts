@@ -2369,3 +2369,120 @@ function slackEvent(overrides: Record<string, unknown> = {}) {
     },
   } as any;
 }
+
+describe("slackAdapter getStatus", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete process.env.SLACK_BOT_TOKEN;
+    delete process.env.SLACK_SIGNING_SECRET;
+  });
+
+  function saveBotToken(token: string) {
+    process.env.SLACK_BOT_TOKEN = token;
+    process.env.SLACK_SIGNING_SECRET = "signing-secret-example";
+  }
+
+  function stubAuthTest(body: Record<string, unknown>) {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body)));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("reports a saved bot token Slack rejects, without the token", async () => {
+    saveBotToken("xoxb-rejected-status-example");
+    const fetchMock = stubAuthTest({ ok: false, error: "invalid_auth" });
+
+    const status = await slackAdapter().getStatus();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://slack.com/api/auth.test",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(status.configured).toBe(true);
+    expect(status.details).toMatchObject({
+      hasToken: true,
+      botTokenHealth: "revoked",
+      botTokenError: "invalid_auth",
+    });
+    expect(status.error).toContain(
+      "Slack rejected the saved bot token (invalid_auth)",
+    );
+    expect(JSON.stringify(status)).not.toContain(
+      "xoxb-rejected-status-example",
+    );
+  });
+
+  it("reports a working bot token as healthy", async () => {
+    saveBotToken("xoxb-healthy-status-example");
+    stubAuthTest({ ok: true, team_id: "T123", bot_id: "B123" });
+
+    const status = await slackAdapter().getStatus();
+
+    expect(status.details).toMatchObject({
+      botTokenHealth: "healthy",
+      botTokenError: null,
+    });
+    expect(status.error).toBeUndefined();
+  });
+
+  it("doesn't call the token rejected when Slack can't be reached", async () => {
+    saveBotToken("xoxb-unreachable-status-example");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    );
+
+    const status = await slackAdapter().getStatus();
+
+    expect(status.details).toMatchObject({ botTokenHealth: "degraded" });
+    expect(status.error).toBeUndefined();
+  });
+
+  it("asks Slack about a token at most once every five minutes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-26T12:00:00Z"));
+    saveBotToken("xoxb-cached-status-example");
+    const fetchMock = stubAuthTest({ ok: false, error: "invalid_auth" });
+    const adapter = slackAdapter();
+
+    await adapter.getStatus();
+    vi.setSystemTime(new Date("2026-11-26T12:04:59Z"));
+    await adapter.getStatus();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-11-26T12:05:01Z"));
+    await adapter.getStatus();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks again after 30 seconds when Slack couldn't be reached", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-26T12:00:00Z"));
+    saveBotToken("xoxb-retry-status-example");
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = slackAdapter();
+
+    await adapter.getStatus();
+    vi.setSystemTime(new Date("2026-11-26T12:00:31Z"));
+    await adapter.getStatus();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("doesn't call Slack when no bot token is saved", async () => {
+    process.env.SLACK_SIGNING_SECRET = "signing-secret-example";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await slackAdapter().getStatus();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(status.details).not.toHaveProperty("botTokenHealth");
+  });
+});

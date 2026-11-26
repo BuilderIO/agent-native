@@ -159,6 +159,32 @@ describe("Slack managed-install OAuth helpers", () => {
     });
   });
 
+  it.each(["token_expired", "account_inactive"])(
+    "classifies %s as a rejected Slack credential",
+    async (error) => {
+      const fetchImpl = vi.fn(
+        async () => new Response(JSON.stringify({ ok: false, error })),
+      );
+
+      await expect(
+        testSlackAuth("xoxb-example-not-real", fetchImpl as typeof fetch),
+      ).resolves.toMatchObject({ ok: false, health: "revoked", error });
+    },
+  );
+
+  it("keeps other Slack failures degraded, not revoked", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: false, error: "ratelimited" }), {
+          status: 429,
+        }),
+    );
+
+    await expect(
+      testSlackAuth("xoxb-example-not-real", fetchImpl as typeof fetch),
+    ).resolves.toMatchObject({ ok: false, health: "degraded" });
+  });
+
   it("derives team and enterprise installation keys", () => {
     expect(slackInstallationKey({ teamId: "T123", apiAppId: "A123" })).toBe(
       "team:T123:app:A123",

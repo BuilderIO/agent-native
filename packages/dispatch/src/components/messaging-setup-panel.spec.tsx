@@ -283,6 +283,55 @@ describe("MessagingSetupPanel", () => {
     expect(container.querySelectorAll("button").length).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("Save credentials");
   });
+  it("shows when Slack rejects the saved bot token", async () => {
+    clientState.statuses = [
+      {
+        platform: "slack",
+        label: "Slack",
+        configured: true,
+        enabled: true,
+        details: {
+          hasToken: true,
+          botTokenHealth: "revoked",
+          botTokenError: "invalid_auth",
+        },
+      },
+    ];
+    clientState.envStatuses = [
+      {
+        key: "SLACK_BOT_TOKEN",
+        label: "Slack Bot Token",
+        required: false,
+        configured: true,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <MessagingSetupPanel />
+        </TooltipProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Token rejected");
+    expect(container.textContent).not.toContain("Connected");
+    for (const label of ["Slack", "Credentials", "Slack Bot Token (legacy)"]) {
+      const trigger = [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes(label),
+      );
+      await act(async () => {
+        trigger?.click();
+        await Promise.resolve();
+      });
+    }
+    expect(container.textContent).toContain("Slack rejected the bot token");
+    expect(container.textContent).toContain("Slack answered invalid_auth.");
+    expect(container.textContent).not.toContain("Messages are flowing");
+    expect(container.textContent).toContain("Rejected");
+  });
+
   async function openSlackCredentials() {
     await act(async () => {
       root.render(
