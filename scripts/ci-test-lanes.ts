@@ -556,7 +556,10 @@ export function partitionTargetedWeighted(
   const sorted = splitLargePackages(pkgs, laneCount, coreFiles, minimums).sort(
     (a, b) => b.files - a.files,
   );
-  const coreShardCount = Math.min(laneCount, coreFiles);
+  const coreShardCount =
+    coreMode === "changed"
+      ? Math.min(laneCount, coreFiles, Math.max(1, Math.ceil(coreFiles / 20)))
+      : Math.min(laneCount, coreFiles);
   const count = Math.min(laneCount, Math.max(coreShardCount, sorted.length));
   const bins: LaneBin[] = Array.from({ length: count }, (_, index) => ({
     items: [],

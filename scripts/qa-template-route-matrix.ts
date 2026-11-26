@@ -67,6 +67,12 @@ function assertPublicPaths(pluginRel: string, expected: string[]) {
   }
 }
 
+const requestedTemplates = new Set(
+  process.argv.slice(2).filter((arg) => arg && !arg.startsWith("-")),
+);
+const isSelectedTemplate = (slug: string): boolean =>
+  requestedTemplates.size === 0 || requestedTemplates.has(slug);
+
 const signInLandingTemplates = [
   "analytics",
   "assets",
@@ -86,7 +92,7 @@ const signInLandingTemplates = [
   "tasks",
 ];
 
-for (const template of signInLandingTemplates) {
+for (const template of signInLandingTemplates.filter(isSelectedTemplate)) {
   const rootRoute = `templates/${template}/app/routes/_index.tsx`;
   assertContains(
     rootRoute,
@@ -100,7 +106,7 @@ for (const template of signInLandingTemplates) {
   );
 }
 
-for (const template of ["assets", "chat"]) {
+for (const template of ["assets", "chat"].filter(isSelectedTemplate)) {
   assertContains(
     `templates/${template}/app/routes/chat.$threadId.tsx`,
     'from "./home"',
@@ -108,85 +114,95 @@ for (const template of ["assets", "chat"]) {
   );
 }
 
-assertFilesExist("slides", [
-  "_index.tsx",
-  "deck.$id.tsx",
-  "deck.$id_.present.tsx",
-  "design-systems.tsx",
-  "extensions.tsx",
-  "extensions._index.tsx",
-  "extensions.$id.tsx",
-  "extensions.$id.$slug.tsx",
-  "share.$token.tsx",
-  "slide.tsx",
-  "team.tsx",
-]);
+if (isSelectedTemplate("slides")) {
+  assertFilesExist("slides", [
+    "_index.tsx",
+    "deck.$id.tsx",
+    "deck.$id_.present.tsx",
+    "design-systems.tsx",
+    "extensions.tsx",
+    "extensions._index.tsx",
+    "extensions.$id.tsx",
+    "extensions.$id.$slug.tsx",
+    "share.$token.tsx",
+    "slide.tsx",
+    "team.tsx",
+  ]);
+}
 
-assertFilesExist("clips", [
-  "_index.tsx",
-  "_app.tsx",
-  "_app.home.tsx",
-  "_app.library._index.tsx",
-  "_app.library.folder.$folderId.tsx",
-  "_app.spaces.$spaceId.tsx",
-  "_app.spaces.$spaceId.folder.$folderId.tsx",
-  "_app.extensions.tsx",
-  "_app.extensions._index.tsx",
-  "_app.extensions.$id.tsx",
-  "_app.extensions.$id.$slug.tsx",
-  "download.tsx",
-  "embed.$shareId.tsx",
-  "invite.$token.tsx",
-  "_app.r.$recordingId.tsx",
-  "record.tsx",
-  "share.$shareId.tsx",
-]);
+if (isSelectedTemplate("clips")) {
+  assertFilesExist("clips", [
+    "_index.tsx",
+    "_app.tsx",
+    "_app.home.tsx",
+    "_app.library._index.tsx",
+    "_app.library.folder.$folderId.tsx",
+    "_app.spaces.$spaceId.tsx",
+    "_app.spaces.$spaceId.folder.$folderId.tsx",
+    "_app.extensions.tsx",
+    "_app.extensions._index.tsx",
+    "_app.extensions.$id.tsx",
+    "_app.extensions.$id.$slug.tsx",
+    "download.tsx",
+    "embed.$shareId.tsx",
+    "invite.$token.tsx",
+    "_app.r.$recordingId.tsx",
+    "record.tsx",
+    "share.$shareId.tsx",
+  ]);
+}
 
-assertFilesExist("design", [
-  "_index.tsx",
-  "design.$id.tsx",
-  "examples.tsx",
-  "extensions.tsx",
-  "extensions._index.tsx",
-  "extensions.$id.tsx",
-  "extensions.$id.$slug.tsx",
-  "observability.tsx",
-  "present.$id.tsx",
-]);
+if (isSelectedTemplate("design")) {
+  assertFilesExist("design", [
+    "_index.tsx",
+    "design.$id.tsx",
+    "examples.tsx",
+    "extensions.tsx",
+    "extensions._index.tsx",
+    "extensions.$id.tsx",
+    "extensions.$id.$slug.tsx",
+    "observability.tsx",
+    "present.$id.tsx",
+  ]);
+}
 
-assertMatches(
-  "templates/clips/app/routes/_index.tsx",
-  /signInLandingLoader as loader/,
-  "clips / must document-redirect to sign-in",
-);
-assertMatches(
-  "templates/clips/app/routes/_app.home.tsx",
-  /export function loader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
-  "clips /home must keep a server loader redirect to /library",
-);
-assertMatches(
-  "templates/clips/app/routes/_app.home.tsx",
-  /export function clientLoader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
-  "clips /home must keep a client loader redirect for SPA navigations",
-);
-assertMatches(
-  "templates/slides/app/routes/share.$token.tsx",
-  /export async function loader[\s\S]*\/api\/share\/\$\{params\.token\}/,
-  "slides share route must SSR-load the shared deck JSON",
-);
+if (isSelectedTemplate("clips")) {
+  assertMatches(
+    "templates/clips/app/routes/_index.tsx",
+    /signInLandingLoader as loader/,
+    "clips / must document-redirect to sign-in",
+  );
+  assertMatches(
+    "templates/clips/app/routes/_app.home.tsx",
+    /export function loader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
+    "clips /home must keep a server loader redirect to /library",
+  );
+  assertMatches(
+    "templates/clips/app/routes/_app.home.tsx",
+    /export function clientLoader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
+    "clips /home must keep a client loader redirect for SPA navigations",
+  );
+  assertPublicPaths("templates/clips/server/plugins/auth.ts", [
+    "/share",
+    "/embed",
+    "/download",
+    "/__manifest",
+    "/api/public-recording",
+    "/api/media",
+    "/api/video",
+  ]);
+}
 
-assertPublicPaths("templates/slides/server/plugins/auth.ts", [
-  "/share",
-  "/api/share",
-  "/__manifest",
-]);
-assertPublicPaths("templates/clips/server/plugins/auth.ts", [
-  "/share",
-  "/embed",
-  "/download",
-  "/__manifest",
-  "/api/public-recording",
-  "/api/media",
-  "/api/video",
-]);
+if (isSelectedTemplate("slides")) {
+  assertMatches(
+    "templates/slides/app/routes/share.$token.tsx",
+    /export async function loader[\s\S]*\/api\/share\/\$\{params\.token\}/,
+    "slides share route must SSR-load the shared deck JSON",
+  );
+  assertPublicPaths("templates/slides/server/plugins/auth.ts", [
+    "/share",
+    "/api/share",
+    "/__manifest",
+  ]);
+}
 console.log("qa-template-route-matrix: clean");

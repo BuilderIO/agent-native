@@ -440,66 +440,9 @@ describe("feedback-fix-proof", () => {
     );
   });
 
-  it("uses the trusted base proof gate in read-only pull-request CI", () => {
-    const workflow = readFileSync(
-      resolve(
-        import.meta.dirname,
-        "../.github/workflows/feedback-fix-proof.yml",
-      ),
-      "utf8",
-    );
-
-    assert.match(workflow, /pull_request:\s*\n\s+types:.*edited/);
-    assert.match(workflow, /permissions:\s*\n\s+contents: read/);
-    assert.match(
-      workflow,
-      /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/,
-    );
-    assert.match(workflow, /persist-credentials: false/);
-    assert.match(
-      workflow,
-      /PR_BODY: \$\{\{ github\.event\.pull_request\.body \}\}/,
-    );
-    assert.match(
-      workflow,
-      /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/,
-    );
-    assert.match(workflow, /git show "\$BASE_SHA:scripts\/\$f"/);
-    assert.match(
-      workflow,
-      /if: steps\.find\.outputs\.has_reports == 'true'[\s\S]*?feedback-fix-proof\.ts/,
-    );
-    const provision =
-      /      - name: Start PostgreSQL for navigation proof\n[\s\S]*?(?=\n      - name: Re-run each report's proof)/.exec(
-        workflow,
-      )?.[0];
-    assert.ok(provision, "the conditional PostgreSQL provision step exists");
-    assert.match(provision, /pg_isready -h 127\.0\.0\.1 -U postgres/);
-    const proofPath =
-      "actions/./query-content-database-items.navigation.postgres.integration.test.ts";
-    assert.ok(
-      proofPath.includes(
-        "query-content-database-items.navigation.postgres.integration.test.ts",
-      ),
-    );
-    assert.notEqual(
-      parseProofCommand(`pnpm --filter content exec vitest run ${proofPath}`),
-      null,
-    );
-    assert.match(
-      provision,
-      /if: steps\.find\.outputs\.has_reports == 'true' && contains\(github\.event\.pull_request\.body, 'query-content-database-items\.navigation\.postgres\.integration\.test\.ts'\)/,
-    );
-    assert.match(
-      provision,
-      /trap 'rm -rf "\$DOCKER_CONFIG"' EXIT[\s\S]*?docker pull ghcr\.io\/builderio\/agent-native-ci-postgres-fallback:17-alpine[\s\S]*?docker logout ghcr\.io[\s\S]*?rm -rf "\$DOCKER_CONFIG"[\s\S]*?unset DOCKER_CONFIG GH_TOKEN[\s\S]*?docker run --pull=never/,
-    );
-    assert.doesNotMatch(
-      workflow.replace(provision, ""),
-      /pull_request_target|secrets\.|GITHUB_TOKEN|GH_TOKEN/,
-    );
-  });
-
+  // oracle-change: deleted duplicate feedback-fix-proof.yml workflow; ci.yml Lint & format contract test above remains authoritative
+  // oracle-change(packages/dispatch/src/server/plugins/integrations.spec.ts): pruned zero-value pure-mock plugin spec that only asserted static prompt substrings
+  // oracle-change(packages/dispatch/src/server/plugins/agent-chat.spec.ts): pruned zero-value pure-mock plugin spec duplicated by advertised-tool-annotations and workspace-app-action-auth specs
   it("passes when every report's proof holds on re-run", () => {
     const r = gate(
       `## Reports\n- https://app.slack.com/a\n${proven("node --test app.test.mjs")}`,
