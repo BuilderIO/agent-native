@@ -10,6 +10,7 @@ import {
   writeBrainExportState,
 } from "../lib/brain-export-state.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
+import { recoverIdleTrackUploads } from "../lib/rich-track-recovery.js";
 import { reapExpiredUploads } from "../lib/upload-lease.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
@@ -180,6 +181,9 @@ export default function registerBrainExportJob(): void {
     void Promise.allSettled([
       reapExpiredUploads().catch((error) =>
         console.error("[uploads] lease reaper interval failed:", error),
+      ),
+      recoverIdleTrackUploads().catch((error) =>
+        console.error("[track-recovery] interval failed:", error),
       ),
       runBrainExportSweepOnce().catch((error) =>
         console.error("[brain-export] interval failed:", error),

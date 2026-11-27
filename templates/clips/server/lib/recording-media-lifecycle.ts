@@ -293,6 +293,7 @@ export async function captureRecordingMediaCleanup(
     "recording-upload-",
     "recording-recovery-policy-",
     "recording-rich-policy-",
+    "recording-rich-draft-",
     "recording-compression-",
     "recording-builder-compression-",
     "recording-blob-",
