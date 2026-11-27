@@ -229,7 +229,7 @@ const reportStepByName = (name: string) =>
 const artifactDownload = reportStepByName("Download Design E2E artifacts");
 assert.equal(
   artifactDownload?.uses,
-  "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+  "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
 );
 assert.equal(artifactDownload?.with?.pattern, "design-*");
 assert.equal(
@@ -256,7 +256,7 @@ assert.equal(reportArtifact?.with?.["if-no-files-found"], "error");
 const slackPosts = reportSteps.filter(
   (step) =>
     step.uses ===
-      "slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d" &&
+      "slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa" &&
     step.with?.method === "chat.postMessage",
 );
 assert.equal(
