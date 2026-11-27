@@ -182,24 +182,29 @@ function extractOwnableExports(contents) {
 
 export async function collectOwnableTables(root = REPO_ROOT) {
   const byDir = new Map();
-  for await (const file of walk(root)) {
-    const rel = path.relative(root, file).replaceAll("\\", "/");
-    if (!/^(?:packages|templates)\//.test(rel)) continue;
-    if (!/\.[cm]?tsx?$/.test(file) || /\.(?:spec|test)\.[cm]?tsx?$/.test(file))
-      continue;
-    let contents;
-    try {
-      contents = readFileSync(file, "utf8");
-    } catch {
-      continue;
-    }
-    if (!/ownableColumns\s*\(/.test(contents)) continue;
-    const ownables = extractOwnableExports(contents);
-    if (ownables.size > 0) {
-      const dir = path.dirname(rel);
-      const inDir = byDir.get(dir) ?? new Set();
-      for (const ownable of ownables) inDir.add(ownable);
-      byDir.set(dir, inDir);
+  for (const sub of ["packages", "templates"]) {
+    for await (const file of walk(path.join(root, sub))) {
+      const rel = path.relative(root, file).replaceAll("\\", "/");
+      if (!/^(?:packages|templates)\//.test(rel)) continue;
+      if (
+        !/\.[cm]?tsx?$/.test(file) ||
+        /\.(?:spec|test)\.[cm]?tsx?$/.test(file)
+      )
+        continue;
+      let contents;
+      try {
+        contents = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      if (!/ownableColumns\s*\(/.test(contents)) continue;
+      const ownables = extractOwnableExports(contents);
+      if (ownables.size > 0) {
+        const dir = path.dirname(rel);
+        const inDir = byDir.get(dir) ?? new Set();
+        for (const ownable of ownables) inDir.add(ownable);
+        byDir.set(dir, inDir);
+      }
     }
   }
   return byDir;
