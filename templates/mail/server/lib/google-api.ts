@@ -1019,6 +1019,25 @@ export function peopleListOtherContacts(
   return googleFetch(`${PEOPLE_BASE}/otherContacts${qs(params)}`, accessToken);
 }
 
+export function calendarListEvents(
+  accessToken: string,
+  calendarId: string,
+  params: {
+    q?: string;
+    timeMin?: string;
+    timeMax?: string;
+    singleEvents?: "true";
+    orderBy?: "startTime";
+    maxResults?: number;
+    pageToken?: string;
+  },
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs(params)}`,
+    accessToken,
+  );
+}
+
 export function calendarGetEvent(
   accessToken: string,
   calendarId: string,

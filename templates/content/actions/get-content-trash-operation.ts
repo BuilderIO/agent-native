@@ -108,7 +108,8 @@ export default defineAction({
       "conflicted",
       "failed",
     ].includes(operation.status);
-    if (!terminal) await assertContentTrashPurgeReadAccess(operation.planId);
+    if (!terminal)
+      await assertContentTrashPurgeReadAccess(operation.planId, plan.orgId);
     const rows = await db
       .select({
         id: schema.contentTrashPurgePlanItems.id,

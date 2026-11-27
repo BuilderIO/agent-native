@@ -111,10 +111,6 @@ const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
     ".github/workflows/auto-publish.yml",
     "scripts/package-release-workflow.test.ts",
   ],
-  [
-    ".github/workflows/feedback-fix-proof.yml",
-    "scripts/feedback-fix-proof.test.ts",
-  ],
 ]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",
@@ -987,6 +983,7 @@ export type ChangeScope = {
   scaffoldWorkspaceApps: string[];
   ssrBootApps: string[];
   trustedAcceptanceApps: string[];
+  qaStaticApps: string[];
 };
 
 export type QueryBudgetShard = { shard: string; apps: string[] };
@@ -2784,6 +2781,18 @@ export function classifyChangedPaths(
     scaffoldWorkspaceApps: scaffoldWorkspaceAppsFor(changedPaths, full, checks),
     ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
     trustedAcceptanceApps: trustedAcceptanceAppsFor(changedPaths, full, checks),
+    qaStaticApps:
+      !checks.qa_static ||
+      full ||
+      changedPaths.some((p) => !p.startsWith("templates/"))
+        ? []
+        : [
+            ...new Set(
+              changedPaths
+                .map((p) => /^templates\/([^/]+)\//u.exec(p)?.[1])
+                .filter((slug): slug is string => Boolean(slug)),
+            ),
+          ].sort(),
   };
 }
 
@@ -3014,6 +3023,7 @@ function writeOutputs(scope: ChangeScope, changelogOnly: boolean): void {
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
       `slides_authoring_matrix=${JSON.stringify(slidesAuthoringMatrix())}`,
       `trusted_acceptance_apps=${JSON.stringify(scope.trustedAcceptanceApps)}`,
+      `qa_static_apps=${JSON.stringify(scope.qaStaticApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,

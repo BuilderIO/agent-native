@@ -1888,6 +1888,7 @@ export default {
     bringToFront: "Bring to front",
     sendBackward: "Send backward",
     sendToBack: "Send to back",
+    arrangeUnavailable: "Select a layer in an editable design to reorder it",
     pasteToReplace: "Paste to replace",
     frameSelection: "Frame selection",
     flipHorizontal: "Flip horizontal",

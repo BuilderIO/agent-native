@@ -85,6 +85,16 @@ vi.mock("@/components/ui/context-menu", () => {
   };
 });
 
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  TooltipContent: ({ children }: { children?: React.ReactNode }) => (
+    <div role="tooltip">{children}</div>
+  ),
+}));
+
 import { CanvasContextMenu, dispatchContextMenuAt } from "./CanvasContextMenu";
 
 async function renderContextMenu(
@@ -717,6 +727,57 @@ describe("CanvasContextMenu send to", () => {
     const view = await renderContextMenu({ selectedCount: 1 });
 
     expect(view.container.textContent).not.toContain("Copy agent prompt");
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu Arrange availability", () => {
+  const arrangeLabels = [
+    "Bring to front",
+    "Bring forward",
+    "Send backward",
+    "Send to back",
+  ];
+
+  it("explains why every disabled Arrange item cannot run", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      selectedLayerCount: 1,
+      canReorder: false,
+      onBringToFront: vi.fn(),
+      onBringForward: vi.fn(),
+      onSendBackward: vi.fn(),
+      onSendToBack: vi.fn(),
+    });
+
+    for (const label of arrangeLabels) {
+      expect(view.findButton(label)?.disabled).toBe(true);
+    }
+    const tooltips = view.container.querySelectorAll('[role="tooltip"]');
+    expect(tooltips).toHaveLength(arrangeLabels.length);
+    for (const tooltip of tooltips) {
+      expect(tooltip.textContent).toBe(
+        "Select a layer in an editable design to reorder it",
+      );
+    }
+    await view.cleanup();
+  });
+
+  it("shows no reason and runs the action when Arrange is available", async () => {
+    const onBringToFront = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      selectedLayerCount: 1,
+      canReorder: true,
+      onBringToFront,
+      onBringForward: vi.fn(),
+      onSendBackward: vi.fn(),
+      onSendToBack: vi.fn(),
+    });
+
+    expect(view.container.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+    await act(async () => view.findButton("Bring to front")?.click());
+    expect(onBringToFront).toHaveBeenCalledTimes(1);
     await view.cleanup();
   });
 });

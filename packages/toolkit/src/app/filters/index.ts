@@ -28,6 +28,7 @@ export {
   findFilterGroup,
   findFilterRule,
   hasIncompleteFilterRules,
+  incompleteFilterRuleIds,
   isDefaultFilterState,
   isFilterOperator,
   isFilterRuleComplete,
@@ -61,6 +62,22 @@ export {
   type FilterState,
 } from "./model.js";
 export {
+  duplicateFilterLine,
+  FILTER_GROUP_LEVELS,
+  filterGroupLevel,
+  filterJoinIsWhole,
+  filterLineJoin,
+  filterLineParent,
+  groupFilterLineWith,
+  joinFilterLine,
+  moveFilterLine,
+  takeFilterLineOut,
+  ungroupFilterLine,
+  type FilterJoinResult,
+  type FilterLineOptions,
+  type FilterLinePlace,
+} from "./lines.js";
+export {
   filterSearchKey,
   filterStateKey,
   filterStateToParams,
@@ -76,6 +93,11 @@ export {
 export { searchFilterFields, type FilterSearchResult } from "./search.js";
 export { useFilterText, type FilterText } from "./text.js";
 export { FilterBar, type FilterBarProps } from "./FilterBar.js";
+export {
+  FilterFieldPicker,
+  FilterOperatorSelect,
+  FilterRuleEditor,
+} from "./FilterEditors.js";
 export {
   FilterButton,
   FilterPanel,

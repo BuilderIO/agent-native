@@ -213,6 +213,10 @@ All methods are called via `POST /_agent-native/a2a` with JSON-RPC 2.0 format:
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -635,7 +639,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-The agent card endpoint is always public (no auth) so other agents can discover capabilities. The `/_agent-native/a2a` JSON-RPC endpoint accepts JWT bearer tokens signed by `A2A_SECRET`, and also accepts the legacy `apiKeyEnv` token when configured. In local development, auth can be omitted; in hosted production runtimes, missing A2A auth returns 503 instead of running unauthenticated.
+The agent card endpoint is always public (no auth) so other agents can discover capabilities. The `/_agent-native/a2a` JSON-RPC endpoint accepts JWT bearer tokens signed by `A2A_SECRET`, and also accepts the legacy `apiKeyEnv` token when configured. Without `A2A_SECRET` or `apiKeyEnv`, a development server accepts unauthenticated calls only from the same machine and returns 401 to every other host, including a dev server published on a public preview URL. In hosted production runtimes, missing A2A auth returns 503 instead of running unauthenticated.
 
 ### Auth policy boundary {#auth-policy}
 
@@ -645,7 +649,7 @@ Bearer validation runs at the request boundary — in the JSON-RPC handler — b
 - `hasConfiguredA2ASecret()` returns `true` when `A2A_SECRET` is set.
 - `shouldAdvertiseJwtA2AAuth()` is what the agent card uses to decide whether to publish a `jwtBearer` security scheme.
 
-The production policy is strict: in any production runtime, the async `_process-task` route refuses to dispatch unless `A2A_SECRET` is configured (returns 503), and the JSON-RPC endpoint refuses unauthenticated calls. The dev fallback (warn once, allow) only fires when no production flag is set.
+The production policy is strict: in any production runtime, the async `_process-task` route refuses to dispatch unless `A2A_SECRET` is configured (returns 503), and the JSON-RPC endpoint refuses unauthenticated calls. Outside production, an unauthenticated call is allowed (with a one-time warning) only when it comes from the same machine: the peer address, `Host`, and any forwarding headers must all be loopback, and a Builder cloud dev container never counts as local. Any other unauthenticated call, including an unsigned `_process-task` dispatch, returns 401; set `A2A_SECRET` on the app to accept it.
 
 This boundary matters because the agent loop accepts free-form input from a remote caller. Putting the bearer check inside the loop, or relying on a tool to enforce it, would let prompt-injection or a buggy handler bypass auth. Keeping it at the HTTP boundary means a token failure short-circuits before any LLM call.
 

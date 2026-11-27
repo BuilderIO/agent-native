@@ -1,7 +1,44 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
+
+const FAST_GUARDS_SUPPORTED = new Set<GuardName>([
+  "guard:agent-native-brand",
+  "guard:no-secret-literals",
+  "guard:no-core-client-barrel-imports",
+]);
+
+type FastGuardReport = {
+  name: GuardName;
+  passed: boolean;
+  elapsed_ms: number;
+  summary: string;
+  violations: string[];
+};
+
+function resolveFastGuardsBinary(): string | null {
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const candidate = path.resolve(
+    process.cwd(),
+    "tools/fast-guards/target/release",
+    `fast-guards${ext}`,
+  );
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+const SHELL_META_RE = /[|&;<>()$`'"]/;
+
+const rootScripts: Record<string, string> = (() => {
+  const pkgPath = path.join(process.cwd(), "package.json");
+  if (!fs.existsSync(pkgPath)) return {};
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  return pkg.scripts ?? {};
+})();
 
 const guards = [
   "guard:hooks-registered",
@@ -234,11 +271,27 @@ console.error(summary.message);
 process.exit(summary.exitCode);
 
 async function runAll(concurrency: number): Promise<GuardResult[]> {
-  const queue = [...selectedGuards];
+  const fastBin = resolveFastGuardsBinary();
+  const fastBatch = fastBin
+    ? selectedGuards.filter((g) => FAST_GUARDS_SUPPORTED.has(g))
+    : [];
+  const fastSet = new Set<GuardName>(fastBatch);
+  const queue = selectedGuards.filter((g) => !fastSet.has(g));
   const results: GuardResult[] = [];
 
-  await Promise.all(
-    Array.from({ length: concurrency }, async () => {
+  const fastPromise =
+    fastBin && fastBatch.length > 0
+      ? runFastGuardsBatch(fastBin, fastBatch).then((batchResults) => {
+          for (const result of batchResults) {
+            results.push(result);
+            printResult(result);
+          }
+        })
+      : Promise.resolve();
+
+  await Promise.all([
+    fastPromise,
+    ...Array.from({ length: concurrency }, async () => {
       for (;;) {
         const guard = queue.shift();
         if (!guard) return;
@@ -247,20 +300,104 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
         printResult(result);
       }
     }),
-  );
+  ]);
 
   return results;
+}
+
+function runFastGuardsBatch(
+  binPath: string,
+  batch: GuardName[],
+): Promise<GuardResult[]> {
+  const startedAt = Date.now();
+  const child = spawn(
+    binPath,
+    ["--root", process.cwd(), "--guards", batch.join(","), "--json"],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  running.add(child);
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  child.stdout.on("data", (chunk: Buffer) =>
+    stdoutChunks.push(chunk.toString()),
+  );
+  child.stderr.on("data", (chunk: Buffer) =>
+    stderrChunks.push(chunk.toString()),
+  );
+
+  return new Promise((resolve) => {
+    child.on("error", (error) => {
+      stderrChunks.push(`[fast-guards] Failed to start: ${error.message}\n`);
+    });
+    child.on("close", (code, signal) => {
+      running.delete(child);
+      const elapsedMs = Date.now() - startedAt;
+      const rawOut = stdoutChunks.join("").trim();
+      const rawErr = stderrChunks.join("");
+      if (rawOut.length > 0 && (code === 0 || code === 1)) {
+        try {
+          const parsed = JSON.parse(rawOut) as FastGuardReport[];
+          const byName = new Map(parsed.map((item) => [item.name, item]));
+          const mapped = batch.map((name): GuardResult => {
+            const report = byName.get(name);
+            if (!report) {
+              return {
+                name,
+                code: 2,
+                signal: null,
+                elapsedMs,
+                output: `[fast-guards] Missing report for ${name}\n${rawErr}`,
+              };
+            }
+            const lines = [report.summary];
+            for (const violation of report.violations) {
+              lines.push(`  - ${violation}`);
+            }
+            return {
+              name,
+              code: report.passed ? 0 : 1,
+              signal: null,
+              elapsedMs: report.elapsed_ms,
+              output: `${lines.join("\n")}\n`,
+            };
+          });
+          resolve(mapped);
+          return;
+        } catch (parseError) {
+          resolve(
+            batch.map((name) => ({
+              name,
+              code: 2,
+              signal,
+              elapsedMs,
+              output: `[fast-guards] Invalid JSON output: ${parseError instanceof Error ? parseError.message : String(parseError)}\n${rawErr}`,
+            })),
+          );
+          return;
+        }
+      }
+      resolve(
+        batch.map((name) => ({
+          name,
+          code: code ?? 2,
+          signal,
+          elapsedMs,
+          output:
+            rawErr || rawOut || `[fast-guards] exited with code ${code}\n`,
+        })),
+      );
+    });
+  });
 }
 
 function runGuard(name: GuardName): Promise<GuardResult> {
   const startedAt = Date.now();
   const [command, args] = guardCommand(name);
-  // Node refuses to spawn .cmd/.bat files directly (CVE-2024-27980), and pnpm
-  // is a pnpm.cmd shim on Windows, so run it through the shell there. The
-  // command and args are fixed literals from this file, so joining them into
-  // one command line is safe. Passing no args also avoids Node's DEP0190
-  // warning about unescaped shell args.
-  const useShell = process.platform === "win32";
+  const useShell = process.platform === "win32" && command === "pnpm";
   const child = spawn(
     useShell ? formatCommand([command, args]) : command,
     useShell ? [] : args,
@@ -325,23 +462,37 @@ Environment overrides:
 }
 
 function guardCommand(name: GuardName): [string, string[]] {
+  const extraArgs =
+    args.diff &&
+    (name === "guard:request-storms" || name === "guard:dead-settings-keys")
+      ? ["--diff"]
+      : [];
+
   if (name === "guard:no-heavy-dashboard-list-reads") {
-    return ["node", ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+    return [
+      process.execPath,
+      ["scripts/guard-no-heavy-dashboard-list-reads.mjs"],
+    ];
   }
   if (name === "guard:no-blob-column-predicate") {
-    return ["node", ["scripts/guard-no-blob-column-predicate.mjs"]];
+    return [process.execPath, ["scripts/guard-no-blob-column-predicate.mjs"]];
   }
-  return [
-    "pnpm",
-    [
-      "run",
-      name,
-      ...(args.diff &&
-      (name === "guard:request-storms" || name === "guard:dead-settings-keys")
-        ? ["--diff"]
-        : []),
-    ],
-  ];
+
+  const script = rootScripts[name]?.trim();
+  if (script && !SHELL_META_RE.test(script)) {
+    const tokens = script.split(/\s+/);
+    if (tokens[0] === "node" && tokens.length >= 2) {
+      return [process.execPath, [...tokens.slice(1), ...extraArgs]];
+    }
+    if (tokens[0] === "tsx" && tokens.length >= 2) {
+      return [
+        process.execPath,
+        ["--import", "tsx", ...tokens.slice(1), ...extraArgs],
+      ];
+    }
+  }
+
+  return ["pnpm", ["run", name, ...extraArgs]];
 }
 
 function formatCommand([command, args]: [string, string[]]): string {
@@ -411,7 +562,7 @@ function resolveConcurrency(explicitValue?: string): number | typeof Infinity {
 
   if (envValue) return parseConcurrency(envValue);
 
-  return clamp(Math.floor(availableParallelism() / 2), 2, 6);
+  return clamp(availableParallelism(), 4, 8);
 }
 
 function availableParallelism(): number {

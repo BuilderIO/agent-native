@@ -18,7 +18,7 @@ function legacyUserKey(email: string, key: string): string {
   return `u:${email}:${key}`;
 }
 
-function transactionRows(result: unknown): Record<string, unknown>[] {
+export function transactionRows(result: unknown): Record<string, unknown>[] {
   if (Array.isArray(result)) return result as Record<string, unknown>[];
   const rows = (result as { rows?: unknown } | null)?.rows;
   return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];

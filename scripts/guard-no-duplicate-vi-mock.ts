@@ -41,6 +41,8 @@ export function findDuplicateMocks(
   file: string,
   source: string,
 ): DuplicateMock[] {
+  const mockMatches = source.match(/\bvi\s*\.\s*mock\s*\(/g);
+  if (!mockMatches || mockMatches.length < 2) return [];
   const sourceFile = ts.createSourceFile(
     file,
     source,

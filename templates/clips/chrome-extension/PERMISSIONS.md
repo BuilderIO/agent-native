@@ -8,21 +8,21 @@ its all-site content scripts, and the debugger scope. Sources:
 
 ## Declarations
 
-| Declaration                                                                 | Used for                                                                  | When                         |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------- |
-| `activeTab`                                                                 | Start a recording from the tab the user clicks                            | Toolbar click                |
-| `debugger`                                                                  | Console, exception, and fetch/XHR metadata for up to five tabs            | Recording, developer logs on |
-| `scripting`                                                                 | Resource-timing and app-activity lookback reads; content-script injection | Recording                    |
-| `offscreen`                                                                 | Screen, window, camera, and microphone capture                            | Recording                    |
-| `clipboardWrite`                                                            | Copy the Clips link when a recording finishes                             | Recording completion         |
-| `downloads`                                                                 | Local copy of a recording if finishing its upload fails                   | Failure path only            |
-| `storage`                                                                   | Settings and in-progress recording state                                  | Always                       |
-| `https://clips.agent-native.com/*`, `https://beta.clips.agent-native.com/*` | Sign-in, uploads, and diagnostics for the Clips app                       | Recording                    |
-| `https://forms.agent-native.com/*`                                          | Popup feedback form                                                       | When the user sends feedback |
-| `http://localhost/*`, `http://127.0.0.1/*`                                  | Local Clips instances                                                     | Development                  |
-| `<all_urls>`                                                                | See [Broad host permission](#broad-host-permission-all_urls)              | See below                    |
-| Content scripts on `<all_urls>`                                             | See [Broad host permission](#broad-host-permission-all_urls)              | Every page                   |
-| Content script on GitHub, Atlassian, and Jira hosts                         | Clips link previews (`github-preview-content.js`)                         | Those hosts only             |
+| Declaration                                                                 | Used for                                                                                 | When                         |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------- |
+| `activeTab`                                                                 | Start a recording from the tab the user clicks                                           | Toolbar click                |
+| `debugger`                                                                  | Console, exception, and fetch/XHR metadata for up to five tabs                           | Recording, developer logs on |
+| `scripting`                                                                 | Resource-timing and app-activity lookback reads; content-script and page-track injection | Recording                    |
+| `offscreen`                                                                 | Screen, window, camera, and microphone capture                                           | Recording                    |
+| `clipboardWrite`                                                            | Copy the Clips link when a recording finishes                                            | Recording completion         |
+| `downloads`                                                                 | Local copy of a recording if finishing its upload fails                                  | Failure path only            |
+| `storage`                                                                   | Settings and in-progress recording state                                                 | Always                       |
+| `https://clips.agent-native.com/*`, `https://beta.clips.agent-native.com/*` | Sign-in, uploads, and diagnostics for the Clips app                                      | Recording                    |
+| `https://forms.agent-native.com/*`                                          | Popup feedback form                                                                      | When the user sends feedback |
+| `http://localhost/*`, `http://127.0.0.1/*`                                  | Local Clips instances                                                                    | Development                  |
+| `<all_urls>`                                                                | See [Broad host permission](#broad-host-permission-all_urls)                             | See below                    |
+| Content scripts on `<all_urls>`                                             | See [Broad host permission](#broad-host-permission-all_urls)                             | Every page                   |
+| Content script on GitHub, Atlassian, and Jira hosts                         | Clips link previews (`github-preview-content.js`)                                        | Those hosts only             |
 
 ## Broad host permission: `<all_urls>`
 
@@ -128,6 +128,36 @@ state changes, navigation, and errors, exposed in the page as
   The Clips app validates and redacts it again and stores it as a private blob.
 - Event times use the diagnostics clock: negative before the recording started,
   with paused time left out (`src/app-activity.ts`).
+
+## Page track
+
+With the Rich recordings lab on (off by default), a screen recording started
+from an `http` or `https` page also keeps that tab's page as a separate track, so
+the page can be replayed beside the video. The service worker reads the lab with
+the `get-lab-states` action when the recording starts. With the lab off, nothing
+in this section runs.
+
+- `scripting.executeScript` injects `assets/page-track-recorder.js` (main world)
+  and `assets/page-track-relay.js` (isolated world) into the top frame of the
+  recording's own tab, when the recording starts and each time that tab finishes
+  loading a page. Other tabs are not read.
+- The recorder uses rrweb to keep the page's structure, styles and changes,
+  pointer moves and scrolls, and for each click the clicked element's role,
+  accessible name and a short CSS selector.
+- It hides what session replay hides: elements matching core's default block
+  selectors (`data-private`, `.an-block`, card-number fields, fields whose name
+  mentions a password, card or SSN, and others) are left out, and text under
+  `.an-mask` or `[data-an-mask]` is replaced with `*`. Password inputs are
+  masked. Unlike session replay, other input values are kept as typed, as they
+  are in the video.
+- Same-origin iframes are recorded with the page, unless the iframe matches a
+  block selector: then nothing inside it is kept, including what is typed in
+  it. Cross-origin iframes are left empty.
+- Canvas content, fonts and images are not copied. Image URLs stay in the page.
+- The offscreen document accepts the stream only from the recording's tab and
+  uploads it to the Clips app with the recording. It pauses with the recording,
+  stops when the recording stops, and is dropped if the recording is cancelled
+  or restarted.
 
 ## Other permissions
 

@@ -103,6 +103,7 @@ vi.mock("./inbox-store.js", () => ({
 import { GmailQuotaRefusedError } from "./gmail-quota.js";
 import {
   GmailQuotaCooldownError,
+  calendarListEvents,
   createOAuth2Client,
   gmailBatchGetMessages,
   gmailBatchGetThreads,
@@ -802,6 +803,37 @@ describe("googleFetch quota handling", () => {
     expect(quotaState.rows.get("account@example.com")?.cooldownUntil ?? 0).toBe(
       0,
     );
+  });
+
+  it("asks Google Calendar for the events that mention a person", async () => {
+    const fetchMock = vi.fn(async (_url: string) =>
+      jsonResponse(200, { kind: "calendar#events", items: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await calendarListEvents("people-token-a", "primary", {
+      q: "priya@northwind.example",
+      timeMin: "2026-08-28T15:00:00.000Z",
+      timeMax: "2027-01-25T15:00:00.000Z",
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: 250,
+      pageToken: "page 2",
+    });
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(`${url.origin}${url.pathname}`).toBe(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+    );
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: "priya@northwind.example",
+      timeMin: "2026-08-28T15:00:00.000Z",
+      timeMax: "2027-01-25T15:00:00.000Z",
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+      pageToken: "page 2",
+    });
   });
 
   it("leaves Gmail's cooldown alone when another Google API is rate limited", async () => {

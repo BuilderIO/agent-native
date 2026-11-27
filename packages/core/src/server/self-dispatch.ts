@@ -1,3 +1,4 @@
+import { acceptsUnsignedSelfDispatch } from "../a2a/auth-policy.js";
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
@@ -234,6 +235,21 @@ function rootBaseUrlForPath(baseUrl: string, path: string): string {
   return trimmed;
 }
 
+export const UNSIGNED_HANDOFF_REFUSED =
+  "A2A_SECRET is not set and the unsigned processor handoff would leave this machine. Set A2A_SECRET, or set AGENT_NATIVE_SELF_DISPATCH_URL to this server's loopback address.";
+
+/** An unsigned handoff its processor would refuse, stopped before it is sent. */
+export class UnsignedHandoffRefusedError extends Error {
+  readonly target: string;
+  constructor(path: string, target: string) {
+    super(
+      `Self-dispatch to ${path} at ${target} refused: ${UNSIGNED_HANDOFF_REFUSED}`,
+    );
+    this.name = "UnsignedHandoffRefusedError";
+    this.target = target;
+  }
+}
+
 export async function fireInternalDispatch(
   options: FireInternalDispatchOptions,
 ): Promise<void> {
@@ -254,7 +270,12 @@ export async function fireInternalDispatch(
       isLocalDatabase() &&
       /A2A_SECRET/i.test(detail)
     ) {
-      // The processor applies the matching trusted-local policy.
+      if (!acceptsUnsignedSelfDispatch(url)) {
+        throw new UnsignedHandoffRefusedError(
+          options.path,
+          URL.canParse(url) ? new URL(url).origin : "an unparseable URL",
+        );
+      }
     } else {
       throw new Error(
         `[self-dispatch] Cannot sign processor handoff for ${options.taskId}: ${detail}`,

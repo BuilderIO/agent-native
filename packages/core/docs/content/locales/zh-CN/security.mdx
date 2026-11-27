@@ -348,7 +348,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. 应用程序 B 将经过验证的 `sub` 声明读取到请求上下文中
 4. 数据范围适用 - 应用程序 B 仅显示 Steve 的数据
 
-如果生产中没有 `A2A_SECRET`，每个 A2A 端点和 `/_agent-native/integrations/process-task` 自触发端点都会返回 **503**。在每个调用或接收 A2A 流量的应用程序上设置它。 （对于本地开发，框架仍然允许未经身份验证的调用。）
+如果生产中没有 `A2A_SECRET`，每个 A2A 端点和 `/_agent-native/integrations/process-task` 自触发端点都会返回 **503**。在每个调用或接收 A2A 流量的应用程序上设置它。 （在本地开发中，A2A 只接受来自同一台机器的未经身份验证的调用；对其他主机可以访问的开发服务器，请设置 `A2A_SECRET`。）
 
 ## 入站Webhooks {#webhooks}
 
