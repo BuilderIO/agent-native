@@ -202,8 +202,6 @@ export function setAgentSidebarOpenPreference(
       : true;
   const preferenceSaved = writeAgentSidebarOpenPreference(open, storageKey);
   if (preferenceSaved) {
-    // Sidebars that share this preference key adopt it, so none keeps a stale
-    // open state that a later toggle would write back over the saved one.
     window.dispatchEvent(
       new CustomEvent(SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT, {
         detail: { key: getAgentSidebarOpenPreferenceKey(storageKey), open },

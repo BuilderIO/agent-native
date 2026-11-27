@@ -636,7 +636,7 @@ export function AgentSidebar({
     const handleSharedOpen = (event: Event) => {
       const detail = (event as CustomEvent<{ key?: unknown; open?: unknown }>)
         .detail;
-      if (detail?.key !== key || typeof detail.open !== "boolean") return;
+      if (detail.key !== key || typeof detail.open !== "boolean") return;
       if (openRef.current !== detail.open) setOpenCurrent(detail.open);
     };
     window.addEventListener(
@@ -1422,8 +1422,6 @@ export function AgentSidebar({
     if (!enabled) return;
     const toggleHandler = (event: Event) => {
       if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
-      // Every mounted app's sidebar hears an unscoped toggle; flipping the
-      // shared open state once per sidebar would cancel itself out.
       if (isPerAppChatSidebar) {
         if (claimedPerAppToggleEvents.has(event)) return;
         claimedPerAppToggleEvents.add(event);
