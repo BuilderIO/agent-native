@@ -570,3 +570,72 @@ it("loads later pages on request and refetches the first page on reopening", asy
   await vi.waitFor(() => expect(document.body.textContent).toContain("fresh"));
   expect(document.body.textContent).not.toContain("later");
 });
+
+it.each([
+  {
+    kind: "private",
+    orgId: null,
+    warning: "sidebar.moveToSpaceWarningPrivate",
+  },
+  { kind: "shared", orgId: "org", warning: "sidebar.moveToSpaceWarningShared" },
+])(
+  "opens on the Page's own space and asks before moving it to a $kind one",
+  async ({ orgId, warning }) => {
+    const other = {
+      id: "other",
+      name: "Other space",
+      filesDatabaseId: "other-files",
+      orgId,
+    };
+    read.mockResolvedValue(response([row("root")], null));
+    const onMove = vi.fn();
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MovePageDialog
+            page={target}
+            spaces={[other, space]}
+            onOpenChange={() => {}}
+            onMove={onMove}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() => expect(document.body.textContent).toContain("root"));
+    const trigger = document.querySelector<HTMLElement>(
+      '[aria-label="sidebar.chooseSpace"]',
+    );
+    if (!trigger) throw new Error("Missing space selector");
+    expect(trigger.textContent.trim()).toBe("Space");
+
+    await act(async () =>
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      ),
+    );
+    const choice = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ].find((item) => item.textContent.includes("Other space"));
+    if (!choice) throw new Error("Missing other space");
+    await act(async () => choice.click());
+    const topLevel = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((item) => item.textContent.includes("sidebar.topLevel"));
+    if (!topLevel) throw new Error("Missing top level");
+    await act(async () => topLevel.click());
+
+    expect(onMove).not.toHaveBeenCalled();
+    expect(
+      document.querySelector("[data-move-space-warning]")?.textContent,
+    ).toContain(warning);
+    const confirm = [...document.querySelectorAll<HTMLElement>("button")].find(
+      (button) => button.textContent.trim() === "sidebar.movePage",
+    );
+    if (!confirm) throw new Error("Missing move confirmation");
+    await act(async () => confirm.click());
+    expect(onMove).toHaveBeenCalledWith(target, {
+      spaceId: "other",
+      parentId: null,
+    });
+  },
+);

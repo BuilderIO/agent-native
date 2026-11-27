@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -17,6 +17,8 @@ export default defineAction({
     proposalId: z.string().min(1),
     reviewerNotes: z.string().optional(),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ proposalId, reviewerNotes }) => {
     const access = await assertAccess("brain-proposal", proposalId, "editor");
     await assertDerivedAudienceAccess(access.resource);

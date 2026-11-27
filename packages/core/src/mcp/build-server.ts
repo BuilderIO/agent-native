@@ -71,6 +71,7 @@ import {
   getEmbedSessionOrigin,
   validateEmbedRequestOrigin,
 } from "../server/embed-request-origin.js";
+import { refusesLocalDevCredential } from "../server/local-dev-identity.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -6111,7 +6112,7 @@ export async function verifyAuth(
     allowDevOpen?: boolean;
     allowLocalOwnerHint?: boolean;
     resourceUrl?: string | string[];
-    event?: unknown;
+    event?: import("h3").H3Event;
     /** This app's public origin; federated orgs need it for the membership check. */
     requestOrigin?: string;
   } = {},
@@ -6143,8 +6144,12 @@ export async function verifyAuth(
           }
         );
       }
-      if (issued)
+      if (issued) {
+        if (refusesLocalDevCredential(issued.userEmail, options.event)) {
+          return { authed: false, refusal: "local-dev-identity" };
+        }
         return admitIssuedMcpCredential(issued, options.requestOrigin);
+      }
     }
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {

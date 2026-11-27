@@ -11,14 +11,20 @@ import {
   resolveSelfDispatchBaseUrl,
   SelfDispatchHttpError,
   SelfDispatchNetworkError,
+  UnsignedHandoffRefusedError,
 } from "./self-dispatch.js";
 
 describe("fireInternalDispatch", () => {
   const originalFetch = globalThis.fetch;
 
+  beforeEach(() => {
+    vi.stubEnv("A2A_SECRET", "test-secret");
+  });
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("uses the Agent-Native dev port when retrying outside a request", () => {
@@ -587,6 +593,59 @@ describe("fireInternalDispatch", () => {
       if (previous.A2A_SECRET === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previous.A2A_SECRET;
     }
+  });
+});
+
+describe("fireInternalDispatch without A2A_SECRET in local development", () => {
+  beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("FUSION_POD_UID", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses an unsigned handoff to a host other than loopback before fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const dispatch = fireInternalDispatch({
+      baseUrl: "https://abc.tunnel.example",
+      path: "/_agent-native/agent-chat/_process-run",
+      taskId: "task-remote",
+    });
+
+    await expect(dispatch).rejects.toBeInstanceOf(UnsignedHandoffRefusedError);
+    await expect(dispatch).rejects.toThrow(
+      "Self-dispatch to /_agent-native/agent-chat/_process-run at https://abc.tunnel.example refused",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends an unsigned handoff to a loopback target", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fireInternalDispatch({
+      baseUrl: "http://localhost:8080",
+      path: "/_agent-native/agent-chat/_process-run",
+      taskId: "task-local",
+      awaitResponse: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8080/_agent-native/agent-chat/_process-run",
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+        }),
+      }),
+    );
   });
 });
 

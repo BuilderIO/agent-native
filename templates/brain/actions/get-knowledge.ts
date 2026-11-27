@@ -20,6 +20,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: false,
   },
+  mcpTool: "search",
   run: async ({ id }) => {
     const access = await resolveAccess("brain-knowledge", id);
     if (!access) return { knowledge: null };

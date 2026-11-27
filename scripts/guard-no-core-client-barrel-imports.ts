@@ -220,6 +220,7 @@ export function findCoreClientBarrelImports(
   file: string,
   source: string,
 ): ClientBarrelViolation[] {
+  if (!source.includes(BARE_CLIENT_ENTRY)) return [];
   return [
     ...scanStaticModuleSpecifiers(source),
     ...scanVitestMockSpecifiers(source),

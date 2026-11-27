@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/agent-browser-extension",
-  "version": "0.1.364",
+  "version": "0.1.365",
   "private": true,
   "description": "Public Agent-Native browser context and chat extension.",
   "type": "module",
@@ -9,7 +9,7 @@
     "icons": "tsx scripts/generate-icons.ts",
     "package": "pnpm build && tsx scripts/package.ts",
     "test": "pnpm icons && vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@agent-native/browser-control-extension-core": "workspace:*",
@@ -22,6 +22,6 @@
     "tsx": "4.23.1",
     "typescript-7": "npm:typescript@7.0.2",
     "vite": "catalog:",
-    "vitest": "4.1.10"
+    "vitest": "catalog:"
   }
 }

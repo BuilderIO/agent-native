@@ -48,6 +48,7 @@ const vitestBaseConfig: ViteUserConfig = {
   plugins: [boundedTaskSourcePlugin()],
   test: {
     maxWorkers: resolveMaxWorkers(),
+    clearMocks: false,
     execArgv: process.allowedNodeEnvironmentFlags.has(WEBSTORAGE_OFF)
       ? [WEBSTORAGE_OFF]
       : [],

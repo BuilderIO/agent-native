@@ -108,15 +108,15 @@ All SQL must be PostgreSQL-compatible.
 
 Run these from the repo root:
 
-| Command              | Description                                                            |
-| -------------------- | ---------------------------------------------------------------------- |
-| `pnpm run prep`      | Format + typecheck + test + guards in parallel (run before push)       |
-| `pnpm run fmt`       | Format all files with Prettier                                         |
-| `pnpm run fmt:check` | Check formatting without writing                                       |
-| `pnpm run typecheck` | Type-check all packages and templates                                  |
-| `pnpm test`          | Run tests across every workspace package/template with a `test` script |
-| `pnpm run guards`    | Run all security/consistency guard scripts (see Guards below)          |
-| `pnpm run lint`      | Format check + typecheck                                               |
+| Command              | Description                                                                   |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `pnpm run prep`      | Format check + typecheck + `test:fast` + guards in parallel (run before push) |
+| `pnpm run fmt`       | Format all files with `oxfmt`                                                 |
+| `pnpm run fmt:check` | Check formatting without writing (`oxfmt --check`)                            |
+| `pnpm run typecheck` | Type-check all packages and templates                                         |
+| `pnpm test`          | Run tests across every workspace package/template with a `test` script        |
+| `pnpm run guards`    | Run all security/consistency guard scripts (`pnpm guards --list`)             |
+| `pnpm run lint`      | Format check + `oxlint` + typecheck                                           |
 
 ## Concurrency
 

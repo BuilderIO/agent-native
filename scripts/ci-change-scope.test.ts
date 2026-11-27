@@ -4574,12 +4574,16 @@ test("selects the release workflow test when the publish workflow changes", () =
   ]);
 });
 
-test("selects the feedback proof workflow test when its workflow changes", () => {
-  const scope = classifyChangedPaths([
-    ".github/workflows/feedback-fix-proof.yml",
-  ]);
+test("scopes qa_static_apps to changed template slugs for template-only edits", () => {
+  const scoped = classifyChangedPaths(["templates/mail/app/routes/home.tsx"]);
+  assert.equal(scoped.checks.qa_static, true);
+  assert.deepEqual(scoped.qaStaticApps, ["mail"]);
 
-  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+  const full = classifyChangedPaths([
+    "templates/mail/app/routes/home.tsx",
+    "packages/core/src/index.ts",
+  ]);
+  assert.deepEqual(full.qaStaticApps, []);
 });
 
 test("selects the feedback proof contract test when CI changes", () => {

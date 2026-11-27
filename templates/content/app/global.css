@@ -87,6 +87,9 @@
   --warning: #fffbeb;
   --warning-border: #fcd34d;
   --warning-foreground: #92400e;
+
+  /* A check's dot where a part of the page doesn't pass. */
+  --page-check-miss: #d97706;
 }
 
 @theme {
@@ -186,6 +189,8 @@
   --warning: #451a034d;
   --warning-border: #92400e;
   --warning-foreground: #fde68a;
+
+  --page-check-miss: #f59e0b;
 }
 
 @layer base {
@@ -399,6 +404,81 @@
 
 .visual-editor-wrapper .content-editor {
   min-height: max(320px, 50vh);
+}
+
+/* Checks: a dot beside each part of the page that doesn't pass. Its shape
+   says which answer it is, so color is never the only sign. */
+.page-check-marks {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.page-check-mark {
+  position: absolute;
+  top: var(--page-check-top);
+  inset-inline-start: var(--page-check-inset);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  color: hsl(var(--muted-foreground));
+  pointer-events: auto;
+}
+
+.page-check-mark:hover,
+.page-check-mark[data-state="open"] {
+  background: hsl(var(--muted));
+}
+
+.page-check-mark:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.page-check-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.page-check-dot[data-shape="filled"] {
+  background: var(--page-check-miss);
+}
+
+.page-check-dot[data-shape="hollow"] {
+  border: 1.5px solid hsl(var(--muted-foreground));
+}
+
+.page-check-dot[data-shape="ring"] {
+  border: 1.5px dashed hsl(var(--muted-foreground));
+}
+
+.page-check-mark-count {
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (pointer: coarse) {
+  .page-check-mark {
+    min-width: 32px;
+    height: 32px;
+  }
+}
+
+@media print {
+  .page-check-marks {
+    display: none;
+  }
 }
 
 /* TipTap injects these for `.ProseMirror` only once an editor exists. The
@@ -648,6 +728,13 @@
   margin: 0.2em 0;
 }
 .content-editor li p {
+  margin: 0;
+}
+.content-editor li > ul:not(.content-task-list),
+.content-editor li > ol,
+.content-editor li > .content-task-list,
+.content-editor .content-task-list li > div > ul,
+.content-editor .content-task-list li > div > ol {
   margin: 0;
 }
 
@@ -2906,6 +2993,25 @@ audio.media-block__content {
   outline-offset: 0;
 }
 
+/* The block an open block menu acts on: the editor's selection fill laid
+   over the whole block, in place of a selected block's outline or ring. */
+.content-block-menu-tint {
+  position: absolute;
+  border-radius: 6px;
+  background: hsl(210 100% 52% / 0.08);
+  pointer-events: none;
+}
+
+.visual-editor-wrapper:has(> .content-block-menu-tint)
+  .content-editor
+  .ProseMirror-selectednode {
+  outline: none;
+}
+
+.visual-editor-wrapper:has(> .content-block-menu-tint) .media-block--selected {
+  box-shadow: none;
+}
+
 .content-editor .content-linked-block {
   border-radius: 4px;
   background-color: hsl(var(--primary) / 0.08);
@@ -3462,44 +3568,6 @@ button.discussion-subject-quote:hover {
   .comment-stack-front-leave {
     animation: comment-stack-front-fade-out 120ms linear forwards;
   }
-}
-
-.slash-command-menu {
-  background: hsl(var(--popover));
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  box-shadow:
-    0 10px 28px rgb(0 0 0 / 0.12),
-    0 2px 8px rgb(0 0 0 / 0.08),
-    0 0 0 1px rgb(0 0 0 / 0.04);
-  min-width: 300px;
-  max-height: 380px;
-  overflow-y: auto;
-}
-.slash-command-menu button {
-  color: hsl(var(--foreground));
-}
-.slash-command-menu button:hover,
-.slash-command-menu button.active {
-  background: hsl(var(--accent));
-}
-.slash-command-menu .text-gray-400 {
-  color: hsl(var(--muted-foreground));
-}
-.slash-command-menu .text-gray-900 {
-  color: hsl(var(--foreground));
-}
-.slash-command-menu .text-gray-500 {
-  color: hsl(var(--muted-foreground));
-}
-.slash-command-menu .border-gray-200 {
-  border-color: hsl(var(--border));
-}
-.slash-command-menu .bg-white {
-  background: hsl(var(--popover));
-}
-.slash-command-menu .bg-gray-100 {
-  background: hsl(var(--accent));
 }
 
 /* A collaborator's selection: a tint in their colour, as strong as a local

@@ -176,6 +176,9 @@ describe("Toggles while suggesting", () => {
       });
     });
     expect(container.querySelector("input.content-toggle__summary")).toBeNull();
+    expect(
+      container.querySelector(".content-toggle__summary")?.textContent,
+    ).toBe("Toggle title");
     const staticImage = ".media-empty-block__trigger--static";
     expect(container.querySelector(staticImage)).not.toBe(null);
 

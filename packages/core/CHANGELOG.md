@@ -51,6 +51,43 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.235.0
+
+### Minor Changes
+
+- 415f03e: A created file and an upload with the same name no longer become two files. Uploads used to store `/notes.md` while "Create file" stored `notes.md`, so the Resources panel listed two files named notes.md.
+  - Uploads, "Create file", and renames now store the name without a leading "/". An upload whose path is only slashes is refused with a 400.
+  - `notes.md` and `/notes.md` (with any number of leading slashes) count as one name when a name is claimed: creating a file only if the name is free, finding the next free name for an upload or a new skill, renaming or moving a file, and restoring a deleted file. In an organization, a shared file from before organizations that it can see counts too. If any spelling of the name is already stored, the claim is refused, returns the file already there, or moves on to the next free name. An upload resent with the same content returns the file already holding it under either spelling.
+  - `POST /_agent-native/resources` takes `uniquePath: true`. It always creates a new file, at the next free name if the name is taken, even when the file already there is empty. A `uniquePath` create whose path is only slashes is refused with a 400. The Resources panel and the resource settings "Create file" now send it, so creating a file never replaces one. Without `uniquePath`, a create still replaces the file at that exact path. `useCreateResource` throws the server's message, `errorCode` and `details`.
+  - The MCP `resources` read tool accepts a path with a leading "/" and finds the file under either spelling, trying the one asked for first. Skills are the exception: a skill read matches the exact path, so a skill's manifest and its files always come from one stored folder, and a skill path with a leading "/" is refused, as before.
+
+  Known limits. Nothing changes files already stored as `/notes.md`. Ordinary reads, writes and deletes by path still match the stored path exactly, as before: `notes.md` doesn't reach a file stored as `/notes.md`. A name already stored in both spellings stays two files. When a shared file from before organizations is first saved in an organization that already has the other spelling of its name, the save is refused. Automations, default files seeded for a new user, and the compatibility moves of older files still claim a name by its exact path, as before; none of them writes a path with a leading "/". Two claims of different spellings of one name at the same moment can both succeed, because the database's unique key is on the stored path, not the name.
+
+### Patch Changes
+
+- 0a08ec4: Add `publicAgent.directWrite` so an app can let a sibling app call one named, owner-scoped write action directly over A2A as the verified signed-in user. Direct A2A calls stay read-only otherwise; the opt-in requires `readOnly: false` and `requiresAuth: true`, is refused for consequential actions and actions that need approval, and keeps the action off the agent card. Such a write runs only for a caller verified as the user; organization credentials, including ones that assert a member, are refused.
+- 4ce600d: A2A requires `A2A_SECRET` outside local development. Without a configured secret, the A2A JSON-RPC endpoint and its async task processor accept unauthenticated calls only from the same machine and return 401 to other hosts, including a development server on a public preview URL. The Agent Teams, background chat-run, sandbox execution, integration task and A2A continuation processors apply the same local-only check to unsigned dispatches. Without a secret, a self-dispatch whose target is not a loopback URL now fails before it is sent, so background work fails visibly instead of being refused by its processor. Async `message/send` returns that error instead of a task that never starts. With a secret configured, a call without a valid token from another host is now refused in development as well as production. Set `A2A_SECRET` on any app that receives A2A calls from another host.
+- a3032a6: The `an` skill that `skills add an` installs now names the jobs it covers (decks, docs, designs, email, calendar events, forms, dashboards and screen recordings), so hosts load it from a plain request. It picks the app from the request using what `list_apps` returns and says why an app may be missing from that list, tells a new user that one connector authorization covers every app and that each app signs in on its own, with Continue with Agent-Native where its sign-in page offers it, and names the one reconnect step per host for a dropped connection instead of a reinstall.
+- e2b0256: Log an error at startup when `AUTH_DISABLED` is set on a production or hosted server, or on a dev server published on a public preview URL. The Vite dev server now binds to `127.0.0.1` by default while `AUTH_DISABLED` is on, unless the app sets `server.host`. Every reader of `AUTH_DISABLED` now accepts the same values (`1` or `true`), and the docs describe it as local development on loopback only.
+- 4c03a31: Don't issue MCP or connect credentials to the `AUTH_DISABLED` dev identity outside local development. MCP OAuth consent, connect token minting and device approval now refuse the `dev@local.test` session unless the request comes from this machine over loopback, and MCP and connect credentials owned by that identity are accepted only on loopback requests.
+- 9a8fff4: Builder.io "Create and activate" now reports why account creation failed. Timeouts, an unreachable Builder host, a rejected signature (401/403), rate limiting, invalid account details, Builder server errors, and malformed responses each return their own typed code and message instead of the generic "Couldn't create your Builder.io account" for every failure.
+- 581bf53: Chat history lists now drop a thread's project or resource scope when a refetch reports it unscoped, so a chat moved out of a project reappears in the general list without a reload.
+- f0dadea: An app-skill manifest's ChatGPT listing may now leave out `chatgpt.review.iframeJustification` when the app's directory listing serves no widget.
+- 8c8475a: The composable-mini-apps skill now names the three ways an app saves to Content as the signed-in person (a page, a page in a Collection, and a row added or updated by key), with what to send and the receipt Content's reply ends with for each.
+- 3cf91b8: Resolve an app's `aliases` before the framework's own, so an app can point one `@/` module, such as `@/design-system`, at another file for a build.
+- dbbbd2d: Let signed-in members on a hosted deploy connect GitHub through the deploy's `GITHUB_INTEGRATION_CLIENT_ID` and `GITHUB_INTEGRATION_CLIENT_SECRET`, and resolve each workspace OAuth client ID and secret as a pair so a connect flow never mixes two apps' keys.
+- 890321f: Refuse to mint an organization service token for the local development identity (`dev@local.test`, the `AUTH_DISABLED` session) unless the request comes from this machine over localhost. With no request, such as a background run, the identity alone is refused.
+- 5a5160b: Document that saving or pushing a Content page into a file already in a local folder keeps the file's own frontmatter and Markdown.
+- Release all public npm packages with a patch version bump.
+- fbb491e: A peer app's "no LLM provider" failure no longer sends the reader to a settings path that may not exist in that app. The message points to the peer's own origin and its connect prompt instead. Delegated A2A runs now resolve the engine with the verified caller's email and org, like interactive chat.
+- 4827e48: The Comments & Review Kit exports `setReviewCommentReaction`, so an app whose own actions write the kit's comments can take reactions under its own locks.
+- 4827e48: Comments & Review Kit: a registration can set `email.send(comment)` to send a new comment's emails itself, with the app's own recipients and settings. What it returns is the comment's `notified`; returning `null` means the app sends them after the write answers. A keyed comment calls it once, so a retried or duplicate write never sends its emails again. `listReviewCommentReactors(ids)` names who reacted with what on each comment. A keyed write saves its comment as `reviewCommentIdForClientOperation(clientOperationId)`, and resending the key with anything else changed now throws `ReviewCommentSubmissionConflictError` (409 `submission_conflict`) instead of a plain error. `moveMirroredReviewAnchors(resource, moves)` moves comments' anchors when an app changes the resource under them, inside the app's transaction and without its write hook. `listReviewThreadParticipantEmails` is exported. Clips now reads and writes its comments through the kit.
+- 4827e48: Comments & Review Kit: `deleteOrphanedMirroredReplies(resource, ids)` deletes the comments among `ids` whose thread's first comment the kit has deleted or never held, and returns their IDs. An app's startup copy passes the comments only the kit holds, so a reply written through the kit's own actions in a thread the app deleted only in its own table goes, as it would have had the delete gone through the kit. Plan and Clips copy their comments into the kit once more, in a release after every server writes both stores, and delete such replies as they copy.
+- e792a5e: Route every local development identity credential check through one gate in `server/local-dev-identity.ts`, shared by route handlers and actions.
+- Updated dependencies
+  - @agent-native/agentkit@0.235.0
+  - @agent-native/recap-cli@0.5.110
+
 ## 0.234.0
 
 ### Minor Changes
@@ -4926,60 +4963,5 @@
 - Updated dependencies
   - @agent-native/recap-cli@0.5.12
   - @agent-native/toolkit@0.16.15
-
-## 0.174.0
-
-### Minor Changes
-
-- b4c3864: Collapse the core-routes `mcpConnect*` options into one `mcp` object, and fix the MCP server name on multi-label hosts.
-
-  `createCoreRoutesPlugin({ mcp: { connect, serverName } })` replaces the four flat keys `disableMcpConnect`, `mcpConnectServerName`, `mcpConnectAppId`, and `mcpConnectAppName` — the same shape `AgentChatMcpOptions` already uses for the protocol mount. All four stay accepted for one minor; setting both forms to disagreeing values throws at plugin init rather than booting with a connect surface nobody chose.
-
-  The two identity keys are deprecated outright rather than carried over: `app.id` and `app.name` are declared config fields, so a per-surface option for them is a third spelling of one thing. Unset, they now resolve from config — the same value the runtime config report already read.
-
-  An explicit `serverName` is returned verbatim, prefix and all — it pins an id clients already hold in their config, which is why Plan publishes the bare `plan` rather than the derived `agent-native-plan`.
-
-  Fixes the server name on hosts with more than one leading label. `serverName` fell back to the first hostname label, and every beta deployment is `beta.<app>.agent-native.com`, so all of them advertised themselves as `agent-native-beta`. Clients key their MCP config by that name, so connecting a second beta app replaced the first. Identity now resolves from `app.id` / `app.template` / `app.slug` before the hostname, which covers every first-party template with no configuration.
-
-- b4c3864: Resolve the app's name, slug, and description once, through app config.
-
-  `server/app-name.ts` is removed. `getAppName()`, `getAppSlug()`, and `getAppDescription()` become `getAppConfig().app.name` / `.slug` / `.description`, and the first-party-template lookup they performed now runs over the resolved config, keyed on `app.packageName` (`npm_package_name`). It fills only what is still unset, so `APP_NAME` or a `defineAppConfig()` value always wins.
-
-  **`getAppConfig()` no longer touches the filesystem.** `getAppName()` read package.json from `process.cwd()` on every resolution path; the repo already treats that as a development-only fallback (`server/cookie-namespace.ts` uses one solely in its non-production branch). A deployment where `npm_package_name` does not reach the runtime should set `app.name` in `server/plugins/config.ts` or `APP_NAME`.
-
-  This removes a second resolver for a declared field: `getAppName()` read `process.env.APP_NAME` directly while `app.name` already declared that alias, so the two disagreed. `core-routes-plugin.ts` resolved the same app name both ways, thirty lines apart — the runtime config report got `undefined` for every first-party template while the MCP connect page got "Mail". Both now read one value.
-
-  `app.slug` and `app.description` are new fields with no env alias: the slug selects the per-app transactional email sender on agent-native.com, so a name the first-party template table already contains is its only source. `app.packageName` and `app.template` are deliberately still env-only — both are read as app-id fallbacks when matching stored workspace connection grants, and filling them from package.json would repoint those lookups.
-
-  A package.json that exists but cannot be read or parsed now throws and names the file, instead of being silently indistinguishable from having none — which previously branded the app "Agent-Native" and sent from the generic mailbox with nothing in the log.
-
-- b4c3864: Deprecate `createAgentChatPlugin({ model })` and `({ durableBackgroundRuns })` in favour of the declared `agent.*` config surface.
-
-  `agent.model` (`AGENT_MODEL`) was declared but no agent-chat path read it — every model resolution site read the plugin option directly, so the field was inert. It is now the layer beneath the option, resolved through one helper instead of eight raw reads.
-
-  Fixes two delegated-run gates (A2A and MCP) that tested `durableBackgroundRuns === true` on the raw option instead of calling `isAgentChatDurableBackgroundEnabled`. On Netlify, where durable background is default-on, a mount that did not pass the option was capping delegated turns at the 40s foreground chunk budget while running inside the 13-minute background function.
-
-- b4c3864: Move observability settings out of the settings table and into `defineAppConfig()`.
-
-  `observability` is now a declared config domain. The `observability-config` settings row is no longer read: nothing in core ever wrote it, so its only "UI" was a documented `putSetting(...)` snippet an app author pasted into their own code — which makes it deployment configuration, not a runtime preference. Deployments that wrote that row must move those values into `defineAppConfig({ observability: { … } })`; every field also has a deployment environment variable alias.
-
-  This also takes a database round-trip off the agent hot path. `getObservabilityConfig()` read the settings row on every instrumented run inside a bare `catch {}`, so a database outage was indistinguishable from "never configured" and silently served defaults.
-
-  `defineAppConfig()` now returns a Nitro plugin, so its canonical home is `server/plugins/config.ts` with `export default defineAppConfig({ … })` — the same shape as every other framework plugin. The config layer is still applied at module load, before any plugin reads it. Existing callers that ignore the return value are unaffected.
-
-  **Removed:** `ObservabilityConfig.exporters` and `ObservabilityExporterConfig`. Nothing ever read them — `observability/tracing.ts` states that core deliberately registers no OpenTelemetry provider or exporter — so the documented OTLP export never sent anything, and the docs recommended putting a backend bearer token into the settings table to configure it. Export now happens by registering a `TracerProvider` in the app, which keeps the credential in the app's own wiring and the vault.
-
-  **Removed:** `DEFAULT_OBSERVABILITY_CONFIG`. The schema's declared defaults are the single source now.
-
-### Patch Changes
-
-- d9e978f: Expose model-produced tool inputs to eval scorers so argument-level agent behavior can be verified.
-- 536e193: Compile oversized PostHog transcript bounding against ES2022 by walking the last user message instead of using `Array.findLast`.
-- Release all public npm packages with a patch version bump.
-- f22b29b: Validate OpenRouter keys before saving them and preserve actionable provider setup errors.
-- eae6742: Stop SQL-replayed provider authentication failures from self-continuing.
-- Updated dependencies
-  - @agent-native/recap-cli@0.5.11
-  - @agent-native/toolkit@0.16.14
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

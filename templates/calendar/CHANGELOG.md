@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-26
+
+### Fixed
+
+- Apps and agents reading events page by page no longer skip an event when calendars are in different time zones, and see a failed workspace calendar connection as an error instead of an empty calendar.
+
 ## 2026-11-24
 
 ### Improved
