@@ -64,6 +64,7 @@ test("fast-guards detects real violations and respects opt-out pragmas", () => {
   );
 
   const secretLike = `sk-ant-${"AbCdEfGhIj1234567890XyZ"}`;
+  const registerFn = `${"registerShareable"}${"Resource"}`;
   const dir = makeTempGitRepo({
     "README.md": `Use ${"Agent"} ${"Native"} here.\n`,
     "docs/ok.md": `// agent-native-brand-ok: test\n${"Agent"} ${"Native"} allowed.\n`,
@@ -71,6 +72,13 @@ test("fast-guards detects real violations and respects opt-out pragmas", () => {
     "src/ok-secret.ts": `// guard:allow-secret-literal — test fixture\nexport const token = "${secretLike}";\n`,
     "packages/app/src/bad.ts": `import { foo } from "@agent-native/core/client";\nexport const x = foo;\n`,
     "packages/app/src/ok-string.spec.ts": `const sample = 'import { foo } from "@agent-native/core/client"';\nexport const y = sample;\n`,
+    "packages/app/src/env-bad.ts": `process.env.AGENT_USER_EMAIL = "a@b.com";\n`,
+    "packages/app/src/env-ok.ts": `// guard:allow-env-mutation — fixture\nprocess.env.AGENT_USER_EMAIL = "a@b.com";\n`,
+    "packages/core/src/extensions/bad-ext.ts": `${registerFn}({ type: "extension", allowPublic: true });\nconst x = { visibility: "public" };\n`,
+    "packages/app/src/HelpBad.tsx": `export const A = () => <IconHelpCircle className="size-4" />;\n`,
+    "packages/app/src/HelpOk.tsx": `{/* guard:allow-large-help-icon - heading */}\nexport const B = () => <IconHelpCircle className="size-4" />;\n`,
+    "packages/app/src/fallback-bad.ts": `export const who = (x?: string) => x ?? "local@localhost";\nexport const amb = (x?: string) => x ?? process.env.AGENT_USER_EMAIL;\n`,
+    "packages/app/src/fallback-ok.ts": `// guard:allow-localhost-fallback — fixture\nexport const who = (x?: string) => x ?? "local@localhost";\n`,
   });
 
   try {
@@ -78,6 +86,10 @@ test("fast-guards detects real violations and respects opt-out pragmas", () => {
       "guard:agent-native-brand",
       "guard:no-secret-literals",
       "guard:no-core-client-barrel-imports",
+      "guard:no-env-mutation",
+      "guard:extension-no-public",
+      "guard:help-icon-scale",
+      "guard:no-localhost-fallback",
     ]);
     assert.equal(status, 1);
 
@@ -100,6 +112,32 @@ test("fast-guards detects real violations and respects opt-out pragmas", () => {
     assert.equal(barrel.passed, false);
     assert.equal(barrel.violations.length, 1);
     assert.ok(barrel.violations[0]?.startsWith("packages/app/src/bad.ts:1"));
+
+    const envMut = byName.get("guard:no-env-mutation");
+    assert.ok(envMut);
+    assert.equal(envMut.passed, false);
+    assert.equal(envMut.violations.length, 1);
+    assert.ok(
+      envMut.violations[0]?.startsWith("packages/app/src/env-bad.ts:1"),
+    );
+
+    const extPub = byName.get("guard:extension-no-public");
+    assert.ok(extPub);
+    assert.equal(extPub.passed, false);
+    assert.equal(extPub.violations.length, 2);
+
+    const helpIcon = byName.get("guard:help-icon-scale");
+    assert.ok(helpIcon);
+    assert.equal(helpIcon.passed, false);
+    assert.equal(helpIcon.violations.length, 1);
+    assert.ok(
+      helpIcon.violations[0]?.startsWith("packages/app/src/HelpBad.tsx:1"),
+    );
+
+    const localhost = byName.get("guard:no-localhost-fallback");
+    assert.ok(localhost);
+    assert.equal(localhost.passed, false);
+    assert.equal(localhost.violations.length, 2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

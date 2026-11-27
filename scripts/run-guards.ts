@@ -9,6 +9,10 @@ const FAST_GUARDS_SUPPORTED = new Set<GuardName>([
   "guard:agent-native-brand",
   "guard:no-secret-literals",
   "guard:no-core-client-barrel-imports",
+  "guard:no-env-mutation",
+  "guard:extension-no-public",
+  "guard:help-icon-scale",
+  "guard:no-localhost-fallback",
 ]);
 
 type FastGuardReport = {
