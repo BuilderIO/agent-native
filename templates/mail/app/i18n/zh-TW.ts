@@ -857,6 +857,13 @@ const messages = {
     readingPane: {
       empty: "未選取郵件",
       resizeList: "調整郵件清單大小",
+      openHint: "按 J 或 Enter 開啟。",
+      reopenHint: "按 Enter 重新開啟，或按 J 查看下一封郵件。",
+      noSubject: "（無主旨）",
+    },
+    list: {
+      newMailAbove_one: "{{count}} 封新郵件",
+      newMailAbove_other: "{{count}} 封新郵件",
     },
   },
   agent: {

@@ -887,6 +887,13 @@ const messages = {
     readingPane: {
       empty: "कोई ईमेल चयनित नहीं",
       resizeList: "ईमेल सूची का आकार बदलें",
+      openHint: "इसे खोलने के लिए J या Enter दबाएँ।",
+      reopenHint: "इसे फिर से खोलने के लिए Enter दबाएँ, या अगले ईमेल के लिए J।",
+      noSubject: "(कोई विषय नहीं)",
+    },
+    list: {
+      newMailAbove_one: "{{count}} नया",
+      newMailAbove_other: "{{count}} नए",
     },
   },
   agent: {

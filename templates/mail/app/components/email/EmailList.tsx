@@ -16,6 +16,7 @@ import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
+  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconDots,
@@ -65,6 +66,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -107,6 +109,7 @@ import {
   isKeyboardShortcutTarget,
   useKeyboardShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
+import { useNewMailAbove } from "@/hooks/use-new-mail-above";
 import {
   useConfirmUncertainScheduledEmail,
   useDeleteScheduledJob,
@@ -238,6 +241,7 @@ interface EmailListProps {
   headerActions?: ReactNode;
   isLoading?: boolean;
   isFetching?: boolean;
+  isPlaceholderData?: boolean | undefined;
   emailsError?: Error | null;
   accountErrors?: AccountError[] | undefined;
   /** Set when the rows are not live from Gmail (cooldown); shown as a notice. */
@@ -617,6 +621,7 @@ const LIST_NAVIGATION_KEYS = new Set([
   "K",
   "ArrowDown",
   "ArrowUp",
+  "Home",
 ]);
 
 export function EmailList({
@@ -626,6 +631,7 @@ export function EmailList({
   headerActions: viewHeaderActions,
   isLoading: isLoadingProp,
   isFetching: isFetchingProp,
+  isPlaceholderData: isPlaceholderDataProp,
   emailsError: emailsErrorProp,
   accountErrors: accountErrorsProp,
   read: readProp,
@@ -687,6 +693,7 @@ export function EmailList({
     data: fetchedEmails = [],
     isLoading: fetchedEmailsLoading,
     isFetching: fetchedEmailsFetching,
+    isPlaceholderData: fetchedEmailsPlaceholder,
     error: fetchedEmailsError,
     refetch: refetchFetchedEmails,
     hasNextPage: fetchedEmailsHasNextPage,
@@ -702,6 +709,9 @@ export function EmailList({
   const emails = emailsProp ?? fetchedEmails;
   const isLoading = isLoadingProp ?? fetchedEmailsLoading;
   const isFetching = isFetchingProp ?? fetchedEmailsFetching;
+  const listIsPlaceholder =
+    isPlaceholderDataProp ??
+    (emailsProp === undefined && fetchedEmailsPlaceholder);
   const emailsError = emailsErrorProp ?? fetchedEmailsError;
   const accountErrors = accountErrorsProp ?? fetchedAccountErrors;
   const read = readProp ?? fetchedRead;
@@ -1313,6 +1323,10 @@ export function EmailList({
     priorityWindowIds,
     rankedPriorityThreads,
   ]);
+  const priorityLoading =
+    currentSortMode === "priority" &&
+    !activePriorityOrder &&
+    priorityWindowEmails.length > cachedPriorityScores.size;
   const reportedThreadOrderRef = useRef<string[] | null>(null);
   useEffect(() => {
     if (!onThreadOrderChange) return;
@@ -2172,12 +2186,25 @@ export function EmailList({
     keyboardEnabled,
   );
 
+  const focusedThreadKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (threads.length === 0) return;
-    if (!focusedId || !threads.some((t) => t.latestMessage.id === focusedId)) {
-      setFocusedId(threads[0].latestMessage.id);
+    if (threads.length === 0 || priorityLoading) return;
+    const focused = focusedId
+      ? threads.find((t) => t.latestMessage.id === focusedId)
+      : undefined;
+    if (focused) {
+      focusedThreadKeyRef.current =
+        focused.latestMessage.threadId || focused.latestMessage.id;
+      return;
     }
-  }, [threads, focusedId, setFocusedId]);
+    const next =
+      threads.find(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) ===
+          focusedThreadKeyRef.current,
+      ) ?? (threads[0] as ThreadSummary | undefined);
+    if (next) setFocusedId(next.latestMessage.id);
+  }, [threads, focusedId, setFocusedId, priorityLoading]);
 
   useEffect(() => {
     if (!threadId) {
@@ -2246,18 +2273,105 @@ export function EmailList({
     ? RICH_ROW_HEIGHT_ESTIMATE
     : rowHeightEstimate;
 
+  const rowVirtualizerRef = useRef<{ scrollOffset: number | null } | null>(
+    null,
+  );
   const rowVirtualizer = useVirtualizer({
     count: threads.length,
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => estimatedRowHeight,
     overscan: 10,
     getItemKey: (index) => threads[index]?.latestMessage.id ?? index,
+    anchorTo:
+      (rowVirtualizerRef.current?.scrollOffset ?? 0) > 0 ? "end" : "start",
   });
+  rowVirtualizerRef.current = rowVirtualizer;
 
+  const listKey = listIsPlaceholder
+    ? null
+    : JSON.stringify([
+        view,
+        searchQuery ?? "",
+        labelParam ?? "",
+        searchParams.get("tab") ?? "",
+        searchParams.get("filter") ?? "",
+        [...activeAccounts].sort(),
+      ]);
+  const focusedThread = threads[focusedIndex] as ThreadSummary | undefined;
+  const focusedThreadKey = focusedThread
+    ? focusedThread.latestMessage.threadId || focusedThread.latestMessage.id
+    : null;
+  const scrolledToFocusRef = useRef<{
+    listKey: string | null;
+    threadKey: string;
+  } | null>(null);
   useEffect(() => {
-    if (focusedIndex < 0) return;
+    if (
+      !focusedThreadKey ||
+      listKey === null ||
+      priorityLoading ||
+      !scrollParentRef.current
+    ) {
+      return;
+    }
+    const last = scrolledToFocusRef.current;
+    if (last?.listKey === listKey && last.threadKey === focusedThreadKey) {
+      return;
+    }
+    scrolledToFocusRef.current = { listKey, threadKey: focusedThreadKey };
     rowVirtualizer.scrollToIndex(focusedIndex, { align: "auto" });
-  }, [focusedIndex, rowVirtualizer]);
+  }, [
+    focusedIndex,
+    focusedThreadKey,
+    listKey,
+    priorityLoading,
+    rowVirtualizer,
+  ]);
+
+  const listOffset = Math.min(
+    rowVirtualizer.scrollOffset ?? 0,
+    rowVirtualizer.getTotalSize() - (rowVirtualizer.scrollRect?.height ?? 0),
+  );
+  const newMailAbove = useNewMailAbove(
+    listKey,
+    threads,
+    rowVirtualizer.getVirtualItemForOffset(Math.max(0, listOffset))?.index ?? 0,
+  );
+  const clearNewMailAbove = newMailAbove.clear;
+  const goToRow = useCallback(
+    (index: number) => {
+      clearNewMailAbove();
+      const target = threads[index] as ThreadSummary | undefined;
+      if (!target) return;
+      setSelectedIds(new Set());
+      setFocusedId(target.latestMessage.id);
+      focusedIndexRef.current = index;
+      scrolledToFocusRef.current = {
+        listKey,
+        threadKey: target.latestMessage.threadId || target.latestMessage.id,
+      };
+      rowVirtualizer.scrollToIndex(index, { align: "start" });
+      if (readingPane && threadId) previewThread(target);
+    },
+    [
+      clearNewMailAbove,
+      threads,
+      setSelectedIds,
+      setFocusedId,
+      listKey,
+      rowVirtualizer,
+      readingPane,
+      threadId,
+      previewThread,
+    ],
+  );
+  const goToNewMail = () => {
+    const index = threads.findIndex((t) =>
+      newMailAbove.arrived.has(t.latestMessage.id),
+    );
+    if (index < 0) clearNewMailAbove();
+    else goToRow(index);
+  };
 
   const pageFocus = useCallback(
     (direction: 1 | -1) => {
@@ -2273,6 +2387,7 @@ export function EmailList({
     [
       { key: " ", handler: () => pageFocus(1) },
       { key: " ", shift: true, handler: () => pageFocus(-1) },
+      { key: "Home", handler: () => goToRow(0) },
     ],
     keyboardEnabled,
   );
@@ -2990,11 +3105,7 @@ export function EmailList({
     return <MailLoadingState containerRef={containerRef} rich={readingPane} />;
   }
 
-  if (
-    currentSortMode === "priority" &&
-    !activePriorityOrder &&
-    priorityWindowEmails.length > cachedPriorityScores.size
-  ) {
+  if (priorityLoading) {
     return <MailLoadingState containerRef={containerRef} rich={readingPane} />;
   }
 
@@ -3123,6 +3234,22 @@ export function EmailList({
       {cooldownNotice}
       {topSection}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
+        {newMailAbove.arrived.size > 0 && (
+          <div className="pointer-events-none sticky top-2 z-10 flex h-0 justify-center overflow-visible">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={goToNewMail}
+              className="pointer-events-auto rounded-full shadow-sm"
+            >
+              <IconArrowUp aria-hidden="true" />
+              {t("mail.list.newMailAbove", {
+                count: newMailAbove.arrived.size,
+              })}
+            </Button>
+          </div>
+        )}
         <AiFilterDialog
           open={!!aiFilterDialog}
           onOpenChange={(open) => !open && setAiFilterDialog(null)}

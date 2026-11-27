@@ -79,6 +79,7 @@ import {
   savedEmailDraftAttachments,
   savedEmailDraftMetadata,
 } from "@/lib/saved-draft";
+import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
@@ -345,12 +346,50 @@ function ThreadListSidebar({
   );
 }
 
-function ReadingPaneEmpty() {
+function ReadingPaneEmpty({
+  marked,
+  reopening,
+  onOpen,
+}: {
+  marked: EmailMessage | null;
+  reopening: boolean;
+  onOpen: (email: EmailMessage) => void;
+}) {
   const t = useT();
+  if (!marked) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground/60">
+        <IconMail aria-hidden="true" className="size-8" stroke={1.25} />
+        <p className="text-sm">{t("mail.readingPane.empty")}</p>
+      </div>
+    );
+  }
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground/60">
-      <IconMail aria-hidden="true" className="size-8" stroke={1.25} />
-      <p className="text-sm">{t("mail.readingPane.empty")}</p>
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
+      <IconMail
+        aria-hidden="true"
+        className="size-8 text-muted-foreground/60"
+        stroke={1.25}
+      />
+      <button
+        type="button"
+        onClick={() => onOpen(marked)}
+        className="flex max-w-sm min-w-0 flex-col items-center gap-0.5 rounded-md px-3 py-2 text-center hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="max-w-full truncate text-sm font-medium text-foreground">
+          {marked.from.name || marked.from.email}
+        </span>
+        <span className="line-clamp-2 text-sm text-muted-foreground">
+          {marked.subject || t("mail.readingPane.noSubject")}
+        </span>
+      </button>
+      <p className="text-xs text-muted-foreground/70">
+        {t(
+          reopening
+            ? "mail.readingPane.reopenHint"
+            : "mail.readingPane.openHint",
+        )}
+      </p>
     </div>
   );
 }
@@ -783,6 +822,7 @@ export function InboxPage() {
     data: fetchedEmails,
     isLoading: emailsIsLoading,
     isFetching: emailsIsFetching,
+    isPlaceholderData: emailsIsPlaceholderData,
     isError: emailsIsError,
     error: emailsFetchError,
     refetch: refetchFetchedEmails,
@@ -1110,6 +1150,36 @@ export function InboxPage() {
     if (open) setFocusedId(open.latestMessage.id);
   }, [paneOpen, threadId, threads]);
 
+  const lastOpenThreadIdRef = useRef(threadId);
+  const [closedThreadId, setClosedThreadId] = useState<string | null>(null);
+  useEffect(() => {
+    if (threadId) {
+      lastOpenThreadIdRef.current = threadId;
+      setClosedThreadId(null);
+    } else if (lastOpenThreadIdRef.current) {
+      setClosedThreadId(lastOpenThreadIdRef.current);
+      lastOpenThreadIdRef.current = undefined;
+    }
+  }, [threadId]);
+  const markedEmail = useMemo(() => {
+    const email = threads.find(
+      (thread) => thread.latestMessage.id === focusedId,
+    )?.latestMessage;
+    return email && !email.isDraft ? email : null;
+  }, [threads, focusedId]);
+  const openMarkedEmail = useCallback(
+    (email: EmailMessage) => {
+      const target = email.threadId || email.id;
+      setSelectedIds(new Set());
+      void ensureThread(target, email.accountEmail).catch(() => {});
+      handleOptimisticThreadNavigation(target, email.accountEmail);
+      void navigate(
+        mailThreadHref(view, target, searchParams, email.accountEmail),
+      );
+    },
+    [handleOptimisticThreadNavigation, navigate, searchParams, view],
+  );
+
   useEffect(() => {
     if (
       optimisticThread &&
@@ -1219,6 +1289,11 @@ export function InboxPage() {
           onNavigateThread={handleOptimisticThreadNavigation}
           isLoading={emailListLoading}
           isFetching={isFetching}
+          isPlaceholderData={
+            isInboxView
+              ? inboxThreads.isPlaceholderData
+              : emailsIsPlaceholderData
+          }
           emailsError={emailsError}
           accountErrors={accountErrors}
           read={listRead}
@@ -1324,7 +1399,14 @@ export function InboxPage() {
                 variant={showPaneList ? "pane" : "full"}
               />
             ) : paneLayout ? (
-              <ReadingPaneEmpty />
+              <ReadingPaneEmpty
+                marked={markedEmail}
+                reopening={
+                  !!markedEmail &&
+                  (markedEmail.threadId || markedEmail.id) === closedThreadId
+                }
+                onOpen={openMarkedEmail}
+              />
             ) : (
               emailList
             )}
