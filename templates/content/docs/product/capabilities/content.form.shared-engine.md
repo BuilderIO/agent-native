@@ -27,7 +27,15 @@ proof_requirements:
     "Anonymous, signed-in, and agent submission without Collection read access",
     "Real-interface keyboard and assistive-technology workflow coverage",
   ]
-evidence: []
+evidence:
+  [
+    "templates/content/actions/_content-forms.ts",
+    "templates/content/actions/submit-content-database-form.ts",
+    "templates/content/actions/get-content-form.ts",
+    "templates/content/actions/submit-content-form.ts",
+    "templates/content/shared/form-question-block.ts",
+    "templates/content/actions/content-forms.db.test.ts",
+  ]
 superseded_by: null
 last_reviewed: "2026-11-23"
 ---
@@ -47,7 +55,7 @@ A research team shares an intake Form by link. A participant with no account ans
 A Form belongs to one Collection and asks through question Blocks on one editor Page. The Collection owns Property types, validation, defaults, permissions, and Rules; the Form owns which questions it asks, in what order, with what help, and for whom. Form pages, Forms shown inside other Pages, Slack intake, and agents call one submission Action.
 
 - **Who answers:** Each Form says who is answering. Anonymous and signed-in answering come first, where organization-only means signed in plus membership. An email confirmed by a one-time code, without an account, follows. An Email question is an answer, never an identity.
-- **Answering does not mean reading:** A submission grant lets a person submit without access to other records, Properties, or Views of the Collection. After submitting, a signed-in person can open what they sent.
+- **Answering does not mean reading:** A submission grant lets a person submit without access to other records, Properties, or Views of the Collection. After submitting, a signed-in person sees their own answers, as receipts, through the Form; a receipt's link to the record opens only for people who can already open the Collection.
 - **Drafts:** Answers save as people type, in the browser for everyone and on the server for signed-in people, so they can finish on another device. A draft is stored apart from the Collection, cleared on submit, and deleted 30 days after its last change. No record exists and no Rule runs until submit.
 - **Submission:** The Action validates every answer before saving and saves nothing if any answer fails, returning every problem at once in plain words. An idempotency key makes a retry return the original receipt. The record and its committed Event are written together.
 - **Receipts:** A receipt holds the submitted values, the resulting record, the Form's confirmation message, and how the sender was known. An anonymous Form stores nothing that identifies the sender, including network addresses.
@@ -82,7 +90,9 @@ Given a person's agent connected over MCP and a Form link, when the agent submit
 
 ## Current evidence
 
-Only Collection editors can submit through today's Form View. No complete shared schema, idempotency, cross-surface permission, draft, and recovery proof is recorded. This Capability remains `approved_shape`.
+The engine exists without its screens. A Form is a Collection's Form View, optionally with a Page of `form-question` Blocks (`templates/content/shared/form-question-block.ts`); its settings, link, receipts, and server drafts live in their own tables. `templates/content/actions/submit-content-database-form.ts` holds the one submission core that the Collection's own Form View, Slack intake, and `submit-content-form` share: it validates every answer with the Collection's existing write rules, returns every problem at once, and writes the record and its receipt in one transaction under an idempotency key. `templates/content/actions/_content-forms.ts` resolves a Form from its link, applies who may answer (anonymous, signed in, or organization members), one answer per person, flood limits, and drafts, and writes link submissions as the Collection's owner so the sender gains no access. `get-content-form` and `submit-content-form` are the agent pair over MCP.
+
+`templates/content/actions/content-forms.db.test.ts` proves settings and access, the read's limits, all-at-once validation with the Collection's messages, the Collection's own value checks and natural key on both channels, idempotent retry and conflict, a resent key winning every race, refusal when the Form's page or settings change before the write, a link asking only the questions its Form View lists, record-and-receipt atomicity, a purged record taking its receipts with it, an anonymous answer leaving no sender identity in any table, audiences, receipts, one answer per person, flood refusals, drafts and their expiry, and an agent's correct-then-resend flow. Not yet proven: the Form page and Share panel, Forms shown inside other Pages, the committed Event and Rule handoff, browser drafts, and the real-interface and accessibility workflows in the proof plan.
 
 ## Proof plan
 

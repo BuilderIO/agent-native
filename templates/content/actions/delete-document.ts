@@ -1282,6 +1282,11 @@ async function deleteCollectedDocuments(
       .where(
         inArray(schema.contentWebhookDeliveries.documentId, documentIdBatch),
       );
+    await db
+      .delete(schema.contentFormSubmissions)
+      .where(
+        inArray(schema.contentFormSubmissions.documentId, documentIdBatch),
+      );
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
