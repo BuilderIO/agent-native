@@ -51,6 +51,27 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.235.1
+
+### Patch Changes
+
+- ccbd078: Run a cross-app A2A call that carries no workspace claim in the workspace the person sees in the receiving app (saved choice, else first membership), so a person in several workspaces no longer gets "no LLM provider is connected" from a peer whose provider is configured. The missing-provider message now deep links to the peer's LLM settings.
+- b0dbd8b: Allow scoping Core MCP catalog contract tests to changed template slugs via `CATALOG_CONTRACT_APPS`.
+- 67fbc39: Fix authenticated dynamic imports with comments before literal paths, preserve local resource URLs with spaces, and avoid adding preview tokens to escaped, control-bearing, or entity-encoded external URLs. Anchor runtime preview authentication to the bridge origin when the document base changes, and avoid credentialing ambiguous resource URLs.
+- 6c648b3: Sync updated `storing-data`, `portability`, `review-prs`, and `review-latest-feedback` (including 1–5 QA report value grading) skills into bundled templates.
+- Release all public npm packages with a patch version bump.
+- c1b7403: Let agents change an organization member's role and cancel a pending invitation through approval-gated actions that share the Settings route logic, and include invitation ids in `list-organization-members`.
+- d70dc40: Switch workspace and `agent-native typecheck` CLI typechecking to native `tsgo` when available, falling back to `tsc`.
+- b29387a: The Twitter/X provider in the provider API catalog now calls the official X API (`https://api.x.com/2`) with `TWITTER_BEARER_TOKEN` as a Bearer token, matching the X Bearer token the Analytics data source asks for, instead of sending that token to twitterapi.io.
+- c34a832: Keep a saved language choice after a hard refresh: the pre-hydration locale script now prefers the stored explicit preference over the locale guessed from Accept-Language when the server did not supply one.
+- d74c9e8: `@agent-native/core/client/session-replay-privacy` now exports session replay's default block, ignore and mask selectors, so a recorder outside session replay can hide the same parts of a page.
+- c5ea04e: When an agent run stops with work unfinished after exhausting its continuations, end the thread with a message naming the completed and failed tools and what was not done, instead of a bare error banner.
+- 52757ad: Upgrade Vitest and `@vitest/*` packages to `5.1.2` and align workspace packages onto the pnpm catalog.
+- Updated dependencies
+- Updated dependencies [d70dc40]
+  - @agent-native/agentkit@0.235.1
+  - @agent-native/recap-cli@0.5.111
+
 ## 0.235.0
 
 ### Minor Changes
@@ -4949,19 +4970,5 @@
 - Updated dependencies
   - @agent-native/recap-cli@0.5.13
   - @agent-native/toolkit@0.16.16
-
-## 0.174.1
-
-### Patch Changes
-
-- 5e57bc6: fix fresh chats to use a configured provider instead of an unavailable deployment default
-- 7d90274: Preserve shared OAuth flow cookies across redirects.
-- 7d5cce0: Use the configured Google OAuth client for official Google Workspace MCP servers.
-- a63c4b3: Support Google Workspace MCP OAuth clients that use Google's fixed OAuth endpoints instead of MCP discovery.
-- Release all public npm packages with a patch version bump.
-- a026821: keep provider-auth recovery visible while an agent run is still active
-- Updated dependencies
-  - @agent-native/recap-cli@0.5.12
-  - @agent-native/toolkit@0.16.15
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

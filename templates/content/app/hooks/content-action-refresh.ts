@@ -221,6 +221,7 @@ const PREVIEW_DRAFT_MUTATIONS = new Set([
 const PAGE_COMMENT_MUTATIONS = new Set([
   "add-comment",
   "delete-comment",
+  "sync-t3-agent-requests",
   "update-comment",
 ]);
 
@@ -236,6 +237,7 @@ const PAGE_CHECK_MUTATIONS = new Set([
 const PAGE_COMMENT_QUERIES = new Set([
   "list-comments",
   "list-comment-ai-requests",
+  "list-t3-agent-requests",
 ]);
 
 const DATABASE_LIFECYCLE_QUERIES = new Set([
@@ -299,6 +301,7 @@ function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
     query.queryKey[1] !== "get-document" &&
     query.queryKey[1] !== "list-comments" &&
     query.queryKey[1] !== "list-comment-ai-requests" &&
+    query.queryKey[1] !== "list-t3-agent-requests" &&
     query.queryKey[1] !== "list-document-properties"
   ) {
     return false;
@@ -364,7 +367,8 @@ function eventsIncludePageMutation(
 function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
   if (
     eventKey === "reply-to-comment-ai-request" ||
-    eventKey === "create-comment-ai-suggestion"
+    eventKey === "create-comment-ai-suggestion" ||
+    eventKey === "sync-t3-agent-requests"
   )
     return queryName === "list-comments";
   if (PAGE_COMMENT_AI_MUTATIONS.has(eventKey)) return false;

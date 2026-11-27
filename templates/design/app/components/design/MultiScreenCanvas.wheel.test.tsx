@@ -206,6 +206,33 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     expect(view.scale).toBeLessThan(MAX_ZOOM_FACTOR_PER_FRAME);
   });
 
+  it("keeps the gesture zoom when the canvas re-renders before the zoom commits", async () => {
+    const surface = await renderSurface();
+    const zoomed = await applyTicks(surface, [
+      { deltaY: -240.5, ctrlKey: true },
+    ]);
+    expect(zoomed.scale).toBeGreaterThan(1);
+
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    expect(readView(container).scale).toBeCloseTo(zoomed.scale, 6);
+  });
+
   it("bounds responsive breakpoint labels with the live zoom scale", async () => {
     await act(async () => {
       root.render(

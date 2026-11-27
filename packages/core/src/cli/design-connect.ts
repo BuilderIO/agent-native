@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import { parse, type ParserPlugin } from "@babel/parser";
+import { decodeHTMLAttribute } from "entities/decode";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import {
@@ -1541,13 +1542,20 @@ function addLiveEditBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
+function isLocalPreviewResourceUrl(resourceUrl: string): boolean {
+  return (
+    Boolean(resourceUrl) &&
+    resourceUrl.trim() === resourceUrl &&
+    !/[\\\x00-\x1f\x7f-\x9f]|[^\S ]/.test(resourceUrl) &&
+    !/^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)
+  );
+}
+
 function addPreviewTokenToResourceUrl(
   resourceUrl: string,
   previewToken: string,
 ): string {
-  if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)) {
-    return resourceUrl;
-  }
+  if (!isLocalPreviewResourceUrl(resourceUrl)) return resourceUrl;
   const hashIndex = resourceUrl.indexOf("#");
   const path = hashIndex === -1 ? resourceUrl : resourceUrl.slice(0, hashIndex);
   const hash = hashIndex === -1 ? "" : resourceUrl.slice(hashIndex);
@@ -1615,6 +1623,7 @@ function webSocketDataBuffer(data: RawData): Buffer {
 
 function addOpaqueFrameCredentials(
   html: string,
+  bridgeBaseHref: string,
   previewToken?: string,
 ): string {
   const withCredentialedResources = html.replace(
@@ -1625,23 +1634,26 @@ function addOpaqueFrameCredentials(
       );
       const resourceUrl =
         resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
-      if (
-        !resourceMatch ||
-        !resourceUrl ||
-        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
-      ) {
+      const decodedResourceUrl = decodeHTMLAttribute(resourceUrl);
+      if (!resourceMatch || !isLocalPreviewResourceUrl(decodedResourceUrl)) {
         return fullTag;
       }
       let nextAttributes = attributes;
       if (previewToken) {
         const tokenizedResourceUrl = addPreviewTokenToResourceUrl(
-          resourceUrl,
+          decodedResourceUrl,
           previewToken,
         );
-        if (tokenizedResourceUrl !== resourceUrl) {
+        if (tokenizedResourceUrl !== decodedResourceUrl) {
+          const escapedResourceUrl = tokenizedResourceUrl
+            .replace(/&/g, "&amp;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
           nextAttributes = nextAttributes.replace(
             resourceMatch[0],
-            resourceMatch[0].replace(resourceUrl, tokenizedResourceUrl),
+            () => `${resourceMatch[1]}="${escapedResourceUrl}"`,
           );
         }
       }
@@ -1681,6 +1693,7 @@ function addOpaqueFrameCredentials(
     /</g,
     "\\u003c",
   );
+  const bridgeOriginLiteral = JSON.stringify(new URL(bridgeBaseHref).origin);
   const previewImportMap = JSON.stringify({
     imports: {
       "/@id/__x00__virtual:react-router/browser-manifest": `${hmrImport.replace(
@@ -1702,13 +1715,13 @@ function addOpaqueFrameCredentials(
   const withViteHmrStyleAuth = injectDocumentMarkup(
     withImportMap,
     // coercion-ok: malformed Vite-generated CSS URLs stay unchanged in the frame.
-    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var b=new URL(document.baseURI),u=new URL(n.getAttribute("href"),b);if(u.origin===b.origin&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
+    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var b=new URL(document.baseURI),u=new URL(n.getAttribute("href"),b);if(u.origin===${bridgeOriginLiteral}&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
     { target: "head" },
   );
   return injectDocumentMarkup(
     withViteHmrStyleAuth,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(${bridgeOriginLiteral});o=b.origin;h=b.host}catch(_){return}function u(v){try{if(v==null)return null;var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
     { target: "head" },
   );
 }
@@ -1754,7 +1767,7 @@ function addOpaqueFrameJavaScriptResourceTokens(
         rewrite(prefix, quote, resourceUrl),
     )
     .replace(
-      /(\bimport\s*\(\s*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
+      /(\bimport(?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|\r(?!\n)|[\n\u2028\u2029]|(?![\s\S])))*\((?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/|\/\/[^\r\n\u2028\u2029]*(?:\r\n|\r(?!\n)|[\n\u2028\u2029]|(?![\s\S])))*)(["'])((?:\/|\.{1,2}\/)(?:[^"']*))\2/g,
       (_full, prefix: string, quote: string, resourceUrl: string) =>
         rewrite(prefix, quote, resourceUrl),
     )
@@ -1820,6 +1833,7 @@ function injectLiveEditBridge(
   const withBase = injectPreBootLocationShim(
     addOpaqueFrameCredentials(
       addLiveEditBaseHref(html, baseHref),
+      baseHref,
       identity.previewToken,
     ),
     targetPath,

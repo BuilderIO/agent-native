@@ -180,6 +180,7 @@ function retryDelayMs(baseMs: number, maxMs: number, attempt: number): number {
 }
 
 export type PageTrackFinalizeInput = {
+  status?: "complete" | "recovered";
   startedAtMs: number;
   durationMs: number;
   pauses: Array<{ atMs: number; wallMs: number }>;
@@ -195,7 +196,7 @@ export type PageTrackFinalizeInput = {
 export function buildPageTrackFinalizeBody(input: PageTrackFinalizeInput) {
   const endMs = Math.max(input.startMs, input.endMs);
   return {
-    status: "complete" as const,
+    status: input.status ?? "complete",
     startedAt: new Date(input.startedAtMs).toISOString(),
     durationMs: Math.max(input.durationMs, endMs),
     writer: input.writer,
@@ -250,6 +251,7 @@ export class PageTrack {
   private endMs: number | null = null;
   private incomplete = false;
   private stopReason: string | null = null;
+  private draftReported = false;
   private readonly ports = new Set<PageTrackPort>();
   private stopWaiters = new Map<PageTrackPort, () => void>();
   private stopping: Promise<void> | null = null;
@@ -534,7 +536,10 @@ export class PageTrack {
     this.uploadChain = this.uploadChain.then(async () => {
       if (this.stopReason !== null || this.state === "discarded") return;
       const reply = await this.sendChunk(bytes, index, isFinal);
-      if (reply.kind === "stored") return;
+      if (reply.kind === "stored") {
+        if (isFinal || this.active) await this.sendDraft(isFinal);
+        return;
+      }
       this.halt(reply.kind === "stopped" ? "stopped" : "failed", reply.reason);
     });
   }
@@ -582,9 +587,13 @@ export class PageTrack {
     };
   }
 
-  private async finalize(): Promise<PageTrackOutcome> {
-    const endMs = this.endMs ?? this.recordingMs();
-    const body = buildPageTrackFinalizeBody({
+  private finalizeBody(
+    status: "complete" | "recovered",
+    endMs: number,
+    complete: boolean,
+  ) {
+    return buildPageTrackFinalizeBody({
+      status,
       startedAtMs: this.startedAtMs,
       durationMs: endMs,
       pauses: this.pauses,
@@ -593,9 +602,56 @@ export class PageTrack {
       writer: this.options.writer,
       startMs: Math.min(this.firstEventMs ?? 0, endMs),
       endMs,
-      complete: !this.incomplete,
+      complete,
       sync: this.sync,
     });
+  }
+
+  private async sendDraft(isFinal: boolean): Promise<void> {
+    const body = isFinal
+      ? this.finalizeBody(
+          "recovered",
+          this.endMs ?? this.recordingMs(),
+          !this.incomplete,
+        )
+      : this.finalizeBody("recovered", this.recordingMs(), false);
+    let reply: ChunkReply;
+    try {
+      const response = await this.fetchImpl(`${this.options.tracksUrl}/draft`, {
+        method: "POST",
+        headers: this.headers("application/json"),
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify(body),
+        signal: this.requestSignal(),
+      });
+      reply = classifyChunkReply(response.status, await response.text());
+    } catch (error) {
+      reply = {
+        kind: "retry",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (
+      reply.kind === "stored" ||
+      this.draftReported ||
+      this.state === "discarded"
+    ) {
+      return;
+    }
+    this.draftReported = true;
+    this.report(
+      new Error(`draft not kept: ${reply.reason}`),
+      "page-track-draft",
+    );
+  }
+
+  private async finalize(): Promise<PageTrackOutcome> {
+    const body = this.finalizeBody(
+      "complete",
+      this.endMs ?? this.recordingMs(),
+      !this.incomplete,
+    );
     let last: ChunkReply = { kind: "retry", reason: "not sent" };
     for (let attempt = 1; attempt <= FINALIZE_ATTEMPTS; attempt += 1) {
       if (this.state === "discarded") {

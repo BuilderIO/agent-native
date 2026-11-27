@@ -289,6 +289,9 @@ vi.mock("@/hooks/use-content-database", async (original) => ({
 vi.mock("@/hooks/use-content-recent", () => ({
   useRecordContentVisit: () => {},
 }));
+vi.mock("@/hooks/use-t3-agents-lab", () => ({
+  useT3AgentsLab: () => false,
+}));
 vi.mock("@/hooks/use-notion", () => ({
   useDocumentSyncStatus: () => fixture.emptyQuery,
   usePushDocumentToNotion: () => fixture.mutation,

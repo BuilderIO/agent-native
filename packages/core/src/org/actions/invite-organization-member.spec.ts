@@ -71,7 +71,7 @@ describe("invite-organization-member", () => {
   });
 
   it("has no role argument an agent could use to grant admin", () => {
-    const parsed = inviteOrganizationMember.schema!["~standard"].validate({
+    const parsed = inviteOrganizationMember.schema?.["~standard"].validate({
       email: "new@example.test",
       role: "admin",
     });

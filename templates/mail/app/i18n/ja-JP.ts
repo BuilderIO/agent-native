@@ -904,6 +904,14 @@ const messages = {
     readingPane: {
       empty: "メールが選択されていません",
       resizeList: "メールリストのサイズを変更",
+      openHint: "J または Enter キーで開きます。",
+      reopenHint:
+        "Enter キーでもう一度開くか、J キーで次のメールに移動します。",
+      noSubject: "（件名なし）",
+    },
+    list: {
+      newMailAbove_one: "新着 {{count}} 件",
+      newMailAbove_other: "新着 {{count}} 件",
     },
   },
   agent: {

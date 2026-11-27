@@ -73,6 +73,22 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/agent/actions/select-chatgpt-subscription-account",
   },
   {
+    name: "get-t3-code-status",
+    specifier: "@agent-native/core/agent/actions/get-t3-code-status",
+  },
+  {
+    name: "disconnect-t3-code",
+    specifier: "@agent-native/core/agent/actions/disconnect-t3-code",
+  },
+  {
+    name: "check-t3-code-address",
+    specifier: "@agent-native/core/agent/actions/check-t3-code-address",
+  },
+  {
+    name: "search-t3-code-threads",
+    specifier: "@agent-native/core/agent/actions/search-t3-code-threads",
+  },
+  {
     name: "preview-secret-removal",
     specifier: "@agent-native/core/secrets/actions/preview-secret-removal",
   },

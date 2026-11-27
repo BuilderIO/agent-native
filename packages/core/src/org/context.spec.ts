@@ -46,7 +46,7 @@ import {
   resolveOrgIdForEmail,
   resolveOrgScopeForEmail,
   resolveActiveOrgIdForStorageCredential,
-  resolveSoleOrgMembershipForEmail,
+  resolveCallerWorkspaceForEmail,
   resolveOrgIdForEmailViaEvent,
   createOrganization,
   bootstrapAdminOrganization,
@@ -1846,7 +1846,7 @@ describe("resolveActiveOrgIdForStorageCredential", () => {
   });
 });
 
-describe("resolveSoleOrgMembershipForEmail", () => {
+describe("resolveCallerWorkspaceForEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecute.mockResolvedValue({ rows: [{ orgId: "only-org" }] });
@@ -1855,13 +1855,13 @@ describe("resolveSoleOrgMembershipForEmail", () => {
 
   it("returns the person's one current membership", async () => {
     await expect(
-      resolveSoleOrgMembershipForEmail("Alice@Example.com"),
+      resolveCallerWorkspaceForEmail("Alice@Example.com"),
     ).resolves.toBe("only-org");
 
     const query = mockExecute.mock.calls[0][0];
     expect(query.sql).toContain("federation_removal_pending_at IS NULL");
     expect(query.sql).toContain("INNER JOIN organizations");
-    expect(query.sql).toContain("LIMIT 2");
+    expect(query.sql).toContain("ORDER BY m.joined_at ASC, m.org_id ASC");
     expect(query.args).toEqual(["alice@example.com"]);
     expect(mockGetUserSetting).toHaveBeenCalledWith(
       "alice@example.com",
@@ -1872,14 +1872,52 @@ describe("resolveSoleOrgMembershipForEmail", () => {
 
   it.each([
     ["no membership", [], null],
-    ["several memberships", [{ orgId: "org-a" }, { orgId: "org-b" }], null],
     ["an explicit Personal choice", [{ orgId: "only-org" }], { orgId: null }],
   ])("returns no workspace for %s", async (_case, rows, setting) => {
     mockExecute.mockResolvedValue({ rows });
     mockGetUserSetting.mockResolvedValue(setting);
 
     await expect(
-      resolveSoleOrgMembershipForEmail("alice@example.com"),
+      resolveCallerWorkspaceForEmail("alice@example.com"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("returns the saved workspace when the person has several", async () => {
+    mockExecute.mockResolvedValue({
+      rows: [{ orgId: "org-a" }, { orgId: "org-b" }],
+    });
+    mockGetUserSetting.mockResolvedValue({ orgId: "org-b" });
+
+    await expect(
+      resolveCallerWorkspaceForEmail("alice@example.com"),
+    ).resolves.toBe("org-b");
+  });
+
+  it.each([
+    ["no saved choice", null],
+    ["a saved choice they left", { orgId: "left-org" }],
+  ])(
+    "falls back to the first membership with several and %s",
+    async (_case, setting) => {
+      mockExecute.mockResolvedValue({
+        rows: [{ orgId: "org-a" }, { orgId: "org-b" }],
+      });
+      mockGetUserSetting.mockResolvedValue(setting);
+
+      await expect(
+        resolveCallerWorkspaceForEmail("alice@example.com"),
+      ).resolves.toBe("org-a");
+    },
+  );
+
+  it("returns no workspace for an explicit Personal choice among several", async () => {
+    mockExecute.mockResolvedValue({
+      rows: [{ orgId: "org-a" }, { orgId: "org-b" }],
+    });
+    mockGetUserSetting.mockResolvedValue({ orgId: null });
+
+    await expect(
+      resolveCallerWorkspaceForEmail("alice@example.com"),
     ).resolves.toBeUndefined();
   });
 
@@ -1887,7 +1925,7 @@ describe("resolveSoleOrgMembershipForEmail", () => {
     mockGetUserSetting.mockResolvedValue({ orgId: "stale-org" });
 
     await expect(
-      resolveSoleOrgMembershipForEmail("alice@example.com"),
+      resolveCallerWorkspaceForEmail("alice@example.com"),
     ).resolves.toBe("only-org");
   });
 
@@ -1897,19 +1935,19 @@ describe("resolveSoleOrgMembershipForEmail", () => {
     );
 
     await expect(
-      resolveSoleOrgMembershipForEmail("alice@example.com"),
+      resolveCallerWorkspaceForEmail("alice@example.com"),
     ).resolves.toBeUndefined();
   });
 
   it("propagates other membership and setting read failures", async () => {
     mockExecute.mockRejectedValueOnce(new Error("membership read failed"));
     await expect(
-      resolveSoleOrgMembershipForEmail("alice@example.com"),
+      resolveCallerWorkspaceForEmail("alice@example.com"),
     ).rejects.toThrow("membership read failed");
 
     mockGetUserSetting.mockRejectedValueOnce(new Error("setting read failed"));
     await expect(
-      resolveSoleOrgMembershipForEmail("alice@example.com"),
+      resolveCallerWorkspaceForEmail("alice@example.com"),
     ).rejects.toThrow("setting read failed");
   });
 });

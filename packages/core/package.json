@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.235.0",
+  "version": "0.235.1",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -350,6 +350,10 @@
     "./agent/actions/disconnect-chatgpt-subscription": "./dist/agent/actions/disconnect-chatgpt-subscription.js",
     "./agent/actions/list-chatgpt-subscription-accounts": "./dist/agent/actions/list-chatgpt-subscription-accounts.js",
     "./agent/actions/select-chatgpt-subscription-account": "./dist/agent/actions/select-chatgpt-subscription-account.js",
+    "./agent/actions/get-t3-code-status": "./dist/agent/actions/get-t3-code-status.js",
+    "./agent/actions/disconnect-t3-code": "./dist/agent/actions/disconnect-t3-code.js",
+    "./agent/actions/check-t3-code-address": "./dist/agent/actions/check-t3-code-address.js",
+    "./agent/actions/search-t3-code-threads": "./dist/agent/actions/search-t3-code-threads.js",
     "./agent/actions/check-provider-key": "./dist/agent/actions/check-provider-key.js",
     "./agent/actions/manage-provider-key-policy": "./dist/agent/actions/manage-provider-key-policy.js",
     "./agent/actions/manage-builder-connection": "./dist/agent/actions/manage-builder-connection.js",

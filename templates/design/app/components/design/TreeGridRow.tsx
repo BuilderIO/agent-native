@@ -6,6 +6,9 @@ import { cn } from "@/lib/utils";
 export const TREE_GRID_ROW_CLASS =
   "flex h-[var(--design-row-height)] min-w-0 items-center px-4 text-xs leading-4";
 
+export const TREE_GRID_OFFSCREEN_SKIP_CLASS =
+  "[content-visibility:auto] [contain-intrinsic-size:auto_var(--design-row-height)]";
+
 export const TREE_GRID_ICON_SLOT_CLASS =
   "flex size-4 shrink-0 items-center justify-center";
 

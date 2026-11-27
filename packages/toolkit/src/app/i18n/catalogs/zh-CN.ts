@@ -2972,6 +2972,43 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptReconnect": "重新连接",
   "settingsModel.chatgptSelectAccount": "ChatGPT 账户",
   "settingsModel.chatgptUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "在评论中提及 Claude Code 和 Codex。它们通过 T3 Code 在你的电脑上、用你自己的方案运行。",
+  "settingsModel.t3CodeConnect": "连接",
+  "settingsModel.t3CodeReadOnly": "只读",
+  "settingsModel.t3CodeCanStart": "可以启动对话",
+  "settingsModel.t3CodeReadOnlyHint":
+    "只读无法启动对话。请重新连接并选择 Supervised 或更高级别，你的智能体才能回复。",
+  "settingsModel.t3CodeNoAgents": "T3 Code 中没有登录 Claude Code 或 Codex。",
+  "settingsModel.t3CodeSignInAgain": "T3 将在 {{date}} 要求你重新登录。",
+  "settingsModel.t3CodeReconnectHint":
+    "T3 Code 已结束此次登录。重新连接后即可再次提及你的智能体。",
+  "settingsModel.t3CodeUnreachable":
+    "无法连接 T3 Code。请确认它正在运行，并且这台电脑已开启 T3 Connect。",
+  "settingsModel.t3CodeDialogTitle": "连接 T3 Code",
+  "settingsModel.t3CodeDialogDescription":
+    "你的提及会发送到你电脑上的 T3 Code。你的 Claude Code 和 Codex 登录信息留在那里，此应用永远看不到。",
+  "settingsModel.t3CodeDialogStep1":
+    "在 T3 Code 中打开 Settings › Environments，打开这台电脑的菜单，选择 Copy MCP URL。",
+  "settingsModel.t3CodeDialogStep2":
+    "粘贴到这里。必须开启 T3 Connect，此应用才能连到你的电脑。",
+  "settingsModel.t3CodeAddressLabel": "T3 Code 的 MCP 地址",
+  "settingsModel.t3CodeAccessHint":
+    "接下来 T3 Code 会询问此应用可以做什么。请选择 Supervised 或更高级别，你的智能体才能回复。",
+  "settingsModel.t3CodeContinue": "继续前往 T3 Code",
+  "settingsModel.t3CodeChecking": "正在检查…",
+  "settingsModel.t3CodeAddressHttp":
+    "请使用 T3 Connect 提供的 https 地址。普通 http 地址无法完成登录。",
+  "settingsModel.t3CodeAddressInvalid":
+    "这不是网址。请在 T3 Code 中用 Copy MCP URL 复制。",
+  "settingsModel.t3CodeAddressNotMcp":
+    "地址应以 /mcp 结尾。请在 T3 Code 中用 Copy MCP URL 复制。",
+  "settingsModel.t3CodeAddressUnreachable":
+    "无法通过该地址连接 T3 Code。请在 T3 Code 中为这台电脑开启 T3 Connect，并使用 Copy MCP URL 提供的地址。",
+  "settingsModel.t3CodeDisconnectTitle": "断开 T3 Code？",
+  "settingsModel.t3CodeDisconnectDescription":
+    "Claude Code 和 Codex 会从你的 @ 菜单中移除，并请求 T3 Code 结束此次登录。你可以随时重新连接。",
   "settingsModel.checkAgain": "重新检查",
   "settingsModel.checkedJustNow": "刚刚已检查。",
   "settingsModel.checkedOn": "已于 {{date}} 检查。",

@@ -30,7 +30,7 @@ import {
   type OAuthCredentialState,
   type OAuthRevocationResult,
 } from "../oauth-tokens/lifecycle.js";
-import { validateRemoteUrl } from "./remote-url.js";
+import { isLocalMcpRuntime, validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const MAX_OAUTH_REDIRECTS = 5;
@@ -384,6 +384,15 @@ function configuredPrivateOrigins(): string[] {
     .filter(Boolean);
 }
 
+function localServerFetchOptions(
+  url: URL,
+  allowedPrivateOrigins: string[],
+): { allowedPrivateOrigins: string[]; allowedLocalhostOrigin?: string } {
+  return url.hostname === "localhost" && isLocalMcpRuntime()
+    ? { allowedPrivateOrigins, allowedLocalhostOrigin: url.origin }
+    : { allowedPrivateOrigins };
+}
+
 function guardedOAuthFetch(): GuardedFetch {
   const allowedPrivateOrigins = configuredPrivateOrigins();
   return async (url, init) => {
@@ -394,7 +403,7 @@ function guardedOAuthFetch(): GuardedFetch {
       const response = await ssrfSafeFetch(currentUrl.href, currentInit, {
         maxRedirects: 0,
         followRedirects: false,
-        allowedPrivateOrigins,
+        ...localServerFetchOptions(currentUrl, allowedPrivateOrigins),
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) {
         return response;
@@ -458,7 +467,7 @@ async function guardedRevocationFetch(
   const endpoint = checkedRemoteUrl(url, "revocation endpoint");
   return ssrfSafeFetch(endpoint.href, init, {
     maxRedirects: 0,
-    allowedPrivateOrigins: configuredPrivateOrigins(),
+    ...localServerFetchOptions(endpoint, configuredPrivateOrigins()),
     assertUrlAllowed: (candidate) => {
       const checked = checkedRemoteUrl(candidate, "revocation redirect");
       if (checked.origin !== endpoint.origin) {

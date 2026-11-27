@@ -31,22 +31,19 @@ explanatory copy.
 
 ## Keep the starting view focused
 
-The first view should show where the user is, the current work or state, and
-the input or decision needed now. Make one action clear. Defer rare, advanced,
-diagnostic, destructive, and historical controls to a relevant menu or
-disclosure.
+Subtract before adding: remove redundant chrome, duplicate controls, and extra
+layers first (10% rule — if you never have to add back ~10% of what you cut,
+you aren't simplifying enough). The first view shows where the user is, current
+state, and the next action; defer rare, diagnostic, destructive, or historical
+controls to a menu or disclosure.
 
-Every visible element should orient the user, show useful content or state,
-collect required input, or enable the next action. If it has no job, remove it
-or disclose it. Density should come from useful data, not extra chrome.
-
-Do not add a page title that repeats the selected navigation item, a subtitle
-or eyebrow under a title, a count strip over visible content, an About section
-in settings, or helper copy that repeats a label unless the user asks for it.
-A card, panel, tab, or settings group gets a title or a description, not both.
-Use tooltips or progressive disclosure for explanations that are not needed to
-make the current decision. User-authored descriptions are content: render them
-when present and render nothing when empty.
+Every visible element must orient, show useful data/state, collect required
+input, or enable the next action. Do not add a nav-repeating page title, a
+subtitle or eyebrow under a title, a count strip over visible content, an About
+section in settings, or helper copy that repeats a label unless asked. A card,
+panel, tab, or settings group gets a title or a description, never both (put
+explanations in tooltips or disclosures). Render user-authored descriptions
+only when non-empty.
 
 For sequential setup, show one decision at a time with clear progress and
 sensible defaults. Use the smallest surface that fits the task: an inline row
@@ -64,8 +61,11 @@ check the configured design system and toolkit provider before changing how
 shared controls look. Read `shadcn-ui` when implementing or composing a
 standard control; keep product-specific layout and visual decisions here.
 
-Use real or generated imagery when it helps the user understand the subject.
-Do not add decorative assets solely to fill empty space.
+Hold every new or customized surface to the host app's native UX bar: reuse its
+sheets, menus, composers, focus states, and motion rather than raw styled
+elements or hardcoded colors; ship zero duplicate or unwired controls; blend
+adjacent surface edges seamlessly; and respect native scroll/swipe gesture
+ownership. Use imagery only when it clarifies the subject, never as filler.
 
 ## Coordinate the UI with the agent
 
@@ -101,7 +101,7 @@ should keep stable dimensions.
 
 ## Review the result
 
-Check that the main job and next action are obvious. Look at the default,
-loading, empty, error, and success states that apply, and check a narrow
-viewport. Remove anything that competes with the task without helping the user
-act or understand state.
+Visually inspect rendered screenshots across light/dark, default, loading,
+empty, error, populated, and narrow/mobile states before shipping. Confirm
+every visible control is wired and non-duplicated, the next action is obvious,
+and anything competing with the task is removed.

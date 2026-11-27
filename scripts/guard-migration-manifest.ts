@@ -256,17 +256,19 @@ function buildExportedSymbolCatalog(
   const { Project } = createRequire(
     path.join(repoRoot, "packages/core/package.json"),
   )("ts-morph") as {
-    Project: new (options: { tsConfigFilePath: string }) => ExportSourceProject;
+    Project: new (options: {
+      tsConfigFilePath: string;
+      skipAddingFilesFromTsConfig?: boolean;
+    }) => ExportSourceProject & {
+      resolveSourceFileDependencies(): unknown;
+    };
   };
-  const projects = Object.fromEntries(
-    Object.entries(packageDirectories).map(([packageName, directory]) => [
-      packageName,
-      new Project({
-        tsConfigFilePath: path.join(repoRoot, directory, "tsconfig.json"),
-      }),
-    ]),
-  );
-  const catalog: ExportedSymbolCatalog = {};
+  const resolvedEntries: Array<{
+    specifier: string;
+    packageName: string;
+    sourceFile: string;
+  }> = [];
+  const neededPackages = new Set<string>();
   for (const specifier of specifiers) {
     const sourceFile = sourceFileForSpecifier(
       repoRoot,
@@ -277,6 +279,30 @@ function buildExportedSymbolCatalog(
     if (!sourceFile) continue;
     const packageName = packageNameForSpecifier(specifier, packageCatalog);
     if (!packageName) continue;
+    resolvedEntries.push({ specifier, packageName, sourceFile });
+    neededPackages.add(packageName);
+  }
+  const projects = Object.fromEntries(
+    [...neededPackages].map((packageName) => [
+      packageName,
+      new Project({
+        tsConfigFilePath: path.join(
+          repoRoot,
+          packageDirectories[packageName],
+          "tsconfig.json",
+        ),
+        skipAddingFilesFromTsConfig: true,
+      }),
+    ]),
+  );
+  for (const { packageName, sourceFile } of resolvedEntries) {
+    const project = projects[packageName];
+    if (!project.getSourceFile(sourceFile)) {
+      project.addSourceFileAtPath(sourceFile);
+    }
+  }
+  const catalog: ExportedSymbolCatalog = {};
+  for (const { specifier, packageName, sourceFile } of resolvedEntries) {
     const project = projects[packageName];
     const declarations = (
       project.getSourceFile(sourceFile) ??

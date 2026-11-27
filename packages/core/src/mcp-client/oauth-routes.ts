@@ -12,6 +12,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { T3_CODE_AGENTS_LAB } from "../labs/core-labs.js";
+import { getUserLabEnabled } from "../labs/store.js";
 import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
@@ -61,6 +63,7 @@ import {
   type StoredRemoteMcpServer,
   type RemoteMcpScope,
 } from "./remote-store.js";
+import { saveT3CodeConnection, T3_CODE_OAUTH_PURPOSE } from "./t3-code.js";
 
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
   ...args
@@ -162,6 +165,8 @@ export interface McpOAuthFlow {
   authorizationScope?: string;
   returnUrl?: string;
   replaceServerId?: string;
+  /** A T3 Code sign-in saves to its own store, not the MCP server list. */
+  purpose?: typeof T3_CODE_OAUTH_PURPOSE;
   expiresAt: number;
 }
 
@@ -280,8 +285,25 @@ async function handleMcpOAuthStart(
   if (!principal) return unauthorized(event);
 
   const query = getQuery(event);
-  const reconnectServerId = text(query.serverId);
-  const reconnectScope: RemoteMcpScope = query.scope === "org" ? "org" : "user";
+  const t3Code = query.purpose === T3_CODE_OAUTH_PURPOSE;
+  if (t3Code) {
+    const labOrg = await getOrgContext(event);
+    const labEnabled = await getUserLabEnabled(
+      session.email,
+      T3_CODE_AGENTS_LAB,
+      labOrg.orgId ? { orgId: labOrg.orgId } : {},
+    );
+    if (!labEnabled) {
+      return refuse(
+        event,
+        403,
+        "T3 Code agents is a Lab and isn't turned on. Turn it on in Settings › Labs.",
+      );
+    }
+  }
+  const reconnectServerId = t3Code ? undefined : text(query.serverId);
+  const reconnectScope: RemoteMcpScope =
+    !t3Code && query.scope === "org" ? "org" : "user";
   const reconnectOrg =
     reconnectScope === "org" ? await getOrgContext(event) : null;
   const reconnectScopeId =
@@ -318,13 +340,16 @@ async function handleMcpOAuthStart(
   }
 
   const rawUrl = reconnectServer?.url ?? text(query.url);
-  const rawName = reconnectServer?.name ?? text(query.name);
+  const rawName =
+    reconnectServer?.name ??
+    text(query.name) ??
+    (t3Code ? "T3 Code" : undefined);
   const returnUrl = text(query.return);
   if (!rawUrl || !rawName) {
     return refuse(event, 400, "MCP OAuth requires a server name and URL.");
   }
   const urlCheck = validateRemoteUrl(rawUrl);
-  if (!urlCheck.ok) {
+  if (!urlCheck.ok || !urlCheck.url) {
     return refuse(
       event,
       400,
@@ -336,10 +361,14 @@ async function handleMcpOAuthStart(
     return refuse(event, 400, "MCP server name is invalid.");
   }
 
-  const resolvedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
-    allowManagedOrgReconnect:
-      reconnectScope === "org" && Boolean(reconnectServer),
-  });
+  const resolvedScope = resolveMcpOAuthScope(
+    urlCheck.url,
+    t3Code ? "user" : query.scope,
+    {
+      allowManagedOrgReconnect:
+        reconnectScope === "org" && Boolean(reconnectServer),
+    },
+  );
   if (!resolvedScope.ok) {
     return refuse(
       event,
@@ -509,6 +538,7 @@ async function handleMcpOAuthStart(
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
       ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
+      ...(t3Code ? { purpose: T3_CODE_OAUTH_PURPOSE } : {}),
       expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
     };
     setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
@@ -757,6 +787,22 @@ async function handleMcpOAuthCallback(
       flow,
       finished.credentials,
     );
+    if (flow.purpose === T3_CODE_OAUTH_PURPOSE) {
+      await saveT3CodeConnection(flow.scopeId, { url: flow.url, credentials });
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(
+          event,
+          getAppUrl(
+            event,
+            stripMcpOAuthAppBasePath(
+              resolveMcpOAuthReturnPath(true, flow),
+              getAppBasePath(),
+            ),
+          ),
+        ),
+      );
+    }
     const result = flow.replaceServerId
       ? await replaceOAuthRemoteServer(
           flow.scope,

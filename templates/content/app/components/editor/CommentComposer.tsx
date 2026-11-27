@@ -24,7 +24,9 @@ import {
   findCommentMentions,
   followsNameCharacter,
   isMentionNameAt,
+  isT3AgentMention,
   literalAtSignTest,
+  T3_CODE_MENTION_ENGINE,
   type CommentAgentMention,
 } from "@shared/comment-mentions";
 import {
@@ -60,6 +62,11 @@ import {
   useMentionMembers,
   type MentionMember,
 } from "@/hooks/use-mention-members";
+import {
+  lastAnsweredThread,
+  useT3AgentRequestsContext,
+  type T3Agent,
+} from "@/hooks/use-t3-agents";
 import { cn } from "@/lib/utils";
 
 import { modelDisplayName } from "./agent-identity";
@@ -89,6 +96,7 @@ import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import { agentMentionMedia, personMentionMedia } from "./CommentIdentity";
 import { EmojiPickerPanel } from "./EmojiPicker";
 import { imageDisplaySrc } from "./private-media-src";
+import { T3ThreadPicker } from "./T3ThreadPicker";
 
 /** The agent a comment is sent to, named the way its chip reads. */
 export function aiRecipientMention(
@@ -136,6 +144,7 @@ interface CommentComposerProps {
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   aiModelStorageKey?: string;
+  t3Agents?: boolean;
   /**
    * The AI can reply or suggest changes but not apply them, as in a Blocks
    * field tab, whose changes are always suggested.
@@ -172,8 +181,10 @@ interface CommentComposerProps {
 const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
 /** An agent an existing comment mentions; unlike the recipient, it sends nothing. */
 const AGENT_REFERENCE_TYPE = "content-comment-agent";
+const T3_REFERENCE_TYPE = "content-comment-t3-agent";
 const MEMBER_REFERENCE_TYPE = "content-comment-member";
 const NO_IMAGES: readonly CommentImage[] = [];
+const NO_T3_AGENTS: readonly T3Agent[] = [];
 
 function isFileDrag(event: DragEvent) {
   return Array.from(event.dataTransfer.types).includes("Files");
@@ -233,6 +244,32 @@ function agentReference(agent: CommentAgentMention) {
   };
 }
 
+function t3Reference(mention: CommentAgentMention) {
+  return {
+    label: mention.name,
+    icon: "agent",
+    media: agentMentionMedia(mention.model, mention.engine, mention.provider),
+    source: "content",
+    refType: T3_REFERENCE_TYPE,
+    refId: mention.model,
+    metadata: { mention },
+  };
+}
+
+function t3Mention(
+  agent: { kind: string; name: string },
+  thread: string | null | undefined,
+): CommentAgentMention {
+  return {
+    kind: "agent",
+    model: agent.kind,
+    engine: T3_CODE_MENTION_ENGINE,
+    provider: "T3 Code",
+    name: agent.name,
+    ...(thread ? { thread } : {}),
+  };
+}
+
 /**
  * The chips a draft's plain text stands for, each at the `@name` its mention
  * resolves to; an agent's chip is the AI recipient when it is that agent. A
@@ -255,9 +292,11 @@ function textReferences(
     reference:
       mention.kind === "person"
         ? memberReference(mention)
-        : aiDraft && commentMentionKey(mention) === recipient
-          ? aiReference(aiDraft)
-          : agentReference(mention),
+        : isT3AgentMention(mention)
+          ? t3Reference(mention)
+          : aiDraft && commentMentionKey(mention) === recipient
+            ? aiReference(aiDraft)
+            : agentReference(mention),
   }));
   if (
     !aiDraft ||
@@ -345,6 +384,7 @@ export const CommentComposer = forwardRef<
     onAiDraftChange,
     aiModelStorageKey,
     aiSuggestOnly,
+    t3Agents: t3AgentsEnabled = true,
     onEscape,
     confirmEscape = false,
     onBlur,
@@ -365,6 +405,12 @@ export const CommentComposer = forwardRef<
   const t = useT();
   const membersQuery = useMentionMembers();
   const members = membersQuery.data ?? [];
+  const { agents: ownT3Agents, requests: t3Requests } =
+    useT3AgentRequestsContext();
+  const t3Agents = t3AgentsEnabled ? ownT3Agents : NO_T3_AGENTS;
+  const [t3ThreadTitles, setT3ThreadTitles] = useState<Record<string, string>>(
+    {},
+  );
   const wrapperRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [composerReady, setComposerReady] = useState(false);
@@ -581,7 +627,18 @@ export const CommentComposer = forwardRef<
         metadata: { email: member.email, name: label },
       };
     });
-    if (!aiEnabled) return memberItems;
+    const t3Items = t3Agents.map((agent) => {
+      const last = lastAnsweredThread(t3Requests, agent.kind);
+      const mention = t3Mention(agent, last?.threadId);
+      return {
+        ...t3Reference(mention),
+        id: `t3:${agent.kind}`,
+        description: t("comments.t3AgentDescription"),
+        replaceExisting: true,
+        section: t("comments.mentionYourAgents"),
+      };
+    });
+    if (!aiEnabled) return [...memberItems, ...t3Items];
     const agentsSection = t("comments.mentionAgents");
     const fallback = models.unavailableSelection
       ? models.defaultSelection
@@ -641,12 +698,15 @@ export const CommentComposer = forwardRef<
         .filter((item) => item.refId === selectedKey)
         .map((item) => ({ ...item, aliases: [...item.aliases, "AI"] })),
       ...aiItems.filter((item) => item.refId !== selectedKey),
+      ...t3Items,
     ];
   }, [
     aiEnabled,
     avatarUrls,
     connectedModels,
     members,
+    t3Agents,
+    t3Requests,
     models.configuredModels,
     models.defaultSelection,
     models.selectedEngine,
@@ -752,7 +812,11 @@ export const CommentComposer = forwardRef<
       const agent = (
         reference.metadata as { mention?: CommentAgentMention } | undefined
       )?.mention;
-      return reference.refType === AGENT_REFERENCE_TYPE && agent ? [agent] : [];
+      return (reference.refType === AGENT_REFERENCE_TYPE ||
+        reference.refType === T3_REFERENCE_TYPE) &&
+        agent
+        ? [agent]
+        : [];
     });
     if (!sameMentions(mentions, mentionsRef.current)) {
       mentionsRef.current = mentions;
@@ -767,6 +831,10 @@ export const CommentComposer = forwardRef<
     onAiDraftChange?.({ ...aiDraft, selection });
     requestAnimationFrame(() => composerRef.current?.focus());
   };
+
+  const taggedT3Agent = t3Agents.length
+    ? mentions.map(draftMention).find(isT3AgentMention)
+    : undefined;
 
   const canSend =
     hasText && !disabled && !submitDisabled && !imageUpload.uploading;
@@ -1052,6 +1120,37 @@ export const CommentComposer = forwardRef<
         className="comment-composer-area"
         rootClassName="comment-composer-root min-w-0"
       />
+      {taggedT3Agent ? (
+        <div className="mt-1 flex min-w-0" data-t3-thread-choice>
+          <T3ThreadPicker
+            mention={taggedT3Agent}
+            threadTitle={
+              taggedT3Agent.thread
+                ? (t3ThreadTitles[taggedT3Agent.thread] ?? null)
+                : null
+            }
+            onChange={(choice) => {
+              if (choice.threadId && choice.title) {
+                const { threadId, title } = choice;
+                setT3ThreadTitles((titles) => ({
+                  ...titles,
+                  [threadId]: title,
+                }));
+              }
+              composerRef.current?.replaceReference(
+                T3_REFERENCE_TYPE,
+                t3Reference(
+                  t3Mention(
+                    { kind: taggedT3Agent.model, name: taggedT3Agent.name },
+                    choice.threadId,
+                  ),
+                ),
+              );
+            }}
+            onClose={() => composerRef.current?.focus()}
+          />
+        </div>
+      ) : null}
       {aiEnabled && aiDraft && aiRecipientMissing ? (
         <span
           role="status"

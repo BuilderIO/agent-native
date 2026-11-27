@@ -892,6 +892,14 @@ const messages = {
     readingPane: {
       empty: "선택한 이메일이 없습니다",
       resizeList: "이메일 목록 크기 조정",
+      openHint: "J 또는 Enter 키를 눌러 여세요.",
+      reopenHint:
+        "Enter 키를 눌러 다시 열거나 J 키로 다음 이메일로 이동하세요.",
+      noSubject: "(제목 없음)",
+    },
+    list: {
+      newMailAbove_one: "새 메일 {{count}}개",
+      newMailAbove_other: "새 메일 {{count}}개",
     },
   },
   agent: {

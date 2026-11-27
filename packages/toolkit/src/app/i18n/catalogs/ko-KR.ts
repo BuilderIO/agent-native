@@ -3213,6 +3213,45 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptReconnect": "다시 연결",
   "settingsModel.chatgptSelectAccount": "ChatGPT 계정",
   "settingsModel.chatgptUsageLimit": "ChatGPT 요금제 사용 한도에 도달했습니다.",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "댓글에서 Claude Code와 Codex를 태그하세요. T3 Code를 통해 내 컴퓨터에서 내 요금제로 실행됩니다.",
+  "settingsModel.t3CodeConnect": "연결",
+  "settingsModel.t3CodeReadOnly": "읽기 전용",
+  "settingsModel.t3CodeCanStart": "스레드 시작 가능",
+  "settingsModel.t3CodeReadOnlyHint":
+    "읽기 전용으로는 스레드를 시작할 수 없습니다. 다시 연결하고 Supervised 이상을 선택해야 에이전트가 답할 수 있습니다.",
+  "settingsModel.t3CodeNoAgents":
+    "T3 Code에 로그인된 Claude Code나 Codex가 없습니다.",
+  "settingsModel.t3CodeSignInAgain":
+    "{{date}}에 T3가 다시 로그인하라고 요청합니다.",
+  "settingsModel.t3CodeReconnectHint":
+    "T3 Code가 이 로그인을 종료했습니다. 다시 연결하면 에이전트를 다시 태그할 수 있습니다.",
+  "settingsModel.t3CodeUnreachable":
+    "T3 Code에 연결할 수 없습니다. 실행 중인지, 이 컴퓨터에서 T3 Connect가 켜져 있는지 확인하세요.",
+  "settingsModel.t3CodeDialogTitle": "T3 Code 연결",
+  "settingsModel.t3CodeDialogDescription":
+    "태그는 내 컴퓨터의 T3 Code로 전달됩니다. Claude Code와 Codex 로그인 정보는 그곳에 남고, 이 앱은 볼 수 없습니다.",
+  "settingsModel.t3CodeDialogStep1":
+    "T3 Code에서 Settings › Environments를 열고, 이 컴퓨터의 메뉴에서 Copy MCP URL을 선택하세요.",
+  "settingsModel.t3CodeDialogStep2":
+    "여기에 붙여 넣으세요. 이 앱이 내 컴퓨터에 닿으려면 T3 Connect가 켜져 있어야 합니다.",
+  "settingsModel.t3CodeAddressLabel": "T3 Code의 MCP URL",
+  "settingsModel.t3CodeAccessHint":
+    "다음 단계에서 T3 Code가 이 앱에 허용할 작업을 묻습니다. 에이전트가 답할 수 있도록 Supervised 이상을 선택하세요.",
+  "settingsModel.t3CodeContinue": "T3 Code로 계속",
+  "settingsModel.t3CodeChecking": "확인 중…",
+  "settingsModel.t3CodeAddressHttp":
+    "T3 Connect가 제공하는 https 주소를 사용하세요. 일반 http 주소로는 로그인을 마칠 수 없습니다.",
+  "settingsModel.t3CodeAddressInvalid":
+    "웹 주소가 아닙니다. T3 Code의 Copy MCP URL로 복사하세요.",
+  "settingsModel.t3CodeAddressNotMcp":
+    "주소는 /mcp로 끝나야 합니다. T3 Code의 Copy MCP URL로 복사하세요.",
+  "settingsModel.t3CodeAddressUnreachable":
+    "그 주소로 T3 Code에 연결할 수 없습니다. T3 Code에서 이 컴퓨터의 T3 Connect를 켜고 Copy MCP URL이 주는 주소를 사용하세요.",
+  "settingsModel.t3CodeDisconnectTitle": "T3 Code 연결을 해제할까요?",
+  "settingsModel.t3CodeDisconnectDescription":
+    "Claude Code와 Codex가 @ 메뉴에서 사라지고, T3 Code에 이 로그인 종료를 요청합니다. 언제든 다시 연결할 수 있습니다.",
   "settingsModel.checkAgain": "다시 확인",
   "settingsModel.checkedJustNow": "방금 확인했습니다.",
   "settingsModel.checkedOn": "{{date}}에 확인했습니다.",

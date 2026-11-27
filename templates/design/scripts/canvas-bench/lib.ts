@@ -456,6 +456,12 @@ function readLock(): { raw: string; owner: LockOwner } | null {
   return { raw, owner };
 }
 
+export function liveBenchLockHolder(): string | null {
+  const held = readLock();
+  if (!held || classifyLockHolder(held.owner) !== "alive") return null;
+  return `pid ${held.owner.pid}: ${held.owner.command}`;
+}
+
 export function acquireBenchLock(command: string): () => void {
   const self: LockOwner = {
     pid: process.pid,

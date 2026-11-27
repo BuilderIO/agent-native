@@ -550,6 +550,479 @@ fn check_barrel_file(rel: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
+// ---------- 4. guard:no-env-mutation ----------
+static ENV_MUT_OPT_OUT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"//\s*guard:allow-env-mutation\b").unwrap());
+static ENV_MUT_OPT_OUT_REASON_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"//\s*guard:allow-env-mutation\s*(?:—|-)\s*\S").unwrap());
+static ENV_MUT_MEMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"process\.env\.[A-Z_][A-Z0-9_]*\s*(?:=|\+=|-=|\*=|/=|\?\?=|\|\|=|&&=)").unwrap()
+});
+static ENV_MUT_BRACKET_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"process\.env\[\s*["'][A-Z_][A-Z0-9_]+["']\s*\]\s*(?:=|\+=|-=|\*=|/=|\?\?=|\|\|=|&&=)"#).unwrap()
+});
+static ENV_MUT_DELETE_MEMBER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bdelete\s+process\.env\.[A-Z_][A-Z0-9_]*\b").unwrap());
+static ENV_MUT_DELETE_BRACKET_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\bdelete\s+process\.env\[\s*["'][A-Z_][A-Z0-9_]+["']\s*\]"#).unwrap());
+static SPEC_OR_TEST_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.(?:spec|test)\.[tj]sx?$").unwrap());
+static JS_TS_EXT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.(?:ts|tsx|mts|cts|js|mjs|cjs)$").unwrap());
+static TEMPLATES_TEST_DIR_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^templates/[^/]+/tests?/").unwrap());
+
+fn is_comment_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with('*') || trimmed.starts_with("//") || trimmed.starts_with("/*")
+}
+
+fn line_col_for_offset(text: &str, offset: usize) -> (usize, usize) {
+    let mut line = 1usize;
+    let mut line_start = 0usize;
+    for (idx, &b) in text.as_bytes()[..offset].iter().enumerate() {
+        if b == b'\n' {
+            line += 1;
+            line_start = idx + 1;
+        }
+    }
+    (line, offset - line_start + 1)
+}
+
+fn has_line_opt_out(lines: &[&str], line_idx: usize, marker: &Regex, reason: &Regex) -> bool {
+    let cur = lines.get(line_idx).copied().unwrap_or("");
+    if marker.is_match(cur) {
+        return reason.is_match(cur);
+    }
+    if line_idx > 0 {
+        let prev = lines.get(line_idx - 1).copied().unwrap_or("");
+        if prev.trim_start().starts_with("//") && marker.is_match(prev) {
+            return reason.is_match(prev);
+        }
+    }
+    false
+}
+
+fn is_env_mut_allowed_path(rel: &str) -> bool {
+    rel.starts_with("scripts/")
+        || SPEC_OR_TEST_RE.is_match(rel)
+        || TEMPLATES_TEST_DIR_RE.is_match(rel)
+        || rel.starts_with("packages/core/src/dev")
+        || rel.contains("/cli/")
+        || rel.contains("/scaffold/")
+        || rel.starts_with("packages/cli/")
+        || rel.starts_with("packages/create-agent-native/")
+}
+
+fn is_env_mut_skipped_dir(name: &str) -> bool {
+    matches!(
+        name,
+        "node_modules"
+            | ".git"
+            | ".tmp"
+            | "dist"
+            | "build"
+            | ".next"
+            | ".nuxt"
+            | ".output"
+            | ".cache"
+            | ".turbo"
+            | ".netlify"
+            | ".vercel"
+            | ".wrangler"
+            | ".react-router"
+            | ".generated"
+            | ".claude"
+            | "out"
+            | "coverage"
+    )
+}
+
+fn check_env_mutation_file(rel: &str, text: &str) -> Vec<String> {
+    if !JS_TS_EXT_RE.is_match(rel) || rel.ends_with(".d.ts") || is_env_mut_allowed_path(rel) {
+        return Vec::new();
+    }
+    if rel.split('/').any(is_env_mut_skipped_dir) || !text.contains("process.env") {
+        return Vec::new();
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    for (re, check_not_eq) in [
+        (&*ENV_MUT_MEMBER_RE, true),
+        (&*ENV_MUT_BRACKET_RE, true),
+        (&*ENV_MUT_DELETE_MEMBER_RE, false),
+        (&*ENV_MUT_DELETE_BRACKET_RE, false),
+    ] {
+        for m in re.find_iter(text) {
+            if check_not_eq
+                && m.as_str().ends_with('=')
+                && !m.as_str().ends_with("+=")
+                && !m.as_str().ends_with("-=")
+                && !m.as_str().ends_with("*=")
+                && !m.as_str().ends_with("/=")
+                && !m.as_str().ends_with("??=")
+                && !m.as_str().ends_with("||=")
+                && !m.as_str().ends_with("&&=")
+                && bytes.get(m.end()) == Some(&b'=')
+            {
+                continue;
+            }
+            let (line, col) = line_col_for_offset(text, m.start());
+            let line_text = lines.get(line - 1).copied().unwrap_or("");
+            if is_comment_line(line_text)
+                || has_line_opt_out(&lines, line - 1, &ENV_MUT_OPT_OUT_RE, &ENV_MUT_OPT_OUT_REASON_RE)
+            {
+                continue;
+            }
+            out.push(format!("{}:{}:{}  {}", rel, line, col, line_text.trim()));
+        }
+    }
+    out
+}
+
+// ---------- 5. guard:extension-no-public ----------
+static EXT_TYPE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"type\s*:\s*["']extension["']"#).unwrap());
+static EXT_ALLOW_PUBLIC_FALSE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"allowPublic\s*:\s*false").unwrap());
+static EXT_REQUIRE_ORG_TRUE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"requireOrgMemberForUserShares\s*:\s*true").unwrap());
+static EXT_VIS_JSON_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"visibility\s*:\s*["']public["']"#).unwrap());
+static EXT_VIS_SQL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"visibility\s*=\s*'public'").unwrap());
+static EXT_FILE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.(?:ts|tsx|mjs|js|cjs)$").unwrap());
+
+fn strip_js_comments_keep_strings(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let n = bytes.len();
+    let mut out = String::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let ch = bytes[i];
+        let next = bytes.get(i + 1).copied();
+        if ch == b'/' && next == Some(b'/') {
+            while i < n && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if ch == b'/' && next == Some(b'*') {
+            i += 2;
+            while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(n);
+            continue;
+        }
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            let start = i;
+            let end = skip_string_literal(bytes, i);
+            out.push_str(&input[start..end]);
+            i = end;
+            continue;
+        }
+        let ch_char = input[i..].chars().next().unwrap();
+        out.push(ch_char);
+        i += ch_char.len_utf8();
+    }
+    out
+}
+
+fn check_extension_no_public_file(rel: &str, text: &str) -> Vec<String> {
+    if !EXT_FILE_RE.is_match(rel) || rel == "scripts/guard-extension-no-public.mjs" {
+        return Vec::new();
+    }
+    for seg in rel.split('/') {
+        if (seg.starts_with('.') && seg != ".agents")
+            || matches!(
+                seg,
+                "node_modules" | "dist" | "build" | "coverage"
+            )
+        {
+            return Vec::new();
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(first_idx) = text.find("registerShareableResource(") {
+        let mut cursor = first_idx;
+        let bytes = text.as_bytes();
+        loop {
+            let Some(open_paren_rel) = text[cursor..].find('(') else { break };
+            let open_paren = cursor + open_paren_rel;
+            let Some(open_brace_rel) = text[open_paren..].find('{') else { break };
+            let open_brace = open_paren + open_brace_rel;
+            let mut depth = 1usize;
+            let mut end = open_brace + 1;
+            while end < bytes.len() && depth > 0 {
+                if bytes[end] == b'{' {
+                    depth += 1;
+                } else if bytes[end] == b'}' {
+                    depth -= 1;
+                }
+                end += 1;
+            }
+            if depth != 0 {
+                break;
+            }
+            let literal = strip_js_comments_keep_strings(&text[open_brace..end]);
+            if EXT_TYPE_RE.is_match(&literal) {
+                let allows_public = EXT_ALLOW_PUBLIC_FALSE_RE.is_match(&literal);
+                let requires_org = EXT_REQUIRE_ORG_TRUE_RE.is_match(&literal);
+                if !allows_public || !requires_org {
+                    out.push(format!(
+                        "{}: registerShareableResource({{ type: \"extension\" }}) must include allowPublic: false AND requireOrgMemberForUserShares: true (allowPublic={}, requireOrgMemberForUserShares={})",
+                        rel, allows_public, requires_org
+                    ));
+                }
+            }
+            match text[end..].find("registerShareableResource(") {
+                Some(next_rel) => cursor = end + next_rel,
+                None => break,
+            }
+        }
+    }
+    if rel.starts_with("packages/core/src/extensions/")
+        && rel != "packages/core/src/extensions/store.ts"
+        && rel != "packages/core/src/extensions/store.spec.ts"
+        && text.contains("public")
+    {
+        let lines: Vec<&str> = text.split('\n').collect();
+        for (i, line) in lines.iter().enumerate() {
+            let lo = i.saturating_sub(5);
+            let hi = (i + 5).min(lines.len().saturating_sub(1));
+            let has_allow = lines[lo..=hi].iter().any(|l| l.contains("guard:allow-extension-public"));
+            if has_allow {
+                continue;
+            }
+            if EXT_VIS_JSON_RE.is_match(line) {
+                out.push(format!(
+                    "{}:{}: extension code must not set visibility: \"public\"",
+                    rel,
+                    i + 1
+                ));
+            }
+            if EXT_VIS_SQL_RE.is_match(line) {
+                out.push(format!(
+                    "{}:{}: extension SQL must not write visibility = 'public'",
+                    rel,
+                    i + 1
+                ));
+            }
+        }
+    }
+    out
+}
+
+// ---------- 6. guard:help-icon-scale ----------
+static HELP_ICON_EXT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.(?:tsx|ts|jsx|js)$").unwrap());
+static HELP_ELEMENT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<Icon(?:HelpCircle|CircleHelp|Help)\b.*?/>").unwrap());
+static LOCAL_HELP_GLYPH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)\.local-dev-help-glyph\s*\{.*?\}").unwrap());
+static LARGE_GLYPH_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:\b(?:size|h|w)-(?:3\.5|4|5|6|7|8)\b|\bsize\s*=\s*\{?\s*(?:13|14|16|18|20|24|28|32)\s*\}?)").unwrap()
+});
+static LARGE_CSS_GLYPH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:width|height):\s*(?:0\.75rem|1rem|1\.25rem|1\.5rem|2rem)").unwrap());
+static HELP_ALLOW_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"guard:allow-large-help-icon\b").unwrap());
+
+fn check_help_icon_scale_file(rel: &str, text: &str) -> Vec<String> {
+    if !(rel.starts_with("packages/") || rel.starts_with("templates/"))
+        || !HELP_ICON_EXT_RE.is_match(rel)
+    {
+        return Vec::new();
+    }
+    for seg in rel.split('/') {
+        if matches!(
+            seg,
+            "node_modules"
+                | "dist"
+                | "build"
+                | ".next"
+                | ".nuxt"
+                | ".output"
+                | ".cache"
+                | ".turbo"
+                | ".netlify"
+                | ".vercel"
+                | ".wrangler"
+                | ".react-router"
+                | ".generated"
+                | "coverage"
+                | "corpus"
+        ) || seg.starts_with(".tmp")
+        {
+            return Vec::new();
+        }
+    }
+    let has_icon = text.contains("<IconHelp") || text.contains("<IconCircleHelp");
+    let has_css = text.contains(".local-dev-help-glyph");
+    if !has_icon && !has_css {
+        return Vec::new();
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut out = Vec::new();
+    if has_icon {
+        for m in HELP_ELEMENT_RE.find_iter(text) {
+            let element = m.as_str();
+            if !LARGE_GLYPH_RE.is_match(element) {
+                continue;
+            }
+            let line_num = line_index_for_offset(text, m.start()) + 1;
+            let prev_line = if line_num >= 2 { lines.get(line_num - 2).copied().unwrap_or("") } else { "" };
+            if HELP_ALLOW_RE.is_match(prev_line) {
+                continue;
+            }
+            let compact = element.split_whitespace().collect::<Vec<_>>().join(" ");
+            out.push(format!("{}:{}  {}", rel, line_num, compact));
+        }
+    }
+    if has_css {
+        for m in LOCAL_HELP_GLYPH_RE.find_iter(text) {
+            let block = m.as_str();
+            if !LARGE_CSS_GLYPH_RE.is_match(block) {
+                continue;
+            }
+            let line_num = line_index_for_offset(text, m.start()) + 1;
+            let compact = block.split_whitespace().collect::<Vec<_>>().join(" ");
+            out.push(format!("{}:{}  {}", rel, line_num, compact));
+        }
+    }
+    out
+}
+
+// ---------- 7. guard:no-localhost-fallback ----------
+static LOCALHOST_OPT_OUT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"//\s*guard:allow-localhost-fallback\b").unwrap());
+static LOCALHOST_OPT_OUT_REASON_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"//\s*guard:allow-localhost-fallback\s*(?:—|-)\s*\S").unwrap());
+static LOCALHOST_LITERAL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?:"local@localhost"|'local@localhost'|`local@localhost`)"#).unwrap());
+static LOCALHOST_SYMBOLIC_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:\?\?|\|\|)\s*DEV_MODE_USER_EMAIL\b").unwrap());
+static LOCALHOST_AMBIENT_ENV_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:\?\?|\|\|)\s*process\.env\.(?:AGENT_USER_EMAIL|AGENT_ORG_ID|AGENT_USER_NAME|WORKSPACE_OWNER_EMAIL)\b").unwrap()
+});
+static LOCALHOST_AMBIENT_HELPER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:\?\?|\|\|)\s*getAmbient(?:UserEmail|OrgId)\s*\(\s*\)").unwrap());
+static LOCALHOST_SQL_DEFAULT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)\bDEFAULT\s+['"`]local@localhost['"`]"#).unwrap());
+static LOCALHOST_DRIZZLE_DEFAULT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\.default\s*\(\s*['"`]local@localhost['"`]\s*\)"#).unwrap());
+static SCRIPT_HELPERS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|/)script-(?:helpers|entries)\.ts$").unwrap());
+
+fn is_localhost_skipped_dir(name: &str) -> bool {
+    is_env_mut_skipped_dir(name)
+        || matches!(
+            name,
+            "corpus" | ".video-bakeoff" | ".video-bakeoff-recording" | ".vscode-test"
+        )
+}
+
+fn is_localhost_literal_allowed(rel: &str) -> bool {
+    matches!(
+        rel,
+        "packages/core/src/server/auth.ts"
+            | "packages/core/src/guards/no-localhost-fallback.ts"
+            | "packages/core/src/org/context.ts"
+            | "packages/core/src/server/local-migration.ts"
+            | "packages/core/src/server/google-oauth.ts"
+            | "packages/core/src/oauth-tokens/store.ts"
+    ) || rel.starts_with("packages/core/src/dev")
+        || rel.starts_with("packages/core/corpus/")
+        || SPEC_OR_TEST_RE.is_match(rel)
+        || rel.starts_with("scripts/")
+        || rel.contains("/seed/")
+        || rel.contains("/seeds/")
+}
+
+fn is_localhost_ambient_allowed(rel: &str) -> bool {
+    rel.starts_with("scripts/")
+        || rel.contains("/scripts/")
+        || rel.starts_with("src/cli/")
+        || rel.contains("/src/cli/")
+        || rel.starts_with("src/scripts/")
+        || rel.contains("/src/scripts/")
+        || SCRIPT_HELPERS_RE.is_match(rel)
+        || rel == "packages/core/src/server/request-context.ts"
+        || rel == "packages/core/src/guards/no-localhost-fallback.ts"
+        || rel.starts_with("packages/core/corpus/")
+        || SPEC_OR_TEST_RE.is_match(rel)
+        || rel.contains("/seed/")
+        || rel.contains("/seeds/")
+}
+
+fn check_localhost_fallback_file(rel: &str, text: &str) -> Vec<String> {
+    if !JS_TS_EXT_RE.is_match(rel) || rel.ends_with(".d.ts") || rel.split('/').any(is_localhost_skipped_dir) {
+        return Vec::new();
+    }
+    let literal_allowed = is_localhost_literal_allowed(rel);
+    let ambient_allowed = is_localhost_ambient_allowed(rel);
+    if literal_allowed && ambient_allowed {
+        return Vec::new();
+    }
+    let need_ambient = !ambient_allowed
+        && (text.contains("AGENT_USER_EMAIL")
+            || text.contains("AGENT_ORG_ID")
+            || text.contains("AGENT_USER_NAME")
+            || text.contains("WORKSPACE_OWNER_EMAIL")
+            || text.contains("getAmbient"));
+    let need_symbolic = !literal_allowed && text.contains("DEV_MODE_USER_EMAIL");
+    let need_literal = !literal_allowed && text.contains("local@localhost");
+    if !need_ambient && !need_symbolic && !need_literal {
+        return Vec::new();
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut out = Vec::new();
+    if need_ambient {
+        for re in [&*LOCALHOST_AMBIENT_ENV_RE, &*LOCALHOST_AMBIENT_HELPER_RE] {
+            for m in re.find_iter(text) {
+                let (line, col) = line_col_for_offset(text, m.start());
+                let line_text = lines.get(line - 1).copied().unwrap_or("");
+                if is_comment_line(line_text)
+                    || has_line_opt_out(&lines, line - 1, &LOCALHOST_OPT_OUT_RE, &LOCALHOST_OPT_OUT_REASON_RE)
+                {
+                    continue;
+                }
+                out.push(format!("{}:{}:{}  [ambient] {}", rel, line, col, line_text.trim()));
+            }
+        }
+    }
+    if need_symbolic {
+        for m in LOCALHOST_SYMBOLIC_RE.find_iter(text) {
+            let (line, col) = line_col_for_offset(text, m.start());
+            let line_text = lines.get(line - 1).copied().unwrap_or("");
+            if is_comment_line(line_text)
+                || has_line_opt_out(&lines, line - 1, &LOCALHOST_OPT_OUT_RE, &LOCALHOST_OPT_OUT_REASON_RE)
+            {
+                continue;
+            }
+            out.push(format!("{}:{}:{}  {}", rel, line, col, line_text.trim()));
+        }
+    }
+    if need_literal {
+        for m in LOCALHOST_LITERAL_RE.find_iter(text) {
+            let (line, col) = line_col_for_offset(text, m.start());
+            let line_text = lines.get(line - 1).copied().unwrap_or("");
+            if is_comment_line(line_text)
+                || LOCALHOST_SQL_DEFAULT_RE.is_match(line_text)
+                || LOCALHOST_DRIZZLE_DEFAULT_RE.is_match(line_text)
+                || has_line_opt_out(&lines, line - 1, &LOCALHOST_OPT_OUT_RE, &LOCALHOST_OPT_OUT_REASON_RE)
+            {
+                continue;
+            }
+            out.push(format!("{}:{}:{}  {}", rel, line, col, line_text.trim()));
+        }
+    }
+    out
+}
+
 fn git_ls_files(root: &Path, args: &[&str]) -> Result<Vec<String>, String> {
     let output = Command::new("git")
         .args(args)
@@ -600,6 +1073,36 @@ fn collect_barrel_disk_files(root: &Path) -> Vec<String> {
     files
 }
 
+fn collect_repo_code_disk_files(root: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    let walker = WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(false)
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let name = e.file_name().to_string_lossy();
+                !is_env_mut_skipped_dir(&name)
+            } else {
+                true
+            }
+        })
+        .build();
+    for entry in walker.flatten() {
+        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            if let Ok(rel) = entry.path().strip_prefix(root) {
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                if JS_TS_EXT_RE.is_match(&rel_str) || rel_str.ends_with(".jsx") {
+                    files.push(rel_str);
+                }
+            }
+        }
+    }
+    files
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut root = std::env::current_dir().unwrap();
@@ -629,20 +1132,33 @@ fn main() {
     }
 
     if requested.is_empty() {
-        requested.insert("guard:agent-native-brand".into());
-        requested.insert("guard:no-secret-literals".into());
-        requested.insert("guard:no-core-client-barrel-imports".into());
+        for g in [
+            "guard:agent-native-brand",
+            "guard:no-secret-literals",
+            "guard:no-core-client-barrel-imports",
+            "guard:no-env-mutation",
+            "guard:extension-no-public",
+            "guard:help-icon-scale",
+            "guard:no-localhost-fallback",
+        ] {
+            requested.insert(g.into());
+        }
     }
 
     let t_total = Instant::now();
     let run_brand = requested.contains("guard:agent-native-brand");
     let run_secrets = requested.contains("guard:no-secret-literals");
     let run_barrel = requested.contains("guard:no-core-client-barrel-imports");
+    let run_env_mut = requested.contains("guard:no-env-mutation");
+    let run_ext_public = requested.contains("guard:extension-no-public");
+    let run_help_icon = requested.contains("guard:help-icon-scale");
+    let run_localhost = requested.contains("guard:no-localhost-fallback");
 
     // Collect union of files once
     let mut brand_set: HashSet<String> = HashSet::new();
     let mut secret_set: HashSet<String> = HashSet::new();
     let mut barrel_set: HashSet<String> = HashSet::new();
+    let mut code_disk_set: HashSet<String> = HashSet::new();
 
     if run_brand {
         match git_ls_files(&root, &["ls-files", "-co", "--exclude-standard", "-z"]) {
@@ -675,67 +1191,116 @@ fn main() {
     if run_barrel {
         barrel_set.extend(collect_barrel_disk_files(&root));
     }
+    if run_env_mut || run_ext_public || run_help_icon || run_localhost {
+        code_disk_set.extend(collect_repo_code_disk_files(&root));
+    }
 
     let mut all_files: HashSet<String> = HashSet::new();
     all_files.extend(brand_set.iter().cloned());
     all_files.extend(secret_set.iter().cloned());
     all_files.extend(barrel_set.iter().cloned());
+    all_files.extend(code_disk_set.iter().cloned());
     let all_vec: Vec<String> = all_files.into_iter().collect();
 
+    struct PerFileHits {
+        brand: Vec<String>,
+        secret: Vec<String>,
+        barrel: Vec<String>,
+        env_mut: Vec<String>,
+        ext_public: Vec<String>,
+        help_icon: Vec<String>,
+        localhost: Vec<String>,
+        brand_counted: usize,
+    }
+
     // Single-pass parallel file read + multi-guard evaluation
-    let results: Vec<(Vec<String>, Vec<String>, Vec<String>, usize)> = all_vec
+    let results: Vec<PerFileHits> = all_vec
         .par_iter()
         .map(|rel| {
             let need_brand = run_brand && brand_set.contains(rel);
             let need_secret = run_secrets && secret_set.contains(rel) && !is_secret_skipped_path(rel);
             let need_barrel = run_barrel && barrel_set.contains(rel);
-            if !need_brand && !need_secret && !need_barrel {
-                return (Vec::new(), Vec::new(), Vec::new(), 0);
+            let in_code_disk = code_disk_set.contains(rel);
+            let need_env_mut = run_env_mut && in_code_disk;
+            let need_ext_public = run_ext_public && in_code_disk;
+            let need_help_icon = run_help_icon && in_code_disk;
+            let need_localhost = run_localhost && in_code_disk;
+            if !need_brand
+                && !need_secret
+                && !need_barrel
+                && !need_env_mut
+                && !need_ext_public
+                && !need_help_icon
+                && !need_localhost
+            {
+                return PerFileHits {
+                    brand: Vec::new(),
+                    secret: Vec::new(),
+                    barrel: Vec::new(),
+                    env_mut: Vec::new(),
+                    ext_public: Vec::new(),
+                    help_icon: Vec::new(),
+                    localhost: Vec::new(),
+                    brand_counted: 0,
+                };
             }
             let abs = root.join(rel);
             let bytes = match fs::read(&abs) {
                 Ok(b) => b,
-                Err(_) => return (Vec::new(), Vec::new(), Vec::new(), 0),
+                Err(_) => {
+                    return PerFileHits {
+                        brand: Vec::new(),
+                        secret: Vec::new(),
+                        barrel: Vec::new(),
+                        env_mut: Vec::new(),
+                        ext_public: Vec::new(),
+                        help_icon: Vec::new(),
+                        localhost: Vec::new(),
+                        brand_counted: 0,
+                    };
+                }
             };
             let is_binary = bytes.contains(&0);
-            let brand_hits = if need_brand && !is_binary {
-                check_brand_file(rel, &String::from_utf8_lossy(&bytes))
-            } else {
-                Vec::new()
-            };
-            let brand_counted = usize::from(need_brand && !is_binary);
-            let text_cow = if need_secret || need_barrel {
-                Some(String::from_utf8_lossy(&bytes))
-            } else {
-                None
-            };
-            let secret_hits = if need_secret {
-                check_secret_file(rel, text_cow.as_deref().unwrap())
-            } else {
-                Vec::new()
-            };
-            let barrel_hits = if need_barrel {
-                check_barrel_file(rel, text_cow.as_deref().unwrap())
-            } else {
-                Vec::new()
-            };
-            (brand_hits, secret_hits, barrel_hits, brand_counted)
+            let text_cow = String::from_utf8_lossy(&bytes);
+            let text = text_cow.as_ref();
+            PerFileHits {
+                brand: if need_brand && !is_binary { check_brand_file(rel, text) } else { Vec::new() },
+                secret: if need_secret { check_secret_file(rel, text) } else { Vec::new() },
+                barrel: if need_barrel { check_barrel_file(rel, text) } else { Vec::new() },
+                env_mut: if need_env_mut { check_env_mutation_file(rel, text) } else { Vec::new() },
+                ext_public: if need_ext_public { check_extension_no_public_file(rel, text) } else { Vec::new() },
+                help_icon: if need_help_icon { check_help_icon_scale_file(rel, text) } else { Vec::new() },
+                localhost: if need_localhost { check_localhost_fallback_file(rel, text) } else { Vec::new() },
+                brand_counted: usize::from(need_brand && !is_binary),
+            }
         })
         .collect();
 
     let mut brand_v = Vec::new();
     let mut secret_v = Vec::new();
     let mut barrel_v = Vec::new();
+    let mut env_mut_v = Vec::new();
+    let mut ext_public_v = Vec::new();
+    let mut help_icon_v = Vec::new();
+    let mut localhost_v = Vec::new();
     let mut brand_files_checked = 0usize;
-    for (b, s, br, bc) in results {
-        brand_v.extend(b);
-        secret_v.extend(s);
-        barrel_v.extend(br);
-        brand_files_checked += bc;
+    for r in results {
+        brand_v.extend(r.brand);
+        secret_v.extend(r.secret);
+        barrel_v.extend(r.barrel);
+        env_mut_v.extend(r.env_mut);
+        ext_public_v.extend(r.ext_public);
+        help_icon_v.extend(r.help_icon);
+        localhost_v.extend(r.localhost);
+        brand_files_checked += r.brand_counted;
     }
     brand_v.sort();
     secret_v.sort();
     barrel_v.sort();
+    env_mut_v.sort();
+    ext_public_v.sort();
+    help_icon_v.sort();
+    localhost_v.sort();
 
     let elapsed_ms = t_total.elapsed().as_millis();
     let mut reports: Vec<GuardReport> = Vec::new();
@@ -784,6 +1349,66 @@ fn main() {
                 format!("[guard:no-core-client-barrel-imports] {} violation(s)", barrel_v.len())
             },
             violations: barrel_v,
+        });
+    }
+    if run_env_mut {
+        let passed = env_mut_v.is_empty();
+        any_failed |= !passed;
+        reports.push(GuardReport {
+            name: "guard:no-env-mutation".into(),
+            passed,
+            elapsed_ms,
+            summary: if passed {
+                "guard-no-env-mutation: OK".into()
+            } else {
+                format!("guard-no-env-mutation: {} forbidden process.env mutation(s) found.", env_mut_v.len())
+            },
+            violations: env_mut_v,
+        });
+    }
+    if run_ext_public {
+        let passed = ext_public_v.is_empty();
+        any_failed |= !passed;
+        reports.push(GuardReport {
+            name: "guard:extension-no-public".into(),
+            passed,
+            elapsed_ms,
+            summary: if passed {
+                "[guard-extension-no-public] OK".into()
+            } else {
+                format!("[guard-extension-no-public] {} violation(s)", ext_public_v.len())
+            },
+            violations: ext_public_v,
+        });
+    }
+    if run_help_icon {
+        let passed = help_icon_v.is_empty();
+        any_failed |= !passed;
+        reports.push(GuardReport {
+            name: "guard:help-icon-scale".into(),
+            passed,
+            elapsed_ms,
+            summary: if passed {
+                "guard-help-icon-scale: OK".into()
+            } else {
+                format!("guard-help-icon-scale: {} oversized inline help glyph(s).", help_icon_v.len())
+            },
+            violations: help_icon_v,
+        });
+    }
+    if run_localhost {
+        let passed = localhost_v.is_empty();
+        any_failed |= !passed;
+        reports.push(GuardReport {
+            name: "guard:no-localhost-fallback".into(),
+            passed,
+            elapsed_ms,
+            summary: if passed {
+                "guard-no-localhost-fallback: OK".into()
+            } else {
+                format!("guard-no-localhost-fallback: {} violation(s) found.", localhost_v.len())
+            },
+            violations: localhost_v,
         });
     }
 

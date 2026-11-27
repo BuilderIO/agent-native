@@ -87,6 +87,7 @@ import {
 import { ProviderDialog } from "./ProviderDialog.js";
 import { RemoveProviderDialog } from "./RemoveProviderDialog.js";
 import { RestrictKeysDialog } from "./RestrictKeysDialog.js";
+import { T3_CODE_LAB, T3CodeRow } from "./T3CodeRow.js";
 
 const K = "agentChat.settingsModel.";
 // The row labels settings search already uses for these rows.
@@ -560,6 +561,7 @@ function PersonalProvidersGroup({
   onRemove: (row: ProviderKeyRow) => void;
 }) {
   const t = useT();
+  const t3CodeLab = useLabState(T3_CODE_LAB);
   const restricted = listing.personalKeysRestricted;
   const personalGrant = builder.grants?.personal;
   // Owners and admins connect Builder.io for the organization (open question
@@ -601,6 +603,23 @@ function PersonalProvidersGroup({
       ),
     },
   };
+  const t3Code: ModelFragment = {
+    rows: [
+      {
+        id: "settings.model.t3-code",
+        part: "settings.content",
+        label: t(`${K}t3CodeTitle`),
+        slot: "t3-code",
+      },
+    ],
+    slots: {
+      "t3-code": (row: ModelRow) => (
+        <div {...rowAttributes(row)}>
+          <T3CodeRow />
+        </div>
+      ),
+    },
+  };
   const group = combineFragments([
     ...(showBuilder ? [builderRow] : []),
     ...rows.map((row) =>
@@ -614,6 +633,7 @@ function PersonalProvidersGroup({
       }),
     ),
     chatgpt,
+    ...(t3CodeLab.enabled ? [t3Code] : []),
     ...(!hasProviderRows && restricted ? [restrictedEmpty] : []),
   ]);
   return (

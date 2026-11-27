@@ -51,6 +51,7 @@ import { flushSync } from "react-dom";
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import {
   TREE_GRID_ICON_SLOT_CLASS,
+  TREE_GRID_OFFSCREEN_SKIP_CLASS,
   TREE_GRID_ROW_CLASS,
   TreeGridChevron,
   TreeGridLead,
@@ -1504,6 +1505,7 @@ function LayersPanelImpl(
                       }}
                       className={cn(
                         TREE_GRID_ROW_CLASS,
+                        TREE_GRID_OFFSCREEN_SKIP_CLASS,
                         "w-full cursor-default text-start outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--design-focus-ring-color)]",
                         isActive
                           ? "bg-[var(--design-editor-active-row-color)] text-foreground"
@@ -2157,7 +2159,7 @@ const LayerRow = memo(function LayerRow({
       aria-expanded={hasChildren ? isExpanded : undefined}
       aria-level={depth + 1}
       aria-selected={selectable ? isSelected : undefined}
-      className="relative w-full min-w-0"
+      className={cn("relative w-full min-w-0", TREE_GRID_OFFSCREEN_SKIP_CLASS)}
       onClick={(event) => {
         if ((event.target as Element).closest("button, input")) return;
         handlePointerSelect(event);

@@ -20,6 +20,7 @@ import {
   RUN_STREAM_ENDED_ERROR_CODE,
   RUN_STREAM_ENDED_MESSAGE,
   RUN_TIMEOUT_MESSAGE,
+  stoppedRunSummary,
   TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
   TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
   WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
@@ -186,5 +187,54 @@ describe("resolvePrivateSafeError", () => {
     expect(resolvePrivateSafeError(42)).toBeNull();
     expect(resolvePrivateSafeError("")).toBeNull();
     expect(resolvePrivateSafeError("internal_secret_error")).toBeNull();
+  });
+});
+
+describe("stoppedRunSummary", () => {
+  const notDone =
+    'Not done: every step of your request after these, including any remaining actions and the final summary. Reply "continue" and I will pick up from the completed steps.';
+
+  it("names completed and failed tools once each, then what was not done", () => {
+    expect(
+      stoppedRunSummary({
+        completedTools: ["list-sent", "read-thread", "list-sent"],
+        failedTools: ["save-draft", "save-draft"],
+        reason: "The connection dropped.",
+      }),
+    ).toBe(
+      [
+        "I stopped before finishing. The connection dropped.",
+        "Completed: list-sent, read-thread.",
+        "Failed: save-draft.",
+        notDone,
+      ].join("\n\n"),
+    );
+  });
+
+  it("omits the completed and failed lines when there are none", () => {
+    expect(
+      stoppedRunSummary({
+        completedTools: [],
+        failedTools: [],
+        reason: "Why.",
+      }),
+    ).toBe(["I stopped before finishing. Why.", notDone].join("\n\n"));
+  });
+
+  it("omits only the empty list", () => {
+    expect(
+      stoppedRunSummary({
+        completedTools: ["a"],
+        failedTools: [],
+        reason: "Why.",
+      }),
+    ).not.toContain("Failed:");
+    expect(
+      stoppedRunSummary({
+        completedTools: [],
+        failedTools: ["b"],
+        reason: "Why.",
+      }),
+    ).not.toContain("Completed:");
   });
 });

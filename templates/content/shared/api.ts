@@ -1514,6 +1514,7 @@ export interface SubmitContentDatabaseFormRequest {
   content?: string;
   propertyEntries?: Array<{ property: string; value: unknown }>;
   propertyValues?: Record<string, unknown>;
+  idempotencyKey?: string;
 }
 
 export interface SubmitContentDatabaseFormResponse {

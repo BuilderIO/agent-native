@@ -141,6 +141,34 @@ describe("localization server helpers", () => {
     ]);
   });
 
+  it("lets a stored explicit preference beat the guessed request locale", () => {
+    window.localStorage.setItem("agent-native:locale-preference", "pt-BR");
+
+    new Function(getLocaleInitScript({ locale: "en-US" }))();
+
+    expect(document.documentElement.getAttribute("lang")).toBe("pt-BR");
+    expect(readHydrationPayload()).toMatchObject({
+      locale: "pt-BR",
+      preference: { locale: "pt-BR" },
+    });
+  });
+
+  it("keeps a server-known preference over a stale stored one", () => {
+    window.localStorage.setItem("agent-native:locale-preference", "pt-BR");
+
+    new Function(
+      getLocaleInitScript({
+        locale: "de-DE",
+        preference: { locale: "de-DE" },
+      }),
+    )();
+
+    expect(readHydrationPayload()).toMatchObject({
+      locale: "de-DE",
+      preference: { locale: "de-DE" },
+    });
+  });
+
   it("does not overwrite stored preference unless a preference is provided", () => {
     window.localStorage.setItem("agent-native:locale-preference", "zh-CN");
 

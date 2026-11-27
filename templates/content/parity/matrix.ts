@@ -1031,20 +1031,70 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.form-submissions",
     surface: "database",
-    label: "Submit public database forms as new rows",
+    label:
+      "Submit a collection's form as a new row, from its Form view or a form link",
     uiEntrypoints: ["app/components/editor/database/FormView.tsx"],
     durableEffect:
-      "A validated form submission atomically creates a database row document and its editable property values.",
+      "One submission engine checks every answer against the collection's rules, then creates the row page, its property values and a receipt together; resending the same key returns the first receipt instead of a second row.",
     uiImplementation:
-      "The public form view calls the same submission action exposed to agents and rolls back the row if a property write fails.",
+      "The Form view calls the same submission action exposed to agents. An agent reads a form link's questions with get-content-form and sends its person's answers with submit-content-form, which go through the same engine.",
     status: "action-backed",
-    actions: ["submit-content-database-form"],
+    actions: [
+      "submit-content-database-form",
+      "get-content-form",
+      "submit-content-form",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/submit-content-database-form.db.test.ts"],
+    coverageRefs: [
+      "actions/submit-content-database-form.db.test.ts",
+      "actions/content-forms.db.test.ts",
+    ],
+  },
+  {
+    id: "database.form-settings",
+    surface: "database",
+    label:
+      "Set who may answer a collection's form through its link, and its thank-you message",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_forms stores one Form view's link token, who may answer (anonymous, signed in, or the collection's organization), whether it accepts answers, one answer per person, the thank-you message and the form's page.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients set up a form's link through the actions; the form's sharing panel will call the same actions.",
+    status: "action-backed",
+    actions: ["configure-content-form", "get-content-form-settings"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/content-forms.db.test.ts"],
+  },
+  {
+    id: "database.form-drafts",
+    surface: "database",
+    label: "Keep a signed-in sender's unsent answers to a form",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_form_drafts holds one signed-in sender's unsent answers per form until they submit, clear them, or the draft expires.",
+    uiImplementation:
+      "No UI yet: the form's answering page will save, read and clear a draft through these actions.",
+    status: "action-backed",
+    actions: [
+      "save-content-form-draft",
+      "get-content-form-draft",
+      "clear-content-form-draft",
+    ],
+    exception:
+      "Hidden with agentTool: false: a draft keeps a person's answers between visits to the answering page, while an agent answering a form sends every answer at once with submit-content-form and has nothing to keep.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/content-forms.db.test.ts"],
   },
   {
     id: "database.rows",
@@ -1611,6 +1661,33 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/comment-ai.test.tsx",
       "server/lib/comment-ai-progress.test.ts",
     ],
+  },
+  {
+    id: "comments.t3-code-agents",
+    surface: "comments",
+    label:
+      "Tag one of your own T3 Code agents in a comment, pick the thread it answers in, see it working, and get its answer as a reply",
+    uiEntrypoints: [
+      "app/components/editor/CommentComposer.tsx",
+      "app/components/editor/T3ThreadPicker.tsx",
+      "app/components/editor/T3AgentRequestLine.tsx",
+    ],
+    durableEffect:
+      "add-comment stores the tag as a mention and, in the same transaction, a t3_agent_requests row owned by the comment's author; an agent's comment never makes one. sync-t3-agent-requests starts a thread on the author's T3 Code or messages the picked one with the comment as the request, the discussion as background and the page, follows that turn, and posts the thread's final message once as a reply attributed to the agent, for the author.",
+    uiImplementation:
+      "With the T3 Code agents Lab on and T3 Code connected, the @ menu lists the author's own agents under Your agents and a pill under the comment box picks the thread. While a request is unfinished, the author's open page calls the sync action every few seconds and shows a line under the comment; everyone sees the reply.",
+    status: "action-backed",
+    actions: [
+      "add-comment",
+      "list-t3-agent-requests",
+      "sync-t3-agent-requests",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/t3-agent-requests.db.test.ts"],
   },
   {
     id: "comments.email-preferences",

@@ -33,6 +33,25 @@
 - An invalid Clips library response shows an error instead of an empty
   library.
 
+## 0.1.215
+
+### Patch Changes
+
+- Updated dependencies [ccbd078]
+- Updated dependencies [b0dbd8b]
+- Updated dependencies [67fbc39]
+- Updated dependencies [6c648b3]
+- Updated dependencies
+- Updated dependencies [c1b7403]
+- Updated dependencies [d70dc40]
+- Updated dependencies [b29387a]
+- Updated dependencies [c34a832]
+- Updated dependencies [d74c9e8]
+- Updated dependencies [c5ea04e]
+- Updated dependencies [52757ad]
+  - @agent-native/core@0.235.1
+  - @agent-native/agentkit@0.235.1
+
 ## 0.1.214
 
 ### Patch Changes
@@ -3159,15 +3178,5 @@
 - Updated dependencies [cf473dc]
 - Updated dependencies [6c71a21]
   - @agent-native/core@0.175.0
-
-## 0.1.116
-
-### Patch Changes
-
-- Updated dependencies [bb282b1]
-- Updated dependencies [a9aa623]
-- Updated dependencies
-- Updated dependencies [615c5d5]
-  - @agent-native/core@0.174.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

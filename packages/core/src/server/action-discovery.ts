@@ -445,6 +445,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../org/actions/invite-organization-member.js"),
     ],
     [
+      "change-organization-member-role",
+      () => import("../org/actions/change-organization-member-role.js"),
+    ],
+    [
+      "cancel-organization-invitation",
+      () => import("../org/actions/cancel-organization-invitation.js"),
+    ],
+    [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
     ],
@@ -579,6 +587,22 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
     [
       "select-chatgpt-subscription-account",
       () => import("../agent/actions/select-chatgpt-subscription-account.js"),
+    ],
+    [
+      "get-t3-code-status",
+      () => import("../agent/actions/get-t3-code-status.js"),
+    ],
+    [
+      "disconnect-t3-code",
+      () => import("../agent/actions/disconnect-t3-code.js"),
+    ],
+    [
+      "check-t3-code-address",
+      () => import("../agent/actions/check-t3-code-address.js"),
+    ],
+    [
+      "search-t3-code-threads",
+      () => import("../agent/actions/search-t3-code-threads.js"),
     ],
     [
       "preview-secret-removal",
