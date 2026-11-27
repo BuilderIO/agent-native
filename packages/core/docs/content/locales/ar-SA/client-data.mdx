@@ -125,12 +125,21 @@ description: "خطافات actions التي يستخدمها app/ للقراءة
       optional: true,
       description:
         "كل شيء من [خيارات useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) باستثناء `queryKey` و`queryFn`، التي يضبطها الخطاف نفسه.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "الموارد التي يقرأها الاستعلام، بعلامات type أو type:id.",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'مخزّن مؤقتًا تحت `["action", name, params]`. يُعاد جلبه تلقائيًا كل مرة تكتمل فيها action تُغيّر البيانات، دون الحاجة إلى إبطال يدوي.',
+      'يُخزّن مؤقتًا تحت `["action", name, params]`. تُبطل التغييرات المطابقة الاستعلام تلقائيًا.',
   }}
 />
 
@@ -175,6 +184,13 @@ const { data, isLoading } = useActionQuery(
         "كل شيء من [خيارات useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) باستثناء `mutationFn`، التي يضبطها الخطاف نفسه.",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "الموارد التي تعدلها عملية التغيير، بعلامات type أو type:id للإبطال المحلي.",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -195,7 +211,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'عند النجاح، يُصدر حدث تغيير بـ `source: "action"`، لذا تتم إعادة جلب كل `useActionQuery()` التي تقرأ البيانات المتأثرة تلقائيًا. لا حاجة إلى إبطال يدوي.',
+      "عند النجاح، يُبطل استعلامات action المطابقة تلقائيًا ما لم يتم تخطي الإبطال.",
   }}
 />
 
@@ -224,6 +240,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### الإبطال حسب نطاق المورد {#resource-scoped-invalidation}
+
+يقبل كلا الخطافين مصفوفة `resources` اختيارية. يحدد الاستعلام الموارد التي يقرأها وتحدد عملية التغيير الموارد التي تعدلها. استخدم `type` لنوع مورد كامل أو `type:id` لمعرّف محدد. عند مطابقة عمليات التغيير المحلية، تفصل النقطتان الرأسيتان الأوليان في علامة `type:id` بين النوع والمعرّف. يجب ألا يحتوي النوع على نقطتين رأسيتين، لكن يمكن أن يحتوي المعرّف عليهما. تحمل أحداث المزامنة النوع والمعرّف كلًا على حدة.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+بالنسبة إلى الأنواع التي لا تحتوي على نقطتين رأسيتين والعلامات ذات معرّفات السجلات غير الفارغة، تكون المطابقة متناظرة بين عمليات التغيير المحلية وأحداث المزامنة. للتغيير المحلي الذي يشمل النوع كله، استخدم `type` وليس `type:`. في مطابقة عمليات التغيير المحلية، تعني `design:layer` النوع `design` والمعرّف `layer`. يحمل حدث مزامنة بقيمة `resourceType` هي `design:layer` نوعًا مختلفًا عن `design`، ولا يطابق علامة الاستعلام `design`. تطابق علامة `ticket` كلًا من `ticket` وأي علامة `ticket:id`. وتطابق علامة `ticket:123` كلًا من `ticket` و`ticket:123`، لكنها لا تطابق `ticket:456`. تُبطل الاستعلامات بلا علامات احتياطيًا. وتُبطل عملية التغيير بلا علامات جميع استعلامات action.
+
+في حدث مزامنة action، يحدد `resourceType` و`resourceId` المورد المعدّل كلٌّ على حدة. إذا كان `resourceId` مفقودًا أو فارغًا، تُبطل جميع الاستعلامات المطابقة لذلك النوع. إذا افتقد أي حدث action غير مكبوت إلى `resourceType`، يُعطّل تضييق نطاق الموارد للدفعة وتصبح جميع استعلامات action مؤهلة للإبطال. لا يزال بإمكان الشرط الاختياري تصفية الإبطال.
+
+في دفعة تتضمن أحداث action ولا تحتوي إلا على أحداث action أو app-state، يطابق مرشح الموارد أي مورد تغيّر في أحداث action غير المكبوتة. عند توفير `actionInvalidatePredicate`، يجب أن يجتاز الاستعلام المرشح والشرط معًا. يتلقى الشرط الدفعة الكاملة ذات الصلة باستثناء أحداث awareness، بما فيها أحداث action المكبوتة. إذا احتوت الدفعة أيضًا على مصدر آخر يغيّر البيانات، يُعطّل تضييق نطاق الموارد مع استمرار تطبيق الشرط. وفي دفعة تحتوي على حدث آخر يغيّر البيانات ولا تحتوي على حدث action غير مكبوت، يصفّي الشرط أيضًا الإبطال العام لاستعلامات action.
+
+يحدد `changeResource` في action موردًا واحدًا لتسليم الحدث والتحقق من الوصول، وليس بالضرورة قائمة شاملة بما تكتبه action. لا تكون علامات السجلات المحددة في الاستعلام آمنة إلا إذا مثّل المؤشر المُسلَّم لكل action ذات صلة جميع السجلات التي يعتمد عليها الاستعلام. للكتابات الجماعية أو الاعتماد بين السجلات ضمن نوع المؤشر، يمكن لعلامة استعلام على مستوى النوع مطابقة الحدث المُسلَّم. للاعتماد بين أنواع مختلفة، أدرج نوع كل حدث مُسلَّم في علامات الاستعلام أو استخدم استعلامًا بلا علامات. يمكن لأحداث متعددة مستقلة التسليم تغطية السجلات المتأثرة، بشرط أن يتلقى كل مشاهد معني حدثًا مصرحًا له بالوصول إليه. توسعة علامات العميل تؤثر في المطابقة بعد تسليم الحدث فقط، ولا تجعل الحدث مرئيًا لمن لا يملك الوصول إلى مورد تسليمه. تأكد من أن المشاهدين المعنيين يتلقون حدثًا يمكنهم الوصول إليه.
 
 ### callAction {#call-action}
 
@@ -436,10 +481,10 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "يُصفّي الإبطال الواسع الذي يُحرّكه حدث action. نادرًا ما يُحتاج إليه. استخدمه للحفاظ على استعلام نشط مكلف على قواعد التحديث اليدوي الصريح بينما لا تزال الاستعلامات ذات المصدر المُرقّم العادية تتفاعل من خلال `useChangeVersion`.",
+            "يصفّي إبطال المزامنة باستخدام الاستعلام والأحداث المجمّعة. راجع الإبطال حسب نطاق المورد لمعرفة سلوك الدفعات.",
         },
         {
           name: "suppressActionInvalidationFor",

@@ -125,12 +125,20 @@ description: "app/ 用来读取、写入数据，并与代理调用的同一批 
       optional: true,
       description:
         "[useQuery 选项](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 中除 `queryKey` 和 `queryFn`（由该钩子自行设置）之外的所有内容。",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description: "查询读取的资源，使用 type 或 type:id 标签。",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      '缓存于 `["action", name, params]` 下。每当有变更类 action 完成时会自动重新获取，无需手动失效。',
+      '缓存在 `["action", name, params]` 下。匹配的变更会自动使查询失效。',
   }}
 />
 
@@ -175,6 +183,13 @@ const { data, isLoading } = useActionQuery(
         "[useMutation 选项](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 中除 `mutationFn`（由该钩子自行设置）之外的所有内容。",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "变更修改的资源，使用 type 或 type:id 标签进行本地失效处理。",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -193,8 +208,7 @@ const { data, isLoading } = useActionQuery(
   ]}
   returns={{
     type: "UseMutationResult",
-    description:
-      '成功后会发出一个 `source: "action"` 的变更事件，因此每个读取了受影响数据的 `useActionQuery()` 都会自动重新获取，无需手动失效。',
+    description: "成功时自动使匹配的 action 查询失效，除非跳过失效操作。",
   }}
 />
 
@@ -223,6 +237,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### 按资源限定失效范围 {#resource-scoped-invalidation}
+
+两个钩子都接受可选的 `resources` 数组。查询指定它读取的资源，变更指定它修改的资源。使用 `type` 表示整个资源类型，使用 `type:id` 表示特定 ID。匹配本地变更时，`type:id` 标签中的第一个冒号用于分隔类型和 ID。类型不能包含冒号，但 ID 可以包含冒号。同步事件分别携带类型和 ID。
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+对于不含冒号的类型和记录 ID 非空的标签，本地变更和同步事件使用对称匹配。对于整个类型的本地变更，使用 `type`，而不是 `type:`。匹配本地变更时，`design:layer` 表示类型 `design` 和 ID `layer`。`resourceType` 为 `design:layer` 的同步事件使用的类型不同于 `design`，不会匹配查询标签 `design`。`ticket` 标签匹配 `ticket` 和任意 `ticket:id` 标签。`ticket:123` 标签匹配 `ticket` 和 `ticket:123`，但不匹配 `ticket:456`。没有标签的查询会保守地失效。没有标签的变更会使所有 action 查询失效。
+
+对于 action 同步事件，`resourceType` 和 `resourceId` 分别标识已更改的资源。如果 `resourceId` 缺失或为空，则所有匹配该类型的查询都会失效。如果任何未被抑制的 action 事件缺少 `resourceType`，该批次将禁用资源范围过滤，所有 action 查询都有可能失效。可选的谓词仍可过滤失效操作。
+
+对于包含 action 事件且仅包含 action 或 app-state 事件的批次，资源过滤器匹配未被抑制的 action 事件中任一已更改资源。提供 `actionInvalidatePredicate` 时，查询必须同时通过资源过滤器和谓词。谓词接收完整的相关非 awareness 事件批次，包括被抑制的 action 事件。如果批次还包含其他会更改数据的来源，则禁用资源范围过滤，但仍应用谓词。对于包含其他数据变更事件但没有未被抑制的 action 事件的批次，谓词也会过滤广泛的 action 失效操作。
+
+action 的 `changeResource` 指定一个用于事件投递和访问检查的资源。它不一定是 action 写入内容的完整列表。只有当每个相关 action 投递的标记能够代表查询依赖的所有记录时，使用特定记录的查询标签才是安全的。对于标记类型内的批量写入或跨记录依赖，可以使用整个类型的查询标签匹配已投递的事件。对于跨类型依赖，请在查询标签中包含每个已投递事件的类型，或使用不带标签的查询。多个独立投递的事件可以覆盖受影响的记录，但每位相关查看者都必须收到自己有权访问的事件。扩大客户端标签只会改变事件投递后的匹配，不能让无权访问投递资源的查看者看到该事件。必须确保相关查看者能收到自己有权访问的事件。
 
 ### callAction {#call-action}
 
@@ -432,10 +475,10 @@ toast 的文本取决于失败类型。被取消的请求不会显示任何内�
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "过滤 action 事件触发的大范围失效。很少需要用到。用它可以让某个开销较大的活动查询保持显式刷新语义，同时让普通的按来源版本化的查询依然通过 `useChangeVersion` 响应。",
+            "使用查询和合并的事件过滤同步失效操作。批次行为请参阅“按资源限定失效范围”。",
         },
         {
           name: "suppressActionInvalidationFor",

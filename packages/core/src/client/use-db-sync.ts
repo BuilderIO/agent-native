@@ -17,7 +17,11 @@ import {
   isHostSurfaceHidden,
   isSurfaceHidden,
 } from "../shared/surface-visibility.js";
-import { actionQueryAffectedByResources } from "./action-query-scope.js";
+import {
+  actionQueryAffectedByChanges,
+  actionQueryAffectedByResources,
+  type ActionResourceChange,
+} from "./action-query-scope.js";
 import { agentNativePath, apiBaseUrl, isApiBaseUrl } from "./api-path.js";
 import { getBrowserTabId, resolveBrowserTabIdAlias } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
@@ -577,22 +581,22 @@ function hasTerminalAuthFailure(query: Query): boolean {
   return isTerminalAuthFailure(query.state?.error);
 }
 
-/**
- * The resource types the batch's action events changed. `undefined` when one
- * event names none: its affected queries are unknown, so the batch refreshes
- * every action query, as an event without a resource always has.
- */
-function changedActionResourceTypes(
+function changedActionResources(
   actionEvents: readonly SyncEvent[],
-): ReadonlySet<string> | undefined {
-  const types = new Set<string>();
+): ActionResourceChange[] | undefined {
+  const resources: ActionResourceChange[] = [];
   for (const evt of actionEvents) {
     if (typeof evt.resourceType !== "string" || !evt.resourceType) {
       return undefined;
     }
-    types.add(evt.resourceType);
+    resources.push({
+      type: evt.resourceType,
+      ...(typeof evt.resourceId === "string" && evt.resourceId
+        ? { id: evt.resourceId }
+        : {}),
+    });
   }
-  return types;
+  return resources;
 }
 
 const INTERACTION_CRITICAL_APP_STATE_KEYS = [
@@ -1899,14 +1903,14 @@ export function useDbSync(
           const changedResources = invalidating.every(
             (evt) => evt.source === "action" || evt.source === "app-state",
           )
-            ? changedActionResourceTypes(actionEvents)
+            ? changedActionResources(actionEvents)
             : undefined;
           const predicate =
             appPredicate || changedResources
               ? (query: Query) =>
                   (!appPredicate || appPredicate(query, invalidating)) &&
                   (changedResources === undefined ||
-                    actionQueryAffectedByResources(query, changedResources))
+                    actionQueryAffectedByChanges(query, changedResources))
               : undefined;
           invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },

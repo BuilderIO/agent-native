@@ -1,9 +1,8 @@
 /**
- * Which action queries a change can reach. A query names the resource types it
- * reads (`useActionQuery(..., { resources })`), a write names the types it
- * changes (`useActionMutation(..., { resources })`), and a server sync event
- * carries the type its action's `changeResource` declared. A query that names
- * no resources has no known affected set, so every scoped change still reaches it.
+ * Which action queries a change can reach. Queries and writes can name a whole
+ * resource type or a single record as `type:id`; sync events carry those parts
+ * separately. A query that names no resources has no known affected set, so
+ * every scoped change still reaches it.
  */
 
 export const ACTION_RESOURCES_META_KEY = "actionResources";
@@ -22,13 +21,49 @@ export interface ActionScopedQuery {
   meta?: Record<string, unknown> | undefined;
 }
 
-export function actionQueryAffectedByResources(
+function actionQueryMatches(
   query: ActionScopedQuery,
-  resourceTypes: ReadonlySet<string>,
+  matches: (tag: string) => boolean,
 ): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (query.meta?.[ACTION_SELF_REFRESHING_META_KEY] === true) return false;
   const tags = query.meta?.[ACTION_RESOURCES_META_KEY];
   if (!Array.isArray(tags) || tags.length === 0) return true;
-  return tags.some((tag) => resourceTypes.has(tag));
+  return tags.some((tag) => typeof tag === "string" && matches(tag));
+}
+
+export function actionQueryAffectedByResources(
+  query: ActionScopedQuery,
+  resourceTypes: ReadonlySet<string>,
+): boolean {
+  return actionQueryMatches(query, (tag) => {
+    const separator = tag.indexOf(":");
+    if (separator !== -1) {
+      return (
+        resourceTypes.has(tag) || resourceTypes.has(tag.slice(0, separator))
+      );
+    }
+    for (const changed of resourceTypes) {
+      if (changed === tag || changed.startsWith(`${tag}:`)) return true;
+    }
+    return false;
+  });
+}
+
+export interface ActionResourceChange {
+  type: string;
+  id?: string;
+}
+
+export function actionQueryAffectedByChanges(
+  query: ActionScopedQuery,
+  changes: readonly ActionResourceChange[],
+): boolean {
+  return actionQueryMatches(query, (tag) =>
+    changes.some(({ type, id }) =>
+      id
+        ? tag === type || tag === `${type}:${id}`
+        : tag === type || tag.startsWith(`${type}:`),
+    ),
+  );
 }

@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   MutateOptions,
+  MutationFunctionContext,
   Query,
   QueryClient,
   QueryKey,
@@ -2739,10 +2740,51 @@ function useNormalActionMutation<
 
   type D = TData extends undefined ? ActionResult<TName> : TData;
   type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
+  const invocationResources = useRef(
+    new WeakMap<object, readonly string[] | undefined>(),
+  ).current;
+  const pendingResources = useRef(
+    new Map<V, Set<{ resources: readonly string[] | undefined }>>(),
+  ).current;
+  const currentResources = useRef(resources);
+  currentResources.current = resources;
+  const callerOnMutate =
+    queryClient.defaultMutationOptions<UseMutationOptions<D, Error, V>>(
+      restOptions,
+    ).onMutate;
+  const resourcesForPending = (params: V) => {
+    const pending = pendingResources.get(params);
+    if (!pending?.size) return resources;
+    const snapshots = Array.from(pending, (entry) => entry.resources);
+    return snapshots.some((snapshot) => !snapshot?.length)
+      ? undefined
+      : [...new Set(snapshots.flatMap((snapshot) => snapshot ?? []))];
+  };
 
   const mutation = useMutation<D, Error, V>({
     ...restOptions,
-    mutationFn: async (params) => {
+    onMutate: (params, context?: MutationFunctionContext) => {
+      if (context) {
+        const changedResources = resourcesForPending(params);
+        if (pendingResources.get(params)?.size === 1)
+          pendingResources.delete(params);
+        invocationResources.set(
+          context,
+          changedResources ? [...changedResources] : undefined,
+        );
+      }
+      return callerOnMutate?.(params, context as MutationFunctionContext);
+    },
+    mutationFn: async (params, context?: MutationFunctionContext) => {
+      if (context && !invocationResources.has(context)) {
+        invocationResources.set(
+          context,
+          resources ? [...resources] : undefined,
+        );
+      }
+      const changedResources = context
+        ? invocationResources.get(context)
+        : resourcesForPending(params);
       const invocationScope = currentSessionScope();
       let markerFailed = false;
       const initialData = await actionFetch<D>(
@@ -2783,11 +2825,11 @@ function useNormalActionMutation<
               error.progress.id,
             );
             const combinedResources = previous
-              ? previous.resources && resources?.length
-                ? [...new Set([...previous.resources, ...resources])]
+              ? previous.resources && changedResources?.length
+                ? [...new Set([...previous.resources, ...changedResources])]
                 : undefined
-              : resources?.length
-                ? [...resources]
+              : changedResources?.length
+                ? [...changedResources]
                 : undefined;
             pendingProviderWrites.writes.set(error.progress.id, {
               scope: invocationScope,
@@ -2800,7 +2842,7 @@ function useNormalActionMutation<
               revokeActionQueryCacheForClient(queryClient);
             await invalidateForegroundActionQueries(
               queryClient,
-              actionQueryInvalidation(resources),
+              actionQueryInvalidation(changedResources),
               interactive,
             );
           }
@@ -2815,20 +2857,25 @@ function useNormalActionMutation<
           revokeActionQueryCacheForClient(queryClient);
         void invalidateForegroundActionQueries(
           queryClient,
-          actionQueryInvalidation(resources),
+          actionQueryInvalidation(changedResources),
           interactive,
         );
       }
       return data;
     },
-    onSuccess: (...args: [any, any, any]) => {
+    onSuccess: (
+      data,
+      variables,
+      onMutateResult,
+      mutationContext?: MutationFunctionContext,
+    ) => {
       // A write that succeeded may have fixed whatever was failing reads.
       resetActionFailureCircuits();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }
       try {
-        beforeInvalidate?.(...args);
+        beforeInvalidate?.(data, variables, onMutateResult);
       } catch {
         console.warn("Action mutation projection observer failed");
       }
@@ -2839,11 +2886,20 @@ function useNormalActionMutation<
         else revokeActionQueryCacheForClient(queryClient);
         refetched = invalidateForegroundActionQueries(
           queryClient,
-          actionQueryInvalidation(resources),
+          actionQueryInvalidation(
+            mutationContext
+              ? invocationResources.get(mutationContext)
+              : resourcesForPending(variables),
+          ),
           interactive,
         );
       }
-      const result = (onSuccess as Function | undefined)?.(...args);
+      const result = onSuccess?.(
+        data,
+        variables,
+        onMutateResult,
+        mutationContext as MutationFunctionContext,
+      );
       void Promise.allSettled([result, refetched]).then(() =>
         requestActionCacheFlush(ownEpoch),
       );
@@ -2865,11 +2921,36 @@ function useNormalActionMutation<
     hookHandled: typeof restOptions.onError === "function",
   };
   const attemptAsync = mutation.mutateAsync;
+  const startMutation = useCallback<UseMutateAsyncFunction<D, Error, V>>(
+    (variables, mutateOptions) => {
+      const entry = {
+        resources: currentResources.current
+          ? [...currentResources.current]
+          : undefined,
+      };
+      const pending = pendingResources.get(variables) ?? new Set();
+      pendingResources.set(variables, pending);
+      pending.add(entry);
+      const release = () => {
+        pending.delete(entry);
+        if (!pending.size && pendingResources.get(variables) === pending) {
+          pendingResources.delete(variables);
+        }
+      };
+      try {
+        return attemptAsync(variables, mutateOptions).finally(release);
+      } catch (error) {
+        release();
+        throw error;
+      }
+    },
+    [attemptAsync, pendingResources],
+  );
 
   const mutate = useCallback<UseMutateFunction<D, Error, V>>(
     (variables, mutateOptions) => {
       const call = trackCallOnError(mutateOptions);
-      attemptAsync(variables, call.options).catch((error: unknown) => {
+      startMutation(variables, call.options).catch((error: unknown) => {
         const { errorNotification, errorLabel, hookHandled } =
           reporting.current;
         const handled = hookHandled || call.ranCallOnError();
@@ -2878,13 +2959,13 @@ function useNormalActionMutation<
         }
       });
     },
-    [attemptAsync],
+    [startMutation],
   );
 
   const mutateAsync = useCallback<UseMutateAsyncFunction<D, Error, V>>(
     (variables, mutateOptions) => {
       const call = trackCallOnError(mutateOptions);
-      const attempt = attemptAsync(variables, call.options);
+      const attempt = startMutation(variables, call.options);
       const { errorNotification, errorLabel, hookHandled } = reporting.current;
       // Only reports; the caller still receives the rejection.
       if (errorNotification === "shared") {
@@ -2907,7 +2988,7 @@ function useNormalActionMutation<
       }
       return attempt;
     },
-    [attemptAsync],
+    [startMutation],
   );
 
   return { ...mutation, mutate, mutateAsync };

@@ -126,12 +126,21 @@ Es gibt zwei Action-Hooks, die Sie am wahrscheinlichsten verwenden werden: `useA
       optional: true,
       description:
         "Alles aus den [useQuery-Optionen](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) außer `queryKey` und `queryFn`, die der Hook selbst setzt.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Von der Abfrage gelesene Ressourcen als Tags type oder type:id.",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'Zwischengespeichert unter `["action", name, params]`. Ruft automatisch erneut ab, sobald eine mutierende Action abschließt, ohne manuelle Invalidierung.',
+      'Unter `["action", name, params]` zwischengespeichert. Passende Änderungen invalidieren die Abfrage automatisch.',
   }}
 />
 
@@ -176,6 +185,13 @@ const { data, isLoading } = useActionQuery(
         "Alles aus den [useMutation-Optionen](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) außer `mutationFn`, die der Hook selbst setzt.",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Von der Mutation geänderte Ressourcen als Tags type oder type:id für die lokale Invalidierung.",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -196,7 +212,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'Bei Erfolg wird ein Änderungsereignis mit `source: "action"` ausgegeben, sodass jede `useActionQuery()`, die betroffene Daten liest, automatisch erneut abruft. Keine manuelle Invalidierung nötig.',
+      "Invalidiert bei Erfolg passende Action-Abfragen automatisch, sofern die Invalidierung nicht übersprungen wird.",
   }}
 />
 
@@ -225,6 +241,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### Ressourcenbezogene Invalidierung {#resource-scoped-invalidation}
+
+Beide Hooks akzeptieren ein optionales `resources`-Array. Eine Abfrage nennt die gelesenen Ressourcen, eine Mutation die geänderten Ressourcen. Verwenden Sie `type` für einen ganzen Ressourcentyp oder `type:id` für eine bestimmte ID. Beim Abgleich lokaler Mutationen trennt der erste Doppelpunkt in einem `type:id`-Tag den Typ von der ID. Der Typ darf keinen Doppelpunkt enthalten, die ID darf Doppelpunkte enthalten. Sync-Ereignisse übertragen Typ und ID getrennt.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+Für Typen ohne Doppelpunkt und Tags mit nicht leeren Datensatz-IDs ist der Abgleich zwischen lokalen Mutationen und Sync-Ereignissen symmetrisch. Verwenden Sie für eine typweite lokale Änderung `type`, nicht `type:`. Beim Abgleich lokaler Mutationen steht `design:layer` für den Typ `design` und die ID `layer`. Ein Sync-Ereignis mit `resourceType` `design:layer` hat einen von `design` verschiedenen Typ und passt nicht zum Abfrage-Tag `design`. Ein Tag `ticket` passt zu `ticket` und jedem Tag `ticket:id`. Ein Tag `ticket:123` passt zu `ticket` und `ticket:123`, aber nicht zu `ticket:456`. Abfragen ohne Tags werden vorsorglich invalidiert. Eine Mutation ohne Tags invalidiert alle Action-Abfragen.
+
+Bei einem Action-Sync-Ereignis identifizieren `resourceType` und `resourceId` die geänderte Ressource getrennt. Fehlt `resourceId` oder ist es leer, werden alle Abfragen für diesen Typ invalidiert. Fehlt bei einem nicht unterdrückten Action-Ereignis `resourceType`, entfällt die Ressourceneingrenzung für den Stapel und alle Action-Abfragen kommen infrage. Das optionale Prädikat kann die Invalidierung weiterhin filtern.
+
+Enthält ein Stapel Action-Ereignisse und ausschließlich Action- oder App-State-Ereignisse, passt der Ressourcenfilter auf jede geänderte Ressource der nicht unterdrückten Action-Ereignisse. Mit `actionInvalidatePredicate` muss eine Abfrage sowohl den Filter als auch das Prädikat erfüllen. Das Prädikat erhält den gesamten relevanten Stapel ohne Awareness-Ereignisse, einschließlich unterdrückter Action-Ereignisse. Enthält der Stapel auch eine andere datenändernde Quelle, entfällt die Ressourceneingrenzung, das Prädikat gilt aber weiterhin. Bei einem Stapel mit einem anderen datenändernden Ereignis, aber ohne nicht unterdrücktes Action-Ereignis filtert das Prädikat auch die breite Action-Invalidierung.
+
+`changeResource` einer Action bezeichnet eine Ressource für die Ereigniszustellung und Zugriffsprüfung. Sie ist nicht unbedingt eine vollständige Liste der Schreibzugriffe der Action. Datensatzspezifische Abfrage-Tags sind nur sicher, wenn der zugestellte Marker jeder relevanten Action alle Datensätze repräsentiert, von denen die Abfrage abhängt. Bei Sammelschreibvorgängen oder datensatzübergreifenden Abhängigkeiten innerhalb des Markertyps kann ein typweites Abfrage-Tag zum zugestellten Ereignis passen. Nehmen Sie bei Abhängigkeiten über Typgrenzen hinweg den Typ jedes zugestellten Ereignisses in die Abfrage-Tags auf oder verwenden Sie eine Abfrage ohne Tags. Mehrere unabhängig zugestellte Ereignisse können betroffene Datensätze abdecken, sofern jede betroffene Person ein für sie autorisiertes Ereignis erhält. Breitere Client-Tags beeinflussen den Abgleich erst nach der Zustellung. Sie machen ein Ereignis nicht für Personen sichtbar, die keinen Zugriff auf seine Zustellressource haben. Stellen Sie sicher, dass die betroffenen Personen ein für sie zugängliches Ereignis erhalten.
 
 ### callAction {#call-action}
 
@@ -438,10 +483,10 @@ Der Text des Toasts hängt vom Fehler ab. Eine abgebrochene Anfrage zeigt nichts
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "Filtert die breite Invalidierung, die ein Action-Ereignis auslöst. Selten benötigt. Verwenden Sie es, um eine teure aktive Abfrage bei expliziter Aktualisierungssemantik zu halten, während normale quellversionierte Abfragen weiterhin über `useChangeVersion` reagieren.",
+            "Filtert die Sync-Invalidierung anhand der Abfrage und der zusammengefassten Ereignisse. Das Stapelverhalten steht unter Ressourcenbezogene Invalidierung.",
         },
         {
           name: "suppressActionInvalidationFor",

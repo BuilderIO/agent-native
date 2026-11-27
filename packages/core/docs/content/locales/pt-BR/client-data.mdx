@@ -126,12 +126,21 @@ Existem dois ganchos de action que você provavelmente vai usar: `useActionQuery
       optional: true,
       description:
         "Tudo das [opções de useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery), exceto `queryKey` e `queryFn`, que o gancho define por conta própria.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Recursos lidos pela consulta, como tags type ou type:id.",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'Armazenado em cache sob `["action", name, params]`. Busca novamente de forma automática sempre que uma action de mutação é concluída, sem necessidade de invalidação manual.',
+      'Armazenado em cache em `["action", name, params]`. Alterações correspondentes invalidam a consulta automaticamente.',
   }}
 />
 
@@ -176,6 +185,13 @@ const { data, isLoading } = useActionQuery(
         "Tudo das [opções de useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation), exceto `mutationFn`, que o gancho define por conta própria.",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Recursos alterados pela mutação, como tags type ou type:id para invalidação local.",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -196,7 +212,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'Em caso de sucesso, emite um evento de mudança com `source: "action"`, para que toda `useActionQuery()` que lê dados afetados busque novamente de forma automática. Nenhuma invalidação manual é necessária.',
+      "Em caso de sucesso, invalida automaticamente as consultas de action correspondentes, a menos que a invalidação seja ignorada.",
   }}
 />
 
@@ -225,6 +241,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### Invalidação por recurso {#resource-scoped-invalidation}
+
+Ambos os hooks aceitam um array opcional `resources`. Uma consulta informa os recursos que lê e uma mutação informa os recursos que altera. Use `type` para um tipo de recurso inteiro ou `type:id` para um ID específico. Na correspondência de mutações locais, os primeiros dois-pontos em uma tag `type:id` separam o tipo do ID. O tipo não deve conter dois-pontos, mas o ID pode contê-los. Eventos de sincronização transportam o tipo e o ID separadamente.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+Para tipos sem dois-pontos e tags com IDs de registro não vazios, a correspondência é simétrica entre mutações locais e eventos de sincronização. Para uma alteração local de todo um tipo, use `type`, não `type:`. Na correspondência de mutações locais, `design:layer` significa o tipo `design` e o ID `layer`. Um evento de sincronização com `resourceType` `design:layer` tem um tipo distinto de `design` e não corresponde à tag de consulta `design`. Uma tag `ticket` corresponde a `ticket` e a qualquer tag `ticket:id`. Uma tag `ticket:123` corresponde a `ticket` e `ticket:123`, mas não a `ticket:456`. Consultas sem tags são invalidadas por precaução. Uma mutação sem tags invalida todas as consultas de action.
+
+Para um evento de sincronização de action, `resourceType` e `resourceId` identificam o recurso alterado separadamente. Se `resourceId` estiver ausente ou vazio, todas as consultas correspondentes a esse tipo são invalidadas. Se algum evento de action não suprimido não tiver `resourceType`, o filtro por recurso é desativado para o lote e todas as consultas de action são elegíveis. O predicado opcional ainda pode filtrar a invalidação.
+
+Em um lote que contém eventos de action e apenas eventos de action ou app-state, o filtro de recursos corresponde a qualquer recurso alterado dos eventos de action não suprimidos. Com `actionInvalidatePredicate`, uma consulta deve atender ao filtro e ao predicado. O predicado recebe todo o lote relevante sem eventos awareness, incluindo eventos de action suprimidos. Se o lote também contiver outra fonte que altera dados, o filtro por recurso é desativado, mas o predicado continua sendo aplicado. Em um lote com outro evento que altera dados, mas sem eventos de action não suprimidos, o predicado também filtra a invalidação geral de actions.
+
+`changeResource` de uma action identifica um recurso para a entrega do evento e a verificação de acesso. Ele não é necessariamente uma lista completa do que a action escreve. Tags de consulta específicas de registro só são seguras quando o marcador entregue de cada action relevante representa todos os registros dos quais a consulta depende. Para escritas em lote ou dependências entre registros dentro do tipo do marcador, uma tag de consulta para o tipo inteiro pode corresponder ao evento entregue. Para dependências entre tipos, inclua o tipo de cada evento entregue nas tags da consulta ou use uma consulta sem tags. Vários eventos entregues independentemente podem cobrir os registros afetados, desde que cada pessoa afetada receba um evento para o qual tenha autorização. Ampliar as tags do cliente só altera a correspondência depois da entrega. Isso não torna um evento visível para quem não tem acesso ao recurso de entrega. Garanta que as pessoas afetadas recebam um evento ao qual tenham acesso.
 
 ### callAction {#call-action}
 
@@ -438,10 +483,10 @@ O texto do toast depende da falha. Uma requisição cancelada não mostra nada. 
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "Filtra a invalidação ampla que um evento de action dispara. Raramente necessário. Use para manter uma consulta ativa cara em semântica de atualização explícita enquanto consultas normais versionadas por origem continuam reagindo através de `useChangeVersion`.",
+            "Filtra a invalidação de sincronização usando a consulta e os eventos agrupados. Veja Invalidação por recurso para o comportamento dos lotes.",
         },
         {
           name: "suppressActionInvalidationFor",
