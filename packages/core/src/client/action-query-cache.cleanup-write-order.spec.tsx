@@ -120,6 +120,7 @@ it("waits for an old-scope write before enumerating cache keys for a new scope",
     .toEqual({ owner: "scope-a" });
   expect(keySnapshots).toHaveLength(1);
   await writeStarted.promise;
+  expect(heldScopeAWrite).toBe(true);
 
   const clientB = new QueryClient({
     defaultOptions: { queries: { retry: false } },
