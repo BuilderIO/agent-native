@@ -8,6 +8,7 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - "packages/actions/**"
       - "packages/agentkit/**"
       - "packages/core/**"
       - "packages/core-corpus/**"
@@ -162,6 +163,7 @@ jobs:
               "package.json",
               "pnpm-lock.yaml",
               "pnpm-workspace.yaml",
+              "packages/actions/**",
               "packages/agentkit/**",
               "packages/core/**",
               "packages/core-corpus/**",
