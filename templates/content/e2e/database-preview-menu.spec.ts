@@ -705,7 +705,7 @@ async function startPreviewFrameLog(page: Page) {
       const dialog = [...document.querySelectorAll('[role="dialog"]')].find(
         (candidate) =>
           [...candidate.querySelectorAll("button")].some((button) =>
-            (button.getAttribute("aria-label") ?? button.textContent)?.includes(
+            (button.getAttribute("aria-label") ?? button.textContent).includes(
               "Open page",
             ),
           ),
