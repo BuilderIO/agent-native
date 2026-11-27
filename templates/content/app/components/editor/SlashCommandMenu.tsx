@@ -95,25 +95,37 @@ interface EditorMenuPosition {
   top?: number;
   bottom?: number;
   left: number;
+  maxHeight?: number;
 }
 
 const SLASH_MENU_PREFERRED_HEIGHT = 360;
 const SLASH_MENU_GAP = 4;
+const SLASH_MENU_VIEWPORT_MARGIN = 16;
 
 export function getSlashMenuVerticalPosition(
   anchor: { top: number; bottom: number },
   container: { top: number; bottom: number },
   viewportHeight: number,
-): Pick<EditorMenuPosition, "top" | "bottom"> {
+): Pick<EditorMenuPosition, "top" | "bottom" | "maxHeight"> {
   const spaceBelow = viewportHeight - anchor.bottom;
   const spaceAbove = anchor.top;
-  if (spaceBelow < SLASH_MENU_PREFERRED_HEIGHT && spaceAbove > spaceBelow) {
+  const opensAbove =
+    spaceBelow < SLASH_MENU_PREFERRED_HEIGHT && spaceAbove > spaceBelow;
+  const maxHeight = Math.min(
+    SLASH_MENU_PREFERRED_HEIGHT,
+    (opensAbove ? spaceAbove : spaceBelow) -
+      SLASH_MENU_GAP -
+      SLASH_MENU_VIEWPORT_MARGIN,
+  );
+  if (opensAbove) {
     return {
       bottom: container.bottom - anchor.top + SLASH_MENU_GAP,
+      maxHeight,
     };
   }
   return {
     top: anchor.bottom - container.top + SLASH_MENU_GAP,
+    maxHeight,
   };
 }
 
@@ -1826,7 +1838,7 @@ export function SlashCommandMenu({
             top: position.top,
             bottom: position.bottom,
             left: 0,
-            maxHeight: "min(360px, calc(100vh - 2rem))",
+            maxHeight: position.maxHeight ?? "min(360px, calc(100vh - 2rem))",
             maxWidth: "calc(100vw - 2rem)",
             marginLeft: Math.min(position.left, 16),
             zIndex: 50,
