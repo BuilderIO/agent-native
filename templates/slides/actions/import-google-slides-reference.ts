@@ -353,6 +353,7 @@ export default defineAction({
         message: "Provide either fileId or presentationUrl.",
       },
     ),
+  mcpTool: "search",
   run: async ({ fileId, presentationUrl, title, purpose }, ctx) => {
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");

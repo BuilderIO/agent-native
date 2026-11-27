@@ -22,6 +22,7 @@ export default defineAction({
       .nullish()
       .describe("Design system to apply by default, or null to clear"),
   }),
+  mcpTool: false,
   run: async (args) => {
     const patch: Partial<WorkspaceDefaults> = {};
 

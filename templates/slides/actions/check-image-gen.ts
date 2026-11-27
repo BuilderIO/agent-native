@@ -7,6 +7,7 @@ export default defineAction({
     "Check which local image providers are configured (Gemini/OpenAI). Slides uses local generation by default; Assets is reserved for a requested brand library or an Assets-exclusive capability.",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async () => {
     return {
       gemini: !!(await resolveGeminiApiKey()),

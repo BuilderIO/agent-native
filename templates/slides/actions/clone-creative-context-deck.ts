@@ -30,6 +30,7 @@ export default defineAction({
     title: z.string().optional(),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const reference = await resolveNativeContextCloneReference({
       appId: "slides",

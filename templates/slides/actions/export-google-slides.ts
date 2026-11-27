@@ -15,6 +15,7 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
+  mcpTool: "search",
   run: async ({ deckId, includeNotes }, ctx) => {
     const result = ctx
       ? await exportPptxAction.run({ deckId, includeNotes }, ctx)

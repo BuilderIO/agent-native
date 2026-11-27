@@ -30,6 +30,7 @@ export default defineAction({
   audit: {
     target: (args) => ({ type: "slide-comment", id: args.commentId }),
   },
+  mcpTool: "search",
   run: async ({ commentId, deckId, emoji }, ctx) => {
     const reviewCtx = slideReviewContext(ctx);
     if (!reviewCtx.userEmail?.trim()) {

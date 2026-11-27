@@ -369,6 +369,7 @@ export default defineAction({
       .optional()
       .describe("Why the deck is being imported; used only for analytics"),
   }),
+  mcpTool: "search",
   run: async (
     { filePath, deckId, replaceExisting, title, designSystemId, purpose },
     ctx,

@@ -20,6 +20,7 @@ export default defineAction({
       .describe("Array of code files to analyze"),
   }),
   readOnly: true,
+  mcpTool: "search",
   run: async ({ files }) => {
     return analyzeCodeFiles(files);
   },

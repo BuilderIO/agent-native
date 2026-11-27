@@ -28,6 +28,7 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const hasContent = args.content !== undefined;
     if (!hasContent && args.resolved === undefined) {

@@ -48,6 +48,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
+  mcpTool: "search",
   run: async ({ q, limit }) => {
     let catalog;
     try {

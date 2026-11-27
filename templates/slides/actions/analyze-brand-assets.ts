@@ -36,6 +36,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designSystemId, companyName, brandNotes, websiteUrl }) => {
     let existingDesignSystem: unknown;
 

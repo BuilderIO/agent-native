@@ -37,6 +37,7 @@ export default defineAction({
       .describe("Continue after the last comment returned by the prior page"),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const { deckId, slideId } = args;
     const offset = args.offset ?? 0;

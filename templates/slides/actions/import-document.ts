@@ -43,6 +43,7 @@ export default defineAction({
       .describe("Array of uploaded file metadata"),
   }),
   readOnly: true,
+  mcpTool: "search",
   run: async ({ files }) => {
     const processedFiles = files.map((file) => {
       const contentType = classifyFile(file.fileType);

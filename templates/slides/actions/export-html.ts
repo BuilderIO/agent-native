@@ -641,6 +641,7 @@ export default defineAction({
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
   }),
+  mcpTool: "search",
   run: trackHtmlExportFailures(async ({ deckId }, ctx, facts) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail)

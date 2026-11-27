@@ -29,6 +29,7 @@ export default defineAction({
         "Updated free-form guidance the agent should follow when generating slides with this design system. Pass an empty string to clear.",
       ),
   }),
+  mcpTool: "search",
   run: async ({ id, title, description, data, assets, customInstructions }) => {
     if (data !== undefined) {
       let parsedData: unknown;

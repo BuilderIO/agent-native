@@ -139,6 +139,7 @@ export default defineAction({
         "Maximum extracted source characters to return when not importing directly into a deck (default 60000).",
       ),
   }),
+  mcpTool: "search",
   run: async ({ filePath, format, deckId, importIntoDeck, maxChars }, ctx) => {
     const expectedExtensions =
       format === "auto"

@@ -16,6 +16,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().min(1).describe("Local design system id"),
   }),
+  mcpTool: "search",
   run: async ({ id }) => {
     await assertAccess("design-system", id, "editor");
     const access = await resolveAccess("design-system", id);
