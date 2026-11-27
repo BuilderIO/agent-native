@@ -1,5 +1,54 @@
 # @agent-native/toolkit
 
+## 0.235.0
+
+### Minor Changes
+
+- 415f03e: A created file and an upload with the same name no longer become two files. Uploads used to store `/notes.md` while "Create file" stored `notes.md`, so the Resources panel listed two files named notes.md.
+  - Uploads, "Create file", and renames now store the name without a leading "/". An upload whose path is only slashes is refused with a 400.
+  - `notes.md` and `/notes.md` (with any number of leading slashes) count as one name when a name is claimed: creating a file only if the name is free, finding the next free name for an upload or a new skill, renaming or moving a file, and restoring a deleted file. In an organization, a shared file from before organizations that it can see counts too. If any spelling of the name is already stored, the claim is refused, returns the file already there, or moves on to the next free name. An upload resent with the same content returns the file already holding it under either spelling.
+  - `POST /_agent-native/resources` takes `uniquePath: true`. It always creates a new file, at the next free name if the name is taken, even when the file already there is empty. A `uniquePath` create whose path is only slashes is refused with a 400. The Resources panel and the resource settings "Create file" now send it, so creating a file never replaces one. Without `uniquePath`, a create still replaces the file at that exact path. `useCreateResource` throws the server's message, `errorCode` and `details`.
+  - The MCP `resources` read tool accepts a path with a leading "/" and finds the file under either spelling, trying the one asked for first. Skills are the exception: a skill read matches the exact path, so a skill's manifest and its files always come from one stored folder, and a skill path with a leading "/" is refused, as before.
+
+  Known limits. Nothing changes files already stored as `/notes.md`. Ordinary reads, writes and deletes by path still match the stored path exactly, as before: `notes.md` doesn't reach a file stored as `/notes.md`. A name already stored in both spellings stays two files. When a shared file from before organizations is first saved in an organization that already has the other spelling of its name, the save is refused. Automations, default files seeded for a new user, and the compatibility moves of older files still claim a name by its exact path, as before; none of them writes a path with a leading "/". Two claims of different spellings of one name at the same moment can both succeed, because the database's unique key is on the stored path, not the name.
+
+### Patch Changes
+
+- 8959acb: Add the headless model for part sets. `@agent-native/design-system/model` describes a surface as rows with stable dotted ids, validates them against `MODEL_PARTS` (version 1 of the shared part vocabulary), defines the row attributes every part writes (`data-rid`, `data-part`, `data-rid-*`), captures rendered rows (names and state read from ARIA), and compares two renders structurally; it also maps a source rendering without row ids onto the model by selector and compares painted styles row by row. Toolkit's design system takes a `parts` part set, `ModelSurface` draws a model with it (toolkit's parts when the app names no part set; a part set that leaves out a part throws, as do an unhandled effect and an unfilled slot), and `checkPartSetEquivalence` checks one part set against another. A part set can also draw whole surfaces through `whole` (`settings` first), which `SettingsSections` uses when no renderer is provided.
+- 3cf91b8: Let a design system replace Base UI primitives by name. `defineDesignSystem({ primitives })` takes replacements that receive exactly the replaced primitive's props, ref included; the Button family (`Button`, `ButtonLink`, `IconButton`, `IconButtonLink`) is the first set wrapped with `swappable`.
+- 6409765: Focusing a shared editor's root no longer scrolls the page to it. On iOS and Android, TipTap focuses the editor root with no options, so ticking a check mark while the cursor was outside the editor jumped the page to the top.
+- 3b2114d: `DragHandle` takes a `listItems` option that gives each item of a bulleted, numbered or to-do list its own grip, menu and drag, with drops between items and out of a list, and Mod-D and Mod-Shift-arrow keys for the item at the caret. It's off by default. The helpers it uses, such as `moveBlockTransaction` and `insertBlockAt`, are exported from `@agent-native/toolkit/editor`.
+- Release all public npm packages with a patch version bump.
+- a37f935: Add `revealWhileLoading` to `AppProviders` and `RequireSession` so an app can show its already-mounted tree, instead of the skeleton, while the session read is in flight. It is asked once per load, only applies when a session hint is present, keeps the tree mounted when the session resolves, and a signed-out or unreadable session still takes the app down as before.
+- 4827e48: The comment box takes `submitDisabled`, which holds its send button and Enter back while the box stays editable, for a comment that still needs something before it can be sent, such as a mention.
+- 4827e48: A word typed right after a person's mention chip in the comment box is saved with a space before it, as after an agent chip, so the mention isn't lost.
+- 4827e48: Choosing Delete in a comment's menu now runs once the menu has closed, so a confirmation dialog it opens gets keyboard focus instead of losing it to the menu's button.
+- 0a08ec4: `@agent-native/toolkit/app/extensions` exports `useSlotInstalls`, `useSlotExtensions` and `useSlotInstallActions`, so an app can build its own menu for adding and removing widgets in a slot. `ExtensionSlot` uses the same hooks, and a widget added or removed through either updates both right away.
+- 3e81b56: Add a headless app shell. `@agent-native/toolkit/app-shell/sidebar-shell` describes an app's frame and sidebar as a `ShellModel` (regions, navigation entries, effects, bindings, shortcuts and read states), draws it with toolkit's house frames or a part set's `sidebar` and `app-shell` whole parts, shares the collapse, resize, peek, rename, reorder, history and shortcut behaviour across frames, and compares two renderings with `captureShellSnapshot` and `compareShellSnapshots`.
+- Updated dependencies [8959acb]
+- Updated dependencies
+  - @agent-native/design-system@0.235.0
+  - @agent-native/agentkit@0.235.0
+
+## 0.234.0
+
+### Patch Changes
+
+- 0f7bf06: Chat links to another app in the same workspace now open in a new tab, and links that open a new tab show an external-link icon with a screen-reader hint.
+- Release all public npm packages with a patch version bump.
+- 459726e: Opening a saved thread by URL no longer redirects to a blank new chat when the thread has been idle for more than 12 hours.
+- 0315ffa: Show readable chat errors for HTTP-prefixed service failures and announce the failed state to assistive technology.
+- 124141d: Show a localized uncertain-write warning in live chat and saved history while retaining technical details for diagnosis.
+- 4ad86d5: `VisualScrubInput` takes a trailing slot, a key handler that runs before its own keys, a draft listener, combobox ARIA props and an `apiRef` with `focus`, `blur` and `resetDraft`, so an app can build a token combobox on top of it.
+- f037abc: Fix stacked bar series in combo charts while preserving independent target lines.
+- 971ad70: Anthropic turns with adaptive thinking no longer fail with "Invalid signature in thinking block" when the tool list changes mid-turn: requests ask the API to drop a mismatched thinking block. A pending approval in the agent sidebar is no longer replaced by the "no longer running" banner. `createAgentChatPlugin` gains `onAgentRunNotStarted`, and `onAgentRunComplete` now receives the thread projection outcome.
+- 631ee7c: Fix first-run onboarding hydration when Core is externalized during server rendering.
+- Updated dependencies [e466d90]
+- Updated dependencies
+- Updated dependencies [dd1218f]
+  - @agent-native/agentkit@0.234.0
+  - @agent-native/design-system@0.234.0
+
 ## 0.233.0
 
 ### Minor Changes
@@ -1773,18 +1822,6 @@
 - Release all public npm packages with a patch version bump.
 
 ## 0.16.14
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.16.13
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.16.12
 
 ### Patch Changes
 

@@ -12,7 +12,7 @@ const scannedFiles = [
 ];
 
 const documentSyncRoutePattern =
-  /\/api\/notion\/(?:status|disconnect|search)|\/api\/documents\/\$\{documentId\}\/notion\/(?:refresh|link|unlink|pull|push|resolve|create-and-link)/g;
+  /\/api\/notion\/(?:status|disconnect|search)|\/api\/documents\/[^"`']*\/notion/g;
 
 function readContentFile(path: string) {
   return readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
@@ -22,6 +22,7 @@ describe("Content parity matrix Notion route-backed gaps", () => {
   it("keeps Notion document sync UI off direct app routes", () => {
     const detected = new Set<string>();
     for (const file of scannedFiles) {
+      // source-read-ok: a boundary check that the Notion sync UI reaches the server only through actions; a direct route string is the violation.
       const source = readContentFile(file);
       for (const match of source.matchAll(documentSyncRoutePattern)) {
         detected.add(match[0]);
@@ -29,6 +30,23 @@ describe("Content parity matrix Notion route-backed gaps", () => {
     }
 
     expect([...detected].sort()).toEqual([]);
+  });
+
+  it.each([
+    "fetch(`/api/documents/${id}/notion`)",
+    "fetch(`/api/documents/${id}/notion/pull`)",
+    "fetch(`/api/documents/${documentId}/notion/refresh`)",
+    'fetch("/api/notion/status")',
+  ])("flags a direct Notion sync route in %s", (call) => {
+    expect(call.match(documentSyncRoutePattern)).not.toBeNull();
+  });
+
+  it("leaves the Notion OAuth start route to the documented exception", () => {
+    expect(
+      "fetch(`/api/notion/auth-url?redirect=${redirect}`)".match(
+        documentSyncRoutePattern,
+      ),
+    ).toBeNull();
   });
 
   it("keeps Notion OAuth routes as the only documented route-shaped exception", () => {

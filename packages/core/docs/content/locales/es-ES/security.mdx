@@ -352,7 +352,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. La aplicación B lee el reclamo `sub` verificado en el contexto de la solicitud
 4. Se aplica el alcance de los datos: la aplicación B solo muestra los datos de Steve
 
-Sin `A2A_SECRET` en producción, cada punto final A2A y el punto final de activación automática `/_agent-native/integrations/process-task` devuelven **503**. Configúrelo en cada aplicación que llame o reciba tráfico A2A. (Para el desarrollo local, el marco aún permite llamadas no autenticadas).
+Sin `A2A_SECRET` en producción, cada punto final A2A y el punto final de activación automática `/_agent-native/integrations/process-task` devuelven **503**. Configúrelo en cada aplicación que llame o reciba tráfico A2A. (En el desarrollo local, A2A acepta llamadas no autenticadas solo desde la misma máquina; configure `A2A_SECRET` en un servidor de desarrollo al que puedan llegar otros hosts).
 
 ## Entrante Webhooks {#webhooks}
 

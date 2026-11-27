@@ -93,6 +93,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: false,
   },
+  mcpTool: "search",
   run: async (args) => {
     const [
       { guidance },

@@ -354,8 +354,12 @@ pnpm action suggest-document-edit --id abc123 \
 ### delete-document
 
 Move a page and all its sub-pages to Trash. IDs, bodies, hierarchy, and
-collection membership remain intact so the subtree can be restored. Agents pass
-the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
+collection membership remain intact so the subtree can be restored. A Trash
+root becomes eligible for automatic deletion after 30 days in Trash, counted
+from when automatic deletion started for Pages already in Trash then. A daily
+job deletes eligible roots, so deletion can come a little later. A sub-page
+trashed on its own keeps its own 30 days, and restoring a page then trashing it
+again starts its 30 days over. Agents pass the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
 idempotency key. A conflict means the page changed: read it again before
 deciding to trash it. Collection pages use `delete-content-database` instead.
 
@@ -364,8 +368,9 @@ pnpm action delete-document --id abc123 \
   --expectedUpdatedAt '<updatedAt>' --idempotencyKey '<uuid>'
 ```
 
-Restore the receipt's `trashRootId` with its `trashedAt` (also listed by
-`list-content-trash`), or permanently delete it only after it is in Trash:
+Before those 30 days pass, restore the receipt's `trashRootId` with its
+`trashedAt` (also listed by `list-content-trash`), or permanently delete it
+sooner, only after it is in Trash:
 
 ```bash
 pnpm action restore-document --id abc123 \
@@ -377,6 +382,24 @@ pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>
 Permanent deletion requires the exact `planId` and `scopeToken` returned by
 `plan-content-trash-purge`. Inspect the plan's affected and blocked items before
 executing it; if Trash changes after review, create and inspect a new plan.
+
+`list-content-trash` and a matching-mode plan (`filters.where`) take the Trash
+page's filter chips as `where`: people, workspace, location, type, and a deleted
+date range, combined with `and` or `or`. A scope-mode plan ignores filters,
+`where` included, and covers the workspace's whole Trash. One plan holds one
+workspace's pages, so emptying Trash or deleting a selection that spans
+workspaces plans once per workspace. A plan fails with `invalid_scope` in a
+workspace where you are only a viewer, even for pages you own there.
+
+The `content-trash` application state stores the chips as `where`. The
+`content-trash-purges` state holds one `purgeStarts` record per planned
+workspace: plan id, idempotency key, status (`started`, `failed`, or
+`unknown`), the plan's input, and operation id once known. `unknown` means the
+start request may have been accepted. Executing the same plan with the same key
+returns the original operation instead of starting another. Without the scope
+token, send `recover: true` with the plan id and key: it returns the operation
+that key started, fails with `start_pending` while the plan could still start
+(retry later), or with `start_expired` once it never can (plan again).
 
 ## Comments
 
@@ -561,6 +584,56 @@ source is the diagram, so it stays the editable copy.
   when the user clicks it, so a diagram the user asks to see only needs valid
   source. If the source has a syntax error, the block shows it beside the
   source; fix it there. Public pages show the source as code.
+
+### Interactive HTML
+
+An interactive HTML block is a fenced code block whose language is
+`html interactive`. Its source is a whole HTML page that runs where the block
+sits, in a frame that can reach nothing but itself:
+
+````md
+```html interactive
+<title>Tap counter</title>
+<button id="tap">0</button>
+<script>
+  tap.onclick = () => tap.textContent++;
+</script>
+```
+````
+
+- Write one when the user asks for something to click, drag or play with: a
+  calculator, an explorable chart, a small game. Keep text, tables, diagrams and
+  charts that only need reading in their own blocks. A plain `html` code block
+  stays code.
+- Give it a `<title>`. It is the block's caption, and the words of its link
+  wherever the block can't run.
+- Inline `<script>` and `<style>` work. Scripts, stylesheets and fonts load only
+  from `https://cdn.jsdelivr.net` (`/npm/<package>@<version>/<file>`; pin the
+  version). Images load from `/api/private-media/<id>`, `data:` addresses and
+  the deployment's allowed hosts.
+- Nothing else works, by design: no `fetch`, storage, cookies, parent page,
+  popups, dialogs, nested frames or links to other pages. Keep state in
+  variables.
+- The block is as tall as its content, up to 1,000px, and scrolls past that; it
+  also opens full screen, so make the layout fill what it is given and follow
+  `prefers-color-scheme`.
+- Change it with small `edit-document` find/replace edits, like any text. The
+  page runs the new version as soon as the edit saves.
+- A write that adds or changes a block that can't work is refused with
+  `INTERACTIVE_HTML_BLOCK_REFUSED`, which says what to change. Nothing is saved,
+  so fix the block and send the whole write again.
+- "Make this button blue" means the selected block: `view-screen` returns its
+  `interactiveBlock` with `title`, `blockId`, and `number`, which counts the
+  page's `html interactive` fences from 1.
+- `get-document` and `pull-document` list the page's `interactiveBlocks`, each
+  with the `url` that opens it full screen. Give people that `url`, and match a
+  block link a person gives you to its `blockId` there. They list the page's
+  body; a block in another Blocks field runs but has no link.
+- A block runs on its own on pages its reader owns. Other readers, public ones
+  included, click Run.
+- HTML and PDF exports and Builder get the caption linked to the block. That link
+  is how a body pulled back from Builder finds its block again. Markdown keeps
+  the source. For Notion, see `notion-integration`.
 
 ### Analytics charts
 

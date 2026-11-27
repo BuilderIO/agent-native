@@ -70,22 +70,25 @@ function run(cwd: string, pathDir: string) {
 }
 
 describe("agent-native typecheck compiler lookup", () => {
-  it("prefers the nearest directory, then tsc over tsgo in that directory", () => {
+  it("prefers tsgo over tsc, even when tsgo is installed at the workspace root", () => {
     const { cwd, parent, pathDir } = fixture();
-    compiler(path.join(parent, "node_modules/.bin"), "tsc", "ancestor-tsc");
-    compiler(path.join(cwd, "node_modules/.bin"), "tsgo", "local-tsgo");
+    compiler(path.join(cwd, "node_modules/.bin"), "tsc", "local-tsc");
     let result = run(cwd, pathDir);
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe(compilerOutput("local-tsgo"));
-    compiler(path.join(cwd, "node_modules/.bin"), "tsc", "local-tsc");
+    expect(result.stdout.trim()).toBe(compilerOutput("local-tsc"));
+    compiler(path.join(parent, "node_modules/.bin"), "tsgo", "root-tsgo");
     result = run(cwd, pathDir);
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe(compilerOutput("local-tsc"));
+    expect(result.stdout.trim()).toBe(compilerOutput("root-tsgo"));
+    compiler(path.join(cwd, "node_modules/.bin"), "tsgo", "local-tsgo");
+    result = run(cwd, pathDir);
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(compilerOutput("local-tsgo"));
   });
 
-  it("chooses a nearer ancestor's tsgo over a farther ancestor's tsc", () => {
+  it("chooses a nearer ancestor's compiler over a farther ancestor's same compiler", () => {
     const { root, cwd, parent, pathDir } = fixture();
-    compiler(path.join(root, "node_modules/.bin"), "tsc", "far-tsc");
+    compiler(path.join(root, "node_modules/.bin"), "tsgo", "far-tsgo");
     compiler(path.join(parent, "node_modules/.bin"), "tsgo", "near-tsgo");
     const result = run(cwd, pathDir);
     expect(result.status).toBe(0);

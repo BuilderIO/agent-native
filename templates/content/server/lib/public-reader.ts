@@ -3,6 +3,7 @@ import { safeParseIconValue, type IconValue } from "@agent-native/core/icons";
 import { and, asc, eq, inArray, isNull, notInArray } from "drizzle-orm";
 
 import { softDeletedDatabaseDocumentExclusions } from "../../actions/_document-discovery-query.js";
+import { publicInteractiveHtml } from "../../actions/_interactive-html-blocks.js";
 import {
   dashedNotionPageId,
   isContentLinkId,
@@ -216,5 +217,6 @@ export async function loadPublicReaderContext(doc: {
     ancestors,
     subPages: subPages.map(readerPage),
     pageLinks,
+    interactiveHtml: await publicInteractiveHtml(doc.id, doc.content),
   };
 }

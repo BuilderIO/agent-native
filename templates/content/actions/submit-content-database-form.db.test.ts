@@ -433,6 +433,35 @@ describe("submit-content-database-form", () => {
     expect(after).toHaveLength(before.length);
   });
 
+  it("refuses an agent's interactive block that would not work, in any Blocks field", async () => {
+    const seeded = await seedFormDatabase();
+    const broken =
+      '```html interactive\n<script src="https://unpkg.com/x"></script>\n```';
+    const submit = (description: string, notes: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run(
+          {
+            databaseId: seeded.databaseId,
+            viewId: "request-form",
+            title: "Interactive ask",
+            propertyValues: {
+              Description: description,
+              Priority: "P1 — High",
+              [seeded.deadlineId]: "2026-08-15",
+              Requester: "requester@example.com",
+              [seeded.additionalBlocksId]: notes,
+            },
+          },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      );
+    const refused = { errorCode: "INTERACTIVE_HTML_BLOCK_REFUSED" };
+
+    await expect(submit(broken, "Notes")).rejects.toMatchObject(refused);
+    await expect(submit("Text", broken)).rejects.toMatchObject(refused);
+    expect((await submit("Text", "Notes")).verified).toBe(true);
+  });
+
   it("saves Blocks that give two videos one id, since a new row has no thread on them", async () => {
     const seeded = await seedFormDatabase();
     const video = (caption: string) =>

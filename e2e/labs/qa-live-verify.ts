@@ -4,6 +4,11 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "@playwright/test";
 
 import { waitForVerificationEmail } from "../signup/lib/mailosaur.ts";
+import {
+  readQaBuildEvidence,
+  type QaBuildWitness,
+} from "./qa-build-evidence.ts";
+import { readCalendarSettingsFocus } from "./qa-calendar-focus.ts";
 import { LABS_QA_ORIGIN, labsQaEmailLink } from "./qa-email-link.ts";
 import {
   assertReadOnlyQaTarget,
@@ -280,12 +285,16 @@ async function assertQaIdentity(page: Page, email: string) {
 }
 
 const usedMessages = new Set<string>();
-async function signInWithQaEmailLink(page: Page) {
+function qaSlotEmail(): string {
   const serverId = process.env.MAILOSAUR_SERVER_ID?.trim();
   if (!serverId || !/^[a-z0-9][a-z0-9-]{1,62}$/i.test(serverId)) {
     throw new Error("QA mailbox server is unavailable");
   }
-  const email = `qa-fleet-${slot}@${serverId}.mailosaur.net`.toLowerCase();
+  return `qa-fleet-${slot}@${serverId}.mailosaur.net`.toLowerCase();
+}
+
+async function signInWithQaEmailLink(page: Page) {
+  const email = qaSlotEmail();
   let stage = "open the sign-in form";
   try {
     await page.goto(`${appBase}/sign-in`, {
@@ -547,6 +556,13 @@ async function main() {
   };
 
   let browser: Browser | undefined;
+  const buildEvidence: {
+    before: QaBuildWitness | null;
+    after: QaBuildWitness | null;
+  } = {
+    before: null,
+    after: null,
+  };
   let activePage: Page | undefined;
   let sessionId: string | undefined;
   let failure: string | undefined;
@@ -625,6 +641,14 @@ async function main() {
         .waitForLoadState("networkidle", { timeout: 20_000 })
         .catch(() => undefined);
     });
+    if (emailLinkMode) {
+      buildEvidence.before = await readQaBuildEvidence(
+        page,
+        appBase,
+        qaSlotEmail(),
+      );
+      if (buildEvidence.before) receipt.servedSha = buildEvidence.before.sha;
+    }
     await shot(page, "before");
     for (const [i, step] of (target.steps ?? []).entries()) {
       await timed(`step ${i + 1} ${JSON.stringify(step).slice(0, 120)}`, () =>
@@ -646,9 +670,29 @@ async function main() {
     }
     await shot(page, "after");
     for (const [i, step] of (target.verify ?? []).entries()) {
-      await timed(`verify ${i + 1} ${JSON.stringify(step).slice(0, 120)}`, () =>
-        runStep(page, step),
-      );
+      const beforeFocus =
+        provider === "browserbase" &&
+        emailLinkMode &&
+        target.app === "calendar-2" &&
+        "expectVisible" in step &&
+        step.expectVisible === ".calendar-settings-dialog:focus-within"
+          ? readCalendarSettingsFocus(page)
+          : undefined;
+      try {
+        await timed(
+          `verify ${i + 1} ${JSON.stringify(step).slice(0, 120)}`,
+          () => runStep(page, step),
+        );
+      } catch (error) {
+        if (beforeFocus) {
+          const [before, afterFailure] = await Promise.all([
+            beforeFocus,
+            readCalendarSettingsFocus(page),
+          ]);
+          receipt.calendarSettingsFocus = { before, afterFailure };
+        }
+        throw error;
+      }
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -685,6 +729,13 @@ async function main() {
       }
     }
     receipt.cleanup = cleaned;
+    if (emailLinkMode && identityVerified && activePage) {
+      buildEvidence.after = await readQaBuildEvidence(
+        activePage,
+        appBase,
+        qaSlotEmail(),
+      );
+    }
     await browser?.close().catch(() => undefined);
   }
 
@@ -714,6 +765,7 @@ async function main() {
 
   const cleanFailed = (receipt.cleanup as string[]).some((c) => c !== "ok");
   receipt.steps = steps;
+  if (emailLinkMode) receipt.buildEvidence = buildEvidence;
   receipt.actionReadbacks = actionReadbacks;
   receipt.screenshots = shots;
   receipt.wallSec = Math.round((Date.now() - started) / 1000);

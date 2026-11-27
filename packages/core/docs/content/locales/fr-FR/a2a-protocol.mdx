@@ -207,6 +207,10 @@ Toutes les méthodes sont appelées via `POST /_agent-native/a2a` au format JSON
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -603,7 +607,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-Le point de terminaison de la carte d'agent est toujours public (pas d'authentification) afin que les autres agents puissent découvrir des fonctionnalités. Le point de terminaison `/_agent-native/a2a` JSON-RPC accepte les jetons de support JWT signés par `A2A_SECRET` et accepte également l'ancien jeton `apiKeyEnv` une fois configuré. Dans le développement local, l'authentification peut être omise ; dans les environnements d'exécution de production hébergés, l'authentification A2A manquante renvoie 503 au lieu de s'exécuter sans authentification.
+Le point de terminaison de la carte d'agent est toujours public (pas d'authentification) afin que les autres agents puissent découvrir des fonctionnalités. Le point de terminaison `/_agent-native/a2a` JSON-RPC accepte les jetons de support JWT signés par `A2A_SECRET` et accepte également l'ancien jeton `apiKeyEnv` une fois configuré. Sans `A2A_SECRET` ni `apiKeyEnv`, un serveur de développement n'accepte les appels non authentifiés que depuis la même machine et renvoie 401 à tout autre hôte, y compris lorsqu'un serveur de développement est publié sur une URL d'aperçu publique. Dans les environnements d'exécution de production hébergés, l'authentification A2A manquante renvoie 503 au lieu de s'exécuter sans authentification.
 
 ### Limite de la stratégie d'authentification {#auth-policy}
 
@@ -613,7 +617,7 @@ La validation du support s'exécute à la limite de la requête (dans le gestion
 - `hasConfiguredA2ASecret()` renvoie `true` lorsque `A2A_SECRET` est défini.
 - `shouldAdvertiseJwtA2AAuth()` est ce que la carte d'agent utilise pour décider de publier ou non un schéma de sécurité `jwtBearer`.
 
-La politique de production est stricte : dans n'importe quel environnement d'exécution de production, la route asynchrone `_process-task` refuse d'être distribuée à moins que `A2A_SECRET` ne soit configuré (renvoie 503), et le point de terminaison JSON-RPC refuse les appels non authentifiés. La solution de secours du développement (avertir une fois, autoriser) ne se déclenche que lorsqu'aucun indicateur de production n'est défini.
+La politique de production est stricte : dans n'importe quel environnement d'exécution de production, la route asynchrone `_process-task` refuse d'être distribuée à moins que `A2A_SECRET` ne soit configuré (renvoie 503), et le point de terminaison JSON-RPC refuse les appels non authentifiés. Hors production, un appel non authentifié n'est autorisé (avec un avertissement unique) que s'il provient de la même machine : l'adresse du pair, `Host` et tout en-tête de transfert doivent tous être en loopback, et un conteneur de développement cloud Builder n'est jamais considéré comme local. Tout autre appel non authentifié, y compris une distribution `_process-task` non signée, renvoie 401 ; définissez `A2A_SECRET` sur l'application pour l'accepter.
 
 Cette limite est importante car la boucle d'agent accepte les entrées de forme libre d'un appelant distant. Placer la vérification du porteur à l'intérieur de la boucle, ou s'appuyer sur un outil pour l'appliquer, permettrait à l'injection rapide ou à un gestionnaire de bogues de contourner l'authentification. Le garder à la limite HTTP signifie qu'un échec de jeton court-circuite avant tout appel LLM.
 

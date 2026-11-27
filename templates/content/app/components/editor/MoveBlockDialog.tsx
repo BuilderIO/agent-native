@@ -3,7 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { deleteBlockTransaction } from "@agent-native/toolkit/editor";
+import {
+  deleteBlockTransaction,
+  isListItem,
+} from "@agent-native/toolkit/editor";
 import { docToNfm, type PMNode } from "@shared/nfm";
 import { IconFileText } from "@tabler/icons-react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -42,6 +45,7 @@ const MOVED_TOAST_MS = 10_000;
 interface MovingBlock {
   find: () => number | null;
   node: ProseMirrorNode;
+  list: ProseMirrorNode | null;
   stop: () => void;
 }
 
@@ -92,7 +96,8 @@ function followBlock(
   pos: number,
   node: ProseMirrorNode,
 ): MovingBlock {
-  const depth = editor.state.doc.resolve(pos).depth;
+  const $pos = editor.state.doc.resolve(pos);
+  const { depth } = $pos;
   let at: number | null = pos;
   const map = ({ transaction }: { transaction: Transaction }) => {
     const docs: readonly (ProseMirrorNode | undefined)[] = transaction.docs;
@@ -109,6 +114,7 @@ function followBlock(
   editor.on("transaction", map);
   return {
     node,
+    list: isListItem(node) ? $pos.parent : null,
     find: () => {
       if (at === null) return null;
       const { doc } = editor.state;
@@ -130,8 +136,15 @@ function withoutVideoIds(json: PMNode): PMNode {
   };
 }
 
-export function movedBlockNfm(node: ProseMirrorNode): string {
-  return docToNfm({ type: "doc", content: [withoutVideoIds(node.toJSON())] });
+export function movedBlockNfm(
+  node: ProseMirrorNode,
+  list: ProseMirrorNode | null = null,
+): string {
+  const json = withoutVideoIds(node.toJSON());
+  return docToNfm({
+    type: "doc",
+    content: [list ? { type: list.type.name, content: [json] } : json],
+  });
 }
 
 export function useMoveBlock(editor: Editor, documentId?: string | null) {
@@ -278,7 +291,7 @@ function MoveBlockDialog({
     append
       .mutateAsync({
         documentId: target.id,
-        content: movedBlockNfm(block.node),
+        content: movedBlockNfm(block.node, block.list),
       })
       .then(
         () => {

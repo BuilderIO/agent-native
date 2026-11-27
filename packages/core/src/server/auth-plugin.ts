@@ -1,4 +1,5 @@
 import { orgStore } from "../org/schema-store.js";
+import { reportAuthDisabledExposure } from "./auth-disabled-exposure.js";
 import { authSessionHandler, autoMountAuth } from "./auth.js";
 import type { AuthOptions } from "./auth.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
@@ -15,6 +16,7 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
   return (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "auth");
+    reportAuthDisabledExposure();
     const isByoa = Boolean(options?.getSession);
     const app = getH3App(nitroApp);
     const sessionPath = "/_agent-native/auth/session";

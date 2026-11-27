@@ -99,7 +99,12 @@ export async function refreshAfterSetup(
   }
 }
 
-export function configurationRevision(database: Database): string {
+export function configurationRevision(
+  database: Pick<
+    Database,
+    "viewConfigJson" | "deletedAt" | "ownerDocumentId" | "ownerBlockId"
+  >,
+): string {
   return digest({
     viewConfigJson: database.viewConfigJson,
     deletedAt: database.deletedAt,

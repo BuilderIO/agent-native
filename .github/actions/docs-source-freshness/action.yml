@@ -80,13 +80,33 @@ runs:
               return;
             }
             if (liveRef !== sourceRef) {
-              const { status } = (await github.rest.repos.compareCommits({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                base: liveRef,
-                head: sourceRef,
-                per_page: 1,
-              })).data;
+              let status;
+              try {
+                ({ status } = (await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: liveRef,
+                  head: sourceRef,
+                  per_page: 1,
+                })).data);
+              } catch (error) {
+                if (error?.status !== 404) throw error;
+                // The comparison 404s when either commit is missing. If the
+                // source exists (this read throws when it doesn't), the live
+                // deploy names a commit GitHub never had, as when it was
+                // published from outside this repository. Like an untitled
+                // deploy, it has no source to order against.
+                await github.rest.repos.getCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: sourceRef,
+                });
+                core.warning(
+                  `Live deploy ${live.id} names commit ${liveRef}, which GitHub can't find; nothing to regress against.`,
+                );
+                core.setOutput("current", "true");
+                return;
+              }
               if (status === "behind") {
                 const message = `Docs source ${sourceRef} is older than the live deploy's ${liveRef}.`;
                 if (

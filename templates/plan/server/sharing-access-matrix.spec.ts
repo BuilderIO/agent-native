@@ -50,6 +50,7 @@ import {
   LOCAL_PLAN_OWNER_EMAIL,
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
+import { listPlanCommentRows } from "./lib/plan-comments.js";
 import { PLANS_TABLE_DDL } from "./test-support/plans-test-schema.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -1045,11 +1046,10 @@ describe("adversarial", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
 
-    const [row] = await db
-      .select()
-      .from(planSchema.planComments)
-      .where(eq(planSchema.planComments.id, commentId));
-    expect((row as any).consumedAt).toBeNull();
+    const stored = (await listPlanCommentRows(planId)).find(
+      (row) => row.id === commentId,
+    );
+    expect(stored?.consumedAt).toBeNull();
   });
 });
 

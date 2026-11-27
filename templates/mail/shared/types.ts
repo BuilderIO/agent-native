@@ -1,3 +1,5 @@
+import type { ContactPanelWidgets } from "./contact-panel-widgets.js";
+
 export type EmailAddress = {
   name: string;
   email: string;
@@ -38,6 +40,50 @@ export type EmailMessage = {
     mailto?: string;
     oneClick?: boolean;
   };
+};
+
+export type ContactAttachment = Attachment & {
+  emailId: string;
+  threadId: string;
+  subject: string;
+  date: string;
+  accountEmail?: string;
+};
+
+export type ContactAttachmentList = { attachments: ContactAttachment[] };
+
+export type ContactMeeting = {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  url?: string;
+  accountEmail?: string;
+};
+
+export type ContactMeetings = {
+  source: "calendar" | "mail" | "none";
+  calendar: "connected" | "not_connected" | "unavailable";
+  calendarUrl?: string;
+  upcoming: ContactMeeting[];
+  recent: ContactMeeting[];
+  failedAccounts: Array<{ accountEmail: string; message: string }>;
+};
+
+export type ContactNote = {
+  markdown: string;
+  truncated: boolean;
+  url?: string;
+  updatedAt?: string;
+};
+
+export type ContactNoteResult = { note: ContactNote | null };
+
+export type AddContactNoteResult = {
+  note: ContactNote;
+  created: boolean;
+  appended: boolean;
 };
 
 export type EmailThread = {
@@ -160,6 +206,7 @@ export type UserSettings = {
   trustedSenders?: string[];
   mobileActions?: MobileActionId[];
   tracking?: { opens: boolean; clicks: boolean };
+  contactPanelWidgets?: ContactPanelWidgets;
 };
 
 export type EmailTrackingStats = {

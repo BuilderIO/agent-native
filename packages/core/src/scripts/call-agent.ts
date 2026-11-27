@@ -179,12 +179,16 @@ function recordChildTaskFailure(
   agentName: string,
   terminal: { state: string; errorCode?: string },
   detail: string,
+  agentUrl?: string,
 ): { permanentText?: string; terminalCode: string } {
   const cause =
     terminal.errorCode === "permanent_precondition"
       ? `The ${agentName} agent could not complete this delegated request because one of its actions hit a permanent precondition.`
       : isLlmCredentialError(undefined, terminal.errorCode)
-        ? formatLlmCredentialErrorMessage({ agentName })
+        ? formatLlmCredentialErrorMessage({
+            agentName,
+            connectUrl: peerOrigin(agentUrl),
+          })
         : undefined;
   const permanentText = cause
     ? `${cause} Do not call ${agentName} again this turn; continue with other sources.` +
@@ -553,12 +557,29 @@ function integrationSourceContextHint(
   );
 }
 
+function peerOrigin(agentUrl: string | undefined): string | undefined {
+  if (!agentUrl) return undefined;
+  try {
+    const url = new URL(agentUrl);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.origin
+      : undefined;
+  } catch {
+    // coercion-ok: no link is better than a wrong one; the message still names the app.
+    return undefined;
+  }
+}
+
 function formatDownstreamLlmCredentialFailure(
   agentName: string,
   value: unknown,
+  agentUrl?: string,
 ): string | null {
   return isLlmCredentialError(value)
-    ? formatLlmCredentialErrorMessage({ agentName })
+    ? formatLlmCredentialErrorMessage({
+        agentName,
+        connectUrl: peerOrigin(agentUrl),
+      })
     : null;
 }
 
@@ -1316,8 +1337,11 @@ export async function run(
             : {}),
         });
         responseText =
-          formatDownstreamLlmCredentialFailure(agent.name, responseText) ??
-          responseText;
+          formatDownstreamLlmCredentialFailure(
+            agent.name,
+            responseText,
+            agent.url,
+          ) ?? responseText;
         responseText = expandRelativeUrls(responseText, agent.url);
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
@@ -1384,6 +1408,7 @@ export async function run(
             agent.name,
             terminal,
             detail,
+            agent.url,
           );
           invocationTerminalCode = childFailure.terminalCode;
           responseText =
@@ -1405,7 +1430,11 @@ export async function run(
           const reason = pollErr?.message ?? "unknown error";
           responseText =
             authFailure?.message ??
-            formatDownstreamLlmCredentialFailure(agent.name, pollErr) ??
+            formatDownstreamLlmCredentialFailure(
+              agent.name,
+              pollErr,
+              agent.url,
+            ) ??
             `Error: The ${agent.name} agent call failed. (${reason})`;
         }
       }
@@ -1496,7 +1525,8 @@ export async function run(
       ...(files.length > 0 ? { files } : {}),
     });
     const sanitized =
-      formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;
+      formatDownstreamLlmCredentialFailure(agent.name, response, agent.url) ??
+      response;
     const expanded = expandRelativeUrls(sanitized, agent.url);
     if (!expanded) {
       invocationStatus = "error";
@@ -1548,6 +1578,7 @@ export async function run(
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
       err,
+      agent.url,
     );
     if (credentialMessage) {
       // A typed credential failure returns here before the terminal branch
@@ -1561,6 +1592,7 @@ export async function run(
           agent.name,
           terminal,
           terminal.responseText ?? "",
+          agent.url,
         ).terminalCode;
       }
       return credentialMessage;
@@ -1574,6 +1606,7 @@ export async function run(
         agent.name,
         terminal,
         terminal.responseText ?? "",
+        agent.url,
       );
       invocationTerminalCode = childFailure.terminalCode;
       const detail = terminal.responseText

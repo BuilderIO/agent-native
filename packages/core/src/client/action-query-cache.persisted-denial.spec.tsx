@@ -140,12 +140,15 @@ it.each([401, 403, 404, 503])(
     });
     await expect.poll(() => snapshot.data).toEqual(oldData);
     await expect
-      .poll(() =>
-        [...(records.get(scope)?.clientState.queries ?? [])].some(
-          (query) =>
-            query.queryKey[1] === "bind-failure-persisted-denial-probe" &&
-            (query.state.data as Payload | undefined)?.value === oldData.value,
-        ),
+      .poll(
+        () =>
+          [...(records.get(scope)?.clientState.queries ?? [])].some(
+            (query) =>
+              query.queryKey[1] === "bind-failure-persisted-denial-probe" &&
+              (query.state.data as Payload | undefined)?.value ===
+                oldData.value,
+          ),
+        { timeout: 3_000 },
       )
       .toBe(true);
 

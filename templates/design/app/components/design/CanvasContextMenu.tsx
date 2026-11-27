@@ -133,6 +133,7 @@ export interface CanvasContextMenuLabels {
   bringToFront: string;
   sendBackward: string;
   sendToBack: string;
+  arrangeUnavailable: string;
   frameSelection: string;
   addAutoLayout: string;
   removeAutoLayout: string;
@@ -330,6 +331,7 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   bringToFront: "Bring to front",
   sendBackward: "Send backward",
   sendToBack: "Send to back",
+  arrangeUnavailable: "Select a layer in an editable design to reorder it",
   frameSelection: "Frame selection",
   addAutoLayout: "Add auto layout",
   removeAutoLayout: "Remove auto layout",
@@ -1069,6 +1071,7 @@ export const CanvasContextMenu = forwardRef<
                   <CanvasMenuItem
                     hidden={isHiddenAction("bring-to-front")}
                     disabled={!canRun("bring-to-front", canReorder)}
+                    disabledReason={labels.arrangeUnavailable}
                     label={labels.bringToFront}
                     shortcut={shortcuts.bringToFront}
                     onSelect={(event) => runAction("bring-to-front", event)}
@@ -1076,6 +1079,7 @@ export const CanvasContextMenu = forwardRef<
                   <CanvasMenuItem
                     hidden={isHiddenAction("bring-forward")}
                     disabled={!canRun("bring-forward", canReorder)}
+                    disabledReason={labels.arrangeUnavailable}
                     label={labels.bringForward}
                     shortcut={shortcuts.bringForward}
                     onSelect={(event) => runAction("bring-forward", event)}
@@ -1083,6 +1087,7 @@ export const CanvasContextMenu = forwardRef<
                   <CanvasMenuItem
                     hidden={isHiddenAction("send-backward")}
                     disabled={!canRun("send-backward", canReorder)}
+                    disabledReason={labels.arrangeUnavailable}
                     label={labels.sendBackward}
                     shortcut={shortcuts.sendBackward}
                     onSelect={(event) => runAction("send-backward", event)}
@@ -1090,6 +1095,7 @@ export const CanvasContextMenu = forwardRef<
                   <CanvasMenuItem
                     hidden={isHiddenAction("send-to-back")}
                     disabled={!canRun("send-to-back", canReorder)}
+                    disabledReason={labels.arrangeUnavailable}
                     label={labels.sendToBack}
                     shortcut={shortcuts.sendToBack}
                     onSelect={(event) => runAction("send-to-back", event)}

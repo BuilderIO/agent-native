@@ -173,6 +173,7 @@ interface DocumentBlockFieldsProps {
    * private to the page, as its body's are.
    */
   privateImageUploads?: boolean;
+  runInteractiveHtml?: boolean;
   /** The fields the page read returned, used until the property read lands. */
   pageProperties?: DocumentProperty[] | undefined;
   onAdditionalContentChange?: (
@@ -457,6 +458,7 @@ export function DocumentBlockFields({
   primaryEditor,
   primaryContent,
   privateImageUploads = false,
+  runInteractiveHtml = false,
   pageProperties,
   onAdditionalContentChange,
   onFieldTabChange,
@@ -625,6 +627,7 @@ export function DocumentBlockFields({
                 !frozenFields.has(state.field.definition.id)
               }
               privateImageUploads={privateImageUploads}
+              runInteractiveHtml={runInteractiveHtml}
               onContentChange={onAdditionalContentChange}
             />
           </div>
@@ -656,6 +659,7 @@ export function DocumentBlockFields({
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
           privateImageUploads={privateImageUploads}
+          runInteractiveHtml={runInteractiveHtml}
           onAdditionalContentChange={onAdditionalContentChange}
           onFieldTabChange={onFieldTabChange}
           t={t}
@@ -724,6 +728,7 @@ function MultiBlockFields({
   primaryEditor,
   primaryContent,
   privateImageUploads,
+  runInteractiveHtml,
   onAdditionalContentChange,
   onFieldTabChange,
   t,
@@ -743,6 +748,7 @@ function MultiBlockFields({
   primaryEditor: ReactNode;
   primaryContent?: string;
   privateImageUploads: boolean;
+  runInteractiveHtml: boolean;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -1576,6 +1582,7 @@ function MultiBlockFields({
                     allowPendingSave && !frozenFields.has(propertyId)
                   }
                   privateImageUploads={privateImageUploads}
+                  runInteractiveHtml={runInteractiveHtml}
                   onContentChange={handleAdditionalContentChange}
                 />
               </>
@@ -2436,6 +2443,7 @@ function AdditionalBlockEditor({
   canEdit,
   allowPendingSave,
   privateImageUploads,
+  runInteractiveHtml,
   onContentChange,
 }: {
   documentId: string;
@@ -2444,6 +2452,7 @@ function AdditionalBlockEditor({
   canEdit: boolean;
   allowPendingSave: boolean;
   privateImageUploads: boolean;
+  runInteractiveHtml: boolean;
   onContentChange?: (
     documentId: string,
     propertyId: string,
@@ -2577,6 +2586,7 @@ function AdditionalBlockEditor({
     <VisualEditor
       documentId={documentId}
       privateImageUploads={privateImageUploads}
+      runInteractiveHtml={runInteractiveHtml}
       content={shownContent}
       contentResetKey={
         preview

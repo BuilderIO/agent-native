@@ -15,6 +15,7 @@ import {
   parseDocumentRevisionToken,
 } from "../server/lib/document-revision.js";
 import { firstRow } from "../server/lib/first-row.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
@@ -61,7 +62,10 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
-import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
+import {
+  NFM_CONTAINER_SYNTAX,
+  NFM_INTERACTIVE_HTML_SYNTAX,
+} from "./_nfm-syntax.js";
 import {
   assertPropertyGenerations,
   propertyChangeIdOf,
@@ -138,6 +142,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
     });
   }
   assertNoNewlySharedVideoIds(current.content, args.content);
+  assertInteractiveHtmlBlocks(args.ctx, current.content, args.content);
   if (baseRevision !== undefined) assertPageRevision(baseRevision, current);
   if (args.expectedRevision !== undefined) {
     const { revision } = await readBlocksFieldIdentity({
@@ -299,7 +304,7 @@ export default defineAction({
       .unknown()
       .describe(
         "Value for the property type; Blocks fields take an NFM string: one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs. " +
-          NFM_CONTAINER_SYNTAX,
+          `${NFM_CONTAINER_SYNTAX} ${NFM_INTERACTIVE_HTML_SYNTAX}`,
       ),
     expectedBlocksFieldRevision: z
       .number()
@@ -566,6 +571,7 @@ export default defineAction({
               content,
               expectedRevision: expectedBlocksFieldRevision,
               now,
+              ctx,
             },
           );
           return;
@@ -594,6 +600,7 @@ export default defineAction({
         }
         const previousContent = currentDocument.content;
         assertNoNewlySharedVideoIds(previousContent, content);
+        assertInteractiveHtmlBlocks(ctx, previousContent, content);
         await tx
           .update(schema.documents)
           .set({

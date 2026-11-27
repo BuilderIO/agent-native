@@ -852,6 +852,10 @@ export default {
     exportPreview: {
       rendering: "पूर्वावलोकन बन रहा है…",
       failed: "पूर्वावलोकन उपलब्ध नहीं",
+      noPreview: "पूर्वावलोकन के लिए कोई स्क्रीन नहीं",
+      externalPreview: "पूर्वावलोकन के लिए लाइव ऐप ज़रूरी है",
+      readOnlyPreview: "केवल-पढ़ने मोड में पूर्वावलोकन उपलब्ध नहीं",
+      selectionUnresolved: "चयन इस स्क्रीन पर नहीं मिला",
     },
     framePresets: {
       title: "फ़्रेम",
@@ -1902,6 +1906,7 @@ export default {
   layersPanel: {
     title: "परतें",
     screens: "पेज",
+    components: "कॉम्पोनेंट",
     resizeScreens: "पेज सेक्शन का आकार बदलें",
     thumbnail: "थंबनेल",
     addScreen: "पेज जोड़ें",
@@ -1931,6 +1936,7 @@ export default {
     bringToFront: "सबसे आगे लाएं",
     sendBackward: "पीछे भेजें",
     sendToBack: "सबसे पीछे भेजें",
+    arrangeUnavailable: "पुनः क्रमित करने के लिए संपादन योग्य डिज़ाइन में कोई लेयर चुनें",
     pasteToReplace: "बदलने के लिए पेस्ट करें",
     frameSelection: "चयन को फ़्रेम करें",
     flipHorizontal: "क्षैतिज रूप से फ़्लिप करें",

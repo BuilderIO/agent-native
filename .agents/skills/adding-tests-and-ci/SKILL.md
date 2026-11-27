@@ -42,8 +42,8 @@ its junk patterns. This section covers where it lives and what runs it.
   function, then a component or `.db.test.ts`, then browser E2E last.
   Some E2E suites, such as Design's, run only after merge and cannot fail
   a PR. Do not restate one assertion at several tiers.
-  `design-editor-architecture` covers failing-first proof and mutation
-  audits.
+  `templates/design/.agents/skills/design-editor-architecture/SKILL.md` covers
+  failing-first proof and mutation audits.
 - **A new test joins an existing lane or job.** It never gets a job of its
   own. A changed root `scripts/*.test.ts`, or the test beside a changed
   guard script, runs in `Security guards` through the `script_tests`

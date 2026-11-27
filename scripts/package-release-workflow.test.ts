@@ -44,6 +44,7 @@ import {
 import {
   COORDINATED_RELEASE_CHECK_TIMEOUT_MS,
   DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
+  evaluateExactReleaseHead,
   evaluateRequiredChecks,
   requiredCheckTimeoutForEvent,
   requiredContextsFromRules,
@@ -2428,8 +2429,7 @@ fi
       (step) => step.name === "Verify release PR identity and event-bound SHAs",
     );
     const manualDispatcherGate = autoMergeSteps.find(
-      (step) =>
-        step.name === "Verify manual release dispatcher is an administrator",
+      (step) => step.name === "Verify release dispatch origin",
     );
     const majorPromotionGuard = autoMergeSteps.find(
       (step) => step.name === "Refuse unattended major promotions",
@@ -2457,39 +2457,19 @@ fi
       "pull-requests": "read",
       statuses: "read",
     });
-    assert.match(
-      String(autoMergeJob.if),
-      /github\.event_name == 'workflow_dispatch'/,
-    );
+    assert.deepEqual(Object.keys(autoMergeWorkflow.on as Workflow), [
+      "workflow_dispatch",
+    ]);
     assert.match(String(autoMergeJob.if), /github\.ref == 'refs\/heads\/main'/);
 
-    assert.match(
-      String(autoMergeJob.if),
-      /github\.event\.pull_request\.head\.ref == 'changeset-release\/main'/,
-    );
-    assert.match(
-      String(autoMergeJob.if),
-      /github\.event\.pull_request\.user\.login == 'builder-io-integration\[bot\]'/,
-    );
-    assert.match(
-      String(autoMergeJob.if),
-      /github\.event\.sender\.login == 'builder-io-integration\[bot\]'/,
-    );
-    assert.match(
-      String(autoMergeJob.if),
-      /!github\.event\.pull_request\.draft/,
-    );
-
     assert(checkout);
-    assert.equal(
-      (checkout.with as Workflow).ref,
-      "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}",
-    );
+    assert.equal((checkout.with as Workflow).ref, "${{ github.sha }}");
     assert(manualDispatcherGate);
     assert.match(
-      String(manualDispatcherGate.if),
-      /github\.event_name == 'workflow_dispatch'/,
+      String(manualDispatcherGate.run),
+      /DISPATCHED_COORDINATOR_RUN_ID/,
     );
+    assert.match(String(manualDispatcherGate.run), /github-actions\[bot\]/);
     assert.match(
       String((manualDispatcherGate.env as Workflow).DISPATCH_ACTOR),
       /github\.triggering_actor/,
@@ -2509,7 +2489,12 @@ fi
       /\.head\.repo\.full_name == \$repo/,
     );
     assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
-    assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
+    assert.match(String(releasePrContext.run), /\.base\.ref == "main"/);
+    const comparisonBase = autoMergeSteps.find(
+      (step) => step.name === "Verify the release comparison base is on main",
+    );
+    assert(comparisonBase);
+    assert.match(String(comparisonBase.run), /merge_base_commit\.sha/);
     assert(requiredChecks);
     assert.equal(requiredChecks.id, "required-checks");
     assert.match(
@@ -2529,8 +2514,8 @@ fi
       "${{ github.event_name }}",
     );
     assert.match(
-      String((requiredChecks.env as Workflow).PR_UPDATED_AT),
-      /pull_request\.updated_at/,
+      String((requiredChecks.env as Workflow).HEAD_SHA),
+      /inputs\.head_sha/,
     );
     assert.match(
       String(requiredChecks.run),
@@ -2598,7 +2583,8 @@ fi
       /\.head\.repo\.full_name == \$repo/,
     );
     assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
-    assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
+    assert.match(String(releasePrRecheck.run), /\.base\.ref == "main"/);
+    assert.doesNotMatch(String(releasePrRecheck.run), /\.base\.sha ==/);
     assert.match(
       String(releasePrRecheck.run),
       /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
@@ -2630,6 +2616,124 @@ fi
       String(forceMerge.run).indexOf("release-required-checks.ts verify") <
         String(forceMerge.run).indexOf("gh pr merge"),
     );
+  });
+
+  it("refuses to merge a release while an exact-head workflow is pending", () => {
+    const head = "a".repeat(40);
+    const check = {
+      id: 1,
+      name: "Fast tests",
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+    };
+    const checkPages = [{ total_count: 1, check_runs: [check] }];
+    const run = { ...check, id: 2, name: "Release coordinator" };
+    const workflows = (row: typeof run) => [
+      { total_count: 1, workflow_runs: [row] },
+    ];
+    const status = { sha: head, state: "pending", total_count: 0 };
+    assert.equal(
+      evaluateExactReleaseHead(
+        head,
+        checkPages,
+        workflows({
+          ...run,
+          status: "in_progress",
+          conclusion: "",
+        }),
+        status,
+      ).status,
+      "pending",
+    );
+    assert.equal(
+      evaluateExactReleaseHead(
+        head,
+        checkPages,
+        workflows({
+          ...run,
+          conclusion: "failure",
+        }),
+        status,
+      ).status,
+      "failed",
+    );
+    assert.equal(
+      evaluateExactReleaseHead(head, checkPages, workflows(run), status).status,
+      "passed",
+    );
+    const neutral = [
+      {
+        total_count: 1,
+        check_runs: [{ ...check, name: "Review Agent", conclusion: "neutral" }],
+      },
+    ];
+    assert.equal(
+      evaluateExactReleaseHead(head, neutral, workflows(run), status).status,
+      "passed",
+    );
+    assert.equal(
+      evaluateExactReleaseHead(head, checkPages, workflows(run), {
+        ...status,
+        total_count: 1,
+      }).status,
+      "pending",
+    );
+    assert.throws(
+      () =>
+        evaluateExactReleaseHead(
+          head,
+          checkPages,
+          workflows({
+            ...run,
+            head_sha: "b".repeat(40),
+          }),
+          status,
+        ),
+      /wrong release head/,
+    );
+    assert.throws(
+      () =>
+        evaluateExactReleaseHead(
+          head,
+          checkPages,
+          [
+            {
+              total_count: 2,
+              workflow_runs: [run],
+            },
+          ],
+          status,
+        ),
+      /incomplete/,
+    );
+  });
+
+  it("retries a shifting exact-head inventory before declaring release checks green", async () => {
+    const head = "b".repeat(40);
+    const check = {
+      id: 3,
+      name: "Fast tests",
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+    };
+    const runs = [{ total_count: 0, workflow_runs: [] }];
+    const status = { sha: head, state: "pending", total_count: 0 };
+    let reads = 0;
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => ["Fast tests"],
+      readStatuses: async () => [{ name: "Fast tests", bucket: "pass" }],
+      readExactHead: async () => {
+        reads += 1;
+        const checks = [{ total_count: 1, check_runs: [check] }];
+        if (reads === 1) checks.push({ total_count: 2, check_runs: [] });
+        return evaluateExactReleaseHead(head, checks, runs, status);
+      },
+      sleep: async () => undefined,
+      readRetryDelaysMs: [1],
+    });
+    assert.equal(reads, 2);
   });
 
   describe("force-merge step against a main that moved", () => {

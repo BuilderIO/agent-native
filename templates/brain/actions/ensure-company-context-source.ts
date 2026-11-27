@@ -56,6 +56,7 @@ export default defineAction({
       updatedAt: z.string(),
     }),
   }),
+  mcpTool: false,
   run: async () => {
     const email = getRequestUserEmail();
     const orgId = getRequestOrgId();

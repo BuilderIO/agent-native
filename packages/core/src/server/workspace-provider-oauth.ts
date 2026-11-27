@@ -2236,34 +2236,35 @@ function preserveSigmaWorkspaceOAuthAppAccess(
   return mergeWorkspaceOAuthValues(existing ?? [], [appId]);
 }
 
-function clientCredentialKeys(
+function clientCredentialKeyPairs(
   provider: GenericWorkspaceOAuthProvider,
-  field: "id" | "secret",
-): string[] {
+): Array<readonly [string, string]> {
   const prefix = isGoogleWorkspaceOAuthProvider(provider)
     ? "GOOGLE"
     : provider.toUpperCase();
-  const suffix = field === "id" ? "ID" : "SECRET";
   if (provider === "github") {
-    const integrationPrefix = `GITHUB_INTEGRATION_CLIENT_${suffix}`;
-    return [integrationPrefix, `GITHUB_CLIENT_${suffix}`];
-  }
-  if (provider === "hubspot") {
-    const integrationPrefix = `HUBSPOT_INTEGRATION_CLIENT_${suffix}`;
-    return [integrationPrefix, `HUBSPOT_CLIENT_${suffix}`];
-  }
-  if (provider === "salesforce") {
-    const integrationPrefix = `SALESFORCE_INTEGRATION_CLIENT_${suffix}`;
-    const consumerCredential = `SALESFORCE_CONSUMER_${
-      field === "id" ? "KEY" : "SECRET"
-    }`;
     return [
-      integrationPrefix,
-      `SALESFORCE_CLIENT_${suffix}`,
-      consumerCredential,
+      ["GITHUB_INTEGRATION_CLIENT_ID", "GITHUB_INTEGRATION_CLIENT_SECRET"],
+      ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
     ];
   }
-  return [`${prefix}_CLIENT_${suffix}`];
+  if (provider === "hubspot") {
+    return [
+      ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
+      ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"],
+    ];
+  }
+  if (provider === "salesforce") {
+    return [
+      [
+        "SALESFORCE_INTEGRATION_CLIENT_ID",
+        "SALESFORCE_INTEGRATION_CLIENT_SECRET",
+      ],
+      ["SALESFORCE_CLIENT_ID", "SALESFORCE_CLIENT_SECRET"],
+      ["SALESFORCE_CONSUMER_KEY", "SALESFORCE_CONSUMER_SECRET"],
+    ];
+  }
+  return [[`${prefix}_CLIENT_ID`, `${prefix}_CLIENT_SECRET`]];
 }
 
 function normalizeSalesforceInstanceUrl(value: string | undefined): URL | null {
@@ -2337,16 +2338,14 @@ export function salesforceOAuthEndpoint(
 async function resolveProviderClientCredentials(
   provider: GenericWorkspaceOAuthProvider,
 ): Promise<[string | null, string | null]> {
-  const [clientId, clientSecret] = await Promise.all(
-    (["id", "secret"] as const).map(async (field) => {
-      for (const key of clientCredentialKeys(provider, field)) {
-        const value = await resolveSecret(key);
-        if (value) return value;
-      }
-      return null;
-    }),
-  );
-  return [clientId, clientSecret];
+  for (const [idKey, secretKey] of clientCredentialKeyPairs(provider)) {
+    const [clientId, clientSecret] = await Promise.all([
+      resolveSecret(idKey),
+      resolveSecret(secretKey),
+    ]);
+    if (clientId && clientSecret) return [clientId, clientSecret];
+  }
+  return [null, null];
 }
 
 function flowCookieName(

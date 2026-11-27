@@ -2,6 +2,11 @@ import {
   ContextMenuItem,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export const MENU_CONTENT_CLASS =
   "w-52 min-w-[200px] data-[state=open]:!animate-none data-[state=closed]:!animate-none";
@@ -12,6 +17,7 @@ export function CanvasMenuItem({
   destructive,
   label,
   description,
+  disabledReason,
   shortcut,
   onSelect,
 }: {
@@ -20,12 +26,13 @@ export function CanvasMenuItem({
   destructive?: boolean;
   label: string;
   description?: string;
+  disabledReason?: string;
   shortcut?: string;
   onSelect: (event: Event) => void;
 }) {
   if (hidden) return null;
 
-  return (
+  const item = (
     <ContextMenuItem
       disabled={disabled}
       onSelect={onSelect}
@@ -41,5 +48,16 @@ export function CanvasMenuItem({
       )}
       {shortcut ? <ContextMenuShortcut>{shortcut}</ContextMenuShortcut> : null}
     </ContextMenuItem>
+  );
+
+  if (!disabled || !disabledReason) return item;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="block">{item}</span>
+      </TooltipTrigger>
+      <TooltipContent side="right">{disabledReason}</TooltipContent>
+    </Tooltip>
   );
 }

@@ -19,7 +19,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (inbox, starred, sent, drafts, scheduled, archive, trash, draft-queue, settings)",
+        "View to navigate to (inbox, starred, sent, drafts, archive, trash, draft-queue, settings). Drafts also lists scheduled emails and drafts teammates requested; scheduled, and draft-queue without queuedDraftId, open Drafts",
       ),
     tab: z
       .string()

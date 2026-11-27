@@ -864,6 +864,10 @@ export default {
     exportPreview: {
       rendering: "Generando vista previa…",
       failed: "Vista previa no disponible",
+      noPreview: "No hay pantalla para previsualizar",
+      externalPreview: "La vista previa necesita la app en vivo",
+      readOnlyPreview: "Vista previa no disponible en modo de solo lectura",
+      selectionUnresolved: "Selección no encontrada en esta pantalla",
     },
     framePresets: {
       title: "Marco",
@@ -1951,6 +1955,7 @@ export default {
   layersPanel: {
     title: "Capas",
     screens: "Páginas",
+    components: "Componentes",
     resizeScreens: "Cambiar el tamaño de la sección de páginas",
     thumbnail: "Miniatura",
     addScreen: "Añadir página",
@@ -1980,6 +1985,8 @@ export default {
     bringToFront: "Traer al frente",
     sendBackward: "Enviar atrás",
     sendToBack: "Enviar al fondo",
+    arrangeUnavailable:
+      "Selecciona una capa en un diseño editable para reordenarla",
     pasteToReplace: "Pegar para reemplazar",
     frameSelection: "Enmarcar selección",
     flipHorizontal: "Voltear horizontalmente",

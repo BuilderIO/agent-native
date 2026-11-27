@@ -7,7 +7,7 @@ the agent can use.
 ## Core Contract
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Data lives in SQL through Drizzle. Keep schemas provider agnostic.
+- Data lives in PostgreSQL through Drizzle. Keep schemas PostgreSQL-specific and hosting-agnostic.
 - Normal app data must flow through actions. Define operations in `actions/`
   with `defineAction`; mark reads with `http: { method: "GET" }`; call them
   from React with `useActionQuery` / `useActionMutation` or `callAction`.
@@ -41,7 +41,7 @@ the agent can use.
   not clone a neighboring app's accent by default.
 - Application state belongs in SQL `application_state` so the agent can know the
   current route, selection, and focused object.
-- Keep UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Chat-run tools refresh UI data automatically; opt in to `useDbSync({ realtime: { reason } })` only when external changes matter.
 - Every feature should cover UI, actions, skills or instructions, and
   application state when those areas apply.
 
@@ -72,7 +72,7 @@ the agent can use.
   alter tables or columns.
 - Tables with ownership columns require scoped reads and writes through the app's
   access helpers.
-- Keep template code database agnostic and hosting agnostic.
+- Keep template code PostgreSQL-specific and hosting-agnostic.
 - Prefer optimistic UI updates for routine actions, with rollback on error.
 
 ## Skills

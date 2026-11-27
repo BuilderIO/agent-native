@@ -17,6 +17,7 @@ import * as schema from "../db/schema";
  * against: a schema column with zero mentions in the migration history.
  */
 
+// source-read-ok: the migration list and the boot order in db.ts are the contract these check (every column has a migration, names are unique, boot does not await maintenance); the same read guards every template db.ts.
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 
 interface DrizzleColumn {
@@ -250,19 +251,8 @@ describe("content db.ts migration entries follow the naming convention", () => {
   });
 });
 
+// oracle-change: removed the startup-maintenance.ts source checks; startup-maintenance.db.test.ts now runs the module and covers the additive-column net (it restores a dropped column before the repairs), a net error being logged and retried, both repairs running, a failed step being retried before maintenance resolves, and the trigger and retry timer ref state
 describe("content db.ts schedules post-boot maintenance after runMigrations", () => {
-  const maintenanceSource = readFileSync(
-    new URL("../lib/startup-maintenance.ts", import.meta.url),
-    "utf8",
-  );
-
-  it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
-    expect(maintenanceSource).toMatch(
-      /import\s*\{[^}]*\bensureAdditiveColumns\b[^}]*\}\s*from\s*["']@agent-native\/core\/db["']/,
-    );
-    expect(maintenanceSource).toContain("ensureAdditiveColumns({");
-  });
-
   it("schedules maintenance only after both migration runners are awaited", () => {
     const contentMigrationsCallIdx = dbTsSource.indexOf(
       "runContentMigrations(",
@@ -294,42 +284,6 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
       /await\s+repairFilesSystemPropertyDefinitions/,
     );
     expect(dbTsSource).not.toContain("scheduleBlocksRepairRetry");
-  });
-
-  it("the lazy module runs both repairs after the net and logs failures loudly", () => {
-    const netIdx = maintenanceSource.indexOf("additive-columns");
-    const blocksIdx = maintenanceSource.indexOf("blocks-repair");
-    const filesIdx = maintenanceSource.indexOf(
-      "files-system-properties-repair",
-    );
-    expect(netIdx).toBeGreaterThan(-1);
-    expect(blocksIdx).toBeGreaterThan(netIdx);
-    expect(filesIdx).toBeGreaterThan(blocksIdx);
-
-    expect(maintenanceSource).toContain("repairUnseededBlocksFields");
-    expect(maintenanceSource).toContain("repairFilesSystemPropertyDefinitions");
-    expect(maintenanceSource).toMatch(
-      /console\.error\(\s*`\[db\] startup maintenance "\$\{label\}"/,
-    );
-    expect(maintenanceSource).toMatch(/\bscheduleRetry\b/);
-  });
-
-  it("treats additive-column summary errors as a retryable failed step", () => {
-    expect(maintenanceSource).toMatch(
-      /summary\.errors\.length > 0[\s\S]{0,400}throw new Error\(/,
-    );
-  });
-
-  it("awaits each retry chain before the next step and keeps the trigger ref'd", () => {
-    // A fire-and-forget retry would let the next step race the safety net
-    // the retry is still finishing, so the chain must be awaited.
-    expect(maintenanceSource).toMatch(/await\s+scheduleRetry\(/);
-    const triggerIdx = maintenanceSource.indexOf(
-      "export function scheduleStartupMaintenance",
-    );
-    expect(triggerIdx).toBeGreaterThan(-1);
-    expect(maintenanceSource.slice(triggerIdx)).not.toMatch(/\.unref\(/);
-    expect(maintenanceSource.match(/\.unref\(/g)?.length).toBe(1);
   });
 
   it("does not remove the body-hydration queue index migration (v60)", () => {

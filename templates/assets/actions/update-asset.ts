@@ -1,10 +1,13 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
-import { assertCanApprove } from "../server/lib/library-access.js";
+import {
+  assertCanApprove,
+  isSomeoneElsesDraft,
+} from "../server/lib/library-access.js";
 import { IMAGE_CATEGORIES } from "../shared/api.js";
 import { getAssetOrThrow, serializeAsset } from "./_helpers.js";
 
@@ -39,6 +42,12 @@ export default defineAction({
       .optional()
       .describe("Marks this reference as a stable brand/style anchor."),
   }),
+  needsApproval: async ({ id, status, role }, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    ((status !== undefined && status !== "candidate") ||
+      (role !== undefined && role !== "generated")) &&
+    (await isSomeoneElsesDraft(await getAssetOrThrow(id))),
+  mcpTool: "search",
   run: async ({ id, category, isStyleAnchor, ...args }) => {
     const asset = await getAssetOrThrow(id);
     await assertCanApprove(asset.libraryId, "Updating an asset");

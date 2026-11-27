@@ -45,6 +45,7 @@ import type {
   DocumentSyncStatus,
 } from "@shared/api";
 import type { EditorBlockIds } from "@shared/block-identity-ids";
+import { readBlockLink, withoutBlockLink } from "@shared/block-link";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
@@ -60,6 +61,7 @@ import {
 } from "@shared/feature-flags";
 import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
+import { sameSourceMarkdown } from "@shared/source-markdown";
 import {
   joinRewrittenParagraphs,
   markdownSuggestionOperations,
@@ -356,6 +358,16 @@ import {
 } from "./local-source-write-state";
 import { NewPageStartingPoints } from "./NewPageStartingPoints";
 import { NotionConflictBanner } from "./NotionConflictBanner";
+import {
+  PageChecksProvider,
+  usePageChecks,
+} from "./page-checks/page-checks-context";
+import { PageCheckDialog } from "./page-checks/PageCheckDialog";
+import {
+  PageChecksPill,
+  pageChecksToLookAt,
+  PageChecksSection,
+} from "./page-checks/PageChecksSection";
 import {
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
@@ -3336,10 +3348,18 @@ function PageEditorSessionBody({
   );
   const navigate = useNavigate();
   const location = useLocation();
-  const linkedBlockId = useMemo(
-    () => new URLSearchParams(location.search).get("block"),
+  const blockLink = useMemo(
+    () => readBlockLink(location.search),
     [location.search],
   );
+  const runInteractiveHtml = document.accessRole === "owner";
+  const closeBlockLink = useCallback(() => {
+    if (!blockLink.fullScreen) return;
+    void navigate(
+      { search: withoutBlockLink(location.search), hash: location.hash },
+      { replace: true, preventScrollReset: true },
+    );
+  }, [blockLink.fullScreen, location.hash, location.search, navigate]);
   const mcpDirectoryWidgetReadOnly =
     document.mcpDirectoryWidgetReadOnly === true;
   const widgetEditability = directoryWidgetEditability(document);
@@ -4671,8 +4691,10 @@ function PageEditorSessionBody({
           if (!baseline.ok) throw new Error(baseline.error);
           if (
             baseline.revision &&
-            (baseline.document.content !==
-              lastSavedContentRef.current.content ||
+            (!sameSourceMarkdown(
+              baseline.document.content,
+              lastSavedContentRef.current.content,
+            ) ||
               baseline.document.title !== lastSavedTitleRef.current.title)
           ) {
             setLocalSourceConflict({
@@ -4697,7 +4719,10 @@ function PageEditorSessionBody({
           result = await writeDocumentToLinkedLocalSource(
             fileFirstDocument,
             localSource,
-            { expectedRevision: expectedLocalSourceRevision },
+            {
+              expectedRevision: expectedLocalSourceRevision,
+              changed: updates,
+            },
           );
         } catch (error) {
           if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {
@@ -5088,7 +5113,7 @@ function PageEditorSessionBody({
     if (
       !isLinkedLocalSourceDocument ||
       document.title !== localTitleRef.current ||
-      document.content !== localContentRef.current ||
+      !sameSourceMarkdown(document.content, localContentRef.current) ||
       !document.updatedAt
     ) {
       return;
@@ -5505,7 +5530,9 @@ function PageEditorSessionBody({
           (updates.title === undefined ||
             saved.document.title === updates.title) &&
           (updates.content === undefined ||
-            saved.document.content === updates.content)
+            saved.document.content === updates.content ||
+            (isLinkedLocalSourceDocument &&
+              sameSourceMarkdown(saved.document.content, updates.content)))
         )
           saved = saved.document;
       }
@@ -9160,6 +9187,7 @@ function PageEditorSessionBody({
     setPendingComment,
     changePendingComment,
     completePendingComment,
+    prefillPendingComment,
   } = usePendingCommentDraft(documentId);
   // The page shows Properties only in a Collection's peek. Elsewhere a new
   // Comment on one is written, and waits, under its row in Info, so the
@@ -11728,6 +11756,20 @@ function PageEditorSessionBody({
   const exportContent = isInitializedRef.current
     ? localContent
     : document.content;
+  const openPanelTabRef = useRef(openPanelTab);
+  openPanelTabRef.current = openPanelTab;
+  const pageChecks = usePageChecks({
+    documentId,
+    enabled: canComment && host === "page",
+    canEdit,
+    markdown: exportContent,
+    isSaved: () =>
+      lastSavedContentRef.current.content === localContentRef.current,
+    openInfo: () => {
+      if (openPanelTabRef.current !== "info") handlePagePanelChange("info");
+    },
+    prefillComment: prefillPendingComment,
+  });
   const pagePanelBody =
     pagePanel.rendered === "info" ? (
       <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
@@ -11762,6 +11804,7 @@ function PageEditorSessionBody({
             onSaveDescription={(description) =>
               persistDocumentUpdates({ description })
             }
+            checks={<PageChecksSection />}
           />
         </PropertyCommentsContext.Provider>
       </div>
@@ -11771,7 +11814,7 @@ function PageEditorSessionBody({
       </CommentHistoryScrollContainer>
     ) : null;
 
-  return (
+  const page = (
     <BlockRegistryProvider
       registry={contentBlockRegistry}
       ctx={blockRenderContext}
@@ -11866,6 +11909,15 @@ function PageEditorSessionBody({
             isFavorite={document.isFavorite}
             onToggleFavorite={handleToggleFavorite}
             utilityPanel={openPanelTab}
+            pageChecksCount={<PageChecksPill />}
+            checksToLookAt={
+              pageChecks.actions.enabled
+                ? pageChecksToLookAt(
+                    pageChecks.state.checks,
+                    pageChecks.state.live,
+                  )
+                : 0
+            }
             openCommentCount={openCommentCount}
             onUtilityPanelChange={handlePagePanelChange}
             showAgentTab={showAgentTab}
@@ -12432,6 +12484,7 @@ function PageEditorSessionBody({
                                 schema={getContentEditorSchema()}
                                 content={visualEditorContent}
                                 documentId={documentId}
+                                runInteractiveHtml={runInteractiveHtml}
                               />
                             </div>
                           ) : (
@@ -12620,6 +12673,7 @@ function PageEditorSessionBody({
                                 onBlockComment={
                                   canComment ? handleBlockComment : undefined
                                 }
+                                pageCheckMarks
                                 commentThreads={editorCommentThreads}
                                 activeThreadId={selectedThreadId}
                                 hoveredThreadId={hoveredThreadId}
@@ -12674,7 +12728,10 @@ function PageEditorSessionBody({
                                   !isLocalFileDocument &&
                                   !mcpDirectoryWidgetReadOnly
                                 }
-                                linkedBlockId={linkedBlockId}
+                                linkedBlockId={blockLink.blockId}
+                                linkedBlockFullScreen={blockLink.fullScreen}
+                                onFullScreenClosed={closeBlockLink}
+                                runInteractiveHtml={runInteractiveHtml}
                                 onBlockIdentityIds={
                                   isSuggesting
                                     ? undefined
@@ -12719,6 +12776,7 @@ function PageEditorSessionBody({
                                 primaryEditor={primaryEditor}
                                 primaryContent={exportContent}
                                 privateImageUploads={privateImageUploads}
+                                runInteractiveHtml={runInteractiveHtml}
                                 onFieldTabChange={
                                   blockFieldComments.onFieldTabChange
                                 }
@@ -12842,6 +12900,9 @@ function PageEditorSessionBody({
           />
         ) : null}
       </div>
+      <PageCheckDialog />
     </BlockRegistryProvider>
   );
+
+  return <PageChecksProvider value={pageChecks}>{page}</PageChecksProvider>;
 }

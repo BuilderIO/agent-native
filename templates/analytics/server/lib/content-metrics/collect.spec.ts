@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   dryRunQuerySchema: vi.fn(),
   runQuery: vi.fn(),
   listYouTubeChannelVideos: vi.fn(),
+  xToken: "test-x-token" as string | null,
   contexts: [] as unknown[],
 }));
 
@@ -58,6 +61,14 @@ vi.mock("../youtube.js", () => ({
   listYouTubeChannelVideos: mocks.listYouTubeChannelVideos,
 }));
 
+vi.mock("../credentials", () => ({
+  resolveCredential: async () => mocks.xToken,
+}));
+
+vi.mock("../credentials-context", () => ({
+  requireRequestCredentialContext: () => ({ email: "alice@example.test" }),
+}));
+
 vi.mock("../bigquery.js", () => ({
   BigQueryMaximumBytesBilledError: class extends Error {},
   dryRunQuerySchema: mocks.dryRunQuerySchema,
@@ -73,8 +84,10 @@ import {
 } from "./collect.js";
 import {
   agentNativeSignupsConfigSchema,
+  defaultContentCollectionConfig,
   signupsConfigSchema,
   type AgentNativeSignupsConfig,
+  type ContentCollectionConfig,
   type SignupsConfig,
 } from "./config.js";
 import {
@@ -112,7 +125,8 @@ function onlySteps(
       | "searchConsoleQueries"
       | "signups"
       | "agentNativeSignups"
-      | "youtube",
+      | "youtube"
+      | "x",
       boolean
     >
   >,
@@ -148,6 +162,7 @@ function onlySteps(
         enabled: steps.agentNativeSignups ?? false,
       },
       youtube: { enabled: steps.youtube ?? false, channels: youtubeChannels },
+      x: { enabled: steps.x ?? false, accounts: [], links: [], terms: [] },
     },
   });
 }
@@ -201,6 +216,7 @@ describe("content collection", () => {
     mocks.dryRunQuerySchema.mockReset();
     mocks.runQuery.mockReset();
     mocks.listYouTubeChannelVideos.mockReset();
+    mocks.xToken = "test-x-token";
     mocks.contexts.length = 0;
     for (const statement of CONTENT_METRICS_MIGRATION_SQL) {
       await client.exec(statement);
@@ -503,6 +519,7 @@ describe("content collection", () => {
         "signups",
         "agent_native_signups",
         "youtube",
+        "x",
       ].map((step) =>
         expect.objectContaining({
           step,
@@ -3111,6 +3128,1438 @@ describe("content collection", () => {
         }),
       ]);
       expect(await rows("SELECT id FROM analytics_content_items")).toEqual([]);
+    });
+  });
+
+  describe("X", () => {
+    type FakeLink = { url: string; expanded_url: string; display_url: string };
+    type FakePost = {
+      id: string;
+      authorId: string;
+      createdAt: string;
+      text: string;
+      links?: FakeLink[];
+      note?: { text: string; links: FakeLink[] };
+      views: number;
+    };
+    type Failure = { status: number; body: unknown };
+    const SPACED_BRAND = ["Agent", "Native"].join(" ");
+    const NOT_FOUND = "https://api.x.com/2/problems/resource-not-found";
+    const USERS = new Map([
+      ["builderio", { id: "1", username: "builderio" }],
+      ["steve8708", { id: "2", username: "Steve8708" }],
+    ]);
+    let posts: FakePost[] = [];
+    let requests: URL[] = [];
+    let served = Number.POSITIVE_INFINITY;
+    let withheld = new Set<string>();
+    let failWith: (url: URL) => Failure | null | Promise<Failure | null> = () =>
+      null;
+
+    function first<T>(items: readonly T[]): T {
+      const [item] = items;
+      if (item === undefined) throw new Error("expected at least one item");
+      return item;
+    }
+
+    function json(body: unknown, status = 200) {
+      return new Response(
+        typeof body === "string" ? body : JSON.stringify(body),
+        { status },
+      );
+    }
+
+    function raw(post: FakePost) {
+      return {
+        id: post.id,
+        text: post.text,
+        created_at: post.createdAt,
+        ...(post.links ? { entities: { urls: post.links } } : {}),
+        ...(post.note
+          ? {
+              note_post: {
+                text: post.note.text,
+                entities: { urls: post.note.links },
+              },
+            }
+          : {}),
+        public_metrics: {
+          impression_count: post.views,
+          like_count: 2,
+          repost_count: 1,
+          reply_count: 1,
+          quote_count: 0,
+          bookmark_count: 0,
+        },
+      };
+    }
+
+    function newestFirst(a: FakePost, b: FakePost) {
+      return BigInt(b.id) > BigInt(a.id) ? 1 : -1;
+    }
+
+    function serveX() {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: URL) => {
+          const url = new URL(input);
+          requests.push(url);
+          const failure = await failWith(url);
+          if (failure) return json(failure.body, failure.status);
+          if (url.pathname === "/2/users/by") {
+            const names = (url.searchParams.get("usernames") ?? "").split(",");
+            const found = names.flatMap((name) => {
+              const user = USERS.get(name.toLowerCase());
+              return user ? [user] : [];
+            });
+            const missing = names.filter(
+              (name) => !USERS.has(name.toLowerCase()),
+            );
+            return json({
+              ...(found.length > 0 ? { data: found } : {}),
+              ...(missing.length > 0
+                ? {
+                    errors: missing.map((value) => ({
+                      value,
+                      title: "Not Found Error",
+                      type: NOT_FOUND,
+                    })),
+                  }
+                : {}),
+            });
+          }
+          const timeline = /^\/2\/users\/(\d+)\/tweets$/.exec(url.pathname);
+          if (timeline) {
+            const sinceId = url.searchParams.get("since_id");
+            const untilId = url.searchParams.get("until_id");
+            const startTime = Date.parse(
+              url.searchParams.get("start_time") ?? "",
+            );
+            const size = Number(url.searchParams.get("max_results"));
+            const own = posts
+              .filter((post) => post.authorId === timeline[1])
+              .sort(newestFirst);
+            const servable = new Set(
+              own.slice(0, served).map((post) => post.id),
+            );
+            const matching = own.filter(
+              (post) =>
+                (sinceId
+                  ? BigInt(post.id) > BigInt(sinceId)
+                  : Date.parse(post.createdAt) >= startTime) &&
+                (!untilId || BigInt(post.id) < BigInt(untilId)),
+            );
+            const slice = matching
+              .filter((post) => servable.has(post.id))
+              .slice(0, size);
+            return json({
+              ...(slice.length > 0 ? { data: slice.map(raw) } : {}),
+              meta: {
+                result_count: slice.length,
+                ...(matching.length > size ? { next_token: "more" } : {}),
+              },
+            });
+          }
+          if (url.pathname === "/2/tweets") {
+            const ids = (url.searchParams.get("ids") ?? "").split(",");
+            const found = posts.filter(
+              (post) => ids.includes(post.id) && !withheld.has(post.id),
+            );
+            const errors = ids
+              .filter((id) => !found.some((post) => post.id === id))
+              .map((id) =>
+                withheld.has(id)
+                  ? {
+                      resource_id: id,
+                      resource_type: "tweet",
+                      title: "Authorization Error",
+                      type: "https://api.x.com/2/problems/not-authorized-for-resource",
+                    }
+                  : {
+                      resource_id: id,
+                      resource_type: "tweet",
+                      title: "Not Found Error",
+                      type: NOT_FOUND,
+                    },
+              );
+            return json({
+              ...(found.length > 0 ? { data: found.map(raw) } : {}),
+              ...(errors.length > 0 ? { errors } : {}),
+            });
+          }
+          return json({ title: "Not Found" }, 404);
+        }),
+      );
+    }
+
+    function xOnly(x: Partial<ContentCollectionConfig["x"]> = {}) {
+      return writeContentCollection(ORG_A, {
+        enabled: true,
+        config: {
+          ...defaultContentCollectionConfig(),
+          x: {
+            enabled: true,
+            accounts: [
+              { handle: "@builderio", allPosts: true },
+              { handle: "@Steve8708", allPosts: false },
+            ],
+            links: ["builder.io/blog", "agent-native.com"],
+            terms: ["Builder.io", "@builderio", "Agent-Native", SPACED_BRAND],
+            ...x,
+          },
+        },
+      });
+    }
+
+    async function runX(now: string, clock?: () => Date) {
+      const collection = await readContentCollection(ORG_A);
+      if (!collection) throw new Error("no content collection");
+      return collectContentForCollection(collection, {
+        trigger: "scheduled",
+        now: new Date(now),
+        ...(clock ? { clock } : {}),
+        steps: ["x"],
+      });
+    }
+
+    async function spentBefore(costUsd: number, startedAt: string) {
+      await client.query(
+        "INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, cost_usd) VALUES ($1, 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', $2, $3)",
+        [`prior-${startedAt}`, startedAt, costUsd],
+      );
+    }
+
+    function storedItemId(externalId: string) {
+      const digest = createHash("sha256")
+        .update(`org:org_a\u0000x\u0000${externalId}`)
+        .digest("base64url");
+      return `cci_${digest}`;
+    }
+
+    async function storeAccount(
+      user: { id: string; username: string },
+      cursor: Record<string, unknown>,
+    ) {
+      await client.query(
+        "INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, authors, published_at, metadata, relevance, first_seen_at, updated_at) VALUES ($1, 'org:org_a', 'alice@example.test', 'org_a', 'x', $2, $3, $4, $4, $5, NULL, $6, 'account', '2026-11-01T08:00:00.000Z', '2026-11-01T08:00:00.000Z')",
+        [
+          storedItemId(`account:${user.id}`),
+          `account:${user.id}`,
+          `https://x.com/${user.username}`,
+          `@${user.username}`,
+          JSON.stringify([`@${user.username}`]),
+          JSON.stringify({
+            authorId: user.id,
+            username: user.username,
+            ...cursor,
+          }),
+        ],
+      );
+    }
+
+    async function storeCountedPosts(
+      entries: Array<{ id: string; publishedAt: string; lastReadAt: string }>,
+    ) {
+      for (const entry of entries) {
+        await client.query(
+          "INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, authors, published_at, metadata, relevance, first_seen_at, updated_at) VALUES ($1, 'org:org_a', 'alice@example.test', 'org_a', 'x', $2, $3, $4, '@builderio', '[\"@builderio\"]', $5, $6, 'counted', $7, $7)",
+          [
+            storedItemId(entry.id),
+            entry.id,
+            `https://x.com/builderio/status/${entry.id}`,
+            `Post ${entry.id}`,
+            entry.publishedAt,
+            JSON.stringify({
+              authorId: "1",
+              username: "builderio",
+              countedBy: "account",
+              lastReadAt: entry.lastReadAt,
+            }),
+            entry.lastReadAt,
+          ],
+        );
+        posts.push({
+          id: entry.id,
+          authorId: "1",
+          createdAt: entry.publishedAt,
+          text: `Post ${entry.id}`,
+          views: 10,
+        });
+      }
+    }
+
+    function lookups() {
+      return requests.filter((url) => url.pathname === "/2/tweets");
+    }
+
+    function lookedUp() {
+      return lookups().map((url) =>
+        (url.searchParams.get("ids") ?? "").split(",").sort(),
+      );
+    }
+
+    function timelines(userId: string) {
+      return requests
+        .filter((url) => url.pathname === `/2/users/${userId}/tweets`)
+        .map((url) => {
+          const params: Record<string, string | undefined> = Object.fromEntries(
+            url.searchParams,
+          );
+          delete params.exclude;
+          delete params["post.fields"];
+          return params;
+        });
+    }
+
+    async function postIds() {
+      return (
+        await rows(
+          "SELECT external_id FROM analytics_content_items WHERE relevance <> 'account' ORDER BY external_id",
+        )
+      ).map((row) => String(row.external_id));
+    }
+
+    async function cursorOf(userId: string) {
+      const row = first(
+        await rows(
+          `SELECT metadata FROM analytics_content_items WHERE external_id = 'account:${userId}'`,
+        ),
+      );
+      return JSON.parse(String(row.metadata));
+    }
+
+    async function xRun() {
+      return first(
+        await rows(
+          "SELECT status, error_code, error_message, cost_usd, detail, row_count FROM analytics_content_collection_runs WHERE step = 'x' AND id NOT LIKE 'prior-%' ORDER BY started_at DESC LIMIT 1",
+        ),
+      );
+    }
+
+    function builderPost(id: string, createdAt = "2026-11-24T08:00:00.000Z") {
+      return { id, authorId: "1", createdAt, text: "Ship log", views: 10 };
+    }
+
+    beforeEach(() => {
+      posts = [];
+      requests = [];
+      served = Number.POSITIVE_INFINITY;
+      withheld = new Set();
+      failWith = () => null;
+      serveX();
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("stays off until an admin turns it on", async () => {
+      await onlySteps({});
+      const collection = await readContentCollection(ORG_A);
+      if (!collection) throw new Error("no content collection");
+      expect(
+        await collectContentForCollection(collection, {
+          trigger: "scheduled",
+          now: new Date("2026-11-26T08:00:00.000Z"),
+          steps: ["x"],
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          step: "x",
+          status: "skipped",
+          reason: "step_disabled",
+        }),
+      ]);
+      expect(requests).toEqual([]);
+    });
+
+    it("backfills 30 days of each account with post.fields, counting every @builderio post and others only by the rule", async () => {
+      await xOnly();
+      posts = [
+        {
+          id: "1000",
+          authorId: "1",
+          createdAt: "2026-11-21T08:00:00.000Z",
+          text: "Ship log",
+          views: 900,
+        },
+        {
+          id: "1001",
+          authorId: "1",
+          createdAt: "2026-11-24T08:00:00.000Z",
+          text: "Happy Thanksgiving from the team",
+          views: 500,
+        },
+        {
+          id: "2001",
+          authorId: "2",
+          createdAt: "2026-11-25T08:00:00.000Z",
+          text: "New article https://t.co/a",
+          links: [
+            {
+              url: "https://t.co/a",
+              expanded_url: "https://www.builder.io/blog/fusion",
+              display_url: "builder.io/blog/fusion",
+            },
+          ],
+          views: 300,
+        },
+        {
+          id: "2000",
+          authorId: "2",
+          createdAt: "2026-11-23T08:00:00.000Z",
+          text: "Every builder should read this",
+          views: 50,
+        },
+        {
+          id: "900",
+          authorId: "2",
+          createdAt: "2026-10-01T08:00:00.000Z",
+          text: "An old Builder.io post",
+          views: 10,
+        },
+      ];
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ step: "x", status: "succeeded" }),
+      ]);
+
+      expect(requests.map((url) => url.pathname)).toEqual([
+        "/2/users/by",
+        "/2/users/1/tweets",
+        "/2/users/2/tweets",
+      ]);
+      expect(first(requests).searchParams.get("usernames")).toBe(
+        "builderio,Steve8708",
+      );
+      expect(Object.fromEntries(first(requests.slice(2)).searchParams)).toEqual(
+        {
+          max_results: "100",
+          exclude: "retweets,replies",
+          "post.fields": "created_at,public_metrics,entities,note_post",
+          start_time: "2026-10-27T08:00:00Z",
+        },
+      );
+      expect(
+        await rows(
+          "SELECT external_id, url, title, author, relevance, metadata FROM analytics_content_items WHERE relevance <> 'account' ORDER BY external_id",
+        ),
+      ).toEqual([
+        {
+          external_id: "1000",
+          url: "https://x.com/builderio/status/1000",
+          title: "Ship log",
+          author: "@builderio",
+          relevance: "counted",
+          metadata:
+            '{"authorId":"1","username":"builderio","countedBy":"account","lastReadAt":"2026-11-26T08:00:00.000Z"}',
+        },
+        expect.objectContaining({ external_id: "1001", relevance: "counted" }),
+        {
+          external_id: "2000",
+          url: "https://x.com/Steve8708/status/2000",
+          title: "Every builder should read this",
+          author: "@Steve8708",
+          relevance: "not_counted",
+          metadata: '{"authorId":"2","username":"Steve8708","countedBy":null}',
+        },
+        {
+          external_id: "2001",
+          url: "https://x.com/Steve8708/status/2001",
+          title: "New article builder.io/blog/fusion",
+          author: "@Steve8708",
+          relevance: "counted",
+          metadata:
+            '{"authorId":"2","username":"Steve8708","countedBy":"link:builder.io/blog","lastReadAt":"2026-11-26T08:00:00.000Z"}',
+        },
+      ]);
+      expect(
+        await rows(
+          "SELECT external_id, url, title, published_at FROM analytics_content_items WHERE relevance = 'account' ORDER BY external_id",
+        ),
+      ).toEqual([
+        {
+          external_id: "account:1",
+          url: "https://x.com/builderio",
+          title: "@builderio",
+          published_at: null,
+        },
+        {
+          external_id: "account:2",
+          url: "https://x.com/Steve8708",
+          title: "@Steve8708",
+          published_at: null,
+        },
+      ]);
+      expect(await cursorOf("1")).toEqual(
+        expect.objectContaining({
+          sinceId: "1001",
+          sinceAt: "2026-11-24T08:00:00.000Z",
+          untilId: null,
+        }),
+      );
+      expect(
+        await rows(
+          "SELECT i.external_id, s.metric_date, s.metric, s.value FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE s.metric IN ('x_views', 'x_age_hours') ORDER BY i.external_id, s.metric",
+        ),
+      ).toEqual([
+        {
+          external_id: "1000",
+          metric_date: "2026-11-26",
+          metric: "x_age_hours",
+          value: 120,
+        },
+        {
+          external_id: "1000",
+          metric_date: "2026-11-26",
+          metric: "x_views",
+          value: 900,
+        },
+        {
+          external_id: "1001",
+          metric_date: "2026-11-26",
+          metric: "x_age_hours",
+          value: 48,
+        },
+        {
+          external_id: "1001",
+          metric_date: "2026-11-26",
+          metric: "x_views",
+          value: 500,
+        },
+        {
+          external_id: "2001",
+          metric_date: "2026-11-26",
+          metric: "x_age_hours",
+          value: 24,
+        },
+        {
+          external_id: "2001",
+          metric_date: "2026-11-26",
+          metric: "x_views",
+          value: 300,
+        },
+      ]);
+      expect(
+        await rows(
+          "SELECT DISTINCT metric FROM analytics_content_metric_snapshots ORDER BY metric",
+        ),
+      ).toEqual(
+        [
+          "x_age_hours",
+          "x_bookmarks",
+          "x_likes",
+          "x_quotes",
+          "x_replies",
+          "x_reposts",
+          "x_views",
+        ].map((metric) => ({ metric })),
+      );
+      const run = await xRun();
+      expect(run).toEqual(
+        expect.objectContaining({
+          status: "succeeded",
+          row_count: 21,
+          detail:
+            "Read 4 posts and 2 accounts ($0.04): 3 of 4 new posts counted, 0 re-reads. November 2026 (UTC): $0.04 of the $25.00 cap; month-end projection $0.06.",
+        }),
+      );
+      expect(run.cost_usd).toBeCloseTo(0.04, 5);
+    });
+
+    it("counts a long post by a link that only its note_post text carries", async () => {
+      await xOnly({ accounts: [{ handle: "@Steve8708", allPosts: false }] });
+      posts = [
+        {
+          id: "2000",
+          authorId: "2",
+          createdAt: "2026-11-25T08:00:00.000Z",
+          text: "A long thread about shipping agents, part one of many…",
+          note: {
+            text: "A long thread about shipping agents, part one of many, with the write-up at https://t.co/n",
+            links: [
+              {
+                url: "https://t.co/n",
+                expanded_url: "https://www.builder.io/blog/agents",
+                display_url: "builder.io/blog/agents",
+              },
+            ],
+          },
+          views: 70,
+        },
+      ];
+      await runX("2026-11-26T08:00:00.000Z");
+      expect(
+        await rows(
+          "SELECT external_id, title, relevance, metadata FROM analytics_content_items WHERE relevance <> 'account'",
+        ),
+      ).toEqual([
+        {
+          external_id: "2000",
+          title:
+            "A long thread about shipping agents, part one of many, with the write-up at builder.io/blog/agents",
+          relevance: "counted",
+          metadata: expect.stringContaining(
+            '"countedBy":"link:builder.io/blog"',
+          ),
+        },
+      ]);
+    });
+
+    it("reads on from each account's saved place and re-reads a counted post at 1, 3, 7 and 30 days old, then never again", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      posts = [
+        {
+          id: "3000",
+          authorId: "1",
+          createdAt: "2026-11-02T03:00:00.000Z",
+          text: "Launch day",
+          views: 0,
+        },
+      ];
+      const days = [0, 1, 2, 3, 7, 30, 31];
+      for (const [index, day] of days.entries()) {
+        first(posts).views = (index + 1) * 100;
+        const now = new Date(
+          Date.parse("2026-11-02T08:00:00.000Z") + day * 86_400_000,
+        ).toISOString();
+        expect(await runX(now)).toEqual([
+          expect.objectContaining({ step: "x", status: "succeeded" }),
+        ]);
+      }
+
+      expect(
+        requests.filter((url) => url.pathname === "/2/users/by"),
+      ).toHaveLength(1);
+      expect(
+        timelines("1").map(
+          (params) => params.since_id ?? `start ${params.start_time}`,
+        ),
+      ).toEqual([
+        "start 2026-10-03T08:00:00Z",
+        "3000",
+        "3000",
+        "3000",
+        "3000",
+        "start 2026-11-02T08:00:00Z",
+        "start 2026-11-03T08:00:00Z",
+      ]);
+      expect(lookups().map((url) => url.searchParams.get("ids"))).toEqual([
+        "3000",
+        "3000",
+        "3000",
+        "3000",
+      ]);
+      expect(
+        await rows(
+          "SELECT s.metric_date, MAX(s.value) FILTER (WHERE s.metric = 'x_age_hours') AS age_hours, MAX(s.value) FILTER (WHERE s.metric = 'x_views') AS views FROM analytics_content_metric_snapshots s GROUP BY s.metric_date ORDER BY s.metric_date",
+        ),
+      ).toEqual([
+        { metric_date: "2026-11-02", age_hours: 5, views: 100 },
+        { metric_date: "2026-11-03", age_hours: 29, views: 200 },
+        { metric_date: "2026-11-05", age_hours: 77, views: 400 },
+        { metric_date: "2026-11-09", age_hours: 173, views: 500 },
+        { metric_date: "2026-12-02", age_hours: 725, views: 600 },
+      ]);
+    });
+
+    it("shrinks the last page to what the month's $25 has left, keeps every page it read and reads on next month", async () => {
+      await xOnly();
+      await spentBefore(5, "2026-10-31T08:00:00.000Z");
+      await spentBefore(24.3, "2026-11-03T08:00:00.000Z");
+      posts = [
+        ...[0, 1, 2].map((n) => ({
+          id: String(1000 + n),
+          authorId: "1",
+          createdAt: `2026-11-2${n}T08:00:00.000Z`,
+          text: `Builder post ${n}`,
+          views: 10,
+        })),
+        ...Array.from({ length: 150 }, (_, n) => ({
+          id: String(2000 + n),
+          authorId: "2",
+          createdAt: "2026-11-10T08:00:00.000Z",
+          text: `Builder.io tip ${n}`,
+          views: 10,
+        })),
+      ];
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          step: "x",
+          status: "cost_limited",
+          reason: "x_monthly_cap",
+        }),
+      ]);
+
+      expect(timelines("2")).toEqual([
+        { max_results: "100", start_time: "2026-10-27T08:00:00Z" },
+        {
+          max_results: "33",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "2050",
+        },
+      ]);
+      expect(await postIds()).toHaveLength(136);
+      expect(await cursorOf("2")).toEqual(
+        expect.objectContaining({
+          sinceId: null,
+          startTime: "2026-10-27T08:00:00Z",
+          untilId: "2017",
+          topId: "2149",
+        }),
+      );
+      const run = await xRun();
+      expect(run).toEqual(
+        expect.objectContaining({
+          status: "cost_limited",
+          error_code: "x_monthly_cap",
+          row_count: 952,
+          error_message:
+            "Stopped before the $25.00 monthly X cap: $25.00 spent in November 2026 (UTC), $0.70 of it in this run.",
+          detail: expect.stringContaining(
+            "Read 136 posts and 2 accounts ($0.70)",
+          ),
+        }),
+      );
+      expect(run.cost_usd).toBeCloseTo(0.7, 5);
+      expect(await runX("2026-11-26T09:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "skipped",
+          reason: "already_ran_today",
+        }),
+      ]);
+
+      requests = [];
+      expect(await runX("2026-12-01T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "100", since_id: "1002" },
+      ]);
+      expect(timelines("2")).toEqual([
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "2017",
+        },
+        { max_results: "100", since_id: "2149" },
+      ]);
+      expect(await postIds()).toHaveLength(153);
+      expect(await cursorOf("2")).toEqual(
+        expect.objectContaining({ sinceId: "2149", untilId: null }),
+      );
+    });
+
+    it("drops the 30-day re-reads when the month-end projection with them passes $25", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      await spentBefore(24.4, "2026-11-02T08:00:00.000Z");
+      await storeAccount(
+        { id: "1", username: "builderio" },
+        { sinceId: "6001", sinceAt: "2026-11-19T03:00:00.000Z" },
+      );
+      await storeCountedPosts([
+        ...Array.from({ length: 130 }, (_, n) => ({
+          id: String(5000 + n),
+          publishedAt: "2026-10-27T03:00:00.000Z",
+          lastReadAt: "2026-11-03T08:00:00.000Z",
+        })),
+        ...["6000", "6001"].map((id) => ({
+          id,
+          publishedAt: "2026-11-19T03:00:00.000Z",
+          lastReadAt: "2026-11-22T08:00:00.000Z",
+        })),
+      ]);
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ step: "x", status: "succeeded" }),
+      ]);
+
+      expect(timelines("1")).toEqual([
+        { max_results: "100", since_id: "6001" },
+      ]);
+      expect(lookedUp()).toEqual([["6000", "6001"]]);
+      expect((await xRun()).detail).toBe(
+        "Read 2 posts and 0 accounts ($0.01): 0 of 0 new posts counted, 2 re-reads. November 2026 (UTC): $24.41 of the $25.00 cap; month-end projection $24.41. Skipped 130 30-day re-reads to keep the projection under the cap.",
+      );
+    });
+
+    it("keeps the 30-day re-reads while the projection stays under $25, 100 posts a request", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      await spentBefore(20, "2026-11-02T08:00:00.000Z");
+      await storeAccount(
+        { id: "1", username: "builderio" },
+        { sinceId: "6001", sinceAt: "2026-11-19T03:00:00.000Z" },
+      );
+      await storeCountedPosts([
+        ...Array.from({ length: 130 }, (_, n) => ({
+          id: String(5000 + n),
+          publishedAt: "2026-10-27T03:00:00.000Z",
+          lastReadAt: "2026-11-03T08:00:00.000Z",
+        })),
+        ...["6000", "6001"].map((id) => ({
+          id,
+          publishedAt: "2026-11-19T03:00:00.000Z",
+          lastReadAt: "2026-11-22T08:00:00.000Z",
+        })),
+      ]);
+
+      await runX("2026-11-26T08:00:00.000Z");
+
+      const batches = lookups().map((url) =>
+        (url.searchParams.get("ids") ?? "").split(","),
+      );
+      expect(batches.map((ids) => ids.length)).toEqual([100, 32]);
+      expect(first(batches).slice(0, 2).sort()).toEqual(["6000", "6001"]);
+      const run = await xRun();
+      expect(run.detail).toContain("132 re-reads");
+      expect(run.cost_usd).toBeCloseTo(0.66, 5);
+      expect(
+        await rows(
+          "SELECT COUNT(*)::int AS reads FROM analytics_content_metric_snapshots WHERE metric = 'x_age_hours' AND value = 725",
+        ),
+      ).toEqual([{ reads: 130 }]);
+    });
+
+    it("marks a post X says is gone, and tries one X held back again while its window is open", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      await storeAccount(
+        { id: "1", username: "builderio" },
+        { sinceId: "7002", sinceAt: "2026-11-19T06:00:00.000Z" },
+      );
+      await storeCountedPosts(
+        ["7000", "7001", "7002"].map((id) => ({
+          id,
+          publishedAt: "2026-11-19T06:00:00.000Z",
+          lastReadAt: "2026-11-22T08:00:00.000Z",
+        })),
+      );
+      posts = posts.filter((post) => post.id !== "7001");
+      withheld = new Set(["7002"]);
+
+      await runX("2026-11-26T08:00:00.000Z");
+
+      expect(lookedUp()).toEqual([["7000", "7001", "7002"]]);
+      expect(
+        (
+          await rows(
+            "SELECT external_id, metadata FROM analytics_content_items WHERE external_id IN ('7001', '7002') ORDER BY external_id",
+          )
+        ).map((row) => ({
+          id: row.external_id,
+          unavailableSince: JSON.parse(String(row.metadata)).unavailableSince,
+        })),
+      ).toEqual([
+        { id: "7001", unavailableSince: "2026-11-26T08:00:00.000Z" },
+        { id: "7002", unavailableSince: undefined },
+      ]);
+      expect((await xRun()).detail).toContain(
+        "X held back 1 post due a re-read without saying it was deleted; the next run tries again while the window is open.",
+      );
+
+      withheld = new Set();
+      requests = [];
+      await runX("2026-11-27T08:00:00.000Z");
+      expect(lookedUp()).toEqual([["7002"]]);
+    });
+
+    it("stops at X's own spending limit with the pages it read saved", async () => {
+      await xOnly();
+      posts = [builderPost("1000")];
+      failWith = (url) =>
+        url.pathname === "/2/users/2/tweets"
+          ? {
+              status: 402,
+              body: { title: "Payment Required", detail: "Spend cap reached." },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "cost_limited",
+          reason: "x_spending_limit_reached",
+        }),
+      ]);
+      expect(await postIds()).toEqual(["1000"]);
+      const run = await xRun();
+      expect(run.error_message).toContain("Spend cap reached.");
+      expect(run.cost_usd).toBeCloseTo(0.025, 5);
+    });
+
+    it("keeps the pages a failed run read, so the next run reads on from them, and the whole reservation of a request X never answered", async () => {
+      await xOnly();
+      posts = [builderPost("1000")];
+      failWith = (url) =>
+        url.pathname === "/2/users/2/tweets"
+          ? { status: 503, body: { title: "Service Unavailable" } }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_request_failed",
+        }),
+      ]);
+      expect(await postIds()).toEqual(["1000"]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.525, 5);
+      expect((await cursorOf("1")).coveredRunId).toBeNull();
+
+      failWith = () => null;
+      requests = [];
+      await runX("2026-11-27T08:00:00.000Z");
+      expect(timelines("1")).toEqual([
+        { max_results: "100", since_id: "1000" },
+      ]);
+      expect((await cursorOf("1")).coveredRunId).toBe(
+        first(
+          await rows(
+            "SELECT id FROM analytics_content_collection_runs WHERE step = 'x' AND status = 'succeeded'",
+          ),
+        ).id,
+      );
+    });
+
+    it("holds a request's most in the run's cost before sending it, and keeps it when the request dies", async () => {
+      await xOnly();
+      posts = [builderPost("1000")];
+      let held: unknown;
+      failWith = async (url) => {
+        if (url.pathname !== "/2/users/2/tweets") return null;
+        held = first(
+          await rows(
+            "SELECT cost_usd FROM analytics_content_collection_runs WHERE status = 'running'",
+          ),
+        ).cost_usd;
+        throw new TypeError("fetch failed");
+      };
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "failed", reason: "step_failed" }),
+      ]);
+      expect(held).toBeCloseTo(0.525, 5);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.525, 5);
+    });
+
+    it("keeps the reservation when X answers with a body that isn't JSON", async () => {
+      await xOnly();
+      posts = [builderPost("1000")];
+      failWith = (url) =>
+        url.pathname === "/2/users/2/tweets"
+          ? { status: 200, body: "<html>upstream reset</html>" }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_unexpected_response",
+        }),
+      ]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.525, 5);
+    });
+
+    it("sends nothing more once another run has taken this one over", async () => {
+      await xOnly();
+      posts = [builderPost("1000")];
+      failWith = async (url) => {
+        if (url.pathname === "/2/users/1/tweets") {
+          await client.query(
+            "UPDATE analytics_content_collection_runs SET status = 'failed', error_code = 'abandoned' WHERE status = 'running'",
+          );
+        }
+        return null;
+      };
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "content_run_not_active",
+        }),
+      ]);
+      expect(requests.map((url) => url.pathname)).toEqual([
+        "/2/users/by",
+        "/2/users/1/tweets",
+      ]);
+      expect(await postIds()).toEqual([]);
+      const run = await xRun();
+      expect(run.error_code).toBe("abandoned");
+      expect(run.cost_usd).toBeCloseTo(0.52, 5);
+    });
+
+    it("sends nothing in the UTC month's last 2 minutes and the next run reads on", async () => {
+      await xOnly();
+      posts = [builderPost("1000"), { ...builderPost("2000"), authorId: "2" }];
+      const clock = () =>
+        new Date(
+          requests.some((url) => url.pathname === "/2/users/1/tweets")
+            ? "2026-11-30T23:58:00.000Z"
+            : "2026-11-30T23:57:59.000Z",
+        );
+
+      expect(await runX("2026-11-30T23:57:00.000Z", clock)).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(requests.map((url) => url.pathname)).toEqual([
+        "/2/users/by",
+        "/2/users/1/tweets",
+      ]);
+      const run = await xRun();
+      expect(run.detail).toContain(
+        "The UTC month was ending, so the run stopped to keep its reads in November 2026; the next run reads on.",
+      );
+      expect(run.cost_usd).toBeCloseTo(0.025, 5);
+
+      requests = [];
+      await runX("2026-12-01T08:00:00.000Z");
+      expect(timelines("2")).toEqual([
+        { max_results: "100", start_time: "2026-11-01T08:00:00Z" },
+      ]);
+      expect(await postIds()).toEqual(["1000", "2000"]);
+    });
+
+    it("releases a reservation the UTC month ended under and sends nothing more", async () => {
+      await xOnly();
+      posts = [builderPost("1000")];
+      let checks = 0;
+      const clock = () => {
+        checks += 1;
+        return new Date(
+          checks < 4 ? "2026-11-30T23:50:00.000Z" : "2026-12-01T00:00:01.000Z",
+        );
+      };
+
+      expect(await runX("2026-11-30T23:50:00.000Z", clock)).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(requests.map((url) => url.pathname)).toEqual(["/2/users/by"]);
+      const run = await xRun();
+      expect(run.detail).toContain(
+        "The UTC month was ending, so the run stopped to keep its reads in November 2026; the next run reads on.",
+      );
+      expect(run.cost_usd).toBeCloseTo(0.02, 5);
+    });
+
+    it("saves the pages read before the settings changed and none after", async () => {
+      await xOnly();
+      posts = [builderPost("1000"), { ...builderPost("2000"), authorId: "2" }];
+      failWith = async (url) => {
+        if (url.pathname === "/2/users/2/tweets") {
+          await xOnly({ terms: ["Builder.io"] });
+        }
+        return null;
+      };
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "content_config_changed",
+        }),
+      ]);
+      expect(await postIds()).toEqual(["1000"]);
+    });
+
+    it("drops but pays for posts X returns at or below the since_id, and saves a post only once a run", async () => {
+      await xOnly();
+      await storeAccount(
+        { id: "1", username: "builderio" },
+        { sinceId: "1000", sinceAt: "2026-11-24T08:00:00.000Z" },
+      );
+      failWith = (url) => {
+        if (url.pathname === "/2/users/1/tweets") {
+          return {
+            status: 200,
+            body: {
+              data: ["1001", "1000", "999"].map((id) => raw(builderPost(id))),
+              meta: { result_count: 3 },
+            },
+          };
+        }
+        if (url.pathname === "/2/users/2/tweets") {
+          return {
+            status: 200,
+            body: {
+              data: [raw(builderPost("1001"))],
+              meta: { result_count: 1 },
+            },
+          };
+        }
+        return null;
+      };
+
+      await runX("2026-11-26T08:00:00.000Z");
+
+      expect(
+        await rows(
+          "SELECT external_id, author FROM analytics_content_items WHERE relevance <> 'account'",
+        ),
+      ).toEqual([{ external_id: "1001", author: "@builderio" }]);
+      const run = await xRun();
+      expect(run.detail).toContain(
+        "Read 4 posts and 1 account ($0.03): 1 of 1 new post counted",
+      );
+      expect(run.cost_usd).toBeCloseTo(0.03, 5);
+    });
+
+    it("reads 8 pages an account a run, then says when X's 800-post limit kept older posts out", async () => {
+      await xOnly({ accounts: [{ handle: "@Steve8708", allPosts: false }] });
+      served = 800;
+      posts = Array.from({ length: 850 }, (_, n) => ({
+        id: String(10000 + n),
+        authorId: "2",
+        createdAt: "2026-11-25T08:00:00.000Z",
+        text: `Post ${n}`,
+        views: 1,
+      }));
+
+      await runX("2026-11-26T08:00:00.000Z");
+      expect(timelines("2")).toHaveLength(8);
+      expect(await postIds()).toHaveLength(800);
+      expect((await xRun()).detail).toContain(
+        "@Steve8708 has older posts left to read; the next run reads on.",
+      );
+
+      requests = [];
+      await runX("2026-11-27T08:00:00.000Z");
+      expect(timelines("2")).toEqual([
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "10050",
+        },
+        { max_results: "100", since_id: "10849" },
+      ]);
+      expect((await xRun()).detail).toContain(
+        "X serves only an account's 800 newest posts without replies, so @Steve8708's posts older than 2026-11-25 may not all have been read.",
+      );
+    });
+
+    it("fails visibly when X's posts lack the fields the collection asks for", async () => {
+      await xOnly();
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: {
+                data: [{ id: "1000", text: "Ship log" }],
+                meta: { result_count: 1 },
+              },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_fields_missing",
+        }),
+      ]);
+      const run = await xRun();
+      expect(run.error_message).toContain(
+        "post.fields=created_at,public_metrics,entities,note_post",
+      );
+      expect(run.cost_usd).toBeCloseTo(0.025, 5);
+      expect(await postIds()).toEqual([]);
+    });
+
+    it("keeps the whole reservation of an answer with neither posts nor a count, or a count of posts it didn't send", async () => {
+      await xOnly();
+      let body: unknown = {};
+      failWith = (url) =>
+        url.pathname === "/2/users/2/tweets" ? { status: 200, body } : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_unexpected_response",
+        }),
+      ]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.52, 5);
+
+      body = { meta: { result_count: 2 } };
+      expect(await runX("2026-11-27T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_unexpected_response",
+        }),
+      ]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.5, 5);
+    });
+
+    it("follows X's next_token past an empty page", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      posts = [builderPost("1000")];
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets" &&
+        !url.searchParams.has("pagination_token")
+          ? {
+              status: 200,
+              body: { meta: { result_count: 0, next_token: "after-empty" } },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "100", start_time: "2026-10-27T08:00:00Z" },
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          pagination_token: "after-empty",
+        },
+      ]);
+      expect(await postIds()).toEqual(["1000"]);
+      expect(await cursorOf("1")).toEqual(
+        expect.objectContaining({ sinceId: "1000", untilId: null }),
+      );
+    });
+
+    it("stops reading an account whose next page doesn't move past the last one, without asking for it again", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: {
+                data: [raw(builderPost("1000"))],
+                meta: { result_count: 1, next_token: "same" },
+              },
+            }
+          : null;
+      const stalled =
+        "X's next page of @builderio's posts didn't reach past the last one, so the run stopped reading them; the next run tries again.";
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "100", start_time: "2026-10-27T08:00:00Z" },
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1000",
+        },
+      ]);
+      expect((await xRun()).detail).toContain(stalled);
+
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: { meta: { result_count: 0, next_token: "same" } },
+            }
+          : null;
+      requests = [];
+      await runX("2026-11-27T08:00:00.000Z");
+      expect(timelines("1")).toEqual([
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1000",
+        },
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1000",
+          pagination_token: "same",
+        },
+      ]);
+      expect((await xRun()).detail).toContain(stalled);
+    });
+
+    it("reads a capped page's range again next run, so posts X held back from it are read", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      posts = ["1000", "1001", "1002"].map((id) => builderPost(id));
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: {
+                data: [raw(builderPost("1002")), raw(builderPost("1000"))],
+                errors: [
+                  {
+                    title: "Usage capped",
+                    detail: "Spend cap reached.",
+                    type: "https://api.x.com/2/problems/usage-capped",
+                  },
+                ],
+                meta: { result_count: 2 },
+              },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "cost_limited",
+          reason: "x_spending_limit_reached",
+        }),
+      ]);
+      expect(await postIds()).toEqual(["1000", "1002"]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.02, 5);
+
+      failWith = () => null;
+      requests = [];
+      expect(await runX("2026-11-27T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "100", start_time: "2026-10-28T08:00:00Z" },
+      ]);
+      expect(await postIds()).toEqual(["1000", "1001", "1002"]);
+      expect(await cursorOf("1")).toEqual(
+        expect.objectContaining({ sinceId: "1002", untilId: null }),
+      );
+    });
+
+    it("says when X promised older posts that the next run then couldn't get", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      await spentBefore(24.97, "2026-11-03T08:00:00.000Z");
+      await storeAccount({ id: "1", username: "builderio" }, {});
+      posts = Array.from({ length: 10 }, (_, n) =>
+        builderPost(String(1000 + n), "2026-11-20T08:00:00.000Z"),
+      );
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "cost_limited",
+          reason: "x_monthly_cap",
+        }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "6", start_time: "2026-10-27T08:00:00Z" },
+      ]);
+      expect(await cursorOf("1")).toEqual(
+        expect.objectContaining({ untilId: "1004", olderPromised: true }),
+      );
+
+      posts.push(builderPost("1010"), builderPost("1011"), builderPost("1012"));
+      served = 9;
+      requests = [];
+      expect(await runX("2026-12-01T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1004",
+        },
+        { max_results: "100", since_id: "1009" },
+      ]);
+      expect(await postIds()).toHaveLength(9);
+      expect((await xRun()).detail).toContain(
+        "X had said @builderio had posts older than 2026-11-20 left to read but returned none, so some may have been missed.",
+      );
+    });
+
+    it("fails a run whose account X no longer has", async () => {
+      await xOnly();
+      failWith = (url) =>
+        url.pathname === "/2/users/2/tweets"
+          ? {
+              status: 200,
+              body: {
+                errors: [
+                  {
+                    value: "2",
+                    resource_id: "2",
+                    resource_type: "user",
+                    detail: "Could not find user with id: [2].",
+                    title: "Not Found Error",
+                    type: NOT_FOUND,
+                  },
+                ],
+              },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_account_not_found",
+        }),
+      ]);
+    });
+
+    it("saves a page that came with X's spending limit and stops there", async () => {
+      await xOnly();
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: {
+                data: [raw(builderPost("1000"))],
+                errors: [
+                  {
+                    title: "Usage capped",
+                    detail: "Spend cap reached.",
+                    type: "https://api.x.com/2/problems/usage-capped",
+                  },
+                ],
+                meta: { result_count: 1 },
+              },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "cost_limited",
+          reason: "x_spending_limit_reached",
+        }),
+      ]);
+      expect(await postIds()).toEqual(["1000"]);
+      expect(requests.map((url) => url.pathname)).not.toContain(
+        "/2/users/2/tweets",
+      );
+    });
+
+    it("fails a run that names an account X lacks", async () => {
+      await xOnly({
+        accounts: [
+          { handle: "@builderio", allPosts: true },
+          { handle: "@nobody_here", allPosts: false },
+        ],
+      });
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_account_not_found",
+        }),
+      ]);
+      const run = await xRun();
+      expect(run.error_message).toBe(
+        "X has no account @nobody_here. Check the collection's X accounts.",
+      );
+      expect(run.cost_usd).toBeCloseTo(0.01, 5);
+    });
+
+    it("names a missing Bearer token, accounts or counting rule as not set up, without calling X", async () => {
+      mocks.xToken = null;
+      await xOnly();
+      expect(await runX("2026-11-24T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "not_configured",
+          reason: "x_bearer_token_missing",
+        }),
+      ]);
+      mocks.xToken = "test-x-token";
+      await xOnly({ accounts: [] });
+      expect(await runX("2026-11-25T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "not_configured",
+          reason: "x_accounts_not_configured",
+        }),
+      ]);
+      await xOnly({
+        accounts: [{ handle: "@Steve8708", allPosts: false }],
+        links: [],
+        terms: [],
+      });
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "not_configured",
+          reason: "x_counting_rule_not_configured",
+        }),
+      ]);
+      expect(requests).toEqual([]);
     });
   });
 });
