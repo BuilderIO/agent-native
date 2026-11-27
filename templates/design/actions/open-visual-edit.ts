@@ -377,7 +377,6 @@ function routeManifestFromScreens(args: {
 }
 
 export default defineAction({
-  allowsAgentNavigation: true,
   description:
     "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, reuses the saved visual-edit project for the same localhost connection when available, places URL-backed screens, stores the active context, and navigates to the canvas. Set newDesign to true to start a separate project.",
   requiresAuth: false,

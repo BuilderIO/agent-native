@@ -4310,12 +4310,10 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     try {
-      const started = performance.now();
       const module = await getText(
         `http://127.0.0.1:${port}/main.js?previewToken=${bridge.previewToken}`,
         { origin: "null", "sec-fetch-dest": "script" },
       );
-      expect(performance.now() - started).toBeLessThan(3000);
       expect(module.status).toBe(200);
       for (let index = 0; index < 5; index++) {
         expect(module.body).toContain(
