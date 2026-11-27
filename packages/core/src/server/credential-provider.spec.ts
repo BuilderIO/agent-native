@@ -214,6 +214,13 @@ beforeEach(() => {
   delete process.env.ZOOM_CLIENT_SECRET;
   delete process.env.SLACK_SIGNING_SECRET;
   delete process.env.SLACK_BOT_TOKEN;
+  delete process.env.TELEGRAM_BOT_TOKEN;
+  delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  delete process.env.WHATSAPP_ACCESS_TOKEN;
+  delete process.env.WHATSAPP_PHONE_NUMBER_ID;
+  delete process.env.MICROSOFT_TEAMS_APP_ID;
+  delete process.env.MICROSOFT_TEAMS_APP_PASSWORD;
+  delete process.env.MICROSOFT_TEAMS_APP_TENANT_ID;
   delete process.env.GITHUB_TOKEN;
   delete process.env.GITHUB_INTEGRATION_CLIENT_ID;
   delete process.env.GITHUB_INTEGRATION_CLIENT_SECRET;
@@ -2315,6 +2322,85 @@ describe("resolveSecret (generic)", () => {
         resolveSecret("SLACK_SIGNING_SECRET"),
       ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
     });
+  });
+
+  it.each([
+    "WHATSAPP_ACCESS_TOKEN",
+    "WHATSAPP_PHONE_NUMBER_ID",
+    "MICROSOFT_TEAMS_APP_ID",
+    "MICROSOFT_TEAMS_APP_PASSWORD",
+    "MICROSOFT_TEAMS_APP_TENANT_ID",
+  ])(
+    "uses the deployed %s in a signed-in production shared-database request",
+    async (key) => {
+      process.env.NODE_ENV = "production";
+      process.env[key] = `fake-deploy-${key}`;
+      mockIsLocalDatabase.mockReturnValue(false);
+      mockGetRequestUserEmail.mockReturnValue("a@b.com");
+      mockReadAppSecret.mockResolvedValue(null);
+
+      expect(await resolveSecret(key)).toBe(`fake-deploy-${key}`);
+    },
+  );
+
+  it("uses the deployed Telegram bot credentials in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.TELEGRAM_BOT_TOKEN = "fake-deploy-telegram-token";
+    process.env.TELEGRAM_WEBHOOK_SECRET = "fake-deploy-telegram-secret";
+    process.env.GITHUB_TOKEN = "fake-deploy-github-token";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("TELEGRAM_BOT_TOKEN")).toBe(
+      "fake-deploy-telegram-token",
+    );
+    expect(await resolveSecret("TELEGRAM_WEBHOOK_SECRET")).toBe(
+      "fake-deploy-telegram-secret",
+    );
+    expect(await resolveSecret("GITHUB_TOKEN")).toBeNull();
+  });
+
+  it("uses the deployed Telegram bot credentials for a signed-in hosted workspace request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.TELEGRAM_BOT_TOKEN = "fake-deploy-telegram-token";
+    process.env.TELEGRAM_WEBHOOK_SECRET = "fake-deploy-telegram-secret";
+    process.env.GITHUB_TOKEN = "fake-deploy-github-token";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("owner@example.test");
+    mockGetRequestOrgId.mockReturnValue("test-org");
+    mockGetRequestContext.mockReturnValue({ isIntegrationCaller: true });
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("TELEGRAM_BOT_TOKEN")).toBe(
+      "fake-deploy-telegram-token",
+    );
+    expect(await resolveSecret("TELEGRAM_WEBHOOK_SECRET")).toBe(
+      "fake-deploy-telegram-secret",
+    );
+    expect(await resolveSecret("GITHUB_TOKEN")).toBeNull();
+
+    mockGetRequestContext.mockReturnValue({
+      isIntegrationCaller: true,
+      isSyntheticTraffic: true,
+    });
+    expect(await resolveSecret("TELEGRAM_BOT_TOKEN")).toBeNull();
+  });
+
+  it("keeps a saved Telegram bot token ahead of the deployed one", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.TELEGRAM_BOT_TOKEN = "fake-deploy-telegram-token";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("test-org");
+    mockReadAppSecret.mockImplementation(async (query) =>
+      query.scope === "org" ? { value: "fake-saved-telegram-token" } : null,
+    );
+
+    expect(await resolveSecret("TELEGRAM_BOT_TOKEN")).toBe(
+      "fake-saved-telegram-token",
+    );
   });
 
   it("uses app-provided meeting-recorder OAuth client env in a signed-in production shared-database request", async () => {
