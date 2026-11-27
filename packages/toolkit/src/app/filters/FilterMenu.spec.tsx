@@ -14,11 +14,14 @@ import {
   createFilterGroup,
   createFilterRule,
   createFilterState,
+  isDefaultFilterState,
+  setFilterMode,
   setPinnedFilter,
   type FilterCounts,
   type FilterField,
   type FilterState,
 } from "./model.js";
+import { writeFilterSearch } from "./url.js";
 
 const sourceField: FilterField = {
   id: "source",
@@ -45,6 +48,17 @@ const nameField: FilterField = {
   id: "name",
   label: "Name",
   type: "text",
+};
+
+const sharingField: FilterField = {
+  id: "sharing",
+  label: "Sharing",
+  type: "choice",
+  manyPerRow: true,
+  options: [
+    { id: "public", label: "Public" },
+    { id: "shared", label: "Shared with someone" },
+  ],
 };
 
 const fields = [statusField, nameField];
@@ -142,6 +156,33 @@ function openMenu() {
   click(buttonNamed("Filter"));
 }
 
+function optionNamed(name: string) {
+  const match = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((option) => option.textContent.trim() === name);
+  if (!match) throw new Error(`No option named ${name}`);
+  return match;
+}
+
+function typeInto(input: HTMLInputElement, value: string) {
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  act(() => {
+    setValue?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function fieldSearch() {
+  const input = document.querySelector<HTMLInputElement>(
+    'input[placeholder="Search fields and values…"]',
+  );
+  if (!input) throw new Error("No field search");
+  return input;
+}
+
 describe("FilterMenu", () => {
   it("opens from the kit's Filter button, which counts the lines in use", () => {
     render(<Menu initial={nameText("a")} />);
@@ -171,6 +212,102 @@ describe("FilterMenu", () => {
     click(buttonNamed("Remove filter: Status: not Done"));
     expect(latest?.items).toEqual([]);
     expect(document.body.textContent).toContain("No filters.");
+  });
+
+  it("goes back to no filter when the last line of an or filter goes", () => {
+    let latest: FilterState | undefined;
+    const start = setFilterMode(
+      addFilterRule(nameText("a"), createFilterRule(statusField, ["doing"])),
+      "or",
+    );
+    render(
+      <Menu
+        initial={start}
+        onState={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    expect(firstButton().textContent).toContain("Rules in use: 2");
+    click(firstButton());
+    click(buttonNamed("Remove filter: Name: contains “a”"));
+    click(buttonNamed("Remove filter: Status: Doing"));
+    if (!latest) throw new Error("No change");
+    expect(latest.items).toEqual([]);
+    expect(isDefaultFilterState(latest, fields)).toBe(true);
+    expect(
+      writeFilterSearch(writeFilterSearch("", start, fields), latest, fields),
+    ).toBe("");
+    expect(firstButton().textContent).not.toContain("Rules in use");
+    expect(() => buttonNamed("Clear filters")).toThrow();
+  });
+
+  it("adds a second line for a field whose rows hold several options", () => {
+    const menuFields = [sharingField, ...fields];
+    let latest: FilterState | undefined;
+    render(
+      <Menu
+        initial={addFilterRule(
+          createFilterState(menuFields),
+          createFilterRule(sharingField, ["public"]),
+        )}
+        menuFields={menuFields}
+        onState={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    click(firstButton());
+    click(buttonNamed("Add filter"));
+    typeInto(fieldSearch(), "Shared");
+    click(optionNamed("Sharing: Shared with someone"));
+    expect(
+      latest?.items.map((item) => (item.kind === "rule" ? item.value : null)),
+    ).toEqual([["public"], ["shared"]]);
+
+    click(buttonNamed("Add filter"));
+    click(optionNamed("Sharing"));
+    expect(document.querySelectorAll("[data-filter-line]")).toHaveLength(3);
+    expect(document.body.textContent).not.toContain("already a filter");
+  });
+
+  it("tells screen readers when the summary changes", () => {
+    render(
+      <FilterMenu
+        fields={fields}
+        state={createFilterState(fields)}
+        onChange={() => undefined}
+        summary="3 clips match"
+      />,
+    );
+    openMenu();
+    const summary = Array.from(document.querySelectorAll("span")).find(
+      (span) => span.textContent === "3 clips match",
+    );
+    expect(summary?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("counts a changed pinned field as a filter in use", () => {
+    const menuFields = [sourceField, ...fields];
+    render(
+      <Menu
+        initial={setPinnedFilter(createFilterState(menuFields), "source", [
+          "clips",
+          "content",
+        ])}
+        menuFields={menuFields}
+      />,
+    );
+    expect(firstButton().textContent).toContain("Rules in use: 1");
+    click(firstButton());
+    expect(document.body.textContent).not.toContain("No filters.");
+    expect(buttonNamed("Clear filters")).toBeDefined();
+  });
+
+  it("needs no tooltip provider when the app gives no hint", () => {
+    act(() => root.render(<Menu initial={nameText("a")} />));
+    click(firstButton());
+    expect(labelled("Filter").textContent).toMatch(/^Filter.*Where/);
   });
 
   it("opens a group with its own word", () => {

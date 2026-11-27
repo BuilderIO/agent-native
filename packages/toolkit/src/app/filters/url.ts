@@ -1,4 +1,5 @@
 import {
+  activeFilterRuleCount,
   completeFilterRules,
   createFilterGroup,
   createFilterState,
@@ -80,7 +81,9 @@ export function filterStateToParams(
         : encodePinnedValue(value),
     ]);
   }
-  if (state.mode === "or") params.push([names.match, "any"]);
+  if (state.mode === "or" && activeFilterRuleCount(state, fields) > 0) {
+    params.push([names.match, "any"]);
+  }
   const pushItems = (items: readonly FilterItem[], group: string | null) => {
     let groupNumber = 0;
     for (const item of items) {

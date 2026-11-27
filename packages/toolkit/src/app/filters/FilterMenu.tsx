@@ -91,18 +91,17 @@ import {
   activeFilterRuleCount,
   addFilterGroup,
   addFilterRule,
+  changedPinnedFilterFields,
   createFilterGroup,
   createFilterRule,
   createFilterState,
   filterOperatorTakesValue,
+  filterStateAfterClose,
   findFilterField,
   findFilterRule,
-  hasIncompleteFilterRules,
   incompleteFilterRuleIds,
   isDefaultFilterState,
   isFilterRuleComplete,
-  isPinnedFilterDefault,
-  pruneFilterState,
   removeFilterItem,
   setPinnedFilter,
   updateFilterRule,
@@ -186,19 +185,12 @@ export function FilterMenu({
       );
       return;
     }
-    if (hasIncompleteFilterRules(stateRef.current, fields)) {
-      const pruned = pruneFilterState(
-        stateRef.current,
-        fields,
-        unfinishedAtOpen.current,
-      );
-      if (
-        incompleteFilterRuleIds(pruned, fields).size !==
-        incompleteFilterRuleIds(stateRef.current, fields).size
-      ) {
-        onChange(pruned);
-      }
-    }
+    const pruned = filterStateAfterClose(
+      stateRef.current,
+      fields,
+      unfinishedAtOpen.current,
+    );
+    if (pruned) onChange(pruned);
   };
   const body = (
     <FilterLinesPanel
@@ -220,25 +212,27 @@ export function FilterMenu({
     />
   );
   const button = children ?? (
-    <FilterCountButton active={activeFilterRuleCount(state, fields)} />
+    <FilterCountButton
+      active={
+        activeFilterRuleCount(state, fields) +
+        changedPinnedFilterFields(state, fields).length
+      }
+    />
   );
   const opener = isMobile ? (
     <SheetTrigger asChild>{button}</SheetTrigger>
   ) : (
     <PopoverTrigger asChild>{button}</PopoverTrigger>
   );
-  const trigger = (
-    <Tooltip
-      open={Boolean(hint) && hintOpen && !open}
-      onOpenChange={setHintOpen}
-    >
+  const trigger = hint ? (
+    <Tooltip open={hintOpen && !open} onOpenChange={setHintOpen}>
       <TooltipTrigger asChild>{opener}</TooltipTrigger>
-      {hint ? (
-        <TooltipContent side="bottom" align="end" className="max-w-80">
-          {hint}
-        </TooltipContent>
-      ) : null}
+      <TooltipContent side="bottom" align="end" className="max-w-80">
+        {hint}
+      </TooltipContent>
     </Tooltip>
+  ) : (
+    opener
   );
 
   if (isMobile) {
@@ -302,7 +296,6 @@ interface LineEdits {
   flashId: string | null;
   overId: string | null;
   activeListId: string | null;
-  update: (next: FilterState) => void;
   patchRule: (
     id: string,
     patch: Parameters<typeof updateFilterRule>[2],
@@ -430,7 +423,6 @@ function FilterLinesPanel({
     flashId,
     overId,
     activeListId,
-    update,
     lineName,
     patchRule: (id, patch) =>
       update(updateFilterRule(stateRef.current, id, patch, fields)),
@@ -504,7 +496,9 @@ function FilterLinesPanel({
 
   const lineThatTakesAnother = (field: FilterField<never>) => {
     const current = stateRef.current;
-    if (current.mode !== "and" || field.type !== "choice") return undefined;
+    if (current.mode !== "and" || field.type !== "choice" || field.manyPerRow) {
+      return undefined;
+    }
     return current.items.find(
       (item): item is FilterRule =>
         item.kind === "rule" &&
@@ -669,6 +663,7 @@ function FilterLinesPanel({
   };
   const hasLines = state.items.length > 0;
   const pinnedFields = fields.filter((field) => field.pinned);
+  const pinnedChanged = changedPinnedFilterFields(state, fields).length > 0;
 
   return (
     <section
@@ -693,7 +688,10 @@ function FilterLinesPanel({
       >
         <h2 className="text-sm font-semibold">{menuText(text, "title")}</h2>
         {summary ? (
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
+          <span
+            aria-live="polite"
+            className="min-w-0 truncate text-xs text-muted-foreground"
+          >
             {summary}
           </span>
         ) : null}
@@ -744,7 +742,7 @@ function FilterLinesPanel({
           <FilterLines group={top} level={0} edits={edits} />
           <EndDrop groupId={TOP} edits={edits} className="min-h-1" />
         </DndContext>
-      ) : (
+      ) : pinnedChanged ? null : (
         <p className="px-1.5 py-2 text-sm text-muted-foreground">
           {empty ?? m("none")}
         </p>
@@ -1497,17 +1495,15 @@ export function FilterMenuWords({
 }: FilterMenuWordsProps) {
   const text = useFilterText();
   const lines: { id: string; word: string; depth: number; text: string }[] =
-    fields
-      .filter((field) => field.pinned && !isPinnedFilterDefault(state, field))
-      .map((field) => ({
-        id: `pinned:${field.id}`,
-        word: "",
-        depth: 0,
-        text: text.t("agentChat.filters.fieldValue", {
-          field: text.fieldLabel(field),
-          value: pinnedValueLabel(field, state, text),
-        }),
-      }));
+    changedPinnedFilterFields(state, fields).map((field) => ({
+      id: `pinned:${field.id}`,
+      word: "",
+      depth: 0,
+      text: text.t("agentChat.filters.fieldValue", {
+        field: text.fieldLabel(field),
+        value: pinnedValueLabel(field, state, text),
+      }),
+    }));
   const walk = (group: FilterGroup, depth: number, lead: string) => {
     group.rules.forEach((item, index) => {
       const word =

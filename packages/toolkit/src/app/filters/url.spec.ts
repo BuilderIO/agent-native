@@ -119,6 +119,27 @@ describe("filter URL params", () => {
     expect(shape(read.items)).toEqual(shape(state.items));
   });
 
+  it("writes the match mode only beside a finished rule", () => {
+    const anyOf = setFilterMode(createFilterState(fields), "or");
+    expect(filterStateToParams(anyOf, fields)).toEqual([]);
+    expect(
+      writeFilterSearch(
+        "?match=any",
+        addFilterRule(anyOf, createFilterRule(ownerField)),
+        fields,
+      ),
+    ).toBe("");
+    expect(
+      filterStateToParams(
+        addFilterRule(anyOf, createFilterRule(ownerField, ["alice"])),
+        fields,
+      ),
+    ).toEqual([
+      ["match", "any"],
+      ["r", "owner:equals:alice"],
+    ]);
+  });
+
   it("numbers groups in order", () => {
     const state = addFilterGroup(
       addFilterGroup(

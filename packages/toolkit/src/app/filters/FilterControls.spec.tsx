@@ -19,6 +19,7 @@ import {
   createFilterGroup,
   createFilterRule,
   createFilterState,
+  setFilterMode,
   setPinnedFilter,
   type FilterField,
   type FilterRule,
@@ -827,6 +828,13 @@ describe("FilterButton", () => {
     expect(document.body.textContent).toContain("Match");
     expect(hasButtonNamed("any")).toBe(true);
     expect(document.body.textContent).toContain("of these rules:");
+  });
+
+  it("offers Clear while the panel matches any, before any rule", () => {
+    render(<Panel initial={setFilterMode(createFilterState(fields), "or")} />);
+    click(buttonNamed("Filter"));
+    expect(document.body.textContent).toContain("Show clips that matchany");
+    expect(hasButtonNamed("Clear")).toBe(true);
   });
 
   it("opens the rule panel with the match count", () => {
