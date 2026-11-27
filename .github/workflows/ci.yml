@@ -2434,11 +2434,17 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Compute TLA+ tool cache key
+        id: tla-tools
+        run: >-
+          node -e 'const m = JSON.parse(require("node:fs").readFileSync("verification/execution-lease/manifest.json", "utf8"));
+          console.log("key=" + m.tlaTools.version + "-" + m.tlaTools.sha256.slice(0, 16));' >> "$GITHUB_OUTPUT"
+
       - name: Restore TLA+ tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tmp/tla
-          key: tla2tools-${{ hashFiles('verification/execution-lease/manifest.json') }}
+          key: tla2tools-${{ steps.tla-tools.outputs.key }}
 
       - name: Model-check the execution lease
         run: pnpm verify:execution-lease
@@ -2622,14 +2628,16 @@ jobs:
         run: pnpm test:neon-transfer-alert
 
       - name: Build packages for source-backed guards
-        run: |
-          pnpm --filter @agent-native/recap-cli build
-          pnpm --filter @agent-native/agentkit build
-          pnpm --filter @agent-native/core build
-          pnpm --filter @agent-native/design-system build
-          pnpm --filter @agent-native/toolkit build
-          pnpm --filter @agent-native/creative-context build
-          pnpm --filter @agent-native/otel build
+        run: >-
+          pnpm
+          --filter @agent-native/recap-cli
+          --filter @agent-native/agentkit
+          --filter @agent-native/core
+          --filter @agent-native/design-system
+          --filter @agent-native/toolkit
+          --filter @agent-native/creative-context
+          --filter @agent-native/otel
+          build
 
       - name: Test unbounded read guards
         run: >-

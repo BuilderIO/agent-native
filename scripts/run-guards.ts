@@ -269,6 +269,15 @@ console.error(
   `[guards] Running ${selectedGuards.length} checks with concurrency ${numericConcurrency}`,
 );
 
+const PRIORITY_HEAVY_GUARDS = new Map<GuardName, number>([
+  ["guard:i18n-catalogs", 0],
+  ["guard:migration-manifest", 1],
+  ["guard:no-deferred-server-counts", 2],
+  ["guard:e2e-quarantine", 3],
+  ["guard:design-e2e-regression-pins", 4],
+  ["guard:mcp-unredacted-call-boundary", 5],
+]);
+
 const results = await runAll(numericConcurrency);
 const summary = summarizeGuardRun(results, { strictSkips });
 console.error(summary.message);
@@ -280,7 +289,13 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
     ? selectedGuards.filter((g) => FAST_GUARDS_SUPPORTED.has(g))
     : [];
   const fastSet = new Set<GuardName>(fastBatch);
-  const queue = selectedGuards.filter((g) => !fastSet.has(g));
+  const queue = selectedGuards
+    .filter((g) => !fastSet.has(g))
+    .sort((a, b) => {
+      const pa = PRIORITY_HEAVY_GUARDS.get(a) ?? Number.MAX_SAFE_INTEGER;
+      const pb = PRIORITY_HEAVY_GUARDS.get(b) ?? Number.MAX_SAFE_INTEGER;
+      return pa - pb;
+    });
   const results: GuardResult[] = [];
 
   const fastPromise =

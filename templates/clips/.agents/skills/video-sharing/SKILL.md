@@ -27,6 +27,15 @@ recordings omit an explicit visibility. The default remains `public`, and an
 explicit visibility always wins — which is why bug-report recordings still land
 on `org`.
 
+Members may set a personal default with `update-clips-recording-defaults`, which
+overrides the organization default. An admin can pass
+`enforceDefaultVisibility=true` to `set-organization-branding` so the
+organization default always wins: personal defaults are ignored and
+`update-clips-recording-defaults` rejects setting one with a 403. Per-recording
+visibility from the Share dialog is unaffected. Check
+`organizationVisibilityEnforced` in `get-clips-recording-defaults` before
+offering to change a member's default.
+
 Clips **adds two things** on top of the framework system:
 
 1. **Password** — an optional encrypted string on the `recordings` row. For public recordings, non-owner viewers must enter it to play the recording. Private and organization access use the framework ACL; a stored password is retained and applies again if the recording becomes public.

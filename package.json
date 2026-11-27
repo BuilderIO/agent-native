@@ -225,6 +225,7 @@
     "guard:e2e-harness": "node scripts/guard-e2e-harness.mjs",
     "mcp-registry:write": "node --experimental-strip-types scripts/mcp-registry.ts --write",
     "guards": "tsx scripts/run-guards.ts",
+    "repo-map": "tsx scripts/repo-map.ts",
     "ship:push": "node scripts/ship-push.mjs",
     "chat-health": "node scripts/chat-health.mjs",
     "clear:deploy-previews": "tsx scripts/clear-deploy-previews.ts",
