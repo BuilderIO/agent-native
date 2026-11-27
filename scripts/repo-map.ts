@@ -220,13 +220,13 @@ function parseArgs(argv: string[]) {
       }
       top = Number.parseInt(next, 10);
       i += 1;
-    } else if (arg?.startsWith("--top=")) {
+    } else if (arg.startsWith("--top=")) {
       const val = arg.slice("--top=".length);
       if (!/^\d+$/.test(val)) {
         throw new Error("--top requires a positive integer");
       }
       top = Number.parseInt(val, 10);
-    } else if (arg && !arg.startsWith("-") && !subdir) {
+    } else if (!arg.startsWith("-") && !subdir) {
       subdir = arg;
     }
   }
