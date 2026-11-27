@@ -35,6 +35,47 @@ describe("cancel-organization-invitation", () => {
     expect(cancelOrganizationInvitation.allowPersistentApproval).toBe(false);
   });
 
+  it("declares its browser, tool, and approval contract", () => {
+    expect(cancelOrganizationInvitation.requiresSignedInBrowser).toBe(true);
+    expect(cancelOrganizationInvitation.toolCallable).toBe(false);
+    expect(cancelOrganizationInvitation.tool.description).toMatch(/pending/);
+  });
+
+  it("trims the invitation id and rejects blanks", async () => {
+    const validate = async (v: unknown) =>
+      cancelOrganizationInvitation.schema!["~standard"].validate(v);
+    await expect(validate({ invitationId: " inv-1 " })).resolves.toEqual({
+      value: { invitationId: "inv-1" },
+    });
+    expect(await validate({ invitationId: "  " })).toHaveProperty("issues");
+    expect(await validate({ invitationId: 4 })).toHaveProperty("issues");
+  });
+
+  it("declares the result shape", async () => {
+    const validate = async (v: unknown) =>
+      cancelOrganizationInvitation.outputSchema!["~standard"].validate(v);
+    const ok = { id: "inv-1", status: "canceled" };
+    await expect(validate(ok)).resolves.toEqual({ value: ok });
+    expect(await validate({ ...ok, id: 1 })).toHaveProperty("issues");
+    expect(await validate({ ...ok, status: "pending" })).toHaveProperty(
+      "issues",
+    );
+  });
+
+  it("audits the cancellation against the invitation, visible to admins", () => {
+    const audit = cancelOrganizationInvitation.audit as any;
+    const args = { invitationId: "inv-1" };
+    expect(audit.target(args, {}, { orgId: "org-1" })).toEqual({
+      type: "org-invitation",
+      id: "inv-1",
+      orgId: "org-1",
+      visibility: "admins",
+    });
+    expect(audit.summary(args, {}, { orgId: "org-1" })).toBe(
+      "Canceled invitation inv-1",
+    );
+  });
+
   it("cancels a pending invitation in the caller's organization", async () => {
     await expect(
       cancelOrganizationInvitation.run({ invitationId: "inv-1" }, ctx),

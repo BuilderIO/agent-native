@@ -152,6 +152,65 @@ describe("change-organization-member-role", () => {
     expect(updates()).toHaveLength(0);
   });
 
+  it("declares its browser, tool, and approval contract", () => {
+    expect(changeOrganizationMemberRole.requiresSignedInBrowser).toBe(true);
+    expect(changeOrganizationMemberRole.toolCallable).toBe(false);
+    expect(changeOrganizationMemberRole.tool.description).toMatch(
+      /member and admin/,
+    );
+  });
+
+  it("trims and validates the email and role", async () => {
+    const validate = async (v: unknown) =>
+      changeOrganizationMemberRole.schema!["~standard"].validate(v);
+    await expect(
+      validate({ email: "  a@example.test ", role: "member" }),
+    ).resolves.toEqual({ value: { email: "a@example.test", role: "member" } });
+    expect(await validate({ email: "nope", role: "admin" })).toHaveProperty(
+      "issues",
+    );
+    expect(await validate({ email: 5, role: "admin" })).toHaveProperty(
+      "issues",
+    );
+  });
+
+  it("declares the result shape", async () => {
+    const validate = async (v: unknown) =>
+      changeOrganizationMemberRole.outputSchema!["~standard"].validate(v);
+    const ok = {
+      email: "a@example.test",
+      role: "admin",
+      previousRole: "owner",
+    };
+    await expect(validate(ok)).resolves.toEqual({ value: ok });
+    expect(await validate({ ...ok, email: 1 })).toHaveProperty("issues");
+    expect(await validate({ ...ok, role: "owner" })).toHaveProperty("issues");
+    expect(await validate({ ...ok, previousRole: "x" })).toHaveProperty(
+      "issues",
+    );
+  });
+
+  it("audits the role change against the member, visible to admins", () => {
+    const audit = changeOrganizationMemberRole.audit as any;
+    const result = {
+      email: "a@example.test",
+      role: "admin",
+      previousRole: "member",
+    };
+    const meta = { orgId: "org-1" };
+    expect(audit.target({ email: "A@x", role: "admin" }, result, meta)).toEqual(
+      {
+        type: "org-member-role",
+        id: "a@example.test",
+        orgId: "org-1",
+        visibility: "admins",
+      },
+    );
+    expect(audit.summary({}, result, meta)).toBe(
+      "Changed a@example.test from member to admin",
+    );
+  });
+
   it("rejects roles other than member and admin", () => {
     const parsed = changeOrganizationMemberRole.schema?.["~standard"].validate({
       email: "a@example.test",
