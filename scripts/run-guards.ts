@@ -270,13 +270,30 @@ const summary = summarizeGuardRun(results, { strictSkips });
 console.error(summary.message);
 process.exit(summary.exitCode);
 
+// Start the slowest full-tree guards first (Longest-Processing-Time-First) so
+// they overlap with fast guards instead of sticking out as an idle-worker tail.
+const PRIORITY_HEAVY_GUARDS = new Map<GuardName, number>([
+  ["guard:i18n-catalogs", 0],
+  ["guard:migration-manifest", 1],
+  ["guard:no-deferred-server-counts", 2],
+  ["guard:e2e-quarantine", 3],
+  ["guard:design-e2e-regression-pins", 4],
+  ["guard:mcp-unredacted-call-boundary", 5],
+]);
+
 async function runAll(concurrency: number): Promise<GuardResult[]> {
   const fastBin = resolveFastGuardsBinary();
   const fastBatch = fastBin
     ? selectedGuards.filter((g) => FAST_GUARDS_SUPPORTED.has(g))
     : [];
   const fastSet = new Set<GuardName>(fastBatch);
-  const queue = selectedGuards.filter((g) => !fastSet.has(g));
+  const queue = selectedGuards
+    .filter((g) => !fastSet.has(g))
+    .sort((a, b) => {
+      const pa = PRIORITY_HEAVY_GUARDS.get(a) ?? Number.MAX_SAFE_INTEGER;
+      const pb = PRIORITY_HEAVY_GUARDS.get(b) ?? Number.MAX_SAFE_INTEGER;
+      return pa - pb;
+    });
   const results: GuardResult[] = [];
 
   const fastPromise =

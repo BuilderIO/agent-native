@@ -1455,6 +1455,7 @@ function checkLocalizedDocsEmbeddedStrings(): {
   const baseline = readLocalizedDocsBaseline();
   const noTranslateTerms = readNoTranslateTerms();
   if (!existsSync(localizedDocsDir)) return { errors, issueIds: [] };
+  const sourceStringsCache = new Map<string, string[]>();
 
   for (const locale of safeReadDir(localizedDocsDir).sort()) {
     if (!supportedLocaleSet.has(locale)) continue;
@@ -1466,9 +1467,13 @@ function checkLocalizedDocsEmbeddedStrings(): {
       const localizedText = readFileSync(file, "utf8");
       if (localizedText.includes("i18n-docs-ignore")) continue;
 
-      const sourceStrings = extractEmbeddedDocsStrings(
-        readFileSync(sourceFile, "utf8"),
-      );
+      let sourceStrings = sourceStringsCache.get(sourceFile);
+      if (!sourceStrings) {
+        sourceStrings = extractEmbeddedDocsStrings(
+          readFileSync(sourceFile, "utf8"),
+        );
+        sourceStringsCache.set(sourceFile, sourceStrings);
+      }
       if (sourceStrings.length === 0) continue;
 
       const rel = relativeToRoot(file);
@@ -1493,6 +1498,7 @@ function checkLocalizedDocsEmbeddedStrings(): {
 function checkLocalizedDocsProtectedIdentifiers(): string[] {
   const errors: string[] = [];
   if (!existsSync(localizedDocsDir)) return errors;
+  const sourceTextCache = new Map<string, string>();
 
   for (const locale of safeReadDir(localizedDocsDir).sort()) {
     if (!supportedLocaleSet.has(locale)) continue;
@@ -1502,7 +1508,11 @@ function checkLocalizedDocsProtectedIdentifiers(): string[] {
       const sourceFile = sourceDocFileForLocalized(relWithinLocale);
       if (!sourceFile) continue;
 
-      const sourceText = readFileSync(sourceFile, "utf8");
+      let sourceText = sourceTextCache.get(sourceFile);
+      if (sourceText === undefined) {
+        sourceText = readFileSync(sourceFile, "utf8");
+        sourceTextCache.set(sourceFile, sourceText);
+      }
       const localizedText = readFileSync(file, "utf8");
       const rel = relativeToRoot(file);
 
