@@ -23,7 +23,6 @@ export default mergeConfig(
         "server/lib/submission-validation.spec.ts",
       ],
       passWithNoTests: true,
-      isolate: false,
     },
   }),
 );
