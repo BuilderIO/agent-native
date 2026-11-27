@@ -1,35 +1,53 @@
 ---
 title: "Other Frameworks & Servers"
-description: "Use @agent-native/actions in Hono, Express, Fastify, Cloudflare Workers, Bun, Deno, or standalone Node/TypeScript projects with zero web framework."
+description: "Run @agent-native/actions in standalone Node/TypeScript projects, mount on Hono, Express, Fastify, Cloudflare Workers, Bun, or Deno, and call actions with the vanilla client."
 ---
 
 # Other Frameworks & Servers
 
-`@agent-native/actions` has **zero framework dependencies**. Run it in a plain TypeScript CLI/MCP project with no web server at all, mount one catch-all handler on Hono, Express, Fastify, or Cloudflare Workers, or call actions from any JS/TS client.
+`@agent-native/actions` has no web-framework dependencies. Use it standalone in plain Node/TypeScript projects (CLI, scripts, workers, `stdio` MCP), mount `actions.handler` on any Web Fetch or Node HTTP server, or call actions from any JS/TS runtime via `@agent-native/actions/client`.
 
-## Set Up with Your AI Coding Agent {#setup}
+## Setup {#setup}
 
-Paste this prompt into **Claude Code**, **Codex**, or **Cursor**:
+<TabsBlock
+  id="servers-setup-tabs"
+  tabs={[
+    {
+      id: "cli",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "servers-setup-cli",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "agent",
+      label: "AI Coding Agent",
+      blocks: [
+        {
+          type: "code",
+          id: "servers-setup-agent",
+          data: {
+            language: "text",
+            code: `Set up @agent-native/actions in this repo following https://agent-native.com/docs/actions-package-servers.md.
+Run \`npx @agent-native/actions init\`, mount the catch-all handler on our server (or keep it standalone for CLI & stdio MCP), create a sample action in actions/, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
 
-```text
-Set up @agent-native/actions in this repo following https://agent-native.com/docs/actions-package-servers.md.
-Run `npx @agent-native/actions init`, mount the catch-all handler on our server (or keep it standalone for CLI & stdio MCP), create a sample action in actions/, and verify with `pnpm action --list`.
-```
+## Standalone Node / TypeScript {#standalone}
 
-## Standalone (Plain Node / TypeScript — No Web Framework) {#standalone}
-
-Building an internal tool, backend service, CLI, or local MCP server without a frontend framework? You only need `@agent-native/actions` and `zod`:
-
-<Steps>
-
-### Initialize in any Node / TS repo
-
-```bash
-pnpm add @agent-native/actions zod
-npx @agent-native/actions init
-```
-
-### Drop an action in `actions/`
+Drop actions in `actions/` and invoke them from the terminal, `stdio` MCP, or directly in TypeScript with no web server:
 
 ```ts
 // actions/create-todo.ts
@@ -46,20 +64,18 @@ export default defineAction({
 });
 ```
 
-### Call it from code, CLI, or MCP
-
 ```bash
-# Run directly from the terminal
+# Run from the terminal
 pnpm action create-todo --title "Ship docs"
 
-# Inspect resolved actions without executing them
+# Inspect discovered action schemas without executing
 npx @agent-native/actions inspect
 
-# Or expose actions/ directly as a local stdio MCP server
+# Serve actions/ as a local stdio MCP server
 npx @agent-native/actions mcp
 ```
 
-Or invoke actions programmatically in scripts, cron jobs, workers, and tests:
+Call actions programmatically in scripts, cron jobs, workers, or tests:
 
 ```ts
 import { createActions } from "@agent-native/actions";
@@ -72,85 +88,57 @@ const actions = createActions({
 const todo = await actions.call("create-todo", { title: "Ship docs" });
 ```
 
-</Steps>
+## Server Adapters {#servers}
 
-## Hono, Express, Fastify & Cloudflare Workers {#servers}
+Every registry exposes:
 
-Every registry exposes a single catch-all Web Fetch handler (`actions.handler`) serving both `/actions/:name` and `/mcp` — plus `actions.fetchHandler` and `actions.mcpHandler` if you prefer separate mounts, and `toNodeHandler()` for Node HTTP frameworks:
+- `actions.handler` — combined Web Fetch handler serving `/actions/:name` and `/mcp`
+- `actions.fetchHandler` / `actions.mcpHandler` — separate handlers when HTTP and MCP need distinct mounts or auth middleware
+- `toNodeHandler(actions.handler)` — adapter for Node `IncomingMessage` / `ServerResponse` servers
 
-<TabsBlock
-  id="server-runtime-tabs"
-  tabs={[
-    {
-      id: "hono",
-      label: "Hono / Workers / Bun",
-      blocks: [
-        {
-          type: "code",
-          id: "server-runtime-hono",
-          data: {
-            language: "ts",
-            code: `import { Hono } from "hono";
+### Hono / Cloudflare Workers / Bun
+
+```ts
+import { Hono } from "hono";
 import { actions } from "./.generated/actions";
 
 const app = new Hono();
 
-// Single catch-all serves /api/agent-native/actions/_ and /api/agent-native/mcp
-app.all("/api/agent-native/_", (c) =>
-actions.handler(c.req.raw, { platform: c.env }),
+// Serves /api/agent-native/actions/* and /api/agent-native/mcp
+app.all("/api/agent-native/*", (c) =>
+  actions.handler(c.req.raw, { platform: c.env }),
 );
 
-export default app;`,
-          },
-        },
-      ],
-    },
-    {
-      id: "express",
-      label: "Express",
-      blocks: [
-        {
-          type: "code",
-          id: "server-runtime-express",
-          data: {
-            language: "ts",
-            code: `import express from "express";
+export default app;
+```
+
+### Express
+
+```ts
+import express from "express";
 import { toNodeHandler } from "@agent-native/actions";
 import { actions } from "./.generated/actions";
 
 const app = express();
-app.use("/api/agent-native", toNodeHandler(actions.handler));`,
-          },
-        },
-      ],
-    },
-    {
-      id: "fastify",
-      label: "Fastify",
-      blocks: [
-        {
-          type: "code",
-          id: "server-runtime-fastify",
-          data: {
-            language: "ts",
-            code: `import Fastify from "fastify";
+app.use("/api/agent-native", toNodeHandler(actions.handler));
+```
+
+### Fastify
+
+```ts
+import Fastify from "fastify";
 import { toNodeHandler } from "@agent-native/actions";
 import { actions } from "./.generated/actions";
 
 const fastify = Fastify();
 const handler = toNodeHandler(actions.handler);
 
-fastify.all("/api/agent-native/\*", (req, reply) => handler(req.raw, reply.raw));`,
-},
-},
-],
-},
-]}
-/>
+fastify.all("/api/agent-native/*", (req, reply) => handler(req.raw, reply.raw));
+```
 
-## Zero-Dependency Vanilla Client (`@agent-native/actions/client`) {#vanilla-client}
+## Vanilla Client (`@agent-native/actions/client`) {#vanilla-client}
 
-Call your actions with full TypeScript inference from React Native, Electron, Chrome extensions, browser scripts, or another microservice:
+Call actions with end-to-end TypeScript inference from React Native, Electron, Chrome extensions, browser scripts, or another service:
 
 ```ts
 import {
@@ -174,3 +162,8 @@ try {
   console.error(actionErrorMessage(error));
 }
 ```
+
+## Next Steps
+
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — configure `actions/context.ts` for cookies, bearer tokens, and CLI
+- [**CLI, MCP & AI SDKs**](/docs/actions-package-surfaces) — CLI flags, MCP auth allowlists, and AI SDK exporters

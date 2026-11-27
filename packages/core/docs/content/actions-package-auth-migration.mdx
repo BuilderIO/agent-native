@@ -1,15 +1,15 @@
 ---
 title: "Auth, Context & Incremental Migration"
-description: "Bring your own authentication (Clerk, Better Auth, Supabase, API keys) across HTTP, MCP, and CLI callers, and incrementally migrate an existing app to @agent-native/actions."
+description: "Configure unified auth context across HTTP, MCP, and CLI callers with Clerk, Better Auth, or Supabase, enforce authorization and approvals, and migrate legacy routes incrementally."
 ---
 
 # Auth, Context & Incremental Migration
 
-`@agent-native/actions` never forces you to replace your auth provider, database, or router. One `createContext()` function in `actions/context.ts` bridges your existing auth into every caller — browser cookies, MCP bearer tokens, Server Components, and CLI sessions — so you can migrate an existing app one route at a time.
+Define one `createContext()` function in `actions/context.ts` to bridge your existing auth provider across browser sessions, MCP bearer tokens, Server Components, and CLI invocations.
 
-## Unified Auth & Typed Context (`actions/context.ts`) {#auth-context}
+## 1. Define Typed Context (`actions/context.ts`) {#auth-context}
 
-Define `createContext()` once in `actions/context.ts`, and export a typed `defineAction` helper via `createActionBuilder<AppContext>()` so `ctx.user` and `ctx.orgId` are strongly typed inside every action file.
+Export `createContext` and a typed action builder via `createActionBuilder<AppContext>()`. Codegen detects `actions/context.ts` automatically.
 
 <TabsBlock
   id="auth-recipes-tabs"
@@ -105,9 +105,11 @@ export const defineAppAction = createActionBuilder<AppContext>();`,
   ]}
 />
 
-### Per-Action Authorization, Approvals & Structured Errors
+## 2. Authorization, Approvals & Structured Errors {#errors}
 
-`authorize(input, ctx)` runs after input validation and **before** `needsApproval` or `run` — unauthorized callers never execute side effects. Use `fail()` or `defineActionErrors()` for structured caller-readable errors (matching `@agent-native/core`):
+Execution runs in a fixed order: input schema validation → `authorize(input, ctx)` → `needsApproval(input, ctx)` → `run(input, ctx)` → `outputSchema` validation. Unauthorized callers never reach `needsApproval` or `run`.
+
+Use `fail(message, { statusCode, errorCode, details })` or `defineActionErrors()` for structured errors shared with `@agent-native/core`:
 
 ```ts
 // actions/delete-todo.ts
@@ -139,52 +141,49 @@ export default defineAppAction({
 });
 ```
 
-- **UI callers** receive HTTP 404 and render `actionErrorMessage(err)` in a toast.
-- **Agents & MCP callers** receive `(errorCode: not_found)` plus `details` so they can recover instead of retrying blindly.
-- **Post-commit failures** (e.g. `outputSchema` mismatch after `run()` already wrote) raise `ActionPostCommitError` with `committed: true`, preventing callers from blindly retrying a write that already landed.
+- **UI callers** receive HTTP `404` and read a display-safe message with `actionErrorMessage(err)`.
+- **MCP and agent callers** receive `isError: true` with `errorCode: "not_found"` and `details`.
+- **Post-commit failures** (for example, `outputSchema` failing after `run()` already wrote) throw `ActionPostCommitError` with `committed: true` so callers avoid blind retries.
 
 <Callout tone="warning">
 
-**Protect remote MCP endpoints explicitly.** On production routes, pass `mcp: { authenticate: (request) => verifyBearerToken(request), include: [...] }` to `createNextHandler()` / `actions.createHandler()` so remote MCP clients can only discover and invoke explicitly permitted actions.
+**Authenticate remote MCP mounts.** In production, configure `mcp: { authenticate: (request) => verifyBearerToken(request), include: [...] }` on `createNextHandler()` or `actions.createHandler()` so remote MCP clients can only discover and invoke permitted actions.
 
 </Callout>
 
-## Incremental Adoption Playbook {#incremental-migration}
+## 3. Incremental Migration {#incremental-migration}
 
-You never need a big-bang rewrite. `@agent-native/actions` runs alongside your existing REST endpoints, tRPC routers, or Server Actions so you can migrate one feature slice at a time.
+Mount `@agent-native/actions` alongside existing REST routes, tRPC routers, or Server Actions and move one feature slice at a time:
 
-<Sequence>
+<Steps>
 
-### Run `npx @agent-native/actions init`
+### Initialize in the existing repo
 
-### Move 2–3 key operations into `actions/`
+Run `npx @agent-native/actions init` and wire `actions/context.ts` to your current auth helper.
 
-### Swap those screens to typed action hooks
+### Move one resource slice into `actions/`
 
----
+Create one file per operation (`actions/<verb>-<noun>.ts`) with `defineAppAction()`, Zod `.describe()` annotations, `http: { method: "GET" }` + `readOnly: true` for reads, and `fail(message, { statusCode, errorCode })` for errors.
 
-### Turn on MCP & CLI for instant agent access
+### Swap matching screens to action hooks
 
-</Sequence>
+Replace `fetch()` calls in those components with `useActionQuery` / `useActionMutation` (or your framework's binding), verify with `pnpm action --list` and typecheck, then delete the superseded legacy route.
 
-### Let Your Coding Agent Refactor Legacy Routes
+</Steps>
 
-Paste this into **Claude Code** or **Codex** (or add it to your repo's `AGENTS.md`):
+### Coding-Agent Migration Prompt
 
-```md
+Paste this into Claude Code or Codex to migrate a legacy route folder mechanically:
+
+```text
 Migrate the routes under `app/api/todos/` to `@agent-native/actions`:
-
 1. Create one file per operation in `actions/<verb>-<noun>.ts` using `defineAppAction()`.
 2. Add a Zod `schema` with `.describe()` on every field.
 3. Mark read-only actions with `http: { method: "GET" }` and `readOnly: true`.
 4. Replace manual JSON error responses with `fail(msg, { statusCode, errorCode })`.
-5. Update the matching UI components from `fetch()` to `useActionQuery` / `useActionMutation`.
+5. Update matching UI components from `fetch()` to `useActionQuery` / `useActionMutation`.
 6. Verify with `pnpm action --list` and typecheck before removing the old routes.
 ```
-
-## Going Further with the Full Framework {#graduating}
-
-Ready for an in-app Agent Sidebar, real-time UI sync, approvals UI, audit logs, and multi-app workspaces? See [**Beyond Actions →**](/docs/actions-package-beyond).
 
 ## FAQ {#faq}
 
@@ -192,18 +191,18 @@ Ready for an in-app Agent Sidebar, real-time UI sync, approvals UI, audit logs, 
 
 ### Does `@agent-native/actions` require PostgreSQL, Drizzle, or Better Auth?
 
-No. Your `run()` function is plain TypeScript — use Prisma, Drizzle, Kysely, Supabase, MongoDB, external APIs, or in-memory state with whatever auth library your app already uses.
+No. `run()` is plain TypeScript — use Prisma, Drizzle, Kysely, Supabase, MongoDB, external APIs, or in-memory state with your existing auth stack.
 
-### Can I use Zod v3, Zod v4, Valibot, or ArkType?
+### Which schema libraries are supported?
 
-Yes. `defineAction()` accepts any validator implementing the Standard Schema specification. For MCP or AI SDK tool export, use a validator with Standard JSON Schema support (such as Zod v4) or pass an explicit `toolSchema`.
+`defineAction()` accepts any validator implementing Standard Schema (Zod v3/v4, Valibot, ArkType). For MCP or AI SDK tool export, use a validator with Standard JSON Schema support (such as Zod v4) or provide `toolSchema`.
 
-### Can I hide UI-only actions from MCP and AI agents?
+### How do I hide UI-only actions from MCP or AI agents?
 
-Yes. Set `mcpTool: false` to hide an action from MCP clients, or `agentTool: false` to keep it strictly UI/HTTP-only while still getting typed hooks and validation.
+Set `mcpTool: false` to hide an action from MCP clients, or `agentTool: false` to exclude it from AI SDK tool exporters while keeping typed UI hooks and HTTP endpoints.
 
-### Will it bloat my browser bundle?
+### Does importing hooks pull server code into the browser bundle?
 
-No. Client entrypoints (`@agent-native/actions/react`, `/solid`, `/vue`, `/svelte`, `/client`) only import `type AppActions` — zero server code, database drivers, or Zod schemas enter the browser bundle.
+No. Client entrypoints (`@agent-native/actions/react`, `/solid`, `/vue`, `/svelte`, `/client`) only import `type AppActions` — no server code, database drivers, or Zod schemas enter the client bundle.
 
 </Accordion>

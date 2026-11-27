@@ -1,28 +1,53 @@
 ---
 title: "Svelte & SvelteKit"
-description: "Use @agent-native/actions in Svelte 5 and SvelteKit with reactive primitives, a single catch-all +server.ts route, and direct +page.server.ts calls."
+description: "Integrate @agent-native/actions with Svelte 5 and SvelteKit using createActionQuery, createActionMutation, a single +server.ts catch-all handler, and callSvelteKitAction."
 ---
 
-# Svelte & SvelteKit Integration
+# Svelte & SvelteKit
 
-`@agent-native/actions/svelte` provides reactive Svelte helpers (`createActionQuery`, `createActionMutation`) alongside a single catch-all SvelteKit handler serving both HTTP actions and MCP.
+`@agent-native/actions/svelte` provides reactive client helpers (`createActionQuery`, `createActionMutation`, `callAction`), paired with `@agent-native/actions/svelte/server` (`createSvelteKitHandler`, `callSvelteKitAction`) for SvelteKit.
 
-## Set Up with Your AI Coding Agent {#setup}
+## Setup {#setup}
 
-Paste this prompt into **Claude Code**, **Codex**, or **Cursor**:
+<TabsBlock
+  id="svelte-setup-tabs"
+  tabs={[
+    {
+      id: "cli",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "svelte-setup-cli",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "agent",
+      label: "AI Coding Agent",
+      blocks: [
+        {
+          type: "code",
+          id: "svelte-setup-agent",
+          data: {
+            language: "text",
+            code: `Set up @agent-native/actions in this Svelte / SvelteKit app following https://agent-native.com/docs/actions-package-svelte.md.
+Run \`npx @agent-native/actions init\`, add agentNativeActionsPlugin({ devMiddleware: false }) to vite.config.ts (so SvelteKit owns server routing), add src/routes/api/agent-native/[...path]/+server.ts, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
 
-```text
-Set up @agent-native/actions in this Svelte / SvelteKit app following https://agent-native.com/docs/actions-package-svelte.md.
-Run `npx @agent-native/actions init`, add agentNativeActionsPlugin({ devMiddleware: false }) to vite.config.ts (so SvelteKit owns server routing), add src/routes/api/agent-native/[...path]/+server.ts, and verify with `pnpm action --list`.
-```
+### SvelteKit {#sveltekit-setup}
 
-## Setup (SvelteKit) {#sveltekit-setup}
-
-<Steps>
-
-### Add the plugin to `vite.config.ts`
-
-Pass `devMiddleware: false` so SvelteKit's own `hooks.server.ts` and `+server.ts` route own every request in dev and production:
+1. Add `agentNativeActionsPlugin({ devMiddleware: false })` to `vite.config.ts` so SvelteKit's `hooks.server.ts` and `+server.ts` route own every request in both dev and production:
 
 ```ts
 // vite.config.ts
@@ -35,7 +60,7 @@ export default defineConfig({
 });
 ```
 
-### Add one catch-all server route
+2. Mount the single catch-all server route:
 
 ```ts
 // src/routes/api/agent-native/[...path]/+server.ts
@@ -46,9 +71,13 @@ export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } =
   createSvelteKitHandler(actions);
 ```
 
-</Steps>
+### Svelte 5 + Vite (Without SvelteKit) {#vite-svelte}
 
-## Calling Actions in Components & `+page.server.ts` {#usage}
+For a client-side Svelte 5 app on Vite without SvelteKit, omit `devMiddleware: false` so `agentNativeActionsPlugin()` serves `/api/agent-native/*` during development, and mount `.generated/actions.ts` on your production server (see [Vite → Production](/docs/actions-package-vite#production)).
+
+## Usage {#usage}
+
+### Components
 
 ```svelte
 <script lang="ts">
@@ -77,7 +106,9 @@ export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } =
 {/if}
 ```
 
-In `+page.server.ts`, call actions directly with zero HTTP hop using `callSvelteKitAction`:
+### Server Load (`+page.server.ts`)
+
+Call actions directly from SvelteKit server loaders with zero HTTP hop using `callSvelteKitAction()`:
 
 ```ts
 // src/routes/todos/+page.server.ts
@@ -96,6 +127,7 @@ export const load: PageServerLoad = async (event) => {
 };
 ```
 
-## Plain Svelte + Vite (Without SvelteKit) {#vite-svelte}
+## Next Steps
 
-Building a client-side Svelte 5 app on Vite? Just add `agentNativeActionsPlugin()` beside `svelte()` in `vite.config.ts` — no `+server.ts` file needed in development.
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — configure `actions/context.ts` and structured errors
+- [**CLI, MCP & AI SDKs**](/docs/actions-package-surfaces) — terminal CLI, MCP server, and AI SDK exporters

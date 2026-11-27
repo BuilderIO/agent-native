@@ -1,24 +1,51 @@
 ---
 title: "Vite"
-description: "One-line Vite plugin via @agent-native/actions/vite: automatic actions/ discovery, built-in dev HTTP and MCP endpoints, action HMR, and TypeScript generation."
+description: "Integrate @agent-native/actions with Vite: agentNativeActionsPlugin() for actions/ codegen, dev HTTP and MCP middleware, action HMR, and production server mounting."
 ---
 
-# Vite Integration
+# Vite
 
-Vite is the lowest-boilerplate way to use `@agent-native/actions`: add **one plugin line** to `vite.config.ts`. There are no route files to create in development, no manual registry to maintain, and editing an action hot-reloads immediately without restarting Vite.
+`@agent-native/actions/vite` provides `agentNativeActionsPlugin()` for any Vite app — **React**, **SolidJS**, **Vue**, **Svelte**, **React Router**, or **TanStack Start**. In development, the plugin generates `.generated/actions.ts` and `.generated/action-types.d.ts`, serves `/api/agent-native/actions/*` and `/api/agent-native/mcp` inside Vite's dev server, and hot-reloads edited actions.
 
-Works with any Vite UI library — **React**, **SolidJS**, **Vue**, **Svelte**, **React Router**, and **TanStack Start**.
+## Setup {#setup}
 
-## Set Up with Your AI Coding Agent {#setup}
+<TabsBlock
+  id="vite-setup-tabs"
+  tabs={[
+    {
+      id: "cli",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "vite-setup-cli",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "agent",
+      label: "AI Coding Agent",
+      blocks: [
+        {
+          type: "code",
+          id: "vite-setup-agent",
+          data: {
+            language: "text",
+            code: `Set up @agent-native/actions in this Vite app following https://agent-native.com/docs/actions-package-vite.md.
+Run \`npx @agent-native/actions init\`, add agentNativeActionsPlugin() to vite.config.ts, wire our auth into actions/context.ts if present, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
 
-Paste this prompt into **Claude Code**, **Codex**, or **Cursor**:
-
-```text
-Set up @agent-native/actions in this Vite app following https://agent-native.com/docs/actions-package-vite.md.
-Run `npx @agent-native/actions init`, add agentNativeActionsPlugin() to vite.config.ts, wire our auth into actions/context.ts if present, and verify with `pnpm action --list`.
-```
-
-Or add the single plugin line yourself:
+### 1. Add the Plugin to `vite.config.ts`
 
 ```ts
 // vite.config.ts
@@ -31,7 +58,7 @@ export default defineConfig({
 });
 ```
 
-Now drop an action file into `actions/`:
+### 2. Add an Action
 
 ```ts
 // actions/list-todos.ts
@@ -50,38 +77,16 @@ export default defineAction({
 });
 ```
 
-Start `vite` and everything is live immediately:
+Start `vite` to run all surfaces locally:
 
-- **UI hooks** (`@agent-native/actions/react`, `/solid`, `/vue`, `/svelte`) call `/api/agent-native/actions/:name`
-- **HTTP** is served at `http://localhost:5173/api/agent-native/actions/list-todos`
-- **MCP** is served at `http://localhost:5173/api/agent-native/mcp`
-- **CLI** runs `pnpm action list-todos`
+- **UI hooks:** `@agent-native/actions/react`, `/solid`, `/vue`, or `/svelte`
+- **HTTP:** `http://localhost:5173/api/agent-native/actions/list-todos`
+- **MCP:** `http://localhost:5173/api/agent-native/mcp`
+- **CLI:** `pnpm action list-todos`
 
-## What the Plugin Handles Automatically {#what-it-does}
+## Auth Context {#context}
 
-<Cards columns={2}>
-
-### :components: Static Codegen & Typegen
-
-Watches `actions/*.ts` and writes `.generated/actions.ts` and `.generated/action-types.d.ts` automatically — works identically in plain Node builds and Vite builds.
-
-### :server: Zero-Boilerplate Dev Middleware
-
-Mounts one catch-all handler at `/api/agent-native/*` inside Vite's dev server — serving both HTTP actions and MCP without a second server process.
-
-### :plug: Instant Action HMR
-
-Editing an action file invalidates only that module in Vite's server runner. Your browser state stays untouched and the next UI click or MCP call runs the updated code immediately.
-
-### :terminal: Production Virtual Module
-
-Exposes `virtual:agent-native/actions` for Vite-bundled servers, while `.generated/actions.ts` works anywhere a plain Node server runs.
-
-</Cards>
-
-## Adding Auth Context {#context}
-
-Drop an optional `actions/context.ts` file alongside your actions. The plugin picks it up automatically:
+Add an optional `actions/context.ts` file; the plugin detects it and wires `createContext` into `.generated/actions.ts` automatically:
 
 ```ts
 // actions/context.ts
@@ -94,122 +99,55 @@ export async function createContext({ caller, request }: ActionContextInput) {
 }
 ```
 
-## Deploying to Production {#production}
+## Production {#production}
 
-Mount the generated static registry (`.generated/actions.ts`) — or `virtual:agent-native/actions` in Vite-bundled servers — in one line on any runtime:
+`agentNativeActionsPlugin()` serves requests in **Vite dev mode only**. In production, mount the generated static registry (`.generated/actions.ts`) — or `virtual:agent-native/actions` inside Vite-bundled servers — on your server runtime.
 
-<TabsBlock
-  id="vite-deploy-tabs"
-  tabs={[
-    {
-      id: "hono",
-      label: "Hono / Workers",
-      blocks: [
-        {
-          type: "code",
-          id: "vite-deploy-hono",
-          data: {
-            language: "ts",
-            code: `import { Hono } from "hono";
+### Hono / Cloudflare Workers / Bun
+
+```ts
+import { Hono } from "hono";
 import { actions } from "../.generated/actions";
 
 const app = new Hono();
-app.all("/api/agent-native/\*", (c) => actions.handler(c.req.raw));
+app.all("/api/agent-native/*", (c) => actions.handler(c.req.raw));
 
-export default app;`,
-          },
-        },
-      ],
-    },
-    {
-      id: "express",
-      label: "Express / Node",
-      blocks: [
-        {
-          type: "code",
-          id: "vite-deploy-express",
-          data: {
-            language: "ts",
-            code: `import express from "express";
+export default app;
+```
+
+### Express / Node
+
+```ts
+import express from "express";
 import { toNodeHandler } from "@agent-native/actions";
 import { actions } from "../.generated/actions";
 
 const app = express();
-app.use("/api/agent-native", toNodeHandler(actions.handler));`,
-          },
-        },
-      ],
-    },
-    {
-      id: "react-router",
-      label: "React Router",
-      blocks: [
-        {
-          type: "code",
-          id: "vite-deploy-rr",
-          data: {
-            language: "ts",
-            code: `// app/routes/api.agent-native.$.ts
+app.use("/api/agent-native", toNodeHandler(actions.handler));
+```
+
+### React Router
+
+```ts
+// app/routes/api.agent-native.$.ts
 import { actions } from "virtual:agent-native/actions";
 
-export const loader = ({ request }: { request: Request }) => actions.handler(request);
-export const action = ({ request }: { request: Request }) => actions.handler(request);`,
-          },
-        },
-      ],
-    },
-  ]}
-/>
+export const loader = ({ request }: { request: Request }) =>
+  actions.handler(request);
+export const action = ({ request }: { request: Request }) =>
+  actions.handler(request);
+```
 
 ## Plugin Options {#options}
 
-<Signature
-  id="actions-vite-plugin-signature"
-  name="agentNativeActionsPlugin"
-  params={[
-    {
-      name: "options",
-      type: "ViteActionsPluginOptions",
-      optional: true,
-      description: "Optional overrides — defaults work out of the box.",
-      fields: [
-        {
-          name: "actionsDir",
-          type: "string",
-          optional: true,
-          default: '"actions"',
-          description:
-            "Directory scanned for default-exported `defineAction()` files.",
-        },
-        {
-          name: "generatedDir",
-          type: "string",
-          optional: true,
-          default: '".generated"',
-          description:
-            "Output folder for `.generated/actions.ts` and `.generated/action-types.d.ts`.",
-        },
-        {
-          name: "basePath",
-          type: "string",
-          optional: true,
-          default: '"/api/agent-native"',
-          description: "Catch-all prefix serving `/actions/:name` and `/mcp`.",
-        },
-        {
-          name: "devMiddleware",
-          type: "boolean",
-          optional: true,
-          default: "true",
-          description:
-            "Set `false` when your framework (e.g. SvelteKit) owns its own dev server route.",
-        },
-      ],
-    },
-  ]}
-  returns={{
-    type: "Plugin",
-    description:
-      "Vite plugin for discovery, codegen, dev middleware, HMR, and virtual module bundling.",
-  }}
-/>
+| Option          | Type      | Default               | Description                                                                  |
+| --------------- | --------- | --------------------- | ---------------------------------------------------------------------------- |
+| `actionsDir`    | `string`  | `"actions"`           | Directory scanned for default-exported `defineAction()` files                |
+| `generatedDir`  | `string`  | `".generated"`        | Output folder for `.generated/actions.ts` and `.generated/action-types.d.ts` |
+| `basePath`      | `string`  | `"/api/agent-native"` | Catch-all prefix serving `/actions/:name` and `/mcp`                         |
+| `devMiddleware` | `boolean` | `true`                | Set `false` when a framework (such as SvelteKit) owns its own dev routing    |
+
+## Next Steps
+
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — wire auth context and structured errors
+- [**Node & Server Adapters**](/docs/actions-package-servers) — Fastify, Express, Hono, Workers, and vanilla client

@@ -1,22 +1,51 @@
 ---
 title: "Vue & Nuxt"
-description: "Use @agent-native/actions in Vue 3 and Nuxt with a 1-line Vite plugin or Nuxt module and reactive composables."
+description: "Integrate @agent-native/actions with Vue 3 + Vite or Nuxt 3/4 using reactive composables, the Nuxt codegen module, and a single Nitro catch-all handler."
 ---
 
-# Vue & Nuxt Integration
+# Vue & Nuxt
 
-`@agent-native/actions/vue` provides reactive Vue 3 composables (`useActionQuery`, `useActionMutation`, `callAction`) alongside a Nuxt module and Nitro catch-all handler.
+`@agent-native/actions/vue` provides Vue 3 composables (`useActionQuery`, `useActionMutation`, `callAction`), paired with `agentNativeActionsPlugin()` for Vue + Vite or `@agent-native/actions/nuxt` and `createNitroHandler()` for Nuxt 3/4.
 
-## Set Up with Your AI Coding Agent {#setup}
+## Setup {#setup}
 
-Paste this prompt into **Claude Code**, **Codex**, or **Cursor**:
+<TabsBlock
+  id="vue-setup-tabs"
+  tabs={[
+    {
+      id: "cli",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "vue-setup-cli",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "agent",
+      label: "AI Coding Agent",
+      blocks: [
+        {
+          type: "code",
+          id: "vue-setup-agent",
+          data: {
+            language: "text",
+            code: `Set up @agent-native/actions in this Vue / Nuxt app following https://agent-native.com/docs/actions-package-vue.md.
+Run \`npx @agent-native/actions init\`, configure the Vite plugin or Nuxt module + catch-all route, wire our auth into actions/context.ts if present, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
 
-```text
-Set up @agent-native/actions in this Vue / Nuxt app following https://agent-native.com/docs/actions-package-vue.md.
-Run `npx @agent-native/actions init`, configure the Vite plugin or Nuxt module + catch-all route, wire our auth into actions/context.ts if present, and verify with `pnpm action --list`.
-```
-
-## Vue 3 + Vite (1 Plugin Line) {#vue-vite}
+### Vue 3 + Vite {#vue-vite}
 
 Add `agentNativeActionsPlugin()` beside `vue()` in `vite.config.ts`:
 
@@ -31,7 +60,30 @@ export default defineConfig({
 });
 ```
 
-Call any action from a `<script setup>` component — pass a getter and `useActionQuery` refetches automatically when reactive inputs change:
+In production, mount `.generated/actions.ts` on your server runtime (see [Vite → Production](/docs/actions-package-vite#production)).
+
+### Nuxt 3 / 4 {#nuxt}
+
+Register `@agent-native/actions/nuxt` in `nuxt.config.ts` (runs `.generated/actions.ts` and `.generated/action-types.d.ts` codegen on startup, `prepare:types`, and `build:before`), then add one Nitro catch-all route:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["@agent-native/actions/nuxt"],
+});
+```
+
+```ts
+// server/api/agent-native/[...path].ts
+import { createNitroHandler } from "@agent-native/actions/vue/server";
+import { actions } from "../../../.generated/actions";
+
+export default createNitroHandler(actions);
+```
+
+## Usage {#usage}
+
+Pass a reactive getter `() => input` to `useActionQuery` so changes to refs refetch automatically:
 
 ```vue
 <script setup lang="ts">
@@ -56,28 +108,9 @@ const createTodo = useActionMutation("create-todo", {
 </template>
 ```
 
-## Nuxt 3 / 4 {#nuxt}
+### SSR Cookie Forwarding in Nuxt {#custom-client}
 
-Add `@agent-native/actions/nuxt` to `nuxt.config.ts` to keep `.generated/actions.ts` and `.generated/action-types.d.ts` synced automatically, and mount the single Nitro catch-all route:
-
-```ts
-// nuxt.config.ts
-export default defineNuxtConfig({
-  modules: ["@agent-native/actions/nuxt"],
-});
-```
-
-```ts
-// server/api/agent-native/[...path].ts
-import { createNitroHandler } from "@agent-native/actions/vue/server";
-import { actions } from "../../../.generated/actions";
-
-export default createNitroHandler(actions);
-```
-
-## Custom Client & Nuxt Request Fetch (Optional) {#custom-client}
-
-For SSR-safe cookie forwarding in Nuxt, pass `useRequestFetch()` into `createVueActionHooks`:
+Pass Nuxt's `useRequestFetch()` into `createVueActionHooks<AppActions>()` to forward cookies during SSR:
 
 ```ts
 import { createVueActionHooks } from "@agent-native/actions/vue";
@@ -90,3 +123,8 @@ export function useAppActions() {
   });
 }
 ```
+
+## Next Steps
+
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — wire `actions/context.ts` and structured errors
+- [**CLI, MCP & AI SDKs**](/docs/actions-package-surfaces) — terminal CLI, MCP endpoints, and AI SDK tool exporters

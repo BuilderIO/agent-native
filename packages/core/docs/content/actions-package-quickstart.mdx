@@ -1,13 +1,18 @@
 ---
 title: "Quickstart"
-description: "Add @agent-native/actions to an existing app or standalone Node project, define your first action, and call it from UI hooks, HTTP, CLI, MCP, and plain TypeScript."
+description: "Install @agent-native/actions, define your first read and write actions, call them across UI hooks, HTTP, CLI, MCP, and plain TypeScript, and optionally wire auth."
 ---
 
 # Quickstart
 
-Go from zero to an action callable from your **UI**, **HTTP**, **CLI**, **MCP**, and **plain TypeScript** in under two minutes.
+Install `@agent-native/actions`, define a read and write action, and call them from your UI, HTTP API, CLI, MCP server, or plain TypeScript.
 
-## Install {#install}
+## Prerequisites
+
+- Node.js 20+
+- Zod v3/v4 (or any [Standard Schema](https://standardschema.dev) validator)
+
+## 1. Install {#install}
 
 <TabsBlock
   id="quickstart-install-tabs"
@@ -22,8 +27,8 @@ Go from zero to an action callable from your **UI**, **HTTP**, **CLI**, **MCP**,
           data: {
             language: "text",
             code: `Install @agent-native/actions in this repo using https://agent-native.com/docs/actions-package-quickstart.md.
-Run \`npx @agent-native/actions init\` (which also installs the agent-native-actions skill), wire our existing auth into actions/context.ts,
-add a sample read action and write action in actions/, and verify with \`pnpm action --list\`.`,
+Run \`npx @agent-native/actions init\`, wire our existing auth into actions/context.ts if present,
+add a sample read and write action in actions/, and verify with \`pnpm action --list\`.`,
           },
         },
       ],
@@ -60,16 +65,16 @@ npx @agent-native/actions skill`,
   ]}
 />
 
-`npx @agent-native/actions init` detects your stack, installs the `.agents/skills/agent-native-actions/SKILL.md` coding-agent skill (so Claude Code, Codex, and Cursor build new features as actions automatically), and adds the smallest possible setup:
+`init` inspects `package.json`, installs `.agents/skills/agent-native-actions/SKILL.md`, adds `"action": "actions"` to `scripts`, and wires the minimal integration for your stack:
 
-- **Vite (React, SolidJS, Vue, Svelte):** Adds 1 plugin line (`agentNativeActionsPlugin()`) to `vite.config.ts`. No route files needed.
-- **Next.js:** Wraps `next.config.ts` with `withAgentNativeActions()` and adds one single catch-all route at `app/api/agent-native/[...path]/route.ts` (serves both HTTP actions and MCP).
-- **Nuxt / SvelteKit:** Adds the single catch-all server handler and Vite/Nuxt integration.
-- **Plain Node / No Framework:** Creates `actions/` and adds `"action": "actions"` to `package.json`.
+- **Next.js:** wraps `next.config.ts` with `withAgentNativeActions()` and creates `app/api/agent-native/[...path]/route.ts`.
+- **Vite (React, SolidJS, Vue, Svelte):** adds `agentNativeActionsPlugin()` to `vite.config.ts`.
+- **Nuxt / SvelteKit:** adds the Nuxt module or Vite plugin plus one catch-all server handler.
+- **Plain Node / TypeScript:** creates `actions/` and `.generated/actions.ts`.
 
-## 1. Define a Simple Action {#define-action}
+## 2. Define Actions {#define-action}
 
-Create one file per operation inside `actions/`. The filename becomes the action name (`actions/create-todo.ts` → `create-todo`).
+Create one file per operation inside `actions/`. The filename becomes the action name (`actions/create-todo.ts` → `create-todo`):
 
 ```ts
 // actions/create-todo.ts
@@ -82,13 +87,13 @@ export default defineAction({
   schema: z.object({
     title: z.string().describe("What needs to be done"),
   }),
-  run: async ({ title }, ctx) => {
-    return db.todos.create({ title, userId: ctx.user.id });
+  run: async ({ title }) => {
+    return db.todos.create({ title });
   },
 });
 ```
 
-Add a read action alongside it with `http: { method: "GET" }` and `readOnly: true`:
+Add a read-only action with `http: { method: "GET" }` and `readOnly: true`:
 
 ```ts
 // actions/list-todos.ts
@@ -97,23 +102,26 @@ import { z } from "zod";
 import { db } from "../lib/db";
 
 export default defineAction({
-  description: "List todo items for the signed-in user",
+  description: "List todo items",
   schema: z.object({
     done: z.boolean().optional().describe("Filter by completion status"),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ done }, ctx) => {
-    return db.todos.findMany({ where: { userId: ctx.user.id, done } });
+  run: async ({ done }) => {
+    return db.todos.findMany({ where: { done } });
   },
 });
 ```
 
-## 2. Call It Everywhere {#call-everywhere}
+Running your dev server (or `npx @agent-native/actions generate`) writes two files:
 
-The moment you save those files, every surface works automatically — with end-to-end TypeScript inference from `.generated/action-types.d.ts`.
+- `.generated/actions.ts` — static registry (`actions`) and `AppActions` type for explicit client factories (`createActionHooks<AppActions>()`).
+- `.generated/action-types.d.ts` — ambient module augmentation so the default hook imports infer input and output types automatically.
 
-### From Your UI (Hooks & Reactive Primitives) {#call-from-ui}
+## 3. Call Your Actions {#call-everywhere}
+
+### UI Hooks {#call-from-ui}
 
 <TabsBlock
   id="quickstart-ui-hooks-tabs"
@@ -211,20 +219,19 @@ createTodo.mutate({ title: "Ship docs" });`,
 ]}
 />
 
-Mutations automatically invalidate active queries so the UI stays fresh without manual query-key wiring.
+Mutations invalidate active queries by default. Pass `invalidate: ["list-todos"]` to scope invalidation or `invalidate: false` to disable it.
 
-### From the CLI {#call-from-cli}
+### CLI {#call-from-cli}
+
+After `init` adds `"action": "actions"` to `package.json` (or invoke `npx @agent-native/actions` directly):
 
 ```bash
-# Discover every action in the repo
 pnpm action --list
-
-# Run an action with flags or JSON
 pnpm action create-todo --title "Ship docs"
 pnpm action list-todos --done false
 ```
 
-### Over HTTP {#call-from-http}
+### HTTP {#call-from-http}
 
 ```bash
 curl "http://localhost:3000/api/agent-native/actions/list-todos?done=false"
@@ -234,15 +241,9 @@ curl -X POST http://localhost:3000/api/agent-native/actions/create-todo \
   -d '{"title":"Ship docs"}'
 ```
 
-### Over MCP (Claude, Cursor, ChatGPT, Codex) {#call-from-mcp}
+### MCP {#call-from-mcp}
 
-Point any Streamable HTTP MCP client at your app's single endpoint:
-
-```text
-http://localhost:3000/api/agent-native/mcp
-```
-
-Or connect locally over `stdio` without running a web server at all:
+When mounted on a web server, Streamable HTTP MCP is served at `/api/agent-native/mcp`. For local CLI/MCP usage without a web server, connect over `stdio`:
 
 ```json
 {
@@ -255,9 +256,9 @@ Or connect locally over `stdio` without running a web server at all:
 }
 ```
 
-### Without a Framework (Plain Node / TypeScript) {#call-without-framework}
+### Plain Node / TypeScript {#call-without-framework}
 
-No web framework required. Call actions directly in scripts, cron jobs, workers, or tests:
+Call actions directly in scripts, workers, or tests with no HTTP server:
 
 ```ts
 import { createActions } from "@agent-native/actions";
@@ -268,16 +269,14 @@ const actions = createActions({
   actions: { "create-todo": createTodo, "list-todos": listTodos },
 });
 
-const todo = await actions.call(
-  "create-todo",
-  { title: "Ship docs" },
-  { user: { id: "user_1" } },
-);
+const todo = await actions.call("create-todo", { title: "Ship docs" });
 ```
 
-## 3. Wire Your Existing Auth (Optional) {#add-auth}
+To pass a custom context object to a context-aware registry, provide it as `{ ctx }` in the third argument: `actions.call("create-todo", { title: "Ship docs" }, { ctx: { caller: "server", user: { id: "user_1" } } })`.
 
-Add `actions/context.ts` to resolve your current user from cookies, bearer tokens, or local CLI env — every surface uses the same context:
+## 4. Add Auth Context (Optional) {#add-auth}
+
+Create `actions/context.ts` to resolve the current user from cookies, bearer tokens, or local CLI env, and export a typed `defineAppAction` helper:
 
 ```ts
 // actions/context.ts
@@ -303,9 +302,11 @@ export type AppContext = Awaited<ReturnType<typeof createContext>>;
 export const defineAppAction = createActionBuilder<AppContext>();
 ```
 
+Then import `defineAppAction` instead of `defineAction` in actions that read `ctx.user` or enforce `authorize(input, ctx)`.
+
 ## Next Steps
 
-- [**Next.js Integration**](/docs/actions-package-next) — single catch-all route, Server Components, React Server Actions, and `revalidateTag`
-- [**Vite Integration**](/docs/actions-package-vite) — 1-line plugin with HMR and zero dev boilerplate
-- [**Auth & Migration**](/docs/actions-package-auth-migration) — Clerk, Better Auth, Supabase recipes and migrating legacy API routes
-- [**Why Actions?**](/docs/actions-package-why) — how this compares to tRPC, Server Actions, and custom MCP servers
+- [**Next.js**](/docs/actions-package-next) — catch-all route, Server Components, and `"use server"` form actions
+- [**Vite**](/docs/actions-package-vite) — dev middleware, HMR, and production server adapters
+- [**CLI, MCP & AI SDKs**](/docs/actions-package-surfaces) — flags, MCP annotations, and Vercel / Anthropic / OpenAI tool exporters
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — Clerk, Better Auth, Supabase recipes and incremental route migration

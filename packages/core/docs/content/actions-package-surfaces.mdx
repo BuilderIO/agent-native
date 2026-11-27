@@ -1,73 +1,96 @@
 ---
 title: "CLI, MCP & AI SDKs"
-description: "Run your @agent-native/actions from a built-in CLI, serve them over Streamable HTTP or stdio MCP, and export them as tools for Vercel AI SDK, Anthropic SDK, OpenAI SDK, and WebMCP."
+description: "Reference for the @agent-native/actions CLI, Streamable HTTP and stdio MCP servers, AI SDK tool exporters (Vercel AI SDK, Anthropic, OpenAI), and WebMCP."
 ---
 
 # CLI, MCP & AI SDKs
 
-Every action you define with `defineAction()` is immediately usable from a **terminal CLI**, an **MCP server** (Claude, ChatGPT, Cursor, Codex), and popular **AI SDKs** (Vercel AI SDK, Anthropic SDK, OpenAI SDK) — without duplicating a single schema or auth check.
+Reference for every non-UI surface generated from your `defineAction()` registry: the terminal CLI, Streamable HTTP and `stdio` MCP servers, AI SDK tool exporters, and browser WebMCP.
 
-## Built-In CLI (`@agent-native/actions/cli`) {#cli}
+## CLI (`@agent-native/actions/cli`) {#cli}
 
-`npx @agent-native/actions init` adds `"action": "actions"` to your `package.json`. It automatically discovers `actions/*.ts` (or reads `--registry ./lib/actions.ts` if you use explicit registration):
+When `package.json` is present, `npx @agent-native/actions init` adds `"action": "actions"` to `scripts`. You can run commands via `pnpm action ...` or directly via `npx @agent-native/actions ...`.
+
+The CLI discovers `actions/*.ts` automatically (or loads an explicit registry with `--registry`).
 
 ```bash
-# List every action and its one-line description
+# List actions and HTTP methods
 pnpm action --list
 
-# Auto-generated help from your Zod .describe() annotations
+# Inspect generated JSON Schema help for one action
 pnpm action create-todo --help
 
-# Call with CLI flags
+# Pass typed flags
 pnpm action create-todo --title "Ship docs"
 
-# Or pass structured JSON (ideal for coding agents and scripts)
+# Pass structured JSON as a positional argument
 pnpm action create-todo '{"title":"Ship docs"}'
+
+# Inspect resolved action metadata as JSON without executing
+npx @agent-native/actions inspect
 ```
+
+### CLI Commands & Flags
+
+| Command / Flag                          | Description                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------ |
+| `init [--framework <name>] [--dry-run]` | Detect framework, scaffold starter files, and install the agent skill    |
+| `skill [--force] [--print]`             | Install or print `.agents/skills/agent-native-actions/SKILL.md`          |
+| `generate [--dir <path>]`               | Regenerate `.generated/actions.ts` and `.generated/action-types.d.ts`    |
+| `mcp [--registry <path>]`               | Start a local `stdio` MCP server over `actions/`                         |
+| `inspect`                               | Print JSON metadata for all discovered actions                           |
+| `--list`                                | Print action names, HTTP methods, and descriptions                       |
+| `--help`                                | Print an action's description and input JSON Schema                      |
+| `--approved`                            | Confirm execution for an action gated by `needsApproval`                 |
+| `--registry <file>`                     | Load an explicit `createActions()` export instead of scanning `actions/` |
+| `--dir <path>`                          | Scan a custom actions directory (default: `actions`)                     |
+| `--remote <url> [--token <bearer>]`     | Invoke an action against a deployed HTTP endpoint                        |
 
 ### Approval Gates in the Terminal
 
-When an action declares `needsApproval`, the CLI enforces it automatically:
+When an action defines `needsApproval`:
 
-- **Interactive TTY:** Prints the action name and parsed arguments, then asks `Approve and run? [y/N]`.
-- **Non-interactive (coding agent / CI):** Exits with a structured approval-required message showing the exact command so the agent asks the human for confirmation before re-running with `--approved`.
+- **Interactive TTY:** prints the action name and parsed input, then prompts `Approve and run? [y/N]`.
+- **Non-interactive (coding agent / CI):** exits with code `2` and prints a structured message instructing the caller to confirm with a human before re-running with `--approved`.
 
-<Callout tone="success">
+### Coding Agent Skill {#skill}
 
-**Let coding agents build & run actions automatically:** `npx @agent-native/actions init` installs `.agents/skills/agent-native-actions/SKILL.md` into your repo (or run `npx @agent-native/actions skill` anytime). It teaches Claude Code, Codex, and Cursor to build every new feature as a typed action in `actions/` and verify it via `pnpm action --list` instead of writing ad-hoc routes or throwaway scripts.
-
-</Callout>
-
-### Coding Agent Skill (`npx @agent-native/actions skill`) {#skill}
-
-Install or update the bundled skill at any time — or print it to stdout so any agent can load it directly:
+`npx @agent-native/actions init` installs `.agents/skills/agent-native-actions/SKILL.md` so coding agents (Claude Code, Codex, Cursor) build new operations in `actions/` and verify them with `pnpm action --list`. Install, refresh, or print the skill anytime:
 
 ```bash
-# Install into .agents/skills/agent-native-actions/SKILL.md
 npx @agent-native/actions skill
-
-# Overwrite an existing copy with the latest version
 npx @agent-native/actions skill --force
-
-# Print the skill markdown directly (useful inside agent prompts or CI)
 npx @agent-native/actions skill --print
 ```
 
 ## MCP Server (`@agent-native/actions/mcp`) {#mcp}
 
-Every integration mounts a Streamable HTTP MCP server automatically at `/api/agent-native/mcp` — zero extra route files required.
+`@agent-native/actions` supports both Streamable HTTP (for deployed web apps) and `stdio` (for local repos with no web server).
 
-### Streamable HTTP (Hosted / Remote MCP)
+### Streamable HTTP (Web & Server Adapters)
 
-Point Claude, ChatGPT, Cursor, or Codex at:
+Web and server adapters (`createNextHandler`, `createSvelteKitHandler`, `createNitroHandler`, `agentNativeActionsPlugin`, and `actions.handler`) mount Streamable HTTP MCP at `/api/agent-native/mcp` by default (configurable via `basePath` and `mcp`).
+
+Point any Streamable HTTP MCP client at:
 
 ```text
 https://your-app.com/api/agent-native/mcp
 ```
 
-### Local `stdio` MCP (Zero Web Server Required)
+In production, pass `mcp: { authenticate, include }` to restrict remote discovery and invocation:
 
-Connect Claude Desktop, Cursor, or Codex directly to your local repo's `actions/` folder over `stdio`:
+```ts
+createNextHandler(actions, {
+  mcp: {
+    authenticate: async (request) => verifyBearerToken(request),
+    include: ["list-todos", "create-todo"],
+  },
+});
+```
+
+### Local `stdio` MCP (Standalone / No Web Server)
+
+For local repos or Node-only projects without an HTTP server, run `npx @agent-native/actions mcp`:
 
 ```json
 {
@@ -80,24 +103,22 @@ Connect Claude Desktop, Cursor, or Codex directly to your local repo's `actions/
 }
 ```
 
-### Automatic MCP Tool Metadata
+### Action-to-MCP Mapping
 
-`@agent-native/actions` maps your action fields onto standard MCP tool annotations automatically:
+| Action option                       | MCP behavior                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------- |
+| `description`                       | Tool description exposed to the model                                           |
+| `schema`                            | Converted to provider-safe JSON Schema (falls back to `toolSchema` if needed)   |
+| `outputSchema`                      | Published as MCP `outputSchema` and validated `structuredContent`               |
+| `readOnly: true`                    | Sets `annotations.readOnlyHint = true`                                          |
+| `destructive: true`                 | Sets `annotations.destructiveHint = true`                                       |
+| `retrySafe: true`                   | Sets `annotations.idempotentHint = true`                                        |
+| `mcpTool: false`                    | Keeps the action available over HTTP/UI while excluding it from MCP             |
+| `fail(msg, { errorCode, details })` | Returns `isError: true` with machine-readable `errorCode` and bounded `details` |
 
-| Action option                       | MCP behavior                                                                       |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `description`                       | Tool description shown to the model                                                |
-| `schema`                            | Converted to provider-safe JSON Schema (handles strict-mode model quirks)          |
-| `outputSchema`                      | Published as MCP `outputSchema` + validated `structuredContent`                    |
-| `readOnly: true`                    | Sets `annotations.readOnlyHint = true`                                             |
-| `destructive: true`                 | Sets `annotations.destructiveHint = true`                                          |
-| `retrySafe: true`                   | Sets `annotations.idempotentHint = true`                                           |
-| `mcpTool: false`                    | Keeps the action available to UI hooks/HTTP while hiding it from MCP clients       |
-| `fail(msg, { errorCode, details })` | Returns structured `isError: true` with machine-readable `errorCode` and `details` |
+## AI SDK Tool Exporters {#ai-sdks}
 
-## Export to AI SDKs (Vercel AI SDK, Anthropic, OpenAI) {#ai-sdks}
-
-Building an in-app chat assistant or agent workflow with the **Vercel AI SDK**, **Anthropic SDK**, or **OpenAI SDK**? Export your actions directly into their native tool format in one line so your LLM loop shares the exact same schemas, validation, and authorization as your UI:
+Export registered actions as tool definitions (plus tool-call executors for Anthropic and OpenAI) using the same validation and context pipeline as your UI. All three accept `{ context, only?, exclude?, approvalToken? }` and skip actions with `agentTool: false`.
 
 <TabsBlock
   id="ai-sdk-export-tabs"
@@ -118,10 +139,9 @@ import { actions } from "@/lib/actions";
 
 const result = await generateText({
 model: openai("gpt-5"),
-prompt: "List my open todos and create one for shipping the docs.",
+prompt: "List open todos and create one for shipping the docs.",
 tools: toAiSdkTools(actions, {
-context: { source: "agent", user: currentUser },
-// Optionally scope which actions this prompt can invoke
+context: { caller: "agent", user: currentUser },
 only: ["list-todos", "create-todo"],
 }),
 });`,
@@ -143,7 +163,7 @@ import { toAnthropicTools } from "@agent-native/actions";
 import { actions } from "@/lib/actions";
 
 const { tools, executeToolUse } = toAnthropicTools(actions, {
-context: { source: "agent", user: currentUser },
+context: { caller: "agent", user: currentUser },
 });
 
 const response = await anthropic.messages.create({
@@ -151,7 +171,9 @@ model: "claude-sonnet-4-6",
 max_tokens: 1024,
 tools,
 messages,
-});`,
+});
+
+// Pass each tool_use block to executeToolUse(block) to get a tool_result block`,
           },
         },
       ],
@@ -170,8 +192,10 @@ import { toOpenAiTools } from "@agent-native/actions";
 import { actions } from "@/lib/actions";
 
 const { tools, executeToolCall } = toOpenAiTools(actions, {
-context: { source: "agent", user: currentUser },
-});`,
+context: { caller: "agent", user: currentUser },
+});
+
+// Pass tools to chat.completions.create({ tools }) and handle tool_calls with executeToolCall(call)`,
 },
 },
 ],
@@ -179,9 +203,9 @@ context: { source: "agent", user: currentUser },
 ]}
 />
 
-## Browser Agents with WebMCP {#webmcp}
+## WebMCP (`@agent-native/actions/webmcp`) {#webmcp}
 
-Expose actions to browser-embedded AI agents (such as Chrome's `navigator.modelContext`) under the user's live signed-in session:
+Register actions with browser-embedded agents (`navigator.modelContext`) under the signed-in browser session:
 
 ```ts
 import { registerWebMcpTools } from "@agent-native/actions/webmcp";

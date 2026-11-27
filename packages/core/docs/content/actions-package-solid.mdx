@@ -1,22 +1,51 @@
 ---
 title: "SolidJS"
-description: "First-class SolidJS integration via @agent-native/actions/solid: 1-line Vite plugin setup and fine-grained reactive queries and mutations built on Solid signals."
+description: "Integrate @agent-native/actions with SolidJS using the Vite plugin and signal-based createActionQuery and createActionMutation primitives."
 ---
 
-# SolidJS Integration
+# SolidJS
 
-Because `@agent-native/actions` has a framework-agnostic core, SolidJS gets native fine-grained reactivity — not a React wrapper. Pair the 1-line Vite plugin with `@agent-native/actions/solid` for typed `createActionQuery` and `createActionMutation` primitives driven directly by Solid signals.
+`@agent-native/actions/solid` provides signal-based Solid primitives (`createActionQuery`, `createActionMutation`, `callAction`) built on Solid's `createResource` and `createSignal`.
 
-## Set Up with Your AI Coding Agent {#setup}
+## Setup {#setup}
 
-Paste this prompt into **Claude Code**, **Codex**, or **Cursor**:
+<TabsBlock
+  id="solid-setup-tabs"
+  tabs={[
+    {
+      id: "cli",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "solid-setup-cli",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "agent",
+      label: "AI Coding Agent",
+      blocks: [
+        {
+          type: "code",
+          id: "solid-setup-agent",
+          data: {
+            language: "text",
+            code: `Set up @agent-native/actions in this SolidJS app following https://agent-native.com/docs/actions-package-solid.md.
+Run \`npx @agent-native/actions init\`, add agentNativeActionsPlugin() to vite.config.ts beside solid(), create a sample action in actions/, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
 
-```text
-Set up @agent-native/actions in this SolidJS app following https://agent-native.com/docs/actions-package-solid.md.
-Run `npx @agent-native/actions init`, add agentNativeActionsPlugin() to vite.config.ts beside solid(), create a sample action in actions/, and verify with `pnpm action --list`.
-```
-
-Or add the single plugin line to `vite.config.ts`:
+Add `agentNativeActionsPlugin()` alongside `solid()` in `vite.config.ts`:
 
 ```ts
 // vite.config.ts
@@ -29,28 +58,9 @@ export default defineConfig({
 });
 ```
 
-Drop an action in `actions/`:
+## Usage {#primitives}
 
-```ts
-// actions/list-todos.ts
-import { defineAction } from "@agent-native/actions";
-import { z } from "zod";
-import { db } from "../server/db";
-
-export default defineAction({
-  description: "List todo items",
-  schema: z.object({
-    done: z.boolean().optional().describe("Filter by completion status"),
-  }),
-  http: { method: "GET" },
-  readOnly: true,
-  run: async ({ done }) => db.todos.findMany({ where: { done } }),
-});
-```
-
-## Fine-Grained Reactive Queries & Mutations {#primitives}
-
-`createActionQuery` accepts a reactive accessor `() => input` so Solid tracks signal dependencies automatically and refetches only when the inputs change:
+`createActionQuery` returns a Solid `Resource<TOutput | undefined>` and accepts a reactive accessor `() => input` (returning `false` or `null` skips fetching). `createActionMutation` returns `{ pending, error, data, mutate, mutateAsync, reset }` and automatically refetches active queries on success (or only the names listed in `invalidate`, or none with `invalidate: false`).
 
 ```tsx
 // src/components/TodoBoard.tsx
@@ -64,7 +74,6 @@ import {
 export function TodoBoard() {
   const [showDone, setShowDone] = createSignal(false);
 
-  // Re-runs automatically whenever showDone() changes
   const todos = createActionQuery("list-todos", () => ({ done: showDone() }));
 
   const toggleTodo = createActionMutation("toggle-todo", {
@@ -100,11 +109,24 @@ export function TodoBoard() {
 }
 ```
 
-When `toggleTodo.mutate(...)` succeeds, `@agent-native/actions/solid` automatically notifies active `createActionQuery` resources to refetch — keeping Solid's fine-grained signal graph intact with zero manual cache keys.
+### Custom Client Configuration {#custom-client}
 
-## Production Hosting {#production}
+For a separate API origin or dynamic auth headers, create a bound set of primitives with `createSolidActionHooks<AppActions>()`:
 
-During development, `agentNativeActionsPlugin()` serves both `/api/agent-native/actions/*` and `/api/agent-native/mcp` directly inside Vite. In production, mount `.generated/actions.ts` in one line on Hono, Express, Node, or Cloudflare Workers (see [Other Frameworks & Servers](/docs/actions-package-servers)):
+```ts
+import { createSolidActionHooks } from "@agent-native/actions/solid";
+import type { AppActions } from "../.generated/actions";
+
+export const { createActionQuery, createActionMutation, callAction } =
+  createSolidActionHooks<AppActions>({
+    baseUrl: "https://api.example.com/api/agent-native/actions",
+    headers: () => ({ Authorization: `Bearer ${getToken()}` }),
+  });
+```
+
+## Production {#production}
+
+`agentNativeActionsPlugin()` serves `/api/agent-native/actions/*` and `/api/agent-native/mcp` in Vite dev mode only. In production, mount `.generated/actions.ts` on your server runtime (see [Node & Server Adapters](/docs/actions-package-servers)):
 
 ```ts
 // server/index.ts
@@ -117,17 +139,7 @@ app.all("/api/agent-native/*", (c) => actions.handler(c.req.raw));
 export default app;
 ```
 
-## Custom Client Configuration (Optional) {#custom-client}
+## Next Steps
 
-If your API lives on a separate origin or needs custom headers, create a typed set of primitives with `createSolidActionHooks`:
-
-```ts
-import { createSolidActionHooks } from "@agent-native/actions/solid";
-import type { AppActions } from "../.generated/actions";
-
-export const { createActionQuery, createActionMutation, callAction } =
-  createSolidActionHooks<AppActions>({
-    baseUrl: "https://api.example.com/api/agent-native/actions",
-    headers: () => ({ Authorization: `Bearer ${getToken()}` }),
-  });
-```
+- [**Vite**](/docs/actions-package-vite) — plugin options and `actions/context.ts`
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — auth recipes, approvals, and structured errors
