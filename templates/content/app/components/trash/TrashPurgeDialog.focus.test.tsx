@@ -40,6 +40,9 @@ const toastError = vi.fn();
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
     options ? `${key} ${JSON.stringify(options)}` : key,
+  useFormatters: () => ({
+    formatList: (value: string[]) => value.join(" and "),
+  }),
 }));
 vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => toastError(...args) },
@@ -242,7 +245,7 @@ describe("TrashPurgeDialog focus restoration", () => {
 describe("Empty Trash across workspaces", () => {
   function planByWorkspace(input: ContentTrashPurgeInput) {
     const spaceId = input.mode === "scope" ? input.spaceId : undefined;
-    if (spaceId === "space-c")
+    if (spaceId === "space-c" || spaceId === "space-e")
       return Promise.reject(
         Object.assign(new Error("Nothing to purge"), {
           errorCode: "empty_scope",
@@ -321,8 +324,9 @@ describe("Empty Trash across workspaces", () => {
       'trash.workspaceScopeCounts {"workspace":"Workspace space-b","eligible":3,"blocked":0}',
     );
     expect(text).toContain(
-      'trash.workspaceScopeCounts {"workspace":"Workspace space-c","eligible":0,"blocked":0}',
+      'trash.emptyWorkspaces {"workspaces":"Workspace space-c"}',
     );
+    expect(text).not.toContain('"eligible":0');
     expect(text).toContain('trash.deleteQuestion {"count":5}');
 
     await act(async () => buttonStartingWith("trash.deleteCount")?.click());
@@ -346,6 +350,29 @@ describe("Empty Trash across workspaces", () => {
       ["plan-space-b", "started", "op-plan-space-b"],
     ]);
     expect(onAcknowledged).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+  });
+
+  it("names every workspace with nothing to delete in one line, after the counts", async () => {
+    planFor = planByWorkspace;
+    const { root } = await openEmptyTrash([
+      space("space-c"),
+      space("space-a"),
+      space("space-e"),
+      space("viewer-space", false),
+    ]);
+    const lines = [...document.querySelectorAll('[role="alertdialog"] p')].map(
+      (line) => line.textContent,
+    );
+
+    expect(lines.slice(1)).toEqual([
+      'trash.workspaceScopeCounts {"workspace":"Workspace space-a","eligible":2,"blocked":1}',
+      'trash.emptyWorkspaces {"workspaces":"Workspace space-c and Workspace space-e"}',
+      'trash.cannotPurgeWorkspace {"workspace":"Workspace viewer-space"}',
+    ]);
+    expect(buttonStartingWith("trash.deleteCount")?.textContent).toBe(
+      'trash.deleteCount {"count":2}',
+    );
     await act(async () => root.unmount());
   });
 
