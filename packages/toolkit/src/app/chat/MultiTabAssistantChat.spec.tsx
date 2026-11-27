@@ -7392,6 +7392,158 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     vi.clearAllMocks();
   });
 
+  it.each([true, false])(
+    "preserves an old route-requested thread when its tab was saved: %s",
+    async (saved) => {
+      const storageKey = "stale-route-test";
+      const staleTime = Date.now() - 13 * 60 * 60 * 1000;
+      threadMocks.activeThreadId = "thread-1";
+      threadMocks.threads = [
+        { ...makeThread("thread-1"), updatedAt: staleTime },
+        { ...makeThread("thread-2"), updatedAt: staleTime },
+        makeThread("thread-3"),
+      ];
+      window.history.replaceState(null, "", "/chat/thread-1");
+      window.localStorage.setItem(
+        openTabsStorageKey(storageKey),
+        JSON.stringify(
+          saved
+            ? ["thread-1", "thread-2", "thread-3"]
+            : ["thread-2", "thread-3"],
+        ),
+      );
+      const navigate = vi.fn();
+      let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey={storageKey}
+            threadUrlSync={{
+              routeThreadId: "thread-1",
+              getPath: (id) => (id ? `/chat/${id}` : "/chat"),
+              navigate,
+            }}
+            renderHeader={(props) => {
+              headerProps = props;
+              return null;
+            }}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(threadMocks.createThread).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      expect(headerProps?.activeTabId).toBe("thread-1");
+      const expectedTabs = saved
+        ? ["thread-1", "thread-3"]
+        : ["thread-3", "thread-1"];
+      expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(expectedTabs);
+      expect(
+        JSON.parse(
+          window.localStorage.getItem(openTabsStorageKey(storageKey)) ?? "null",
+        ),
+      ).toEqual(expectedTabs);
+      expect(
+        container.querySelector(
+          '[data-testid="assistant-chat"][data-composer-active="true"]',
+        ),
+      ).not.toBeNull();
+    },
+  );
+
+  it("opens an old route-requested thread after tab initialization", async () => {
+    const storageKey = "stale-route-navigation-test";
+    threadMocks.activeThreadId = "thread-3";
+    threadMocks.threads = [
+      {
+        ...makeThread("thread-1"),
+        updatedAt: Date.now() - 13 * 60 * 60 * 1000,
+      },
+      makeThread("thread-3"),
+    ];
+    window.history.replaceState(null, "", "/chat/thread-3");
+    window.localStorage.setItem(
+      openTabsStorageKey(storageKey),
+      JSON.stringify(["thread-3"]),
+    );
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    const chat = (routeThreadId: string) => (
+      <MultiTabAssistantChat
+        storageKey={storageKey}
+        threadUrlSync={{ routeThreadId }}
+        renderHeader={(props) => {
+          headerProps = props;
+          return null;
+        }}
+      />
+    );
+
+    await act(async () => {
+      root.render(chat("thread-3"));
+    });
+    threadMocks.activeThreadId = "thread-1";
+    await act(async () => {
+      root.render(chat("thread-1"));
+    });
+
+    expect(threadMocks.createThread).not.toHaveBeenCalled();
+    expect(headerProps?.activeTabId).toBe("thread-1");
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-3",
+      "thread-1",
+    ]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(openTabsStorageKey(storageKey)) ?? "null",
+      ),
+    ).toEqual(["thread-3", "thread-1"]);
+  });
+
+  it("replaces an implicitly restored stale active thread", async () => {
+    const storageKey = "stale-restore-test";
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      {
+        ...makeThread("thread-1"),
+        updatedAt: Date.now() - 13 * 60 * 60 * 1000,
+      },
+    ];
+    window.history.replaceState(null, "", "/chat");
+    window.localStorage.setItem(
+      openTabsStorageKey(storageKey),
+      JSON.stringify(["thread-1"]),
+    );
+    threadMocks.createThread.mockImplementationOnce(async () => {
+      threadMocks.activeThreadId = "thread-2";
+      threadMocks.threads = [...threadMocks.threads, makeThread("thread-2")];
+      return "thread-2";
+    });
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey={storageKey}
+        renderHeader={(props) => {
+          headerProps = props;
+          return null;
+        }}
+      />
+    );
+
+    await act(async () => {
+      root.render(chat());
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(chat());
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+    expect(headerProps?.activeTabId).toBe("thread-2");
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-2"]);
+  });
+
   it("de-duplicates an open-tabs list restored from localStorage", async () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];

@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { BrowserRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const childState = vi.hoisted(() => ({
@@ -156,6 +157,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  localStorage.clear();
+  vi.doUnmock("@agent-native/core/client/agent-chat");
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -182,6 +185,165 @@ async function mount(
     await Promise.resolve();
   });
 }
+
+describe("route-requested thread lifecycle", () => {
+  it("keeps an explicitly routed stale thread open without creating a draft", async () => {
+    vi.resetModules();
+    vi.doMock(
+      "@agent-native/core/client/agent-chat",
+      async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import("@agent-native/core/client/agent-chat")
+          >();
+        return {
+          ...actual,
+          loadChatModelCatalog: async () => catalogState.catalog,
+        };
+      },
+    );
+    const { MultiTabAssistantChat: RealThreadsChat } =
+      await import("./MultiTabAssistantChat.js");
+
+    localStorage.clear();
+    const updatedAt = Date.now() - 13 * 60 * 60 * 1000;
+    const oldThread = {
+      id: "thread-old",
+      title: "Old conversation",
+      preview: "Earlier message",
+      messageCount: 1,
+      createdAt: updatedAt,
+      updatedAt,
+      scope: null,
+      threadData: JSON.stringify({ messages: [{ id: "message-old" }] }),
+    };
+    const otherThread = {
+      ...oldThread,
+      id: "thread-other",
+      title: "Another old conversation",
+    };
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/test-chat/threads" && !init?.method) {
+          return Response.json({ threads: [oldThread, otherThread] });
+        }
+        if (url.pathname === "/test-chat/threads/thread-old" && !init?.method) {
+          return Response.json(oldThread);
+        }
+        if (
+          url.pathname === "/test-chat/threads/thread-other" &&
+          !init?.method
+        ) {
+          return Response.json(otherThread);
+        }
+        if (url.pathname.startsWith("/test-chat/threads")) {
+          throw new Error(
+            `Unexpected thread request: ${init?.method ?? "GET"} ${url.pathname}`,
+          );
+        }
+        return Response.json({ value: null });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/thread/thread-old");
+
+    function RoutedChat() {
+      const location = useLocation();
+      const navigate = useNavigate();
+      const routeThreadId = location.pathname.split("/")[2] ?? null;
+      return (
+        <>
+          <button
+            onClick={() => {
+              void navigate("/thread/thread-other");
+            }}
+          >
+            Other thread
+          </button>
+          <RealThreadsChat
+            apiUrl="/test-chat"
+            storageKey="route-real-threads"
+            browserTabId="route-real-threads"
+            showTabBar={false}
+            renderHeader={({ tabs, activeTabId }) => (
+              <div data-testid="thread-header">
+                {tabs.map((tab) => (
+                  <span key={tab.id} data-active={tab.id === activeTabId}>
+                    {tab.label}
+                  </span>
+                ))}
+              </div>
+            )}
+            threadUrlSync={{
+              routeThreadId,
+              getPath: navigatePath,
+              navigate: (path, options) => {
+                void navigate(path, options);
+              },
+            }}
+          />
+        </>
+      );
+    }
+
+    await act(async () => {
+      root.render(
+        <BrowserRouter>
+          <RoutedChat />
+        </BrowserRouter>,
+      );
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/test-chat/threads/thread-old"),
+      ),
+    ).toBe(true);
+    expect(
+      container.querySelector(
+        '[data-testid="thread-header"] [data-active="true"]',
+      )?.textContent,
+    ).toBe("Old conversation");
+    expect(
+      container.querySelector(
+        '[data-agent-chat-reference-target="thread-old"]',
+      ),
+    ).not.toBeNull();
+    expect(window.location.pathname).toBe("/thread/thread-old");
+    expect(
+      Object.keys(localStorage).filter((key) =>
+        key.startsWith("agent-chat-client-draft-thread:"),
+      ),
+    ).toEqual([]);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+    });
+    expect(
+      container.querySelector(
+        '[data-testid="thread-header"] [data-active="true"]',
+      )?.textContent,
+    ).toBe("Another old conversation");
+    expect(
+      container.querySelector(
+        '[data-agent-chat-reference-target="thread-other"]',
+      ),
+    ).not.toBeNull();
+    expect(window.location.pathname).toBe("/thread/thread-other");
+    expect(
+      Object.keys(localStorage).filter((key) =>
+        key.startsWith("agent-chat-client-draft-thread:"),
+      ),
+    ).toEqual([]);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes("/test-chat/threads") && init?.method === "POST",
+      ),
+    ).toEqual([]);
+  });
+});
 
 describe("new-thread URL handoff", () => {
   it("latches a hook-seeded new thread before persistence confirms it", async () => {

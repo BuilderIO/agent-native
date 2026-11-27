@@ -1265,6 +1265,10 @@ export function MultiTabAssistantChat({
     writeThreadUrl,
   ]);
 
+  const requestedThreadId = threadUrlSyncEnabled
+    ? urlThreadId
+    : activeDeepLinkedThreadId;
+
   const {
     threads,
     activeThreadId,
@@ -1287,8 +1291,8 @@ export function MultiTabAssistantChat({
     restoreActiveThread,
     browserTabId,
     routeThreadId: threadUrlSyncEnabled
-      ? urlThreadId
-      : (activeDeepLinkedThreadId ?? undefined),
+      ? requestedThreadId
+      : (requestedThreadId ?? undefined),
     isolateHistoryByScope,
     collapseEdits: collapseHistoryEdits,
   });
@@ -2138,13 +2142,11 @@ export function MultiTabAssistantChat({
     const threadIds = new Set(threads.map((t) => t.id));
     const threadMap = new Map(threads.map((t) => [t.id, t]));
 
-    // Hide tabs that have had no activity for more than 12 hours. Stale tabs
-    // are removed from the sidebar on load but remain accessible via history.
     const now = Date.now();
     const isStale = (id: string) => {
       if (id === urlThreadIdRef.current) return false;
       const thread = threadMap.get(id);
-      return thread
+      return thread && !(id === activeThreadId && id === requestedThreadId)
         ? now - thread.updatedAt > STALE_THREAD_THRESHOLD_MS
         : false;
     };
@@ -2162,11 +2164,9 @@ export function MultiTabAssistantChat({
     }
 
     setOpenTabIds((prev) => {
-      // Filter out tabs that no longer exist, sub-agent tabs, or stale tabs (>12h inactive)
       const valid = prev.filter(
         (id) => threadIds.has(id) && !parentMap[id] && !isStale(id),
       );
-      // Ensure active thread is included (only if it's not a sub-agent and not stale)
       if (
         !parentMap[activeThreadId] &&
         !valid.includes(activeThreadId) &&
@@ -2177,7 +2177,6 @@ export function MultiTabAssistantChat({
       return valid;
     });
 
-    // If active thread is stale, start fresh
     if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
       void createThread().then((id) => {
         if (id) writeThreadUrl(null);
@@ -2190,6 +2189,7 @@ export function MultiTabAssistantChat({
     switchThread,
     createThread,
     writeThreadUrl,
+    requestedThreadId,
   ]);
 
   // Ensure active thread is always in open tabs.
@@ -2205,6 +2205,7 @@ export function MultiTabAssistantChat({
     const activeThread = threads.find((thread) => thread.id === activeThreadId);
     if (
       activeThread &&
+      activeThreadId !== requestedThreadId &&
       activeThreadId !== urlThreadIdRef.current &&
       Date.now() - activeThread.updatedAt > STALE_THREAD_THRESHOLD_MS
     ) {
@@ -2214,7 +2215,7 @@ export function MultiTabAssistantChat({
     setOpenTabIds((prev) =>
       prev.includes(activeThreadId) ? prev : [...prev, activeThreadId],
     );
-  }, [activeThreadId, openTabIds, parentMap, threads]);
+  }, [activeThreadId, openTabIds, parentMap, threads, requestedThreadId]);
 
   // Ensure at least one tab is always open — auto-create if sidebar is empty.
   // Skipped when an active thread already exists (e.g. the hook generated an
