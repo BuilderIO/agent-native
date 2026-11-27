@@ -258,6 +258,16 @@ function rulesFor(app: AppCatalog): ReferenceRules {
   };
 }
 
+function catalogContractAppIdsFromEnv(): string[] | undefined {
+  const raw = process.env.CATALOG_CONTRACT_APPS?.trim();
+  if (!raw) return undefined;
+  const ids = raw
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+  return ids.length > 0 ? ids : undefined;
+}
+
 describe("tool reference detection", () => {
   const rules: ReferenceRules = {
     advertised: new Set(["list-documents", "get-document", "tool-search"]),
@@ -356,15 +366,21 @@ describe("tool reference detection", () => {
 });
 
 describe("static MCP instructions name only advertised tools", () => {
+  const scopedAppIds = catalogContractAppIdsFromEnv();
   let apps: AppCatalog[] = [];
 
   beforeAll(async () => {
-    apps = (await loadAppCatalogs()).filter((app) => app.instructions);
+    apps = (await loadAppCatalogs(catalogContractAppIdsFromEnv())).filter(
+      (app) => app.instructions,
+    );
   }, LOAD_TIMEOUT_MS);
 
   it("covers every app that sets instructions", () => {
+    const requiredApps = scopedAppIds
+      ? apps.map((app) => app.appId)
+      : ["content", "design", "forms", "plan", "slides"];
     expect(apps.map((app) => app.appId)).toEqual(
-      expect.arrayContaining(["content", "design", "forms", "plan", "slides"]),
+      expect.arrayContaining(requiredApps),
     );
   });
 
@@ -385,10 +401,12 @@ describe("static MCP instructions name only advertised tools", () => {
   });
 
   it("keeps the exception maps limited to tokens that are still needed", () => {
+    const loadedAppIds = new Set(apps.map((app) => app.appId));
     const stale: string[] = [];
     const ownersOf = (scope: string) =>
       scope === "*" ? apps : apps.filter((app) => app.appId === scope);
     for (const [scope, entries] of Object.entries(MERGED_NOT_TOOL_NAMES)) {
+      if (scopedAppIds && (scope === "*" || !loadedAppIds.has(scope))) continue;
       for (const token of Object.keys(entries)) {
         if (
           !ownersOf(scope).some((app) =>
@@ -402,6 +420,7 @@ describe("static MCP instructions name only advertised tools", () => {
     for (const [scope, entries] of Object.entries(
       MERGED_ADVERTISED_ONLY_CONDITIONALLY,
     )) {
+      if (scopedAppIds && (scope === "*" || !loadedAppIds.has(scope))) continue;
       for (const [token, reason] of Object.entries(entries)) {
         const owners = ownersOf(scope);
         if (

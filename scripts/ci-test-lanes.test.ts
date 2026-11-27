@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   assertFullCoverage,
+  catalogContractAppsForChangedPaths,
   catalogContractCoreSpecs,
   cliEntryCoreSpecs,
   isShardableTestScript,
@@ -155,17 +156,17 @@ test("runs the catalog contract specs for any workspace source change", (t) => {
     "src/mcp/instructions-name-advertised-tools.spec.ts",
     "src/mcp/hidden-inline-apps.spec.ts",
   ];
+  const specsWithoutHiddenInline = specs.filter(
+    (spec) => spec !== "src/mcp/hidden-inline-apps.spec.ts",
+  );
   for (const changed of [
     "templates/mail/actions/send-email.ts",
     "templates/mail/actions/e2e/inspect-catalog.ts",
     "templates/mail/e2e/helper.ts",
     "templates/mail/e2e/unreadable.ts",
-    "templates/forms/server/plugins/agent-chat.ts",
     "templates/content/server/lib/chatgpt-directory-tools.ts",
     "templates/slides/shared/api.ts",
     "templates/design/app/lib/design-tokens.ts",
-    "templates/newapp/actions/create-thing.ts",
-    "templates/newapp/scripts/run-task.ts",
     "templates/mail/agent-native.json",
     "templates/mail/package.json",
     "packages/core/src/server/agent-chat-plugin.ts",
@@ -181,6 +182,44 @@ test("runs the catalog contract specs for any workspace source change", (t) => {
   ]) {
     assert.deepEqual(catalogContractCoreSpecs([changed], root), specs, changed);
   }
+  for (const changed of [
+    "templates/forms/server/plugins/agent-chat.ts",
+    "templates/newapp/actions/create-thing.ts",
+    "templates/newapp/scripts/run-task.ts",
+  ]) {
+    assert.deepEqual(
+      catalogContractCoreSpecs([changed], root),
+      specsWithoutHiddenInline,
+      changed,
+    );
+  }
+  assert.equal(
+    catalogContractAppsForChangedPaths(
+      ["templates/forms/server/plugins/agent-chat.ts"],
+      root,
+    ),
+    "forms",
+  );
+  assert.equal(
+    catalogContractAppsForChangedPaths(
+      [
+        "templates/mail/actions/send-email.ts",
+        "templates/forms/actions/save-form.ts",
+      ],
+      root,
+    ),
+    "forms,mail",
+  );
+  assert.equal(
+    catalogContractAppsForChangedPaths(
+      [
+        "templates/mail/actions/send-email.ts",
+        "packages/core/src/mcp/server.ts",
+      ],
+      root,
+    ),
+    "",
+  );
   for (const unrelated of [
     "templates/mail/actions/send-email.test.ts",
     ...runners,

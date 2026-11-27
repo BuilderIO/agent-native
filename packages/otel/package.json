@@ -32,7 +32,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest --run src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",

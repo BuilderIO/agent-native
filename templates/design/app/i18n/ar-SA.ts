@@ -1942,6 +1942,7 @@ export default {
     bringToFront: "إحضار إلى الأمام",
     sendBackward: "إرسال للخلف",
     sendToBack: "إرسال إلى الخلف",
+    arrangeUnavailable: "حدد طبقة في تصميم قابل للتحرير لإعادة ترتيبها",
     pasteToReplace: "لصق للاستبدال",
     frameSelection: "تأطير التحديد",
     flipHorizontal: "قلب أفقيًا",
