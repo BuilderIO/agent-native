@@ -264,6 +264,42 @@ describe("native AgentKit uploads", () => {
       });
     },
   );
+  it("preserves a non-retryable Builder reconnect failure", async () => {
+    const runtime = createAgentNativeUploadRuntime({
+      fetch: vi.fn(async () =>
+        Response.json(
+          {
+            errorCode: "builder_oauth_reauthorization_required",
+            error: "untrusted server message",
+          },
+          { status: 503 },
+        ),
+      ),
+    });
+    const target = await runtime.operations.createUpload({
+      threadId: "thread",
+      descriptor: {
+        name: "image.png",
+        mediaType: "image/png",
+        size: 4,
+        purpose: "message",
+      },
+    });
+    await expect(
+      runtime.upload(target, {
+        name: "image.png",
+        mediaType: "image/png",
+        size: 4,
+        body: new Blob(["data"]),
+      }),
+    ).rejects.toMatchObject({
+      code: "upload_builder_oauth_reauthorization_required",
+      status: 503,
+      retryable: false,
+      message: "upload_builder_oauth_reauthorization_required",
+    });
+    runtime.dispose();
+  });
   it("rejects oversized uploads and clears pending state on disposal", async () => {
     const runtime = createAgentNativeUploadRuntime();
     await expect(

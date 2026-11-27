@@ -152,6 +152,19 @@ export async function uploadFile(
   let provider: FileUploadProvider | null;
   try {
     provider = await getActiveFileUploadProviderForRequest();
+    if (!provider) {
+      const { getBuilderUploadCredentialStatus } = await import("./status.js");
+      const status = await getBuilderUploadCredentialStatus();
+      if (status.builderUploadConfigured) {
+        provider = builderFileUploadProvider;
+      } else if (status.builderReauthorizationRequired) {
+        const { ActionContractError } = await import("../action.js");
+        throw new ActionContractError("Builder.io needs to be reconnected.", {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        });
+      }
+    }
   } catch (error) {
     const { McpOAuthRefreshUnavailableError } =
       await import("../mcp-client/oauth-client.js");
@@ -160,36 +173,8 @@ export async function uploadFile(
     }
     throw error;
   }
-  // User-registered providers (S3, etc.) may be configured by sync runtime
-  // state or request-scoped DB secrets. Builder still gets an explicit async
-  // credential check below because its sync isConfigured() only checks env.
-  if (provider && provider !== builderFileUploadProvider) {
-    return provider.upload(input);
-  }
 
-  let hasBuilderCredential = false;
-  try {
-    const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
-      await Promise.all([
-        import("../server/builder-api-auth.js"),
-        import("../server/builder-oauth.js"),
-      ]);
-    hasBuilderCredential = await canAuthorizeBuilderApiRequest(
-      BUILDER_ASSETS_WRITE_SCOPE,
-    );
-  } catch (err) {
-    // DB unavailable or credential store not ready — can't resolve a
-    // credential. Return an unavailable-provider state below; never fall back
-    // to SQL.
-    console.warn(
-      "[agent-native] Builder credential check failed:",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-
-  if (hasBuilderCredential) {
-    return await builderFileUploadProvider.upload(input);
-  }
+  if (provider) return provider.upload(input);
 
   if (!warnedFallbackRef.value) {
     warnedFallbackRef.value = true;

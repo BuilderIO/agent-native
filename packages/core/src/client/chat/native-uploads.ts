@@ -73,7 +73,26 @@ export function createAgentNativeUploadRuntime(
       if (context?.signal?.aborted) throw cause;
       throw Object.assign(failure("upload_network_error"), { cause });
     }
-    if (!response.ok)
+    if (!response.ok) {
+      if (response.status === 503) {
+        let result: unknown;
+        try {
+          result = await response.json();
+        } catch (cause) {
+          if (context?.signal?.aborted) throw cause;
+        }
+        if (
+          result &&
+          typeof result === "object" &&
+          "errorCode" in result &&
+          result.errorCode === "builder_oauth_reauthorization_required"
+        ) {
+          throw Object.assign(
+            failure("upload_builder_oauth_reauthorization_required", 503),
+            { retryable: false },
+          );
+        }
+      }
       throw failure(
         response.status === 413
           ? "upload_too_large"
@@ -88,6 +107,7 @@ export function createAgentNativeUploadRuntime(
                 : `upload_http_${response.status}`,
         response.status,
       );
+    }
     const result: unknown = await response.json();
     if (
       !result ||

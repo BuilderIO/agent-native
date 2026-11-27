@@ -15,9 +15,13 @@ import {
 import type { FileUploadProvider } from "./types.js";
 
 const canAuthorizeBuilderApiRequestMock = vi.hoisted(() => vi.fn());
+const hasBuilderApiCredentialCustodyMock = vi.hoisted(() => vi.fn());
+const hasStoredBuilderApiOAuthGrantMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/builder-api-auth.js", () => ({
   canAuthorizeBuilderApiRequest: canAuthorizeBuilderApiRequestMock,
+  hasBuilderApiCredentialCustody: hasBuilderApiCredentialCustodyMock,
+  hasStoredBuilderApiOAuthGrant: hasStoredBuilderApiOAuthGrantMock,
 }));
 
 function makeProvider(
@@ -45,7 +49,9 @@ describe("file-upload registry", () => {
     process.env = { ...originalEnv };
     delete process.env.BUILDER_PRIVATE_KEY;
     vi.clearAllMocks();
-    canAuthorizeBuilderApiRequestMock.mockResolvedValue(false);
+    canAuthorizeBuilderApiRequestMock.mockReset().mockResolvedValue(false);
+    hasBuilderApiCredentialCustodyMock.mockReset().mockResolvedValue(false);
+    hasStoredBuilderApiOAuthGrantMock.mockReset().mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -284,6 +290,7 @@ describe("file-upload registry", () => {
 
   describe("uploadFile dispatch", () => {
     it("uses a configured user provider directly without resolving builder creds", async () => {
+      hasStoredBuilderApiOAuthGrantMock.mockResolvedValue(true);
       const upload = vi.fn(async () => ({
         url: "https://cdn/s3/x",
         provider: "s3",
@@ -297,6 +304,7 @@ describe("file-upload registry", () => {
       expect(upload).toHaveBeenCalledWith(input);
       // The builder credential path must not be touched for user providers.
       expect(canAuthorizeBuilderApiRequestMock).not.toHaveBeenCalled();
+      expect(hasStoredBuilderApiOAuthGrantMock).not.toHaveBeenCalled();
     });
 
     it("uses a request-scoped user provider before resolving builder creds", async () => {
@@ -339,7 +347,63 @@ describe("file-upload registry", () => {
         provider: "builder",
       });
       expect(uploadSpy).toHaveBeenCalledWith(input);
+      expect(canAuthorizeBuilderApiRequestMock).toHaveBeenCalledTimes(1);
       uploadSpy.mockRestore();
+    });
+
+    it("requests reauthorization for a stored unusable Builder grant", async () => {
+      hasStoredBuilderApiOAuthGrantMock.mockResolvedValue(true);
+
+      await expect(
+        uploadFile({ data: new Uint8Array([1]) }),
+      ).rejects.toMatchObject({
+        name: "ActionContractError",
+        errorCode: "builder_oauth_reauthorization_required",
+        statusCode: 400,
+      });
+    });
+
+    it("uploads when Builder becomes usable during the status lookup", async () => {
+      canAuthorizeBuilderApiRequestMock
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      const uploadSpy = vi
+        .spyOn(builderFileUploadProvider, "upload")
+        .mockResolvedValue({
+          url: "https://cdn.builder.io/abc",
+          provider: "builder",
+        });
+      const input = { data: new Uint8Array([1]) };
+
+      await expect(uploadFile(input)).resolves.toEqual({
+        url: "https://cdn.builder.io/abc",
+        provider: "builder",
+      });
+      expect(uploadSpy).toHaveBeenCalledWith(input);
+      uploadSpy.mockRestore();
+    });
+
+    it("propagates failures while checking stored Builder grants", async () => {
+      const failure = new Error("grant lookup unavailable");
+      hasStoredBuilderApiOAuthGrantMock.mockRejectedValue(failure);
+
+      await expect(uploadFile({ data: new Uint8Array([1]) })).rejects.toBe(
+        failure,
+      );
+    });
+
+    it("maps a transient OAuth refresh failure during the status lookup", async () => {
+      canAuthorizeBuilderApiRequestMock
+        .mockResolvedValueOnce(false)
+        .mockRejectedValueOnce(new McpOAuthRefreshUnavailableError());
+
+      await expect(
+        uploadFile({ data: new Uint8Array([1]) }),
+      ).rejects.toMatchObject({
+        name: "FileUploadProviderUnavailableError",
+        errorCode: "file_upload_provider_unavailable",
+        statusCode: 503,
+      });
     });
 
     it("returns null when no object-storage credentials resolve", async () => {

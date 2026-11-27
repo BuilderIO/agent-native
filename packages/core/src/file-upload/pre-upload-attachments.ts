@@ -3,6 +3,7 @@ import {
   isSpreadsheetDocument,
   parseSpreadsheetDocument,
 } from "../ingestion/spreadsheet.js";
+import { isBuilderReconnectRequiredError } from "../private-blob/attachment-ref.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
@@ -218,7 +219,9 @@ function quoteNames(names: string[]): string {
 function buildStorageStatusLines(args: {
   providerMissing: boolean;
   uploadFailed: boolean;
-  uploadError: string | undefined;
+  builderReconnectRequired: boolean;
+  genericUploadFailed: boolean;
+  genericUploadError: string | undefined;
   readableWithoutStorage: string[];
   unreadableWithoutStorage: StorageGapEntry[];
 }): string[] {
@@ -258,9 +261,15 @@ function buildStorageStatusLines(args: {
     );
   }
 
-  if (args.uploadFailed) {
+  if (args.builderReconnectRequired) {
     body.push(
-      `A configured object-storage provider failed to upload an attachment${args.uploadError ? `: ${escapeXmlAttr(args.uploadError)}` : "."}`,
+      "The Builder.io connection for file storage needs to be reconnected in Settings → Integrations → Builder before upload can succeed. Do not claim the attachment is durably available until it succeeds.",
+    );
+  }
+
+  if (args.genericUploadFailed) {
+    body.push(
+      `A configured object-storage provider failed to upload an attachment${args.genericUploadError ? `: ${escapeXmlAttr(args.genericUploadError)}` : "."}`,
       "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
     );
   }
@@ -297,6 +306,9 @@ export async function preUploadAttachments(opts: {
   const summarizedCandidateLimit = new Set<"image" | "file">();
   let providerMissing = false;
   let uploadFailed = false;
+  let builderReconnectRequired = false;
+  let genericUploadFailed = false;
+  let genericUploadError: string | undefined;
   let uploadError: string | undefined;
   const readableWithoutStorage: string[] = [];
   const unreadableWithoutStorage: StorageGapEntry[] = [];
@@ -622,6 +634,15 @@ export async function preUploadAttachments(opts: {
       att.storageRequired = true;
       att.storageUploadFailed = true;
       uploadFailed = true;
+      if (isBuilderReconnectRequiredError(err)) {
+        att.storageReconnectRequired = true;
+        builderReconnectRequired = true;
+      } else {
+        genericUploadFailed = true;
+        genericUploadError ??= (
+          err instanceof Error ? err.message : String(err)
+        ).slice(0, 500);
+      }
       recordStorageGap(att);
       uploadError ??= (err instanceof Error ? err.message : String(err)).slice(
         0,
@@ -698,7 +719,9 @@ export async function preUploadAttachments(opts: {
         ...buildStorageStatusLines({
           providerMissing,
           uploadFailed,
-          uploadError,
+          builderReconnectRequired,
+          genericUploadFailed,
+          genericUploadError,
           readableWithoutStorage,
           unreadableWithoutStorage,
         }),
@@ -711,7 +734,9 @@ export async function preUploadAttachments(opts: {
       buildStorageStatusLines({
         providerMissing,
         uploadFailed,
-        uploadError,
+        builderReconnectRequired,
+        genericUploadFailed,
+        genericUploadError,
         readableWithoutStorage,
         unreadableWithoutStorage,
       }).join("\n"),
