@@ -1,13 +1,26 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { H3Event } from "h3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { markServerRuntimeStarted } from "../db/server-runtime.js";
 import {
+  acceptsUnsignedSelfDispatch,
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
-  isLoopbackAddress,
-  isTrustedLocalRuntime,
+  isTrustedLocalRequest,
   shouldAdvertiseJwtA2AAuth,
 } from "./auth-policy.js";
+
+const loopbackMocks = vi.hoisted(() => ({
+  isLoopbackRequest: vi.fn((_event: H3Event) => false),
+  isLoopbackTrustedEnvironment: vi.fn(() => true),
+}));
+
+vi.mock("../server/loopback.js", async (importActual) => ({
+  ...(await importActual<typeof import("../server/loopback.js")>()),
+  ...loopbackMocks,
+}));
+
+const event = {} as H3Event;
 
 const A2A_ENV_KEYS = [
   "NODE_ENV",
@@ -212,46 +225,82 @@ describe("a2a auth-policy", () => {
     });
   });
 
-  describe("isTrustedLocalRuntime", () => {
-    it("is false on a production runtime even when loopback", () => {
+  describe("isTrustedLocalRequest", () => {
+    beforeEach(() => {
+      process.env.NODE_ENV = "development";
+      loopbackMocks.isLoopbackRequest.mockReset().mockReturnValue(false);
+    });
+
+    it("is false on a production runtime even for a local request", () => {
       process.env.NODE_ENV = "production";
-      expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
+      loopbackMocks.isLoopbackRequest.mockReturnValue(true);
+      expect(isTrustedLocalRequest(event)).toBe(false);
     });
 
-    it("is true with no secret, loopback true, dev", () => {
-      process.env.NODE_ENV = "development";
-      expect(isTrustedLocalRuntime({ loopback: true })).toBe(true);
+    it("is true for a local request in dev", () => {
+      loopbackMocks.isLoopbackRequest.mockReturnValue(true);
+      expect(isTrustedLocalRequest(event)).toBe(true);
+      expect(loopbackMocks.isLoopbackRequest).toHaveBeenCalledWith(event);
     });
 
-    it("is false with no secret, loopback false, no flag, dev (the VPS hole is now closed)", () => {
-      process.env.NODE_ENV = "development";
-      expect(isTrustedLocalRuntime({ loopback: false })).toBe(false);
+    it("is false for a request that is not local, with no opt-in", () => {
+      expect(isTrustedLocalRequest(event)).toBe(false);
     });
 
-    it("is true with no secret, loopback false, when the explicit opt-in flag is set", () => {
+    it("is false without an inbound event", () => {
+      expect(isTrustedLocalRequest(undefined)).toBe(false);
+    });
+
+    it("is true for a non-local request when the explicit opt-in flag is set", () => {
       process.env.A2A_ALLOW_UNSIGNED_INTERNAL = "1";
-      expect(isTrustedLocalRuntime({ loopback: false })).toBe(true);
+      expect(isTrustedLocalRequest(event)).toBe(true);
     });
 
-    it("is false on a recognized cloud host regardless of loopback", () => {
+    it("is false on a recognized cloud host even for a local request", () => {
       process.env.NETLIFY = "true";
-      expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
+      loopbackMocks.isLoopbackRequest.mockReturnValue(true);
+      expect(isTrustedLocalRequest(event)).toBe(false);
     });
   });
 
-  describe("isLoopbackAddress", () => {
-    it.each(["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.5"])(
-      "treats %s as loopback",
-      (addr) => {
-        expect(isLoopbackAddress(addr)).toBe(true);
-      },
-    );
+  describe("acceptsUnsignedSelfDispatch", () => {
+    beforeEach(() => {
+      process.env.NODE_ENV = "development";
+      loopbackMocks.isLoopbackTrustedEnvironment
+        .mockReset()
+        .mockReturnValue(true);
+    });
 
-    it.each([undefined, "", "10.0.0.4", "example.com"])(
-      "does NOT treat %s as loopback",
-      (addr) => {
-        expect(isLoopbackAddress(addr)).toBe(false);
-      },
-    );
+    it.each([
+      "http://localhost:8080",
+      "http://127.0.0.1:3000/docs",
+      "http://[::1]:3000",
+    ])("accepts a handoff to %s in local dev", (url) => {
+      expect(acceptsUnsignedSelfDispatch(url)).toBe(true);
+    });
+
+    it.each([
+      "https://abc.ngrok.app",
+      "http://192.168.1.20:3000",
+      "http://0.0.0.0:3000",
+      "not a url",
+    ])("refuses a handoff to %s", (url) => {
+      expect(acceptsUnsignedSelfDispatch(url)).toBe(false);
+    });
+
+    it("refuses a loopback handoff in a public dev container", () => {
+      loopbackMocks.isLoopbackTrustedEnvironment.mockReturnValue(false);
+      expect(acceptsUnsignedSelfDispatch("http://localhost:8080")).toBe(false);
+    });
+
+    it("refuses on a production runtime", () => {
+      process.env.NODE_ENV = "production";
+      expect(acceptsUnsignedSelfDispatch("http://localhost:8080")).toBe(false);
+    });
+
+    it("accepts any handoff when the explicit opt-in flag is set", () => {
+      process.env.A2A_ALLOW_UNSIGNED_INTERNAL = "1";
+      expect(acceptsUnsignedSelfDispatch("https://abc.ngrok.app")).toBe(true);
+    });
   });
 });

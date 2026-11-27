@@ -112,3 +112,6 @@ e2e/beta/test-results/
 
 # Written by scripts/mutation-changed.ts
 packages/core/vitest.mutation.generated.mts
+
+# Rust single-pass fast-guards build output
+tools/fast-guards/target/

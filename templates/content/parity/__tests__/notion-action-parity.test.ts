@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const contentRoot = new URL("../../", import.meta.url);
 const actionsDir = new URL("../../actions/", import.meta.url);
 
 const notionDocumentSyncActions = [
@@ -43,6 +42,7 @@ function extractDocumentedFlagsByAction(
   return byAction;
 }
 
+// oracle-change: removed the use-notion.ts source check; "keeps Notion document sync UI off direct app routes" in matrix-route-gap-classify.test.ts scans the same hook for direct Notion sync routes, and which query hooks it calls is not observable. HTTP exposure is now read from the loaded action definitions.
 describe("Content Notion action parity", () => {
   it("only documents --flags that the action's zod schema actually accepts (n31)", async () => {
     const skillMarkdown = readFileSync(skillPath, "utf8");
@@ -76,27 +76,21 @@ describe("Content Notion action parity", () => {
     expect(problems).toEqual([]);
   });
 
-  it("keeps normal Notion document sync UI off direct app routes", () => {
-    const hook = readFileSync(
-      new URL("app/hooks/use-notion.ts", contentRoot),
-      "utf8",
-    );
-
-    expect(hook).not.toMatch(/\/api\/documents\/[^"`']*\/notion/);
-    expect(hook).not.toMatch(/\/api\/notion\/(?:status|disconnect|search)/);
-    expect(hook).toContain("useActionQuery");
-    expect(hook).toContain("useContentActionMutation");
-  });
-
-  it("exposes Notion document sync actions over the action HTTP surface", () => {
-    const missingOrPrivate = notionDocumentSyncActions.flatMap((action) => {
+  it("exposes Notion document sync actions over the action HTTP surface", async () => {
+    const missingOrPrivate: string[] = [];
+    for (const action of notionDocumentSyncActions) {
       const file = new URL(`${action}.ts`, actionsDir);
-      if (!existsSync(file)) return [`${action}: missing action file`];
-      const source = readFileSync(file, "utf8");
-      return /http:\s*false/.test(source)
-        ? [`${action}: not HTTP exposed for UI action hooks`]
-        : [];
-    });
+      if (!existsSync(file)) {
+        missingOrPrivate.push(`${action}: missing action file`);
+        continue;
+      }
+      const mod = await import(file.href);
+      if (mod.default?.http === false) {
+        missingOrPrivate.push(
+          `${action}: not HTTP exposed for UI action hooks`,
+        );
+      }
+    }
 
     expect(missingOrPrivate).toEqual([]);
   });

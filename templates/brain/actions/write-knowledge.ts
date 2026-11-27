@@ -1,8 +1,11 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { z } from "zod";
 
-import { writeKnowledgeRecord } from "../server/lib/brain.js";
+import {
+  knowledgeWriteMayTouchCanonical,
+  writeKnowledgeRecord,
+} from "../server/lib/brain.js";
 import {
   entitySchema,
   evidenceSchema,
@@ -75,5 +78,8 @@ export default defineAction({
             "supersedesRevision is required with supersedesId: send the superseded record's revision.",
         });
     }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) && (await knowledgeWriteMayTouchCanonical(args)),
+  mcpTool: "search",
   run: async (args) => writeKnowledgeRecord(args),
 });

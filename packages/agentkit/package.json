@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/agentkit",
-  "version": "0.234.0",
+  "version": "0.235.0",
   "description": "Provider-neutral AgentKit protocol, headless client, and transports for composable agent-native conversations.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -54,7 +54,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run",
     "prepublishOnly": "npm run build"
   },

@@ -9,7 +9,7 @@
     "start": "agent-native start",
     "test": "pnpm codegen:bridge && vitest --run",
     "test:perf": "pnpm codegen:bridge && vitest --run --config vitest.perf.config.ts shared/html-integrity.perf.spec.ts --maxWorkers=1 --no-file-parallelism",
-    "typecheck": "pnpm codegen:bridge && agent-native typecheck && pnpm exec tsc --noEmit -p app/components/design/bridge/tsconfig.json",
+    "typecheck": "pnpm codegen:bridge && agent-native typecheck && pnpm exec tsgo --noEmit -p app/components/design/bridge/tsconfig.json",
     "codegen:bridge": "tsx app/components/design/bridge/codegen.ts",
     "migrate:production": "tsx scripts/migrate-production.ts",
     "perf:runtime-budget": "tsx scripts/runtime-budget.ts",

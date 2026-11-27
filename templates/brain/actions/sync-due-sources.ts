@@ -9,5 +9,6 @@ export default defineAction({
   schema: z.object({
     limit: z.coerce.number().int().min(1).max(25).default(5),
   }),
+  mcpTool: "search",
   run: async ({ limit }) => syncDueBrainSourcesOnce({ limit }),
 });

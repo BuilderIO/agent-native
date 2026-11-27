@@ -1,3 +1,9 @@
+## 0.1.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.21
 
 ### Patch Changes

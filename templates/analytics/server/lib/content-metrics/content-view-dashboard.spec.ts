@@ -98,6 +98,14 @@ function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 }
 
+function xMonth(): string {
+  return new Date().toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function runDay(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toLocaleDateString("en-US", {
     month: "short",
@@ -259,9 +267,13 @@ describe("Content view dashboard", () => {
               "gains",
               "ranked",
               "per_video",
+              "per_post",
+              "posts",
               "channels",
               "named",
               "latest",
+              "covered",
+              "x_month",
             ].includes(name),
         );
       expect(tables.length).toBeGreaterThan(0);
@@ -314,6 +326,12 @@ describe("Content view dashboard", () => {
         last_run: null,
         first_data: null,
       }),
+      expect.objectContaining({
+        source: "X posts",
+        status: "No run in 30 days",
+        last_run: null,
+        first_data: null,
+      }),
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
@@ -336,6 +354,7 @@ describe("Content view dashboard", () => {
       expect.objectContaining({ source: "Builder signups" }),
       expect.objectContaining({ source: "Agent-Native signups" }),
       expect.objectContaining({ source: "YouTube videos" }),
+      expect.objectContaining({ source: "X posts" }),
     ]);
     expect(await runPanel("missing-data")).toEqual([
       {
@@ -611,6 +630,239 @@ describe("Content view dashboard", () => {
         detail: "No YouTube Data API key is saved.",
       }),
     );
+  });
+
+  async function insertXPosts(): Promise<void> {
+    const readAt = `${daysAgo(0)}T07:00:07.000Z`;
+    const savedAt = `${daysAgo(0)}T07:00:09.000Z`;
+    await client.exec(`
+      INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at)
+      VALUES
+        ('rxa', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '${readAt}'),
+        ('rxb', 'org:org_b', 'carol@example.test', 'org_b', 'x', 'scheduled', 'succeeded', '${readAt}');
+      INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, relevance, metadata, first_seen_at, updated_at) VALUES
+        ('xa1', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'account:1', 'https://x.com/builderio', '@builderio', '@builderio', NULL, 'account', '{"authorId":"1","coveredRunId":"rxa"}', '2026-09-01', '${savedAt}'),
+        ('xa2', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'account:2', 'https://x.com/Steve8708', '@Steve8708', '@Steve8708', NULL, 'account', '{"authorId":"2","coveredRunId":"rxa"}', '2026-09-01', '${savedAt}'),
+        ('xab', 'org:org_b', 'carol@example.test', 'org_b', 'x', 'account:1', 'https://x.com/builderio', '@builderio', '@builderio', NULL, 'account', '{"authorId":"1","coveredRunId":"rxb"}', '2026-09-01', '${savedAt}'),
+        ('x1', 'org:org_a', 'alice@example.test', 'org_a', 'x', '1001', 'https://x.com/builderio/status/1001', 'Fusion is out builder.io/blog/fusion', '@builderio', '${daysAgo(10)}T03:00:00.000Z', 'counted', '{"authorId":"1"}', '2026-09-01', '2026-09-01'),
+        ('x2', 'org:org_a', 'alice@example.test', 'org_a', 'x', '2001', 'https://x.com/Steve8708/status/2001', 'Built with Agent-Native', '@Steve8708', '${daysAgo(2)}T03:00:00.000Z', 'counted', '{"authorId":"2"}', '2026-09-01', '2026-09-01'),
+        ('x3', 'org:org_a', 'alice@example.test', 'org_a', 'x', '2002', 'https://x.com/Steve8708/status/2002', 'Every builder should read this', '@Steve8708', '${daysAgo(2)}T03:00:00.000Z', 'not_counted', '{"authorId":"2"}', '2026-09-01', '2026-09-01'),
+        ('x4', 'org:org_a', 'alice@example.test', 'org_a', 'x', '1000', 'https://x.com/builderio/status/1000', NULL, '@builderio', '${daysAgo(40)}T03:00:00.000Z', 'counted', '{"authorId":"1"}', '2026-09-01', '2026-09-01'),
+        ('xb', 'org:org_b', 'carol@example.test', 'org_b', 'x', '1001', 'https://x.com/builderio/status/1001', 'Other org post', '@builderio', '${daysAgo(10)}T03:00:00.000Z', 'counted', '{"authorId":"1"}', '2026-09-01', '2026-09-01');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT reads.item_id || reads.metric || reads.days_ago, items.tenant_key, items.owner_email, items.org_id, reads.item_id, to_char(CURRENT_DATE - reads.days_ago, 'YYYY-MM-DD'), reads.metric, reads.value, 'x', 'rx', '2026-09-01'
+      FROM (VALUES
+        ('x1', 'x_age_hours', 10, 5),
+        ('x1', 'x_views', 10, 100),
+        ('x1', 'x_age_hours', 9, 29),
+        ('x1', 'x_views', 9, 200),
+        ('x1', 'x_age_hours', 7, 77),
+        ('x1', 'x_views', 7, 300),
+        ('x1', 'x_age_hours', 3, 173),
+        ('x1', 'x_views', 3, 400),
+        ('x1', 'x_likes', 3, 40),
+        ('x1', 'x_reposts', 3, 4),
+        ('x1', 'x_replies', 3, 2),
+        ('x2', 'x_age_hours', 1, 29),
+        ('x2', 'x_views', 1, 50),
+        ('x2', 'x_likes', 1, 5),
+        ('x3', 'x_age_hours', 1, 29),
+        ('x3', 'x_views', 1, 999),
+        ('x4', 'x_age_hours', 10, 725),
+        ('x4', 'x_views', 10, 7000),
+        ('xb', 'x_age_hours', 9, 29),
+        ('xb', 'x_views', 9, 5000)
+      ) AS reads (item_id, metric, days_ago, value)
+      JOIN analytics_content_items items ON items.id = reads.item_id;
+    `);
+  }
+
+  it("lists the posts that count, posted in the time range, with their latest counts and views at each age", async () => {
+    await insertXPosts();
+    expect(await runPanel("x-posts")).toEqual([
+      {
+        post: "Fusion is out builder.io/blog/fusion",
+        href: "https://x.com/builderio/status/1001",
+        account: "@builderio",
+        posted: daysAgo(10),
+        views: 400,
+        likes: 40,
+        reposts: 4,
+        replies: 2,
+        views_1d: 200,
+        views_3d: 300,
+        views_7d: 400,
+        views_30d: null,
+      },
+      {
+        post: "Built with Agent-Native",
+        href: "https://x.com/Steve8708/status/2001",
+        account: "@Steve8708",
+        posted: daysAgo(2),
+        views: 50,
+        likes: 5,
+        reposts: null,
+        replies: null,
+        views_1d: 50,
+        views_3d: null,
+        views_7d: null,
+        views_30d: null,
+      },
+    ]);
+    expect((await runPanel("x-posts", "7d")).map((row) => row.account)).toEqual(
+      ["@Steve8708"],
+    );
+    expect((await runPanel("x-posts", "all")).map((row) => row.post)).toEqual([
+      "Post with no text",
+      "Fusion is out builder.io/blog/fusion",
+      "Built with Agent-Native",
+    ]);
+    expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("stacks the latest views of the posts that count by account on the day they were posted", async () => {
+    await insertXPosts();
+    const rows = await runPanel("x-views-by-day");
+    expect(rows).toEqual([
+      { date: daysAgo(10), account: "@builderio", views: 400 },
+      { date: daysAgo(2), account: "@Steve8708", views: 50 },
+    ]);
+    const panel = contentView().panels.find(
+      (candidate) => candidate.id === "x-views-by-day",
+    );
+    if (!panel) throw new Error("no X views panel");
+    expect(planPanelRender(rows, panel, { timeRange: 28 }).rows).toEqual([
+      { date: daysAgo(10), "@builderio": 400, "@Steve8708": 0 },
+      { date: daysAgo(2), "@builderio": 0, "@Steve8708": 50 },
+    ]);
+  });
+
+  it("shows only the accounts the newest successful read covered, whatever a failed run saved after it", async () => {
+    await insertXPosts();
+    await client.exec(`
+      INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at)
+      VALUES
+        ('rxn', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '${daysAgo(0)}T08:00:00.000Z'),
+        ('rxf', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'failed', '${daysAgo(0)}T09:00:00.000Z');
+      UPDATE analytics_content_items SET metadata = '{"authorId":"1","coveredRunId":"rxn"}', updated_at = '${daysAgo(0)}T08:00:09.000Z' WHERE id = 'xa1';
+      UPDATE analytics_content_items SET updated_at = '${daysAgo(0)}T09:00:05.000Z' WHERE id = 'xa2';
+    `);
+    expect((await runPanel("x-posts")).map((row) => row.account)).toEqual([
+      "@builderio",
+    ]);
+    expect(await runPanel("x-views-by-day")).toEqual([
+      { date: daysAgo(10), account: "@builderio", views: 400 },
+    ]);
+  });
+
+  it("leaves X out of the notice until it runs, then names what X is waiting for or the cost cap", async () => {
+    await client.exec(
+      "UPDATE analytics_content_collection_runs SET status = 'succeeded' WHERE id IN ('r4', 'r5')",
+    );
+    expect(await runPanel("missing-data")).toEqual([
+      {
+        severity: "info",
+        message: "Nothing is missing: every source collected on its last run.",
+      },
+    ]);
+
+    for (const [errorCode, message] of [
+      [
+        "x_bearer_token_missing",
+        "**X posts aren't connected yet**: waiting for an X API Bearer token under Data Sources.",
+      ],
+      [
+        "x_accounts_not_configured",
+        "**X posts aren't connected yet**: waiting for X accounts to collect.",
+      ],
+      [
+        "x_counting_rule_not_configured",
+        "**X posts aren't connected yet**: no post can count yet. Mark an account to count all its posts, or name links or terms.",
+      ],
+    ]) {
+      await client.exec(`
+        DELETE FROM analytics_content_collection_runs WHERE step = 'x';
+        INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, error_code, error_message)
+        VALUES ('rx', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'not_configured', '${daysAgo(1)}T07:00:07.000Z', '${errorCode}', 'Not set up.');
+      `);
+      expect(await runPanel("missing-data")).toEqual([
+        { severity: "warning", message },
+      ]);
+    }
+
+    await client.exec(`
+      INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, error_code, error_message, cost_usd, detail)
+      VALUES ('rx2', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'cost_limited', '${daysAgo(0)}T07:00:07.000Z', 'x_monthly_cap', 'Stopped before the $25.00 monthly X cap: $25.00 spent in ${xMonth()} (UTC), $0.70 of it in this run.', 0.7, 'Read 136 posts and 2 accounts ($0.70).');
+    `);
+    expect(await runPanel("missing-data")).toEqual([
+      {
+        severity: "critical",
+        message: `**X posts stopped at the cost cap** on the ${runDay(0)} run.`,
+      },
+    ]);
+    expect(
+      (await runPanel("collection-status")).find(
+        (row) => row.source === "X posts",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        status: "Cost-limited",
+        detail: `$0.70 of the $25 cap spent in ${xMonth()} (UTC). Stopped before the $25.00 monthly X cap: $25.00 spent in ${xMonth()} (UTC), $0.70 of it in this run. Read 136 posts and 2 accounts ($0.70).`,
+      }),
+    );
+  });
+
+  it("shows the latest X run's reads and projection in Sources, after what every X run this UTC month spent", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end, cost_usd, detail, error_code)
+      VALUES
+        ('rx0', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '2020-01-15T07:00:07.000Z', '2020-01-15', 3, 'An old month.', NULL),
+        ('rx1', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'manual', 'failed', '${daysAgo(0)}T06:00:07.000Z', NULL, 0.5, NULL, 'x_request_failed'),
+        ('rx', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '${daysAgo(0)}T07:00:07.000Z', '${daysAgo(0)}', 0.04, 'Read 4 posts and 2 accounts ($0.04): 3 of 4 new posts counted, 0 re-reads. ${xMonth()} (UTC): $0.54 of the $25.00 cap; month-end projection $0.56.', NULL);
+    `);
+    const rows = await runPanel("collection-status");
+    expect(rows[rows.length - 1]).toEqual(
+      expect.objectContaining({
+        source: "X posts",
+        status: "Collected",
+        data_through: daysAgo(0),
+        detail: `$0.54 of the $25 cap spent in ${xMonth()} (UTC). Read 4 posts and 2 accounts ($0.04): 3 of 4 new posts counted, 0 re-reads. ${xMonth()} (UTC): $0.54 of the $25.00 cap; month-end projection $0.56.`,
+      }),
+    );
+  });
+
+  it("counts the X spend in Sources by the UTC month, whatever the database session's time zone", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-12-01T03:00:00.000Z"));
+    try {
+      await client.exec(`
+        SET TIME ZONE 'America/Los_Angeles';
+        INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end, cost_usd, detail)
+        VALUES
+          ('rxp', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '2026-11-30T20:00:07.000Z', '2026-11-30', 1, 'November''s run.'),
+          ('rxq', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '2026-12-01T02:00:07.000Z', '2026-12-01', 0.25, 'December''s run.');
+      `);
+      expect(
+        (
+          await client.query(
+            "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+          )
+        ).rows,
+      ).toEqual([{ today: "2026-11-30" }]);
+      expect(
+        (await runPanel("collection-status")).find(
+          (row) => row.source === "X posts",
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          detail:
+            "$0.25 of the $25 cap spent in December 2026 (UTC). December's run.",
+        }),
+      );
+    } finally {
+      await client.exec("RESET TIME ZONE");
+      vi.useRealTimers();
+    }
   });
 
   it("counts an article's search clicks and impressions, not other pages in search", async () => {

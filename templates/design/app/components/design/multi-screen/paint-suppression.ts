@@ -25,10 +25,9 @@ export function collectScreenPaintTargets(
   if (!surface) return [];
   const targets: ScreenPaintTarget[] = [];
   surface
-    .querySelectorAll<HTMLElement>("[data-screen-content]")
+    .querySelectorAll<HTMLElement>("[data-screen-shell]")
     .forEach((element) => {
-      const screenId = element.closest<HTMLElement>("[data-screen-shell]")
-        ?.dataset.frameId;
+      const screenId = element.dataset.frameId;
       if (screenId) targets.push({ element, screenId });
     });
   return targets;
@@ -43,8 +42,8 @@ export function observeScreenPaintTargets(
   const containsScreenPaintTarget = (node: Node) => {
     if (!(node instanceof Element)) return false;
     return (
-      node.matches("[data-screen-content]") ||
-      node.querySelector("[data-screen-content]") !== null
+      node.matches("[data-screen-shell]") ||
+      node.querySelector("[data-screen-shell]") !== null
     );
   };
   const observer = new MutationObserver((records) => {
@@ -91,12 +90,19 @@ export function observeScreenPaintTargets(
 export function resolveSuppressedScreenIds(
   candidates: readonly ScreenPaintCandidate[],
   liveViewport: OverscannedViewportBounds | null,
+  nearbyViewport: OverscannedViewportBounds | null = liveViewport,
+  shellOutset = 0,
 ): Set<string> {
   const suppressed = new Set<string>();
   if (!liveViewport) return suppressed;
+  const live = outsetViewport(liveViewport, shellOutset);
+  const nearby = outsetViewport(nearbyViewport ?? liveViewport, shellOutset);
   for (const candidate of candidates) {
-    if (!getScreenContentCullState(candidate.tier).isHidden) continue;
-    if (isFrameWithinOverscannedViewport(candidate.geometry, liveViewport)) {
+    if (candidate.tier === "visible") continue;
+    const viewport = getScreenContentCullState(candidate.tier).isHidden
+      ? live
+      : nearby;
+    if (isFrameWithinOverscannedViewport(candidate.geometry, viewport)) {
       continue;
     }
     suppressed.add(candidate.id);
@@ -104,21 +110,32 @@ export function resolveSuppressedScreenIds(
   return suppressed;
 }
 
+function outsetViewport(
+  viewport: OverscannedViewportBounds,
+  outset: number,
+): OverscannedViewportBounds {
+  if (outset === 0) return viewport;
+  return {
+    left: viewport.left - outset,
+    top: viewport.top - outset,
+    right: viewport.right + outset,
+    bottom: viewport.bottom + outset,
+  };
+}
+
 export function applyScreenPaintSuppression(
   targets: readonly ScreenPaintTarget[],
   suppressedScreenIds: ReadonlySet<string>,
-  options?: { relaxOnly?: boolean },
+  options?: { deferHide?: (screenId: string) => boolean },
 ): void {
   for (const { element, screenId } of targets) {
     const suppress = suppressedScreenIds.has(screenId);
     const applied = element.dataset[SUPPRESSED_MARKER_ATTRIBUTE] === "true";
     if (applied === suppress) continue;
-    if (options?.relaxOnly && suppress) continue;
     if (suppress) {
-      element.style.setProperty("visibility", "hidden");
+      if (options?.deferHide?.(screenId)) continue;
       element.dataset[SUPPRESSED_MARKER_ATTRIBUTE] = "true";
     } else {
-      element.style.removeProperty("visibility");
       delete element.dataset[SUPPRESSED_MARKER_ATTRIBUTE];
     }
   }

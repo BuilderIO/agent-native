@@ -66,9 +66,11 @@ All actions except `load` start from a loaded board with the mouse on the canvas
 
 ### pan
 
-Wheels vertically (120 delta, 16 ms between ticks) from the top of the board to its bottom, then back. Pixels per tick are calibrated first, so leg length is measured, not assumed. Sampled: both legs' wheel ticks, not the 500 ms settles. At 120 Hz and the default 6 copies it is 77 ticks per leg and `cameraDistancePx` 18480.
+Wheels vertically (120 delta, 16 ms between ticks) from the top of the board to its bottom, then back. Pixels per tick are calibrated first, so leg length is measured, not assumed. When those two legs total fewer than 200 ticks, a third sampled leg follows (at the default 6 copies the two legs are 154 ticks, so it always runs; a zoomed-out board is shorter still): one continuous wheel gesture that sweeps back and forth until the pan has run at least 200 ticks, about 900 frames. Without it a zoomed-out `pan` samples about 100 frames, so p95 is decided by its 5 slowest edge frames and the same code measured 9 to 50 ms at 300 screens. Each leg waits 300 ms after its last tick before sampling stops, so the frame that commits the camera to React after a gesture is sampled too. At 120 Hz and the default 6 copies it is 77 ticks per leg and `cameraDistancePx` 18480.
 
-`extra`: `cameraDistancePx`, `liveIframesAtEnd`, `wheelElapsedMs`, `legFrameCounts`, `pan` (board and viewport size, travel, `pxPerTick`, `ticks`), `legs` (dx/dy per leg).
+`frameP95Ms` and `frameWorstMs` cover every sampled frame. `extra` splits them: `steadyP50Ms`, `steadyP95Ms` and `steadyWorstMs` exclude the first and last 300 ms of each leg; `gestureEdgeWorstMs` and `gestureEdgeFrames` cover those edges; `framesOver100Ms` counts frames over 100 ms across everything (`jiraWorstFrameBarMs` is that bar).
+
+`extra`: `panMethod` (2; `compare` refuses results with different or missing values), `cameraDistancePx` (sum of every leg's `travelPx`), `liveIframesAtEnd`, `wheelElapsedMs`, `legFrameCounts`, `pan` (board and viewport size, travel, `pxPerTick`, `ticks`), `legs` (dx/dy per leg, and `travelPx`, the distance the camera moved including reversals inside the sustained leg), and the steady and edge fields above.
 
 Fails when: the board extends less than half a canvas area past the view, a leg needs more than 1500 ticks, calibration does not move and return the camera, a leg moves the camera under 100 px or under 80% of ticks x `pxPerTick`, the camera ends the back leg more than 10% of the forward leg from where it started (`returnedErrorPx`), or no frames were sampled.
 
@@ -169,6 +171,17 @@ Top-level JSON fields: `timestamp`, `debug`, `injectedJank`, `breakInput`, `timi
 
 - `0`: the measurement completed. Check `numbersValid` before trusting the numbers; invalid focus does not change the exit code.
 - `2`: another benchmark holds the lock, `--design` names a design that does not exist, an action name is unknown, seeding failed, anything threw outside a measured step, or an action failed a sanity check. A failing (run, action) is recorded in `failures` (`run`, `action`, `message`, `screenshot`) and left out of `runs`; the remaining actions and runs still execute, the JSON is written, the failures are printed at the end and the exit code is 2. `compare` refuses a result that has any failure. Seed failures abort at once with no JSON. If the reused design changes mid-invocation and reseeding fails, the invocation stops, writes the JSON with the runs so far, `aborted` set and `numbersValid: false`, and exits 2. A failed delete of the seeded design is reported in `cleanupError` and also exits 2.
+
+## Sweeping one design property
+
+`make-sweep-source.ts` writes a `--source` export from a few knobs, with locally generated images and no network: `--screens`, `--dom` (nodes per screen), `--height`, `--image-mp`, `--images-per-screen`, `--loops` (rAF loops per screen), `--out`. Rows are spread so a small board still extends past the view at 10%.
+
+```sh
+pnpm exec tsx scripts/canvas-bench/make-sweep-source.ts --screens 300 --out .tmp/sweep/screens-300.json
+pnpm exec tsx scripts/canvas-bench/canvas-bench.ts --base-url http://127.0.0.1:9444 --source .tmp/sweep/screens-300.json --action pan
+```
+
+`sweep.ts` runs one axis at a time (`--axis screens|dom|height|image-mp|loops --steps 100,300,500`), calls `canvas-bench.ts` per step, and appends a summary line to `results.jsonl` in `--out`. It waits while another benchmark runs and stops an axis after two broken steps in a row (`--keep-going` to continue). A step is broken when a pan, zoom or pan-zoomed p95 is over 33.4 ms or an action failed.
 
 ## Known limitations
 

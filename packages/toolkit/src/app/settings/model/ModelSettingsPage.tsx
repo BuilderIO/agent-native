@@ -351,6 +351,9 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
           chatgpt={chatgptModels}
           builder={builder}
           hasProvider={!needsProvider}
+          onAddProvider={
+            canAdd ? () => openProviderDialog({ mode: "add" }) : undefined
+          }
         />
       </div>
       <ProviderDialog
@@ -809,12 +812,14 @@ function OrganizationSettingsGroup({
   chatgpt,
   builder,
   hasProvider,
+  onAddProvider,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
   chatgpt: ChatGPTModelsState;
   builder: BuilderConnectFlow;
   hasProvider: boolean;
+  onAddProvider?: () => void;
 }) {
   const t = useT();
   const hasOrg = listing.hasOrganization;
@@ -830,6 +835,7 @@ function OrganizationSettingsGroup({
         chatgpt={chatgpt}
         builder={builder}
         hasProvider={hasProvider}
+        onAddProvider={onAddProvider}
       />
       {hasOrg && listing.canManageOrg ? <RestrictKeysRow /> : null}
       <MaxIterationsRow />
@@ -843,12 +849,14 @@ function DefaultModelRow({
   chatgpt,
   builder,
   hasProvider,
+  onAddProvider,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
   chatgpt: ChatGPTModelsState;
   builder: BuilderConnectFlow;
   hasProvider: boolean;
+  onAddProvider?: () => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -972,7 +980,10 @@ function DefaultModelRow({
             className="h-8 w-64 max-w-full"
             data-default-model-loading=""
           />
-        ) : modelsRead.status === "error" ? null : waitingForProvider ||
+        ) : modelsRead.status === "error" ? null : waitingForProvider &&
+          onAddProvider ? (
+          <AddProviderButton variant="outline" onClick={onAddProvider} />
+        ) : waitingForProvider ||
           (listing.canUpdateDefault && allGroups.length === 0) ? (
           <Select disabled>
             <SelectTrigger

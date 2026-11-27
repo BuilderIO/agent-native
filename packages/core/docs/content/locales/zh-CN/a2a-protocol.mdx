@@ -207,6 +207,10 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -581,7 +585,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-代理卡端点始终是公共的（无需身份验证），以便其他代理可以发现功能。 `/_agent-native/a2a` JSON-RPC 端点接受由 `A2A_SECRET` 签名的 JWT 不记名令牌，并且在配置时还接受旧版 `apiKeyEnv` 令牌。本地开发时，auth可以省略；在托管生产运行时中，缺少 A2A 身份验证会返回 503，而不是未经身份验证运行。
+代理卡端点始终是公共的（无需身份验证），以便其他代理可以发现功能。 `/_agent-native/a2a` JSON-RPC 端点接受由 `A2A_SECRET` 签名的 JWT 不记名令牌，并且在配置时还接受旧版 `apiKeyEnv` 令牌。未配置 `A2A_SECRET` 或 `apiKeyEnv` 时，开发服务器只接受来自同一台机器的未经身份验证的调用，对其他任何主机返回 401，包括发布在公共预览 URL 上的开发服务器。在托管生产运行时中，缺少 A2A 身份验证会返回 503，而不是未经身份验证运行。
 
 ### 身份验证策略边界 {#auth-policy}
 
@@ -591,7 +595,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 - 当 `A2A_SECRET` 设置时，`hasConfiguredA2ASecret()` 返回 `true`。
 - `shouldAdvertiseJwtA2AAuth()`是代理卡用来决定是否发布`jwtBearer`安全方案的依据。
 
-生产策略是严格的：在任何生产运行时中，除非配置了 `A2A_SECRET`（返回 503），否则异步 `_process-task` 路由拒绝调度，并且 JSON-RPC 端点拒绝未经身份验证的调用。开发回退（警告一次，允许）仅在未设置生产标志时触发。
+生产策略是严格的：在任何生产运行时中，除非配置了 `A2A_SECRET`（返回 503），否则异步 `_process-task` 路由拒绝调度，并且 JSON-RPC 端点拒绝未经身份验证的调用。在生产环境之外，未经身份验证的调用只有来自同一台机器时才会被允许（并发出一次性警告）：对端地址、`Host` 以及所有转发标头都必须是环回地址，Builder 云端开发容器永远不算作本地。其他任何未经身份验证的调用，包括未签名的 `_process-task` 调度，都会返回 401；如需接受，请在应用上设置 `A2A_SECRET`。
 
 此边界很重要，因为代理循环接受来自远程调用者的自由格式输入。将不记名检查放入循环内，或依靠工具来强制执行它，将使提示注入或有问题的处理程序绕过身份验证。将其保持在 HTTP 边界意味着令牌故障会在任何 LLM 调用之前短路。
 

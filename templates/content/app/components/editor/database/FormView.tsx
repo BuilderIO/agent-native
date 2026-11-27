@@ -11,7 +11,7 @@ import {
   IconChevronDown,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -318,6 +318,7 @@ export function DatabaseFormView({
   const [createdDocumentId, setCreatedDocumentId] = useState<string | null>(
     null,
   );
+  const submissionKeys = useRef(new Map<string, string>());
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -329,12 +330,18 @@ export function DatabaseFormView({
     setInvalidKeys(missing);
     if (missing.length > 0) return;
 
+    const payload = JSON.stringify([databaseId, view.id, title, values]);
+    const idempotencyKey =
+      submissionKeys.current.get(payload) ?? crypto.randomUUID();
+    submissionKeys.current.set(payload, idempotencyKey);
     const result = await submit.mutateAsync({
       databaseId,
       viewId: view.id,
       title,
       propertyValues: values,
+      idempotencyKey,
     });
+    submissionKeys.current.clear();
     setCreatedDocumentId(result.createdDocumentId);
     setTitle("");
     setValues({});

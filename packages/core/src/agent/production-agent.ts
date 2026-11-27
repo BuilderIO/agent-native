@@ -450,6 +450,7 @@ import {
   incompleteAgentRunFailure,
   PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
   RUN_RATE_LIMITED_MESSAGE,
+  stoppedRunSummary,
   TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
   TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
 } from "./run-errors.js";
@@ -13128,6 +13129,20 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       // coercion-ok: outcome observers cannot change run completion.
       // Outcome observers are telemetry/protocol adapters and cannot alter the run.
     }
+    const completedTools: string[] = [];
+    const failedTools: string[] = [];
+    for (const event of localTurnEvents) {
+      if (event.type !== "tool_done") continue;
+      (event.isError === true ? failedTools : completedTools).push(event.tool);
+    }
+    await send({
+      type: "text",
+      text: stoppedRunSummary({
+        completedTools,
+        failedTools,
+        reason: failure.message,
+      }),
+    });
     throw new IncompleteAgentRunError(failure, usage);
   }
   return usage;

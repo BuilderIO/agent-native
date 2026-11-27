@@ -18,6 +18,8 @@ import addContentDatabaseSourceFieldProperty from "./add-content-database-source
 import addDatabaseItem from "./add-database-item.js";
 import addGitHubPullRequests from "./add-github-pull-requests.js";
 import addMailNote from "./add-mail-note.js";
+import clearContentFormDraft from "./clear-content-form-draft.js";
+import configureContentForm from "./configure-content-form.js";
 import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
@@ -33,6 +35,9 @@ import getBlocksFieldWordCount from "./get-blocks-field-word-count.js";
 import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
+import getContentFormDraft from "./get-content-form-draft.js";
+import getContentFormSettings from "./get-content-form-settings.js";
+import getContentForm from "./get-content-form.js";
 import getDocument from "./get-document.js";
 import getMailNote from "./get-mail-note.js";
 import linkGitHubFolder from "./link-github-folder.js";
@@ -55,10 +60,12 @@ import readDocumentFile from "./read-document-file.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
+import saveContentFormDraft from "./save-content-form-draft.js";
 import searchContentDatabaseRows from "./search-content-database-rows.js";
 import searchDocuments from "./search-documents.js";
 import setDocumentProperty from "./set-document-property.js";
 import shareLocalFileDocument from "./share-local-file-document.js";
+import submitContentForm from "./submit-content-form.js";
 import syncGitHubFolder from "./sync-github-folder.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
@@ -114,6 +121,8 @@ describe("Content action-owned agent catalogs", () => {
     "read-document-file": readDocumentFile,
     "get-mail-note": getMailNote,
     "add-mail-note": addMailNote,
+    "get-content-form": getContentForm,
+    "submit-content-form": submitContentForm,
   };
 
   const deferredDatabaseActions = {
@@ -164,6 +173,57 @@ describe("Content action-owned agent catalogs", () => {
     for (const action of Object.values(directMcpActions)) {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
+    }
+  });
+
+  it("serves agents one read-and-submit pair for every form, answerable without a session", () => {
+    expect(getContentForm.readOnly).toBe(true);
+    expect(submitContentForm.readOnly).not.toBe(true);
+    expect(getContentForm.requiresAuth).toBe(false);
+    expect(submitContentForm.requiresAuth).toBe(false);
+    expect(getContentForm.tool.description).toContain("submit-content-form");
+    expect(submitContentForm.tool.description).toContain("get-content-form");
+    expect(submitContentForm.audit).toEqual({ enabled: false });
+
+    const readInput = mcpToolInputSchema(
+      "get-content-form",
+      getContentForm.tool.parameters,
+    );
+    expect(readInput.required).toEqual(["link"]);
+    const submitInput = mcpToolInputSchema(
+      "submit-content-form",
+      submitContentForm.tool.parameters,
+    );
+    expect(submitInput.required).toEqual(
+      expect.arrayContaining(["link", "idempotencyKey", "answers"]),
+    );
+    expect(
+      submitContentForm.schema.safeParse({
+        link: "https://content.example/form/abc",
+        idempotencyKey: "too-short",
+        answers: [],
+      }).success,
+    ).toBe(false);
+
+    expect(configureContentForm.mcpTool).toBe("search");
+    expect(getContentFormSettings.mcpTool).toBe("search");
+    for (const draftAction of [
+      saveContentFormDraft,
+      getContentFormDraft,
+      clearContentFormDraft,
+    ]) {
+      expect(draftAction.agentTool).toBe(false);
+      expect(draftAction.mcpTool).not.toBe(true);
+    }
+  });
+
+  it("publishes no change marker for a link submit or a draft, which would name the sender", () => {
+    for (const linkWrite of [
+      submitContentForm,
+      saveContentFormDraft,
+      clearContentFormDraft,
+    ]) {
+      expect(linkWrite.changeEvents).toBe(false);
     }
   });
 

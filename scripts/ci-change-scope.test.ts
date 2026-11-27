@@ -25,6 +25,8 @@ import {
   isDocsPath,
   isGuardScopedScriptPath,
   isInstructionPath,
+  isRootPackageJsonStandaloneScriptsOnly,
+  isStandaloneToolScriptPath,
   isWorkspacePath,
   normalizeChangedPath,
   runtimeSourceChangesInTestTitledPr,
@@ -4574,12 +4576,16 @@ test("selects the release workflow test when the publish workflow changes", () =
   ]);
 });
 
-test("selects the feedback proof workflow test when its workflow changes", () => {
-  const scope = classifyChangedPaths([
-    ".github/workflows/feedback-fix-proof.yml",
-  ]);
+test("scopes qa_static_apps to changed template slugs for template-only edits", () => {
+  const scoped = classifyChangedPaths(["templates/mail/app/routes/home.tsx"]);
+  assert.equal(scoped.checks.qa_static, true);
+  assert.deepEqual(scoped.qaStaticApps, ["mail"]);
 
-  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+  const full = classifyChangedPaths([
+    "templates/mail/app/routes/home.tsx",
+    "packages/core/src/index.ts",
+  ]);
+  assert.deepEqual(full.qaStaticApps, []);
 });
 
 test("selects the feedback proof contract test when CI changes", () => {
@@ -5033,4 +5039,134 @@ test("sizes changed-spec diagnostic shards to the selected tests", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("scopes allowlisted standalone tool scripts and isolated root package.json script entries", () => {
+  assert.equal(isStandaloneToolScriptPath("scripts/repo-map.ts"), true);
+  assert.equal(isStandaloneToolScriptPath("scripts/ci-change-scope.ts"), false);
+
+  const scriptOnly = classifyChangedPaths([
+    "scripts/repo-map.ts",
+    "scripts/repo-map.test.ts",
+  ]);
+  assert.equal(scriptOnly.full, false);
+  assert.equal(scriptOnly.checks.lint, true);
+  assert.equal(scriptOnly.checks.guards, true);
+  assert.equal(scriptOnly.checks.fast_tests, false);
+  assert.equal(scriptOnly.checks.verify_execution_lease, false);
+  assert.equal(scriptOnly.checks.design_canvas_core_regression, false);
+
+  const basePkg = JSON.stringify({
+    name: "agent-native",
+    scripts: { build: "pnpm -r build", lint: "oxlint" },
+    devDependencies: { typescript: "^5.8.0" },
+  });
+  const headStandalonePkg = JSON.stringify({
+    name: "agent-native",
+    scripts: {
+      build: "pnpm -r build",
+      lint: "oxlint",
+      "repo-map": "node --experimental-strip-types scripts/repo-map.ts",
+    },
+    devDependencies: { typescript: "^5.8.0" },
+  });
+  assert.equal(
+    isRootPackageJsonStandaloneScriptsOnly(basePkg, headStandalonePkg),
+    true,
+  );
+
+  const scopedWithPkg = classifyChangedPaths(
+    ["package.json", "scripts/repo-map.ts", "scripts/repo-map.test.ts"],
+    [],
+    process.cwd(),
+    [],
+    [],
+    { rootPackageJsonStandaloneScriptsOnly: true },
+  );
+  assert.equal(scopedWithPkg.full, false);
+  assert.equal(scopedWithPkg.checks.lint, true);
+  assert.equal(scopedWithPkg.checks.guards, true);
+  assert.equal(scopedWithPkg.checks.fast_tests, false);
+  assert.equal(scopedWithPkg.checks.verify_execution_lease, false);
+  assert.equal(scopedWithPkg.checks.design_canvas_broad_workflows, false);
+
+  const defaultPkg = classifyChangedPaths([
+    "package.json",
+    "scripts/repo-map.ts",
+  ]);
+  assert.equal(defaultPkg.full, true);
+
+  const headDepChange = JSON.stringify({
+    name: "agent-native",
+    scripts: {
+      build: "pnpm -r build",
+      lint: "oxlint",
+      "repo-map": "node --experimental-strip-types scripts/repo-map.ts",
+    },
+    devDependencies: { typescript: "^5.9.0" },
+  });
+  assert.equal(
+    isRootPackageJsonStandaloneScriptsOnly(basePkg, headDepChange),
+    false,
+  );
+
+  const headBuildScriptChange = JSON.stringify({
+    name: "agent-native",
+    scripts: {
+      build: "node --experimental-strip-types scripts/repo-map.ts",
+      lint: "oxlint",
+    },
+    devDependencies: { typescript: "^5.8.0" },
+  });
+  assert.equal(
+    isRootPackageJsonStandaloneScriptsOnly(basePkg, headBuildScriptChange),
+    false,
+  );
+
+  const headUnknownScript = JSON.stringify({
+    name: "agent-native",
+    scripts: {
+      build: "pnpm -r build",
+      lint: "oxlint",
+      custom: "node scripts/unknown.ts",
+    },
+    devDependencies: { typescript: "^5.8.0" },
+  });
+  assert.equal(
+    isRootPackageJsonStandaloneScriptsOnly(basePkg, headUnknownScript),
+    false,
+  );
+
+  const headShellChain = JSON.stringify({
+    name: "agent-native",
+    scripts: {
+      build: "pnpm -r build",
+      lint: "oxlint",
+      "repo-map": "node scripts/repo-map.ts && rm -rf /",
+    },
+    devDependencies: { typescript: "^5.8.0" },
+  });
+  assert.equal(
+    isRootPackageJsonStandaloneScriptsOnly(basePkg, headShellChain),
+    false,
+  );
+
+  assert.equal(
+    isRootPackageJsonStandaloneScriptsOnly(basePkg, "{not-json"),
+    false,
+  );
+
+  const withLeaseCovered = classifyChangedPaths(
+    [
+      "package.json",
+      "scripts/repo-map.ts",
+      "scripts/verify-execution-lease.ts",
+    ],
+    [],
+    process.cwd(),
+    [],
+    [],
+    { rootPackageJsonStandaloneScriptsOnly: true },
+  );
+  assert.equal(withLeaseCovered.checks.verify_execution_lease, true);
 });

@@ -185,8 +185,64 @@ describe("DatabaseFormView", () => {
       viewId: "request-form",
       title: "Refresh the pricing page",
       propertyValues: { description: "Clarify the enterprise story." },
+      idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
     expect(container.textContent).toContain("database.formSubmitted");
     expect(container.textContent).toContain("database.openPage");
+  });
+
+  it("resends any unconfirmed answers under their first idempotency key, and uses a new one for changed answers or after a success", async () => {
+    const fill = async (titleText: string, descriptionText: string) => {
+      await act(async () => {
+        const title = container.querySelector<HTMLInputElement>(
+          "#database-form-name",
+        );
+        const description = container.querySelector<HTMLTextAreaElement>(
+          "#database-form-description",
+        );
+        if (title) setControlValue(title, titleText);
+        if (description) setControlValue(description, descriptionText);
+      });
+    };
+    const send = async () => {
+      await act(async () => {
+        container
+          .querySelector("form")
+          ?.dispatchEvent(
+            new Event("submit", { bubbles: true, cancelable: true }),
+          );
+      });
+    };
+    const keys = () =>
+      submitMutation.mutateAsync.mock.calls.map(
+        ([request]) => (request as { idempotencyKey?: string }).idempotencyKey,
+      );
+    const unanswered = () => new Promise<never>(() => undefined);
+
+    await fill("Refresh the pricing page", "Clarify the enterprise story.");
+    submitMutation.mutateAsync.mockReturnValueOnce(unanswered());
+    await send();
+    submitMutation.mutateAsync.mockReturnValueOnce(unanswered());
+    await send();
+    await fill("Refresh the pricing page", "Clarify the whole story.");
+    submitMutation.mutateAsync.mockReturnValueOnce(unanswered());
+    await send();
+    await fill("Refresh the pricing page", "Clarify the enterprise story.");
+    submitMutation.mutateAsync.mockReturnValueOnce(unanswered());
+    await send();
+    await fill("Refresh the pricing page", "Clarify the whole story.");
+    await send();
+    await fill("Refresh the pricing page", "Clarify the whole story.");
+    await send();
+
+    const [first, resent, changed, restored, changedAgain, afterSuccess] =
+      keys();
+    expect(first).toBeTruthy();
+    expect(resent).toBe(first);
+    expect(changed).not.toBe(first);
+    expect(restored).toBe(first);
+    expect(changedAgain).toBe(changed);
+    expect(afterSuccess).not.toBe(changed);
+    expect(new Set(keys()).size).toBe(3);
   });
 });

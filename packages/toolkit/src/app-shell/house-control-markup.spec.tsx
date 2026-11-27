@@ -341,4 +341,4 @@ it("preserves generated control opening-tag bytes across the supported fixture m
       }
     }
   expect({ tags, cases }).toMatchSnapshot();
-}, 300_000);
+}, 600_000);

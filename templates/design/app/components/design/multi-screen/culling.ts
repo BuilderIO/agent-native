@@ -23,6 +23,7 @@ const LIVE_EDITOR_DEMOTE_RATIO = 0.75;
 export const OVERVIEW_STATIC_PREVIEW_BUDGET = 64;
 
 export const OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR = 0.5;
+export const OVERVIEW_PAINT_OVERSCAN_FACTOR = 0.25;
 
 // Booting an editor costs a full parse of the screen, so a zoom that makes a
 // whole board large enough must only start editors for screens actually on

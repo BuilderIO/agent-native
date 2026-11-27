@@ -1881,21 +1881,20 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
   },
   twitter: {
     id: "twitter",
-    label: "Twitter/X via twitterapi.io",
-    defaultBaseUrl: "https://api.twitterapi.io",
+    label: "Twitter/X",
+    defaultBaseUrl: "https://api.x.com/2",
     auth: {
-      type: "api-key-header",
-      key: "TWITTER_BEARER_TOKEN",
-      header: "X-API-Key",
+      type: "bearer",
+      keys: ["TWITTER_BEARER_TOKEN"],
     },
     credentialKeys: ["TWITTER_BEARER_TOKEN"],
-    docsUrls: ["https://twitterapi.io/docs"],
+    docsUrls: ["https://docs.x.com/x-api/introduction"],
     templateUses: ["analytics"],
     examples: [
       {
-        label: "User tweets",
+        label: "Look up a user",
         method: "GET",
-        path: "/twitter/user/last_tweets",
+        path: "/users/by/username/{username}",
       },
     ],
   },

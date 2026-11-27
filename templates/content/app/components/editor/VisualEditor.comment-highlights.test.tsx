@@ -3,17 +3,40 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
-import { act, createElement } from "react";
+import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
+const captured = vi.hoisted(() => ({ editor: null as Editor | null }));
+vi.mock("@tiptap/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tiptap/react")>();
+  return {
+    ...actual,
+    useEditor: (...args: Parameters<typeof actual.useEditor>) => {
+      const editor = actual.useEditor(...args);
+      captured.editor = editor;
+      return editor;
+    },
+  };
+});
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
+}));
+const pages = vi.hoisted(() => ({
+  create: vi.fn(async (_parentId: string, _id: string) => {}),
+  rollback: vi.fn(async (_input: { id: string; parentId: string }) => ({})),
+}));
+vi.mock("@/hooks/use-create-page", () => ({
+  useCreatePage: () => pages.create,
+}));
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
+  useRollbackCreatedSlashDocument: () => ({ mutateAsync: pages.rollback }),
 }));
 
 import {
@@ -22,7 +45,7 @@ import {
 } from "@shared/comment-block-anchor";
 
 import { commentHighlightKey } from "./extensions/CommentHighlight";
-import { VisualEditor } from "./VisualEditor";
+import { VisualEditor, type VisualEditorSuggestion } from "./VisualEditor";
 
 function found<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("Expected the fixture to have it");
@@ -82,6 +105,15 @@ describe("VisualEditor comment highlights", () => {
     vi.unstubAllGlobals();
   });
 
+  let currentPath = "";
+  function LocationProbe() {
+    const location = useLocation();
+    useEffect(() => {
+      currentPath = location.pathname;
+    });
+    return null;
+  }
+
   function render(
     content: string,
     threads: CommentThread[],
@@ -93,6 +125,7 @@ describe("VisualEditor comment highlights", () => {
       createElement(
         MemoryRouter,
         null,
+        createElement(LocationProbe),
         createElement(
           TooltipProvider,
           null,
@@ -239,6 +272,172 @@ describe("VisualEditor comment highlights", () => {
     await act(async () => render(BEFORE, [thread("t1")], "seed", true));
     await settle();
     expect(highlighted("t1")).toBe("ships every Friday afternoon");
+  });
+
+  describe("suggestions", () => {
+    const suggestion: VisualEditorSuggestion = {
+      id: "s1",
+      kind: "replace_text",
+      beforeText: "afternoon",
+      afterText: "at 2 pm",
+      anchor: { from: 0, prefix: "every Friday ", suffix: ", so" },
+      presentation: "canonical",
+    };
+    const suggested = () =>
+      [...container.querySelectorAll("[data-suggestion-id=s1]")]
+        .map((element) => element.textContent)
+        .join(" → ");
+
+    it("hides a suggestion with comment indicators and still reports it placed", async () => {
+      const onSuggestionAnchorsChange = vi.fn();
+      const props = { suggestions: [suggestion], onSuggestionAnchorsChange };
+      await act(async () => render(BEFORE, [], "seed", false, props));
+      await settle();
+      expect(suggested()).toBe("");
+      expect(onSuggestionAnchorsChange).toHaveBeenLastCalledWith(["s1"]);
+
+      await act(async () => render(BEFORE, [], "seed", true, props));
+      await settle();
+      expect(suggested()).toBe("afternoon → at 2 pm");
+      expect(onSuggestionAnchorsChange).toHaveBeenLastCalledWith(["s1"]);
+    });
+
+    it.each([
+      [false, 1],
+      [true, 0],
+    ])(
+      "reports placed suggestions after typing only outside Suggesting (suggesting: %s)",
+      async (suggesting, reports) => {
+        const onSuggestionAnchorsChange = vi.fn();
+        await act(async () =>
+          render(BEFORE, [], "seed", true, {
+            suggestions: [suggestion],
+            onSuggestionAnchorsChange,
+            suggesting,
+          }),
+        );
+        await settle();
+        onSuggestionAnchorsChange.mockClear();
+        const editor = found(captured.editor);
+        act(() => {
+          editor.view.dispatch(editor.state.tr.insertText("Typed ", 1));
+        });
+        await settle();
+        expect(onSuggestionAnchorsChange).toHaveBeenCalledTimes(reports);
+      },
+    );
+
+    it.each([
+      ["a saved", {}, false],
+      ["a settling", { presentation: "settling" }, true],
+      ["a frozen", { frozen: true }, true],
+    ] as const)(
+      "with comment indicators hidden, draws %s suggestion's words: %s",
+      async (_kind, state, drawn) => {
+        await act(async () =>
+          render(BEFORE, [], "seed", false, {
+            suggestions: [{ ...suggestion, ...state }],
+          }),
+        );
+        await settle();
+        expect(container.textContent.includes("at 2 pm")).toBe(drawn);
+      },
+    );
+
+    it("leaves the words being typed out of the suggestions it reports placed", async () => {
+      const onSuggestionAnchorsChange = vi.fn();
+      const unplaced: VisualEditorSuggestion = {
+        ...suggestion,
+        id: "d1",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "words the page has yet to show",
+        presentation: "draft",
+      };
+      const props = { suggesting: true, onSuggestionAnchorsChange };
+      await act(async () =>
+        render(BEFORE, [], "seed", true, {
+          ...props,
+          suggestions: [suggestion],
+        }),
+      );
+      await settle();
+      const editor = found(captured.editor);
+      act(() => {
+        editor.view.dispatch(editor.state.tr.insertText("Typed ", 1));
+      });
+      await act(async () =>
+        render(BEFORE, [], "seed", true, {
+          ...props,
+          suggestions: [{ ...suggestion, id: "s2" }, unplaced],
+        }),
+      );
+      await settle();
+      expect(container.textContent).toContain("Typed ");
+      expect(onSuggestionAnchorsChange).toHaveBeenLastCalledWith(["s2"]);
+    });
+  });
+
+  describe("/page", () => {
+    async function makePage(answer: boolean | "failed") {
+      pages.create.mockClear();
+      pages.rollback.mockClear();
+      const onSaveContent = vi.fn(async (_markdown: string) => answer);
+      await act(async () =>
+        render(BEFORE, [], "seed", true, {
+          documentId: "parent",
+          onSaveContent,
+        }),
+      );
+      await settle();
+      const editor = found(captured.editor);
+      act(() => {
+        editor.chain().focus("end").splitBlock().run();
+        for (const char of "/page") {
+          const { from, to } = editor.state.selection;
+          editor.view.dispatch(editor.state.tr.insertText(char, from, to));
+        }
+      });
+      await settle();
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () =>
+        vi.waitFor(() => expect(onSaveContent).toHaveBeenCalledOnce()),
+      );
+      const pageId = found(pages.create.mock.calls[0]?.[1]);
+      expect(pages.create).toHaveBeenCalledWith("parent", pageId);
+      expect(onSaveContent.mock.calls[0]?.[0]).toContain(`id="${pageId}"`);
+      return { linked: () => editor.getHTML().includes(pageId), pageId };
+    }
+
+    it("saves the new page's link through the page's save", async () => {
+      const { linked, pageId } = await makePage(true);
+      await act(async () =>
+        vi.waitFor(() => expect(currentPath).toBe(`/page/${pageId}`)),
+      );
+      expect(linked()).toBe(true);
+      expect(pages.rollback).not.toHaveBeenCalled();
+    });
+
+    it("takes the new page back when the page's save fails", async () => {
+      const { linked, pageId } = await makePage("failed");
+      await act(async () =>
+        vi.waitFor(() =>
+          expect(pages.rollback).toHaveBeenCalledWith({
+            id: pageId,
+            parentId: "parent",
+          }),
+        ),
+      );
+      expect(linked()).toBe(false);
+    });
   });
 
   it("keeps a highlight on its copy when edits make its context match another", async () => {

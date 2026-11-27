@@ -68,6 +68,7 @@ export default defineAction({
     autoArchiveResolved: z.coerce.boolean().optional(),
     notifyOnSourceErrors: z.coerce.boolean().optional(),
   }),
+  mcpTool: false,
   run: async (args) => {
     const { orgId } = await assertBrainAdmin();
     return { settings: await writeBrainSettings(orgId, args) };

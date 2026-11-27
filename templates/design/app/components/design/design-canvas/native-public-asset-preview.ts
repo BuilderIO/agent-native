@@ -4,6 +4,10 @@ import { parse, type DefaultTreeAdapterMap } from "parse5";
 import { isCanvasImagePath } from "../../../../shared/canvas-image-url";
 import type { EffectDocument } from "../../../../shared/native-effects";
 import { planNativeInputResources } from "../../../../shared/native-input-resources";
+import {
+  mayContainNativeEffectsManifest,
+  NATIVE_EFFECTS_MANIFEST_TYPE,
+} from "./native-public-worker-preview";
 import { parseSrcset } from "./private-replay-screenshot-preview";
 
 const READY = "native-public-asset-ready";
@@ -67,6 +71,8 @@ export function prepareNativePublicAssetPreviewDocument(
       "source-public-asset-origin-invalid",
       "The preview origin is not an HTTP origin.",
     );
+  if (!mayContainNativeEffectsManifest(html))
+    return { html, urls: [], origin: parentBase.origin, nonce: null };
   type Node = DefaultTreeAdapterMap["node"];
   const documentNode = parse(html);
   const hasNativeManifest = (node: Node): boolean => {
@@ -77,8 +83,7 @@ export function prepareNativePublicAssetPreviewDocument(
       node.tagName.toLowerCase() === "script" &&
       node.attrs.some(
         (attr) =>
-          attr.name === "type" &&
-          attr.value === "application/x-agent-native-effects",
+          attr.name === "type" && attr.value === NATIVE_EFFECTS_MANIFEST_TYPE,
       )
     )
       return true;

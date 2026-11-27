@@ -664,7 +664,7 @@ function strictDate(
   };
 }
 
-async function strictValue(
+export async function strictValue(
   definition: DefinitionRow,
   value: unknown,
 ): Promise<DocumentPropertyValue> {
@@ -806,9 +806,14 @@ async function normalizePatch(
   return normalized;
 }
 
-async function ensureNaturalKeyClaim(
+export async function ensureNaturalKeyClaim(
   db: Db,
-  context: MutationContext,
+  context: {
+    database: Pick<
+      DatabaseRow,
+      "id" | "naturalKeyPropertyId" | "ownerEmail" | "orgId"
+    >;
+  },
   args: {
     itemId: string;
     documentId: string;

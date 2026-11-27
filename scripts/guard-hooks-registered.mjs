@@ -43,13 +43,13 @@ const registeredCommands = Object.values(settings.hooks ?? {})
 
 const claudeMd = readFileSync(CLAUDE_MD, "utf8");
 const hookScripts = existsSync(HOOKS_DIR)
-  ? readdirSync(HOOKS_DIR).filter((name) => /\.(mjs|js|ts)$/.test(name))
+  ? readdirSync(HOOKS_DIR).filter((name) => /\.(mjs|js|ts|sh)$/.test(name))
   : [];
 
 const problems = [];
 
 const claudeMdHookRefs = [
-  ...claudeMd.matchAll(/scripts\/hooks\/([\w.-]+\.(?:mjs|js|ts))/g),
+  ...claudeMd.matchAll(/scripts\/hooks\/([\w.-]+\.(?:mjs|js|ts|sh))/g),
 ].map((match) => match[1]);
 
 for (const name of new Set(claudeMdHookRefs)) {
@@ -62,7 +62,7 @@ for (const name of new Set(claudeMdHookRefs)) {
 }
 
 for (const command of registeredCommands) {
-  const match = command.match(/scripts\/hooks\/([\w.-]+\.(?:mjs|js|ts))/);
+  const match = command.match(/scripts\/hooks\/([\w.-]+\.(?:mjs|js|ts|sh))/);
   if (!match) continue;
   const name = match[1];
   if (!hookScripts.includes(name)) {

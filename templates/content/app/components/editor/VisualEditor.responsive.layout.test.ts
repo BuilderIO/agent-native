@@ -4,19 +4,8 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync(new URL("../../global.css", import.meta.url), "utf8");
 
+// oracle-change: the DocumentBlockFields.tsx grep moved to rendered layouts in DocumentBlockFields.tabs.test.tsx and DocumentBlockFields.test.ts
 describe("page body containment", () => {
-  it("lets every block-fields track shrink below its widest line", () => {
-    const source = readFileSync(
-      new URL("./DocumentBlockFields.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      'const BLOCK_FIELDS_GRID = "grid grid-cols-[minmax(0,1fr)]"',
-    );
-    expect(source).not.toMatch(/className="grid(?:\s[^"]*)?"/);
-  });
-
   it("wraps inline code without collapsing its spaces, while code blocks keep scrolling", () => {
     expect(css).not.toMatch(/\bpre,\s*code\s*\{[^}]*white-space:\s*pre;/);
     expect(css).toMatch(/\n\s*pre,\s*pre code\s*\{[^}]*white-space:\s*pre;/);

@@ -522,6 +522,7 @@ export default defineAction({
   description:
     "Retry failed or stale Brain distillation queue items after checking access to each capture source. Supports one item, selected queue IDs, or all retryable items.",
   schema: retrySchema,
+  mcpTool: "search",
   run: async (args) => {
     const now = nowIso();
     const cutoff = staleProcessingCutoff(now);

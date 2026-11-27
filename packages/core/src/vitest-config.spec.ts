@@ -11,4 +11,8 @@ describe("vitest base config", () => {
 
     expect(vitestBaseConfig.test?.execArgv).toEqual(expected);
   });
+
+  it("keeps clearMocks disabled by default so module-import mocks stay observable", () => {
+    expect(vitestBaseConfig.test?.clearMocks).toBe(false);
+  });
 });

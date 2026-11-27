@@ -1,4 +1,9 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import {
+  fail,
+  isActionContractError,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
@@ -13,14 +18,18 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
+import { firstRow } from "../server/lib/first-row.js";
 import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseView,
-  DocumentPropertySystemRole,
   SubmitContentDatabaseFormResponse,
 } from "../shared/api.js";
-import { contentDatabaseFormQuestions } from "../shared/database-form.js";
+import type {
+  ContentFormProblem,
+  ContentFormSender,
+} from "../shared/content-forms.js";
+import { FORM_TITLE_QUESTION_KEY } from "../shared/form-question-block.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -38,9 +47,31 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  assertContentFormUnchanged,
+  contentFormReceiptAnswers,
+  loadContentFormQuestions,
+  readContentFormRow,
+} from "./_content-form-questions.js";
+import {
+  assertNoContentFormSubmission,
+  assertSameContentFormSubmission,
+  contentFormAnswersDigest,
+  ContentFormSubmissionExists,
+  deleteContentFormDraftRow,
+  findContentFormSubmission,
+  insertContentFormSubmission,
+  sortedContentFormEntries,
+  type ContentFormSubmissionRow,
+} from "./_content-form-receipts.js";
+import {
+  ensureNaturalKeyClaim,
+  strictValue,
+} from "./_database-row-mutation.js";
 import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
+import { validateRelationWrite } from "./_relation-values.js";
 
 const submitContentDatabaseFormSchema = z.object({
   databaseId: z.string().min(1).describe("Content collection ID"),
@@ -77,12 +108,24 @@ const submitContentDatabaseFormSchema = z.object({
     .describe(
       "Compatibility map for programmatic callers. Agents should use propertyEntries because dynamic object keys may be discarded by model tool schemas. Omit both arguments only for a deliberately title-only submission.",
     ),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "A new random key per submission. Resending the same key with the same answers returns the first submission's row instead of adding another; the same key with different answers is refused.",
+    ),
 });
 
-type PropertyDefinitionRow =
+export type PropertyDefinitionRow =
   typeof schema.documentPropertyDefinitions.$inferSelect;
 
-function propertyDefinitionFingerprint(definitions: PropertyDefinitionRow[]) {
+class FormAnswerProblem extends Error {}
+
+export function propertyDefinitionFingerprint(
+  definitions: PropertyDefinitionRow[],
+) {
   return JSON.stringify(
     definitions
       .map((definition) => ({
@@ -146,12 +189,12 @@ function resolveOption(
   );
   if (labelMatches.length === 1) return labelMatches[0].id;
   if (labelMatches.length > 1) {
-    throw new Error(
+    throw new FormAnswerProblem(
       `Value "${candidate}" is ambiguous for "${propertyName}". Use an option ID.`,
     );
   }
   const allowed = options.map((option) => option.name).join(", ");
-  throw new Error(
+  throw new FormAnswerProblem(
     `Unknown option "${candidate}" for "${propertyName}".${allowed ? ` Choose one of: ${allowed}.` : " This property has no options."}`,
   );
 }
@@ -184,17 +227,59 @@ function isValidSubmittedDatePart(value: unknown): boolean {
   );
 }
 
-function normalizeSubmittedPropertyValue(
+const ANSWER_ERROR_CODES = new Set([
+  "INVALID_PROPERTY_VALUE",
+  "RELATION_TARGET_MISSING",
+  "RELATION_LIMIT_EXCEEDED",
+  "INVALID_RELATION_TARGET",
+]);
+
+const CHECKBOX_WORDS = new Map([
+  ["true", true],
+  ["yes", true],
+  ["on", true],
+  ["1", true],
+  ["checked", true],
+  ["false", false],
+  ["no", false],
+  ["off", false],
+  ["0", false],
+  ["unchecked", false],
+]);
+
+function readableSubmittedValue(
+  type: DocumentPropertyType,
+  value: unknown,
+  explicitlyEmpty: boolean,
+): unknown {
+  if (type === "date" || isBlocksPropertyType(type)) {
+    return normalizePropertyValue(type, value);
+  }
+  if (explicitlyEmpty) return null;
+  if (typeof value === "string") {
+    if (type === "checkbox") {
+      return CHECKBOX_WORDS.get(value.trim().toLocaleLowerCase()) ?? value;
+    }
+    if (type === "email" || type === "url") return value.trim();
+    return normalizePropertyValue(type, value);
+  }
+  return Array.isArray(value) &&
+    (type === "person" || type === "files_media" || type === "relation")
+    ? normalizePropertyValue(type, value)
+    : value;
+}
+
+async function normalizeSubmittedPropertyValue(
   definition: PropertyDefinitionRow,
   value: unknown,
-): DocumentPropertyValue {
+): Promise<DocumentPropertyValue> {
   const type = definition.type as DocumentPropertyType;
   const explicitlyEmpty =
     value === undefined ||
     value === null ||
     (typeof value === "string" && value.trim() === "") ||
     (Array.isArray(value) && value.length === 0);
-  let normalized: DocumentPropertyValue;
+  let normalized: unknown;
   if (type === "select" || type === "status" || type === "multi_select") {
     if (Array.isArray(value)) {
       const invalidCandidates = value.filter(
@@ -208,7 +293,7 @@ function normalizeSubmittedPropertyValue(
         invalidCandidates.length > 0 ||
         (type !== "multi_select" && nonEmptyCandidates.length > 1)
       ) {
-        throw new Error(
+        throw new FormAnswerProblem(
           `Invalid value for "${definition.name}"; every supplied option must be preserved exactly once.`,
         );
       }
@@ -237,7 +322,7 @@ function normalizeSubmittedPropertyValue(
       Array.isArray(value) &&
       value.some((candidate) => typeof candidate !== "string")
     ) {
-      throw new Error(
+      throw new FormAnswerProblem(
         `Invalid value for "${definition.name}"; every supplied item must be preserved exactly once.`,
       );
     }
@@ -259,7 +344,7 @@ function normalizeSubmittedPropertyValue(
         !Array.isArray(value) &&
         dateParts.some((part) => typeof part === "number")
       ) {
-        throw new Error(
+        throw new FormAnswerProblem(
           `Invalid value for "${definition.name}"; numeric dates are only supported as scalar values.`,
         );
       }
@@ -279,7 +364,7 @@ function normalizeSubmittedPropertyValue(
           return hasTime !== explicitIncludeTime;
         })
       ) {
-        throw new Error(
+        throw new FormAnswerProblem(
           `Invalid value for "${definition.name}"; includeTime must match the supplied date precision.`,
         );
       }
@@ -292,7 +377,7 @@ function normalizeSubmittedPropertyValue(
             !isValidSubmittedDatePart(part),
         )
       ) {
-        throw new Error(
+        throw new FormAnswerProblem(
           `Invalid value for "${definition.name}"; use a real ISO calendar date.`,
         );
       }
@@ -303,12 +388,12 @@ function normalizeSubmittedPropertyValue(
         explicitIncludeTime === undefined &&
         dateParts.some((part) => typeof part === "string" && part.includes("T"))
       ) {
-        throw new Error(
+        throw new FormAnswerProblem(
           `Invalid value for "${definition.name}"; includeTime is required for timed date ranges.`,
         );
       }
     }
-    normalized = normalizePropertyValue(type, value);
+    normalized = readableSubmittedValue(type, value, explicitlyEmpty);
   }
   const rawDateEnd =
     type === "date" &&
@@ -330,7 +415,7 @@ function normalizeSubmittedPropertyValue(
       !("end" in normalized) ||
       !normalized.end)
   ) {
-    throw new Error(
+    throw new FormAnswerProblem(
       `Invalid value for "${definition.name}"; the supplied date end could not be preserved.`,
     );
   }
@@ -347,75 +432,618 @@ function normalizeSubmittedPropertyValue(
     typeof normalized.start === "string" &&
     normalized.end < normalized.start
   ) {
-    throw new Error(
+    throw new FormAnswerProblem(
       `Invalid value for "${definition.name}"; the supplied date end is before the start.`,
     );
   }
-  if (!explicitlyEmpty && isEmptyPropertyValue(normalized)) {
-    throw new Error(
+  if (
+    !explicitlyEmpty &&
+    isEmptyPropertyValue(normalized as DocumentPropertyValue)
+  ) {
+    throw new FormAnswerProblem(
       `Invalid value for "${definition.name}"; the supplied value could not be preserved as ${type}.`,
     );
   }
-  return normalized;
+  if (isBlocksPropertyType(type)) {
+    return typeof normalized === "string" ? normalized : null;
+  }
+  if (type === "relation") {
+    return isEmptyPropertyValue(normalized as DocumentPropertyValue)
+      ? null
+      : validateRelationWrite(getDb(), {
+          definition,
+          nextValue: normalized,
+          previousValue: null,
+        });
+  }
+  return strictValue(definition, normalized);
 }
 
-function resolveSubmittedProperties(
+export type CollectionFormScope = "collection" | "form";
+
+export interface CollectionFormQuestionRule {
+  key: string;
+  wording: string;
+  required: boolean;
+}
+
+export interface PreparedCollectionFormRecord {
+  title: string;
+  documentContent: string;
+  values: Map<string, DocumentPropertyValue>;
+  standardValues: Array<[string, DocumentPropertyValue]>;
+  additionalBlocks: Array<[string, DocumentPropertyValue]>;
+  submittedProperties: Array<{ propertyId: string; name: string }>;
+}
+
+export interface CollectionFormRecordCreated {
+  documentId: string;
+  itemId: string;
+  now: string;
+}
+
+type ContentDb = ReturnType<typeof getDb>;
+type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
+
+async function resolveSubmittedProperties(
   definitions: PropertyDefinitionRow[],
-  enabledPropertyIds: Set<string>,
+  questionPropertyIds: Set<string>,
   submitted: ReadonlyArray<readonly [string, unknown]>,
+  scope: CollectionFormScope,
 ) {
+  const candidates =
+    scope === "form"
+      ? definitions.filter((definition) =>
+          questionPropertyIds.has(definition.id),
+        )
+      : definitions;
   const byId = new Map(
-    definitions.map((definition) => [definition.id, definition]),
+    candidates.map((definition) => [definition.id, definition]),
   );
   const byName = new Map<string, PropertyDefinitionRow[]>();
-  for (const definition of definitions) {
+  for (const definition of candidates) {
     const key = definition.name.trim().toLocaleLowerCase();
     byName.set(key, [...(byName.get(key) ?? []), definition]);
   }
 
   const resolved = new Map<string, DocumentPropertyValue>();
+  const seen = new Set<string>();
+  const problems: ContentFormProblem[] = [];
   for (const [inputKey, inputValue] of submitted) {
     const exact = byId.get(inputKey);
     const named = byName.get(inputKey.trim().toLocaleLowerCase()) ?? [];
-    if (exact && named.some((definition) => definition.id !== exact.id)) {
-      throw new Error(
+    const definition = exact ?? (named.length === 1 ? named[0] : undefined);
+    const problem = (message: string) => {
+      problems.push({
+        question: definition?.id ?? inputKey,
+        wording: definition?.name ?? null,
+        message,
+      });
+    };
+    if (exact && named.some((candidate) => candidate.id !== exact.id)) {
+      problem(
         `Property identifier "${inputKey}" matches one property ID and another property name. Use an unambiguous property name or ID.`,
       );
+      continue;
     }
     if (!exact && named.length > 1) {
-      throw new Error(
+      problem(
         `Property name "${inputKey}" is ambiguous. Use a property definition ID.`,
       );
+      continue;
     }
-    const definition = exact ?? named[0];
-    if (!definition) throw new Error(`Unknown form property "${inputKey}".`);
+    if (!definition) {
+      problem(
+        scope === "form"
+          ? `This form has no question "${inputKey}".`
+          : `Unknown form property "${inputKey}".`,
+      );
+      continue;
+    }
     if (definition.systemRole) {
-      throw new Error(
-        `System property "${definition.name}" cannot be submitted.`,
-      );
+      problem(`System property "${definition.name}" cannot be submitted.`);
+      continue;
     }
-    if (!enabledPropertyIds.has(definition.id)) {
-      throw new Error(
-        `Property "${definition.name}" is not enabled in this form.`,
-      );
+    if (!questionPropertyIds.has(definition.id)) {
+      problem(`Property "${definition.name}" is not enabled in this form.`);
+      continue;
     }
-    const type = definition.type as DocumentPropertyType;
-    if (isComputedPropertyType(type)) {
-      throw new Error(
-        `Computed property "${definition.name}" cannot be submitted.`,
-      );
+    if (isComputedPropertyType(definition.type as DocumentPropertyType)) {
+      problem(`Computed property "${definition.name}" cannot be submitted.`);
+      continue;
     }
-    if (resolved.has(definition.id)) {
-      throw new Error(
-        `Property "${definition.name}" was submitted more than once.`,
-      );
+    if (seen.has(definition.id)) {
+      problem(`Property "${definition.name}" was submitted more than once.`);
+      continue;
     }
-    resolved.set(
-      definition.id,
-      normalizeSubmittedPropertyValue(definition, inputValue),
-    );
+    seen.add(definition.id);
+    try {
+      resolved.set(
+        definition.id,
+        await normalizeSubmittedPropertyValue(definition, inputValue),
+      );
+    } catch (error) {
+      if (
+        !(error instanceof FormAnswerProblem) &&
+        !(
+          isActionContractError(error) &&
+          ANSWER_ERROR_CODES.has(error.errorCode)
+        )
+      ) {
+        throw error;
+      }
+      problem(error.message);
+    }
   }
-  return resolved;
+  return { values: resolved, problems };
+}
+
+export async function prepareCollectionFormRecord(input: {
+  definitions: PropertyDefinitionRow[];
+  questions: CollectionFormQuestionRule[];
+  title?: string | undefined;
+  content?: string | undefined;
+  entries: ReadonlyArray<readonly [string, unknown]>;
+  scope: CollectionFormScope;
+  ctx?: ActionRunContext | undefined;
+}): Promise<
+  | { ok: false; problems: ContentFormProblem[] }
+  | { ok: true; record: PreparedCollectionFormRecord }
+> {
+  const { definitions, questions, content } = input;
+  const questionPropertyIds = new Set(
+    questions
+      .filter((question) => question.key !== FORM_TITLE_QUESTION_KEY)
+      .map((question) => question.key),
+  );
+  const { values, problems } = await resolveSubmittedProperties(
+    definitions,
+    questionPropertyIds,
+    input.entries,
+    input.scope,
+  );
+  const normalizedTitle = input.title?.trim() ?? "";
+  const definitionById = new Map(
+    definitions.map((definition) => [definition.id, definition]),
+  );
+  const answeredWithProblem = new Set(
+    problems.map((problem) => problem.question),
+  );
+  for (const question of questions) {
+    if (!question.required || answeredWithProblem.has(question.key)) continue;
+    const missing =
+      question.key === FORM_TITLE_QUESTION_KEY
+        ? !normalizedTitle
+        : isEmptyPropertyValue(values.get(question.key) ?? null);
+    if (missing) {
+      problems.push({
+        question: question.key,
+        wording: question.wording,
+        message: `"${question.wording}" is required.`,
+      });
+    }
+  }
+
+  const primaryBlocks = definitions.find((definition) => {
+    const type = definition.type as DocumentPropertyType;
+    return (
+      isBlocksPropertyType(type) &&
+      blocksStorageTarget(parsePropertyOptions(definition.optionsJson)) ===
+        "document_body"
+    );
+  });
+  const primaryContent = primaryBlocks
+    ? values.get(primaryBlocks.id)
+    : undefined;
+  if (
+    primaryBlocks &&
+    typeof primaryContent === "string" &&
+    content !== undefined &&
+    primaryContent !== content
+  ) {
+    problems.push({
+      question: primaryBlocks.id,
+      wording: primaryBlocks.name,
+      message:
+        "Provide narrative body content either through the primary Blocks form field or content, not both.",
+    });
+  }
+  if (problems.length > 0) return { ok: false, problems };
+
+  const documentContent =
+    typeof primaryContent === "string" ? primaryContent : (content ?? "");
+  const standardValues = [...values.entries()].filter(([propertyId]) => {
+    const definition = definitionById.get(propertyId);
+    return (
+      definition &&
+      !isBlocksPropertyType(definition.type as DocumentPropertyType)
+    );
+  });
+  const additionalBlocks = [...values.entries()].filter(([propertyId]) => {
+    const definition = definitionById.get(propertyId);
+    return (
+      definition &&
+      isBlocksPropertyType(definition.type as DocumentPropertyType) &&
+      propertyId !== primaryBlocks?.id
+    );
+  });
+  for (const body of [
+    documentContent,
+    ...additionalBlocks.map(([, value]) => value),
+  ]) {
+    if (typeof body === "string") {
+      assertInteractiveHtmlBlocks(input.ctx, null, body);
+    }
+  }
+  return {
+    ok: true,
+    record: {
+      title: normalizedTitle,
+      documentContent,
+      values,
+      standardValues,
+      additionalBlocks,
+      submittedProperties: [...values.keys()].map((propertyId) => ({
+        propertyId,
+        name: definitionById.get(propertyId)?.name ?? propertyId,
+      })),
+    },
+  };
+}
+
+export async function writeCollectionFormRecord<TInserted>(input: {
+  database: ContentDatabaseRow;
+  databaseDocument: Pick<
+    typeof schema.documents.$inferSelect,
+    "hideFromSearch" | "visibility"
+  >;
+  definitionsFingerprint: string;
+  record: PreparedCollectionFormRecord;
+  createdBy: string | null;
+  shareCreatedBy: string;
+  privateMediaActor: string | null | false;
+  assertNotSubmitted: (tx: ContentDb) => Promise<void>;
+  verifyLocked: (tx: ContentDb) => Promise<void>;
+  afterInsert: (
+    tx: ContentDb,
+    created: CollectionFormRecordCreated,
+  ) => Promise<TInserted>;
+}): Promise<CollectionFormRecordCreated & { inserted: TInserted }> {
+  const { database, databaseDocument, definitionsFingerprint } = input;
+  const {
+    title: normalizedTitle,
+    documentContent,
+    standardValues,
+    additionalBlocks,
+  } = input.record;
+  const databaseId = database.id;
+  const documentId = nanoid();
+  const itemId = nanoid();
+  const now = new Date().toISOString();
+  const db = getDb();
+
+  const inserted = await db.transaction(async (tx) => {
+    const lockedDb = tx as unknown as ContentDb;
+    await lockContentDatabaseMutation(lockedDb, databaseId);
+    await input.assertNotSubmitted(lockedDb);
+    const lockedDatabase = firstRow(
+      await tx
+        .select({
+          viewConfigJson: schema.contentDatabases.viewConfigJson,
+          deletedAt: schema.contentDatabases.deletedAt,
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+          spaceId: schema.contentDatabases.spaceId,
+          orgId: schema.contentDatabases.orgId,
+          ownerEmail: schema.contentDatabases.ownerEmail,
+        })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId)),
+    );
+    if (
+      !lockedDatabase ||
+      lockedDatabase.deletedAt !== null ||
+      lockedDatabase.viewConfigJson !== database.viewConfigJson ||
+      lockedDatabase.spaceId !== database.spaceId ||
+      lockedDatabase.orgId !== database.orgId ||
+      lockedDatabase.ownerEmail !== database.ownerEmail
+    ) {
+      fail("The database form changed before form submission completed.", {
+        errorCode: "form_changed",
+        statusCode: 409,
+      });
+    }
+    await tx
+      .update(schema.documentShares)
+      .set({ role: sql`${schema.documentShares.role}` })
+      .where(eq(schema.documentShares.resourceId, database.documentId))
+      .returning({ id: schema.documentShares.id });
+    const lockedDocuments = await tx
+      .update(schema.documents)
+      .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+      .where(eq(schema.documents.id, database.documentId))
+      .returning({ id: schema.documents.id });
+    if (lockedDocuments.length !== 1) {
+      fail("Database page not found.", {
+        errorCode: "form_unavailable",
+        statusCode: 404,
+      });
+    }
+    await input.verifyLocked(lockedDb);
+    await touchContentDatabase(lockedDb, databaseId, now);
+    const lockedDefinitions = await tx
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+          eq(
+            schema.documentPropertyDefinitions.ownerEmail,
+            database.ownerEmail,
+          ),
+        ),
+      );
+    if (
+      propertyDefinitionFingerprint(lockedDefinitions) !==
+      definitionsFingerprint
+    ) {
+      fail("Database properties changed before form submission completed.", {
+        errorCode: "form_changed",
+        statusCode: 409,
+      });
+    }
+    for (const [propertyId, value] of standardValues) {
+      const definition = lockedDefinitions.find(
+        (candidate) => candidate.id === propertyId,
+      );
+      if (definition?.type !== "relation" || value === null) continue;
+      await validateRelationWrite(lockedDb, {
+        definition,
+        nextValue: value,
+        previousValue: null,
+      });
+    }
+    await ensureNaturalKeyClaim(
+      lockedDb,
+      {
+        database: {
+          ...database,
+          naturalKeyPropertyId: lockedDatabase.naturalKeyPropertyId,
+        },
+      },
+      {
+        itemId,
+        documentId,
+        values: new Map(
+          standardValues.flatMap(([propertyId, value]) =>
+            value === null
+              ? []
+              : [[propertyId, serializePropertyValue(value)] as const],
+          ),
+        ),
+        now,
+      },
+    );
+    const maxDocumentPosition = firstRow(
+      await tx
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.ownerEmail, database.ownerEmail),
+            eq(schema.documents.parentId, database.documentId),
+          ),
+        ),
+    );
+    const maxItemPosition = firstRow(
+      await tx
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, databaseId)),
+    );
+    const inheritedShares = await tx
+      .select({
+        principalType: schema.documentShares.principalType,
+        principalId: schema.documentShares.principalId,
+        role: schema.documentShares.role,
+      })
+      .from(schema.documentShares)
+      .where(eq(schema.documentShares.resourceId, database.documentId));
+
+    await tx.insert(schema.documents).values({
+      id: documentId,
+      spaceId: database.spaceId,
+      ownerEmail: database.ownerEmail,
+      orgId: database.orgId,
+      parentId: database.documentId,
+      title: normalizedTitle,
+      content: documentContent,
+      icon: null,
+      position: nextAppendPosition(maxDocumentPosition?.max),
+      isFavorite: 0,
+      hideFromSearch: databaseDocument.hideFromSearch,
+      visibility: databaseDocument.visibility,
+      createdBy: input.createdBy,
+      updatedBy: input.createdBy,
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (input.privateMediaActor !== false) {
+      await syncPrivateMediaReferences(lockedDb, {
+        documentId,
+        after: documentContent,
+        userEmail: input.privateMediaActor,
+      });
+    }
+    await syncAnalyticsChartCitations(lockedDb, {
+      documentId,
+      after: documentContent,
+    });
+    await tx.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: database.ownerEmail,
+      orgId: database.orgId,
+      databaseId,
+      documentId,
+      position: nextAppendPosition(maxItemPosition?.max),
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (inheritedShares.length > 0) {
+      await tx.insert(schema.documentShares).values(
+        inheritedShares.map((share) => ({
+          id: nanoid(),
+          resourceId: documentId,
+          principalType: share.principalType,
+          principalId: share.principalId,
+          role: share.role,
+          createdBy: input.shareCreatedBy,
+          createdAt: now,
+        })),
+      );
+    }
+    if (standardValues.length > 0) {
+      await tx.insert(schema.documentPropertyValues).values(
+        standardValues.map(([propertyId, value]) => ({
+          id: nanoid(),
+          ownerEmail: database.ownerEmail,
+          documentId,
+          propertyId,
+          valueJson: serializePropertyValue(value),
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    }
+    if (additionalBlocks.length > 0) {
+      await tx.insert(schema.documentBlockFieldContents).values(
+        additionalBlocks.map(([propertyId, value]) => ({
+          id: nanoid(),
+          ownerEmail: database.ownerEmail,
+          documentId,
+          propertyId,
+          content: typeof value === "string" ? value : "",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    }
+
+    await ensureDocumentFilesMembership(tx, documentId, now);
+
+    const savedDocument = firstRow(
+      await tx
+        .select({
+          id: schema.documents.id,
+          title: schema.documents.title,
+          content: schema.documents.content,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId)),
+    );
+    const savedItem = firstRow(
+      await tx
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.id, itemId),
+            eq(schema.contentDatabaseItems.documentId, documentId),
+            eq(schema.contentDatabaseItems.databaseId, databaseId),
+          ),
+        ),
+    );
+    const savedPropertyValues =
+      standardValues.length === 0
+        ? []
+        : await tx
+            .select({
+              propertyId: schema.documentPropertyValues.propertyId,
+              valueJson: schema.documentPropertyValues.valueJson,
+            })
+            .from(schema.documentPropertyValues)
+            .where(
+              and(
+                eq(schema.documentPropertyValues.documentId, documentId),
+                inArray(
+                  schema.documentPropertyValues.propertyId,
+                  standardValues.map(([propertyId]) => propertyId),
+                ),
+              ),
+            );
+    const savedByPropertyId = new Map(
+      savedPropertyValues.map((value) => [value.propertyId, value.valueJson]),
+    );
+    const standardValuesVerified = standardValues.every(
+      ([propertyId, value]) =>
+        savedByPropertyId.get(propertyId) === serializePropertyValue(value),
+    );
+    const savedAdditionalBlocks =
+      additionalBlocks.length === 0
+        ? []
+        : await tx
+            .select({
+              propertyId: schema.documentBlockFieldContents.propertyId,
+              content: schema.documentBlockFieldContents.content,
+            })
+            .from(schema.documentBlockFieldContents)
+            .where(
+              and(
+                eq(schema.documentBlockFieldContents.documentId, documentId),
+                inArray(
+                  schema.documentBlockFieldContents.propertyId,
+                  additionalBlocks.map(([propertyId]) => propertyId),
+                ),
+              ),
+            );
+    const savedBlockByPropertyId = new Map(
+      savedAdditionalBlocks.map((value) => [value.propertyId, value.content]),
+    );
+    const additionalBlocksVerified = additionalBlocks.every(
+      ([propertyId, value]) =>
+        savedBlockByPropertyId.get(propertyId) ===
+        (typeof value === "string" ? value : ""),
+    );
+    if (
+      !savedDocument ||
+      !savedItem ||
+      savedDocument.title !== normalizedTitle ||
+      savedDocument.content !== documentContent ||
+      !standardValuesVerified ||
+      !additionalBlocksVerified
+    ) {
+      // guard:allow-bare-error — invariant: rows read back in their own transaction always match what it wrote
+      throw new Error(
+        "The form submission could not be verified; no row was saved.",
+      );
+    }
+    return input.afterInsert(lockedDb, { documentId, itemId, now });
+  });
+  return { documentId, itemId, now, inserted };
+}
+
+function submitContentDatabaseFormResponse(input: {
+  databaseId: string;
+  viewId: string;
+  documentId: string;
+  itemId: string;
+  submittedProperties: Array<{ propertyId: string; name: string }>;
+  submittedContent: boolean;
+}): SubmitContentDatabaseFormResponse {
+  return {
+    databaseId: input.databaseId,
+    viewId: input.viewId,
+    createdItemId: input.itemId,
+    createdDocumentId: input.documentId,
+    urlPath: `/page/${input.documentId}`,
+    deepLink: buildDeepLink({
+      app: "content",
+      view: "editor",
+      params: { documentId: input.documentId },
+    }),
+    submittedProperties: input.submittedProperties,
+    submittedContent: input.submittedContent,
+    verified: true,
+  };
 }
 
 export default defineAction({
@@ -442,7 +1070,15 @@ export default defineAction({
     }),
   },
   run: async (
-    { databaseId, viewId, title, content, propertyEntries, propertyValues },
+    {
+      databaseId,
+      viewId,
+      title,
+      content,
+      propertyEntries,
+      propertyValues,
+      idempotencyKey,
+    },
     ctx,
   ): Promise<SubmitContentDatabaseFormResponse> => {
     if (propertyEntries && propertyValues) {
@@ -480,6 +1116,40 @@ export default defineAction({
         "Database page and database belong to different Content spaces.",
       );
     }
+    const viewConfig = parseDatabaseViewConfig(database.viewConfigJson);
+    const formView = resolveFormView(
+      viewConfig.views,
+      viewConfig.activeViewId,
+      viewId,
+    );
+    const form = { databaseId, viewId: formView.id };
+    const actor = documentAttributionActor();
+    const sender: ContentFormSender = actor
+      ? { kind: "signed_in", email: actor }
+      : { kind: "anonymous" };
+    const submissionKey = idempotencyKey ?? `collection-${nanoid(24)}`;
+    const digest = contentFormAnswersDigest({
+      title: title ?? null,
+      content: content ?? null,
+      entries: sortedContentFormEntries(submittedEntries),
+    });
+    const replay = (submission: ContentFormSubmissionRow) => {
+      const stored = assertSameContentFormSubmission(submission, {
+        sender,
+        digest,
+      });
+      return submitContentDatabaseFormResponse({
+        databaseId,
+        viewId: formView.id,
+        documentId: submission.documentId,
+        itemId: submission.itemId,
+        submittedProperties: stored.submittedProperties,
+        submittedContent: stored.submittedContent,
+      });
+    };
+    const existing = await findContentFormSubmission(db, form, submissionKey);
+    if (existing) return replay(existing);
+
     await assertCollectionAcceptsNewRows(database.id, db);
     const definitions = await db
       .select()
@@ -494,383 +1164,107 @@ export default defineAction({
         ),
       );
     const definitionsFingerprint = propertyDefinitionFingerprint(definitions);
-    const viewConfig = parseDatabaseViewConfig(database.viewConfigJson);
-    const formView = resolveFormView(
-      viewConfig.views,
-      viewConfig.activeViewId,
-      viewId,
-    );
-    const properties = definitions.map((definition) => ({
-      definition: {
-        id: definition.id,
-        type: definition.type as DocumentPropertyType,
-        systemRole: definition.systemRole as DocumentPropertySystemRole | null,
-      },
-    }));
-    const questions = contentDatabaseFormQuestions(formView, properties);
-    const enabledQuestions = questions.filter((question) => question.enabled);
-    const enabledPropertyIds = new Set(
-      enabledQuestions
-        .filter((question) => question.key !== "name")
-        .map((question) => question.key),
-    );
-    const values = resolveSubmittedProperties(
+    const settings = await readContentFormRow(db, form);
+    const { questions, canvas } = await loadContentFormQuestions({
+      database,
+      view: formView,
       definitions,
-      enabledPropertyIds,
-      submittedEntries,
-    );
-    const normalizedTitle = title?.trim() ?? "";
-    const definitionById = new Map(
-      definitions.map((definition) => [definition.id, definition]),
-    );
-
-    const missing = enabledQuestions.flatMap((question) => {
-      if (!question.required) return [];
-      if (question.key === "name") return normalizedTitle ? [] : ["Name"];
-      const definition = definitionById.get(question.key);
-      if (!definition) return [`Missing property (${question.key})`];
-      return isEmptyPropertyValue(values.get(question.key) ?? null)
-        ? [definition.name]
-        : [];
+      settings,
+      channel: "collection",
     });
-    if (missing.length > 0) {
-      throw new Error(
-        `Required form fields are missing: ${missing.join(", ")}.`,
-      );
+
+    const prepared = await prepareCollectionFormRecord({
+      definitions,
+      questions,
+      title,
+      content,
+      entries: submittedEntries,
+      scope: "collection",
+      ctx,
+    });
+    if (!prepared.ok) {
+      fail(prepared.problems.map((problem) => problem.message).join(" "), {
+        errorCode: "invalid_answers",
+        statusCode: 422,
+        details: { problems: prepared.problems },
+      });
     }
-
-    const documentId = nanoid();
-    const itemId = nanoid();
-    const now = new Date().toISOString();
-    const primaryBlocks = definitions.find((definition) => {
-      const type = definition.type as DocumentPropertyType;
-      return (
-        isBlocksPropertyType(type) &&
-        blocksStorageTarget(parsePropertyOptions(definition.optionsJson)) ===
-          "document_body"
-      );
-    });
-    const primaryContent = primaryBlocks
-      ? values.get(primaryBlocks.id)
-      : undefined;
-    if (
-      typeof primaryContent === "string" &&
-      content !== undefined &&
-      primaryContent !== content
-    ) {
-      throw new Error(
-        "Provide narrative body content either through the primary Blocks form field or content, not both.",
-      );
-    }
-    const documentContent =
-      typeof primaryContent === "string" ? primaryContent : (content ?? "");
-    const standardValues = [...values.entries()].filter(([propertyId]) => {
-      const definition = definitionById.get(propertyId);
-      return (
-        definition &&
-        !isBlocksPropertyType(definition.type as DocumentPropertyType)
-      );
-    });
-    const additionalBlocks = [...values.entries()].filter(([propertyId]) => {
-      const definition = definitionById.get(propertyId);
-      return (
-        definition &&
-        isBlocksPropertyType(definition.type as DocumentPropertyType) &&
-        propertyId !== primaryBlocks?.id
-      );
-    });
-    for (const body of [
-      documentContent,
-      ...additionalBlocks.map(([, value]) => value),
-    ]) {
-      if (typeof body === "string") {
-        assertInteractiveHtmlBlocks(ctx, null, body);
-      }
-    }
-    const actor = documentAttributionActor();
-    const shareCreatedBy = actor ?? database.ownerEmail;
-
-    await db.transaction(async (tx) => {
-      await lockContentDatabaseMutation(
-        tx as unknown as ReturnType<typeof getDb>,
-        databaseId,
-      );
-      const [lockedDatabase] = await tx
-        .select({
-          viewConfigJson: schema.contentDatabases.viewConfigJson,
-          deletedAt: schema.contentDatabases.deletedAt,
-        })
-        .from(schema.contentDatabases)
-        .where(eq(schema.contentDatabases.id, databaseId));
-      if (
-        !lockedDatabase ||
-        lockedDatabase.deletedAt !== null ||
-        lockedDatabase.viewConfigJson !== database.viewConfigJson
-      ) {
-        throw new Error(
-          "The database form changed before form submission completed.",
-        );
-      }
-      await tx
-        .update(schema.documentShares)
-        .set({ role: sql`${schema.documentShares.role}` })
-        .where(eq(schema.documentShares.resourceId, database.documentId))
-        .returning({ id: schema.documentShares.id });
-      const lockedDocuments = await tx
-        .update(schema.documents)
-        .set({ updatedAt: sql`${schema.documents.updatedAt}` })
-        .where(eq(schema.documents.id, database.documentId))
-        .returning({ id: schema.documents.id });
-      if (lockedDocuments.length !== 1) {
-        throw new Error("Database page not found.");
-      }
-      const [lockedAccess] = await tx
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.id, database.documentId),
-            accessFilter(
-              schema.documents,
-              schema.documentShares,
-              accessContext,
-              "editor",
-            ),
-          ),
-        );
-      if (!lockedAccess) {
-        throw new ForbiddenError(
-          `Requires editor role on document ${database.documentId}`,
-        );
-      }
-      await touchContentDatabase(
-        tx as unknown as ReturnType<typeof getDb>,
-        databaseId,
-        now,
-      );
-      const lockedDefinitions = await tx
-        .select()
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          and(
-            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
-            eq(
-              schema.documentPropertyDefinitions.ownerEmail,
-              database.ownerEmail,
-            ),
-          ),
-        );
-      if (
-        propertyDefinitionFingerprint(lockedDefinitions) !==
-        definitionsFingerprint
-      ) {
-        throw new Error(
-          "Database properties changed before form submission completed.",
-        );
-      }
-      const [maxDocumentPosition] = await tx
-        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.ownerEmail, database.ownerEmail),
-            eq(schema.documents.parentId, database.documentId),
-          ),
-        );
-      const [maxItemPosition] = await tx
-        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-      const inheritedShares = await tx
-        .select({
-          principalType: schema.documentShares.principalType,
-          principalId: schema.documentShares.principalId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(eq(schema.documentShares.resourceId, database.documentId));
-
-      await tx.insert(schema.documents).values({
-        id: documentId,
-        spaceId: database.spaceId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        parentId: database.documentId,
-        title: normalizedTitle,
-        content: documentContent,
-        icon: null,
-        position: nextAppendPosition(maxDocumentPosition?.max),
-        isFavorite: 0,
-        hideFromSearch: databaseDocument.hideFromSearch ?? 0,
-        visibility: databaseDocument.visibility ?? "private",
+    const { record } = prepared;
+    let created: CollectionFormRecordCreated & {
+      inserted: ContentFormSubmissionRow;
+    };
+    try {
+      created = await writeCollectionFormRecord({
+        database,
+        databaseDocument,
+        definitionsFingerprint,
+        record,
         createdBy: actor,
-        updatedBy: actor,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await syncPrivateMediaReferences(
-        tx as unknown as ReturnType<typeof getDb>,
-        { documentId, after: documentContent, userEmail: actor },
-      );
-      await syncAnalyticsChartCitations(
-        tx as unknown as ReturnType<typeof getDb>,
-        { documentId, after: documentContent },
-      );
-      await tx.insert(schema.contentDatabaseItems).values({
-        id: itemId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        databaseId,
-        documentId,
-        position: nextAppendPosition(maxItemPosition?.max),
-        createdAt: now,
-        updatedAt: now,
-      });
-      if (inheritedShares.length > 0) {
-        await tx.insert(schema.documentShares).values(
-          inheritedShares.map((share) => ({
-            id: nanoid(),
-            resourceId: documentId,
-            principalType: share.principalType,
-            principalId: share.principalId,
-            role: share.role,
-            createdBy: shareCreatedBy,
-            createdAt: now,
-          })),
-        );
-      }
-      if (standardValues.length > 0) {
-        await tx.insert(schema.documentPropertyValues).values(
-          standardValues.map(([propertyId, value]) => ({
-            id: nanoid(),
-            ownerEmail: database.ownerEmail,
-            documentId,
-            propertyId,
-            valueJson: serializePropertyValue(value),
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-      }
-      if (additionalBlocks.length > 0) {
-        await tx.insert(schema.documentBlockFieldContents).values(
-          additionalBlocks.map(([propertyId, value]) => ({
-            id: nanoid(),
-            ownerEmail: database.ownerEmail,
-            documentId,
-            propertyId,
-            content: typeof value === "string" ? value : "",
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-      }
-
-      await ensureDocumentFilesMembership(tx, documentId, now);
-
-      const [savedDocument] = await tx
-        .select({
-          id: schema.documents.id,
-          title: schema.documents.title,
-          content: schema.documents.content,
-        })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, documentId));
-      const [savedItem] = await tx
-        .select({ id: schema.contentDatabaseItems.id })
-        .from(schema.contentDatabaseItems)
-        .where(
-          and(
-            eq(schema.contentDatabaseItems.id, itemId),
-            eq(schema.contentDatabaseItems.documentId, documentId),
-            eq(schema.contentDatabaseItems.databaseId, databaseId),
-          ),
-        );
-      const savedPropertyValues =
-        standardValues.length === 0
-          ? []
-          : await tx
-              .select({
-                propertyId: schema.documentPropertyValues.propertyId,
-                valueJson: schema.documentPropertyValues.valueJson,
-              })
-              .from(schema.documentPropertyValues)
+        shareCreatedBy: actor ?? database.ownerEmail,
+        privateMediaActor: actor,
+        assertNotSubmitted: (tx) =>
+          assertNoContentFormSubmission(tx, form, submissionKey),
+        verifyLocked: async (tx) => {
+          await assertContentFormUnchanged(tx, form, { settings, canvas });
+          await assertCollectionAcceptsNewRows(database.id, tx);
+          const lockedAccess = firstRow(
+            await tx
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
               .where(
                 and(
-                  eq(schema.documentPropertyValues.documentId, documentId),
-                  inArray(
-                    schema.documentPropertyValues.propertyId,
-                    standardValues.map(([propertyId]) => propertyId),
+                  eq(schema.documents.id, database.documentId),
+                  accessFilter(
+                    schema.documents,
+                    schema.documentShares,
+                    accessContext,
+                    "editor",
                   ),
                 ),
-              );
-      const savedByPropertyId = new Map(
-        savedPropertyValues.map((value) => [value.propertyId, value.valueJson]),
-      );
-      const standardValuesVerified = standardValues.every(
-        ([propertyId, value]) =>
-          savedByPropertyId.get(propertyId) === serializePropertyValue(value),
-      );
-      const savedAdditionalBlocks =
-        additionalBlocks.length === 0
-          ? []
-          : await tx
-              .select({
-                propertyId: schema.documentBlockFieldContents.propertyId,
-                content: schema.documentBlockFieldContents.content,
-              })
-              .from(schema.documentBlockFieldContents)
-              .where(
-                and(
-                  eq(schema.documentBlockFieldContents.documentId, documentId),
-                  inArray(
-                    schema.documentBlockFieldContents.propertyId,
-                    additionalBlocks.map(([propertyId]) => propertyId),
-                  ),
-                ),
-              );
-      const savedBlockByPropertyId = new Map(
-        savedAdditionalBlocks.map((value) => [value.propertyId, value.content]),
-      );
-      const additionalBlocksVerified = additionalBlocks.every(
-        ([propertyId, value]) =>
-          savedBlockByPropertyId.get(propertyId) ===
-          (typeof value === "string" ? value : ""),
-      );
-      if (
-        !savedDocument ||
-        !savedItem ||
-        savedDocument.title !== normalizedTitle ||
-        savedDocument.content !== documentContent ||
-        !standardValuesVerified ||
-        !additionalBlocksVerified
-      ) {
-        throw new Error(
-          "The form submission could not be verified; no row was saved.",
-        );
+              ),
+          );
+          if (!lockedAccess) {
+            throw new ForbiddenError(
+              `Requires editor role on document ${database.documentId}`,
+            );
+          }
+        },
+        afterInsert: async (tx, inserted) => {
+          const submission = await insertContentFormSubmission(tx, {
+            form,
+            created: inserted,
+            channel: "collection",
+            sender,
+            idempotencyKey: submissionKey,
+            digest,
+            receipt: {
+              formTitle: formView.name,
+              answers: contentFormReceiptAnswers(questions, record),
+              thankYouMessage: settings?.thankYouMessage ?? "",
+              submittedProperties: record.submittedProperties,
+              submittedContent: record.documentContent !== "",
+            },
+          });
+          if (actor) await deleteContentFormDraftRow(tx, form, actor);
+          return submission;
+        },
+      });
+    } catch (error) {
+      if (error instanceof ContentFormSubmissionExists) {
+        return replay(error.submission);
       }
-    });
+      throw error;
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    const deepLink = buildDeepLink({
-      app: "content",
-      view: "editor",
-      params: { documentId },
-    });
-    return {
+    return submitContentDatabaseFormResponse({
       databaseId,
       viewId: formView.id,
-      createdItemId: itemId,
-      createdDocumentId: documentId,
-      urlPath: `/page/${documentId}`,
-      deepLink,
-      submittedProperties: [...values.keys()].map((propertyId) => ({
-        propertyId,
-        name: definitionById.get(propertyId)?.name ?? propertyId,
-      })),
-      submittedContent: documentContent !== "",
-      verified: true,
-    };
+      documentId: created.documentId,
+      itemId: created.itemId,
+      submittedProperties: record.submittedProperties,
+      submittedContent: record.documentContent !== "",
+    });
   },
   link: ({ result }) => {
     const documentId = (result as SubmitContentDatabaseFormResponse | null)

@@ -153,3 +153,27 @@ export class IncompleteAgentRunError extends EngineError {
     this.usage = { ...usage };
   }
 }
+
+/**
+ * The closing message for a run that stops with work unfinished. Without it
+ * the thread ends on a tool card and a generic banner, and the user cannot
+ * tell which steps ran. Names tools only, never their input or output.
+ */
+export function stoppedRunSummary(input: {
+  completedTools: readonly string[];
+  failedTools: readonly string[];
+  reason: string;
+}): string {
+  const names = (tools: readonly string[]) => [...new Set(tools)].join(", ");
+  const lines = [`I stopped before finishing. ${input.reason}`];
+  if (input.completedTools.length > 0) {
+    lines.push(`Completed: ${names(input.completedTools)}.`);
+  }
+  if (input.failedTools.length > 0) {
+    lines.push(`Failed: ${names(input.failedTools)}.`);
+  }
+  lines.push(
+    'Not done: every step of your request after these, including any remaining actions and the final summary. Reply "continue" and I will pick up from the completed steps.',
+  );
+  return lines.join("\n\n");
+}
