@@ -1,13 +1,12 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  FilterBar,
-  FilterButton,
+  FilterMenu,
+  FilterMenuWords,
   filterStateKey,
   isDefaultFilterState,
   useFilterUrlState,
   type FilterCounts,
   type FilterField,
-  type FilterNouns,
   type FilterState,
 } from "@agent-native/toolkit/app/filters";
 import {
@@ -150,18 +149,6 @@ function useLibraryFilterFields(
   );
 }
 
-function useLibraryFilterNouns(): FilterNouns {
-  const t = useT();
-  return useMemo(
-    () => ({
-      items: t("libraryFilters.items"),
-      matchCount: (count: number) => t("libraryFilters.matchCount", { count }),
-      showCount: (count: number) => t("libraryFilters.showCount", { count }),
-    }),
-    [t],
-  );
-}
-
 interface LibraryFilterControlsProps {
   filter: LibraryFilter;
   counts: FilterCounts | undefined;
@@ -173,34 +160,28 @@ export function LibraryFilterButton({
   counts,
   tags,
 }: LibraryFilterControlsProps) {
+  const t = useT();
   const fields = useLibraryFilterFields(tags);
-  const nouns = useLibraryFilterNouns();
   return (
-    <FilterButton
+    <FilterMenu
       fields={fields}
       state={filter.state}
       onChange={filter.setState}
       counts={counts}
-      nouns={nouns}
+      summary={
+        counts
+          ? t("libraryFilters.matchCount", { count: counts.matching })
+          : undefined
+      }
+      hint={
+        filter.isDefault ? undefined : (
+          <FilterMenuWords
+            fields={fields}
+            state={filter.state}
+            heading={t("libraryFilters.showingWhere")}
+          />
+        )
+      }
     />
-  );
-}
-
-export function LibraryFilterBar({
-  filter,
-  counts,
-  tags,
-}: LibraryFilterControlsProps) {
-  const fields = useLibraryFilterFields(tags);
-  return (
-    <div className="border-b border-border px-5 py-2">
-      <FilterBar
-        fields={fields}
-        state={filter.state}
-        onChange={filter.setState}
-        counts={counts}
-        copyLink
-      />
-    </div>
   );
 }

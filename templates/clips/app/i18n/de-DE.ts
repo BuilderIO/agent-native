@@ -1354,11 +1354,9 @@ const messages = {
     transcript: "Transkript",
     transcriptYes: "Mit Transkript",
     transcriptNo: "Ohne Transkript",
-    items: "Clips",
     matchCount_one: "{{count}} Clip passt",
     matchCount_other: "{{count}} Clips passen",
-    showCount_one: "{{count}} Clip anzeigen",
-    showCount_other: "{{count}} Clips anzeigen",
+    showingWhere: "Angezeigt werden Clips, bei denen",
     emptyTitle: "Keine Clips passen zu diesen Filtern",
     emptyBody:
       "Ändere die Filter oder setze sie zurück, um mehr Clips zu sehen.",

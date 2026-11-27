@@ -124,7 +124,6 @@ vi.mock("./empty-state", () => ({
 }));
 
 vi.mock("./library-filters", () => ({
-  LibraryFilterBar: () => null,
   LibraryFilterButton: () => null,
   useLibraryFilter: () => ({
     query: "",
