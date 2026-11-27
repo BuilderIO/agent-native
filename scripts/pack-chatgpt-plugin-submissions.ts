@@ -12,9 +12,22 @@ import {
   MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../packages/core/src/mcp/route-paths.js";
-import { CHATGPT_DIRECTORY_TOOL_NAMES as contentTools } from "../templates/content/server/lib/chatgpt-directory-tools.js";
-import { CHATGPT_DIRECTORY_TOOL_NAMES as designTools } from "../templates/design/server/lib/chatgpt-directory-tools.js";
-import { CHATGPT_DIRECTORY_TOOL_NAMES as slidesTools } from "../templates/slides/server/lib/chatgpt-directory-tools.js";
+import {
+  CHATGPT_DIRECTORY_PROFILE as calendarProfile,
+  CHATGPT_DIRECTORY_TOOL_NAMES as calendarTools,
+} from "../templates/calendar/server/lib/chatgpt-directory-tools.js";
+import {
+  CHATGPT_DIRECTORY_PROFILE as contentProfile,
+  CHATGPT_DIRECTORY_TOOL_NAMES as contentTools,
+} from "../templates/content/server/lib/chatgpt-directory-tools.js";
+import {
+  CHATGPT_DIRECTORY_PROFILE as designProfile,
+  CHATGPT_DIRECTORY_TOOL_NAMES as designTools,
+} from "../templates/design/server/lib/chatgpt-directory-tools.js";
+import {
+  CHATGPT_DIRECTORY_PROFILE as slidesProfile,
+  CHATGPT_DIRECTORY_TOOL_NAMES as slidesTools,
+} from "../templates/slides/server/lib/chatgpt-directory-tools.js";
 
 interface SourceManifest {
   id: string;
@@ -29,11 +42,34 @@ const outputDir = path.resolve(
   repoRoot,
   outputArg?.slice("--out=".length) ?? ".tmp/chatgpt-plugin-submissions",
 );
-const apps = ["slides", "design", "content"] as const;
+const allApps = ["slides", "design", "content", "calendar"] as const;
+type AppId = (typeof allApps)[number];
+const appArg = process.argv.find((arg) => arg.startsWith("--app="));
+const apps: readonly AppId[] = appArg
+  ? appArg
+      .slice("--app=".length)
+      .split(",")
+      .map((id) => {
+        const app = allApps.find((candidate) => candidate === id.trim());
+        if (!app) {
+          throw new Error(
+            `Unknown --app "${id}". Use one or more of: ${allApps.join(", ")}.`,
+          );
+        }
+        return app;
+      })
+  : allApps;
 const directoryTools = {
   slides: slidesTools,
   design: designTools,
   content: contentTools,
+  calendar: calendarTools,
+};
+const servesWidgets = {
+  slides: slidesProfile.widgets,
+  design: designProfile.widgets,
+  content: contentProfile.widgets,
+  calendar: calendarProfile.widgets,
 };
 const categories = new Set([
   "Productivity",
@@ -106,11 +142,11 @@ function assertTestCases(
   }
 }
 
-function validateManifest(appId: (typeof apps)[number]): {
+function validateManifest(appId: AppId): {
   source: SourceManifest;
   appDir: string;
   logoPath: string;
-  widgetDomain: string;
+  widgetDomain: string | undefined;
 } {
   const appDir = path.join(repoRoot, "templates", appId);
   const sourcePath = path.join(appDir, "agent-native.app-skill.json");
@@ -189,10 +225,17 @@ function validateManifest(appId: (typeof apps)[number]): {
     metadata.review.commerce === false,
     `${appId} review.commerce must match the current no-commerce listing.`,
   );
-  assert(
-    metadata.review.iframeJustification.trim().length > 0,
-    `${appId} needs an iframe justification for the hosted widget.`,
-  );
+  if (servesWidgets[appId]) {
+    assert(
+      metadata.review.iframeJustification?.trim(),
+      `${appId} needs an iframe justification for the hosted widget.`,
+    );
+  } else {
+    assert(
+      metadata.review.iframeJustification === undefined,
+      `${appId} serves no widget, so its listing must not include an iframe justification.`,
+    );
+  }
 
   const allowlist = new Set(directoryTools[appId]);
   assert(
@@ -231,11 +274,12 @@ function validateManifest(appId: (typeof apps)[number]): {
     `${appId} SVG logo must be square and at least 48 by 48.`,
   );
 
-  const widgetDomain = new URL(source.hosted.url).origin;
+  const origin = new URL(source.hosted.url).origin;
   assert(
-    new URL(source.hosted.mcpUrl).origin === widgetDomain,
+    new URL(source.hosted.mcpUrl).origin === origin,
     `${appId} MCP URL must use the app's hosted origin.`,
   );
+  const widgetDomain = servesWidgets[appId] ? origin : undefined;
   return { source, appDir, logoPath, widgetDomain };
 }
 
@@ -318,7 +362,9 @@ function main(): void {
   const validated = apps.map(
     (appId) => [appId, validateManifest(appId)] as const,
   );
-  const domains = validated.map(([, app]) => app.widgetDomain);
+  const domains = validated.flatMap(([, app]) =>
+    app.widgetDomain ? [app.widgetDomain] : [],
+  );
   assert(
     new Set(domains).size === domains.length,
     "Each plugin with UI must use a unique widget domain.",
@@ -365,7 +411,7 @@ function main(): void {
     });
     const iframeNotes = validated.map(
       ([appId, app]) =>
-        `### ${appId}\n\n${app.source.chatgpt.review.iframeJustification}`,
+        `### ${appId}\n\n${app.source.chatgpt.review.iframeJustification ?? "This listing serves no widget, so it has no iframe explanation."}`,
     );
     fs.writeFileSync(
       path.join(outputDir, "SUBMISSION.md"),
@@ -378,7 +424,7 @@ function main(): void {
         "",
         "The dashboard has an existing unsubmitted ‘Agent-Native Dispatch’ v1.0.0 draft. Leave that draft untouched; it is separate from these listings.",
         "",
-        "Release gate: connect these servers or rescan their domains only after PR #6542 is merged and the app deployments are promoted.",
+        "Release gate: connect a server or rescan its domain only after the change that added its listing is merged and that app's deployment is promoted. Slides, Design and Content shipped in PR #6542; Calendar's listing ships separately.",
         "",
         ...prepared.map((entry) => `- ${entry}`),
         "",

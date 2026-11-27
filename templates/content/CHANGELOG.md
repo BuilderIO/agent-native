@@ -3,10 +3,49 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-11-24
+## 2026-11-26
+
+### Improved
+
+- The block menu now opens beside the block instead of on top of it, and it looks like the slash menu.
+
+## 2026-11-25
+
+### Added
+
+- A Mail notes collection in your Personal space holds the notes you write about people in Mail, one private page per person with a dated line for each note.
+- Put a check on a page, like "Under 120 words", and Content marks each part that doesn't pass with a dot in the margin. Checks count words, sentences and paragraphs, run a few seconds after you stop typing, and never change your text.
+
+### Improved
+
+- Each bulleted, numbered and to-do item is now a block of its own, with its own handle and menu, as in Notion. Drag one item, or drop any block between two items. Turn into, colors, comments and Markdown shortcuts change just that item, the selection toolbar can make lists, Ctrl+Enter ticks a to-do, and Tab tucks the line below a list into its last item.
+- The agent reads the pages above a page before it drafts there, so writing rules on a folder page apply to the pages inside it.
+- Trash now works like a collection: it fills the page, filters with the same chips (people, workspace, location, deleted date), restores pages from a hover arrow or several at once, opens a real row menu, and empties every workspace in one step.
 
 ### Fixed
 
+- Ticking a check mark on a phone or tablet no longer scrolls the page to the top.
+
+### Changed
+
+- A daily job now permanently deletes pages that have been in Trash for over 30 days; pages already in Trash get 30 days from this update.
+
+## 2026-11-24
+
+### Added
+
+- Put something to click or play with on a page: an Interactive HTML block runs a small web page in a sealed frame, such as a calculator, a chart with controls or a game. Ask an agent to make one or write the HTML yourself, open it full screen, send its own link, and read or copy its source. On pages other people share with you it waits until you click Run.
+
+### Improved
+
+- Review diff now opens as soon as you click it, even on large collections.
+
+### Fixed
+
+- Links published to Builder keep the underscores and asterisks in their addresses, which used to turn into italics and break the link.
+- Refreshing a Builder collection no longer gets in the way of new articles. A page Builder doesn't have yet can still save on its own after a refresh. A page with the same title as an existing article is no longer linked to it, so its edits can't save over that article. An article saved while a refresh is running stays linked to its own Builder entry.
+- A new Builder article now saves the body you write after its first automatic save. Before, an article first saved with only a title kept showing "Saved" while its body never reached Builder. If Content hasn't read the article's body from Builder yet, the row now shows "Waiting" and says why. If that read failed, it shows "Save failed" with a Retry.
+- Files navigation remains consistent while linked folders are syncing.
 - Find more available destinations when moving pages.
 - Linked files in subfolders stay in their source folders when browsing grouped views.
 - Linked folder files no longer offer invalid moves when revealed in grouped Files.
@@ -15,7 +54,12 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Suggestion cards in the margin now say each change as a sentence, such as Replace “five” with “seven”, and quote a rewritten passage whole: the old words struck through, then the new ones.
 - When you ask the agent to address a page's comments with suggested edits, each suggestion now links back to the comment it answers, like an Ask AI suggestion does.
+
+### Fixed
+
+- Saving a page from a local folder now changes only the lines you edited. The rest of the file keeps its own Markdown, blank lines and frontmatter.
 
 ## 2026-11-21
 
@@ -1281,28 +1325,5 @@ time from the command menu (Cmd+K → "What's new").
 - The agent chat sidebar stays closed until you open it or start a chat handoff.
 - Workspace files now stay in a loading state until automatic setup finishes, with a retry when setup fails
 - Workspace switching now opens the selected Files database, preserves the choice across reloads, provisions organization Files for every member, and creates new pages in the selected workspace.
-
-## 2026-07-16
-
-### Added
-
-- The Agent workspace now includes a Library for reusing verified creative context and choosing when it applies to content.
-- Organize every workspace through a customizable Files database and sync local folders into the same database-backed experience.
-
-### Fixed
-
-- Content callout blocks now convert into safe Builder text callouts instead of blocking the publication review.
-- Heading 5 and Heading 6 are available from the editor slash menu.
-- Slack corrections now preserve newer Content values unless you explicitly change or clear them.
-
-## 2026-07-15
-
-### Improved
-
-- Page and database descriptions now start compactly and wrap naturally as they grow.
-
-### Fixed
-
-- Selected Builder reviews now load only the chosen rows, avoiding production timeouts on large collections.
 
 For the full list of updates, see the [changelog folder](./changelog/).

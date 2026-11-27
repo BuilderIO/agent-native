@@ -9,26 +9,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   comment: {
     id: "comment-1",
-    recordingId: "recording-1",
-    organizationId: "org-1",
+    resourceType: "recording",
+    resourceId: "recording-1",
     threadId: "thread-1",
-    parentId: null,
+    parentCommentId: "thread-1",
     authorEmail: "author@example.com",
-    content: "Original text",
-    videoTimestampMs: 12542,
-    mentionsJson: null,
-    emojiReactionsJson: "{}",
-    resolved: false,
+    body: "Original text",
+    anchor: { videoTimestampMs: 12542 },
+    mentions: [] as unknown[],
+    status: "open",
+    revision: 1,
+    updatedAt: "2026-11-22T12:00:00.000Z",
   },
-  inserted: [] as Record<string, unknown>[],
+  // oracle-change: writes go through the kit's actions, so one kitWrites check replaces the old table's insert, update and mirror checks
+  kitWrites: [] as Array<[string, Record<string, unknown>, unknown]>,
 }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockNotify = vi.hoisted(() =>
   vi.fn<(...args: unknown[]) => Promise<null>>(async () => null),
 );
-const mockUpdate = vi.hoisted(() => vi.fn());
-const mockMirror = vi.hoisted(() => vi.fn());
+const kitAction = vi.hoisted(
+  () => (name: string, result: (args: Record<string, unknown>) => unknown) => ({
+    default: {
+      run: async (args: Record<string, unknown>, ctx: unknown) => {
+        state.kitWrites.push([name, args, ctx]);
+        return result(args);
+      },
+    },
+  }),
+);
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
@@ -40,6 +50,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "author@example.com",
   getRequestUserName: () => "Author",
+  getRequestOrgId: () => null,
 }));
 vi.mock("../server/lib/activity-notifications.js", () => ({
   notifyRecordingComment: (...args: unknown[]) => mockNotify(...args),
@@ -49,7 +60,6 @@ vi.mock("../server/lib/comment-mentions.js", () => ({
   resolveCommentMentions: async () => [],
 }));
 vi.mock("../server/lib/recordings.js", () => ({
-  nanoid: () => "new-comment",
   sameOwnerEmail: (left: string, right: string) => left === right,
 }));
 vi.mock("../server/db/index.js", () => {
@@ -57,48 +67,61 @@ vi.mock("../server/db/index.js", () => {
     id: "recording.id",
     organizationId: "recording.organizationId",
   };
-  const recordingComments = {
-    id: "comment.id",
-    recordingId: "comment.recordingId",
-    organizationId: "comment.organizationId",
-    threadId: "comment.threadId",
-    content: "comment.content",
-    emojiReactionsJson: "comment.emojiReactionsJson",
-  };
   const db = {
-    transaction: async (run: (tx: unknown) => unknown) => run(db),
     select: () => ({
-      from: (table: unknown) => ({
-        where: () => ({
-          limit: async () =>
-            table === recordings
-              ? [{ organizationId: "org-1" }]
-              : [{ ...state.comment }],
-          for: async () => [{ id: "recording-1" }],
-        }),
-      }),
-    }),
-    insert: () => ({
-      values: async (row: Record<string, unknown>) => {
-        state.inserted.push(row);
-      },
-    }),
-    update: () => ({
-      set: (patch: Record<string, unknown>) => ({
-        where: () => {
-          mockUpdate(patch);
-          Object.assign(state.comment, patch);
-          return { returning: async () => [{ id: state.comment.id }] };
-        },
+      from: () => ({
+        where: () => ({ limit: async () => [{ organizationId: "org-1" }] }),
       }),
     }),
   };
-  return { schema: { recordings, recordingComments }, getDb: () => db };
+  return { schema: { recordings }, getDb: () => db };
 });
-vi.mock("../server/lib/recording-comment-mirror.js", () => ({
-  prepareRecordingCommentMirror: async () => {},
-  mirrorRecordingComments: (...args: unknown[]) => mockMirror(...args),
+vi.mock("../server/lib/recording-comments.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/recording-comments.js")
+  >()),
+  findRecordingComment: async (id: string) => {
+    if (id === state.comment.id) return { ...state.comment };
+    return id === state.comment.threadId
+      ? { ...state.comment, id, parentCommentId: null }
+      : null;
+  },
 }));
+vi.mock("@agent-native/core/review", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/review")>()),
+  listReviewCommentReactors: async () => ({}),
+}));
+vi.mock("@agent-native/core/review/actions/create-review-comment", () =>
+  kitAction("create", () => ({
+    id: "new-comment",
+    threadId: "new-comment",
+    parentCommentId: null,
+    replayed: false,
+    notified: null,
+  })),
+);
+vi.mock("@agent-native/core/review/actions/reply-review-comment", () =>
+  kitAction("reply", (args) => ({
+    id: "new-comment",
+    threadId: state.comment.threadId,
+    parentCommentId: args.commentId,
+    replayed: false,
+    notified: null,
+  })),
+);
+vi.mock("@agent-native/core/review/actions/update-review-comment", () =>
+  kitAction("update", (args) => ({
+    ...state.comment,
+    body: args.body,
+    mentions: args.mentions,
+  })),
+);
+vi.mock("@agent-native/core/review/actions/react-to-review-comment", () =>
+  kitAction("react", () => ({ active: true })),
+);
+vi.mock("@agent-native/core/review/actions/resolve-review-thread", () =>
+  kitAction("resolve", () => ({})),
+);
 
 import addComment from "./add-comment";
 import reactToComment from "./react-to-comment";
@@ -193,12 +216,7 @@ const writers = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  state.inserted = [];
-  Object.assign(state.comment, {
-    content: "Original text",
-    emojiReactionsJson: "{}",
-    resolved: false,
-  });
+  state.kitWrites = [];
   mockAssertAccess.mockResolvedValue({
     role: "viewer",
     resource: { enableComments: true },
@@ -225,11 +243,9 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
       await expect(run(proofContext(kind))).rejects.toBeInstanceOf(
         ForbiddenError,
       );
-      expect(state.inserted).toEqual([]);
-      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(state.kitWrites).toEqual([]);
       expect(mockNotify).not.toHaveBeenCalled();
       expect(mockWriteAppState).not.toHaveBeenCalled();
-      expect(mockMirror).not.toHaveBeenCalled();
     },
   );
 
@@ -239,7 +255,7 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
       resource: protectedRecording,
     });
     await expect(run(proofContext("valid"))).resolves.toBeDefined();
-    expect(state.inserted.length + mockUpdate.mock.calls.length).toBe(1);
+    expect(state.kitWrites).toHaveLength(1);
   });
 
   it.each([
@@ -252,8 +268,7 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
       resource: { ...protectedRecording, ...change },
     });
     await expect(run(ctx)).rejects.toBeInstanceOf(ForbiddenError);
-    expect(state.inserted).toEqual([]);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(state.kitWrites).toEqual([]);
   });
 
   it("lets the owner write without password proof", async () => {
@@ -278,8 +293,7 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
       await expect(run(proofContext("valid"))).rejects.toBeInstanceOf(
         ForbiddenError,
       );
-      expect(state.inserted).toEqual([]);
-      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(state.kitWrites).toEqual([]);
     },
   );
 
@@ -291,8 +305,7 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
         resource: { enableComments: false },
       });
       await expect(run()).rejects.toBeInstanceOf(ForbiddenError);
-      expect(state.inserted).toEqual([]);
-      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(state.kitWrites).toEqual([]);
       expect(mockNotify).not.toHaveBeenCalled();
       expect(mockWriteAppState).not.toHaveBeenCalled();
     },
@@ -301,9 +314,15 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
   it("still allows writing when comments are enabled", async () => {
     await expect(run()).resolves.toBeDefined();
     expect(mockWriteAppState).toHaveBeenCalled();
-    expect(state.inserted.length + mockUpdate.mock.calls.length).toBe(1);
-    expect(mockMirror).toHaveBeenCalledWith(expect.anything(), "recording-1", [
-      state.inserted.length ? "new-comment" : "comment-1",
+    expect(state.kitWrites).toEqual([
+      [
+        expect.any(String),
+        expect.objectContaining({
+          resourceType: "recording",
+          resourceId: "recording-1",
+        }),
+        expect.objectContaining({ userEmail: "author@example.com" }),
+      ],
     ]);
   });
 
@@ -313,8 +332,7 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
       resource: { enableComments: true, expiresAt: "2000-01-01T00:00:00.000Z" },
     });
     await expect(run()).rejects.toBeInstanceOf(ForbiddenError);
-    expect(state.inserted).toEqual([]);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(state.kitWrites).toEqual([]);
   });
 
   it("refuses a trashed recording for a viewer", async () => {
@@ -323,8 +341,7 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
       resource: { enableComments: true, trashedAt: "2026-10-22T12:00:00.000Z" },
     });
     await expect(run()).rejects.toBeInstanceOf(ForbiddenError);
-    expect(state.inserted).toEqual([]);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(state.kitWrites).toEqual([]);
   });
 
   it("preserves the owner's expiry exemption when comments are enabled", async () => {
@@ -338,12 +355,11 @@ describe.each(writers)("$name comment writing access", ({ run }) => {
   it("preserves recording access denial", async () => {
     mockAssertAccess.mockRejectedValue(new ForbiddenError());
     await expect(run()).rejects.toBeInstanceOf(ForbiddenError);
-    expect(state.inserted).toEqual([]);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(state.kitWrites).toEqual([]);
   });
 });
 
-it("replies retain the parent thread, organization, frame, and return contract", async () => {
+it("replies answer the parent in its thread and keep the return contract", async () => {
   const result = await replyToComment.run({
     commentId: "comment-1",
     content: "Reply text",
@@ -354,16 +370,18 @@ it("replies retain the parent thread, organization, frame, and return contract",
     parentId: "comment-1",
     notified: null,
   });
-  expect(state.inserted).toEqual([
-    expect.objectContaining({
-      recordingId: "recording-1",
-      organizationId: "org-1",
-      threadId: "thread-1",
-      parentId: "comment-1",
-      content: "Reply text",
-      videoTimestampMs: 12542,
-      authorEmail: "author@example.com",
-    }),
+  expect(state.kitWrites).toEqual([
+    [
+      "reply",
+      expect.objectContaining({
+        resourceType: "recording",
+        resourceId: "recording-1",
+        commentId: "comment-1",
+        body: "Reply text",
+        authorName: "Author",
+      }),
+      expect.objectContaining({ userEmail: "author@example.com" }),
+    ],
   ]);
 });
 
@@ -398,6 +416,6 @@ it.each([undefined, null, "legacy:fake"])(
     await expect(addComment.run(args, ctx)).rejects.toBeInstanceOf(
       ForbiddenError,
     );
-    expect(state.inserted).toHaveLength(1);
+    expect(state.kitWrites).toHaveLength(1);
   },
 );

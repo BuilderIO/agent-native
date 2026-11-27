@@ -10,6 +10,7 @@ export default defineAction({
   schema: z.object({
     sourceId: z.string().min(1),
   }),
+  mcpTool: "search",
   run: async ({ sourceId }) => {
     const access = await assertAccess("brain-source", sourceId, "editor");
     return runConnectorSync(access.resource);

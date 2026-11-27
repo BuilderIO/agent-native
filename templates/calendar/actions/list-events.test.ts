@@ -138,6 +138,14 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+async function readInventoryPage(
+  args: Parameters<typeof listEventsAction.run>[0],
+) {
+  const result = await listEventsAction.run(args, { caller: "mcp" });
+  if (Array.isArray(result)) throw new Error("Expected an inventory page");
+  return result;
+}
+
 describe("listCalendarEvents booking merge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1292,6 +1300,89 @@ describe("list-events inventory contract", () => {
       ),
     ).rejects.toThrow("Expired or invalid");
     expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("pages through events whose starts carry different UTC offsets", async () => {
+    const event = (id: string, start: string, end: string) => ({
+      id: `google-${id}`,
+      googleEventId: id,
+      title: id,
+      description: "",
+      start,
+      end,
+      location: "",
+      allDay: false,
+      source: "google",
+      accountEmail: "steve@example.com",
+      createdAt: "2026-06-12T10:13:39.746Z",
+      updatedAt: "2026-06-12T10:13:39.746Z",
+    });
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        event(
+          "new-york",
+          "2026-06-17T10:00:00-05:00",
+          "2026-06-17T11:00:00-05:00",
+        ),
+        event(
+          "paris",
+          "2026-06-17T10:00:00+01:00",
+          "2026-06-17T11:00:00+01:00",
+        ),
+        event("utc", "2026-06-17T12:00:00.000Z", "2026-06-17T13:00:00.000Z"),
+      ],
+      errors: [],
+    });
+    const ids: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 4; page += 1) {
+      const result = await readInventoryPage({
+        from: "2026-06-17",
+        to: "2026-06-18",
+        format: "inventory",
+        pageSize: 1,
+        cursor,
+      });
+      ids.push(...result.items.map((item) => item.id));
+      cursor = result.page.nextCursor;
+      if (!cursor) break;
+    }
+
+    expect(ids).toEqual(["paris", "utc", "new-york"]);
+  });
+
+  it("reports a failed workspace calendar connection instead of an empty calendar", async () => {
+    getOwnedAccountEmailsMock.mockResolvedValue([]);
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "workspace", error: "Workspace grant revoked" }],
+    });
+
+    const result = await readInventoryPage({
+      from: "2026-06-17",
+      to: "2026-06-18",
+      format: "inventory",
+      sources: ["google"],
+    });
+
+    expect(result.accounts).toEqual([
+      {
+        accountEmail: "workspace",
+        status: "error",
+        count: 0,
+        exhausted: false,
+        error: {
+          code: "PROVIDER_READ_FAILED",
+          message: "Workspace grant revoked",
+          retryable: true,
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      coverageComplete: false,
+      complete: false,
+      items: [],
+    });
   });
 
   it("uses the saved timezone for omitted-range inventory cursors", async () => {

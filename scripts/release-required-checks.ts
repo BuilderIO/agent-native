@@ -16,6 +16,7 @@ type RequiredCheckState =
 type WaitForRequiredChecksOptions = {
   readRequiredContexts: () => Promise<string[]>;
   readStatuses: () => Promise<RequiredCheckStatus[]>;
+  readExactHead?: () => Promise<RequiredCheckState>;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   timeoutMs?: number;
@@ -95,11 +96,16 @@ export function requiredContextsFromRules(rules: unknown): string[] {
   return [...contexts].sort();
 }
 
+class UnstableExactHeadInventory extends Error {}
+
 function isGitHubCommandFailure(error: unknown): boolean {
   return (
     error !== null &&
     typeof error === "object" &&
-    ("status" in error || "stderr" in error || "code" in error)
+    ("status" in error ||
+      "stderr" in error ||
+      "code" in error ||
+      error instanceof UnstableExactHeadInventory)
   );
 }
 
@@ -188,6 +194,7 @@ export function evaluateRequiredChecks(
 export async function waitForRequiredChecks({
   readRequiredContexts,
   readStatuses,
+  readExactHead,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
   timeoutMs = DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
@@ -245,6 +252,14 @@ export async function waitForRequiredChecks({
       readRetryDelaysMs,
     );
     lastState = evaluateRequiredChecks(requiredContexts, statuses);
+    if (lastState.status === "passed" && readExactHead) {
+      lastState = await retryGitHubRead(
+        "Reading exact release head checks",
+        readExactHead,
+        sleep,
+        readRetryDelaysMs,
+      );
+    }
     if (lastState.status === "passed") return coordinatorRunId;
     if (lastState.status === "failed") throw new Error(lastState.reason);
 
@@ -262,10 +277,11 @@ export async function waitForRequiredChecks({
   );
 }
 
-function ghJson<T>(args: string[]): T {
+function ghJson<T>(args: string[], token?: string): T {
   const stdout = execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    env: token ? { ...process.env, GH_TOKEN: token } : undefined,
   });
   return JSON.parse(stdout) as T;
 }
@@ -320,6 +336,128 @@ function readStatuses(prNumber: string, repo: string): RequiredCheckStatus[] {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function allHeadRows(pages: unknown, field: "check_runs" | "workflow_runs") {
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error(`GitHub returned no exact release head ${field} pages.`);
+  }
+  const rows: Record<string, unknown>[] = [];
+  const first: unknown = pages[0];
+  const total = isRecord(first) ? first.total_count : undefined;
+  for (const page of pages as unknown[]) {
+    if (
+      !Number.isSafeInteger(total) ||
+      !isRecord(page) ||
+      !Array.isArray(page[field])
+    ) {
+      throw new Error(
+        `GitHub returned invalid exact release head ${field} pages.`,
+      );
+    }
+    if (page.total_count !== total) {
+      throw new UnstableExactHeadInventory(
+        `GitHub returned unstable exact release head ${field} pages.`,
+      );
+    }
+    for (const row of page[field] as unknown[]) {
+      if (!isRecord(row) || !Number.isSafeInteger(row.id)) {
+        throw new Error(
+          `GitHub returned an invalid exact release head ${field} row.`,
+        );
+      }
+      rows.push(row);
+    }
+  }
+  if (
+    rows.length !== total ||
+    new Set(rows.map((row) => row.id)).size !== total
+  ) {
+    throw new UnstableExactHeadInventory(
+      `GitHub returned incomplete exact release head ${field}.`,
+    );
+  }
+  return rows;
+}
+
+export function evaluateExactReleaseHead(
+  head: string,
+  checks: unknown,
+  runs: unknown,
+  combinedStatus: unknown,
+): RequiredCheckState {
+  const rows = [
+    ...allHeadRows(checks, "check_runs"),
+    ...allHeadRows(runs, "workflow_runs"),
+  ];
+  const pending: string[] = [];
+  const failed: string[] = [];
+  if (
+    !isRecord(combinedStatus) ||
+    combinedStatus.sha !== head ||
+    typeof combinedStatus.total_count !== "number" ||
+    !Number.isSafeInteger(combinedStatus.total_count) ||
+    combinedStatus.total_count < 0 ||
+    typeof combinedStatus.state !== "string" ||
+    !["pending", "success", "failure"].includes(combinedStatus.state)
+  ) {
+    throw new Error("GitHub returned an invalid combined release head status.");
+  }
+  if (combinedStatus.total_count && combinedStatus.state === "failure")
+    failed.push("commit status");
+  if (combinedStatus.total_count && combinedStatus.state === "pending")
+    pending.push("commit status");
+  for (const row of rows) {
+    if (
+      typeof row.name !== "string" ||
+      row.name.length === 0 ||
+      row.head_sha !== head ||
+      typeof row.status !== "string"
+    ) {
+      throw new Error(
+        "GitHub returned a check or run for the wrong release head.",
+      );
+    }
+    if (row.status !== "completed") pending.push(row.name);
+    else if (
+      row.conclusion !== "success" &&
+      row.conclusion !== "neutral" &&
+      row.conclusion !== "skipped"
+    )
+      failed.push(row.name);
+  }
+  if (failed.length) {
+    return {
+      status: "failed",
+      reason: `Exact release head checks are red: ${failed.join(", ")}.`,
+    };
+  }
+  if (pending.length || !rows.length) {
+    return {
+      status: "pending",
+      pending,
+      missing: rows.length ? [] : ["exact head results"],
+    };
+  }
+  return { status: "passed" };
+}
+
+function readExactReleaseHead(repo: string, head: string): RequiredCheckState {
+  if (!/^[a-f0-9]{40}$/.test(head))
+    throw new Error("Expected a full release head SHA.");
+  const token = process.env.GH_ACTIONS_TOKEN;
+  const all = (path: string) =>
+    ghJson<unknown>(["api", "--paginate", "--slurp", path], token);
+  return evaluateExactReleaseHead(
+    head,
+    all(`repos/${repo}/commits/${head}/check-runs?filter=latest&per_page=100`),
+    all(`repos/${repo}/actions/runs?head_sha=${head}&per_page=100`),
+    ghJson(["api", `repos/${repo}/commits/${head}/status?per_page=1`], token),
+  );
+}
+
 async function main(): Promise<void> {
   const [mode, prNumber, repo] = process.argv.slice(2);
   if (!(["wait", "verify"] as string[]).includes(mode) || !prNumber || !repo) {
@@ -330,6 +468,10 @@ async function main(): Promise<void> {
 
   const readCurrentContexts = async () => readRequiredContexts(repo);
   const readCurrentStatuses = async () => readStatuses(prNumber, repo);
+  const head = process.env.HEAD_SHA;
+  const readExactHead = head
+    ? async () => readExactReleaseHead(repo, head)
+    : undefined;
   const eventName = process.env.RELEASE_EVENT_NAME;
   if (
     eventName !== undefined &&
@@ -339,8 +481,21 @@ async function main(): Promise<void> {
     throw new Error(`Unsupported release auto-merge event: ${eventName}.`);
   }
 
+  const dispatchCoordinator = process.env.DISPATCHED_COORDINATOR_RUN_ID;
+  const dispatchedCoordinatorId = dispatchCoordinator
+    ? Number(dispatchCoordinator)
+    : undefined;
+  if (
+    dispatchCoordinator &&
+    (eventName !== "workflow_dispatch" ||
+      !Number.isSafeInteger(dispatchedCoordinatorId) ||
+      Number(dispatchedCoordinatorId) <= 0)
+  ) {
+    throw new Error("The dispatched Release everything run ID is invalid.");
+  }
+
   let coordinatorUpdatedAt: string | undefined;
-  if (eventName === "pull_request") {
+  if (eventName === "pull_request" || dispatchedCoordinatorId !== undefined) {
     coordinatorUpdatedAt = process.env.PR_UPDATED_AT;
     if (!coordinatorUpdatedAt) {
       throw new Error(
@@ -357,13 +512,22 @@ async function main(): Promise<void> {
   ) {
     throw new Error("The expected Release everything run ID is invalid.");
   }
+  if (
+    dispatchedCoordinatorId !== undefined &&
+    expectedCoordinatorRunId !== undefined &&
+    dispatchedCoordinatorId !== expectedCoordinatorRunId
+  ) {
+    throw new Error(
+      "The release checker selected a different Release everything run.",
+    );
+  }
   const verifyCoordinator = coordinatorUpdatedAt
     ? (expectedRunId?: number) =>
         Promise.resolve(
           verifyActiveReleaseCoordinator(
             repo,
             coordinatorUpdatedAt as string,
-            expectedRunId,
+            expectedRunId ?? dispatchedCoordinatorId,
           ),
         )
     : undefined;
@@ -372,8 +536,11 @@ async function main(): Promise<void> {
     const coordinatorRunId = await waitForRequiredChecks({
       readRequiredContexts: readCurrentContexts,
       readStatuses: readCurrentStatuses,
+      readExactHead,
       verifyCoordinator,
-      timeoutMs: requiredCheckTimeoutForEvent(eventName),
+      timeoutMs: requiredCheckTimeoutForEvent(
+        dispatchedCoordinatorId ? "pull_request" : eventName,
+      ),
     });
     if (coordinatorRunId !== undefined)
       process.stdout.write(`${coordinatorRunId}\n`);
@@ -397,7 +564,7 @@ async function main(): Promise<void> {
   const sleep = (ms: number): Promise<void> =>
     new Promise<void>((resolve) => setTimeout(resolve, ms));
   const retryDelaysMs = DEFAULT_READ_RETRY_DELAYS_MS;
-  const state = evaluateRequiredChecks(
+  let state = evaluateRequiredChecks(
     await retryGitHubRead(
       "Reading required status checks for main",
       readCurrentContexts,
@@ -411,6 +578,14 @@ async function main(): Promise<void> {
       retryDelaysMs,
     ),
   );
+  if (state.status === "passed" && readExactHead) {
+    state = await retryGitHubRead(
+      "Reading exact release head checks",
+      readExactHead,
+      sleep,
+      retryDelaysMs,
+    );
+  }
   if (state.status !== "passed") {
     throw new Error(
       state.status === "failed"

@@ -63,6 +63,7 @@ export {
   type RichMarkdownEditorProps,
   type CreateRichMarkdownExtensionsOptions,
 } from "./RichMarkdownEditor.js";
+export { FocusWithoutScroll } from "./FocusWithoutScroll.js";
 export {
   normalizePastedTaskListHtml,
   TaskListPasteNormalization,
@@ -85,6 +86,17 @@ export {
   type DragHandleMenuRequest,
   type DragHandleOptions,
 } from "./DragHandle.js";
+export {
+  blockRemovalRange,
+  forEachListItemBlock,
+  insertBlockAt,
+  isList,
+  isListItem,
+  joinListsAt,
+  listItemTypeOf,
+  moveBlockTransaction,
+  positionBelowBlock,
+} from "./listItemBlocks.js";
 export {
   createRegistryBlockNode,
   LegacyJsonEditSurface,

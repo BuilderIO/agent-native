@@ -1150,6 +1150,13 @@ export function usePendingCommentDraft(documentId: string) {
     },
     [setPendingComment],
   );
+  const prefillPendingComment = useCallback((text: string) => {
+    const pending = current.current;
+    if (!pending || pending.documentId !== currentDocumentId.current) return;
+    pendingDraftRef.current.setText(text);
+    current.current = { ...pending, text };
+    setDraft(current.current);
+  }, []);
   useEffect(() => setPendingComment(null), [documentId, setPendingComment]);
   const pendingComment = useMemo(
     () =>
@@ -1163,6 +1170,7 @@ export function usePendingCommentDraft(documentId: string) {
     setPendingComment,
     changePendingComment,
     completePendingComment,
+    prefillPendingComment,
   };
 }
 
@@ -5574,7 +5582,7 @@ function ThreadView({
   return (
     <div
       ref={cardRef}
-      tabIndex={0}
+      tabIndex={canExpand ? -1 : 0}
       onKeyDown={(event) => {
         if (
           !isSubmitting &&
@@ -5763,8 +5771,8 @@ function ThreadView({
                 actions={
                   renderCommentActions || (index === 0 && firstRowActions) ? (
                     <>
-                      {renderCommentActions?.(c.id)}
                       {index === 0 ? firstRowActions : null}
+                      {renderCommentActions?.(c.id)}
                     </>
                   ) : null
                 }

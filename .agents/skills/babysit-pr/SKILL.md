@@ -164,9 +164,9 @@ directly (the interactive `pnpm changeset add` hangs):
 <one line from the PR title>
 ```
 
-Use `patch` for fixes, docs, and refactors, `minor` for additive features, and
-`major` only if the PR says it's breaking. Commit as
-`chore: add changeset for <packages>` and push with the next batch.
+Use `patch` for fixes, docs, and refactors, and `minor` for additive or
+breaking changes (`major` bumps are blocked by `guard-no-major-changeset`).
+Commit as `chore: add changeset for <packages>` and push with the next batch.
 
 ## Syncing main
 

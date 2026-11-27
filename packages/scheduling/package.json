@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/scheduling",
-  "version": "0.4.1",
+  "version": "0.4.3",
   "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, and routing forms.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -53,7 +53,7 @@
   "scripts": {
     "build": "tsc && node scripts/build-llms-full.mjs",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run",
     "prepublishOnly": "npm run build"
   },
@@ -73,10 +73,10 @@
     "drizzle-orm": "^0.45.2",
     "react": "^19.2.5",
     "typescript-7": "catalog:",
-    "vitest": "^4.1.5"
+    "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.233.0-0",
+    "@agent-native/core": ">=0.235.0-0",
     "@tabler/icons-react": "^3.41.1",
     "drizzle-orm": ">=0.45",
     "react": ">=18",

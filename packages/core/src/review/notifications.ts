@@ -69,9 +69,10 @@ export type ReviewNotificationResult = ActivityNotificationResult;
 
 export async function notifyReviewComment(
   comment: ReviewComment,
-): Promise<ReviewNotificationResult> {
+): Promise<ReviewNotificationResult | null> {
+  const send = getReviewableResource(comment.resourceType)?.email?.send;
   return runActivityNotification(LOG_LABEL, () =>
-    deliverReviewCommentEmails(comment),
+    send ? send(comment) : deliverReviewCommentEmails(comment),
   );
 }
 
@@ -80,6 +81,11 @@ export async function notifyReviewCommentWithReceipt(
 ): Promise<ReviewNotificationResult | null> {
   try {
     if (await reviewCommentNotificationCompleted(comment.id)) return null;
+    if (getReviewableResource(comment.resourceType)?.email?.send) {
+      return (await markReviewCommentNotificationCompleted(comment.id))
+        ? await notifyReviewComment(comment)
+        : null;
+    }
     const result = await runActivityNotification(LOG_LABEL, () =>
       deliverReviewCommentEmails(comment, true),
     );

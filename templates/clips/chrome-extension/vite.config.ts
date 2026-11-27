@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 const root = dirname(fileURLToPath(import.meta.url));
+const INJECTED_SCRIPTS = new Set(["page-track-recorder", "page-track-relay"]);
 
 function firstNonEmpty(...values: Array<string | undefined>): string {
   for (const value of values) {
@@ -78,6 +79,8 @@ export default defineConfig({
         "github-preview": resolve(root, "src/github-preview.html"),
         offscreen: resolve(root, "src/offscreen.html"),
         overlay: resolve(root, "src/overlay.html"),
+        "page-track-recorder": resolve(root, "src/page-track-recorder.ts"),
+        "page-track-relay": resolve(root, "src/page-track-relay.ts"),
         permission: resolve(root, "src/permission.html"),
         popup: resolve(root, "src/popup.html"),
         options: resolve(root, "src/options.html"),
@@ -86,6 +89,8 @@ export default defineConfig({
         entryFileNames: "assets/[name].js",
         chunkFileNames: "assets/[name].js",
         assetFileNames: "assets/[name][extname]",
+        banner: (chunk) => (INJECTED_SCRIPTS.has(chunk.name) ? "(() => {" : ""),
+        footer: (chunk) => (INJECTED_SCRIPTS.has(chunk.name) ? "})();" : ""),
       },
     },
   },

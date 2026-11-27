@@ -3,6 +3,25 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-24
+
+### Added
+
+- Organization admins can enforce the organization default recording visibility so members can't set a personal default.
+- Turn off the 3-2-1 countdown before recording in the desktop app's Settings.
+
+## 2026-11-23
+
+### Fixed
+
+- You can now pick and record from a microphone named after an iPhone or iPad, such as a virtual iPad mic. Clips still never switches to one on its own.
+
+## 2026-11-22
+
+### Improved
+
+- Deleting a reply deletes only that reply. The replies under it stay in the thread.
+
 ## 2026-11-20
 
 ### Added
@@ -1316,67 +1335,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - App branding now uses the product name without the Agent-Native prefix.
 - Settings navigation now keeps Manage agent as a dedicated linked destination at the bottom.
 - Two-Clip emails now include a concise summary generated securely through your Agent Chat.
-
-## 2026-07-24
-
-### Added
-
-- Clip pages now show a view count with viewer avatars next to the title, and owners can click through to see who watched and how far they got.
-- Clip view counts now separate human views from agent views, showing which AI agents (Claude, ChatGPT, Perplexity) read a clip through its agent APIs
-- Clips actions can now be called by org service tokens, so external systems like a support desk can import recordings automatically.
-- The desktop app now copies a new clip's public share link to your clipboard the moment a recording finishes and shows a notification confirming it, so it's ready to paste straight into Slack
-
-### Improved
-
-- Secondary controls and dashboard surfaces now use quieter borderless styling.
-- Clip summaries read like a description you'd write yourself instead of narrating "the speaker", and the share page no longer repeats the title under the player
-- Meeting and note recordings now start as a compact pill on the right edge with a live waveform that moves with the room, and the transcript view is grayscale with an Ask anything bar built in.
-- Opening a share link as the clip's owner now goes straight to the full clip page instead of showing a near-identical page with an "Open dashboard" button.
-- Permissions and Rewind controls now use compact, consistent hover states
-- Sidebar utility controls now follow a consistent footer order.
-
-### Fixed
-
-- Clips no longer briefly shows a Dock icon while launching
-- Fixed owner and editor share links redirecting to the recording dashboard
-- New clips now copy a shareable link instead of the owner-only link, so the link auto-copied by the web recorder, desktop app, and Chrome extension works for everyone you paste it to
-- Quitting the desktop app no longer shows a false macOS crash report
-- Screen recording permission errors now name the exact app to allow in macOS System Settings, instead of pointing at an entry Clips never appears under
-- The recording toolbar now stays above other apps, including on fullscreen and other Spaces
-- Transcript captions now use real speech timings instead of an estimated even spread
-- Video playback no longer stutters and replays the last moment during a clip
-
-## 2026-07-23
-
-### Improved
-
-- Agent settings are clearly labeled Manage agent in the sidebar.
-
-### Fixed
-
-- Fixed recordings failing to save with a "cancelled" or "cleanup window" error during upload
-- Meeting recording meters now use thin, responsive audio bars, and dismissed reminders stay dismissed.
-
-## 2026-07-22
-
-### Improved
-
-- Ready clip transcripts now keep an export receipt and retry Brain delivery after temporary failures.
-- Manage agent navigation now uses the connected-nodes icon.
-- Permissions and Rewind controls are now grouped with clearer aligned actions.
-- Permissions and Rewind now use quieter expandable rows with clearer setup guidance.
-
-### Fixed
-
-- Builder-connected recordings now start their resumable upload session reliably.
-- Clip thumbnails now come from the recording instead of the post-stop screen
-- Clips emails now render the Agent-Native logo in Gmail and other clients.
-- Dismissed Zoom and Teams meeting-note prompts now stay dismissed when you switch windows.
-- Fixed an intermittent hydration error on the download page
-- Fixed transcript generation when native speech capture returns empty text.
-- Fixed Windows recordings aborting during the countdown
-- German umlauts and other non-ASCII characters now paste correctly from macOS dictation
-- The desktop popover opens centered under the menu bar icon on first launch
-- Native browser/OS transcripts now remain primary, with Builder transcribing the original recording only when native speech capture is unavailable.
 
 For the full list of updates, see the [changelog folder](./changelog/).

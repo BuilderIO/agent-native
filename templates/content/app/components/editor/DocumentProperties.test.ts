@@ -29,6 +29,7 @@ import {
   relationItems,
   removePropertyOption,
   renamePropertyOption,
+  restorePropertyOption,
   updatePropertyOptionColor,
   updatePropertyOptionDescription,
 } from "./DocumentProperties";
@@ -292,6 +293,17 @@ describe("document property option picker", () => {
     ]);
     expect(removePropertyOption(options, "missing")).toBe(options);
   });
+
+  it("puts a removed option back where it was", () => {
+    const inReview: DocumentPropertyOption = {
+      id: "in-review",
+      name: "In review",
+      color: "blue",
+    };
+    const removed = removePropertyOption(options, "in-review");
+    expect(restorePropertyOption(removed, inReview, 1)).toEqual(options);
+    expect(restorePropertyOption(options, inReview, 1)).toBe(options);
+  });
 });
 
 describe("document property metadata persistence", () => {
@@ -394,6 +406,50 @@ describe("document property metadata persistence", () => {
         options[2],
       ],
     });
+  });
+
+  it("keeps a refused option removal out of the next save", async () => {
+    const draft: DocumentPropertyOption = {
+      id: "draft",
+      name: "Draft",
+      color: "gray",
+    };
+    const persisted: DocumentPropertyOption[][] = [];
+    const queue = createPropertyMetadataUpdateQueue(
+      {
+        name: "Status",
+        type: "select",
+        description: "",
+        visibility: "always_show",
+        options: { options },
+      },
+      async (metadata) => {
+        const saved = metadata.options.options ?? [];
+        persisted.push(saved);
+        if (saved.length < options.length) throw new Error("OPTION_IN_USE");
+      },
+    );
+
+    await expect(
+      queue.enqueue((current) => ({
+        ...current,
+        options: {
+          options: removePropertyOption(current.options.options ?? [], "draft"),
+        },
+      })),
+    ).rejects.toThrow("OPTION_IN_USE");
+    queue.amend((current) => ({
+      ...current,
+      options: {
+        options: restorePropertyOption(current.options.options ?? [], draft, 0),
+      },
+    }));
+    await queue.enqueue((current) => ({
+      ...current,
+      description: "Tracks the editorial workflow.",
+    }));
+
+    expect(persisted[persisted.length - 1]).toEqual(options);
   });
 });
 

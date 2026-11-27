@@ -62,19 +62,27 @@ await test("read-only QA permits only same-origin email-link POSTs during sign-i
       signingIn,
     );
   const landing = "/_agent-native/auth/email-link/landing";
+  const signIn = "/_agent-native/auth/magic-link";
   const request = "/_agent-native/auth/ba/sign-in/magic-link";
   for (const method of ["GET", "HEAD", "OPTIONS"])
     assert.equal(allows(method, "/decks-2/settings"), true);
   for (const path of [
     landing,
+    signIn,
     request,
     "/" + app + landing,
+    "/" + app + signIn,
     "/" + app + request,
   ]) {
     assert.equal(allows("POST", path, true), true);
     assert.equal(allows("POST", path), false);
     assert.equal(allows("POST", "https://outside.invalid" + path, true), false);
   }
+  assert.equal(allows("POST", "/calendar-2" + signIn, true), false);
+  assert.equal(
+    allows("POST", "/decks-2/_agent-native/auth/attribution", true),
+    false,
+  );
   assert.equal(allows("GET", "https://outside.invalid", false, true), false);
   for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
     assert.equal(

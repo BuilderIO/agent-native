@@ -2,7 +2,10 @@ import { callAction, setClientAppState } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import type { Document } from "@shared/api";
-import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
+import {
+  CONTENT_SOURCE_ROOT,
+  mergeContentSourceFiles,
+} from "@shared/content-source";
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -1212,7 +1215,6 @@ export default function LocalFilesRoute() {
         { sourceId: connection.sourceId } as never,
         { method: "GET" },
       );
-      const files = bundle.files;
       if (directory.kind === "desktop") {
         const desktopFiles = getDesktopContentFiles();
         if (!desktopFiles) {
@@ -1222,6 +1224,10 @@ export default function LocalFilesRoute() {
           folderId: directory.id,
         });
         if (!observed.ok) throw new Error(observed.error);
+        if (!observed.sources) {
+          throw new Error(t("localFiles.desktopFolderUnavailable"));
+        }
+        const files = mergeContentSourceFiles(observed.sources, bundle.files);
         const expectedRevisions: Record<string, string | null> = {
           ...(observed.revisions ?? {}),
         };
@@ -1239,6 +1245,8 @@ export default function LocalFilesRoute() {
           updateDirectory(current, desktopDirectoryFromFolder(result.folder)),
         );
       } else {
+        const current = await readSourceFilesFromDirectory(directory);
+        const files = mergeContentSourceFiles(current.files, bundle.files);
         const expectedPaths = new Set(Object.keys(files));
         await Promise.all(
           Object.entries(files).map(([path, content]) =>

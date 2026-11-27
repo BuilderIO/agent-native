@@ -24,7 +24,11 @@ import { markPassThroughFetch } from "./fetch-transport.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
-  SESSION_REPLAY_MASK_ATTRIBUTE,
+  SESSION_REPLAY_DEFAULT_BLOCK_SELECTOR as DEFAULT_BLOCK_SELECTOR,
+  SESSION_REPLAY_DEFAULT_IGNORE_SELECTOR as DEFAULT_IGNORE_SELECTOR,
+  SESSION_REPLAY_DEFAULT_MASK_TEXT_CLASS as DEFAULT_MASK_TEXT_CLASS,
+  SESSION_REPLAY_DEFAULT_MASK_TEXT_SELECTOR as DEFAULT_MASK_TEXT_SELECTOR,
+  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
 } from "./session-replay-privacy.js";
 import {
   decideReplayQuotaResponse,
@@ -310,25 +314,6 @@ const SESSION_REPLAY_STATE_KEY = Symbol.for(
   "agent-native.client.sessionReplay",
 );
 const SESSION_REPLAY_ID_STORAGE_KEY = "agent-native.session_replay_id";
-const SESSION_REPLAY_IFRAME_BLOCK_SELECTOR = `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`;
-const DEFAULT_BLOCK_SELECTOR = [
-  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
-  "[data-sensitive]",
-  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
-  "[data-an-private]",
-  "[data-private]",
-  ".an-block",
-  ".an-replay-block",
-  ".an-private",
-  ".rr-block",
-  "[autocomplete='cc-number']",
-  "[autocomplete='cc-csc']",
-  "[autocomplete='cc-exp']",
-  "[name*='password' i]",
-  "[name*='credit' i]",
-  "[name*='card' i]",
-  "[name*='ssn' i]",
-].join(", ");
 /**
  * App block selectors extend these framework markers instead of replacing them.
  * Append them whole: a custom selector can mention one, as in
@@ -338,9 +323,6 @@ const REQUIRED_BLOCK_SELECTORS = [
   SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
   `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
 ];
-const DEFAULT_IGNORE_SELECTOR = ".an-ignore, [data-an-ignore]";
-const DEFAULT_MASK_TEXT_CLASS = "an-mask";
-const DEFAULT_MASK_TEXT_SELECTOR = `[${SESSION_REPLAY_MASK_ATTRIBUTE}]`;
 const DEFAULT_MASK_INPUT_OPTIONS: Record<string, boolean> = {
   color: true,
   date: true,

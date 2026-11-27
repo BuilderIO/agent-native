@@ -3,6 +3,44 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-26
+
+### Added
+
+- The panel beside an open email shows your upcoming and past meetings with that person, from Agent-Native Calendar when your Google account is connected there, and otherwise from the Google Calendar of the accounts connected to Mail.
+
+## 2026-11-25
+
+### Added
+
+- Notes in the panel beside an open email save to a private page per person in a "Mail notes" collection in Content: type a note and press Enter to add a dated line that links back to the email, and open the page from the arrow.
+- The Attachments widget lists the files a person sent you, newest first; click one to open the email it came in. Recent emails in the panel now open when clicked too.
+- The panel beside an open email has one "Add to this panel" menu: switch built-in widgets on or off for every email, connect HubSpot, Apollo, Gong or Pylon, turn your own widgets on or off, or ask the agent to build one from an example.
+
+### Fixed
+
+- Sending a draft a teammate requested now works. Every send had failed with "Failed to send draft." On a newly set-up Mail database, scheduling an email works too; it had failed the same way.
+- Show conversations in every matching inbox split.
+
+### Changed
+
+- Drafts now holds everything you haven't sent yet. Drafts a teammate asked for are at the top, then scheduled emails (soonest first, with Send now and Cancel), then your own drafts. The sidebar no longer has separate Scheduled and Draft queue items; the number beside Drafts counts the requests waiting on you, and New draft request and Requested by me are in Drafts' header (on a phone, both are in its ⋯ menu). Old Scheduled and Draft queue links open Drafts.
+
+## 2026-11-24
+
+### Added
+
+- Copy a link to an email from its toolbar or the command menu, to paste in a task or a message. The link opens the email in your own Mail, even after you archive it; it doesn't share the email with anyone.
+
+### Improved
+
+- When Google limits Mail's requests, the notice above the list now says when the list was last updated and that some mail may be missing.
+
+### Fixed
+
+- Keep inbox splits accurate and preserve saved conversations when Gmail is busy.
+- Pressing U, or clicking Mark unread, now changes the email's row in the list the first time. Before, the row could stay read for a few seconds or until the third press.
+
 ## 2026-11-23
 
 ### Improved
@@ -11,8 +49,15 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Mail now asks Gmail for at most 10 emails per batch instead of 50, so Gmail turns it away for too many requests less often, and a busy Google contacts or calendar service no longer pauses your mail. The "Too many recent requests to Google" notice should show up less often.
+- J and K now start from the email you're on: from the top of a fresh list, or from the email open beside the list, not from wherever the pointer last passed. They and Escape keep working after you click a toolbar button, and the email you're on is marked once: no extra outline, and no highlight on the row under a resting pointer while you use the keyboard.
+- The label menu's tag icons no longer touch the label names, and the sort menu's "Connect an AI provider" hint stays on one line beside Priority. Scheduled and Snoozed now show their name above the list, like Drafts and Trash, and the sidebar's Labels list shows only your labels and saved searches, not Inbox or its tabs.
 - Choosing "I have a Builder.io account" from the sort menu's "Connect an AI provider" keeps its window open, instead of closing it and the dialog at once.
 - The signature box and the AI triage instructions in Settings no longer use the name Steve in their examples.
+
+### Changed
+
+- Mail's header has one refresh button instead of a separate sync icon beside it: the button spins while Mail syncs and pauses while Gmail has Mail waiting. The dark mode switch moved from the bottom of the sidebar to the ⌘K menu, where other Agent-Native apps keep it.
 
 ## 2026-11-22
 

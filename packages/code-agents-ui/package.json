@@ -45,7 +45,7 @@
     "build": "tsc && node -e \"require('node:fs').copyFileSync('src/styles.css', 'dist/styles.css')\"",
     "prepublishOnly": "npm run build",
     "test": "vitest run src/CodeAgentsApp.spec.ts src/SessionWatchPanel.spec.tsx src/code-agent-agentkit-runtime.spec.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "1.1.19",
@@ -64,7 +64,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "typescript-7": "catalog:",
-    "vitest": "^4.1.10"
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "@agent-native/agentkit": ">=0.2.12",

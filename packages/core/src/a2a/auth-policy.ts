@@ -1,8 +1,15 @@
+import type { H3Event } from "h3";
+
 import { getAppConfig } from "../app-config/index.js";
 import {
   isDeployedServerRuntime,
   isLocalPlatformEmulator,
 } from "../db/server-runtime.js";
+import {
+  isLoopbackRequest,
+  isLoopbackTrustedEnvironment,
+  isLoopbackUrl,
+} from "../server/loopback.js";
 
 export function isA2AProductionRuntime(): boolean {
   // Emulators set deploy markers, and often NODE_ENV=production, on a
@@ -30,33 +37,26 @@ export function shouldAdvertiseJwtA2AAuth(): boolean {
 }
 
 /**
- * True only when unsigned internal self-dispatch is acceptable: no A2A_SECRET
- * is configured AND we can positively identify a local/dev runtime. Everything
- * else — production, or any UNRECOGNIZED deployed/networked host — must fail
- * closed and require A2A_SECRET. `loopback` should be whether the inbound
- * request arrived over the loopback interface (127.0.0.1/::1); callers that
- * cannot determine the peer address pass `false`.
- *
- * NODE_ENV alone is deliberately NOT a trust grant: a self-hosted deployment
- * that doesn't set NODE_ENV=production and isn't recognized by
- * `isA2AProductionRuntime()` (a bare Docker/VPS/K8s pod) must still fail
- * closed unless the request actually came from loopback or the explicit
- * opt-in flag is set.
+ * True only when an unsigned request may be served: no secret can
+ * authenticate it, so it must come from this machine in a local runtime.
+ * Production never qualifies. `A2A_ALLOW_UNSIGNED_INTERNAL=1` is the explicit
+ * opt-in for an unrecognized non-production host.
  */
-export function isTrustedLocalRuntime(opts: { loopback: boolean }): boolean {
+export function isTrustedLocalRequest(event: H3Event | undefined): boolean {
   if (isA2AProductionRuntime()) return false;
   if (getAppConfig().a2a.allowUnsignedInternal) return true;
-  return opts.loopback === true;
+  return event !== undefined && isLoopbackRequest(event);
 }
 
-export function isLoopbackAddress(addr: string | undefined | null): boolean {
-  if (!addr) return false;
-  const a = addr.trim();
-  return (
-    a === "127.0.0.1" ||
-    a === "::1" ||
-    a === "::ffff:127.0.0.1" ||
-    a.startsWith("127.") ||
-    a === "localhost"
-  );
+/**
+ * Whether this server's processor routes will accept an unsigned handoff
+ * sent to `baseUrl`. `canSendProcessorHandoff` is the check a dispatcher runs.
+ */
+export function acceptsUnsignedSelfDispatch(baseUrl: string): boolean {
+  if (isA2AProductionRuntime()) return false;
+  if (getAppConfig().a2a.allowUnsignedInternal) return true;
+  return isLoopbackTrustedEnvironment() && isLoopbackUrl(baseUrl);
 }
+
+export const UNSIGNED_REMOTE_REQUEST_REFUSED =
+  "A2A_SECRET is not set, so this app accepts unsigned requests only from this machine. Set A2A_SECRET to accept requests from other hosts.";

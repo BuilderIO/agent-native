@@ -6,8 +6,11 @@ vi.mock("./notifications.js", () => ({
 }));
 
 const { closeDbExec, getDbExec } = await import("../db/client.js");
-const { ReviewAnchorError, ReviewCommentLinkConflictError } =
-  await import("./errors.js");
+const {
+  ReviewAnchorError,
+  ReviewCommentLinkConflictError,
+  ReviewCommentSubmissionConflictError,
+} = await import("./errors.js");
 const { __resetReviewableResourcesForTests, registerReviewableResource } =
   await import("./registry.js");
 const {
@@ -18,6 +21,8 @@ const {
   insertReviewComment,
   insertReviewCommentIdempotently,
   insertReviewReply,
+  listReviewCommentReactors,
+  markReviewCommentNotificationCompleted,
   consumeReviewFeedback,
   routeReviewThread,
   linkReviewComment,
@@ -25,6 +30,8 @@ const {
   queryReviewCommentPage,
   queryReviewComments,
   resolveReviewThread,
+  reviewCommentNotificationCompleted,
+  setReviewCommentReaction,
   updateReviewComment,
 } = await import("./store.js");
 const createReviewComment = (await import("./actions/create-review-comment.js"))
@@ -131,7 +138,7 @@ async function hookLog(): Promise<string[]> {
   return rows.map((row) => String((row as { event: unknown }).event));
 }
 
-describe.sequential("the review kit's storage contract", () => {
+describe("the review kit's storage contract", () => {
   it("checks anchors against the resource's anchor kinds", async () => {
     const latest = await insertReviewComment(
       comment(PINNED, "deck-1", {
@@ -243,6 +250,16 @@ describe.sequential("the review kit's storage contract", () => {
     await expect(
       insertReviewCommentIdempotently({ ...typed, body: "Another body" }),
     ).rejects.toThrow("conflicts with another submission");
+    await expect(
+      insertReviewCommentIdempotently({ ...typed, body: "Another body" }),
+    ).rejects.toBeInstanceOf(ReviewCommentSubmissionConflictError);
+    await expect(
+      insertReviewCommentIdempotently({ ...typed, body: "Another body" }),
+    ).rejects.toMatchObject({
+      name: "ReviewCommentSubmissionConflictError",
+      errorCode: "submission_conflict",
+      statusCode: 409,
+    });
 
     // Once the resource drops the kind, the retry is compared as sent.
     registerReviewableResource({
@@ -259,6 +276,96 @@ describe.sequential("the review kit's storage contract", () => {
     await expect(
       insertReviewCommentIdempotently({ ...typed, id: "replay-new" }),
     ).rejects.toBeInstanceOf(ReviewAnchorError);
+  });
+
+  it("names who reacted to each comment, by reaction", async () => {
+    const first = await insertReviewComment(comment(PLAIN, "doc-reactors"));
+    const second = await insertReviewComment(comment(PLAIN, "doc-reactors"));
+    for (const [actorEmail, reaction] of [
+      [OWNER, "+1"],
+      [VIEWER, "+1"],
+      [OWNER, "party"],
+      [VIEWER, "constructor"],
+    ] as const) {
+      await setReviewCommentReaction({
+        commentId: first.id,
+        actorEmail,
+        reaction,
+        active: true,
+      });
+    }
+    await setReviewCommentReaction({
+      commentId: second.id,
+      actorEmail: VIEWER,
+      reaction: "+1",
+      active: true,
+    });
+    await setReviewCommentReaction({
+      commentId: second.id,
+      actorEmail: VIEWER,
+      reaction: "+1",
+      active: false,
+    });
+
+    expect(
+      await listReviewCommentReactors([first.id, second.id, first.id, "none"]),
+    ).toEqual({
+      [first.id]: {
+        "+1": [OWNER, VIEWER],
+        party: [OWNER],
+        constructor: [VIEWER],
+      },
+      [second.id]: {},
+      none: {},
+    });
+    expect(await listReviewCommentReactors([])).toEqual({});
+    const unreacted = Array.from({ length: 1_000 }, (_, n) => `none-${n}`);
+    const asked = await listReviewCommentReactors([...unreacted, first.id]);
+    expect(Object.keys(asked)).toHaveLength(1_001);
+    expect(asked[first.id]).toEqual({
+      "+1": [OWNER, VIEWER],
+      party: [OWNER],
+      constructor: [VIEWER],
+    });
+  });
+
+  it("drops the reactions of every comment a delete takes", async () => {
+    const root = await insertReviewComment(comment(PLAIN, "doc-unreacted"));
+    const reply = await insertReviewReply(
+      comment(PLAIN, "doc-unreacted", {
+        threadId: root.threadId,
+        parentCommentId: root.id,
+      }),
+      null,
+      { resourceType: PLAIN, resourceId: "doc-unreacted" },
+    );
+    const kept = await insertReviewComment(comment(PLAIN, "doc-unreacted"));
+    for (const commentId of [root.id, reply.id, kept.id]) {
+      await setReviewCommentReaction({
+        commentId,
+        actorEmail: VIEWER,
+        reaction: "+1",
+        active: true,
+      });
+    }
+
+    await deleteReviewComment(root.id, OWNER);
+
+    expect(
+      await listReviewCommentReactors([root.id, reply.id, kept.id]),
+    ).toEqual({
+      [root.id]: {},
+      [reply.id]: {},
+      [kept.id]: { "+1": [VIEWER] },
+    });
+  });
+
+  it("marks a comment's emails sent once", async () => {
+    const saved = await insertReviewComment(comment(PLAIN, "doc-receipt"));
+    expect(await reviewCommentNotificationCompleted(saved.id)).toBe(false);
+    expect(await markReviewCommentNotificationCompleted(saved.id)).toBe(true);
+    expect(await markReviewCommentNotificationCompleted(saved.id)).toBe(false);
+    expect(await reviewCommentNotificationCompleted(saved.id)).toBe(true);
   });
 
   it("lets a reply carry an anchor written before its resource had kinds", async () => {

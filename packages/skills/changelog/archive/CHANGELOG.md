@@ -1,3 +1,34 @@
+## 0.2.705
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [d9e978f]
+- Updated dependencies [b4c3864]
+- Updated dependencies [b4c3864]
+- Updated dependencies [b4c3864]
+- Updated dependencies [536e193]
+- Updated dependencies
+- Updated dependencies [b4c3864]
+- Updated dependencies [f22b29b]
+- Updated dependencies [eae6742]
+  - @agent-native/core@0.174.0
+
+## 0.2.704
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1417ba5]
+- Updated dependencies [191f4d3]
+- Updated dependencies
+- Updated dependencies [a4b36e0]
+- Updated dependencies [a4b36e0]
+- Updated dependencies [a4b36e0]
+- Updated dependencies [7265794]
+- Updated dependencies [1417ba5]
+  - @agent-native/core@0.173.1
+
 ## 0.2.703
 
 ### Patch Changes

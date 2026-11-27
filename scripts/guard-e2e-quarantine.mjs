@@ -134,6 +134,46 @@ export function resolveQuarantineBaseCommit(cwd) {
   return mergeBase;
 }
 
+function readGitBlobsBatch(cwd, specs) {
+  let raw;
+  try {
+    raw = execFileSync("git", ["cat-file", "--batch"], {
+      cwd,
+      input: `${specs.join("\n")}\n`,
+      maxBuffer: 128 * 1024 * 1024,
+    });
+  } catch (error) {
+    failToRun(
+      `git cat-file --batch failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const sources = [];
+  let offset = 0;
+  for (const spec of specs) {
+    const nl = raw.indexOf(0x0a, offset);
+    if (nl === -1) {
+      failToRun(`truncated git cat-file header for ${spec}`);
+    }
+    const header = raw.subarray(offset, nl).toString("utf8");
+    const parts = header.split(" ");
+    if (parts.length !== 3 || parts[1] !== "blob") {
+      failToRun(`unexpected git cat-file entry for ${spec}: ${header}`);
+    }
+    const size = Number.parseInt(parts[2], 10);
+    if (!Number.isFinite(size) || size < 0) {
+      failToRun(`invalid git cat-file size for ${spec}: ${header}`);
+    }
+    const bodyStart = nl + 1;
+    const bodyEnd = bodyStart + size;
+    if (bodyEnd > raw.length) {
+      failToRun(`truncated git cat-file body for ${spec}`);
+    }
+    sources.push(raw.subarray(bodyStart, bodyEnd).toString("utf8"));
+    offset = bodyEnd + 1;
+  }
+  return sources;
+}
+
 export function readBaseRegistrations(cwd, baseCommit) {
   const files = git(
     ["ls-tree", "-r", "--name-only", baseCommit, "--", E2E_DIR],
@@ -144,13 +184,14 @@ export function readBaseRegistrations(cwd, baseCommit) {
   if (files.length === 0)
     failToRun(`${E2E_DIR} has no base Playwright test files`);
 
+  const specs = files.map((file) => `${baseCommit}:${file}`);
+  const sources = readGitBlobsBatch(cwd, specs);
   const registrations = [];
-  for (const file of files) {
-    const source = git(["show", `${baseCommit}:${file}`], cwd);
+  for (let i = 0; i < files.length; i += 1) {
     registrations.push(
       ...findDesignE2ETestRegistrations(
-        source,
-        file.slice(`${E2E_DIR}/`.length),
+        sources[i],
+        files[i].slice(`${E2E_DIR}/`.length),
       ),
     );
   }

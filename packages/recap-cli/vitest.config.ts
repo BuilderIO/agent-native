@@ -1,3 +1,12 @@
+import { defineConfig, mergeConfig } from "vitest/config";
+
 import baseConfig from "../../vitest.shared";
 
-export default baseConfig;
+export default mergeConfig(
+  baseConfig,
+  defineConfig({
+    test: {
+      isolate: false,
+    },
+  }),
+);

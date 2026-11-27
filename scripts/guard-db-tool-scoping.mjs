@@ -50,6 +50,20 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "content:content_column_fill_cells":
     "each row's progress in a column fill; the fill actions read and change it only through the fill, which they check belongs to the caller",
+  "content:content_page_checks":
+    "checks a page holds; the check actions read them for the page's commenters and change them for its editors",
+  "content:content_page_check_results":
+    "each check's last answers on a page; the check actions read them for the page's commenters and write them for its editors",
+  "content:content_page_check_skips":
+    "places a check was told to leave alone; the check actions read them for the page's commenters and change them for its editors",
+  "content:content_page_check_usage":
+    "how many yes/no questions a page's checks asked today; only the check actions count them, to hold the daily limit",
+  "content:content_forms":
+    "a Form view's settings and its link token; the form settings actions read and change them for the collection's editors, and a form link reads them only to answer the form",
+  "content:content_form_submissions":
+    "receipts of the answers each form submission saved; only the submission actions write and read them, and deleting the row's page deletes them",
+  "content:content_form_drafts":
+    "a signed-in sender's unsent answers to one form; only that sender's draft actions read or change them, and expired drafts are swept",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",

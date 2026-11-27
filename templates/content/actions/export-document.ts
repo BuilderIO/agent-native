@@ -5,12 +5,21 @@ import { z } from "zod";
 
 import { CONTENT_DATABASE_FILTER_OPERATORS } from "../shared/api.js";
 import { blocksContentHash } from "../shared/blocks-field-identity.js";
+import type { CollectionExportRecord } from "../shared/database-collection-export.js";
+import { interactiveHtmlAsLinks } from "../shared/interactive-html-fallback.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
 } from "../shared/properties.js";
-import { buildCollectionExportProjection } from "./_collection-export.js";
+import {
+  buildCollectionExportProjection,
+  PRIMARY_BODY_FIELD_ID,
+} from "./_collection-export.js";
 import { getDatabaseByDocumentId } from "./_database-utils.js";
+import {
+  interactiveHtmlPageUrl,
+  withInteractiveHtmlLinks,
+} from "./_interactive-html-blocks.js";
 import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
 
 const collectionSchema = z.object({
@@ -156,8 +165,23 @@ export default defineAction({
           deepLink,
         };
       }
+      const records: CollectionExportRecord[] = [];
+      for (const record of projection.records) {
+        const bodyValues = new Map<string, string>();
+        for (const [fieldId, body] of record.bodyValues) {
+          bodyValues.set(
+            fieldId,
+            fieldId === PRIMARY_BODY_FIELD_ID
+              ? await withInteractiveHtmlLinks(record.id, body)
+              : interactiveHtmlAsLinks(body, () =>
+                  interactiveHtmlPageUrl(record.id),
+                ),
+          );
+        }
+        records.push({ ...record, bodyValues });
+      }
       return {
-        ...renderCollectionHtml(projection, format),
+        ...renderCollectionHtml({ ...projection, records }, format),
         deepLink,
       };
     }
@@ -201,10 +225,14 @@ export default defineAction({
       });
     const { buildDocumentExport } =
       await import("../shared/document-export.js");
+    const body = content ?? doc.content;
     const payload = buildDocumentExport({
       id: doc.id,
       title: title ?? doc.title,
-      content: content ?? doc.content,
+      content:
+        format === "markdown"
+          ? body
+          : await withInteractiveHtmlLinks(doc.id, body),
       updatedAt: doc.updatedAt,
       format,
       blocksFields,

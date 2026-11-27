@@ -398,6 +398,8 @@ describe("onboarding journey events SQL", () => {
       stepKey: member.stepKey,
       app: member.app,
       timestamp: new Date(member.tsMs).toISOString(),
+      identityStatus: "identified",
+      sessionKey: member.sessionId,
       authUserId: member.authUserId,
       emailHash: member.emailHash,
     });

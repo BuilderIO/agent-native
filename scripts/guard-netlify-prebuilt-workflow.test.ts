@@ -3329,11 +3329,15 @@ describe("production Netlify site concurrency guard", () => {
     const runLiveCheck = async ({
       responses,
       compareStatus = "ahead",
+      compareError,
+      sourceExists = true,
       eventName = "push",
       failOnStale = true,
     }: {
       responses: Array<Error | { status: number; body?: unknown }>;
       compareStatus?: string;
+      compareError?: Error & { status?: number };
+      sourceExists?: boolean;
       eventName?: string;
       failOnStale?: boolean;
     }) => {
@@ -3341,8 +3345,10 @@ describe("production Netlify site concurrency guard", () => {
       const failures: string[] = [];
       const notices: string[] = [];
       const infos: string[] = [];
+      const warnings: string[] = [];
       const fetched: Array<{ url: string; authorization: string }> = [];
       const compared: unknown[] = [];
+      const readCommits: unknown[] = [];
       const fetch = async (
         url: string,
         init: { headers: Record<string, string> },
@@ -3366,7 +3372,17 @@ describe("production Netlify site concurrency guard", () => {
           repos: {
             compareCommits: async (args: unknown) => {
               compared.push(args);
+              if (compareError) throw compareError;
               return { data: { status: compareStatus } };
+            },
+            getCommit: async (args: unknown) => {
+              readCommits.push(args);
+              if (!sourceExists) {
+                throw Object.assign(new Error("No commit found"), {
+                  status: 422,
+                });
+              }
+              return { data: {} };
             },
           },
         },
@@ -3390,6 +3406,7 @@ describe("production Netlify site concurrency guard", () => {
           setFailed: (message: string) => failures.push(message),
           notice: (message: string) => notices.push(message),
           info: (message: string) => infos.push(message),
+          warning: (message: string) => warnings.push(message),
         },
         {
           env: {
@@ -3402,7 +3419,16 @@ describe("production Netlify site concurrency guard", () => {
         fetch,
         (resolve: () => void) => resolve(),
       );
-      return { outputs, failures, notices, infos, fetched, compared };
+      return {
+        outputs,
+        failures,
+        notices,
+        infos,
+        warnings,
+        fetched,
+        compared,
+        readCommits,
+      };
     };
     const liveDeploy = (title: string) => ({
       status: 200,
@@ -3479,6 +3505,38 @@ describe("production Netlify site concurrency guard", () => {
     });
     assert.equal(untitled.outputs.current, "true");
     assert.match(untitled.infos[0] ?? "", /names no source commit/);
+
+    const notFound = () =>
+      Object.assign(new Error("Not Found"), { status: 404 });
+    const unknownLiveCommit = await runLiveCheck({
+      responses: [liveDeploy(liveTitle)],
+      compareError: notFound(),
+    });
+    assert.equal(unknownLiveCommit.outputs.current, "true");
+    assert.deepEqual(unknownLiveCommit.failures, []);
+    assert.deepEqual(unknownLiveCommit.readCommits, [
+      { owner: "BuilderIO", repo: "agent-native", ref: "a".repeat(40) },
+    ]);
+    assert.deepEqual(unknownLiveCommit.warnings, [
+      `Live deploy deploy-1 names commit ${liveSource}, which GitHub can't find; nothing to regress against.`,
+    ]);
+    await assert.rejects(
+      runLiveCheck({
+        responses: [liveDeploy(liveTitle)],
+        compareError: notFound(),
+        sourceExists: false,
+      }),
+      /No commit found/,
+    );
+    await assert.rejects(
+      runLiveCheck({
+        responses: [liveDeploy(liveTitle)],
+        compareError: Object.assign(new Error("Server Error"), {
+          status: 500,
+        }),
+      }),
+      /Server Error/,
+    );
 
     const nothingLive = await runLiveCheck({
       responses: [{ status: 200, body: { published_deploy: null } }],

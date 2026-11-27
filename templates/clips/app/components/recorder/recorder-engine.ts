@@ -691,7 +691,7 @@ export class RecorderEngine {
       !!requestedDeviceId &&
       !!actualDeviceId &&
       actualDeviceId !== requestedDeviceId;
-    const phoneLike = isLikelyPhoneMicLabel(track.label);
+    const phoneLike = !requestedDeviceId && isLikelyPhoneMicLabel(track.label);
     if (!mismatched && !phoneLike) return stream;
 
     const replacement = await this.tryExplicitMicFallback(

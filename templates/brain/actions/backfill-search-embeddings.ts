@@ -245,6 +245,7 @@ export default defineAction({
   schema: backfillSearchEmbeddingsSchema,
   needsApproval: backfillSearchEmbeddingsNeedsApproval,
   toolCallable: false,
+  mcpTool: false,
   run: async (args) => {
     await assertAccess("brain-source", args.sourceId, "admin");
     const readiness = await readSourceEmbeddingReadiness(args.sourceId);

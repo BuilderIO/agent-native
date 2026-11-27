@@ -482,8 +482,9 @@ describe("list-agent-engines", () => {
     });
 
     const result = JSON.parse(
-      await runWithRequestContext({ userEmail: "hosted@example.com" }, () =>
-        run(),
+      await runWithRequestContext(
+        { userEmail: "hosted@example.com", orgId: "org-hosted" },
+        () => run(),
       ),
     );
 
@@ -515,8 +516,9 @@ describe("list-agent-engines", () => {
     });
 
     const result = JSON.parse(
-      await runWithRequestContext({ userEmail: "hosted@example.com" }, () =>
-        run(),
+      await runWithRequestContext(
+        { userEmail: "hosted@example.com", orgId: "org-hosted" },
+        () => run(),
       ),
     );
 

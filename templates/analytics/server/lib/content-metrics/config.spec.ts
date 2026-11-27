@@ -8,6 +8,9 @@ import {
   signupsConfigSchema,
   signupsSettingsUpdateSchema,
   stepEnabled,
+  xAccountSchema,
+  xAccountsSchema,
+  xLinkTargetSchema,
   youtubeChannelSchema,
 } from "./config";
 
@@ -204,5 +207,90 @@ describe("daily.dev and YouTube", () => {
     ]) {
       expect(youtubeChannelSchema.safeParse(value).success).toBe(false);
     }
+  });
+});
+
+describe("X", () => {
+  it("reads saved settings from before it with X off and nothing named", () => {
+    const config = contentCollectionConfigSchema.parse({
+      youtube: { enabled: true, channels: ["@Builderio"] },
+    });
+    expect(config.x).toEqual({
+      enabled: false,
+      accounts: [],
+      links: [],
+      terms: [],
+    });
+    expect(stepEnabled(config, "x")).toBe(false);
+  });
+
+  it("fingerprints the accounts and the counting rule, so a read under other settings isn't saved", () => {
+    const fingerprint = (x: Record<string, unknown>) =>
+      contentStepConfigFingerprint(
+        "x",
+        contentCollectionConfigSchema.parse({
+          x: {
+            enabled: true,
+            accounts: [{ handle: "@builderio", allPosts: true }],
+            links: ["builder.io/blog"],
+            terms: ["Builder.io"],
+            ...x,
+          },
+        }),
+      );
+    expect(fingerprint({})).toEqual(expect.any(String));
+    expect(fingerprint({})).toBe(
+      fingerprint({ accounts: [{ handle: "@BuilderIO", allPosts: true }] }),
+    );
+    expect(fingerprint({})).not.toBe(
+      fingerprint({ accounts: [{ handle: "@builderio", allPosts: false }] }),
+    );
+    expect(fingerprint({})).not.toBe(fingerprint({ links: [] }));
+    expect(fingerprint({})).not.toBe(fingerprint({ terms: ["Builder"] }));
+  });
+
+  it("takes an @handle and a host with an optional path, and nothing else", () => {
+    expect(xAccountSchema.parse({ handle: " @Steve8708 " })).toEqual({
+      handle: "@Steve8708",
+      allPosts: false,
+    });
+    for (const handle of [
+      "Steve8708",
+      "@has space",
+      "@toolonghandle12345",
+      "",
+    ]) {
+      expect(xAccountSchema.safeParse({ handle }).success).toBe(false);
+    }
+    expect(xLinkTargetSchema.parse(" Builder.io/Blog ")).toBe(
+      "builder.io/blog",
+    );
+    expect(xLinkTargetSchema.parse("agent-native.com")).toBe(
+      "agent-native.com",
+    );
+    for (const value of ["https://builder.io/blog", "builder", "builder.io/"]) {
+      expect(xLinkTargetSchema.safeParse(value).success).toBe(false);
+    }
+  });
+
+  it("rejects an account listed twice, even in another case", () => {
+    const parsed = xAccountsSchema.safeParse([
+      { handle: "@builderio", allPosts: true },
+      { handle: "@Steve8708" },
+      { handle: "@BuilderIO", allPosts: false },
+    ]);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({
+        path: [2, "handle"],
+        message: "@BuilderIO is already listed; X handles ignore case.",
+      }),
+    ]);
+    expect(
+      xAccountsSchema.safeParse([
+        { handle: "@builderio" },
+        { handle: "@Steve8708" },
+      ]).success,
+    ).toBe(true);
   });
 });

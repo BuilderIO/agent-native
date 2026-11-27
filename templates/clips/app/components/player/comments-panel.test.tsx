@@ -24,8 +24,8 @@ import {
   useCommentAccessToken,
 } from "../../hooks/use-comment-access-refresh";
 import {
-  collectCommentSubtreeIds,
   type Comment,
+  commentIdsDeletedWith,
   CommentsPanel,
   relativeTime,
 } from "./comments-panel";
@@ -362,6 +362,7 @@ describe("CommentsPanel reply composer", () => {
     enableComments = true,
     canDeleteOwnComments?: boolean,
     commentAccessToken?: string,
+    canReopenAnyThread?: boolean,
   ) {
     act(() => {
       root.render(
@@ -375,6 +376,7 @@ describe("CommentsPanel reply composer", () => {
             enableComments={enableComments}
             canComment={enableComments}
             canDeleteOwnComments={canDeleteOwnComments}
+            canReopenAnyThread={canReopenAnyThread}
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
             presentation={presentation}
@@ -2197,12 +2199,114 @@ describe("CommentsPanel reply composer", () => {
     expect(menuTrigger?.className).toContain("hover:text-accent-foreground");
   });
 
-  it("treats legacy resolved comments like regular comments", () => {
-    renderPanel("viewer@example.com", [{ ...rootComment, resolved: true }]);
+  it("marks a resolved thread and offers no reply into it", () => {
+    renderPanel("viewer@example.com", [
+      { ...rootComment, resolved: true },
+      {
+        ...rootComment,
+        id: "reply-1",
+        parentId: rootComment.id,
+        content: "Replied before it was resolved",
+        resolved: true,
+        createdAt: "2026-07-10T12:01:00.000Z",
+      },
+    ]);
+    const buttons = Array.from(container.querySelectorAll("button"), (button) =>
+      button.textContent.trim(),
+    );
+
+    expect(container.textContent).toContain("commentsPanel.resolved");
+    expect(container.textContent).toContain("Replied before it was resolved");
+    expect(container.querySelector(".opacity-60")).toBeNull();
+    expect(container.querySelectorAll("[data-comment-actions]")).toHaveLength(
+      2,
+    );
+    expect(buttons).not.toContain("commentsPanel.reply");
+    expect(buttons).not.toContain("commentsPanel.unresolve");
+  });
+
+  it("lets the thread's author reopen it, and then reply", async () => {
+    renderPanel("author@example.com", [{ ...rootComment, resolved: true }]);
+    const button = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent.trim() === label,
+      );
+    expect(button("commentsPanel.reply")).toBeUndefined();
+
+    act(() => button("commentsPanel.unresolve")?.click());
+    expect(actionMocks.requests).toHaveBeenCalledWith(
+      "resolve-comment",
+      { id: rootComment.id, resolved: false },
+      undefined,
+    );
+    await act(async () => {
+      await actionMocks.mutationOptions
+        .get("resolve-comment")
+        .onMutate({ id: rootComment.id, resolved: false });
+    });
 
     expect(container.textContent).not.toContain("commentsPanel.resolved");
-    expect(container.querySelector(".opacity-60")).toBeNull();
-    expect(container.querySelector("[data-comment-actions]")).not.toBeNull();
+    expect(button("commentsPanel.unresolve")).toBeUndefined();
+    expect(button("commentsPanel.reply")).toBeDefined();
+  });
+
+  it("offers Reopen on someone else's thread only to the recording's editors", () => {
+    const resolved = [{ ...rootComment, resolved: true }];
+    const reopenOffered = () =>
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent.trim() === "commentsPanel.unresolve",
+      );
+
+    renderPanel("viewer@example.com", resolved);
+    expect(reopenOffered()).toBe(false);
+    renderPanel(
+      "editor@example.com",
+      resolved,
+      "share",
+      true,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(reopenOffered()).toBe(true);
+    renderPanel(
+      "editor@example.com",
+      resolved,
+      "share",
+      false,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(reopenOffered()).toBe(false);
+    renderPanel("", resolved, "share", true, undefined, undefined, true);
+    expect(reopenOffered()).toBe(false);
+  });
+
+  it("shows the thread resolved again when reopening it fails", async () => {
+    renderPanel("author@example.com", [{ ...rootComment, resolved: true }]);
+    const options = actionMocks.mutationOptions.get("resolve-comment");
+    expect(options).toBeDefined();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    await act(async () => {
+      await options.onMutate({ id: rootComment.id, resolved: false });
+    });
+    expect(container.textContent).not.toContain("commentsPanel.resolved");
+
+    await act(async () => {
+      options.onError?.(
+        new Error("reopen failed"),
+        { id: rootComment.id, resolved: false },
+        undefined,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("commentsPanel.resolved");
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["recording", "recording-1"],
+    });
   });
 
   it("keeps the compact comment composer inside a quiet filled surface", () => {
@@ -2765,7 +2869,7 @@ describe("CommentsPanel reply composer", () => {
     ).toBe(false);
   });
 
-  it("collects every nested reply for optimistic deletion", () => {
+  it("removes what the server deletes: a first comment's thread, or one reply", () => {
     const firstReply = {
       ...rootComment,
       id: "reply-1",
@@ -2776,13 +2880,14 @@ describe("CommentsPanel reply composer", () => {
       id: "reply-2",
       parentId: firstReply.id,
     };
+    const comments = [rootComment, firstReply, secondReply];
 
-    expect(
-      collectCommentSubtreeIds(
-        [rootComment, firstReply, secondReply],
-        rootComment.id,
-      ),
-    ).toEqual(new Set([rootComment.id, firstReply.id, secondReply.id]));
+    expect(commentIdsDeletedWith(comments, rootComment.id)).toEqual(
+      new Set([rootComment.id, firstReply.id, secondReply.id]),
+    );
+    expect(commentIdsDeletedWith(comments, firstReply.id)).toEqual(
+      new Set([firstReply.id]),
+    );
   });
 
   it("rolls back one failed reaction without discarding another optimistic reaction", async () => {

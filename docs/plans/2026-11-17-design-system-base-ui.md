@@ -271,7 +271,7 @@ model.
   theme. The seam is toolkit's existing `defineDesignSystem` /
   `ToolkitProvider`, which already swaps the markup of 17 semantic components,
   extended to the part catalog.
-- **Row ids.** Every part renders `data-row-id` from its row. It is the join
+- **Row ids.** Every part renders `data-rid` from its row. It is the join
   key between a source rendering and a target part set.
 - **Equivalence check:** `checkPartSetEquivalence({ model, target })`.
   Structural, never visual: the target renders the same row ids, names,
@@ -357,7 +357,7 @@ Each PR ships live with no flag. Every swap proves parity first.
    and `guard:no-part-class-redefinition`.
 2. **Headless model and part sets** (`claude/design-system-headless-model`,
    stacked on the foundation; built): model types and row ids in the design
-   system, the part-set seam in toolkit, `data-row-id` on every part, the
+   system, the part-set seam in toolkit, `data-rid` on every part, the
    equivalence check, and the row style check keyed by row id.
 3. **Settings, the first pattern** (MVP, Dec 14; `claude/design-system-settings`,
    stacked on step 2. Built: the shared nav for every app, the group, row,

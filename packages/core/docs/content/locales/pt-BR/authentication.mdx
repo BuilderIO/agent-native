@@ -93,12 +93,12 @@ O fluxo do navegador é o mesmo fluxo do Better Auth em todos os lugares — nã
 Algumas bandeiras ajustam isso; detalhes completos estão na tabela [Environment Variables](#environment-variables):
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — use a página de inscrição normal no desenvolvedor local em vez da conta de desenvolvedor automático.
-- `AUTH_DISABLED=true` — ignore totalmente o login/inscrição e execute todas as solicitações como um usuário compartilhado (apenas desenvolvimento/visualizações/demos locais, nunca produção com usuários reais).
+- `AUTH_DISABLED=true` — ignore totalmente o login/inscrição e execute todas as solicitações como um usuário compartilhado. Apenas para desenvolvimento local em um servidor de loopback (`localhost`); nunca ative em visualizações hospedadas, demos ou produção.
 - `AUTH_MODE=local` — afeta apenas CLI/identidade do agente (como o usuário desenvolvedor `pnpm action` é executado); **não** é um desvio de login do navegador.
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true` autentica **toda solicitação como o mesmo usuário compartilhado**, então qualquer pessoa que alcance o servidor tem acesso total. Use apenas para desenvolvimento local em um servidor de loopback (`localhost`). Visualizações hospedadas, demos e produção precisam de login real; em visualizações de QA, `AUTH_SKIP_EMAIL_VERIFICATION=1` dispensa a espera pelo e-mail sem desligar a autenticação.
 
 </Callout>
 
@@ -465,7 +465,7 @@ A rota `/_agent-native/google/auth-url` padrão faz isso automaticamente – sub
 | `BETTER_AUTH_SECRET`                    | Chave de assinatura para Better Auth (gerada automaticamente se não for definida)                                                                                                                                |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | Defina como `1` em ambientes de controle de qualidade/visualização para permitir que inscrições de e-mail/senha continuem sem verificação; desenvolvimento/teste local ignora por padrão                         |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Defina como `0` ou `1` para declarar a política de verificação da inscrição por senha em qualquer ambiente, inclusive produção; prevalece sobre `AUTH_SKIP_EMAIL_VERIFICATION`                                   |
-| `AUTH_DISABLED`                         | Defina como `true` ou `1` para ignorar o login/inscrição; todas as solicitações são executadas como um usuário compartilhado (somente desenvolvimento/visualização local — não para produção com usuários reais) |
+| `AUTH_DISABLED`                         | Defina como `true` ou `1` para ignorar o login/inscrição; todas as solicitações são executadas como um usuário compartilhado (somente desenvolvimento local em loopback — nunca hospedado, em demos ou produção) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Defina como `1` para desativar o login automático do host local em um novo banco de dados de desenvolvimento                                                                                                     |
 | `AUTH_MODE`                             | `local` resolve apenas a identidade CLI/agente (como o usuário desenvolvedor `pnpm action` é executado); nunca um desvio de login do navegador                                                                   |
 | `COOKIE_DOMAIN`                         | Ative cookies de sessão compartilhada em subdomínios do mesmo banco de dados (consulte [Cookie Realms](#cookie-realms))                                                                                          |

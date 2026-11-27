@@ -854,6 +854,10 @@ export default {
     exportPreview: {
       rendering: "미리 보기 생성 중…",
       failed: "미리 보기를 사용할 수 없음",
+      noPreview: "미리 볼 화면이 없습니다",
+      externalPreview: "미리보기에는 라이브 앱이 필요합니다",
+      readOnlyPreview: "읽기 전용 모드에서는 미리보기를 사용할 수 없습니다",
+      selectionUnresolved: "이 화면에서 선택 항목을 찾을 수 없습니다",
     },
     framePresets: {
       title: "프레임",
@@ -1918,6 +1922,7 @@ export default {
   layersPanel: {
     title: "레이어",
     screens: "페이지",
+    components: "컴포넌트",
     resizeScreens: "페이지 섹션 크기 조정",
     thumbnail: "썸네일",
     addScreen: "페이지 추가",
@@ -1947,6 +1952,8 @@ export default {
     bringToFront: "맨 앞으로 가져오기",
     sendBackward: "뒤로 보내기",
     sendToBack: "맨 뒤로 보내기",
+    arrangeUnavailable:
+      "순서를 바꾸려면 편집 가능한 디자인에서 레이어를 선택하세요",
     pasteToReplace: "교체하여 붙여넣기",
     frameSelection: "선택 영역 프레임화",
     flipHorizontal: "수평 뒤집기",

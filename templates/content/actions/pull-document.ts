@@ -10,6 +10,7 @@ import {
 } from "../server/lib/private-media-agent-links.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
+import { interactiveHtmlBlockLinks } from "./_interactive-html-blocks.js";
 
 function formatDocumentContent(markdown: string, format: "markdown" | "text") {
   return format === "text"
@@ -78,6 +79,11 @@ export default defineAction({
         ? await privateMediaAgentLinks({ documentId: doc.id, content })
         : undefined;
 
+    const interactiveBlocks =
+      format === "markdown"
+        ? await interactiveHtmlBlockLinks(doc.id, content)
+        : [];
+
     return {
       id: doc.id,
       title: doc.title,
@@ -85,6 +91,7 @@ export default defineAction({
       content,
       format,
       ...(privateMediaLinks ? { privateMediaLinks } : {}),
+      ...(interactiveBlocks.length > 0 ? { interactiveBlocks } : {}),
       editorFlush:
         editorFlush.status === "flushed"
           ? { status: editorFlush.status, editors: editorFlush.editors }

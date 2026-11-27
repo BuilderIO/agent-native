@@ -350,7 +350,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. App B reads the verified `sub` claim into request context
 4. Data scoping applies — App B only shows Steve's data
 
-Without `A2A_SECRET` in production, every A2A endpoint and the `/_agent-native/integrations/process-task` self-fire endpoint return **503**. Set it on every app that calls or receives A2A traffic. (For local development the framework still allows unauthenticated calls.)
+Without `A2A_SECRET` in production, every A2A endpoint and the `/_agent-native/integrations/process-task` self-fire endpoint return **503**. Set it on every app that calls or receives A2A traffic. (In local development, A2A accepts unauthenticated calls only from the same machine; set `A2A_SECRET` on a dev server that other hosts can reach.)
 
 ## Inbound Webhooks {#webhooks}
 

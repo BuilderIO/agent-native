@@ -3,6 +3,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const BARE_CLIENT_ENTRY = "@agent-native/core/client";
+const BARE_CLIENT_QUOTED_RE = /["']@agent-native\/core\/client["']/;
+const IMPORT_EXPORT_STICKY_RE = /(?:import|export)\b/y;
+const VITEST_MOCK_STICKY_RE = /vi\s*\.\s*(?:doMock|mock)\s*\(/y;
 const EXCLUDED_DIRECTORY_NAMES = new Set([
   "__tests__",
   "build",
@@ -107,7 +110,8 @@ function scanStaticModuleSpecifiers(
       continue;
     }
 
-    const keyword = source.slice(cursor).match(/^(?:import|export)\b/)?.[0];
+    IMPORT_EXPORT_STICKY_RE.lastIndex = cursor;
+    const keyword = IMPORT_EXPORT_STICKY_RE.exec(source)?.[0];
     if (!keyword || isIdentifierCharacter(source[cursor - 1])) {
       cursor += 1;
       continue;
@@ -194,9 +198,8 @@ function scanVitestMockSpecifiers(
       continue;
     }
 
-    const mockCall = source
-      .slice(cursor)
-      .match(/^vi\s*\.\s*(?:doMock|mock)\s*\(/);
+    VITEST_MOCK_STICKY_RE.lastIndex = cursor;
+    const mockCall = VITEST_MOCK_STICKY_RE.exec(source);
     if (!mockCall || isIdentifierCharacter(source[cursor - 1])) {
       cursor += 1;
       continue;
@@ -220,6 +223,7 @@ export function findCoreClientBarrelImports(
   file: string,
   source: string,
 ): ClientBarrelViolation[] {
+  if (!BARE_CLIENT_QUOTED_RE.test(source)) return [];
   return [
     ...scanStaticModuleSpecifiers(source),
     ...scanVitestMockSpecifiers(source),

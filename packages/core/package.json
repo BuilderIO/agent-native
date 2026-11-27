@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.233.0",
+  "version": "0.235.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -773,7 +773,7 @@
   "scripts": {
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.cli.json && tsc -p tsconfig.type-tests.json",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.cli.json && tsgo -p tsconfig.type-tests.json",
     "test": "vitest --run --dir src",
     "test:motion-text-package": "vitest --run scripts/motion-text-package.spec.ts",
     "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && sed -e 's/utm_source=github/utm_source=npm/g' -e 's/utm_content=readme/utm_content=core-readme/g' ../../README.md > ./README.md",
@@ -881,7 +881,7 @@
     "@types/ws": "^8.18.1",
     "@typesafe-ai/sdk": "0.6.0",
     "@vitejs/plugin-react-swc": "^4.3.3",
-    "@vitest/coverage-v8": "4.1.5",
+    "@vitest/coverage-v8": "^5.1.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
@@ -908,7 +908,7 @@
     "ts-morph": "^28.0.0",
     "typescript-7": "catalog:",
     "vite": "catalog:",
-    "vitest": "^4.1.5",
+    "vitest": "catalog:",
     "xlsx": "^0.18.5"
   },
   "peerDependencies": {
