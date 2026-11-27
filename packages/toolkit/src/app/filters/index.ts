@@ -99,6 +99,12 @@ export {
   FilterRuleEditor,
 } from "./FilterEditors.js";
 export {
+  FilterMenu,
+  FilterMenuWords,
+  type FilterMenuProps,
+  type FilterMenuWordsProps,
+} from "./FilterMenu.js";
+export {
   FilterButton,
   FilterPanel,
   type FilterButtonProps,

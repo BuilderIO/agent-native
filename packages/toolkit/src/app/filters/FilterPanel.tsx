@@ -15,7 +15,12 @@ import {
 } from "@agent-native/toolkit/ui/sheet";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconFilter, IconPlus } from "@tabler/icons-react";
-import { useRef, useState, type ReactElement } from "react";
+import {
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+} from "react";
 
 import {
   FilterAddPopover,
@@ -164,6 +169,44 @@ export function FilterPanel(props: FilterPanelProps) {
   return <FilterPanelBody {...props} counts={counts} text={text} />;
 }
 
+export function FilterCountButton({
+  active,
+  className,
+  ...props
+}: ComponentProps<typeof Button> & { active: number }) {
+  const text = useFilterText();
+  const isMobile = useIsMobile();
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      {...props}
+      className={cn("h-8 shrink-0 gap-1.5", className)}
+    >
+      <IconFilter />
+      <span className={cn(isMobile && "sr-only")}>
+        {text.t("agentChat.filters.filter")}
+      </span>
+      {active > 0 ? (
+        <>
+          <span
+            aria-hidden="true"
+            className="min-w-4 rounded-full bg-primary px-1 text-center text-[11px] leading-4 tabular-nums text-primary-foreground"
+          >
+            {text.formatNumber(active)}
+          </span>
+          <span className="sr-only">
+            {text.t("agentChat.filters.activeRules", {
+              number: text.formatNumber(active),
+            })}
+          </span>
+        </>
+      ) : null}
+    </Button>
+  );
+}
+
 export interface FilterButtonProps extends FilterPanelProps {
   onClear?: () => void;
   /** Whether the panel offers Clear; by default, whenever a filter is set. */
@@ -231,32 +274,7 @@ export function FilterButton({
     onClear?.();
   };
   const trigger = children ?? (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className={cn("h-8 shrink-0 gap-1.5", className)}
-    >
-      <IconFilter />
-      <span className={cn(isMobile && "sr-only")}>
-        {text.t("agentChat.filters.filter")}
-      </span>
-      {active > 0 ? (
-        <>
-          <span
-            aria-hidden="true"
-            className="min-w-4 rounded-full bg-primary px-1 text-center text-[11px] leading-4 tabular-nums text-primary-foreground"
-          >
-            {text.formatNumber(active)}
-          </span>
-          <span className="sr-only">
-            {text.t("agentChat.filters.activeRules", {
-              number: text.formatNumber(active),
-            })}
-          </span>
-        </>
-      ) : null}
-    </Button>
+    <FilterCountButton active={active} className={className} />
   );
   const body = (
     <FilterPanelBody
