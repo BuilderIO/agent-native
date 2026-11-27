@@ -287,6 +287,57 @@ describe("FilterMenu", () => {
     expect(summary?.getAttribute("aria-live")).toBe("polite");
   });
 
+  it("keeps the summary's live region in place while the count loads", () => {
+    const menu = (summary: string | undefined) => (
+      <FilterMenu
+        fields={fields}
+        state={createFilterState(fields)}
+        onChange={() => undefined}
+        summary={summary}
+      />
+    );
+    const region = () =>
+      document.querySelector(
+        'section[aria-label="Filter"] header [aria-live="polite"]',
+      );
+    render(menu(undefined));
+    openMenu();
+    const loading = region();
+    expect(loading?.textContent).toBe("");
+    render(menu("3 clips match"));
+    expect(region()).toBe(loading);
+    expect(loading?.textContent).toBe("3 clips match");
+  });
+
+  it("closes an open line on Escape and keeps the menu open", () => {
+    render(<Menu initial={nameText("a")} />);
+    click(firstButton());
+    const line = document.querySelector(
+      "[data-filter-line] [data-filter-text]",
+    );
+    if (!line) throw new Error("No line");
+    click(line);
+    const open = document.querySelector(
+      '[data-filter-line] [aria-expanded="true"]',
+    );
+    if (!open) throw new Error("No open line");
+    act(() => {
+      open.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(document.querySelector('section[aria-label="Filter"]')).not.toBe(
+      null,
+    );
+    expect(
+      document.querySelector('[data-filter-line] [aria-expanded="true"]'),
+    ).toBe(null);
+  });
+
   it("counts a changed pinned field as a filter in use", () => {
     const menuFields = [sourceField, ...fields];
     render(

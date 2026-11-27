@@ -164,6 +164,7 @@ export function FilterMenu({
   const stateRef = useRef(state);
   stateRef.current = state;
   const unfinishedAtOpen = useRef<ReadonlySet<string>>(new Set());
+  const lineOpenRef = useRef(false);
   const handledOpenLine = useRef<number | null>(null);
   useEffect(() => {
     if (!openLine || handledOpenLine.current === openLine.at) return;
@@ -192,6 +193,9 @@ export function FilterMenu({
     );
     if (pruned) onChange(pruned);
   };
+  const keepOpenForLine = (event: KeyboardEvent) => {
+    if (lineOpenRef.current) event.preventDefault();
+  };
   const body = (
     <FilterLinesPanel
       fields={fields}
@@ -208,6 +212,7 @@ export function FilterMenu({
       onClear={onClear}
       unfinishedAtOpen={unfinishedAtOpen}
       startOpenId={startOpenId}
+      lineOpenRef={lineOpenRef}
       inSheet={isMobile}
     />
   );
@@ -242,6 +247,7 @@ export function FilterMenu({
         <SheetContent
           side="bottom"
           aria-describedby={undefined}
+          onEscapeKeyDown={keepOpenForLine}
           className="flex max-h-[90dvh] w-full max-w-full flex-col gap-0 overflow-hidden p-0"
         >
           <SheetHeader className="sr-only">
@@ -261,6 +267,7 @@ export function FilterMenu({
       <PopoverContent
         align="end"
         collisionPadding={8}
+        onEscapeKeyDown={keepOpenForLine}
         className="flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[min(34rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"
       >
         <div className="min-h-0 overflow-y-auto overflow-x-hidden">{body}</div>
@@ -281,6 +288,7 @@ interface PanelProps {
   onClear: FilterMenuProps["onClear"];
   unfinishedAtOpen: { current: ReadonlySet<string> };
   startOpenId: string | null;
+  lineOpenRef: { current: boolean };
   inSheet: boolean;
 }
 
@@ -322,12 +330,16 @@ function FilterLinesPanel({
   onClear,
   unfinishedAtOpen,
   startOpenId,
+  lineOpenRef,
   inSheet,
 }: PanelProps) {
   const text = useFilterText();
   const m = (key: string, values?: Record<string, unknown>) =>
     text.t(`agentChat.filters.menu.${key}`, values);
   const [openId, setOpenIdState] = useState<string | null>(startOpenId);
+  useEffect(() => {
+    lineOpenRef.current = openId !== null;
+  }, [openId, lineOpenRef]);
   const [glowId, setGlowId] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -687,14 +699,12 @@ function FilterLinesPanel({
         )}
       >
         <h2 className="text-sm font-semibold">{menuText(text, "title")}</h2>
-        {summary ? (
-          <span
-            aria-live="polite"
-            className="min-w-0 truncate text-xs text-muted-foreground"
-          >
-            {summary}
-          </span>
-        ) : null}
+        <span
+          aria-live="polite"
+          className="min-w-0 truncate text-xs text-muted-foreground"
+        >
+          {summary}
+        </span>
         {hasLines || !isDefaultFilterState(state, fields) ? (
           <Button
             type="button"

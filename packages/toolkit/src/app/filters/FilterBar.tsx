@@ -361,7 +361,8 @@ export function FilterBar({
   const text = useFilterText();
   const shownCounts = useHeldWhilePressed(counts);
   const pinnedFields = fields.filter((field) => field.pinned);
-  const canClear = clearable ?? !isDefaultFilterState(state, fields);
+  const canClear =
+    clearable ?? (state.mode === "or" || !isDefaultFilterState(state, fields));
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const items = state.items.filter((item) =>
     item.kind === "group"

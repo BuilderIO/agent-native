@@ -554,6 +554,11 @@ describe("FilterBar", () => {
     expect(hasButtonNamed("Clear")).toBe(false);
   });
 
+  it("keeps Clear while the bar matches any, after the last rule goes", () => {
+    render(<Bar initial={setFilterMode(createFilterState(fields), "or")} />);
+    expect(hasButtonNamed("Clear")).toBe(true);
+  });
+
   it("keeps clicks off the page while a chip or the add menu is open", () => {
     render(
       <Bar
