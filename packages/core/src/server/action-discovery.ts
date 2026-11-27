@@ -445,6 +445,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../org/actions/invite-organization-member.js"),
     ],
     [
+      "change-organization-member-role",
+      () => import("../org/actions/change-organization-member-role.js"),
+    ],
+    [
+      "cancel-organization-invitation",
+      () => import("../org/actions/cancel-organization-invitation.js"),
+    ],
+    [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
     ],

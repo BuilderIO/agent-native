@@ -118,14 +118,17 @@ settings or `PUT /_agent-native/org/auth-provider` with `{ provider: "google" }`
 Enabling it revokes current Better Auth and legacy sessions; password signup,
 password login, and non-Google social sessions are rejected for that org.
 
-Agents manage membership through two core actions in the `orgAdministration`
-tool group. `list-organization-members` reads members, and pending invitations for
-owners and admins. `invite-organization-member` sends one member invitation through the
+Agents manage membership through core actions in the `orgAdministration`
+tool group. `list-organization-members` reads members, and pending invitations
+(with ids) for owners and admins. `invite-organization-member` sends one member invitation through the
 same path as Settings > Members. It emails a real person, so it sets
 `needsApproval: true` with `allowPersistentApproval: false`: every call asks the
 user, and "always allow" is not offered. It cannot grant admin; owners invite
-admins from settings. Role changes, removal, and revoking an invitation have no
-agent tool. Keep it that way unless the new tool follows the same approval rule.
+admins from settings. `change-organization-member-role` and
+`cancel-organization-invitation` call the same `changeOrgMemberRole` and
+`cancelOrgInvitation` functions as the Settings routes, with the same approval
+rule. Removal has no agent tool. Keep it that way unless the new tool follows
+the same approval rule.
 Actions that create, change, or revoke a credential, or change who may use an
 app or what they may do in it, follow the same rule. The gate holds on every
 surface: over HTTP only the signed-in app UI runs such a call (see the `actions`

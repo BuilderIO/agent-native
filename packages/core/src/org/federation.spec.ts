@@ -470,6 +470,35 @@ describe("cross-app organization federation", () => {
     );
   });
 
+  it("fails a federated role change that has no request to resolve the authority from", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/FROM organizations/i.test(sql)) {
+        return {
+          rows: [
+            {
+              id: "dispatch-org-1",
+              name: "Example Org",
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: "dispatch-org-1",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      updateFederatedOrganizationMemberRole(undefined, {
+        orgId: "dispatch-org-1",
+        actorEmail: "owner@example.test",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+        memberRole: "admin",
+      }),
+    ).rejects.toThrow(/request origin/);
+  });
+
   it("uses the canonical identity id for a mapped local organization", async () => {
     executeMock.mockImplementation(async (input) => {
       const sql = (typeof input === "string" ? input : input.sql).trim();
