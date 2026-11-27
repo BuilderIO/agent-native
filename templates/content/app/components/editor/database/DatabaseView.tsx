@@ -4270,7 +4270,7 @@ function DatabaseTable({
               collapsedGroupIds={activeView.collapsedGroupIds ?? []}
               hideEmptyGroups={activeView.hideEmptyGroups === true}
               focusedTitleDocumentId={inlineTitleFocusDocumentId}
-              previewDocumentId={previewNeighborsOf}
+              previewDocumentId={previewItem?.document.id ?? null}
               addPropertyOpenRequestId={addPropertyOpenRequestId}
               onAddPropertyOpenRequestHandled={(requestId) =>
                 setAddPropertyOpenRequestId((current) =>

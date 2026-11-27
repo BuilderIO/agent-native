@@ -242,7 +242,7 @@ async function expectCanonicalPageControls(
     name: "More page actions",
   });
   await expect(pageActions).toBeVisible();
-  const discussion = preview.getByRole("button", {
+  const discussion = preview.getByRole("tab", {
     name: "Discussion",
     exact: true,
   });
@@ -411,9 +411,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     await infoDialog.getByRole("button", { name: "Close panel" }).click();
     await expect(infoDialog).toBeHidden();
 
-    await preview
-      .getByRole("button", { name: "Discussion", exact: true })
-      .click();
+    await preview.getByRole("tab", { name: "Discussion", exact: true }).click();
     const commentsDialog = page.getByRole("complementary", {
       name: "Discussion",
     });
@@ -619,7 +617,7 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
         String(role.canEdit),
       );
 
-      const comments = preview.getByRole("button", {
+      const comments = preview.getByRole("tab", {
         name: "Discussion",
         exact: true,
       });
@@ -858,7 +856,11 @@ test("a preview draws the next row while its slow page read finishes", async ({
       "[data-database-item-preview-placeholder]",
     );
     await expect(placeholder).toContainText(rowB.title);
-    await expect(placeholder.getByText("Share", { exact: true })).toBeVisible();
+    await expect(
+      preview
+        .locator("[data-database-preview-controls] [inert]")
+        .getByText("Share", { exact: true }),
+    ).toBeVisible();
     await expect(preview.getByLabel("Document title")).toHaveCount(0);
     await expect(
       preview.getByRole("button", { name: "Next collection page" }),
@@ -908,13 +910,15 @@ test("a preview's page actions, Duplicate among them, wait for the page's read",
     ).toContainText(rowB.title);
 
     const controls = preview.locator("[data-database-preview-controls]");
-    await expect(controls.locator("[inert]").first()).toBeAttached();
+    await expect(
+      controls.locator("[inert]").getByText("Share", { exact: true }),
+    ).toBeVisible();
 
     releaseRead();
     await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
     await expect(controls.locator("[inert]")).toHaveCount(0);
     const duplicate = page.getByRole("menuitem", { name: "Duplicate row" });
-    await preview.getByRole("button", { name: "More page actions" }).click();
+    await controls.getByRole("button", { name: "More page actions" }).click();
     await expect(duplicate).toBeVisible();
     await expect(duplicate).not.toHaveAttribute("aria-disabled", "true");
     await page.keyboard.press("Escape");
@@ -1161,11 +1165,15 @@ test("an arrow pressed while a switch waits on its save steps on from that switc
     const next = preview.getByRole("button", { name: "Next collection page" });
     await next.click();
     await save.saveStarted();
+    const openRow = page.locator("[data-database-row-preview-open]");
+    await expect(openRow).toContainText(rowA.title);
     await next.click();
+    await expect(openRow).toContainText(rowA.title);
     release();
 
     await expect(preview.getByLabel("Document title")).toHaveValue(rowC.title);
     await expect(preview.locator(".ProseMirror")).toContainText(rowC.body);
+    await expect(openRow).toContainText(rowC.title);
   } finally {
     release();
     await page.unroute("**/_agent-native/actions/update-document**");

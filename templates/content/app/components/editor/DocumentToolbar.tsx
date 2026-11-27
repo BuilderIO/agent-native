@@ -2382,7 +2382,7 @@ export function DocumentToolbar({
                 event.preventDefault();
                 // Escape goes back to ⋮ unless a text selection took focus back.
                 if (
-                  pageActionsEscapedRef.current &&
+                  (pageActionsEscapedRef.current || floating) &&
                   globalThis.document.activeElement === globalThis.document.body
                 ) {
                   pageActionsButtonRef.current?.focus();

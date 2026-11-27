@@ -218,10 +218,22 @@ describe("DocumentToolbar in a row preview", () => {
     expect(mocks.utilityPanelChange).toHaveBeenLastCalledWith("comments", true);
   });
 
+  it("returns focus to More when a row action leaves it nowhere", async () => {
+    await renderPreviewToolbar();
+
+    await openMore();
+    await selectMenuItem("Duplicate row");
+    await vi.waitFor(() =>
+      expect(globalThis.document.activeElement).toBe(
+        slotButton("editor.toolbar.morePageActions"),
+      ),
+    );
+  });
+
   it("holds the group's controls inert while the page is read", async () => {
     await renderPreviewToolbar({}, { inert: true });
 
     const more = slotButton("editor.toolbar.morePageActions");
-    expect(more?.closest("[inert]")).not.toBeNull();
+    expect(more?.closest("[inert]") ?? null).toBeInstanceOf(HTMLElement);
   });
 });
