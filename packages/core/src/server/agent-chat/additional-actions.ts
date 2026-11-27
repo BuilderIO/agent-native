@@ -102,7 +102,6 @@ const compileAjvOptions = {
   meta: false,
   validateSchema: false,
 } as const;
-const validateAnyObject = strictAjv.compile({ type: "object" });
 // allErrors reports every failure; the model needs the first few.
 const MAX_REPORTED_INPUT_ERRORS = 10;
 // Compiling is synchronous and costs about as much as the schema is large, and
@@ -368,7 +367,7 @@ function prepareActionEntry(
     typeof rawTitle === "string"
       ? cleanText(rawTitle, MAX_TITLE_CHARS)
       : undefined;
-  let validate: ValidateFunction = validateAnyObject;
+  let validate: ValidateFunction | undefined;
   let expandedSize = 1;
   let parameters: Record<string, unknown> | undefined;
   if (rawParameters !== undefined) {
@@ -388,6 +387,7 @@ function prepareActionEntry(
     if (!inputFitsUnits(input, maxInputUnits)) {
       return `arguments are too large to validate against this tool's schema; send less data`;
     }
+    if (!validate) return isPlainRecord(input) ? null : "input must be object";
     if (validate(input)) return null;
     const errors = validate.errors ?? [];
     const shown = strictAjv.errorsText(
