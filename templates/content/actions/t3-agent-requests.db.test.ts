@@ -228,8 +228,6 @@ it("starts a new thread with the comment, the discussion and the page, then post
   });
   expect(await requestsFor(replies[0].id)).toEqual([]);
 
-  // A follow-up tag sends the agent's earlier answer as the agent's, not as
-  // the words of the person it answered for.
   const followUp = await asAlice(() =>
     addComment.run(
       {

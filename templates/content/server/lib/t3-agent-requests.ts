@@ -151,8 +151,6 @@ function commentAuthor(comment: {
   return comment.authorName?.trim() || comment.authorEmail;
 }
 
-// An agent's reply is stored under the person it answered for, so name the
-// agent; otherwise its answer would read as that person's own words.
 function backgroundAuthor(
   comment: Pick<
     typeof schema.documentComments.$inferSelect,
