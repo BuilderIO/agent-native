@@ -265,11 +265,6 @@ console.error(
   `[guards] Running ${selectedGuards.length} checks with concurrency ${numericConcurrency}`,
 );
 
-const results = await runAll(numericConcurrency);
-const summary = summarizeGuardRun(results, { strictSkips });
-console.error(summary.message);
-process.exit(summary.exitCode);
-
 // Start the slowest full-tree guards first (Longest-Processing-Time-First) so
 // they overlap with fast guards instead of sticking out as an idle-worker tail.
 const PRIORITY_HEAVY_GUARDS = new Map<GuardName, number>([
@@ -280,6 +275,11 @@ const PRIORITY_HEAVY_GUARDS = new Map<GuardName, number>([
   ["guard:design-e2e-regression-pins", 4],
   ["guard:mcp-unredacted-call-boundary", 5],
 ]);
+
+const results = await runAll(numericConcurrency);
+const summary = summarizeGuardRun(results, { strictSkips });
+console.error(summary.message);
+process.exit(summary.exitCode);
 
 async function runAll(concurrency: number): Promise<GuardResult[]> {
   const fastBin = resolveFastGuardsBinary();
