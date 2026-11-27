@@ -1,5 +1,12 @@
 # @agent-native/recap-cli
 
+## 0.5.111
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d70dc40: Switch workspace and `agent-native typecheck` CLI typechecking to native `tsgo` when available, falling back to `tsc`.
+
 ## 0.5.110
 
 ### Patch Changes
@@ -602,12 +609,6 @@
 - Release all public npm packages with a patch version bump.
 
 ## 0.5.12
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.5.11
 
 ### Patch Changes
 

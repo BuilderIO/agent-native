@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-26
+
+### Added
+
+- The Content view can track posts from chosen X accounts through the official X API, with their views at 1, 3, 7 and 30 days old. It saves posts as it reads them and stops before $25 of the collection's X reads in a UTC calendar month; the X app's own spending limit covers everything else using its token.
+
 ## 2026-11-24
 
 ### Added
@@ -1327,17 +1333,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Daily dashboard emails now include the complete dashboard screenshot
 - Fixed the agent discarding a successful dashboard edit and replacing it with an unrelated data-source message
-
-## 2026-07-14
-
-### Improved
-
-- Analytics chat guides you to connect a data source with a direct setup link when live data is unavailable
-- Analytics landing pages now clearly position the app as an open-source alternative to Amplitude and FullStory
-
-### Fixed
-
-- Daily dashboard email captures authenticate with a session cookie, fall back to a lighter panel set, and record page diagnostics when a capture fails.
-- Long-running cross-app analyses now continue reliably in the background and can use synced workspace provider credentials.
 
 For the full list of updates, see the [changelog folder](./changelog/).
