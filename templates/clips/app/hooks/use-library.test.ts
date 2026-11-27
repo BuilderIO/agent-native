@@ -5,6 +5,8 @@ import {
   getLiveRecordingBatch,
   patchRecordingTitleInListData,
   recordingsRefetchInterval,
+  removeRecordingsFromListData,
+  trashedRecordingIds,
 } from "./use-library";
 
 describe("dedupeRecordingsById", () => {
@@ -96,5 +98,59 @@ describe("recordingsRefetchInterval", () => {
         } as any,
       ]),
     ).toBe(3000);
+  });
+});
+
+describe("removeRecordingsFromListData", () => {
+  const ids = new Set(["b"]);
+
+  it("drops ids from infinite pages", () => {
+    const data = {
+      pages: [{ recordings: [{ id: "a" }, { id: "b" }] }, { recordings: [] }],
+      pageParams: [0, 20],
+    };
+    expect(removeRecordingsFromListData(data, ids)).toEqual({
+      pages: [{ recordings: [{ id: "a" }] }, { recordings: [] }],
+      pageParams: [0, 20],
+    });
+  });
+
+  it("drops ids from flat lists and leaves count data alone", () => {
+    expect(
+      removeRecordingsFromListData({ recordings: [{ id: "b" }] }, ids),
+    ).toEqual({ recordings: [] });
+    const count = { total: 3 };
+    expect(removeRecordingsFromListData(count, ids)).toBe(count);
+  });
+
+  it("returns the same object when nothing matches", () => {
+    const data = { pages: [{ recordings: [{ id: "a" }] }], pageParams: [0] };
+    expect(removeRecordingsFromListData(data, ids)).toBe(data);
+  });
+});
+
+describe("trashedRecordingIds", () => {
+  it("takes the id of a single trashed recording", () => {
+    expect(
+      trashedRecordingIds({ id: "a", trashedAt: "2026-11-27T00:00:00Z" }),
+    ).toEqual(new Set(["a"]));
+  });
+
+  it("leaves a recording the server kept in the library", () => {
+    expect(trashedRecordingIds({ id: "a", trashedAt: null })).toEqual(
+      new Set(),
+    );
+  });
+
+  it("takes changed and unchanged batch items but not skipped ones", () => {
+    expect(
+      trashedRecordingIds({
+        results: [
+          { id: "a", status: "changed" },
+          { id: "b", status: "unchanged" },
+          { id: "c", status: "skipped", reason: "upload finished" },
+        ],
+      }),
+    ).toEqual(new Set(["a", "b"]));
   });
 });

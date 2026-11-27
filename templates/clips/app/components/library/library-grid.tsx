@@ -217,6 +217,19 @@ export function LibraryGrid({
   const [createFolderTarget, setCreateFolderTarget] =
     useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
+  const [trashingIds, setTrashingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const markTrashing = useCallback((ids: readonly string[], on: boolean) => {
+    setTrashingIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
   const scrollRootRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const nextPageInFlightRef = useRef<string | null>(null);
@@ -980,12 +993,17 @@ export function LibraryGrid({
                                   recording: r,
                                 });
                               }}
+                              trashing={trashingIds.has(r.id)}
                               onTrash={
                                 canManageRecordings
                                   ? (rec) => {
+                                      if (trashingIds.has(rec.id)) return;
+                                      markTrashing([rec.id], true);
                                       trashRecording.mutate(
                                         { id: rec.id },
                                         {
+                                          onSettled: () =>
+                                            markTrashing([rec.id], false),
                                           onSuccess: () =>
                                             toast.success(
                                               t("libraryGrid.movedToTrash"),
@@ -1106,10 +1124,15 @@ export function LibraryGrid({
                   }
                 }}
                 onTrash={async () => {
+                  const pendingIds = Array.from(selected).filter(
+                    (id) => !trashingIds.has(id),
+                  );
+                  if (pendingIds.length === 0) return;
                   setIsBulkPending(true);
+                  markTrashing(pendingIds, true);
                   try {
                     const { succeededIds, failedCount, firstError } =
-                      await sendRecordingBatches(Array.from(selected), (ids) =>
+                      await sendRecordingBatches(pendingIds, (ids) =>
                         trashRecording.mutateAsync({ ids }),
                       );
                     if (succeededIds.length > 0) {
@@ -1133,6 +1156,7 @@ export function LibraryGrid({
                       );
                     }
                   } finally {
+                    markTrashing(pendingIds, false);
                     setIsBulkPending(false);
                   }
                 }}

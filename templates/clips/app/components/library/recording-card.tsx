@@ -45,6 +45,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import {
@@ -115,6 +116,7 @@ interface RecordingCardProps {
   onCreateFolder?: () => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
+  trashing?: boolean;
   onRetry?: (rec: RecordingSummary) => Promise<void>;
   readOnly?: boolean;
 }
@@ -131,6 +133,7 @@ export function RecordingCard({
   onCreateFolder,
   onArchive,
   onTrash,
+  trashing = false,
   onRetry,
   readOnly = false,
 }: RecordingCardProps) {
@@ -354,8 +357,10 @@ export function RecordingCard({
       <ContextMenuTrigger asChild>
         <div
           role="article"
+          aria-busy={trashing || undefined}
           className={cn(
             "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
+            trashing && "pointer-events-none opacity-60",
             "border-border/80 hover:border-primary/40",
             "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
             selected && "border-primary ring-2 ring-primary/30",
@@ -386,6 +391,12 @@ export function RecordingCard({
                 ) : showPlaybackChrome ? (
                   <IconPlayerPlay className="h-10 w-10 text-primary/40" />
                 ) : null}
+              </div>
+            )}
+
+            {trashing && (
+              <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/50">
+                <Spinner className="size-6" />
               </div>
             )}
 
