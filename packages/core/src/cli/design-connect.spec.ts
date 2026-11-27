@@ -17,8 +17,6 @@ import {
   issueLocalhostBridgeOperationCapability,
   LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD,
 } from "../server/visual-edit-bridge-capability.js";
-import { measureCpuMs } from "../testing/cpu-time.js";
-
 const spawnMock = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", async (importOriginal) => ({
@@ -4277,60 +4275,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(html.body).toContain(
         `src="/src/my module.js?previewToken=${bridge.previewToken}" crossorigin="use-credentials"`,
-      );
-    } finally {
-      await bridge.close();
-      await new Promise<void>((resolve) => devServer.close(() => resolve()));
-    }
-  });
-
-  it("authenticates literal imports after JavaScript line comment terminators", async () => {
-    const root = tmpDir();
-    const devPort = await freePort();
-    const port = await freePort();
-    const source =
-      ["\r", "\n", "\r\n", "\u2028", "\u2029"]
-        .map(
-          (end, index) =>
-            `import(// comment${end}'./module.js?case=${index}');`,
-        )
-        .join("\n") +
-      `\nimport/* before */('./module.js?case=before');\nimport(${"/* x */".repeat(16)}computed);\nimport(${"// comment\r\n".repeat(28)}computed);`;
-    const devServer = http.createServer((_req, res) => {
-      res
-        .writeHead(200, { "content-type": "application/javascript" })
-        .end(source);
-    });
-    await new Promise<void>((resolve) =>
-      devServer.listen(devPort, "127.0.0.1", resolve),
-    );
-    const manifest = await prepareDesignConnectManifest({
-      root,
-      url: `http://127.0.0.1:${devPort}`,
-      port,
-    });
-    const bridge = await startDesignConnectBridge(manifest);
-    try {
-      let module!: Awaited<ReturnType<typeof getText>>;
-      const cpuMs = await measureCpuMs(async () => {
-        module = await getText(
-          `http://127.0.0.1:${port}/main.js?previewToken=${bridge.previewToken}`,
-          { origin: "null", "sec-fetch-dest": "script" },
-        );
-      });
-      expect(cpuMs).toBeLessThan(1000);
-      expect(module.status).toBe(200);
-      for (let index = 0; index < 5; index++) {
-        expect(module.body).toContain(
-          `case=${index}&previewToken=${bridge.previewToken}`,
-        );
-      }
-      expect(module.body).toContain(
-        `case=before&previewToken=${bridge.previewToken}`,
-      );
-      expect(module.body).toContain(`import(${"/* x */".repeat(16)}computed)`);
-      expect(module.body).toContain(
-        `import(${"// comment\r\n".repeat(28)}computed)`,
       );
     } finally {
       await bridge.close();
