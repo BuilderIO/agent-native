@@ -71,3 +71,35 @@ describe("readPortableStyleSnapshot", () => {
     expect(read.snapshot).not.toBe(frameSnapshot);
   });
 });
+
+describe("proxied canvas images", () => {
+  it("restores the original URL in a snapshot read from the frame", () => {
+    const original = "https://images.example.com/a/photo.jpg?w=5350&fit=crop";
+    const proxied = `${window.location.origin}/api/canvas-image?src=${encodeURIComponent(original)}&w=2048&u=subj&exp=1893456000&t=tok`;
+    const snapshot: PortableStyleSnapshot = {
+      version: 1,
+      nodes: [
+        { path: [], styles: { "background-image": `url("${proxied}")` } },
+      ],
+    };
+    frameAnswering("screen-a", snapshot);
+
+    const read = readPortableStyleSnapshot(
+      "screen-a",
+      { selector: "main", instanceIndex: 1 },
+      undefined,
+      undefined,
+    );
+
+    expect(JSON.stringify(read)).not.toContain("/api/canvas-image");
+    expect(read).toEqual({
+      status: "captured",
+      snapshot: {
+        version: 1,
+        nodes: [
+          { path: [], styles: { "background-image": `url("${original}")` } },
+        ],
+      },
+    });
+  });
+});

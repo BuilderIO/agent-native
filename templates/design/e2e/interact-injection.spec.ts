@@ -89,6 +89,7 @@ test("an Interact markup preview carries the theme, links and tweaks bridges and
   await expect
     .poll(() => injected(interact))
     .toEqual([
+      "data-agent-native-canvas-image-bootstrap",
       "data-agent-native-interact-links-bridge",
       "data-agent-native-interact-tweaks-bridge",
       "data-agent-native-native-shader-runtime",

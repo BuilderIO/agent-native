@@ -1,8 +1,9 @@
+import { toCanvasImageUrl } from "@shared/canvas-image-url";
 import {
   buildCodeLayerProjection,
   clearCodeLayerProjectionCache,
 } from "@shared/code-layer";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import {
   designFileCodeLayerSource,
@@ -42,7 +43,7 @@ it("maps duplicate source IDs to the exact projected nodes after repair", () => 
 it.each([
   ["css", "body { color: red }"],
   ["jsx", "export default () => <main />"],
-  ["html", "https://example.test/"],
+  ["html", "https://example.com/"],
 ])(
   "leaves non-HTML or URL-backed source unchanged (%s)",
   (fileType, content) => {
@@ -275,4 +276,70 @@ it("forgets prepared sources for files that left the design", () => {
   expect(prepareCanonicalSourceContent(html, { fileId: "deleted" })).not.toBe(
     deleted,
   );
+});
+
+it("stores the original URL of an image the canvas showed resized", () => {
+  const photo = "https://images.example.com/a/photo.jpg?w=5350&fit=crop";
+  const resized =
+    toCanvasImageUrl(photo, {
+      origin: "https://design.example.com",
+      route: "/api/canvas-image",
+      auth: { subject: "subj_-1", exp: 1893456000, token: "tok_-1" },
+    }) ?? "";
+  const authored = `<main data-agent-native-node-id="m"><img data-agent-native-node-id="i" src="${photo.replace(/&/g, "&amp;")}"></main>`;
+  const fromFrame = authored.replace(
+    photo.replace(/&/g, "&amp;"),
+    resized.replace(/&/g, "&amp;"),
+  );
+  expect(fromFrame).not.toBe(authored);
+  vi.stubGlobal("location", { origin: "https://design.example.com" });
+  try {
+    const prepared = prepareCanonicalSourceContent(fromFrame, {
+      fileId: "screen-resized",
+      fileType: "html",
+    });
+    expect(prepared.content).toBe(authored);
+    expect(prepared.content).not.toMatch(/[?&;](?:u|exp|t)=/);
+    expect(prepared.changed).toBe(true);
+    expect(
+      prepareCanonicalSourceContent(authored, {
+        fileId: "screen-resized-authored",
+        fileType: "html",
+      }).changed,
+    ).toBe(false);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it("reports restored image URLs as a change when the clean content is already cached", () => {
+  const photo = "https://images.example.com/a/photo.jpg";
+  const resized =
+    toCanvasImageUrl(photo, {
+      origin: "https://design.example.com",
+      route: "/api/canvas-image",
+      auth: { subject: "subj_-1", exp: 1893456000, token: "tok_-1" },
+    }) ?? "";
+  const authored = `<main data-agent-native-node-id="m"><img data-agent-native-node-id="i" src="${photo}"></main>`;
+  const fromFrame = authored.replace(photo, resized);
+  vi.stubGlobal("location", { origin: "https://design.example.com" });
+  try {
+    const clean = prepareCanonicalSourceContent(authored, {
+      fileId: "screen-cached-clean",
+    });
+    expect(clean.changed).toBe(false);
+    const restored = prepareCanonicalSourceContent(fromFrame, {
+      fileId: "screen-cached-clean",
+    });
+    expect(restored.content).toBe(authored);
+    expect(restored.changed).toBe(true);
+    expect(restored.nodeIdMap.size).toBe(clean.nodeIdMap.size);
+    expect(
+      prepareCanonicalSourceContent(authored, {
+        fileId: "screen-cached-clean",
+      }).changed,
+    ).toBe(false);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

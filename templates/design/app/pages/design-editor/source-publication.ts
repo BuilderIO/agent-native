@@ -1,3 +1,4 @@
+import { restoreCanvasImageUrls } from "@shared/canvas-image-url";
 import {
   buildCodeLayerProjection,
   ensureCodeLayerNodeIdsInHtml,
@@ -127,12 +128,18 @@ export function prepareCanonicalSourceContent(
   if (fileType !== "html" || !content.trim() || isStandaloneHttpUrl(content)) {
     return { content, changed: false, nodeIdMap: new Map() };
   }
+  const restored = restoreCanvasImageUrls(
+    content,
+    typeof location === "undefined" ? undefined : location.origin,
+  );
+  const restoredImageUrls = restored !== content;
+  content = restored;
 
   const cached = canonicalSourceCache.get(options.fileId);
   if (cached?.content === content) {
     canonicalSourceCache.delete(options.fileId);
     canonicalSourceCache.set(options.fileId, cached);
-    return cached.result;
+    return withRestoredImageUrls(cached.result, restoredImageUrls);
   }
   if (cached) removeCanonicalSourceCacheEntry(options.fileId);
 
@@ -167,7 +174,7 @@ export function prepareCanonicalSourceContent(
       },
     };
     cacheCanonicalSource(options.fileId, content, result);
-    return result;
+    return withRestoredImageUrls(result, restoredImageUrls);
   }
   const before = buildCodeLayerProjection(content, { source });
   const edits: CodeLayerSourceEdit[] = [];
@@ -197,7 +204,21 @@ export function prepareCanonicalSourceContent(
       : new Map(before.nodes.map((node) => [node.id, node.id])),
   };
   cacheCanonicalSource(options.fileId, content, result, after);
-  return result;
+  return withRestoredImageUrls(result, restoredImageUrls);
+}
+
+function withRestoredImageUrls(
+  result: CanonicalSourceContentResult,
+  restoredImageUrls: boolean,
+): CanonicalSourceContentResult {
+  if (!restoredImageUrls || result.changed) return result;
+  return {
+    content: result.content,
+    changed: true,
+    get nodeIdMap() {
+      return result.nodeIdMap;
+    },
+  };
 }
 
 function cacheCanonicalSource(
@@ -208,11 +229,10 @@ function cacheCanonicalSource(
 ): void {
   // Length, not UTF-8 size: encoding every screen just to measure it copies it.
   const contentBytes = content.length;
-  const changedBytes = result.changed
-    ? contentBytes + result.content.length
-    : 0;
-  const referencedBytes = result.changed ? 0 : contentBytes;
-  const retainedNodes = result.changed ? result.nodeIdMap.size : 0;
+  const copied = result.content !== content;
+  const changedBytes = copied ? contentBytes + result.content.length : 0;
+  const referencedBytes = copied ? 0 : contentBytes;
+  const retainedNodes = copied ? result.nodeIdMap.size : 0;
   if (
     changedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
     retainedNodes <= CANONICAL_SOURCE_CACHE_MAX_NODES

@@ -19,6 +19,7 @@ import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { type ReviewThread } from "@agent-native/toolkit/app/review";
 import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
+import { restoreCanvasImageUrlsInMessage } from "@shared/canvas-image-url";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -122,6 +123,11 @@ import type {
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { hydrateInitialSourceTokens } from "./bridge/source-token-hydration";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
+import {
+  canvasImageBootstrapMarkup,
+  withCanvasImageBootstrap,
+  withCanvasRenderSources,
+} from "./design-canvas/canvas-image-sources";
 import { appendContentSizeReporter } from "./design-canvas/content-size-report";
 import {
   getScreenContentPointFromClient,
@@ -3639,7 +3645,9 @@ export function DesignCanvas({
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
-    const localizedContent = withLocalRuntimes(iframeRenderContent);
+    const localizedContent = withCanvasRenderSources(
+      withLocalRuntimes(iframeRenderContent),
+    );
     const frameContent = getEmbeddedFrameDocumentContent({
       content: localizedContent,
       embeddedFrameBackground,
@@ -3709,7 +3717,7 @@ export function DesignCanvas({
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
       frameDocument = injectDocumentMarkup(
-        injectCanvasContextRecorder(frameContent),
+        injectCanvasContextRecorder(withCanvasImageBootstrap(frameContent)),
         bridgeToInject,
       );
     } else {
@@ -3723,7 +3731,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}${canvasImageBootstrapMarkup()}${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
@@ -3973,6 +3981,7 @@ export function DesignCanvas({
           allowedOrigins: canvasBridgeAllowedOrigins,
         });
       if (trustedRuntimeVerificationFrame) {
+        restoreCanvasImageUrlsInMessage(e.data, window.location.origin);
         if (e.data?.type === "agent-native:runtime-layer-snapshot-error") {
           onRuntimeStructureInsertRejected?.(
             e.data.payload?.reason === "snapshot-too-large"
@@ -4034,6 +4043,7 @@ export function DesignCanvas({
       if (!trusted) {
         return;
       }
+      restoreCanvasImageUrlsInMessage(e.data, window.location.origin);
       // The live route ref, onRoutePathChange and every stored routePath compare
       // against this one key-free value; stripping the bridge key anywhere
       // later would make keyed frames drop pending style, text and rename replays.
@@ -7057,7 +7067,7 @@ export function DesignCanvas({
         : rawNextContent;
       const replaced = replacePreviewContent(
         getEmbeddedFrameDocumentContent({
-          content: withLocalRuntimes(nextContent),
+          content: withCanvasRenderSources(withLocalRuntimes(nextContent)),
           embeddedFrameBackground,
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
@@ -7125,7 +7135,7 @@ export function DesignCanvas({
         : rawNextContent;
       return replacePreviewContent(
         getEmbeddedFrameDocumentContent({
-          content: withLocalRuntimes(nextContent),
+          content: withCanvasRenderSources(withLocalRuntimes(nextContent)),
           embeddedFrameBackground,
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,

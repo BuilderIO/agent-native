@@ -7,6 +7,11 @@ import { IconCode } from "@tabler/icons-react";
 import type { ComponentProps } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  useCanvasImagesReady,
+  withCanvasImageBootstrap,
+  withCanvasRenderSources,
+} from "@/components/design/design-canvas/canvas-image-sources";
 import { withLocalRuntimes } from "@/components/design/design-canvas/local-runtime";
 import {
   connectNativePreviewSurface,
@@ -40,15 +45,20 @@ function DesignThumbnailContent({
 
   const NATURAL_WIDTH = 1280;
   const NATURAL_HEIGHT = 720;
+  const canvasImagesReady = useCanvasImagesReady();
   const previewDocument = useMemo(
     () =>
-      html
+      html && canvasImagesReady
         ? preparePrivateReplayScreenshotPreviewDocument(
-            injectSessionReplayIframeBootstrap(withLocalRuntimes(html)),
+            injectSessionReplayIframeBootstrap(
+              withCanvasImageBootstrap(
+                withCanvasRenderSources(withLocalRuntimes(html)),
+              ),
+            ),
             { designId },
           )
         : null,
-    [designId, html],
+    [canvasImagesReady, designId, html],
   );
   const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
     useNativeShaderApprovals({

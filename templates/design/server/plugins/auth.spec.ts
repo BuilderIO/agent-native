@@ -40,6 +40,14 @@ describe("design auth plugin", () => {
     );
   });
 
+  it("lets cookie-less canvas frames load images through the proxy route", () => {
+    expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicPaths: expect.arrayContaining(["/api/canvas-image"]),
+      }),
+    );
+  });
+
   it("lets a session-less external agent reach the agent-context endpoint", () => {
     expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
       expect.objectContaining({

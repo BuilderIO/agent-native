@@ -2,8 +2,10 @@ import type { ElementInfo } from "@/components/design/types";
 import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
 
 import {
+  canvasImageOrigin as exportCanvasImageOrigin,
   copyExportImageSource,
   prepareExportImageSource,
+  restoreCanvasImageSources,
   resolveExportImageSource,
 } from "../../../shared/export-image-source";
 import {
@@ -640,6 +642,10 @@ export async function renderExportDocumentCanvas({
     );
   }
   preserveLiveStylesheets(doc, clonedDocument);
+  const canvasImageOrigin = exportCanvasImageOrigin(doc);
+  if (canvasImageOrigin !== undefined) {
+    restoreCanvasImageSources(clonedDocument, canvasImageOrigin);
+  }
   const width = Math.max(
     doc.documentElement.scrollWidth,
     doc.body?.scrollWidth ?? 0,

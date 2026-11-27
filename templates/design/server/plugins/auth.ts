@@ -42,6 +42,7 @@ export default createToolkitAuthPlugin({
   publicPaths: [
     "/api/builder-identity/exchange",
     "/api/design-handoff",
+    "/api/canvas-image",
     // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.
     DESIGN_AGENT_CONTEXT_ENDPOINT,

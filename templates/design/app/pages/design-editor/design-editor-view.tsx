@@ -150,6 +150,7 @@ export function renderDesignEditorView({
   editorLayerActions,
   editorSourceAndSync,
   editorScreenRendering,
+  canvasImagesReady,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -172,6 +173,7 @@ export function renderDesignEditorView({
   editorLayerActions: EditorLayerActions;
   editorSourceAndSync: EditorSourceAndSync;
   editorScreenRendering: EditorScreenRendering;
+  canvasImagesReady: boolean;
 }) {
   const {
     t,
@@ -691,6 +693,7 @@ export function renderDesignEditorView({
 
   if (
     designLoading ||
+    !canvasImagesReady ||
     (!design &&
       (pendingGenerationActive ||
         shellMode ||

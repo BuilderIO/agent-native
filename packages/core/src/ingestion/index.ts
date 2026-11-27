@@ -133,6 +133,7 @@ export {
   fingerprintMedia,
   rankColorSamples,
   readBoundedResponseBytes,
+  RemoteArtifactTooLargeError,
   type CroppedImageRegion,
   type MediaFingerprint,
   type ResizedImage,
