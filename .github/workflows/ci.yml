@@ -122,6 +122,7 @@ jobs:
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
       has_tests: ${{ steps.lanes.outputs.has_tests }}
       core_test_files: ${{ steps.lanes.outputs.core_test_files }}
+      catalog_contract_apps: ${{ steps.lanes.outputs.catalog_contract_apps }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -496,6 +497,7 @@ jobs:
           CORE_SHARD: ${{ matrix.coreShard }}
           CORE_TEST_MODE: ${{ matrix.coreMode }}
           CORE_TEST_FILES: ${{ needs.test-plan.outputs.core_test_files }}
+          CATALOG_CONTRACT_APPS: ${{ needs.test-plan.outputs.catalog_contract_apps }}
         run: |
           set -euo pipefail
           args=(run --dir src --shard="$CORE_SHARD" --passWithNoTests)
