@@ -2434,11 +2434,17 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Compute TLA+ tool cache key
+        id: tla-tools
+        run: >-
+          node -e 'const m = JSON.parse(require("node:fs").readFileSync("verification/execution-lease/manifest.json", "utf8"));
+          console.log("key=" + m.tlaTools.version + "-" + m.tlaTools.sha256.slice(0, 16));' >> "$GITHUB_OUTPUT"
+
       - name: Restore TLA+ tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tmp/tla
-          key: tla2tools-${{ hashFiles('verification/execution-lease/manifest.json') }}
+          key: tla2tools-${{ steps.tla-tools.outputs.key }}
 
       - name: Model-check the execution lease
         run: pnpm verify:execution-lease
