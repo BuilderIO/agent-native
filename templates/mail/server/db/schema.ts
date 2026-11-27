@@ -331,6 +331,30 @@ export const mailInboxThreads = table(
   ],
 );
 
+export const mailThreadSummaries = table(
+  "mail_thread_summaries",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    threadId: text("thread_id").notNull(),
+    lastMessageId: text("last_message_id").notNull(),
+    messageCount: integer("message_count").notNull(),
+    line: text("line").notNull(),
+    pointsJson: text("points_json").notNull(),
+    model: text("model"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("mail_thread_summaries_owner_account_thread_idx").on(
+      t.ownerEmail,
+      t.accountEmail,
+      t.threadId,
+    ),
+  ],
+);
+
 export const queuedEmailDrafts = table("queued_email_drafts", {
   id: text("id").primaryKey(),
   orgId: text("org_id").notNull(),

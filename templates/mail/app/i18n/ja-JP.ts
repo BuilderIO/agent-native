@@ -857,6 +857,16 @@ const messages = {
     contacts: {
       noContactSelected: "連絡先が選択されていません",
     },
+    summary: {
+      summarize: "要約",
+      hide: "要約を非表示",
+      label: "要約",
+      summarizing: "要約中…",
+      failed: "この会話を要約できませんでした。",
+      refreshFailed: "この要約を更新できませんでした。",
+      needsModel:
+        "要約にはAIモデルが必要です。Builder.ioを無料で使うか、APIキーを追加してください。",
+    },
     contactPanel: {
       addToPanel: "このパネルに追加",
       builtIn: "組み込み",

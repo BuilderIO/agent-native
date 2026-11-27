@@ -30,6 +30,7 @@ import {
   IconLink,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconSparkles,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -64,6 +65,10 @@ import {
   type LabelPickerAction,
   type LabelPickerRequest,
 } from "@/components/email/LabelPicker";
+import {
+  SUMMARY_KEYS,
+  ThreadSummaryCard,
+} from "@/components/email/ThreadSummaryCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -101,6 +106,7 @@ import {
   useKeyboardShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useThreadSummaryPanel } from "@/hooks/use-thread-summary";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { emailHasFixedWidthLayout } from "@/lib/designed-email";
 import {
@@ -283,7 +289,8 @@ export function EmailThread({
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [accountEmail, threadId, queryClient]);
 
-  const { data: threadMessages } = useThreadMessages(threadId, accountEmail);
+  const { data: threadMessages, isFetching: threadFetching } =
+    useThreadMessages(threadId, accountEmail);
 
   const previewMessage = useMemo(() => {
     if (!threadId || !threads.length) return undefined;
@@ -364,6 +371,13 @@ export function EmailThread({
   } | null>(null);
 
   const hasFullBody = !!(email?.bodyHtml || email?.body);
+
+  const summaryPanel = useThreadSummaryPanel({
+    accountEmail: email?.accountEmail || accountEmail || "local",
+    threadId,
+    threadMessages,
+    messagesSettled: !!threadMessages && !threadFetching,
+  });
 
   const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
 
@@ -1203,6 +1217,7 @@ export function EmailThread({
         key: "u",
         handler: () => email && setCurrentEmailReadState(!email.isRead),
       },
+      { key: "i", handler: summaryPanel.toggle },
     ],
     !!threadId,
   );
@@ -1483,6 +1498,27 @@ export function EmailThread({
               <div className="hidden sm:flex items-center gap-0.5 ml-auto shrink-0">
                 <ActionTooltip
                   label={
+                    summaryPanel.open
+                      ? t("mail.summary.hide")
+                      : t("mail.summary.summarize")
+                  }
+                  keys={SUMMARY_KEYS}
+                >
+                  <button
+                    type="button"
+                    onClick={summaryPanel.toggle}
+                    aria-pressed={summaryPanel.open}
+                    aria-label={t("mail.summary.summarize")}
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors",
+                      summaryPanel.open && "bg-accent text-foreground",
+                    )}
+                  >
+                    <IconSparkles className="h-4 w-4" />
+                  </button>
+                </ActionTooltip>
+                <ActionTooltip
+                  label={
                     isAiFiltered
                       ? t("mail.aiFilter.keepButton")
                       : t("mail.aiFilter.filterButton")
@@ -1713,6 +1749,15 @@ export function EmailThread({
         className="mail-thread-scroll flex-1 overflow-y-auto px-(--mail-thread-gutter) pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
+          {summaryPanel.open && (
+            <ThreadSummaryCard
+              summary={summaryPanel.summary}
+              pending={summaryPanel.pending}
+              error={summaryPanel.error}
+              onHide={summaryPanel.toggle}
+              onRetry={summaryPanel.retry}
+            />
+          )}
           {!hasFullBody && messages.length > 0 && (
             <ThreadMessageSkeleton compact />
           )}

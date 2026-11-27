@@ -106,6 +106,25 @@ async function countRows(owner: string, account: string, inInbox?: 0 | 1) {
   return Number(rows[0].n);
 }
 
+async function insertSummary(owner: string, account: string, threadId: string) {
+  await exec.execute({
+    sql: `INSERT INTO mail_thread_summaries (id, owner_email, account_email,
+        thread_id, last_message_id, message_count, line, points_json,
+        created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'm', 1, 'line', '[]', 0, 0)`,
+    args: [`${account}:${threadId}`, owner, account, threadId],
+  });
+}
+
+async function summaryAccounts(owner: string) {
+  const { rows } = await exec.execute({
+    sql: `SELECT account_email FROM mail_thread_summaries
+      WHERE owner_email = $1 ORDER BY account_email`,
+    args: [owner],
+  });
+  return rows.map((row: { account_email: string }) => row.account_email);
+}
+
 async function setRowTimes(
   threadId: string,
   updatedAt: number,
@@ -451,13 +470,23 @@ describe("runInboxRetention (PGlite)", () => {
       claimed: false,
     };
 
+    await insertSummary("woke@example.com", "woke-acct@example.com", "t1");
+    await insertSummary("woke@example.com", "kept-acct@example.com", "t2");
+
     expect(await retention.clearPair(scanned, NOW, true)).toBeNull();
     expect(await countRows("woke@example.com", "woke-acct@example.com")).toBe(
       3,
     );
+    expect(await summaryAccounts("woke@example.com")).toEqual([
+      "kept-acct@example.com",
+      "woke-acct@example.com",
+    ]);
 
     // The same pair cleared for a missing grant has no inactivity condition.
     expect(await retention.clearPair(scanned, NOW, false)).toBe(3);
+    expect(await summaryAccounts("woke@example.com")).toEqual([
+      "kept-acct@example.com",
+    ]);
   });
   it("leaves a claimed pair's rows alone, so a concurrent archive cannot push valid rows over the cap", async () => {
     const owner = "busy@example.com";

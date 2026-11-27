@@ -842,6 +842,16 @@ const messages = {
     contacts: {
       noContactSelected: "कोई कॉन्टैक्ट चयनित नहीं",
     },
+    summary: {
+      summarize: "सारांश बनाएँ",
+      hide: "सारांश छिपाएँ",
+      label: "सारांश",
+      summarizing: "सारांश बन रहा है…",
+      failed: "इस बातचीत का सारांश नहीं बन सका।",
+      refreshFailed: "यह सारांश अपडेट नहीं हो सका।",
+      needsModel:
+        "सारांश के लिए AI मॉडल चाहिए। Builder.io मुफ़्त में इस्तेमाल करें, या API कुंजी जोड़ें।",
+    },
     contactPanel: {
       addToPanel: "इस पैनल में जोड़ें",
       builtIn: "बिल्ट-इन",

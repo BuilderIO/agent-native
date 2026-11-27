@@ -14,6 +14,7 @@ registerIdentityColumns([
     "mail_sync_accounts",
     "mail_inbox_threads",
     "mail_inbox_push_invalidations",
+    "mail_thread_summaries",
     "queued_email_drafts",
     "scheduled_jobs",
   ].map((table) => ({
@@ -539,6 +540,25 @@ ALTER TABLE automation_rules
   ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT;
 ALTER TABLE automation_rules
   ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT;`,
+    },
+    {
+      version: 49,
+      name: "mail-thread-summaries",
+      sql: `CREATE TABLE IF NOT EXISTS mail_thread_summaries (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    last_message_id TEXT NOT NULL,
+    message_count INTEGER NOT NULL,
+    line TEXT NOT NULL,
+    points_json TEXT NOT NULL,
+    model TEXT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  );
+CREATE UNIQUE INDEX IF NOT EXISTS mail_thread_summaries_owner_account_thread_idx
+      ON mail_thread_summaries(owner_email, account_email, thread_id);`,
     },
   ],
   { table: "mail_migrations" },

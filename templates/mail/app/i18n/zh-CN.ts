@@ -815,6 +815,15 @@ const messages = {
     contacts: {
       noContactSelected: "未选择联系人",
     },
+    summary: {
+      summarize: "总结",
+      hide: "隐藏摘要",
+      label: "摘要",
+      summarizing: "正在总结…",
+      failed: "无法总结此对话。",
+      refreshFailed: "无法更新此摘要。",
+      needsModel: "摘要需要 AI 模型。免费使用 Builder.io，或添加 API 密钥。",
+    },
     contactPanel: {
       addToPanel: "添加到此面板",
       builtIn: "内置",

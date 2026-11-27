@@ -841,6 +841,16 @@ const messages = {
     contacts: {
       noContactSelected: "لم يتم تحديد جهة اتصال",
     },
+    summary: {
+      summarize: "تلخيص",
+      hide: "إخفاء الملخص",
+      label: "الملخص",
+      summarizing: "جارٍ التلخيص…",
+      failed: "تعذّر تلخيص هذه المحادثة.",
+      refreshFailed: "تعذّر تحديث هذا الملخص.",
+      needsModel:
+        "تحتاج الملخصات إلى نموذج ذكاء اصطناعي. استخدم Builder.io مجانًا، أو أضف مفتاح API.",
+    },
     contactPanel: {
       addToPanel: "إضافة إلى هذه اللوحة",
       builtIn: "مدمجة",
