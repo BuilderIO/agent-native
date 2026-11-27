@@ -77,6 +77,7 @@ import {
 } from "../commands/publish-visual-edit-snapshot";
 import { runStartRetryGeneration } from "../commands/start-retry-generation";
 import { isDesignData } from "../design-data-geometry-utils";
+import { isDesignRead, useRetainedDesignRead } from "../design-read-retention";
 import { designSelectionStateKeys } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
 import {
@@ -756,10 +757,10 @@ export function useEditorGenerationAndAccess({
   ] = useState(0);
 
   const {
-    data: metadataResult,
+    data: designReadResult,
     error: designQueryError,
     isError: designQueryFailed,
-    isLoading: designLoading,
+    isLoading: designReadLoading,
     isFetching: designFetching,
     dataUpdatedAt: designDataUpdatedAt,
     refetch: refetchDesign,
@@ -783,6 +784,33 @@ export function useEditorGenerationAndAccess({
           : false,
     },
   );
+  const {
+    data: designAccessStatus,
+    isLoading: designAccessStatusLoading,
+    isFetching: designAccessStatusFetching,
+    isError: designAccessStatusError,
+    dataUpdatedAt: designAccessStatusUpdatedAt,
+    refetch: refetchDesignAccessStatus,
+  } = useActionQuery<DesignAccessStatus>(
+    "get-design-access-status",
+    id ? { designId: id } : undefined,
+    {
+      enabled: !shellMode && Boolean(id) && !isDesignRead(designReadResult),
+    },
+  );
+  const { state: designReadState, metadata: metadataResult } =
+    useRetainedDesignRead({
+      id,
+      read: designReadResult,
+      accessStatus: designAccessStatus,
+      accessCheckedAt: designAccessStatusUpdatedAt,
+      accessCheckPending: designAccessStatusFetching,
+      accessCheckFailed: designAccessStatusError,
+      viewerSignedIn: sessionResolved ? isSignedIn : undefined,
+      retryRead: () => void refetchDesign(),
+      checkAccess: () => void refetchDesignAccessStatus(),
+    });
+  const designLoading = designReadLoading && designReadState !== "retained";
   const sourceMetadata = useMemo(
     () =>
       metadataResult &&
@@ -885,18 +913,6 @@ export function useEditorGenerationAndAccess({
     hydratedDesignRef.current = { metadata: metadataResult, design };
     return design;
   }, [metadataResult, sourceLoader, sourceRevision, dependencyStatusByRoot]);
-  const {
-    data: designAccessStatus,
-    isLoading: designAccessStatusLoading,
-    isError: designAccessStatusError,
-    refetch: refetchDesignAccessStatus,
-  } = useActionQuery<DesignAccessStatus>(
-    "get-design-access-status",
-    { designId: id! },
-    {
-      enabled: !shellMode && Boolean(id) && !isDesignData(designResult),
-    },
-  );
   const requestDesignAccessMutation = useActionMutation<
     RequestDesignAccessResult,
     { designId: string }
@@ -1765,6 +1781,7 @@ export function useEditorGenerationAndAccess({
     currentUserAvatarUrl,
     pendingGenerationActive,
     designLoading,
+    designReadState,
     designDataReady,
     refetchDesign,
     designAccessStatus,
