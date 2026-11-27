@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { ContentTrashPurgePlanResponse } from "@shared/content-trash";
 import {
   useCallback,
@@ -127,6 +127,7 @@ export function TrashPurgeDialog({
   returnFocus: () => HTMLElement | null;
 }) {
   const t = useT();
+  const formatters = useFormatters();
   const planner = usePlanContentTrashPurge();
   const executor = useExecuteContentTrashPurge();
   const [plans, setPlans] = useState<TrashPurgePlanState[]>([]);
@@ -215,6 +216,9 @@ export function TrashPurgeDialog({
     0,
   );
   const named = plans.length + unavailableSpaceIds.length > 1;
+  const emptyWorkspaces = plans
+    .filter((entry) => entry.status === "empty")
+    .map((entry) => spaceName(entry.target.spaceId));
   const unresolved = starts.some((start) => start.status !== "started");
 
   async function execute() {
@@ -350,6 +354,15 @@ export function TrashPurgeDialog({
                 }
               />
             ))}
+            {emptyWorkspaces.length ? (
+              <p className="text-muted-foreground">
+                {t("trash.emptyWorkspaces", {
+                  workspaces: formatters.formatList(emptyWorkspaces, {
+                    type: "conjunction",
+                  }),
+                })}
+              </p>
+            ) : null}
             {unavailableSpaceIds.map((spaceId) => (
               <p key={spaceId} className="text-muted-foreground">
                 {t("trash.cannotPurgeWorkspace", {
@@ -413,8 +426,7 @@ function TrashPurgePlanSection({
         <Skeleton className="h-5 w-40" />
       </div>
     );
-  if (entry.status === "empty")
-    return <p className="text-muted-foreground">{counts(0, 0)}</p>;
+  if (entry.status === "empty") return null;
   if (entry.status === "failed")
     return (
       <div className="flex items-start justify-between gap-2">

@@ -84,6 +84,7 @@ const en = {
   scopeCounts: "{{eligible}} eligible, {{blocked}} blocked",
   workspaceScopeCounts:
     "{{workspace}}: {{eligible}} eligible, {{blocked}} blocked",
+  emptyWorkspaces: "Nothing to delete in {{workspaces}}",
   workspaceError: "{{workspace}}: {{error}}",
   queued: "Purge queued",
   running_one: "Deleting Pages... {{count}} Page deleted",
@@ -213,6 +214,7 @@ const translations: Record<
     scopeCounts: "{{eligible}} aptas, {{blocked}} bloqueadas",
     workspaceScopeCounts:
       "{{workspace}}: {{eligible}} aptas, {{blocked}} bloqueadas",
+    emptyWorkspaces: "Nada que eliminar en {{workspaces}}",
     workspaceError: "{{workspace}}: {{error}}",
     queued: "Vaciado en cola",
     running_one: "Eliminando páginas... {{count}} eliminada",
@@ -339,6 +341,7 @@ const translations: Record<
     scopeCounts: "{{eligible}} eligibles, {{blocked}} bloquees",
     workspaceScopeCounts:
       "{{workspace}} : {{eligible}} eligibles, {{blocked}} bloquees",
+    emptyWorkspaces: "Rien à supprimer dans {{workspaces}}",
     workspaceError: "{{workspace}} : {{error}}",
     queued: "Vidage en attente",
     running_one: "Suppression des pages... {{count}} supprimée",
@@ -461,6 +464,7 @@ const translations: Record<
     scopeCounts: "{{eligible}} loschbar, {{blocked}} blockiert",
     workspaceScopeCounts:
       "{{workspace}}: {{eligible}} loschbar, {{blocked}} blockiert",
+    emptyWorkspaces: "Nichts zu löschen in {{workspaces}}",
     workspaceError: "{{workspace}}: {{error}}",
     queued: "Loschvorgang eingereiht",
     running_one: "Seiten werden gelöscht... {{count}} Seite gelöscht",
@@ -585,6 +589,7 @@ const translations: Record<
     scopeCounts: "{{eligible}} elegiveis, {{blocked}} bloqueadas",
     workspaceScopeCounts:
       "{{workspace}}: {{eligible}} elegiveis, {{blocked}} bloqueadas",
+    emptyWorkspaces: "Nada para excluir em {{workspaces}}",
     workspaceError: "{{workspace}}: {{error}}",
     queued: "Esvaziamento na fila",
     running_one: "Excluindo páginas... {{count}} excluída",
@@ -698,6 +703,7 @@ const translations: Record<
     scopeCounts: "{{eligible}} 项可删除，{{blocked}} 项受阻",
     workspaceScopeCounts:
       "{{workspace}}：{{eligible}} 项可删除，{{blocked}} 项受阻",
+    emptyWorkspaces: "{{workspaces}}中没有可删除的内容",
     workspaceError: "{{workspace}}：{{error}}",
     queued: "清空操作已排队",
     running_other: "正在删除页面... 已删除 {{count}} 个页面",
@@ -806,6 +812,7 @@ const translations: Record<
     scopeCounts: "{{eligible}} 項可刪除，{{blocked}} 項受阻",
     workspaceScopeCounts:
       "{{workspace}}：{{eligible}} 項可刪除，{{blocked}} 項受阻",
+    emptyWorkspaces: "{{workspaces}}中沒有可刪除的內容",
     workspaceError: "{{workspace}}：{{error}}",
     queued: "清空操作已排隊",
     running_other: "正在刪除頁面... 已刪除 {{count}} 個頁面",
@@ -920,6 +927,7 @@ const translations: Record<
     scopeCounts: "削除可能 {{eligible}} 件、ブロック {{blocked}} 件",
     workspaceScopeCounts:
       "{{workspace}}：削除可能 {{eligible}} 件、ブロック {{blocked}} 件",
+    emptyWorkspaces: "{{workspaces}}には削除するものがありません",
     workspaceError: "{{workspace}}：{{error}}",
     queued: "削除を待機中",
     running_other: "ページを削除中... {{count}} ページ削除済み",
@@ -1033,6 +1041,7 @@ const translations: Record<
     scopeCounts: "삭제 가능 {{eligible}}개, 차단 {{blocked}}개",
     workspaceScopeCounts:
       "{{workspace}}: 삭제 가능 {{eligible}}개, 차단 {{blocked}}개",
+    emptyWorkspaces: "{{workspaces}}에는 삭제할 항목이 없습니다",
     workspaceError: "{{workspace}}: {{error}}",
     queued: "삭제 대기 중",
     running_other: "페이지 삭제 중... {{count}}개 삭제됨",
@@ -1147,6 +1156,7 @@ const translations: Record<
     operationStateFailed: "सहेजी गई हटाने की स्थिति बहाल नहीं हो सकी",
     scopeCounts: "{{eligible}} योग्य, {{blocked}} अवरुद्ध",
     workspaceScopeCounts: "{{workspace}}: {{eligible}} योग्य, {{blocked}} अवरुद्ध",
+    emptyWorkspaces: "{{workspaces}} में हटाने के लिए कुछ नहीं है",
     workspaceError: "{{workspace}}: {{error}}",
     queued: "हटाना कतार में है",
     running_one: "पेज हट रहे हैं... {{count}} हटाया गया",
@@ -1276,6 +1286,7 @@ const translations: Record<
     scopeCounts: "{{eligible}} مؤهلة، {{blocked}} محظورة",
     workspaceScopeCounts:
       "{{workspace}}: {{eligible}} مؤهلة، {{blocked}} محظورة",
+    emptyWorkspaces: "لا يوجد ما يمكن حذفه في {{workspaces}}",
     workspaceError: "{{workspace}}: {{error}}",
     queued: "الحذف في قائمة الانتظار",
     running_zero: "جار حذف الصفحات... لم تحذف أي صفحة ({{count}})",

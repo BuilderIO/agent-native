@@ -236,7 +236,6 @@ const ALLOWLIST = new Set([
   "analytics:jira/search.get.ts:jira-search",
   "analytics:notion/page/[pageId].get.ts:notion-page",
   "analytics:pylon/issues.get.ts:pylon-issues",
-  "analytics:twitter/tweets.get.ts:twitter-tweets",
 
   "mail:automations/trigger.post.ts:trigger-automations",
   "mail:emails/[id].delete.ts:trash-email",
