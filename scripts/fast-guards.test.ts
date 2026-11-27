@@ -65,8 +65,8 @@ test("fast-guards detects real violations and respects opt-out pragmas", () => {
 
   const secretLike = `sk-ant-${"AbCdEfGhIj1234567890XyZ"}`;
   const dir = makeTempGitRepo({
-    "README.md": "Use Agent Native here.\n",
-    "docs/ok.md": "// agent-native-brand-ok: test\nAgent Native allowed.\n",
+    "README.md": `Use ${"Agent"} ${"Native"} here.\n`,
+    "docs/ok.md": `// agent-native-brand-ok: test\n${"Agent"} ${"Native"} allowed.\n`,
     "src/leak.ts": `export const token = "${secretLike}";\n`,
     "src/ok-secret.ts": `// guard:allow-secret-literal — test fixture\nexport const token = "${secretLike}";\n`,
     "packages/app/src/bad.ts": `import { foo } from "@agent-native/core/client";\nexport const x = foo;\n`,
