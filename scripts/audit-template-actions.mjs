@@ -29,13 +29,22 @@ function discoverTemplates() {
     .sort();
 }
 
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".generated",
+  ".output",
+  "dist",
+  ".nitro",
+  ".react-router",
+  "coverage",
+]);
+
 function walk(dir, extRe, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === ".generated")
-        continue;
+      if (SKIP_DIRS.has(entry.name)) continue;
       walk(full, extRe, out);
     } else if (extRe.test(entry.name)) {
       out.push(full);
@@ -113,8 +122,9 @@ function listTopLevelActionFiles(actionsDir) {
 }
 
 function auditTemplate(slug) {
-  const actionsDir = path.join(templatesDir, slug, "actions");
-  const appDir = path.join(templatesDir, slug, "app");
+  const templateDir = path.join(templatesDir, slug);
+  const actionsDir = path.join(templateDir, "actions");
+  const appDir = path.join(templateDir, "app");
 
   const actionFiles = listTopLevelActionFiles(actionsDir);
   const actions = actionFiles.map(parseActionFile).filter((a) => a !== null);
@@ -127,11 +137,23 @@ function auditTemplate(slug) {
     .map((f) => fs.readFileSync(f, "utf-8"))
     .join("\n");
 
+  const nonAppFiles = walk(templateDir, /\.(ts|tsx|js|jsx|mjs|md|mdx|json)$/)
+    .filter((f) => !f.startsWith(appDir + path.sep))
+    .map((f) => ({ path: f, src: fs.readFileSync(f, "utf-8") }));
+
   const uiDead = actions
     .filter((a) => a.mutating && a.httpExposed && !a.agentToolHidden)
     .filter((a) => !referencedInApp(a.name, appSrc))
-    .map((a) => a.name)
-    .sort();
+    .map((a) => {
+      const refRe = new RegExp(
+        `["'\`]${escapeRe(a.name)}["'\`]|\\b${escapeRe(a.name)}\\b`,
+      );
+      const externalRefs = nonAppFiles.filter(
+        (f) => f.path !== a.absPath && refRe.test(f.src),
+      ).length;
+      return { name: a.name, externalRefs };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const clusters = findRedundantClusters(actions);
 
@@ -181,9 +203,13 @@ for (const slug of targets) {
     console.log(
       `    Possibly UI-dead mutating actions still exposed to the model:`,
     );
-    for (const name of uiDead) {
+    for (const { name, externalRefs } of uiDead) {
+      const refNote =
+        externalRefs === 0
+          ? "zero source/doc references outside its own action file"
+          : `${externalRefs} non-app source/doc reference(s), no app/ caller`;
       console.log(
-        `      - ${name}  → name never referenced under app/. Delete it, or set ` +
+        `      - ${name}  → ${refNote}. Delete it, wire a UI, or set ` +
           `agentTool: false if it must stay HTTP/programmatic-only.`,
       );
     }
