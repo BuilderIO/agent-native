@@ -2369,8 +2369,9 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, core, OTel, Toolkit, and creative context
+      - name: Build Actions, recap CLI, AgentKit, core, OTel, Toolkit, and creative context
         run: |
+          pnpm --filter @agent-native/actions build
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
@@ -2630,6 +2631,7 @@ jobs:
       - name: Build packages for source-backed guards
         run: >-
           pnpm
+          --filter @agent-native/actions
           --filter @agent-native/recap-cli
           --filter @agent-native/agentkit
           --filter @agent-native/core

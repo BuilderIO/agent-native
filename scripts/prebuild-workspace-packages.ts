@@ -97,6 +97,15 @@ function exportedDistOutputs(packageDir: string): string[] {
 
 const targets: PackageTarget[] = [
   {
+    id: "actions",
+    name: "@agent-native/actions",
+    dir: "packages/actions",
+    expectedOutputs: [
+      ...exportedDistOutputs("packages/actions"),
+      "dist/cli.js",
+    ],
+  },
+  {
     id: "agentkit",
     name: "@agent-native/agentkit",
     dir: "packages/agentkit",
@@ -217,6 +226,7 @@ const targets: PackageTarget[] = [
 const modeTargets: Record<PrebuildMode, string[]> = {
   "agentkit-acceptance": ["agentkit", "design-system", "toolkit", "core"],
   dev: [
+    "actions",
     "agentkit",
     "recap-cli",
     "shared-app-config",
@@ -231,6 +241,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "otel",
   ],
   postinstall: [
+    "actions",
     "agentkit",
     "recap-cli",
     "shared-app-config",

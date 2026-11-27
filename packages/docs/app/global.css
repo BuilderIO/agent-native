@@ -118,6 +118,8 @@
   --header-bg: rgba(255, 255, 255, 0.8);
   --code-bg: #f5f5f5;
   --code-border: #ebebeb;
+  --inline-code-bg: rgba(0, 0, 0, 0.045);
+  --inline-code-border: rgba(0, 0, 0, 0.08);
   --table-header-bg: #f0efeb;
   --sidebar-hover: #f5f5f5;
   --selection: rgba(0, 95, 204, 0.15);
@@ -140,6 +142,8 @@
   --header-bg: rgba(10, 10, 10, 0.8);
   --code-bg: #111;
   --code-border: #1f1f1f;
+  --inline-code-bg: rgba(255, 255, 255, 0.075);
+  --inline-code-border: rgba(255, 255, 255, 0.12);
   --table-header-bg: #1a1a1a;
   --sidebar-hover: #111;
   --selection: rgba(82, 168, 255, 0.2);
@@ -163,6 +167,8 @@
     --header-bg: rgba(10, 10, 10, 0.8);
     --code-bg: #111;
     --code-border: #1f1f1f;
+    --inline-code-bg: rgba(255, 255, 255, 0.075);
+    --inline-code-border: rgba(255, 255, 255, 0.12);
     --table-header-bg: #1a1a1a;
     --sidebar-hover: #111;
     --selection: rgba(82, 168, 255, 0.2);
@@ -456,11 +462,18 @@ a.site-content-inline-link {
 
 code:where(:not(.builder-brand-tokens *)) {
   font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--code-bg);
-  border: 1px solid var(--code-border);
-  border-radius: 6px;
-  padding: 2px 6px;
+  font-size: 0.85em;
+  font-weight: 450;
+  color: var(--fg);
+  background: var(--inline-code-bg);
+  border: 1px solid var(--inline-code-border);
+  border-radius: 5px;
+  padding: 0.125rem 0.3rem;
+  overflow-wrap: break-word;
+}
+
+a code:where(:not(.builder-brand-tokens *)) {
+  color: inherit;
 }
 
 pre code {
@@ -469,6 +482,8 @@ pre code {
   padding: 0;
   border-radius: 0;
   font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
 }
 
 pre:where(:not(.builder-brand-tokens *)) {

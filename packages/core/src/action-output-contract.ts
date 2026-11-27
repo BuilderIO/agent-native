@@ -1,3 +1,4 @@
+import { schemaToJsonSchema } from "@agent-native/actions/contract";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import { AGENT_IMAGES_FIELD } from "./agent/tool-result-images.js";
@@ -145,15 +146,12 @@ export function outputSchemaToJsonSchema(
       "mcpOutputSchema needs an outputSchema with a Standard JSON Schema output converter (`~standard.jsonSchema.output`), such as a Zod 4 schema.",
     );
   }
-  const converted = output({ target: "draft-2020-12" });
-  if (!converted || typeof converted !== "object" || Array.isArray(converted)) {
+  const semantic = schemaToJsonSchema(schema, "output");
+  if (!semantic) {
     throw new TypeError(
       "outputSchema did not convert to a JSON Schema object.",
     );
   }
-  const { $schema: _dialect, ...semantic } = structuredClone(
-    converted as JsonSchemaObject,
-  );
   return semantic;
 }
 
@@ -761,14 +759,5 @@ export function describeOutputContractIssue(
 export function inputSchemaToJsonSchema(
   schema: StandardSchemaV1,
 ): JsonSchemaObject | undefined {
-  const input = (
-    schema as {
-      "~standard"?: {
-        jsonSchema?: { input?: (options: { target: string }) => unknown };
-      };
-    }
-  )["~standard"]?.jsonSchema?.input;
-  if (typeof input !== "function") return undefined;
-  const converted = input({ target: "draft-2020-12" });
-  return isRecord(converted) ? converted : undefined;
+  return schemaToJsonSchema(schema, "input") ?? undefined;
 }

@@ -91,6 +91,7 @@ const MINIMUM_RELEASE_AGE_EXCLUDES = [
   '"@modelcontextprotocol/core"',
   '"@modelcontextprotocol/node"',
   '"@modelcontextprotocol/server"',
+  '"@agent-native/actions"',
   '"@agent-native/agentkit"',
   '"@agent-native/toolkit"',
   '"@agent-native/recap-cli"',
@@ -3963,6 +3964,13 @@ function getLocalFrameworkPackageOverrides(): Record<string, string> {
   if (localAgentKit) {
     overrides['"@agent-native/agentkit"'] = JSON.stringify(
       localPackageTarball(localAgentKit),
+    );
+  }
+
+  const localActions = findLocalPackage("actions");
+  if (localActions) {
+    overrides['"@agent-native/actions"'] = JSON.stringify(
+      localPackageTarball(localActions),
     );
   }
 
