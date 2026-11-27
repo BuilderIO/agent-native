@@ -30,6 +30,12 @@ export default defineAction({
   http: { method: "POST" },
   requiresAuth: false,
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   maxBodyBytes: 256 * 1024,
   audit: { enabled: false },
   changeEvents: false,

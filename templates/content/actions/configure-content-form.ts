@@ -43,5 +43,10 @@ export default defineAction({
   }),
   outputSchema: contentFormSettingsSchema,
   mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => configureContentForm(args, ctx),
 });
