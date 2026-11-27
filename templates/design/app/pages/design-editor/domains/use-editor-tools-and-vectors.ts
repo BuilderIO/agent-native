@@ -1,3 +1,4 @@
+import { registerBeforeAgentTurnFlush } from "@agent-native/core/client/navigation";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
@@ -85,8 +86,12 @@ import {
   EMPTY_TEXT_CLEANUP_RETRY_MS,
 } from "../editor-constants";
 import { buildSignInHrefForComment } from "../editor-helpers";
-import { runMirrorSelectionToAgentChat } from "../effects/mirror-selection-to-agent-chat";
 import {
+  flushPendingMirroredSelectionToAgentChat,
+  runMirrorSelectionToAgentChat,
+} from "../effects/mirror-selection-to-agent-chat";
+import {
+  flushPendingAgentSelectionContext,
   runPublishAgentSelectionContext,
   summarizeAgentSelectionScreens,
   type ScreenFrameTypeCache,
@@ -1756,6 +1761,41 @@ export function useEditorToolsAndVectors({
   const mirroredExcerptRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
+  const mirrorDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const pendingMirroredItemRef = useRef<{
+    key: string;
+    title: string;
+    context: string;
+    openSidebar: boolean;
+    focus: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    const unregister = registerBeforeAgentTurnFlush(() => {
+      flushPendingMirroredSelectionToAgentChat({
+        debounceTimerRef: mirrorDebounceTimerRef,
+        pendingItemRef: pendingMirroredItemRef,
+        composerContextHasOurKeyRef,
+      });
+      return flushPendingAgentSelectionContext({
+        pendingPersistedSelectionWriteRef,
+        persistedSelectionStateRef,
+        persistedSelectionContextRef,
+        persistedSelectionWriteTimerRef,
+        selectionPublishFailedLabel,
+      });
+    });
+    return () => {
+      unregister();
+      if (mirrorDebounceTimerRef.current !== null) {
+        globalThis.clearTimeout(mirrorDebounceTimerRef.current);
+        mirrorDebounceTimerRef.current = null;
+      }
+      pendingMirroredItemRef.current = null;
+    };
+  }, [selectionPublishFailedLabel]);
 
   useEffect(
     () =>
@@ -1771,6 +1811,9 @@ export function useEditorToolsAndVectors({
         selectedCodeLayerNode,
         selectedElement,
         sentSelectionIdRef,
+        excerptDebounceMs: 300,
+        debounceTimerRef: mirrorDebounceTimerRef,
+        pendingItemRef: pendingMirroredItemRef,
       }),
     [
       activeFile,

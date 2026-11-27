@@ -561,11 +561,26 @@ export function GradientEditor({
   const t = useT();
   const barRef = useRef<HTMLDivElement>(null);
   const draggingStopRef = useRef<string | null>(null);
+  const activeStopPointerIdRef = useRef<number | null>(null);
   const stopDragMovedRef = useRef(false);
-  const barClickRef = useRef<{ moved: boolean; startX: number } | null>(null);
+  const cleanupStopFallbackRef = useRef<(() => void) | null>(null);
+  const barClickRef = useRef<{
+    pointerId: number;
+    moved: boolean;
+    startX: number;
+  } | null>(null);
   const pinRefs = useRef(new Map<string, HTMLButtonElement>());
   // The stop that should hold focus once it is on screen after an add or removal.
   const focusStopRef = useRef<string | null>(null);
+  const latestGradientRef = useRef({ value, disabled, onChange, onCommit });
+  latestGradientRef.current = { value, disabled, onChange, onCommit };
+
+  const clearStopFallback = () => {
+    cleanupStopFallbackRef.current?.();
+    cleanupStopFallbackRef.current = null;
+  };
+
+  useEffect(() => () => clearStopFallback(), []);
 
   useEffect(() => {
     const id = focusStopRef.current;
@@ -584,16 +599,17 @@ export function GradientEditor({
   const [angleInput, setAngleInput] = useState<string | null>(null);
   const editorRootRef = useRef<HTMLDivElement>(null);
 
-  const positionFromPointer = (clientX: number): number => {
+  const positionFromPointer = (clientX: number): number | null => {
     const rect = barRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
+    if (!rect || rect.width <= 0) return null;
     return clamp(((clientX - rect.left) / rect.width) * 100, 0, 100);
   };
 
   const updateStopPosition = (id: string, position: number) => {
-    onChange({
-      ...value,
-      stops: value.stops.map((stop) =>
+    const current = latestGradientRef.current.value;
+    latestGradientRef.current.onChange({
+      ...current,
+      stops: current.stops.map((stop) =>
         stop.id === id ? { ...stop, position } : stop,
       ),
     });
@@ -630,68 +646,158 @@ export function GradientEditor({
     onCommit?.();
   };
 
+  const tryCapture = (element: Element, pointerId: number): boolean => {
+    if (typeof element.setPointerCapture !== "function") return false;
+    try {
+      element.setPointerCapture(pointerId);
+      return true;
+      // coercion-ok: returning false explicitly enables window-listener fallback when pointer capture is unavailable.
+    } catch (error) {
+      if (error instanceof DOMException) return false;
+      throw error;
+    }
+  };
+
+  const tryRelease = (element: Element, pointerId: number): void => {
+    if (
+      typeof element.hasPointerCapture === "function" &&
+      typeof element.releasePointerCapture === "function" &&
+      element.hasPointerCapture(pointerId)
+    ) {
+      element.releasePointerCapture(pointerId);
+    }
+  };
+
   const handleBarPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    barClickRef.current = { moved: false, startX: event.clientX };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (disabled || event.button !== 0) return;
+    barClickRef.current = {
+      pointerId: event.pointerId,
+      moved: false,
+      startX: event.clientX,
+    };
+    tryCapture(event.currentTarget, event.pointerId);
   };
 
   const handleBarPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!barClickRef.current) return;
+    if (
+      !barClickRef.current ||
+      barClickRef.current.pointerId !== event.pointerId
+    )
+      return;
     if (Math.abs(event.clientX - barClickRef.current.startX) > 3) {
       barClickRef.current.moved = true;
     }
   };
 
+  const cancelBarClick = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (barClickRef.current?.pointerId !== event.pointerId) return;
+    barClickRef.current = null;
+    tryRelease(event.currentTarget, event.pointerId);
+  };
+
   const handleBarClick = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    if (!barClickRef.current || barClickRef.current.moved) {
-      barClickRef.current = null;
+    tryRelease(event.currentTarget, event.pointerId);
+    if (
+      !barClickRef.current ||
+      barClickRef.current.pointerId !== event.pointerId ||
+      barClickRef.current.moved
+    ) {
+      if (barClickRef.current?.pointerId === event.pointerId) {
+        barClickRef.current = null;
+      }
       return;
     }
     barClickRef.current = null;
-    addStopAt(positionFromPointer(event.clientX), true);
+    const position = positionFromPointer(event.clientX);
+    if (position !== null) addStopAt(position, true);
+  };
+
+  const finishStopDrag = (pointerId?: number, releaseTarget?: Element) => {
+    if (
+      pointerId !== undefined &&
+      activeStopPointerIdRef.current !== null &&
+      activeStopPointerIdRef.current !== pointerId
+    ) {
+      return;
+    }
+    clearStopFallback();
+    const wasDragging =
+      draggingStopRef.current !== null && stopDragMovedRef.current;
+    draggingStopRef.current = null;
+    activeStopPointerIdRef.current = null;
+    stopDragMovedRef.current = false;
+    if (releaseTarget && pointerId !== undefined) {
+      tryRelease(releaseTarget, pointerId);
+    }
+    if (wasDragging) latestGradientRef.current.onCommit?.();
   };
 
   const startStopDrag = (
     event: ReactPointerEvent<HTMLButtonElement>,
     id: string,
   ) => {
-    if (disabled) return;
+    if (disabled || event.button !== 0) return;
     event.stopPropagation();
     // Cancelling pointerdown (it starts a drag) also cancels the browser's
     // focus change. The pin takes focus itself: otherwise Backspace goes to
     // whatever held focus before, never to this editor.
     event.preventDefault();
+    clearStopFallback();
     onSelectStop(id);
     draggingStopRef.current = id;
+    activeStopPointerIdRef.current = event.pointerId;
     stopDragMovedRef.current = false;
     event.currentTarget.focus({ preventScroll: true });
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const captured = tryCapture(event.currentTarget, event.pointerId);
+    if (!captured) {
+      const pointerId = event.pointerId;
+      const onWindowMove = (moveEvent: globalThis.PointerEvent) => {
+        if (
+          moveEvent.pointerId !== pointerId ||
+          !draggingStopRef.current ||
+          latestGradientRef.current.disabled
+        ) {
+          return;
+        }
+        const position = positionFromPointer(moveEvent.clientX);
+        if (position === null) return;
+        stopDragMovedRef.current = true;
+        updateStopPosition(draggingStopRef.current, position);
+      };
+      const onWindowEnd = (endEvent: globalThis.PointerEvent) => {
+        if (endEvent.pointerId !== pointerId) return;
+        finishStopDrag(endEvent.pointerId);
+      };
+      window.addEventListener("pointermove", onWindowMove);
+      window.addEventListener("pointerup", onWindowEnd);
+      window.addEventListener("pointercancel", onWindowEnd);
+      cleanupStopFallbackRef.current = () => {
+        window.removeEventListener("pointermove", onWindowMove);
+        window.removeEventListener("pointerup", onWindowEnd);
+        window.removeEventListener("pointercancel", onWindowEnd);
+      };
+    }
   };
 
   const handleStopPointerMove = (
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
-    if (!draggingStopRef.current || disabled) return;
+    if (
+      !draggingStopRef.current ||
+      disabled ||
+      (activeStopPointerIdRef.current !== null &&
+        activeStopPointerIdRef.current !== event.pointerId)
+    ) {
+      return;
+    }
+    const position = positionFromPointer(event.clientX);
+    if (position === null) return;
     stopDragMovedRef.current = true;
-    updateStopPosition(
-      draggingStopRef.current,
-      positionFromPointer(event.clientX),
-    );
+    updateStopPosition(draggingStopRef.current, position);
   };
 
   const endStopDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const wasDragging =
-      draggingStopRef.current !== null && stopDragMovedRef.current;
-    draggingStopRef.current = null;
-    stopDragMovedRef.current = false;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    if (wasDragging) onCommit?.();
+    finishStopDrag(event.pointerId, event.currentTarget);
   };
 
   // A gradient keeps at least two stops.
@@ -846,6 +952,8 @@ export function GradientEditor({
             aria-label={"Gradient stops" /* i18n-ignore */}
             onPointerDown={paletteMode ? undefined : handleBarPointerDown}
             onPointerUp={paletteMode ? undefined : (e) => handleBarClick(e)}
+            onPointerCancel={paletteMode ? undefined : cancelBarClick}
+            onLostPointerCapture={paletteMode ? undefined : cancelBarClick}
             className={cn(
               "absolute left-0 right-0 rounded-md border border-border/50",
               !paletteMode && "cursor-copy",
@@ -878,6 +986,7 @@ export function GradientEditor({
                   onPointerMove={handleStopPointerMove}
                   onPointerUp={endStopDrag}
                   onPointerCancel={endStopDrag}
+                  onLostPointerCapture={(e) => finishStopDrag(e.pointerId)}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelectStop(stop.id);

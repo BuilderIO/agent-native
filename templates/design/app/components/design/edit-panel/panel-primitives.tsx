@@ -752,6 +752,7 @@ export function PropSlider({
       </InspectorGridCell>
       <InspectorGridCell span={14} className="flex items-center">
         <Slider
+          thumbAriaLabel={label}
           value={[value]}
           onValueChange={([v]) => onChange(v)}
           min={min}

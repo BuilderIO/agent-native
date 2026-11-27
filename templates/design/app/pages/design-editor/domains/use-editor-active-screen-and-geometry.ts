@@ -1443,6 +1443,9 @@ export function useEditorActiveScreenAndGeometry({
   // handleOverviewActiveBreakpointChange below, which seed the ref
   // immediately on a local write so the resulting poll tick is a no-op
   // instead of a redundant re-apply).
+  const designBreakpointsRef = useRef(designBreakpoints);
+  designBreakpointsRef.current = designBreakpoints;
+
   useEffect(() => {
     if (!id || !isSignedIn) return;
     let cancelled = false;
@@ -1473,14 +1476,16 @@ export function useEditorActiveScreenAndGeometry({
       setResponsiveEditScope(nextScope);
       const nextWidthPx =
         nextBreakpointId !== "auto"
-          ? designBreakpoints.find((bp) => bp.id === nextBreakpointId)?.widthPx
+          ? designBreakpointsRef.current.find(
+              (bp) => bp.id === nextBreakpointId,
+            )?.widthPx
           : undefined;
       setActiveBreakpointWidthState(nextWidthPx);
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
+  }, [activeBreakpointStateVersion, id, isSignedIn]);
 
   const activeScreenBaseWidthPx = useMemo<number | null>(() => {
     if (!activeFile?.id) return null;

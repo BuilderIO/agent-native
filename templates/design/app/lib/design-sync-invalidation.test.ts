@@ -39,13 +39,21 @@ const DEPENDS_ON_CONTENT = [
   "list-designs",
 ];
 const UNRELATED = [
+  "describe-models",
+  "get-design-access-status",
   "get-lab-states",
   "get-feature-flags",
   "get-agentkit-capabilities",
+  "get-localization-preference",
+  "get-native-shader-approvals",
+  "get-user-profile",
+  "get-view-settings",
+  "list-design-native-assets",
   "list-localhost-connections",
   "get-localhost-write-consent-request",
   "get-visual-edit-pending",
   "list-resource-shares",
+  "list-review-agent-requests",
   "list-review-comments",
   "read-brief-titles",
 ];
@@ -157,7 +165,7 @@ describe("design sync invalidation", () => {
   });
 
   it("leaves unrelated reads alone for a batch of design content only", () => {
-    for (const name of UNRELATED) {
+    for (const name of [...UNRELATED, "get-native-render-contexts"]) {
       expect(
         shouldInvalidateDesignQueryForSync(query(name), [fileSave, yjsUpdate]),
       ).toBe(false);

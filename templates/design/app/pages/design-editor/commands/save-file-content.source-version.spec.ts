@@ -1141,7 +1141,13 @@ describe("runSaveFileContent source version", () => {
       operationRevision: 1,
       expectedVersionHash: "hash-of-original-source",
     };
-    const setQueryData = vi.fn();
+    const callOrder: string[] = [];
+    const setQueryData = vi.fn((_queryKey: unknown, _updater: unknown) => {
+      callOrder.push("setQueryData");
+    });
+    const onPersistedFileVersion = vi.fn(() => {
+      callOrder.push("onPersistedFileVersion");
+    });
     const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
       current: {},
     };
@@ -1155,6 +1161,7 @@ describe("runSaveFileContent source version", () => {
       latestFileSaveForUnloadRef: { current: {} },
       rollbackPendingLocalFileContent: vi.fn(),
       markPendingLocalFileContent: vi.fn(),
+      onPersistedFileVersion,
       queryClient: {
         setQueryData,
         invalidateQueries: vi.fn(),
@@ -1174,6 +1181,11 @@ describe("runSaveFileContent source version", () => {
     runSaveFileContent(args, pending);
     await fileSaveChainsRef.current[pending.id];
 
+    expect(onPersistedFileVersion).toHaveBeenCalledWith(pending.id, {
+      content: pending.content,
+      updatedAt: "saved-version",
+    });
+    expect(callOrder).toEqual(["onPersistedFileVersion", "setQueryData"]);
     expect(setQueryData).toHaveBeenCalledWith(
       ["action", "get-design", { id: designId, includeFileContent: false }],
       expect.any(Function),

@@ -321,47 +321,74 @@ export function useEditorCanvasAndScreens({
     }
   }, [applyDesignEditorCommand, id, initialSearchParams]);
 
+  const applyDesignEditorCommandRef = useRef(applyDesignEditorCommand);
+  applyDesignEditorCommandRef.current = applyDesignEditorCommand;
+  const deferredEditorCommandRef = useRef<{
+    key: string;
+    command: DesignEditorCommand;
+  } | null>(null);
+
   useEffect(() => {
     if (!id || !canEditDesign) return;
-    let cancelled = false;
+    const pending = deferredEditorCommandRef.current;
+    if (!pending) return;
+    if (pending.command.designId !== id) {
+      deferredEditorCommandRef.current = null;
+      return;
+    }
+    if (!applyDesignEditorCommand(pending.command)) return;
+    deferredEditorCommandRef.current = null;
+    // coercion-ok: command cleanup is best effort after applying it.
+    void setClientAppState(pending.key, null).catch(() => {});
+  }, [applyDesignEditorCommand, canEditDesign, id]);
+
+  useEffect(() => {
+    if (!id || !canEditDesign) {
+      deferredEditorCommandRef.current = null;
+      return;
+    }
+    const cancelled = { current: false };
     const keys = browserTabId
       ? [designEditorCommandKey(browserTabId), designEditorCommandKey()]
       : [designEditorCommandKey()];
 
     void (async () => {
-      for (const key of keys) {
-        // coercion-ok: an absent command is equivalent to no queued command.
-        const command = await readClientAppState<DesignEditorCommand>(
-          key,
+      const commands = await Promise.all(
+        keys.map((key) =>
           // coercion-ok: an absent command is equivalent to no queued command.
-        ).catch(() => null);
-        if (cancelled || !command || command.designId !== id) continue;
-        const applied = applyDesignEditorCommand(command);
-        if (!applied) return;
+          readClientAppState<DesignEditorCommand>(key).catch(() => null),
+        ),
+      );
+      if (cancelled.current) return;
+      for (const [index, key] of keys.entries()) {
+        const command = commands[index];
+        if (!command || command.designId !== id) continue;
+        const applied = applyDesignEditorCommandRef.current(command);
+        if (!applied) {
+          deferredEditorCommandRef.current = { key, command };
+          return;
+        }
+        if (deferredEditorCommandRef.current?.key === key) {
+          deferredEditorCommandRef.current = null;
+        }
         // coercion-ok: command cleanup is best effort after applying it.
         await setClientAppState(key, null).catch(() => {});
       }
     })();
 
     return () => {
-      cancelled = true;
+      cancelled.current = true;
     };
-  }, [
-    designEditorCommandVersion,
-    applyDesignEditorCommand,
-    browserTabId,
-    canEditDesign,
-    id,
-  ]);
+  }, [designEditorCommandVersion, browserTabId, canEditDesign, id]);
 
   useEffect(() => {
     if (!id || !canEditDesign) return;
     return applySameTabEditorCommands({
       designId: id,
       browserTabId,
-      apply: applyDesignEditorCommand,
+      apply: (command) => applyDesignEditorCommandRef.current(command),
     });
-  }, [applyDesignEditorCommand, browserTabId, canEditDesign, id]);
+  }, [browserTabId, canEditDesign, id]);
 
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
