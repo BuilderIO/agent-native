@@ -3,7 +3,6 @@ import {
   createMcpHandler,
   type Tool,
 } from "@modelcontextprotocol/server";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import { isActionReadOnly } from "./action.js";
 import { isActionError, serializeActionErrorBody } from "./errors.js";
