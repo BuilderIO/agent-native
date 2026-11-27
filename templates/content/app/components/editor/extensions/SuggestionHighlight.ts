@@ -200,6 +200,7 @@ function insertionClass(spec: SuggestionHighlightSpec) {
 
 interface SettlingCommentHighlight {
   threadId: string;
+  threadIds: string[];
   className: string;
 }
 
@@ -212,12 +213,18 @@ function settlingCommentHighlight(
   spec: SuggestionHighlightSpec,
 ): SettlingCommentHighlight | null {
   if (!comments) return null;
-  const threadIds = comments.specs
-    .filter(
-      (comment) =>
-        !comment.blockId && comment.to > spec.from && spec.to > comment.from,
-    )
-    .map((comment) => comment.threadId);
+  const threadIds = [
+    ...new Set(
+      comments.specs
+        .filter(
+          (comment) =>
+            !comment.blockId &&
+            comment.to > spec.from &&
+            spec.to > comment.from,
+        )
+        .map((comment) => comment.threadId),
+    ),
+  ];
   const threadId =
     threadIds.find(
       (id) => id === comments.activeId || id === comments.hoveredId,
@@ -225,7 +232,10 @@ function settlingCommentHighlight(
   if (!threadId) return null;
   return {
     threadId,
-    className: `comment-highlight${commentHighlightEmphasis(
+    threadIds,
+    className: `comment-highlight${
+      threadIds.length > 1 ? " comment-highlight--overlap" : ""
+    }${commentHighlightEmphasis(
       threadIds,
       comments.activeId,
       comments.hoveredId,
@@ -246,6 +256,7 @@ function settlingWidget(
       parent = document.createElement("span");
       parent.className = comment.className;
       parent.setAttribute("data-comment-thread", comment.threadId);
+      parent.setAttribute("data-comment-threads", comment.threadIds.join(" "));
       widget.append(parent);
     }
     appendSuggestionText(
@@ -842,6 +853,7 @@ function buildDecorations(
               spec.insertedPresentation?.from,
               spec.insertedPresentation?.to,
               comment?.threadId,
+              comment?.threadIds.join(" "),
               comment?.className,
               side,
             ]),

@@ -214,6 +214,49 @@ export function commentHighlightEmphasis(
       : "";
 }
 
+type ThreadRange = { threadId: string; from: number; to: number };
+
+function overlappingHighlights(
+  ranges: readonly ThreadRange[],
+  activeId: string | null,
+  hoveredId: string | null,
+): Decoration[] {
+  const ordered = [...ranges].sort(
+    (left, right) => left.from - right.from || right.to - left.to,
+  );
+  const edges = [
+    ...new Set(ranges.flatMap((range) => [range.from, range.to])),
+  ].sort((left, right) => left - right);
+  const decos: Decoration[] = [];
+  let from: number | null = null;
+  for (const to of edges) {
+    const start = from;
+    from = to;
+    if (start === null) continue;
+    const covering = ordered.filter(
+      (range) => range.from <= start && range.to >= to,
+    );
+    if (covering.length === 0) continue;
+    const front = covering.reduce((smallest, range) =>
+      range.to - range.from < smallest.to - smallest.from ? range : smallest,
+    );
+    const threadIds = [...new Set(covering.map((range) => range.threadId))];
+    const overlap = threadIds.length > 1 ? " comment-highlight--overlap" : "";
+    decos.push(
+      Decoration.inline(start, to, {
+        class: `comment-highlight${overlap}${commentHighlightEmphasis(
+          threadIds,
+          activeId,
+          hoveredId,
+        )}`,
+        "data-comment-thread": front.threadId,
+        "data-comment-threads": threadIds.join(" "),
+      }),
+    );
+  }
+  return decos;
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: CommentHighlightSpec[],
@@ -227,6 +270,7 @@ function buildDecorations(
   // attributes replace another's on the same node.
   const blocks = new Map<number, { to: number; threadIds: string[] }>();
   const shared = sharedCommentAnchorBlockIds(doc);
+  const ranges: ThreadRange[] = [];
   for (const spec of specs) {
     if (spec.blockId) {
       if (shared.has(spec.blockId)) continue;
@@ -236,19 +280,9 @@ function buildDecorations(
       continue;
     }
     const r = clampRange(spec.from, spec.to, size);
-    if (!r) continue;
-    const emphasisClass = commentHighlightEmphasis(
-      [spec.threadId],
-      activeId,
-      hoveredId,
-    );
-    decos.push(
-      Decoration.inline(r.from, r.to, {
-        class: `comment-highlight${emphasisClass}`,
-        "data-comment-thread": spec.threadId,
-      }),
-    );
+    if (r) ranges.push({ threadId: spec.threadId, ...r });
   }
+  decos.push(...overlappingHighlights(ranges, activeId, hoveredId));
   for (const [from, { to, threadIds }] of blocks) {
     const r = clampRange(from, to, size);
     if (!r) continue;

@@ -50,6 +50,23 @@ function highlightClasses(state: EditorState) {
   );
 }
 
+function highlightSegments(state: EditorState) {
+  return (commentHighlightKey.getState(state)?.decorations.find() ?? [])
+    .map((decoration) => {
+      const { attrs } = (
+        decoration as unknown as { type: { attrs: Record<string, string> } }
+      ).type;
+      return {
+        from: decoration.from,
+        to: decoration.to,
+        opens: attrs["data-comment-thread"],
+        threads: attrs["data-comment-threads"],
+        class: attrs.class,
+      };
+    })
+    .sort((left, right) => left.from - right.from);
+}
+
 describe("CommentHighlight", () => {
   it("maps a full-document replacement from another ProseMirror instance", () => {
     class ForeignStep extends Step {
@@ -103,6 +120,96 @@ describe("CommentHighlight", () => {
     const result = state.apply(swap);
     expect(commentHighlightKey.getState(result)?.specs).toEqual([
       { threadId: "t1", from: 11, to: 15 },
+    ]);
+  });
+
+  it("gives a comment inside another its own highlight, opened from the words they share", () => {
+    let state = EditorState.create({
+      doc: doc("alpha beta gamma"),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [
+          { threadId: "outer", from: 1, to: 17 },
+          { threadId: "inner", from: 7, to: 11 },
+        ],
+        activeId: "inner",
+      }),
+    );
+    expect(highlightSegments(state)).toEqual([
+      {
+        from: 1,
+        to: 7,
+        opens: "outer",
+        threads: "outer",
+        class: "comment-highlight",
+      },
+      {
+        from: 7,
+        to: 11,
+        opens: "inner",
+        threads: "outer inner",
+        class:
+          "comment-highlight comment-highlight--overlap comment-highlight--active",
+      },
+      {
+        from: 11,
+        to: 17,
+        opens: "outer",
+        threads: "outer",
+        class: "comment-highlight",
+      },
+    ]);
+
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, { activeId: "outer" }),
+    );
+    expect(highlightSegments(state).map((segment) => segment.class)).toEqual([
+      "comment-highlight comment-highlight--active",
+      "comment-highlight comment-highlight--overlap comment-highlight--active",
+      "comment-highlight comment-highlight--active",
+    ]);
+
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "outer", from: 1, to: 17 }],
+      }),
+    );
+    expect(highlightSegments(state)).toEqual([
+      {
+        from: 1,
+        to: 17,
+        opens: "outer",
+        threads: "outer",
+        class: "comment-highlight comment-highlight--active",
+      },
+    ]);
+  });
+
+  it("highlights the whole sentence for each of two comments on it", () => {
+    let state = EditorState.create({
+      doc: doc("alpha beta gamma"),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [
+          { threadId: "first", from: 1, to: 17 },
+          { threadId: "second", from: 1, to: 17 },
+        ],
+        activeId: "second",
+      }),
+    );
+    expect(highlightSegments(state)).toEqual([
+      {
+        from: 1,
+        to: 17,
+        opens: "first",
+        threads: "first second",
+        class:
+          "comment-highlight comment-highlight--overlap comment-highlight--active",
+      },
     ]);
   });
 

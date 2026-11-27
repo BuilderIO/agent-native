@@ -441,12 +441,17 @@ function measureThreadQuotes(
 ): Map<string, string> {
   const marked = new Map<string, Element[]>();
   for (const element of container.querySelectorAll(
-    ".ProseMirror [data-comment-thread]",
+    ".ProseMirror [data-comment-threads], .ProseMirror [data-comment-thread]",
   )) {
-    const threadId = element.getAttribute("data-comment-thread")!;
-    const elements = marked.get(threadId);
-    if (elements) elements.push(element);
-    else marked.set(threadId, [element]);
+    const threadIds =
+      element.getAttribute("data-comment-threads") ??
+      element.getAttribute("data-comment-thread") ??
+      "";
+    for (const threadId of threadIds.split(" ")) {
+      const elements = marked.get(threadId);
+      if (elements) elements.push(element);
+      else marked.set(threadId, [element]);
+    }
   }
   const quotes = new Map<string, string>();
   for (const { threadId, quotedText } of threads) {
@@ -2875,6 +2880,7 @@ function CommentsSidebarBody({
           attributeFilter: [
             "hidden",
             "data-comment-thread",
+            "data-comment-threads",
             "data-comment-block-threads",
             "data-clip-comment-threads",
           ],
@@ -2890,6 +2896,7 @@ function CommentsSidebarBody({
         attributes: true,
         attributeFilter: [
           "data-comment-thread",
+          "data-comment-threads",
           "data-comment-block-threads",
           "data-clip-comment-threads",
         ],
