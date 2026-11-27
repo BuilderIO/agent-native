@@ -1117,7 +1117,14 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/filters"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "dependencies": [
+        "@agent-native/core",
+        "@dnd-kit/core",
+        "@dnd-kit/sortable",
+        "@dnd-kit/utilities",
+        "@tabler/icons-react",
+        "react"
+      ],
       "verification": ["pnpm typecheck"],
       "protectedImports": ["@agent-native/core/client/i18n"]
     },

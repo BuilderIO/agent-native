@@ -182,7 +182,7 @@ export function FilterCountButton({
       variant="outline"
       size="sm"
       {...props}
-      className={cn("h-8 shrink-0 gap-1.5", className)}
+      className={cn("shrink-0 gap-1.5", className)}
     >
       <IconFilter />
       <span className={cn(isMobile && "sr-only")}>
