@@ -4165,13 +4165,13 @@ describe("AgentEngine registry", () => {
       );
       const { registerAgentEngine, resolveEngine } =
         await import("./registry.js");
-      const engine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const engine = { name: "ai-sdk:openai", stream: vi.fn() };
       const create = vi.fn().mockReturnValue(engine);
       registerAgentEngine({
         name: "ai-sdk:openai",
         label: "OpenAI",
         description: "",
-        capabilities: {} as any,
+        capabilities: {} as never,
         defaultModel: "gpt-5.4",
         supportedModels: [],
         requiredEnvVars: ["OPENAI_API_KEY"],
