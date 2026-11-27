@@ -573,8 +573,10 @@ export function createFetchToolEntry(
           let processedMode = "raw";
           let searchResultsTruncated = false;
           let searchSourceTruncated = false;
+          let markdownUnavailable = false;
           let fileContent = body;
           let fileContentType = contentType;
+          let savedContentFormat: "raw" | "markdown" | "text" | undefined;
           const search = parseWebContentSearchOptions(args.search);
           const hasSearch = hasWebContentSearch(search);
           const includeLinks =
@@ -604,6 +606,7 @@ export function createFetchToolEntry(
             });
             processedMode = processed.mode;
             searchSourceTruncated = processed.searchTruncated ?? false;
+            markdownUnavailable = processed.markdownUnavailable === true;
             displayBody = formatWebContentResult(processed);
 
             if (saveToFilePath && hasSearch && displayBody.length > maxChars) {
@@ -617,22 +620,46 @@ export function createFetchToolEntry(
                   "HTML extraction did not produce saved content",
                 );
               }
+              // Empty markdown/text is a raw fallback, same as a null
+              // extraction. Format that body using the actual saved
+              // representation so a markup-only page is not written as an
+              // empty text/markdown file, and a plain-text fallback is not
+              // labeled Markdown. Use fullContentFormat (extraction success
+              // for the save path), not rawBodyFallback — links/metadata
+              // modes leave display content empty by design.
+              const actualSavedFormat =
+                processed.fullContentFormat ?? saveContentFormat;
+              const savingRawFallback = actualSavedFormat === "raw";
               fileContent = formatWebContentResult({
                 ...processed,
-                mode: saveContentFormat,
+                mode: actualSavedFormat,
                 content: processed.fullContent,
                 fullContent: undefined,
+                fullContentFormat: undefined,
                 matches: undefined,
                 totalMatches: undefined,
                 omittedMatches: undefined,
                 searchSource: undefined,
                 searchTruncated: undefined,
+                markdownUnavailable: undefined,
+                rawBodyFallback: savingRawFallback
+                  ? undefined
+                  : processed.rawBodyFallback,
                 truncated: false,
               });
+              // When extraction failed or yielded no usable text, `fullContent`
+              // is the raw response body; preserve the original content type
+              // and label the saved format as `raw`.
+              savedContentFormat = actualSavedFormat;
+              // When extraction failed, `fullContent` is the raw response
+              // body; preserve the original response media type (e.g.
+              // `application/xhtml+xml`) instead of relabeling it `text/html`.
               fileContentType =
-                saveContentFormat === "markdown"
+                savedContentFormat === "markdown"
                   ? "text/markdown"
-                  : "text/plain";
+                  : savedContentFormat === "text"
+                    ? "text/plain"
+                    : contentType;
             }
 
             if (
@@ -640,7 +667,8 @@ export function createFetchToolEntry(
               isHtmlContentType &&
               normalizedResponseMode !== "raw" &&
               processed.truncated &&
-              processed.contentLength !== undefined
+              processed.contentLength !== undefined &&
+              !processed.rawBodyFallback
             ) {
               displayBody += `\n\nFull extracted content: ${processed.contentLength} characters. Retry with saveToFile (up to ${MAX_WEB_REQUEST_HTML_BYTES} bytes), then use workspace-files grep or read with offsets.`;
             }
@@ -682,7 +710,10 @@ export function createFetchToolEntry(
                   { errorCode: httpErrorCode ?? "web_request_save_failed" },
                 );
               }
-              const savedFormat = saveContentFormat ?? "raw";
+              const savedFormat =
+                (saveContentFormat && savedContentFormat) ||
+                saveContentFormat ||
+                "raw";
               let meta: Awaited<ReturnType<typeof writeWorkspaceFile>>;
               try {
                 meta = await writeWorkspaceFile(
@@ -718,6 +749,7 @@ export function createFetchToolEntry(
                 contentType,
                 savedFormat,
                 responseMode: processedMode,
+                ...(markdownUnavailable ? { markdownUnavailable: true } : {}),
                 ...(hasSearch
                   ? {
                       searchResults: displayBody,
