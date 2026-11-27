@@ -127,6 +127,7 @@ export async function assertContentFormUnchanged(
   },
 ): Promise<void> {
   const settings = await readContentFormRow(db, form);
+  // guard:allow-unscoped — rereads, under the collection's lock, the form page this submission already read through the form's checks, only to see whether it changed.
   const canvas = read.canvas
     ? firstRow(
         await db

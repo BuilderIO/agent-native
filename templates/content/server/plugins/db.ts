@@ -1946,6 +1946,7 @@ export const runContentMigrations = runMigrations(
       sql: `CREATE TABLE IF NOT EXISTS content_forms (
         database_id TEXT NOT NULL,
         view_id TEXT NOT NULL,
+        -- guard:allow-plaintext-secret-column — a form's share link code its collection's editors copy again; it lets people answer that form and grants no access to the collection or any account
         link_token TEXT NOT NULL,
         canvas_document_id TEXT,
         audience TEXT NOT NULL DEFAULT 'signed_in',

@@ -1453,6 +1453,7 @@ export const contentForms = table(
   {
     databaseId: text("database_id").notNull(),
     viewId: text("view_id").notNull(),
+    // guard:allow-plaintext-secret-column — a form's share link code its collection's editors copy again; it lets people answer that form and grants no access to the collection or any account
     linkToken: text("link_token").notNull(),
     canvasDocumentId: text("canvas_document_id"),
     audience: text("audience").notNull().default("signed_in"),
