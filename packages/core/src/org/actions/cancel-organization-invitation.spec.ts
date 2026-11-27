@@ -19,6 +19,11 @@ const ctx = {
   orgId: "org-1",
 };
 
+type AuditFns = {
+  target: (args: unknown, result: unknown, meta: { orgId: string }) => unknown;
+  summary: (args: unknown, result: unknown, meta: { orgId: string }) => string;
+};
+
 describe("cancel-organization-invitation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,7 +48,7 @@ describe("cancel-organization-invitation", () => {
 
   it("trims the invitation id and rejects blanks", async () => {
     const validate = async (v: unknown) =>
-      cancelOrganizationInvitation.schema!["~standard"].validate(v);
+      cancelOrganizationInvitation.schema?.["~standard"].validate(v);
     await expect(validate({ invitationId: " inv-1 " })).resolves.toEqual({
       value: { invitationId: "inv-1" },
     });
@@ -53,7 +58,7 @@ describe("cancel-organization-invitation", () => {
 
   it("declares the result shape", async () => {
     const validate = async (v: unknown) =>
-      cancelOrganizationInvitation.outputSchema!["~standard"].validate(v);
+      cancelOrganizationInvitation.outputSchema?.["~standard"].validate(v);
     const ok = { id: "inv-1", status: "canceled" };
     await expect(validate(ok)).resolves.toEqual({ value: ok });
     expect(await validate({ ...ok, id: 1 })).toHaveProperty("issues");
@@ -63,7 +68,7 @@ describe("cancel-organization-invitation", () => {
   });
 
   it("audits the cancellation against the invitation, visible to admins", () => {
-    const audit = cancelOrganizationInvitation.audit as any;
+    const audit = cancelOrganizationInvitation.audit as unknown as AuditFns;
     const args = { invitationId: "inv-1" };
     expect(audit.target(args, {}, { orgId: "org-1" })).toEqual({
       type: "org-invitation",

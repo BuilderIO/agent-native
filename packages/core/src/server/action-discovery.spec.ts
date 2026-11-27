@@ -1014,7 +1014,7 @@ describe("action discovery", () => {
   });
 
   it("merges the member role and invitation cancel actions into org administration", async () => {
-    const registry: Record<string, any> = {};
+    const registry: Parameters<typeof mergeCoreSharingActions>[0] = {};
     await mergeCoreSharingActions(registry);
 
     for (const name of [

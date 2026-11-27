@@ -51,6 +51,11 @@ function memberRow(role: string | null) {
 const updates = () =>
   mockExecute.mock.calls.filter(([i]) => i.sql.startsWith("UPDATE"));
 
+type AuditFns = {
+  target: (args: unknown, result: unknown, meta: { orgId: string }) => unknown;
+  summary: (args: unknown, result: unknown, meta: { orgId: string }) => string;
+};
+
 describe("change-organization-member-role", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -162,7 +167,7 @@ describe("change-organization-member-role", () => {
 
   it("trims and validates the email and role", async () => {
     const validate = async (v: unknown) =>
-      changeOrganizationMemberRole.schema!["~standard"].validate(v);
+      changeOrganizationMemberRole.schema?.["~standard"].validate(v);
     await expect(
       validate({ email: "  a@example.test ", role: "member" }),
     ).resolves.toEqual({ value: { email: "a@example.test", role: "member" } });
@@ -176,7 +181,7 @@ describe("change-organization-member-role", () => {
 
   it("declares the result shape", async () => {
     const validate = async (v: unknown) =>
-      changeOrganizationMemberRole.outputSchema!["~standard"].validate(v);
+      changeOrganizationMemberRole.outputSchema?.["~standard"].validate(v);
     const ok = {
       email: "a@example.test",
       role: "admin",
@@ -191,7 +196,7 @@ describe("change-organization-member-role", () => {
   });
 
   it("audits the role change against the member, visible to admins", () => {
-    const audit = changeOrganizationMemberRole.audit as any;
+    const audit = changeOrganizationMemberRole.audit as unknown as AuditFns;
     const result = {
       email: "a@example.test",
       role: "admin",
