@@ -9318,9 +9318,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       for (var t = 0; t < held.length; t += 1) recordSourceTree(held[t]!);
       return;
     }
-    var hasTemplateChild = !!(root as Element).querySelector(
-      ":scope > template",
-    );
+    var hasTemplateChild = false;
+    for (
+      var elChild = (root as Element).firstElementChild;
+      elChild;
+      elChild = elChild.nextElementSibling
+    ) {
+      if (elChild.nodeName === "TEMPLATE") {
+        hasTemplateChild = true;
+        break;
+      }
+    }
     var children = (root as Element).childNodes;
     for (var i = 0; i < children.length; i += 1) {
       var child = children[i]!;

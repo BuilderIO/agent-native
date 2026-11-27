@@ -564,6 +564,7 @@ import {
   OVERVIEW_LIVE_SCREEN_BUDGET,
   OVERVIEW_PAINT_OVERSCAN_FACTOR,
   OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
+  requiresOverviewLevelOfDetail,
   resolveLiveEditorScreenIds,
   selectStaticPreviewScreenIds,
   type OverscannedViewportBounds,
@@ -1155,8 +1156,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     () => screens.filter((screen) => !hiddenScreenIdSet.has(screen.id)),
     [hiddenScreenIdSet, screens],
   );
-  const needsLiveEditorAdmission =
-    renderedScreens.length > OVERVIEW_LIVE_SCREEN_BUDGET && !interactMode;
+  const largeBoard = useMemo(
+    () => requiresOverviewLevelOfDetail(renderedScreens),
+    [renderedScreens],
+  );
+  const needsLiveEditorAdmission = largeBoard && !interactMode;
   // A widget keeps its opened screen fit and centered until the viewer moves
   // the camera; the fit itself is widgetFitCamera below.
   const widgetFit = fitFocusedViewport && initialFitScreenId !== undefined;
@@ -12012,7 +12016,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onZoomChangeRef.current?.(fitZoom);
   }, [canvasZoom, pan, widgetFitCamera]);
 
-  const largeBoard = canvasFrames.length > OVERVIEW_LIVE_SCREEN_BUDGET;
   const levelOfDetail = needsLiveEditorAdmission;
   const liveEditorScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const warmLiveEditorIdsRef = useRef<readonly string[]>([]);
@@ -12334,9 +12337,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // Only screens about to mount: the parse caches are bounded, so warming the
     // whole board evicts earlier results and re-parses them on every camera move.
     wantPreviewParses(
-      [...undrawnEditorIds, ...iframeAdmissionOrder].flatMap(
-        (id) => staticPreviewContentById.get(id) ?? [],
-      ),
+      [...undrawnEditorIds, ...iframeAdmissionOrder].flatMap((id) => {
+        const content = staticPreviewContentById.get(id);
+        return content ? [content] : [];
+      }),
     );
   }, [iframeAdmissionOrder, staticPreviewContentById, undrawnEditorIds]);
   const iframeAdmissionImmediateIds = useMemo(() => {
@@ -12506,7 +12510,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         id: screen.id,
         geometry,
       })),
-      liveIds: liveScreenIdsRef.current,
+      liveIds: liveEditorScreenIds ?? liveScreenIdsRef.current,
       protectedIds: protectedLiveScreenIds,
       zoom: canvasZoom / 100,
       requiredIds: new Set(
@@ -12560,6 +12564,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     exportPreviewScreenId,
     interactScreenId,
     isPanning,
+    liveEditorScreenIds,
     needsLiveEditorAdmission,
     paintedStaticPreviewIds,
     pan,

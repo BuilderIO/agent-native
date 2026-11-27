@@ -113,13 +113,18 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       freezeStyle = currentStyle || document.createElement("style");
       freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
       var css = "html,body{transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{transition:none!important}";
-      if (freezeStyle.sheet) freezeStyle.sheet.disabled = true;
+      var hasFrozenAnimationRules = frozenAnimationTargets.size > 0 || (freezeStyle.textContent || "").indexOf("animation-name:") !== -1;
+      var sheet = freezeStyle.sheet;
+      var disableForRead = !!(sheet && hasFrozenAnimationRules);
+      if (disableForRead && sheet) sheet.disabled = true;
       try {
         css += animationSafetyRules();
         if (freezeStyle.textContent !== css) freezeStyle.textContent = css;
         if (!freezeStyle.isConnected) document.head.appendChild(freezeStyle);
       } finally {
-        if (freezeStyle.sheet) freezeStyle.sheet.disabled = false;
+        if (disableForRead && sheet) {
+          sheet.disabled = false;
+        }
       }
     }
     syncEditingSafetyStyle();
@@ -136,13 +141,15 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       });
     }
     new MutationObserver(function(records) {
+      if (!editingSafetyEnabled) return;
       var changed = records.some(function(record) {
         var target = record.target instanceof Element ? record.target : record.target.parentElement;
         var style = target && target.closest("style");
         if (style) return style !== freezeStyle;
+        if (target && target.closest("[data-agent-native-edit-overlay]"))
+          return false;
         if (record.type === "attributes") {
-          if (!target || target.closest("[data-agent-native-edit-overlay]"))
-            return false;
+          if (!target) return false;
           if (record.attributeName === "style")
             return inlineAnimationDeclarations(record.oldValue) !== inlineAnimationDeclarations(target.getAttribute("style"));
           return target.getAnimations({ subtree: true }).length > 0 || containsFrozenAnimationTarget(target);
@@ -153,7 +160,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         }))
           return true;
         return Array.from(record.addedNodes).concat(Array.from(record.removedNodes)).some(function(node) {
-          return node instanceof Element && node !== freezeStyle && (node.matches("style") || !!node.querySelector("style") || node.getAnimations({ subtree: true }).length > 0);
+          return node instanceof Element && node !== freezeStyle && !node.hasAttribute("data-agent-native-edit-overlay") && (node.matches("style") || !!node.querySelector("style") || node.getAnimations({ subtree: true }).length > 0);
         });
       });
       if (changed) syncEditingSafetyStyle();
@@ -165,7 +172,10 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       attributeFilter: ["class", "style"],
       attributeOldValue: true
     });
-    window.addEventListener("resize", syncEditingSafetyStyle);
+    window.addEventListener("resize", function() {
+      if (!editingSafetyEnabled) return;
+      syncEditingSafetyStyle();
+    });
     document.addEventListener(
       "animationstart",
       function(event) {
@@ -182,7 +192,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     document.addEventListener(
       "load",
       function(event) {
-        if (event.target instanceof HTMLLinkElement) syncEditingSafetyStyle();
+        if (editingSafetyEnabled && event.target instanceof HTMLLinkElement) {
+          syncEditingSafetyStyle();
+        }
       },
       true
     );
@@ -207,10 +219,34 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       if (!target || !target.closest) return;
       if (target.closest("a[href], area[href]")) stopNativeInteraction(e);
     }
+    var reportedBridgeFailures = {};
+    function reportBridgeFailure(operation, error) {
+      if (reportedBridgeFailures[operation]) return;
+      reportedBridgeFailures[operation] = true;
+      if (typeof console !== "undefined" && typeof console.warn === "function") {
+        console.warn(
+          "[design-embedded-wheel-bridge] " + operation + " failed:",
+          error
+        );
+      }
+    }
+    function isExpectedPointerCaptureError(error) {
+      if (!error || typeof error !== "object") return false;
+      var name = error.name;
+      return name === "NotFoundError" || name === "InvalidStateError";
+    }
     function postToParent(message) {
+      var parentWindow = window.parent;
+      if (!parentWindow || typeof parentWindow.postMessage !== "function") {
+        reportBridgeFailure("postMessage", "window.parent is unavailable");
+        return false;
+      }
       try {
-        window.parent.postMessage(message, "*");
-      } catch {
+        parentWindow.postMessage(message, "*");
+        return true;
+      } catch (error) {
+        reportBridgeFailure("postMessage", error);
+        return false;
       }
     }
     function sendWheel(wheel) {
@@ -221,7 +257,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         sendNextWheel,
         hostAnswersWheels ? 1e3 : 100
       );
-      postToParent({
+      if (!postToParent({
         type: "embedded-canvas-wheel",
         deltaX: wheel.deltaX,
         deltaY: wheel.deltaY,
@@ -235,7 +271,11 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         altKey: wheel.altKey,
         steps: wheel.steps,
         seq: wheelSeq
-      });
+      })) {
+        window.clearTimeout(wheelReadTimer);
+        wheelReadTimer = null;
+        wheelAwaitingHost = false;
+      }
     }
     function sendNextWheel() {
       if (wheelReadTimer !== null) {
@@ -302,14 +342,14 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       return e.button === 0 && (leftButtonEnabled || temporarySpacePanEnabled);
     }
     function postPan(phase, e) {
-      if (activeButton === null) return;
+      if (activeButton === null) return false;
       lastClientX = clamp(e.clientX, 1e5);
       lastClientY = clamp(e.clientY, 1e5);
       lastCtrlKey = !!e.ctrlKey;
       lastMetaKey = !!e.metaKey;
       lastShiftKey = !!e.shiftKey;
       lastAltKey = !!e.altKey;
-      postToParent({
+      return postToParent({
         type: "embedded-canvas-pan",
         phase,
         pointerId: Math.max(0, Math.min(2147483647, Math.trunc(e.pointerId))),
@@ -326,14 +366,21 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       });
     }
     function releasePointerCapture(pointerId) {
-      if (!captureTarget) return;
-      try {
-        if (captureTarget.hasPointerCapture(pointerId)) {
-          captureTarget.releasePointerCapture(pointerId);
-        }
-      } catch {
-      }
+      var target = captureTarget;
       captureTarget = null;
+      if (!target) return;
+      if (typeof target.hasPointerCapture !== "function" || typeof target.releasePointerCapture !== "function") {
+        return;
+      }
+      try {
+        if (target.hasPointerCapture(pointerId)) {
+          target.releasePointerCapture(pointerId);
+        }
+      } catch (error) {
+        if (!isExpectedPointerCaptureError(error)) {
+          reportBridgeFailure("releasePointerCapture", error);
+        }
+      }
     }
     function scheduleClickSuppressionReset() {
       if (clearSuppressClickTimer !== null) {
@@ -351,13 +398,27 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       activePointerId = e.pointerId;
       activeButton = e.button === 1 ? 1 : 0;
       suppressClick = true;
-      captureTarget = e.target instanceof Element ? e.target : document.documentElement;
-      try {
-        captureTarget.setPointerCapture(e.pointerId);
-      } catch {
+      var target = e.target instanceof Element ? e.target : document.documentElement;
+      if (typeof target.setPointerCapture === "function") {
+        try {
+          target.setPointerCapture(e.pointerId);
+          captureTarget = target;
+        } catch (error) {
+          captureTarget = null;
+          if (!isExpectedPointerCaptureError(error)) {
+            reportBridgeFailure("setPointerCapture", error);
+          }
+        }
+      } else {
+        captureTarget = null;
       }
       stopNativeInteraction(e);
-      postPan("start", e);
+      if (!postPan("start", e)) {
+        releasePointerCapture(e.pointerId);
+        activePointerId = null;
+        activeButton = null;
+        suppressClick = false;
+      }
     }
     function onPointerMove(e) {
       if (activePointerId !== e.pointerId || activeButton === null) return;

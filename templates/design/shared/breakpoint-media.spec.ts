@@ -306,4 +306,47 @@ describe("getBreakpointOverrideState (EditPanel indicator contract)", () => {
       { maxWidthPx: 809, source: "class", value: "text-sm" },
     ]);
   });
+
+  it("memoizes parsed media declarations across repeated inspector queries and invalidates on HTML updates", () => {
+    const baseHtml = doc("", '<div data-agent-native-node-id="hero">x</div>');
+    expect(getBreakpointMediaDeclarations(baseHtml, "hero")).toEqual([]);
+
+    const withOverride = setBreakpointMediaDeclaration(baseHtml, {
+      nodeId: "hero",
+      maxWidthPx: 809,
+      property: "padding-top",
+      value: "24px",
+    });
+    expect(getBreakpointMediaDeclarations(withOverride, "hero")).toEqual([
+      {
+        maxWidthPx: 809,
+        nodeId: "hero",
+        property: "padding-top",
+        value: "24px",
+      },
+    ]);
+    expect(getBreakpointMediaDeclarations(withOverride, "hero")).toEqual([
+      {
+        maxWidthPx: 809,
+        nodeId: "hero",
+        property: "padding-top",
+        value: "24px",
+      },
+    ]);
+
+    const updated = setBreakpointMediaDeclaration(withOverride, {
+      nodeId: "hero",
+      maxWidthPx: 809,
+      property: "padding-top",
+      value: "32px",
+    });
+    expect(getBreakpointMediaDeclarations(updated, "hero")).toEqual([
+      {
+        maxWidthPx: 809,
+        nodeId: "hero",
+        property: "padding-top",
+        value: "32px",
+      },
+    ]);
+  });
 });

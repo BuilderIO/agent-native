@@ -61,13 +61,24 @@ export function selectSourceDemand({
     .filter((id) => !requiredIds.has(id))
     .slice(0, OVERVIEW_LIVE_SCREEN_BUDGET);
   const protectedSet = new Set([...requiredIds, ...protectedCandidates]);
-  const live = frames
-    .filter(
-      (frame) =>
-        !protectedSet.has(frame.id) &&
-        liveIds.has(frame.id) &&
-        frame.geometry.width * zoom >= OVERVIEW_LEGIBLE_SCREEN_PX,
-    )
+  const liveCandidates = frames.filter(
+    (frame) =>
+      !protectedSet.has(frame.id) &&
+      liveIds.has(frame.id) &&
+      frame.geometry.width * zoom >= OVERVIEW_LEGIBLE_SCREEN_PX,
+  );
+  const orderedLiveCandidates = viewport
+    ? [
+        ...liveCandidates.filter((frame) =>
+          isFrameWithinOverscannedViewport(frame.geometry, viewport),
+        ),
+        ...liveCandidates.filter(
+          (frame) =>
+            !isFrameWithinOverscannedViewport(frame.geometry, viewport),
+        ),
+      ]
+    : liveCandidates;
+  const live = orderedLiveCandidates
     .slice(0, OVERVIEW_LIVE_SCREEN_BUDGET)
     .map((frame) => frame.id);
   if (!viewport) return { pinned: [...protectedSet, ...live], preview: [] };

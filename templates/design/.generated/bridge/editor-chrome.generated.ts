@@ -8074,9 +8074,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         for (var t = 0; t < held.length; t += 1) recordSourceTree(held[t]);
         return;
       }
-      var hasTemplateChild = !!root.querySelector(
-        ":scope > template"
-      );
+      var hasTemplateChild = false;
+      for (var elChild = root.firstElementChild; elChild; elChild = elChild.nextElementSibling) {
+        if (elChild.nodeName === "TEMPLATE") {
+          hasTemplateChild = true;
+          break;
+        }
+      }
       var children = root.childNodes;
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];

@@ -1,5 +1,6 @@
 export const SOURCE_HYDRATION_MAX_BYTES = 16 * 1024 * 1024;
-const EAGER_SOURCE_MAX_BYTES = 4 * 1024 * 1024;
+export const EAGER_SOURCE_MAX_BYTES = 1 * 1024 * 1024;
+export const EAGER_SOURCE_MAX_FILE_BYTES = 200 * 1024;
 const EAGER_SOURCE_MAX_FILES = 64;
 
 /** Every source of a design small enough to load whole; none otherwise. */
@@ -10,9 +11,11 @@ export function eagerSourceIds(
   let bytes = 0;
   for (const file of files) {
     if (typeof file.contentBytes !== "number") return [];
+    if (file.contentBytes > EAGER_SOURCE_MAX_FILE_BYTES) return [];
     bytes += file.contentBytes;
+    if (bytes > EAGER_SOURCE_MAX_BYTES) return [];
   }
-  return bytes <= EAGER_SOURCE_MAX_BYTES ? files.map((file) => file.id) : [];
+  return files.map((file) => file.id);
 }
 
 export type SourceHydrationState =
