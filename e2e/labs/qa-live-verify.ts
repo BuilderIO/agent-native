@@ -176,15 +176,17 @@ async function inPage<T>(
   method: string,
   url: string,
   body?: unknown,
+  extraHeaders: Record<string, string> = {},
 ) {
   return page.evaluate(
-    async ({ method, url, body }) => {
+    async ({ method, url, body, extraHeaders }) => {
       const res = await fetch(url, {
         method,
         credentials: "include",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
@@ -197,7 +199,7 @@ async function inPage<T>(
       }
       return { status: res.status, json, text: text.slice(0, 300) };
     },
-    { method, url, body },
+    { method, url, body, extraHeaders },
   ) as Promise<{ status: number; json: T | null; text: string }>;
 }
 
@@ -221,6 +223,29 @@ async function callAction<T = Record<string, unknown>>(
   if (r.status !== 200 || !r.json)
     throw new Error(`action ${name}: HTTP ${r.status} ${r.text}`);
   return r.json;
+}
+
+async function uiAction(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+): Promise<void> {
+  const minted = await inPage(
+    page,
+    "GET",
+    `${appBase}/_agent-native/ui-capability`,
+  );
+  if (minted.status !== 200)
+    throw new Error(`ui-capability: HTTP ${minted.status} ${minted.text}`);
+  const r = await inPage(
+    page,
+    "POST",
+    `${appBase}/_agent-native/actions/${name}`,
+    input,
+    { "X-Agent-Native-Frontend": "1" },
+  );
+  if (r.status !== 200)
+    throw new Error(`action ${name}: HTTP ${r.status} ${r.text}`);
 }
 
 const vars: Record<string, unknown> = {};
@@ -480,7 +505,7 @@ async function writeAndReadBack(
     );
     if (!id) throw new Error(`no form id in ${page.url()}`);
     const cleanup = async () => {
-      await callAction(page, "delete-form", { id });
+      await uiAction(page, "delete-form", { id });
     };
     const title = page.locator('input[data-editable="form-title"]');
     await title.click();
@@ -711,12 +736,22 @@ async function main() {
     const cleaned: string[] = [];
     for (const fn of [
       ...cleanups,
-      ...(target.cleanup ?? []).map((c) => () => {
+      ...(target.cleanup ?? []).map((c) => async () => {
         const page = activePage;
-        if (!page) return Promise.reject(new Error("no page for cleanup"));
-        return callAction(page, c.action, interpolate(c.input ?? {})).then(
-          () => undefined,
+        if (!page) throw new Error("no page for cleanup");
+        const input = interpolate(c.input ?? {});
+        const r = await inPage<{ errorCode?: string }>(
+          page,
+          "POST",
+          `${appBase}/_agent-native/actions/${c.action}`,
+          input,
         );
+        if (r.status === 409 && r.json?.errorCode === "approval_required") {
+          await uiAction(page, c.action, input);
+          return;
+        }
+        if (r.status !== 200 || !r.json)
+          throw new Error(`action ${c.action}: HTTP ${r.status} ${r.text}`);
       }),
     ]) {
       try {

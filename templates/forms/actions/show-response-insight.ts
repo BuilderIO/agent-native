@@ -61,6 +61,7 @@ export default defineAction({
     },
     projectResult: (_args, result) => asInsight(result),
   },
+  mcpTool: false,
   run: async (args) => {
     await assertAccess("form", args.formId, "editor");
     return {

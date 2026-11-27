@@ -517,22 +517,7 @@
     "save-triage-config",
     "set-factory-workflow-enabled"
   ],
-  "forms": [
-    "delete-form",
-    "export-responses",
-    "get-form",
-    "list-forms",
-    "list-responses",
-    "patch-form-fields",
-    "preview-form",
-    "promote-community-submission",
-    "refresh-list",
-    "response-insights",
-    "restore-form",
-    "retry-response-deliveries",
-    "show-response-insight",
-    "update-form"
-  ],
+  "forms": [],
   "mail": [],
   "plan": [
     "create-edition",

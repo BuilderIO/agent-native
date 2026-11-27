@@ -36,6 +36,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const rows = await db
