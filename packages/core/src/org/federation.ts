@@ -269,7 +269,7 @@ async function sendFederationAssertion(
 }
 
 async function sendFederatedMemberOperation(
-  event: H3Event,
+  event: H3Event | undefined,
   input: {
     orgId: string;
     actorEmail: string;
@@ -325,7 +325,13 @@ async function sendFederatedMemberOperation(
     );
   }
 
-  const hub = resolveIdentityHubUrl(event);
+  const requestEvent = event ?? requestEventFromContext();
+  if (!requestEvent) {
+    throw new Error(
+      "Federated organization changes need a request origin to reach the identity authority.",
+    );
+  }
+  const hub = resolveIdentityHubUrl(requestEvent);
   const authority = normalizeAuthority(hub ?? "");
   if (
     !authority ||
@@ -338,7 +344,7 @@ async function sendFederatedMemberOperation(
   }
 
   const sent = await sendFederationAssertion(
-    event,
+    requestEvent,
     {
       authority,
       id: existingId,
@@ -472,7 +478,7 @@ export async function addFederatedOrganizationMember(
 }
 
 export async function updateFederatedOrganizationMemberRole(
-  event: H3Event,
+  event: H3Event | undefined,
   input: {
     orgId: string;
     actorEmail: string;
