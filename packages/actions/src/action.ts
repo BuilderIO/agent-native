@@ -144,9 +144,10 @@ export async function executeAction<TCtx>(
       candidateInput = normalizeLlmToolInput(candidateInput, jsonSchema);
     }
 
+    const inputToValidate = candidateInput ?? {};
     const validatedInput = action.schema
-      ? await validateInputSchema(action.schema, candidateInput ?? {}, name)
-      : (candidateInput ?? {});
+      ? await validateInputSchema(action.schema, inputToValidate, name)
+      : inputToValidate;
 
     if (action.authorize) {
       const allowed = await action.authorize(validatedInput as never, ctx);

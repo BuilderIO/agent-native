@@ -34,9 +34,24 @@ When an action declares `needsApproval`, the CLI enforces it automatically:
 
 <Callout tone="success">
 
-**Let coding agents drive your app:** Mention `pnpm action --list` in your repo's `AGENTS.md`. Instead of writing ad-hoc SQL or throwaway scripts, Claude Code and Codex immediately discover and call your validated app operations.
+**Let coding agents build & run actions automatically:** `npx @agent-native/actions init` installs `.agents/skills/agent-native-actions/SKILL.md` into your repo (or run `npx @agent-native/actions skill` anytime). It teaches Claude Code, Codex, and Cursor to build every new feature as a typed action in `actions/` and verify it via `pnpm action --list` instead of writing ad-hoc routes or throwaway scripts.
 
 </Callout>
+
+### Coding Agent Skill (`npx @agent-native/actions skill`) {#skill}
+
+Install or update the bundled skill at any time — or print it to stdout so any agent can load it directly:
+
+```bash
+# Install into .agents/skills/agent-native-actions/SKILL.md
+npx @agent-native/actions skill
+
+# Overwrite an existing copy with the latest version
+npx @agent-native/actions skill --force
+
+# Print the skill markdown directly (useful inside agent prompts or CI)
+npx @agent-native/actions skill --print
+```
 
 ## MCP Server (`@agent-native/actions/mcp`) {#mcp}
 

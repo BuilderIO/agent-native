@@ -12,6 +12,7 @@ import { isActionError, serializeActionErrorBody } from "./errors.js";
 import { runStdioMcpServer } from "./mcp.js";
 import { createActions, type ActionsRegistry } from "./registry.js";
 import { schemaToJsonSchema } from "./schema.js";
+import { AGENT_NATIVE_ACTIONS_SKILL_MD, installActionsSkill } from "./skill.js";
 import type { ActionContextInput, ActionMap } from "./types.js";
 
 type DetectedFramework = "next" | "vite" | "nuxt" | "sveltekit" | "node";
@@ -127,6 +128,7 @@ function readTsconfigAliases(projectRoot: string): Record<string, string> {
     }
     return aliases;
   } catch {
+    // coercion-ok: tsconfig.json may use JSONC syntax; jiti still resolves standard module paths without custom aliases
     return {};
   }
 }
@@ -355,6 +357,20 @@ function runInit(
     );
   }
 
+  const skillResult = installActionsSkill({
+    projectRoot,
+    dryRun: options.dryRun === true,
+  });
+  if (skillResult.status === "created") {
+    console.error(
+      `  [created] ${skillResult.relativePath} — agent skill teaching coding agents to build new features as actions`,
+    );
+  } else if (skillResult.status === "would-create") {
+    console.error(
+      `  [would create] ${skillResult.relativePath} — agent skill teaching coding agents to build new features as actions`,
+    );
+  }
+
   if (framework === "next") {
     console.error(
       "\nNext step: wrap next.config.ts with `withAgentNativeActions()` from `@agent-native/actions/next/config`.",
@@ -454,6 +470,20 @@ export async function runActionCli(argv: readonly string[]): Promise<number> {
       dryRun: flags["dry-run"] === true,
       ...(fw ? { framework: fw } : {}),
     });
+    return 0;
+  }
+
+  if (command === "skill") {
+    if (flags["print"] === true) {
+      process.stdout.write(AGENT_NATIVE_ACTIONS_SKILL_MD);
+      return 0;
+    }
+    const result = installActionsSkill({
+      projectRoot,
+      dryRun: flags["dry-run"] === true,
+      overwrite: flags["force"] === true,
+    });
+    console.error(`  [${result.status}] ${result.relativePath}`);
     return 0;
   }
 

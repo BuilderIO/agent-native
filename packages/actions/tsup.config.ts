@@ -36,7 +36,7 @@ export default defineConfig([
     format: ["esm"],
     dts: true,
     sourcemap: true,
-    clean: true,
+    clean: false,
     splitting: true,
     external: SHARED_EXTERNALS,
   },
@@ -57,10 +57,21 @@ export default defineConfig([
   },
   {
     entry: {
-      cli: "src/cli.ts",
+      contract: "src/contract.ts",
     },
     format: ["esm"],
     dts: true,
+    sourcemap: true,
+    clean: false,
+    splitting: false,
+    external: SHARED_EXTERNALS,
+  },
+  {
+    entry: {
+      cli: "src/cli.ts",
+    },
+    format: ["esm"],
+    dts: false,
     sourcemap: true,
     clean: false,
     splitting: false,

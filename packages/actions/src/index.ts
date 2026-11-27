@@ -61,6 +61,17 @@ export {
   validateOutputSchema,
 } from "./schema.js";
 
+export {
+  AGENT_NATIVE_ACTIONS_SKILL_MD,
+  AGENT_NATIVE_ACTIONS_SKILL_NAME,
+  AGENT_NATIVE_ACTIONS_SKILL_RELATIVE_PATH,
+  installActionsSkill,
+} from "./skill.js";
+export type {
+  InstallActionsSkillOptions,
+  InstallActionsSkillResult,
+} from "./skill.js";
+
 export type {
   ActionAfterMutateInfo,
   ActionApprovalRequest,

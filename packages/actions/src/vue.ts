@@ -38,6 +38,7 @@ async function loadVueRuntime(): Promise<VueRuntime | null> {
     const mod = (await import("vue")) as unknown as VueRuntime;
     return typeof mod.ref === "function" ? mod : null;
   } catch {
+    // coercion-ok: vue is an optional peer dependency; null signals fallback to plain ref objects
     return null;
   }
 }
@@ -210,6 +211,7 @@ export function createVueActionHooks<TRegistry = unknown>(
       try {
         return await mutateAsync(input);
       } catch {
+        // coercion-ok: mutateAsync already set reactive error state and called onError
         return undefined;
       }
     };

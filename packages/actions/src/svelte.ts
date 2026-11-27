@@ -191,6 +191,7 @@ export function createSvelteActionHooks<TRegistry = unknown>(
       try {
         return await mutateAsync(input);
       } catch {
+        // coercion-ok: mutateAsync already set reactive error state and called onError
         return undefined;
       }
     };

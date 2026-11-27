@@ -5,9 +5,10 @@ description: "What the full Agent-Native framework (@agent-native/core and @agen
 
 # Going Beyond Actions
 
-`@agent-native/actions` gives any existing app the **operations layer**: one typed contract shared by your UI hooks, HTTP API, CLI, MCP server, and AI SDK tools.
+Think of the split like **React → Next.js** (or **Vercel AI SDK → a full app framework**):
 
-When you want your app to go from *"agent-callable"* to a complete **agent-native product** — with an in-app AI assistant that sees the user's screen, updates the live UI as it works, asks for approval inline, and runs background automations — the full **Agent-Native framework** (`@agent-native/core` + `@agent-native/toolkit`) builds directly on top of the same actions.
+- **`@agent-native/actions`** is the **portable operations layer** — one typed contract shared by your UI hooks, HTTP API, CLI, MCP server, and AI SDK tools in any existing app.
+- **The full Agent-Native framework** (`@agent-native/core` + `@agent-native/toolkit`) gives you the **structure, UI toolkit, in-app agent, and multi-app A2A architecture** built directly on top of the same actions contract (`@agent-native/actions/contract`).
 
 <Comparison>
 
@@ -68,10 +69,10 @@ In addition to the backend runtime, [`@agent-native/toolkit`](/docs/agent-native
 
 ## Moving from `@agent-native/actions` to `@agent-native/core` {#upgrading}
 
-Your actions are already written in the same `defineAction()` shape used by `@agent-native/core/action`:
+`@agent-native/core` shares `@agent-native/actions/contract` under the hood and **natively discovers actions defined with `@agent-native/actions`** inside `actions/`:
 
-- `description`, `schema`, `outputSchema`, `http`, `readOnly`, `retrySafe`, `mcpTool`, `agentTool`, `authorize(input, ctx)`, `needsApproval(input, ctx)`, `fail()`, and `defineActionErrors()` all match.
-- When moving an action into a full `@agent-native/core` app, swap the import to `@agent-native/core/action` and adapt any app-specific `ctx` fields to Core's built-in `ActionRunContext` (`ctx.userEmail`, `ctx.orgId`, `ctx.caller`).
+- `description`, `schema`, `outputSchema`, `http`, `readOnly`, `retrySafe`, `mcpTool`, `agentTool`, `mcpOutputSchema`, `authorize(input, ctx)`, `needsApproval(input, ctx)`, `fail()`, and `defineActionErrors()` share the same contract and error identity.
+- You can drop an existing `@agent-native/actions` file straight into a `@agent-native/core` app's `actions/` folder and it runs through Core's full runtime (HTTP, MCP, CLI, audit log, write observation) automatically — then switch the import to `@agent-native/core/action` whenever you want Core-only features like `audit`, `access`, `chatUI`, `mcpApp`, or `publicAgent`.
 
 ## Next Steps
 

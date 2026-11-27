@@ -7,23 +7,60 @@ description: "Add @agent-native/actions to an existing app or standalone Node pr
 
 Go from zero to an action callable from your **UI**, **HTTP**, **CLI**, **MCP**, and **plain TypeScript** in under two minutes.
 
-## Option 1: Install with Your Coding Agent {#agent-install}
+## Install {#install}
 
-Paste this into **Claude Code**, **Codex**, or **Cursor**:
+<TabsBlock
+  id="quickstart-install-tabs"
+  tabs={[
+    {
+      id: "agent-install",
+      label: "AI Coding Agent (Recommended)",
+      blocks: [
+        {
+          type: "code",
+          id: "qs-agent-install",
+          data: {
+            language: "text",
+            code: `Install @agent-native/actions in this repo using https://agent-native.com/docs/actions-package-quickstart.md.
+Run \`npx @agent-native/actions init\` (which also installs the agent-native-actions skill), wire our existing auth into actions/context.ts,
+add a sample read action and write action in actions/, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+    {
+      id: "cli-install",
+      label: "CLI Installer",
+      blocks: [
+        {
+          type: "code",
+          id: "qs-cli-install",
+          data: {
+            language: "bash",
+            code: `npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "manual-install",
+      label: "Manual Install",
+      blocks: [
+        {
+          type: "code",
+          id: "qs-manual-install",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions skill`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
 
-```text
-Install @agent-native/actions in this repo using https://agent-native.com/docs/actions-package-quickstart.md.
-Run `npx @agent-native/actions init`, wire our existing auth into actions/context.ts,
-add a sample read action and write action in actions/, and verify with `pnpm action --list`.
-```
-
-## Option 2: Run the CLI Installer {#cli-install}
-
-```bash
-npx @agent-native/actions init
-```
-
-The installer detects your stack and adds the smallest possible setup:
+`npx @agent-native/actions init` detects your stack, installs the `.agents/skills/agent-native-actions/SKILL.md` coding-agent skill (so Claude Code, Codex, and Cursor build new features as actions automatically), and adds the smallest possible setup:
 
 - **Vite (React, SolidJS, Vue, Svelte):** Adds 1 plugin line (`agentNativeActionsPlugin()`) to `vite.config.ts`. No route files needed.
 - **Next.js:** Wraps `next.config.ts` with `withAgentNativeActions()` and adds one single catch-all route at `app/api/agent-native/[...path]/route.ts` (serves both HTTP actions and MCP).

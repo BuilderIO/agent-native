@@ -16,6 +16,7 @@ const POST_COMMIT_ERROR_BRAND = Symbol.for(
 
 export class ActionError extends Error {
   readonly [ACTION_ERROR_BRAND] = true;
+  readonly actionContractError = true;
   readonly statusCode: number;
   readonly errorCode: string;
   readonly details: Record<string, unknown> | undefined;
@@ -60,9 +61,12 @@ export class ActionPostCommitError extends ActionError {
 }
 
 export function isActionError(value: unknown): value is ActionError {
+  if (value instanceof ActionError) return true;
+  if (typeof value !== "object" || value === null) return false;
+  if (ACTION_ERROR_BRAND in value) return true;
   return (
-    value instanceof ActionError ||
-    (typeof value === "object" && value !== null && ACTION_ERROR_BRAND in value)
+    (value as { actionContractError?: unknown }).actionContractError === true &&
+    typeof (value as { errorCode?: unknown }).errorCode === "string"
   );
 }
 
@@ -101,18 +105,22 @@ export interface ActionErrorSet<TCode extends string> {
 export function defineActionErrors<
   const TCodes extends readonly [string, ...string[]],
 >(...codes: TCodes): ActionErrorSet<TCodes[number]> {
-  const allowed = new Set<string>(codes);
-  return {
-    codes,
+  const uniqueCodes: readonly TCodes[number][] = Object.freeze([
+    ...new Set(codes),
+  ]);
+  const allowed = new Set<string>(uniqueCodes);
+  const errorSet: ActionErrorSet<TCodes[number]> = {
+    codes: uniqueCodes,
     fail(message, code, options = {}) {
       if (!allowed.has(code)) {
         throw new Error(
-          `Unknown action errorCode "${code}". Declared codes: ${codes.join(", ")}`,
+          `Unknown action errorCode "${code}". Declared codes: ${uniqueCodes.join(", ")}`,
         );
       }
       throw new ActionError(message, { ...options, errorCode: code });
     },
   };
+  return Object.freeze(errorSet);
 }
 
 export function serializeActionErrorBody(error: unknown): {

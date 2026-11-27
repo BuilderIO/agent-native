@@ -33,7 +33,7 @@ Run `pnpm action create-todo --title "Ship docs"` from any terminal. Humans, scr
 
 ## Works with Your Existing Stack {#frameworks}
 
-<Diagram id="doc-block-actions-package-frameworks" renderMode="design" frame="hide" title="Works with your existing stack" summary="First-class plugins and reactive client bindings for Next.js, Vite, React, SolidJS, Vue, Svelte, Hono, and Node.js.">
+<Diagram id="doc-block-actions-package-frameworks" renderMode="design" frame="hide" summary="First-class plugins and reactive client bindings for Next.js, Vite, React, SolidJS, Vue, Svelte, Hono, and Node.js.">
 
 ```html
 <div class="anpkg-grid-logos">
@@ -90,16 +90,30 @@ Run `pnpm action create-todo --title "Ship docs"` from any terminal. Humans, scr
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--docs-border, rgba(128, 128, 128, 0.25));
-  background: var(--bg-subtle, transparent);
-  color: inherit;
+  background: var(--code-bg, transparent);
+  color: var(--fg, inherit);
   text-decoration: none;
   font-size: 13.5px;
   font-weight: 500;
   transition: border-color 140ms ease, background-color 140ms ease;
 }
+.anpkg-fw-item svg {
+  flex-shrink: 0;
+  color: var(--fg, currentColor);
+  opacity: 0.85;
+}
+.anpkg-fw-item :is(svg, line, path, polyline, polygon, rect, circle, ellipse) {
+  stroke: currentColor !important;
+}
+.anpkg-fw-item svg circle[fill="currentColor"] {
+  fill: currentColor !important;
+}
 .anpkg-fw-item:hover {
-  border-color: var(--docs-accent, currentColor);
+  border-color: var(--fg-secondary, currentColor);
   background: var(--bg-secondary, transparent);
+}
+.anpkg-fw-item:hover svg {
+  opacity: 1;
 }
 ```
 
@@ -158,7 +172,7 @@ Detect our framework and auth setup, run \`npx @agent-native/actions init\`, con
   ]}
 />
 
-`npx @agent-native/actions init` detects your framework, generates the single catch-all route and `.generated/actions.ts` manifest, creates a starter `actions/hello.ts`, and adds `"action": "actions"` to `package.json`.
+`npx @agent-native/actions init` detects your framework, generates the single catch-all route and `.generated/actions.ts` manifest, creates a starter `actions/hello.ts`, installs the `.agents/skills/agent-native-actions/SKILL.md` coding-agent skill (so agents build all new features as actions automatically), and adds `"action": "actions"` to `package.json`.
 
 ## What an Action Looks Like {#example}
 

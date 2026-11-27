@@ -1,7 +1,13 @@
 import nodePath from "node:path";
 
+import {
+  isDefinedAction,
+  type DefinedAction,
+} from "@agent-native/actions/contract";
+
 import "../authorization/check-action.js";
 import {
+  defineAction,
   isActionDefinitionError,
   namedActionDefinitionError,
 } from "../action.js";
@@ -81,6 +87,62 @@ export function mergePackageActions(
     if (registry[name]) continue;
     registry[name] = entry;
   }
+}
+
+function adaptPortableAction(def: DefinedAction, name: string): ActionEntry {
+  const httpConfig =
+    def.http === false
+      ? false
+      : def.http
+        ? {
+            ...(def.http.method && def.http.method !== "PATCH"
+              ? { method: def.http.method }
+              : {}),
+            ...(def.http.path !== undefined ? { path: def.http.path } : {}),
+          }
+        : undefined;
+  const authorizeFn = def.authorize;
+  const needsApproval = def.needsApproval;
+
+  const coreDef = defineAction({
+    description: def.description,
+    ...(def.title !== undefined ? { title: def.title } : {}),
+    ...(def.schema !== undefined ? { schema: def.schema } : {}),
+    ...(def.outputSchema !== undefined
+      ? { outputSchema: def.outputSchema }
+      : {}),
+    ...(httpConfig !== undefined ? { http: httpConfig } : {}),
+    ...(def.readOnly !== undefined ? { readOnly: def.readOnly } : {}),
+    ...(def.retrySafe !== undefined ? { retrySafe: def.retrySafe } : {}),
+    ...(def.mcpTool !== undefined ? { mcpTool: def.mcpTool } : {}),
+    ...(def.agentTool !== undefined ? { agentTool: def.agentTool } : {}),
+    ...(def.mcpOutputSchema !== undefined
+      ? { mcpOutputSchema: def.mcpOutputSchema }
+      : {}),
+    ...(authorizeFn
+      ? {
+          authorize: (args: unknown, ctx?: unknown) =>
+            authorizeFn(args as never, ctx as never),
+        }
+      : {}),
+    ...(needsApproval !== undefined
+      ? {
+          needsApproval:
+            typeof needsApproval === "function"
+              ? (args: unknown, ctx?: unknown) =>
+                  needsApproval(args as never, ctx as never)
+              : needsApproval,
+        }
+      : {}),
+    run: (args: unknown, ctx?: unknown) => def.run(args as never, ctx as never),
+  } as Parameters<typeof defineAction>[0]);
+
+  return {
+    tool: coreDef.tool,
+    run: coreDef.run,
+    ...(coreDef.http !== undefined ? { http: coreDef.http } : {}),
+    ...preserveActionFlags(coreDef as unknown as Record<string, unknown>, name),
+  };
 }
 
 function wrapDefaultExport(
@@ -182,6 +244,10 @@ async function loadActionsIntoRegistry(
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
           ...preserveActionFlags(mod.default, name),
         };
+      } else if (isDefinedAction(mod.default)) {
+        registry[name] = adaptPortableAction(mod.default, name);
+      } else if (isDefinedAction(mod)) {
+        registry[name] = adaptPortableAction(mod, name);
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);
       }
@@ -232,6 +298,16 @@ export function loadActionsFromStaticRegistry(
         ...(def.http !== undefined ? { http: def.http } : {}),
         ...preserveActionFlags(def, name),
       };
+      continue;
+    }
+
+    if (isDefinedAction(def)) {
+      registry[name] = adaptPortableAction(def, name);
+      continue;
+    }
+
+    if (isDefinedAction(mod)) {
+      registry[name] = adaptPortableAction(mod, name);
       continue;
     }
 

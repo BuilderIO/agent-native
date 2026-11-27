@@ -186,14 +186,18 @@ export function createActionClient<
 
       const contentType = response.headers.get("content-type") ?? "";
       const isJson = contentType.includes("application/json");
-      const payload: unknown = isJson
-        ? await response.json().catch(() => null)
-        : await response.text().catch(() => "");
 
       if (!response.ok) {
+        let errorPayload: unknown = null;
+        try {
+          errorPayload = isJson ? await response.json() : await response.text();
+        } catch {
+          // coercion-ok: error response body may be empty or malformed; HTTP status error is always thrown below
+          errorPayload = null;
+        }
         const record =
-          payload && typeof payload === "object"
-            ? (payload as Record<string, unknown>)
+          errorPayload && typeof errorPayload === "object"
+            ? (errorPayload as Record<string, unknown>)
             : null;
         const message =
           typeof record?.["error"] === "string"
@@ -224,6 +228,12 @@ export function createActionClient<
         });
       }
 
+      if (response.status === 204) {
+        return undefined as ActionOutputOf<TRegistry, typeof name>;
+      }
+      const payload: unknown = isJson
+        ? await response.json()
+        : await response.text();
       return payload as ActionOutputOf<TRegistry, typeof name>;
     },
   };

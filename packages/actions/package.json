@@ -32,6 +32,7 @@
   },
   "files": [
     "dist",
+    "skills",
     "README.md"
   ],
   "type": "module",
@@ -42,6 +43,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./contract": {
+      "types": "./dist/contract.d.ts",
+      "default": "./dist/contract.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
@@ -99,17 +104,14 @@
       "types": "./dist/webmcp.d.ts",
       "default": "./dist/webmcp.js"
     },
-    "./cli": {
-      "types": "./dist/cli.d.ts",
-      "default": "./dist/cli.js"
-    }
+    "./cli": "./dist/cli.js"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "scripts": {
-    "build": "tsup",
+    "build": "node -e \"import('node:fs').then((fs)=>fs.rmSync('dist',{recursive:true,force:true}))\" && tsup",
     "dev": "tsup --watch",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
