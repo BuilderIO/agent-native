@@ -1216,7 +1216,16 @@ export function useRestoreContentDatabase() {
       documentId: string;
       deletedAt: null;
     },
-    { databaseId: string }
+    | { databaseId: string; expectedDeletedAt?: string }
+    | {
+        target: {
+          spaceId: string;
+          databaseId: string;
+          databaseDocumentId: string;
+        };
+        expectedConfigurationRevision: string;
+        idempotencyKey: string;
+      }
   >("restore-content-database", {
     invalidates: (data) => [
       ["action", "get-content-database"],

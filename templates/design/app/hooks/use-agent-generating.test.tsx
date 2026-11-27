@@ -1251,6 +1251,51 @@ describe("useAgentGenerating", () => {
     },
   );
 
+  it.each(["missing_api_key", "error:AGENT_CHAT_AI_SETUP_REQUIRED"])(
+    "flags an errored run ended by %s as setup required",
+    async (terminalReason) => {
+      const onFailed = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            active: false,
+            status: "errored",
+            runId: "design-run",
+            terminalReason,
+            retryable: false,
+          }),
+        }),
+      );
+
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(
+          <Probe
+            onComplete={vi.fn()}
+            onFailed={onFailed}
+            onStopped={vi.fn()}
+          />,
+        );
+      });
+      await act(async () => {
+        latest?.submit("Make a landing page", "Design id: design-1");
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+
+      expect(onFailed).toHaveBeenCalledWith("design-tab", {
+        retryable: false,
+        setupRequired: true,
+      });
+
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  );
+
   it("fails a start_failed event immediately with retryable generation state", async () => {
     const onFailed = vi.fn();
     const onStale = vi.fn();

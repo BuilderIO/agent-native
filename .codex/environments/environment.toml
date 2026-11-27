@@ -1,0 +1,5 @@
+version = 1
+name = "agent-native"
+
+[setup]
+script = 'bash "$CODEX_WORKTREE_PATH/scripts/hooks/worktree-setup.sh"'

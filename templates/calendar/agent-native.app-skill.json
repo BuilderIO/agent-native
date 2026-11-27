@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "id": "calendar",
+  "displayName": "Calendar",
+  "description": "Read and plan connected Google calendars, find free time, and see booking links and bookings through the Calendar app.",
+  "hosted": {
+    "url": "https://calendar.agent-native.com",
+    "mcpUrl": "https://calendar.agent-native.com/mcp"
+  },
+  "mcp": {
+    "serverName": "agent-native-calendar"
+  },
+  "local": {
+    "template": "calendar",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8082",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Use the Calendar actions if they are already available. Otherwise add https://calendar.agent-native.com/mcp as a remote MCP connector in OAuth-capable hosts, then complete the host-owned OAuth sign-in. Codex and Claude Cowork use the browser-authorized device-code flow at https://calendar.agent-native.com/mcp/connect or npx @agent-native/core@latest connect https://calendar.agent-native.com. Never ask the user to paste a token into chat."
+  },
+  "surfaces": [
+    {
+      "id": "calendar-events",
+      "action": "list-events",
+      "path": "/"
+    },
+    {
+      "id": "calendar-booking-links",
+      "action": "list-booking-links",
+      "path": "/booking-links"
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/event-management",
+      "visibility": "internal"
+    },
+    {
+      "path": ".agents/skills/availability-booking",
+      "visibility": "internal"
+    }
+  ],
+  "hostAdapters": ["chatgpt-mcp", "generic-mcp"],
+  "chatgpt": {
+    "version": "1.0.0",
+    "interface": {
+      "displayName": "Agent-Native Calendar",
+      "shortDescription": "Check and plan your schedule",
+      "longDescription": "See and plan the Google calendars connected to your Agent-Native Calendar account. List and search events, check when you are free, find a time that suits several people, and add or move events. You can also see your booking links and who has booked through them. The plugin can access only the calendars and booking links available to your connected account. Inviting guests to an event asks you to approve it in Calendar first. This listing does not delete events, cancel bookings, change your availability, or create or edit booking links.",
+      "developerName": "Builder.io",
+      "category": "Productivity",
+      "capabilities": [
+        "Review and search your calendar",
+        "Find free time",
+        "Add and reschedule events",
+        "See booking links and bookings"
+      ],
+      "websiteURL": "https://agent-native.com/apps/calendar/",
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "What's on my calendar this week?",
+        "When am I free tomorrow for a 30-minute call?",
+        "Add a one-hour focus block tomorrow at 9 AM with no guests."
+      ],
+      "keywords": [
+        "calendar",
+        "schedule",
+        "meetings",
+        "availability",
+        "booking links"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Review this week's events",
+            "prompt": "What's on my calendar this week? List each event with its day, start time and end time.",
+            "tools_triggered": "list-events",
+            "expected_behavior": "List the events on the connected Google calendar for the current week in the user's time zone, and say so if there are none. Do not invent events or change any."
+          },
+          {
+            "description": "Search for a seeded event",
+            "prompt": "Find my 'Plugin Review Demo' event in the next 30 days and tell me when it is and where it takes place.",
+            "tools_triggered": "search-events",
+            "expected_behavior": "Search the next 30 days of the connected calendar for 'Plugin Review Demo' and report its date, time and location from the result. Do not change the event."
+          },
+          {
+            "description": "Check free time on one day",
+            "prompt": "When am I free tomorrow for a 30-minute call?",
+            "tools_triggered": "check-availability",
+            "expected_behavior": "Check tomorrow on the connected calendar and list the open slots of at least 30 minutes within the account's working hours. Do not create an event."
+          },
+          {
+            "description": "Add and move a guest-free event",
+            "prompt": "Add a 30-minute event called 'Plugin review: focus block' tomorrow at 3 PM with no guests. Then move it to 4 PM.",
+            "tools_triggered": "create-event, update-event",
+            "expected_behavior": "Create one event with no guests on the connected primary calendar, then move that same event to 4 PM using the event id and accountEmail create-event returned, keeping its 30-minute length. No other event changes; a second web or mobile run adds another separate event."
+          },
+          {
+            "description": "Review booking links and bookings",
+            "prompt": "Show my booking links with their durations, and list anyone who has booked through them.",
+            "tools_triggered": "list-booking-links, list-bookings",
+            "expected_behavior": "List the account's booking links with their durations and the bookings made through them, and say so if there are no bookings. Do not create, change or cancel a booking link or booking."
+          }
+        ],
+        "negative": [
+          {
+            "description": "Travel booking",
+            "prompt": "Book me a flight to Chicago next Friday morning."
+          },
+          {
+            "description": "Unsupported deletion",
+            "prompt": "Delete every event on my calendar next week."
+          },
+          {
+            "description": "Unsupported messaging",
+            "prompt": "Text my team that I'm running ten minutes late."
+          }
+        ]
+      },
+      "commerce": false
+    }
+  }
+}

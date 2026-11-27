@@ -7,6 +7,7 @@ import { renderUi } from "@/test-utils/render-ui";
 
 const mocks = vi.hoisted(() => ({
   query: {} as Record<string, unknown>,
+  properties: null as Record<string, unknown> | null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
@@ -20,7 +21,12 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   useDocumentProperties: () => mocks.query,
 }));
 
-vi.mock("./DocumentProperties", () => ({ DocumentProperties: () => null }));
+vi.mock("./DocumentProperties", () => ({
+  DocumentProperties: (props: Record<string, unknown>) => {
+    mocks.properties = props;
+    return null;
+  },
+}));
 
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 
@@ -147,5 +153,28 @@ describe("Info's word counts after the Properties read", () => {
     renderPanel();
 
     expect(placeholder()).not.toBeNull();
+  });
+});
+
+describe("Info's Properties", () => {
+  beforeEach(() => {
+    mocks.query = {};
+    mocks.properties = null;
+  });
+
+  it("reads a row's Properties from the Collection it belongs to", () => {
+    renderPanel();
+
+    expect(mocks.properties).toMatchObject({
+      documentId: "row",
+      databaseId: "database",
+      databaseDocumentId: "database-page",
+    });
+  });
+
+  it("shows no Properties for a Page outside any Collection", () => {
+    renderPanel({ databaseMembership: undefined });
+
+    expect(mocks.properties).toBeNull();
   });
 });

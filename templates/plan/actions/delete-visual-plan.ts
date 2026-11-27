@@ -20,6 +20,7 @@ import {
 } from "../server/lib/local-identity.js";
 import { deletePrivatePlanAssetBytes } from "../server/lib/plan-assets.js";
 import { deleteMirroredPlanComments } from "../server/lib/plan-comment-mirror.js";
+import { countPlanComments } from "../server/lib/plan-comments.js";
 import { nowIso, writeEvent } from "../server/plans.js";
 
 const hardDeleteModeSchema = z.enum(["soft", "restore", "hard"]);
@@ -110,10 +111,7 @@ async function countPlanRows(
     assets,
     plans,
   ] = await Promise.all([
-    db
-      .select({ id: schema.planComments.id })
-      .from(schema.planComments)
-      .where(eq(schema.planComments.planId, planId)),
+    countPlanComments([planId]),
     db
       .select({ id: schema.planEditionStories.id })
       .from(schema.planEditionStories)
@@ -153,7 +151,7 @@ async function countPlanRows(
       ),
   ]);
   return {
-    comments: comments.length,
+    comments: comments.get(planId)?.comments ?? 0,
     editionStories: editionStories.length,
     sections: sections.length,
     events: events.length,
@@ -165,15 +163,31 @@ async function countPlanRows(
   };
 }
 
-async function hardDeletePlanRows(planId: string, ownerEmail: string) {
-  const db = getDb();
-  await ensureReviewTables();
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(schema.planComments)
-      .where(eq(schema.planComments.planId, planId));
-    await deleteMirroredPlanComments(planId, "all", ownerEmail);
-  });
+type PlanWriter = Pick<ReturnType<typeof getDb>, "select" | "delete">;
+
+async function deletePlanRows(
+  db: PlanWriter,
+  planId: string,
+  ownerEmail: string,
+) {
+  const ownPlan = and(
+    eq(schema.plans.id, planId),
+    eq(schema.plans.ownerEmail, ownerEmail),
+  );
+  const owned = await db
+    .select({ id: schema.plans.id })
+    .from(schema.plans)
+    .where(ownPlan)
+    .for("update");
+  if (owned.length === 0) {
+    throw new ForbiddenError(
+      `Plan ${planId} changed owner before it could be deleted. Nothing was deleted.`,
+    );
+  }
+  await deleteMirroredPlanComments(planId, "all", ownerEmail);
+  await db
+    .delete(schema.planComments)
+    .where(eq(schema.planComments.planId, planId));
   // An edition's stories hang off the plan row with no cascade behind them, so
   // skipping this leaves the whole issue as rows nothing can reach.
   await db
@@ -201,11 +215,15 @@ async function hardDeletePlanRows(planId: string, ownerEmail: string) {
   await db
     .delete(schema.planAssets)
     .where(eq(schema.planAssets.planId, planId));
-  await db
-    .delete(schema.plans)
-    .where(
-      and(eq(schema.plans.id, planId), eq(schema.plans.ownerEmail, ownerEmail)),
-    );
+  await db.delete(schema.plans).where(ownPlan);
+  return assets;
+}
+
+async function hardDeletePlanRows(planId: string, ownerEmail: string) {
+  await ensureReviewTables();
+  const assets = await getDb().transaction((tx) =>
+    deletePlanRows(tx, planId, ownerEmail),
+  );
   await deletePlanCollabState(planId);
   // Last, so a failure above leaves no plan pointing at missing images.
   await deletePrivatePlanAssetBytes(assets);

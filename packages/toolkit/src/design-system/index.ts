@@ -6,3 +6,4 @@ export * from "./error-boundary.js";
 export * from "./parts.js";
 export * from "./theme.js";
 export * from "./types.js";
+export * from "./primitives.js";

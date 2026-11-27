@@ -93,12 +93,12 @@ Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的�
 一些標誌對此進行了調整；完整詳細資訊位於 [Environment Variables](#environment-variables) 表中：
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — 使用本機開發中的普通註冊頁面而不是自動開發帳戶。
-- `AUTH_DISABLED=true` — 完全跳過登入/註冊，並以一個共用使用者身分執行每個請求（僅限本機開發/預覽/示範，切勿與真實使用者一起進行正式環境）。
+- `AUTH_DISABLED=true` — 完全跳過登入/註冊，並以一個共用使用者身分執行每個請求。僅限在迴路（`localhost`）伺服器上進行本機開發；切勿在託管預覽、示範或正式環境中設定。
 - `AUTH_MODE=local` — 僅影響 CLI/代理身分（開發使用者 `pnpm action` 執行時的身分）；它**不是**瀏覽器登入繞過。
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true` 會讓**每個請求都以同一個共用使用者身分登入**，因此任何能連到該伺服器的人都擁有完整存取權。僅在迴路（`localhost`）伺服器上進行本機開發時使用。託管預覽、示範和正式環境需要真正的登入；對於 QA 預覽，`AUTH_SKIP_EMAIL_VERIFICATION=1` 可以免去等待郵件，而不必關閉驗證。
 
 </Callout>
 
@@ -462,7 +462,7 @@ const state = encodeOAuthState({
 | `BETTER_AUTH_SECRET`                    | 更好的驗證簽名金鑰（如果未設定，則自動生成）                                                                         |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | 在 QA/預覽環境中設定為 `1`，讓電子郵件/密碼註冊無需驗證即可繼續進行；預設情況下跳過本機開發/測試                     |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | 設定為 `0` 或 `1` 可為任何環境（包括正式環境）宣告密碼註冊的驗證政策；優先於 `AUTH_SKIP_EMAIL_VERIFICATION`          |
-| `AUTH_DISABLED`                         | 設定為`true`或`1`跳過登入/註冊；所有請求都作為一個共用使用者執行（僅限本機開發/預覽 - 不適用於真實使用者的正式環境） |
+| `AUTH_DISABLED`                         | 設定為`true`或`1`跳過登入/註冊；所有請求都作為一個共用使用者執行（僅限 localhost 本機開發 - 不適用於託管或正式環境） |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 設定為 `1` 以在新的開發資料庫上停用本機主機自動登入                                                                  |
 | `AUTH_MODE`                             | `local` 僅解析 CLI/代理身分（開發使用者 `pnpm action` 作為其執行）；絕不繞過瀏覽器登入                               |
 | `COOKIE_DOMAIN`                         | 選取跨同一資料庫子域共用工作階段 Cookie（請參閱 [Cookie Realms](#cookie-realms)）                                    |

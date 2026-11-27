@@ -3,10 +3,9 @@ import {
   resolveA2ACallerAuth,
 } from "@agent-native/core/a2a";
 import { fail } from "@agent-native/core/action";
-import { getAppConfig } from "@agent-native/core/server";
-import { getBuiltinAgents } from "@agent-native/core/server/agent-discovery";
-import { resolveLaneEndpoint } from "@agent-native/core/shared/environment-lanes";
 import { z } from "zod";
+
+import { peerAppTarget } from "./peer-apps.js";
 
 export const CONTENT_FILE_FORMATS = ["markdown", "csv", "pdf"] as const;
 export type ContentFileFormat = (typeof CONTENT_FILE_FORMATS)[number];
@@ -93,60 +92,63 @@ const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
     },
   };
 
-function hostnameOf(url: string | undefined): string | undefined {
-  if (!url || !URL.canParse(url)) return undefined;
-  return new URL(url).hostname;
+export function contentErrorCode(output: string) {
+  return /\(errorCode: ([A-Za-z0-9_]+)\)/.exec(output)?.[1];
 }
 
-function contentTarget(): string {
-  const content = getBuiltinAgents("mail").find((app) => app.id === "content");
-  if (!content?.url || !URL.canParse(content.url)) return "content";
-  const builtinUrl = content.url.replace(/\/+$/, "");
-  const laneUrl = resolveLaneEndpoint(
-    builtinUrl,
-    hostnameOf(getAppConfig().app.url),
-  ).replace(/\/+$/, "");
-  return laneUrl === builtinUrl ? "content" : laneUrl;
-}
-
-function contentErrorCode(output: string) {
-  return /\(errorCode: ([a-z0-9_]+)\)/.exec(output)?.[1];
-}
-
-async function readDocumentFile(input: Record<string, unknown>) {
+export async function invokeContentAction(
+  action: string,
+  input: Record<string, unknown>,
+  signInMessage: string,
+) {
   const auth = await resolveA2ACallerAuth();
   if (!auth.userEmail) {
-    fail("Sign in to attach a Content page.", {
-      statusCode: 401,
-      errorCode: "unauthorized",
-    });
+    fail(signInMessage, { statusCode: 401, errorCode: "unauthorized" });
   }
-  let response;
   try {
-    response = await invokeAgentAction({
-      target: contentTarget(),
+    const response = await invokeAgentAction({
+      target: peerAppTarget("content"),
       selfAppId: "mail",
-      action: "read-document-file",
+      action,
       input,
       userEmail: auth.userEmail,
       ...(auth.orgDomain ? { orgDomain: auth.orgDomain } : {}),
       ...(auth.orgSecret ? { orgSecret: auth.orgSecret } : {}),
       requestTimeoutMs: 30_000,
     });
+    return response.result;
   } catch {
     fail("Could not reach Content. Check its connection and try again.", {
       statusCode: 502,
       errorCode: "content_unavailable",
     });
   }
-  if (response.result.status !== "completed") {
-    const code = contentErrorCode(response.result.output);
+}
+
+export function parseContentOutput(output: string): unknown {
+  try {
+    return JSON.parse(output) as unknown;
+  } catch {
+    fail("Content returned an incomplete response. Try again.", {
+      statusCode: 502,
+      errorCode: "content_invalid_response",
+    });
+  }
+}
+
+async function readDocumentFile(input: Record<string, unknown>) {
+  const result = await invokeContentAction(
+    "read-document-file",
+    input,
+    "Sign in to attach a Content page.",
+  );
+  if (result.status !== "completed") {
+    const code = contentErrorCode(result.output);
     const known = code ? CONTENT_ERRORS[code] : undefined;
     if (
       input.format === "pdf" &&
       (code === "document_file_pdf_failed" ||
-        (!known &&
-          response.result.output.includes("Invalid action parameters")))
+        (!known && result.output.includes("Invalid action parameters")))
     ) {
       fail(
         "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
@@ -162,14 +164,7 @@ async function readDocumentFile(input: Record<string, unknown>) {
       },
     );
   }
-  try {
-    return JSON.parse(response.result.output) as unknown;
-  } catch {
-    fail("Content returned an incomplete response. Try again.", {
-      statusCode: 502,
-      errorCode: "content_invalid_response",
-    });
-  }
+  return parseContentOutput(result.output);
 }
 
 export async function listContentPages(args: {

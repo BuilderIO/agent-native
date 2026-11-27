@@ -1041,7 +1041,12 @@ const updateDocumentAction = defineAction({
       if (!favoriteOnly) assertEditableDocument(existing);
 
       const normalizeAuthoredContent = (value: string) => {
-        if (args.preserveLeadingTitleHeading) return value;
+        if (
+          args.preserveLeadingTitleHeading ||
+          existing.sourceMode === "local-files"
+        ) {
+          return value;
+        }
         const titleToCheck = args.title || existing.title;
         if (!titleToCheck) return value;
         const h1Match = value.match(/^#\s+(.+?)(\r?\n|$)/);

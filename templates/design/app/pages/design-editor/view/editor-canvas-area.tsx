@@ -381,6 +381,7 @@ export function renderEditorCanvasArea({
         bringToFront: t("layersPanel.bringToFront"),
         sendBackward: t("layersPanel.sendBackward"),
         sendToBack: t("layersPanel.sendToBack"),
+        arrangeUnavailable: t("layersPanel.arrangeUnavailable"),
         frameSelection: t("layersPanel.frameSelection"),
         rename: t("layersPanel.menuRename"),
         lock: t("layersPanel.menuLock"),

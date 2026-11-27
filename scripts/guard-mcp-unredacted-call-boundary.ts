@@ -121,6 +121,14 @@ export function specifiedModule(specifier: string): string {
 }
 
 function sourceNamesBoundary(source: string): boolean {
+  const lower = source.toLowerCase();
+  if (
+    !lower.includes("%") &&
+    !lower.includes("\\") &&
+    !BOUNDARIES.some(({ module }) => lower.includes(module))
+  ) {
+    return false;
+  }
   const scanner = ts.createScanner(
     ts.ScriptTarget.Latest,
     false,

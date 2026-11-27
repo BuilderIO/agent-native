@@ -348,7 +348,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. 앱 B는 확인된 `sub` 클레임을 요청 컨텍스트로 읽습니다.
 4. 데이터 범위 지정 적용 — 앱 B에는 Steve의 데이터만 표시됩니다.
 
-프로덕션에 `A2A_SECRET`가 없으면 모든 A2A 엔드포인트와 `/_agent-native/integrations/process-task` 자체 실행 엔드포인트는 **503**을 반환합니다. A2A 트래픽을 호출하거나 수신하는 모든 앱에 설정하세요. (로컬 개발의 경우 프레임워크는 여전히 인증되지 않은 호출을 허용합니다.)
+프로덕션에 `A2A_SECRET`가 없으면 모든 A2A 엔드포인트와 `/_agent-native/integrations/process-task` 자체 실행 엔드포인트는 **503**을 반환합니다. A2A 트래픽을 호출하거나 수신하는 모든 앱에 설정하세요. (로컬 개발에서 A2A는 같은 머신에서 온 인증되지 않은 호출만 허용합니다. 다른 호스트가 접근할 수 있는 개발 서버에는 `A2A_SECRET`를 설정하세요.)
 
 ## 인바운드 Webhooks {#webhooks}
 

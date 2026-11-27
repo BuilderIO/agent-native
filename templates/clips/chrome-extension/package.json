@@ -12,6 +12,7 @@
     "package": "pnpm build && tsx scripts/package.ts"
   },
   "dependencies": {
+    "@rrweb/record": "2.1.0",
     "@sentry/browser": "10.62.0"
   },
   "devDependencies": {

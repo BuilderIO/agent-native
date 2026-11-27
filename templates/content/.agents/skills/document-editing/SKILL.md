@@ -354,8 +354,12 @@ pnpm action suggest-document-edit --id abc123 \
 ### delete-document
 
 Move a page and all its sub-pages to Trash. IDs, bodies, hierarchy, and
-collection membership remain intact so the subtree can be restored. Agents pass
-the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
+collection membership remain intact so the subtree can be restored. A Trash
+root becomes eligible for automatic deletion after 30 days in Trash, counted
+from when automatic deletion started for Pages already in Trash then. A daily
+job deletes eligible roots, so deletion can come a little later. A sub-page
+trashed on its own keeps its own 30 days, and restoring a page then trashing it
+again starts its 30 days over. Agents pass the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
 idempotency key. A conflict means the page changed: read it again before
 deciding to trash it. Collection pages use `delete-content-database` instead.
 
@@ -364,8 +368,9 @@ pnpm action delete-document --id abc123 \
   --expectedUpdatedAt '<updatedAt>' --idempotencyKey '<uuid>'
 ```
 
-Restore the receipt's `trashRootId` with its `trashedAt` (also listed by
-`list-content-trash`), or permanently delete it only after it is in Trash:
+Before those 30 days pass, restore the receipt's `trashRootId` with its
+`trashedAt` (also listed by `list-content-trash`), or permanently delete it
+sooner, only after it is in Trash:
 
 ```bash
 pnpm action restore-document --id abc123 \
@@ -377,6 +382,24 @@ pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>
 Permanent deletion requires the exact `planId` and `scopeToken` returned by
 `plan-content-trash-purge`. Inspect the plan's affected and blocked items before
 executing it; if Trash changes after review, create and inspect a new plan.
+
+`list-content-trash` and a matching-mode plan (`filters.where`) take the Trash
+page's filter chips as `where`: people, workspace, location, type, and a deleted
+date range, combined with `and` or `or`. A scope-mode plan ignores filters,
+`where` included, and covers the workspace's whole Trash. One plan holds one
+workspace's pages, so emptying Trash or deleting a selection that spans
+workspaces plans once per workspace. A plan fails with `invalid_scope` in a
+workspace where you are only a viewer, even for pages you own there.
+
+The `content-trash` application state stores the chips as `where`. The
+`content-trash-purges` state holds one `purgeStarts` record per planned
+workspace: plan id, idempotency key, status (`started`, `failed`, or
+`unknown`), the plan's input, and operation id once known. `unknown` means the
+start request may have been accepted. Executing the same plan with the same key
+returns the original operation instead of starting another. Without the scope
+token, send `recover: true` with the plan id and key: it returns the operation
+that key started, fails with `start_pending` while the plan could still start
+(retry later), or with `start_expired` once it never can (plan again).
 
 ## Comments
 

@@ -1,5 +1,9 @@
 import type { ComponentType } from "react";
 
+import type {
+  AppShellPartProps,
+  SidebarPartProps,
+} from "../app-shell/contracts.js";
 import type { SettingsSectionsProps } from "../app/settings/rows/schema.js";
 import { useDesignSystem } from "./context.js";
 
@@ -10,6 +14,8 @@ import { useDesignSystem } from "./context.js";
  */
 export interface WholeParts {
   settings: ComponentType<SettingsSectionsProps>;
+  sidebar: ComponentType<SidebarPartProps>;
+  "app-shell": ComponentType<AppShellPartProps>;
 }
 
 export type WholePartName = keyof WholeParts;

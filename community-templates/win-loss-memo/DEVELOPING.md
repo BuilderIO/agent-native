@@ -230,7 +230,7 @@ When adding app data, define tables with `@agent-native/core/db/schema` helpers 
 | Variable        | Required                     | Description                                                                   |
 | --------------- | ---------------------------- | ----------------------------------------------------------------------------- |
 | `DATABASE_URL`  | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
-| `AUTH_DISABLED` | Optional                     | Set to `true` or `1` to skip login/signup (local dev/preview only)            |
+| `AUTH_DISABLED` | Optional                     | Set to `true` or `1` to skip login/signup (loopback local dev only)           |
 
 ## Extensions (Framework Feature)
 

@@ -97,6 +97,7 @@ describe("integration webhook handler", () => {
     });
     insertPendingTaskMock.mockResolvedValue(undefined);
     isDuplicateEventErrorMock.mockReturnValue(false);
+    vi.stubEnv("A2A_SECRET", "test-secret");
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: undefined,
       apiKeyEnvVar: undefined,
@@ -111,6 +112,39 @@ describe("integration webhook handler", () => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("reports a failed handoff when an unsigned handoff would leave this machine", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const { signInternalToken } = await import("./internal-token.js");
+    vi.mocked(signInternalToken).mockImplementationOnce(() => {
+      throw new Error("A2A_SECRET is required");
+    });
+    vi.stubEnv("FUSION_POD_UID", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    const sendResponse = vi.fn();
+    const incoming = createIncoming(1000);
+
+    const result = await handleWebhook(createEvent(), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "test-model",
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming,
+    });
+
+    expect(result).toEqual({ status: 200, body: "ok" });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(sendResponse).toHaveBeenCalledWith(
+      {
+        text: "I couldn't start working on that — the request was accepted but never handed off. Please try again.",
+        platformContext: incoming.platformContext,
+      },
+      incoming,
+    );
   });
 
   it("enqueues and dispatches without sending a platform response inline", async () => {

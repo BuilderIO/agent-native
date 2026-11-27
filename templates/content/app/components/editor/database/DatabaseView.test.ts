@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import type {
   ContentDatabaseItem,
   ContentDatabaseItemLayout,
@@ -355,15 +353,7 @@ describe("database preview property saves", () => {
     });
   });
 
-  it("passes membership context to the shared Page surface", () => {
-    const source = readFileSync(
-      new URL("./DatabaseView.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toMatch(
-      /<PageEditorSurface[\s\S]*?documentId=\{item.document.id\}[\s\S]*?databaseId=\{item.databaseId\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
-    );
-  });
+  // oracle-change: the PageEditorSurface source grep became the opened row preview in DatabaseView.error-toasts.test.tsx
 });
 
 describe("Builder required publishing fields", () => {

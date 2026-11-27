@@ -7,7 +7,7 @@
   "scripts": {
     "build": "vite build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@agent-native/browser-control-extension-core": "workspace:*"

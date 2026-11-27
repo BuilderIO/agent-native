@@ -116,7 +116,7 @@ export async function runActivityNotification<
     status: string;
     sent: string[];
     failed: ActivityDeliveryFailure[];
-  },
+  } | null,
 >(
   logLabel: string,
   resolve: () => Promise<T>,

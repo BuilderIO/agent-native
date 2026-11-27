@@ -868,7 +868,7 @@ describe("getOnboardingJourney", () => {
       ...counts,
     });
     mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
-      if (sql.includes("terminal_members AS (")) {
+      if (sql.includes("cohort_keys AS (")) {
         return {
           rows: [
             personRow("signup", {
@@ -918,21 +918,15 @@ describe("getOnboardingJourney", () => {
     });
     const personSql = mocks.queryFirstPartyAnalytics.mock.calls
       .map(([sql]) => sql as string)
-      .find((sql) => sql.includes("terminal_members AS ("))!;
+      .find((sql) => sql.includes("cohort_keys AS ("))!;
     // Grace's latest session has only her email; her sign-in ID comes from
     // the sessions that share it.
     expect(personSql).toContain(
-      `"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"`,
+      `{"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","identityStatus":"identified","sessionKey":"s1","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"}`,
     );
+    expect(personSql.match(/"sessionId":"s1"/g)).toHaveLength(1);
     expect(personSql).toContain(
       `"authUserId":null,"emailHash":"${hash("heidi@example.com")}"`,
-    );
-    // Later activity matches every email and sign-in ID Grace's sessions carried.
-    expect(personSql).toContain(
-      '{"sessionId":"s1","authUserId":"person-g","emailHash":null}',
-    );
-    expect(personSql).toContain(
-      `{"sessionId":"s1","authUserId":null,"emailHash":"${hash("grace@example.com")}"}`,
     );
     expect(personSql).not.toContain('"sessionId":"s2"');
     expect(personSql).not.toContain('"sessionId":"s3"');
@@ -2622,6 +2616,39 @@ describe("getOnboardingJourney", () => {
         },
       },
     });
+  });
+
+  it("reports a person follow-up BigQuery refused for resources as failed, without a retry", async () => {
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      if (sql.includes("journey_total_rows")) {
+        return { rows: journeyRows(), schema: [] };
+      }
+      if (sql.includes("cohort_keys AS (")) {
+        throw new BigQueryBackendError("job", null, "resources_exceeded");
+      }
+      return { rows: [], schema: [] };
+    });
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(summary.personFollowUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "person_followup_query_failed",
+      coverage: {
+        followupAggregateRead: {
+          status: "incomplete",
+          backendStatus: null,
+          backendReason: "resources_exceeded",
+          backendOperation: "job",
+        },
+      },
+    });
+    expect(summary.notes?.join(" ") ?? "").not.toMatch(/Call again/);
+    expect(summary.continueWith).toBeUndefined();
   });
 
   it.each(["postgres", "dual"] as const)(

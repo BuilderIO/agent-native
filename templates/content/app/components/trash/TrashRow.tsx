@@ -1,19 +1,45 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { ContentTrashItem } from "@shared/content-trash";
 import {
+  IconArrowBackUp,
   IconChevronDown,
   IconChevronRight,
   IconDatabase,
+  IconEye,
   IconFileText,
+  IconTrashX,
 } from "@tabler/icons-react";
-import { type KeyboardEvent, type RefCallback } from "react";
-import { Link, useNavigate } from "react-router";
+import {
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefCallback,
+} from "react";
+import { Link } from "react-router";
 
 import {
   ContentTableRowActionButton,
   ContentTableSelectionControl,
 } from "@/components/editor/database/ContentTable";
 import { DatabaseTableGrid } from "@/components/editor/database/DatabaseTableGrid";
+import {
+  DEFAULT_NAME_COLUMN_WIDTH,
+  DEFAULT_PROPERTY_COLUMN_WIDTH,
+  MAX_COLUMN_WIDTH,
+  MIN_COLUMN_WIDTH,
+} from "@/components/editor/database/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
   ContentTrashSort,
   ContentTrashSortDirection,
@@ -27,30 +53,39 @@ export const TRASH_TABLE_COLUMNS = [
   "deletedBy",
   "deletedAt",
 ] as const;
+export type TrashColumnId = (typeof TRASH_TABLE_COLUMNS)[number];
+export type TrashColumnWidths = Record<TrashColumnId, number>;
 export const TRASH_TABLE_PROPERTY_IDS = TRASH_TABLE_COLUMNS.filter(
   (column) => column !== "name",
 );
-export const TRASH_TABLE_WIDTHS: Record<string, number> = {
-  name: 240,
-  createdBy: 180,
-  updatedBy: 180,
-  deletedBy: 180,
-  deletedAt: 150,
+export const TRASH_TABLE_WIDTHS: TrashColumnWidths = {
+  name: DEFAULT_NAME_COLUMN_WIDTH,
+  createdBy: DEFAULT_PROPERTY_COLUMN_WIDTH,
+  updatedBy: DEFAULT_PROPERTY_COLUMN_WIDTH,
+  deletedBy: DEFAULT_PROPERTY_COLUMN_WIDTH,
+  deletedAt: DEFAULT_PROPERTY_COLUMN_WIDTH,
 };
 export const TRASH_TABLE_GUTTER_WIDTH = 44;
-const TRASH_TABLE_MIN_USABLE_NAME_WIDTH = 160;
-const TRASH_TABLE_WIDEST_METADATA_WIDTH = 180;
+export const TRASH_TABLE_ACTION_WIDTH = 72;
+const TRASH_TABLE_RESIZE_STEP = 16;
 
-export function trashTableWidthsForViewport(viewportWidth?: number) {
-  if (viewportWidth === undefined || viewportWidth >= 640)
-    return TRASH_TABLE_WIDTHS;
-  const availableNameWidth =
-    viewportWidth -
-    TRASH_TABLE_GUTTER_WIDTH -
-    TRASH_TABLE_WIDEST_METADATA_WIDTH;
-  return availableNameWidth >= TRASH_TABLE_MIN_USABLE_NAME_WIDTH
-    ? { ...TRASH_TABLE_WIDTHS, name: availableNameWidth }
-    : TRASH_TABLE_WIDTHS;
+export function clampTrashColumnWidth(width: number) {
+  return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, width));
+}
+
+export function trashTableWidths(
+  widths: TrashColumnWidths,
+  viewportWidth?: number,
+): TrashColumnWidths {
+  if (viewportWidth === undefined) return widths;
+  const fixed = TRASH_TABLE_PROPERTY_IDS.reduce(
+    (total, id) => total + widths[id],
+    TRASH_TABLE_GUTTER_WIDTH + TRASH_TABLE_ACTION_WIDTH,
+  );
+  return {
+    ...widths,
+    name: Math.max(widths.name, Math.floor(viewportWidth - fixed)),
+  };
 }
 
 export function TrashTableHeader({
@@ -59,6 +94,7 @@ export function TrashTableHeader({
   direction,
   onSelectLoaded,
   onSort,
+  onResize,
   widths = TRASH_TABLE_WIDTHS,
 }: {
   checked: boolean | "indeterminate";
@@ -66,24 +102,32 @@ export function TrashTableHeader({
   direction: ContentTrashSortDirection;
   onSelectLoaded: () => void;
   onSort: (sort: ContentTrashSort) => void;
-  widths?: Record<string, number>;
+  onResize?: (column: TrashColumnId, width: number) => void;
+  widths?: TrashColumnWidths;
 }) {
   const t = useT();
-  const header = (label: string, field?: ContentTrashSort) =>
-    field ? (
-      <div
-        role="columnheader"
-        aria-sort={
-          sort === field
+  const header = (
+    label: string,
+    field?: ContentTrashSort,
+    column?: TrashColumnId,
+  ) => (
+    <div
+      role="columnheader"
+      aria-sort={
+        field
+          ? sort === field
             ? direction === "asc"
               ? "ascending"
               : "descending"
             : "none"
-        }
-      >
+          : undefined
+      }
+      className="group/header relative flex h-full min-w-0 items-center"
+    >
+      {field ? (
         <button
           type="button"
-          className="flex h-full w-full items-center gap-1 px-3 text-start font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="flex h-full w-full min-w-0 items-center gap-1 px-3 text-start font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           onClick={() => onSort(field)}
         >
           <span className="truncate">{label}</span>
@@ -91,22 +135,26 @@ export function TrashTableHeader({
             <span aria-hidden>{direction === "asc" ? "↑" : "↓"}</span>
           ) : null}
         </button>
-      </div>
-    ) : (
-      <span
-        role="columnheader"
-        className="flex h-full items-center truncate px-3 font-medium"
-      >
-        {label}
-      </span>
-    );
+      ) : (
+        <span className="truncate px-3 font-medium">{label}</span>
+      )}
+      {column && onResize ? (
+        <TrashColumnResizeHandle
+          label={t("trash.resizeColumn", { column: label })}
+          width={widths[column]}
+          onResize={(width) => onResize(column, width)}
+        />
+      ) : null}
+    </div>
+  );
   return (
     <DatabaseTableGrid
       role="row"
-      className="grid h-9 min-w-max border-b text-xs text-muted-foreground"
+      className="sticky top-0 z-30 grid h-9 min-w-max border-b text-xs text-muted-foreground"
       propertyIds={[...TRASH_TABLE_PROPERTY_IDS]}
       widths={widths}
       gutterWidth={TRASH_TABLE_GUTTER_WIDTH}
+      actionWidth={TRASH_TABLE_ACTION_WIDTH}
       selectionCell={
         <ContentTableSelectionControl
           checked={checked === true}
@@ -117,12 +165,64 @@ export function TrashTableHeader({
       }
       nameCell={header(t("trash.name"), "name")}
       propertyCells={[
-        header(t("trash.createdBy")),
-        header(t("trash.updatedBy"), "updatedAt"),
-        header(t("trash.deletedByColumn")),
-        header(t("trash.deletedAtColumn"), "deletedAt"),
+        header(t("trash.createdBy"), undefined, "createdBy"),
+        header(t("trash.updatedBy"), "updatedAt", "updatedBy"),
+        header(t("trash.deletedByColumn"), undefined, "deletedBy"),
+        header(t("trash.deletedAtColumn"), "deletedAt", "deletedAt"),
       ]}
       actions={<span aria-hidden="true" />}
+    />
+  );
+}
+
+function TrashColumnResizeHandle({
+  label,
+  width,
+  onResize,
+}: {
+  label: string;
+  width: number;
+  onResize: (width: number) => void;
+}) {
+  function startDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const direction =
+      getComputedStyle(event.currentTarget).direction === "rtl" ? -1 : 1;
+    const body = globalThis.document.body;
+    body.style.userSelect = "none";
+    body.style.cursor = "col-resize";
+    const move = (moveEvent: PointerEvent) =>
+      onResize(
+        clampTrashColumnWidth(width + (moveEvent.clientX - startX) * direction),
+      );
+    const stop = () => {
+      body.style.userSelect = "";
+      body.style.cursor = "";
+      globalThis.document.removeEventListener("pointermove", move);
+      globalThis.document.removeEventListener("pointerup", stop);
+    };
+    globalThis.document.addEventListener("pointermove", move);
+    globalThis.document.addEventListener("pointerup", stop);
+  }
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      data-column-resize-handle=""
+      className="absolute inset-y-0 -end-1 z-10 w-2 cursor-col-resize rounded-sm opacity-0 transition-opacity hover:bg-primary/60 hover:opacity-100 focus-visible:bg-primary/60 focus-visible:opacity-100 focus-visible:outline-none group-hover/header:opacity-60"
+      onPointerDown={startDrag}
+      onKeyDown={(event) => {
+        const step =
+          event.key === "ArrowRight"
+            ? TRASH_TABLE_RESIZE_STEP
+            : event.key === "ArrowLeft"
+              ? -TRASH_TABLE_RESIZE_STEP
+              : 0;
+        if (!step) return;
+        event.preventDefault();
+        onResize(clampTrashColumnWidth(width + step));
+      }}
     />
   );
 }
@@ -134,6 +234,10 @@ export function TrashRow({
   onSelect,
   onToggle,
   onOpen,
+  onRestore,
+  onDelete,
+  restoring = false,
+  purgeable = true,
   focused,
   rowRef,
   onFocus,
@@ -147,17 +251,23 @@ export function TrashRow({
   onSelect: (selected: boolean) => void;
   onToggle: () => void;
   onOpen: () => void;
+  onRestore: () => void;
+  onDelete: (invoker: HTMLElement | null) => void;
+  restoring?: boolean;
+  purgeable?: boolean;
   focused: boolean;
   rowRef: RefCallback<HTMLDivElement>;
   onFocus: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   nested?: boolean;
-  widths?: Record<string, number>;
+  widths?: TrashColumnWidths;
 }) {
   const t = useT();
-  const navigate = useNavigate();
   const { formatDate } = useFormatters();
+  const deleteOnMenuCloseRef = useRef(false);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const title = item.title || t("sidebar.untitled");
+  const previewHref = `/trash?preview=${encodeURIComponent(item.documentId)}`;
   const location =
     item.parentTitle || item.spaceName || t("trash.unknownLocation");
   // A person with no profile name shows as their email, as in the sidebar.
@@ -184,6 +294,7 @@ export function TrashRow({
         propertyIds={[...TRASH_TABLE_PROPERTY_IDS]}
         widths={widths}
         gutterWidth={TRASH_TABLE_GUTTER_WIDTH}
+        actionWidth={TRASH_TABLE_ACTION_WIDTH}
         selectionCell={
           <ContentTableSelectionControl
             checked={selected}
@@ -239,7 +350,7 @@ export function TrashRow({
               ) : null}
             </span>
             <Link
-              to={`/trash?preview=${encodeURIComponent(item.documentId)}`}
+              to={previewHref}
               onClick={onOpen}
               className="min-w-0 flex-1 py-1.5 focus-visible:outline-none"
             >
@@ -266,17 +377,75 @@ export function TrashRow({
           </time>,
         ]}
         actions={
-          <div className="flex items-center justify-center">
-            <ContentTableRowActionButton
-              label={t("trash.preview")}
-              onClick={(event) => {
-                event.stopPropagation();
-                void navigate(
-                  `/trash?preview=${encodeURIComponent(item.documentId)}`,
-                );
-                onOpen();
-              }}
-            />
+          <div className="flex items-center justify-end gap-0.5 pe-2">
+            {item.canRestore ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    data-trash-row-restore
+                    aria-label={t("trash.restore")}
+                    disabled={restoring}
+                    className="flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none group-hover:opacity-100 group-focus-within/trash-row:opacity-100 [@media(any-hover:none)]:opacity-100"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRestore();
+                    }}
+                  >
+                    <IconArrowBackUp className="size-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("trash.restore")}</TooltipContent>
+              </Tooltip>
+            ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ContentTableRowActionButton
+                  ref={menuTriggerRef}
+                  label={t("trash.rowActions", { title })}
+                  className="group-focus-within/trash-row:opacity-100"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-44"
+                onCloseAutoFocus={(event) => {
+                  if (!deleteOnMenuCloseRef.current) return;
+                  deleteOnMenuCloseRef.current = false;
+                  event.preventDefault();
+                  onDelete(menuTriggerRef.current);
+                }}
+              >
+                <DropdownMenuItem
+                  disabled={!item.canRestore || restoring}
+                  onSelect={onRestore}
+                >
+                  <IconArrowBackUp className="size-4" />
+                  {t("trash.restore")}
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to={previewHref} onClick={onOpen}>
+                    <IconEye className="size-4" />
+                    {t("trash.openPreview")}
+                  </Link>
+                </DropdownMenuItem>
+                {purgeable ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={!item.canPermanentlyDelete}
+                      className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                      onSelect={() => {
+                        deleteOnMenuCloseRef.current = true;
+                      }}
+                    >
+                      <IconTrashX className="size-4" />
+                      {t("trash.deletePermanently")}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       />

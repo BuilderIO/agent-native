@@ -7,7 +7,7 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -1063,5 +1063,94 @@ describe("DatabaseSidebarView", () => {
 
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("hands a collection row's Move to Trash to the sidebar without opening a dialog of its own", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    onTestFinished(() => {
+      act(() => root.unmount());
+      container.remove();
+      document
+        .querySelectorAll("[role=menu], [role=alertdialog]")
+        .forEach((layer) => layer.remove());
+    });
+    const readingList = item("reading", "Reading list");
+    const collection: ContentDatabaseItem = {
+      ...readingList,
+      document: {
+        ...readingList.document,
+        accessRole: "owner",
+        canManage: true,
+        database: { id: "reading-database" } as NonNullable<
+          ContentDatabaseItem["document"]["database"]
+        >,
+      },
+    };
+    const onDeleteItem = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items: [collection],
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+                onDeleteItem={onDeleteItem}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+    const trigger = container.querySelector(
+      'button[aria-label="More actions for Reading list"]',
+    );
+    if (!trigger) throw new Error("The collection row has no menu.");
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    const moveToTrash = Array.from(
+      document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    ).find((menuItem) => /trash/i.test(menuItem.textContent));
+    if (!moveToTrash) throw new Error("The row menu has no Move to Trash.");
+
+    await act(async () => {
+      moveToTrash.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onDeleteItem.mock.calls).toEqual([[collection]]);
+    expect(document.querySelector("[role=alertdialog]")).toBeNull();
   });
 });

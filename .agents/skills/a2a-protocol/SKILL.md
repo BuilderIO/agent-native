@@ -117,8 +117,9 @@ for one-off calls, useless for @-mentions.
 `GET /_agent-native/agents/probe?url=<base>` reads the peer's card and makes one
 authenticated no-op call, returning `reachable` and `authorized` as independent
 fields. Omit `url` to probe every registered peer. Reachable-but-unauthorized is
-the failure worth looking for: local dev runs the receiver unauthenticated, so a
-mismatched secret only surfaces after deploy. The Connected Agents settings
+the failure worth looking for: a local receiver without `A2A_SECRET` accepts
+unauthenticated calls from the same machine, so a mismatched secret only
+surfaces once the caller is on another host or deployed. The Connected Agents settings
 section calls this on add and on open.
 
 ## Authentication
@@ -311,8 +312,8 @@ const answer = await callAgent(
 ```
 
 `callAgent` signs nothing on its own — with no `userEmail`/`orgSecret` in opts
-it calls **unauthenticated**, which silently works in local dev and 401s in
-production. `resolveA2ACallerAuth()` pulls the authenticated email, org domain,
+it calls **unauthenticated**, which works only against a receiver on the same
+machine with no `A2A_SECRET` and is refused everywhere else. `resolveA2ACallerAuth()` pulls the authenticated email, org domain,
 and org secret out of request context; pass them explicitly only from CLI or
 cron, where there is no request.
 

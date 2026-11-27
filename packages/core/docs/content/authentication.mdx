@@ -100,12 +100,12 @@ The browser flow is the same Better Auth flow everywhere — there is **no dev a
 A few flags tune this; full details are in the [Environment Variables](#environment-variables) table:
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — use the normal signup page in local dev instead of the auto dev account.
-- `AUTH_DISABLED=true` — skip login/signup entirely and run every request as one shared user (local dev / previews / demos only, never production with real users).
+- `AUTH_DISABLED=true` — skip login/signup entirely and run every request as one shared user. Only for local development on a loopback (`localhost`) server; never set it on a hosted preview, demo, or production deployment.
 - `AUTH_MODE=local` — affects only CLI/agent identity (which dev user `pnpm action` runs as); it is **not** a browser login bypass.
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true` signs **every request in as one shared user**, so anyone who can reach the server has full access. Use it only for local development on a loopback (`localhost`) server. Hosted previews, demos, and production need real sign-in; for QA previews, `AUTH_SKIP_EMAIL_VERIFICATION=1` removes the email wait without turning auth off.
 
 </Callout>
 
@@ -520,7 +520,7 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` in QA/preview environments to let password-fallback signups proceed without verification; local dev/test skips by default                   |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Set to `0` or `1` to declare the password-signup verification policy for any environment, production included; outranks `AUTH_SKIP_EMAIL_VERIFICATION` |
 | `AUTH_MAGIC_LINK`                       | Set to `0`, `false`, or `off` to force the email/password fallback even when outbound email is ready                                                   |
-| `AUTH_DISABLED`                         | Set to `true` or `1` to skip login/signup; all requests run as one shared user (local dev/preview only — not for production with real users)           |
+| `AUTH_DISABLED`                         | Set to `true` or `1` to skip login/signup; all requests run as one shared user (loopback local dev only; never on hosted previews or production)       |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost auto-sign-in on a fresh dev database                                                                                   |
 | `AUTH_MODE`                             | `local` resolves CLI/agent identity only (which dev user `pnpm action` runs as); never a browser login bypass                                          |
 | `COOKIE_DOMAIN`                         | Opt into shared session cookies across same-database subdomains (see [Cookie Realms](#cookie-realms))                                                  |

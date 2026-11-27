@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
     "@types/chrome": "0.2.2",

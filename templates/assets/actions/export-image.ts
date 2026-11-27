@@ -12,6 +12,7 @@ export default defineAction({
     assetId: z.string(),
     expiresInSeconds: z.coerce.number().min(60).max(86400).default(1800),
   }),
+  mcpTool: "search",
   run: async ({ assetId, expiresInSeconds }) => {
     const asset = await getAssetOrThrow(assetId);
     const signed = await getPresignedObjectUrl(

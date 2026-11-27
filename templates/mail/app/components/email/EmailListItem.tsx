@@ -80,8 +80,8 @@ interface EmailListItemProps {
     e: React.MouseEvent,
     thread: ThreadSummary,
   ) => void;
-  onHover: (thread: ThreadSummary) => void;
   onPrefetch?: (thread: ThreadSummary) => void;
+  onFocusRow?: (thread: ThreadSummary) => void;
   onSwipeArchive?: (thread: ThreadSummary) => void;
   onSwipeSnooze?: (thread: ThreadSummary) => void;
   highlight?: string;
@@ -163,8 +163,8 @@ export const EmailListItem = memo(function EmailListItem({
   onCancelSchedule,
   onConfirmUncertainScheduled,
   onRetryUncertainScheduled,
-  onHover,
   onPrefetch,
+  onFocusRow,
   onSwipeArchive,
   onSwipeSnooze,
   highlight,
@@ -349,10 +349,6 @@ export const EmailListItem = memo(function EmailListItem({
     if (thread) onSelect(thread);
   }, [onSelect, thread]);
 
-  const handleRowHover = useCallback(() => {
-    if (thread) onHover(thread);
-  }, [onHover, thread]);
-
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelPrefetch = useCallback(() => {
     if (prefetchTimerRef.current === null) return;
@@ -387,6 +383,13 @@ export const EmailListItem = memo(function EmailListItem({
       onPrefetch(thread);
     }, THREAD_PREFETCH_INTENT_MS);
   }, [cancelPrefetch, onPrefetch, thread]);
+
+  const handleRowFocus = useCallback(
+    (e: React.FocusEvent) => {
+      if (thread && e.target === e.currentTarget) onFocusRow?.(thread);
+    },
+    [onFocusRow, thread],
+  );
 
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -896,10 +899,10 @@ export const EmailListItem = memo(function EmailListItem({
         aria-selected={isMultiSelected}
         aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
-        onMouseMove={handleRowHover}
         onMouseEnter={handleRowMouseEnter}
         onMouseLeave={cancelPrefetch}
         onPointerDown={handleRowPointerDown}
+        onFocus={handleRowFocus}
         onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
         onTouchMove={canSwipe ? handleTouchMove : undefined}

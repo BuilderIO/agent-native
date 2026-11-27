@@ -937,6 +937,32 @@ describe("Design final response guard: non-mutation request", () => {
   });
 });
 
+describe("Design final response guard: image edit", () => {
+  const request = "edit the image I imported to remove the background";
+  const assetsTool = "mcp__org_org-1_assets__edit-asset";
+
+  it("accepts a completed Assets image edit whatever the reply says", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(request, {
+          text: "All set.",
+          toolResults: [toolResult(assetsTool, { assetId: "asset-2" })],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("still flags an image edit that failed", async () => {
+    expect(
+      await designFinalResponseGuard(
+        guardContext(request, {
+          toolResults: [toolResult(assetsTool, { error: "edit failed" }, true)],
+        }),
+      ),
+    ).not.toBeNull();
+  });
+});
+
 describe("Design final response guard: saved change", () => {
   it("skips a verified changed receipt", async () => {
     expect(

@@ -150,6 +150,34 @@ surface alone, so no surface mixes two part sets. It writes the same
 `withDesignSystemParts(name, { SettingsSections, Sidebar, AppShell })` and
 `useDesignSystemPart(name)` take the earlier names and are deprecated.
 
+## Choosing a design system
+
+An app's design system lives in one app-local module, `app/design-system.ts`,
+which exports `designSystem` (`defineDesignSystem({ name, parts, primitives,
+theme })`); the app's `ToolkitProvider` imports it as `@/design-system`. That file is the only choice:
+nothing picks a design system at runtime, so one that a build leaves out never
+reaches its bundle.
+
+A build that needs another design system points the module at its own file
+with the Vite plugin's `aliases` option, which resolves before the plugin's
+own `@/` alias:
+
+```ts
+agentNative({
+  aliases: { "@/design-system": "./app/alternate/design-system.ts" },
+});
+```
+
+A build that must not ship a design system checks its emitted modules for
+that file's path; the alias is the only import of it.
+
+`primitives` replaces Base UI primitives by export name. A replacement takes
+exactly the primitive's props, ref included (`DesignSystemPrimitiveOverrides`);
+primitives it leaves out stay toolkit's, and code that imports them changes
+nothing. A primitive becomes replaceable when its export is wrapped with
+`swappable(name, primitive)` and listed in `DesignSystemPrimitives`; the
+Button family is the first.
+
 ## Writing a part
 
 A part receives `{ row, children }` and must:

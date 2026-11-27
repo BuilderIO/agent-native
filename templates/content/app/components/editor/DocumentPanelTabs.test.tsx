@@ -201,6 +201,19 @@ describe("DocumentPanelTabs", () => {
     );
   });
 
+  it("counts the checks to look at on the Info tab when it's given them", () => {
+    render({ checksToLookAt: 3 });
+    expect(tab("info").textContent).toBe("3");
+    expect(tab("info").getAttribute("aria-label")).toBe(
+      "pageChecks.tabWithCount",
+    );
+    expect(tab("comments").textContent).toBe("");
+
+    render();
+    expect(tab("info").textContent).toBe("");
+    expect(tab("info").getAttribute("aria-label")).toBe("editor.toolbar.info");
+  });
+
   it("names each tab's key for assistive tech on this platform", () => {
     render();
     expect(tab("agent").getAttribute("aria-keyshortcuts")).toMatch(

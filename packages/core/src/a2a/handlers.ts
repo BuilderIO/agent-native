@@ -50,7 +50,10 @@ import {
   markExplicitPersonalOrgScope,
   type RequestRunContext,
 } from "../server/request-context.js";
-import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  fireInternalDispatch,
+  UnsignedHandoffRefusedError,
+} from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
   normalizeViewportMode,
@@ -1327,6 +1330,13 @@ async function handleSend(
     try {
       await fireProcessTaskDispatch(event, task.id, config);
     } catch (err) {
+      if (err instanceof UnsignedHandoffRefusedError) {
+        await updateTask(task.id, {
+          state: "failed",
+          message: taskFailureMessage(err, err.message),
+        });
+        return { ...jsonRpcError(0, -32001, err.message), _id: 0 };
+      }
       console.error("[a2a] Failed to dispatch process-task:", err);
     }
 

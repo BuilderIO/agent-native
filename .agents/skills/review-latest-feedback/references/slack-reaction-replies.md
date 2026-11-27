@@ -300,3 +300,17 @@ Treat each root it returns as a candidate, even one older than your last-seen
 point. A last-seen timestamp alone skips reports: one was set to the bot's own
 reply and silently dropped three roots posted minutes earlier. Advance a
 last-seen point only to the newest report root handled, never to a bot reply.
+
+## QA Report Value Grade (`#qa-agent-native`)
+
+On QA-team threads in `#qa-agent-native`, append one concise, friendly parenthetical tag at the end of the reply sentence (before the bot disclosure) so reporters see what makes a report high leverage:
+
+`(Report value: <1-5>/5 — <3–6 word reason>)`
+
+- **5/5:** core workflow break, data loss, or security bug with clear repro
+- **4/5:** real user-blocking or high-visibility bug with clear repro
+- **3/5:** real bug on a secondary flow or clear edge case
+- **2/5:** minor cosmetic/copy nit, or valid symptom missing key repro detail
+- **1/5:** duplicate, already fixed/tracked, or expected behavior
+
+Keep reasons constructive and plain-English (never snarky).
