@@ -221,13 +221,11 @@ function guardedConfigurePropertyInput(
   if (options !== undefined) {
     const current = existing.options.options ?? [];
     const requestedIds = new Set(options.map((option) => option.id));
-    if (current.some((option) => !requestedIds.has(option.id))) {
-      throw new Error(
-        "Removing property options is unavailable because saved values may still reference them.",
-      );
-    }
+    const kept = current.filter((option) => requestedIds.has(option.id));
     const currentById = new Map(current.map((option) => [option.id, option]));
-    const optionEdits: Array<Record<string, unknown>> = [];
+    const optionEdits: Array<Record<string, unknown>> = current
+      .filter((option) => !requestedIds.has(option.id))
+      .map((option) => ({ operation: "remove", optionId: option.id }));
     for (const option of options) {
       const saved = currentById.get(option.id);
       if (!saved) {
@@ -248,7 +246,7 @@ function guardedConfigurePropertyInput(
         });
       }
     }
-    if (options.some((option, index) => current[index]?.id !== option.id)) {
+    if (options.some((option, index) => kept[index]?.id !== option.id)) {
       optionEdits.push({
         operation: "reorder",
         optionIds: options.map((option) => option.id),

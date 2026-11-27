@@ -261,7 +261,10 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 import { useStableRecord } from "@/hooks/use-stable-record";
 import { messagesByLocale } from "@/i18n-data";
-import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
+import {
+  optionRemovalErrorMessage,
+  workspaceReferenceErrorMessage,
+} from "@/lib/content-action-errors";
 import { rememberPageShape } from "@/lib/page-startup-hints";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
@@ -11646,6 +11649,7 @@ function DatabaseBoardView({
     databaseDocumentId,
     databaseId,
   );
+  const t = useT();
   const canCreateGroup =
     canEdit && !!groupProperty && databaseBoardCanCreateGroup(groupProperty);
 
@@ -11720,7 +11724,18 @@ function DatabaseBoardView({
     const options = group.property.definition.options.options ?? [];
     const nextOptions = removePropertyOption(options, option.id);
     if (nextOptions === options) return;
-    await configureGroupProperty(group.property, { options: nextOptions });
+    try {
+      await configureGroupProperty(group.property, { options: nextOptions });
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: optionRemovalErrorMessage(error, {
+          inUse: t("editor.properties.optionInUse", { name: option.name }),
+          keptByRule: t("editor.properties.optionKeptByRule", {
+            name: option.name,
+          }),
+        }),
+      });
+    }
   }
 
   return (

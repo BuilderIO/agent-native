@@ -1257,6 +1257,10 @@ const editor = {
     remove: "Quitar",
     removeFileOrMedia: "Quitar {{name}}",
     removeOption: "Eliminar opción {{name}}",
+    optionInUse:
+      "{{name}} todavía está en uso. Mueve sus filas a otra opción y quítala de los filtros de vista; después, elimínala.",
+    optionKeptByRule:
+      "Una regla depende de {{name}}, así que no se puede eliminar hasta que cambie la regla.",
     removePerson: "Quitar {{name}}",
     renameOption: "Cambiar el nombre de la opción {{name}}",
     reorderOption: "Reordenar opción {{name}}",

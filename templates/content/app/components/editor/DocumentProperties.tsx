@@ -164,6 +164,7 @@ import {
   useSetBuilderEntryStatus,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
+import { optionRemovalErrorMessage } from "@/lib/content-action-errors";
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
@@ -953,6 +954,11 @@ export function createPropertyMetadataUpdateQueue(
     replace(metadata: PropertyMetadataSnapshot) {
       current = metadata;
     },
+    amend(
+      update: (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot,
+    ) {
+      current = update(current);
+    },
     enqueue(
       update: (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot,
     ) {
@@ -970,6 +976,15 @@ export function removePropertyOption(
 ) {
   const nextOptions = options.filter((option) => option.id !== optionId);
   return nextOptions.length === options.length ? options : nextOptions;
+}
+
+export function restorePropertyOption(
+  options: DocumentPropertyOption[],
+  option: DocumentPropertyOption,
+  index: number,
+) {
+  if (options.some((candidate) => candidate.id === option.id)) return options;
+  return [...options.slice(0, index), option, ...options.slice(index)];
 }
 
 export function formatPropertyDateInputValue(value: DocumentProperty["value"]) {
@@ -1930,9 +1945,31 @@ export function PropertyManagementPopover({
   }
 
   async function removeOption(id: string) {
-    await updateOptions((options) =>
-      options.filter((option) => option.id !== id),
-    );
+    const removed = optionsDraft.find((option) => option.id === id);
+    if (!removed) return;
+    const index = optionsDraft.indexOf(removed);
+    const restore = (options: DocumentPropertyOption[]) =>
+      restorePropertyOption(options, removed, index);
+    try {
+      await updateOptions((options) => removePropertyOption(options, id));
+    } catch (error) {
+      setOptionsDraft(restore);
+      metadataUpdateQueueRef.current.amend((current) => ({
+        ...current,
+        options: {
+          ...current.options,
+          options: restore(current.options.options ?? []),
+        },
+      }));
+      reportWriteFailure(error, {
+        label: optionRemovalErrorMessage(error, {
+          inUse: t("editor.properties.optionInUse", { name: removed.name }),
+          keptByRule: t("editor.properties.optionKeptByRule", {
+            name: removed.name,
+          }),
+        }),
+      });
+    }
   }
 
   async function renameOption(id: string, optionName: string) {
