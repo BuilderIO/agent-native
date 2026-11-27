@@ -16,6 +16,7 @@ import { z } from "zod";
 import { addCommentWithGuard } from "../../actions/add-comment.js";
 import { getDb, schema } from "../db/index.js";
 import { readCommentAiSource } from "./comment-ai.js";
+import { T3_CODE_SUBMISSION_SOURCE } from "./comment-submission-source.js";
 import { firstRow } from "./first-row.js";
 
 export type T3AgentRequestRow = typeof schema.t3AgentRequests.$inferSelect;
@@ -150,6 +151,34 @@ function commentAuthor(comment: {
   return comment.authorName?.trim() || comment.authorEmail;
 }
 
+// An agent's reply is stored under the person it answered for, so name the
+// agent; otherwise its answer would read as that person's own words.
+function backgroundAuthor(
+  comment: Pick<
+    typeof schema.documentComments.$inferSelect,
+    | "authorName"
+    | "authorEmail"
+    | "actorKind"
+    | "submissionSource"
+    | "authorClient"
+  >,
+  ownerEmail: string,
+) {
+  const name = commentAuthor(comment);
+  if (comment.actorKind === "agent") {
+    const agent =
+      comment.submissionSource === T3_CODE_SUBMISSION_SOURCE &&
+      (comment.authorClient === "claude-code" ||
+        comment.authorClient === "codex")
+        ? t3CodeAgentName(comment.authorClient)
+        : "An agent";
+    return `${agent}, for ${name}`;
+  }
+  return comment.authorEmail === ownerEmail
+    ? `${name} (the person asking)`
+    : name;
+}
+
 export async function buildT3AgentMessage(
   row: T3AgentRequestRow,
   requesterName: string,
@@ -169,13 +198,10 @@ export async function buildT3AgentMessage(
   const link = `${base}/page/${encodeURIComponent(row.documentId)}?comment=${encodeURIComponent(row.threadId)}`;
   const background = source.comments
     .filter((comment) => comment.id !== tagging.id)
-    .map((comment) => {
-      const who =
-        comment.authorEmail === row.ownerEmail
-          ? `${commentAuthor(comment)} (the person asking)`
-          : commentAuthor(comment);
-      return `- ${who}: ${comment.content.trim()}`;
-    });
+    .map(
+      (comment) =>
+        `- ${backgroundAuthor(comment, row.ownerEmail)}: ${comment.content.trim()}`,
+    );
   const pageText =
     source.text.content.length > MAX_PAGE_TEXT
       ? `${source.text.content.slice(0, MAX_PAGE_TEXT)}\n\n[The page goes on; open it for the rest.]`

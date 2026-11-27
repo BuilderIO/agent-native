@@ -227,6 +227,37 @@ it("starts a new thread with the comment, the discussion and the page, then post
     submissionThreadId: "t3-new",
   });
   expect(await requestsFor(replies[0].id)).toEqual([]);
+
+  // A follow-up tag sends the agent's earlier answer as the agent's, not as
+  // the words of the person it answered for.
+  const followUp = await asAlice(() =>
+    addComment.run(
+      {
+        documentId,
+        threadId: human.threadId,
+        parentId: human.id,
+        content: "@Claude Code and the banner?",
+        mentions: JSON.stringify([{ ...claudeCode, thread: "t3-new" }]),
+      },
+      ctx,
+    ),
+  );
+  expect(await requestsFor(followUp.id)).toHaveLength(1);
+  t3.calls.length = 0;
+  t3.reads.length = 0;
+  t3.reads.push({
+    thread: { title: "Content: Launch notes", status: "idle" },
+    recentRuns: [{ runId: "run-1", ordinal: 1, status: "completed" }],
+  });
+  await asAlice(() => syncRequests.run({ documentId }, ctx));
+  const sent = String(
+    t3.calls.find((call) => call.name === "t3_thread_send")?.args.message,
+  );
+  expect(sent).toContain(
+    "- Alice (the person asking): @Claude Code why Thursday?",
+  );
+  expect(sent).toContain("- Claude Code, for Alice: Because the docs slipped.");
+  expect(sent).not.toContain("(the person asking): Because the docs slipped.");
 });
 
 it("messages a picked thread and says when the thread is waiting on its person", async () => {
