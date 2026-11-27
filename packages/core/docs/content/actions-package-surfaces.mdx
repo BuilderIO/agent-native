@@ -84,15 +84,15 @@ Connect Claude Desktop, Cursor, or Codex directly to your local repo's `actions/
 
 `@agent-native/actions` maps your action fields onto standard MCP tool annotations automatically:
 
-| Action option | MCP behavior |
-| --- | --- |
-| `description` | Tool description shown to the model |
-| `schema` | Converted to provider-safe JSON Schema (handles strict-mode model quirks) |
-| `outputSchema` | Published as MCP `outputSchema` + validated `structuredContent` |
-| `readOnly: true` | Sets `annotations.readOnlyHint = true` |
-| `destructive: true` | Sets `annotations.destructiveHint = true` |
-| `retrySafe: true` | Sets `annotations.idempotentHint = true` |
-| `mcpTool: false` | Keeps the action available to UI hooks/HTTP while hiding it from MCP clients |
+| Action option                       | MCP behavior                                                                       |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `description`                       | Tool description shown to the model                                                |
+| `schema`                            | Converted to provider-safe JSON Schema (handles strict-mode model quirks)          |
+| `outputSchema`                      | Published as MCP `outputSchema` + validated `structuredContent`                    |
+| `readOnly: true`                    | Sets `annotations.readOnlyHint = true`                                             |
+| `destructive: true`                 | Sets `annotations.destructiveHint = true`                                          |
+| `retrySafe: true`                   | Sets `annotations.idempotentHint = true`                                           |
+| `mcpTool: false`                    | Keeps the action available to UI hooks/HTTP while hiding it from MCP clients       |
 | `fail(msg, { errorCode, details })` | Returns structured `isError: true` with machine-readable `errorCode` and `details` |
 
 ## Export to AI SDKs (Vercel AI SDK, Anthropic, OpenAI) {#ai-sdks}
@@ -117,13 +117,13 @@ import { toAiSdkTools } from "@agent-native/actions";
 import { actions } from "@/lib/actions";
 
 const result = await generateText({
-  model: openai("gpt-5"),
-  prompt: "List my open todos and create one for shipping the docs.",
-  tools: toAiSdkTools(actions, {
-    context: { source: "agent", user: currentUser },
-    // Optionally scope which actions this prompt can invoke
-    only: ["list-todos", "create-todo"],
-  }),
+model: openai("gpt-5"),
+prompt: "List my open todos and create one for shipping the docs.",
+tools: toAiSdkTools(actions, {
+context: { source: "agent", user: currentUser },
+// Optionally scope which actions this prompt can invoke
+only: ["list-todos", "create-todo"],
+}),
 });`,
           },
         },
@@ -143,14 +143,14 @@ import { toAnthropicTools } from "@agent-native/actions";
 import { actions } from "@/lib/actions";
 
 const { tools, executeToolUse } = toAnthropicTools(actions, {
-  context: { source: "agent", user: currentUser },
+context: { source: "agent", user: currentUser },
 });
 
 const response = await anthropic.messages.create({
-  model: "claude-sonnet-4-6",
-  max_tokens: 1024,
-  tools,
-  messages,
+model: "claude-sonnet-4-6",
+max_tokens: 1024,
+tools,
+messages,
 });`,
           },
         },
@@ -170,13 +170,13 @@ import { toOpenAiTools } from "@agent-native/actions";
 import { actions } from "@/lib/actions";
 
 const { tools, executeToolCall } = toOpenAiTools(actions, {
-  context: { source: "agent", user: currentUser },
+context: { source: "agent", user: currentUser },
 });`,
-          },
-        },
-      ],
-    },
-  ]}
+},
+},
+],
+},
+]}
 />
 
 ## Browser Agents with WebMCP {#webmcp}

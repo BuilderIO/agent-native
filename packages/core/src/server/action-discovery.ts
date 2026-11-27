@@ -104,6 +104,7 @@ function adaptPortableAction(def: DefinedAction, name: string): ActionEntry {
   const authorizeFn = def.authorize;
   const needsApproval = def.needsApproval;
 
+  // guard:allow-no-output-schema — adapts user-authored portable actions and forwards def.outputSchema when declared
   const coreDef = defineAction({
     description: def.description,
     ...(def.title !== undefined ? { title: def.title } : {}),

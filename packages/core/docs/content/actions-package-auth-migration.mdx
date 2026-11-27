@@ -173,6 +173,7 @@ Paste this into **Claude Code** or **Codex** (or add it to your repo's `AGENTS.m
 
 ```md
 Migrate the routes under `app/api/todos/` to `@agent-native/actions`:
+
 1. Create one file per operation in `actions/<verb>-<noun>.ts` using `defineAppAction()`.
 2. Add a Zod `schema` with `.describe()` on every field.
 3. Mark read-only actions with `http: { method: "GET" }` and `readOnly: true`.

@@ -133,11 +133,12 @@ export function TodoList() {
   const { data: todos } = useActionQuery("list-todos", { done: false });
   const createTodo = useActionMutation("create-todo");
 
-  return (
-    <button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
-      Add todo ({todos?.length ?? 0})
-    </button>
-  );
+return (
+
+<button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
+Add todo ({todos?.length ?? 0})
+</button>
+);
 }`,
           },
         },
@@ -158,11 +159,12 @@ export function TodoList() {
   const todos = createActionQuery("list-todos", () => ({ done: false }));
   const createTodo = createActionMutation("create-todo");
 
-  return (
-    <button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
-      Add todo ({todos()?.length ?? 0})
-    </button>
-  );
+return (
+
+<button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
+Add todo ({todos()?.length ?? 0})
+</button>
+);
 }`,
           },
         },
@@ -202,11 +204,11 @@ const todos = createActionQuery("list-todos", () => ({ done: false }));
 const createTodo = createActionMutation("create-todo");
 
 createTodo.mutate({ title: "Ship docs" });`,
-          },
-        },
-      ],
-    },
-  ]}
+},
+},
+],
+},
+]}
 />
 
 Mutations automatically invalidate active queries so the UI stays fresh without manual query-key wiring.
@@ -279,13 +281,18 @@ Add `actions/context.ts` to resolve your current user from cookies, bearer token
 
 ```ts
 // actions/context.ts
-import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
+import {
+  createActionBuilder,
+  type ActionContextInput,
+} from "@agent-native/actions";
 import { getSession } from "../lib/auth";
 
 export async function createContext({ caller, request }: ActionContextInput) {
   if (caller === "cli") {
     const devUserId =
-      process.env.NODE_ENV !== "production" ? process.env.DEV_USER_ID : undefined;
+      process.env.NODE_ENV !== "production"
+        ? process.env.DEV_USER_ID
+        : undefined;
     return { caller, user: devUserId ? { id: devUserId } : null };
   }
   const session = request ? await getSession(request) : null;

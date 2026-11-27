@@ -39,4 +39,4 @@ Call it from everywhere:
 ## Documentation
 
 Full guides, framework integrations, and auth/migration recipes:
-https://agent-native.com/docs/actions-package/
+https://agent-native.com/docs/actions-package/?utm_source=npm&utm_medium=referral&utm_content=actions-readme

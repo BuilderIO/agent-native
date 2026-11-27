@@ -35,7 +35,9 @@ The moment you want an in-app AI assistant, external MCP clients (Claude, ChatGP
     <div class="anpkg-label diagram-muted">Define once</div>
     <div class="diagram-panel" data-rough>
       <span class="diagram-pill accent">actions/*.ts</span>
-      <small class="diagram-muted">Zod / Standard Schema · auth · approvals · fail()</small>
+      <small class="diagram-muted"
+        >Zod / Standard Schema · auth · approvals · fail()</small
+      >
     </div>
   </div>
   <div class="anpkg-arrow diagram-muted" aria-hidden="true">&#8594;</div>
@@ -102,16 +104,16 @@ The moment you want an in-app AI assistant, external MCP clients (Claude, ChatGP
 
 ## How It Compares {#comparison}
 
-| Capability | `@agent-native/actions` | tRPC / oRPC | Next.js Server Actions | Roll-Your-Own MCP |
-| --- | --- | --- | --- | --- |
-| End-to-end typed UI hooks | React, Solid, Vue, Svelte | React (mainly) | React / Next.js only | None |
-| Framework-agnostic core | Yes (Web Fetch + Node) | Partial | Next.js only | Server-only |
-| Auto-generated MCP server (HTTP + stdio) | Built in | DIY | DIY | Manual per tool |
-| Auto-generated CLI (`pnpm action`) | Built in | DIY | No | DIY |
-| AI SDK tool exports (Vercel / OpenAI / Anthropic) | 1 line | DIY | DIY | Separate protocol |
-| LLM-safe JSON Schema normalization | Built in | No | No | DIY |
-| Dynamic `needsApproval` gates | Built in (UI, CLI, MCP) | No | No | DIY |
-| Structured `fail()` error codes for agents & UI | Built in | Error codes only | DIY | DIY |
+| Capability                                        | `@agent-native/actions`   | tRPC / oRPC      | Next.js Server Actions | Roll-Your-Own MCP |
+| ------------------------------------------------- | ------------------------- | ---------------- | ---------------------- | ----------------- |
+| End-to-end typed UI hooks                         | React, Solid, Vue, Svelte | React (mainly)   | React / Next.js only   | None              |
+| Framework-agnostic core                           | Yes (Web Fetch + Node)    | Partial          | Next.js only           | Server-only       |
+| Auto-generated MCP server (HTTP + stdio)          | Built in                  | DIY              | DIY                    | Manual per tool   |
+| Auto-generated CLI (`pnpm action`)                | Built in                  | DIY              | No                     | DIY               |
+| AI SDK tool exports (Vercel / OpenAI / Anthropic) | 1 line                    | DIY              | DIY                    | Separate protocol |
+| LLM-safe JSON Schema normalization                | Built in                  | No               | No                     | DIY               |
+| Dynamic `needsApproval` gates                     | Built in (UI, CLI, MCP)   | No               | No                     | DIY               |
+| Structured `fail()` error codes for agents & UI   | Built in                  | Error codes only | DIY                    | DIY               |
 
 ## What Agents Need That Ordinary RPC Skips {#agent-grade}
 

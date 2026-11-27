@@ -126,7 +126,9 @@ export function TodoList() {
       <button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
         Add todo
       </button>
-      {todos?.map((todo) => <p key={todo.id}>{todo.title}</p>)}
+      {todos?.map((todo) => (
+        <p key={todo.id}>{todo.title}</p>
+      ))}
     </div>
   );
 }
@@ -147,7 +149,9 @@ export default async function TodosPage() {
   return (
     <main>
       <h1>Open Todos ({todos.length})</h1>
-      {todos.map((todo) => <p key={todo.id}>{todo.title}</p>)}
+      {todos.map((todo) => (
+        <p key={todo.id}>{todo.title}</p>
+      ))}
     </main>
   );
 }
@@ -200,7 +204,8 @@ Prefer explicit registration without `withAgentNativeActions()`? Create `lib/act
     {
       name: "registry",
       type: "ActionsRegistry<TCtx, TActions>",
-      description: "The generated or manually constructed registry from `createActions()`.",
+      description:
+        "The generated or manually constructed registry from `createActions()`.",
     },
     {
       name: "options",
@@ -220,13 +225,15 @@ Prefer explicit registration without `withAgentNativeActions()`? Create `lib/act
           type: "boolean | McpHandlerOptions",
           optional: true,
           default: "true",
-          description: "Configure MCP server metadata, `include`/`exclude` allowlists, and `authenticate(request)`.",
+          description:
+            "Configure MCP server metadata, `include`/`exclude` allowlists, and `authenticate(request)`.",
         },
         {
           name: "http",
           type: "ActionHttpHandlerOptions",
           optional: true,
-          description: "Configure `cors` and `csrfProtection` (enabled by default for cookie-authenticated mutations).",
+          description:
+            "Configure `cors` and `csrfProtection` (enabled by default for cookie-authenticated mutations).",
         },
       ],
     },

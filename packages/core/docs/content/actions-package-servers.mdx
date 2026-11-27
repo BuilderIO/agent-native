@@ -95,9 +95,9 @@ import { actions } from "./.generated/actions";
 
 const app = new Hono();
 
-// Single catch-all serves /api/agent-native/actions/* and /api/agent-native/mcp
-app.all("/api/agent-native/*", (c) =>
-  actions.handler(c.req.raw, { platform: c.env }),
+// Single catch-all serves /api/agent-native/actions/_ and /api/agent-native/mcp
+app.all("/api/agent-native/_", (c) =>
+actions.handler(c.req.raw, { platform: c.env }),
 );
 
 export default app;`,
@@ -140,12 +140,12 @@ import { actions } from "./.generated/actions";
 const fastify = Fastify();
 const handler = toNodeHandler(actions.handler);
 
-fastify.all("/api/agent-native/*", (req, reply) => handler(req.raw, reply.raw));`,
-          },
-        },
-      ],
-    },
-  ]}
+fastify.all("/api/agent-native/\*", (req, reply) => handler(req.raw, reply.raw));`,
+},
+},
+],
+},
+]}
 />
 
 ## Zero-Dependency Vanilla Client (`@agent-native/actions/client`) {#vanilla-client}
@@ -153,7 +153,10 @@ fastify.all("/api/agent-native/*", (req, reply) => handler(req.raw, reply.raw));
 Call your actions with full TypeScript inference from React Native, Electron, Chrome extensions, browser scripts, or another microservice:
 
 ```ts
-import { createActionClient, actionErrorMessage } from "@agent-native/actions/client";
+import {
+  createActionClient,
+  actionErrorMessage,
+} from "@agent-native/actions/client";
 import type { AppActions } from "../.generated/actions";
 
 const client = createActionClient<AppActions>({

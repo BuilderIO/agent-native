@@ -51,6 +51,7 @@ export default defineAction({
 ```
 
 Start `vite` and everything is live immediately:
+
 - **UI hooks** (`@agent-native/actions/react`, `/solid`, `/vue`, `/svelte`) call `/api/agent-native/actions/:name`
 - **HTTP** is served at `http://localhost:5173/api/agent-native/actions/list-todos`
 - **MCP** is served at `http://localhost:5173/api/agent-native/mcp`
@@ -113,7 +114,7 @@ Mount the generated static registry (`.generated/actions.ts`) — or `virtual:ag
 import { actions } from "../.generated/actions";
 
 const app = new Hono();
-app.all("/api/agent-native/*", (c) => actions.handler(c.req.raw));
+app.all("/api/agent-native/\*", (c) => actions.handler(c.req.raw));
 
 export default app;`,
           },
@@ -177,14 +178,16 @@ export const action = ({ request }: { request: Request }) => actions.handler(req
           type: "string",
           optional: true,
           default: '"actions"',
-          description: "Directory scanned for default-exported `defineAction()` files.",
+          description:
+            "Directory scanned for default-exported `defineAction()` files.",
         },
         {
           name: "generatedDir",
           type: "string",
           optional: true,
           default: '".generated"',
-          description: "Output folder for `.generated/actions.ts` and `.generated/action-types.d.ts`.",
+          description:
+            "Output folder for `.generated/actions.ts` and `.generated/action-types.d.ts`.",
         },
         {
           name: "basePath",
@@ -198,13 +201,15 @@ export const action = ({ request }: { request: Request }) => actions.handler(req
           type: "boolean",
           optional: true,
           default: "true",
-          description: "Set `false` when your framework (e.g. SvelteKit) owns its own dev server route.",
+          description:
+            "Set `false` when your framework (e.g. SvelteKit) owns its own dev server route.",
         },
       ],
     },
   ]}
   returns={{
     type: "Plugin",
-    description: "Vite plugin for discovery, codegen, dev middleware, HMR, and virtual module bundling.",
+    description:
+      "Vite plugin for discovery, codegen, dev middleware, HMR, and virtual module bundling.",
   }}
 />
