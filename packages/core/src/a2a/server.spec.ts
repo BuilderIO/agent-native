@@ -10,7 +10,7 @@ const resolveA2AOrganizationCredentialsByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
 const isOrgMemberForA2AMock = vi.hoisted(() => vi.fn());
-const resolveSoleOrgMembershipForEmailMock = vi.hoisted(() =>
+const resolveCallerWorkspaceForEmailMock = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const setResponseStatusMock = vi.hoisted(() =>
@@ -79,7 +79,7 @@ vi.mock("../org/context.js", () => ({
   resolveA2AOrganizationMetadataByDomain:
     resolveA2AOrganizationMetadataByDomainMock,
   resolveA2AOrganizationMetadataById: resolveA2AOrganizationMetadataByIdMock,
-  resolveSoleOrgMembershipForEmail: resolveSoleOrgMembershipForEmailMock,
+  resolveCallerWorkspaceForEmail: resolveCallerWorkspaceForEmailMock,
 }));
 
 vi.mock("../org/membership.js", () => ({
@@ -145,8 +145,8 @@ describe("mountA2A auth", () => {
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockReset();
     isOrgMemberForA2AMock.mockResolvedValue(true);
-    resolveSoleOrgMembershipForEmailMock.mockReset();
-    resolveSoleOrgMembershipForEmailMock.mockResolvedValue(undefined);
+    resolveCallerWorkspaceForEmailMock.mockReset();
+    resolveCallerWorkspaceForEmailMock.mockResolvedValue(undefined);
     setResponseStatusMock.mockClear();
     setResponseHeaderMock.mockClear();
     evaluateServicePrincipalMock.mockReset();
@@ -1547,7 +1547,7 @@ describe("mountA2A auth", () => {
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-    expect(resolveSoleOrgMembershipForEmailMock).not.toHaveBeenCalled();
+    expect(resolveCallerWorkspaceForEmailMock).not.toHaveBeenCalled();
   });
 
   describe("a user assertion with no workspace claim", () => {
@@ -1567,7 +1567,7 @@ describe("mountA2A auth", () => {
     }
 
     it("runs in the person's only workspace here", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      resolveCallerWorkspaceForEmailMock.mockResolvedValueOnce("org-slides");
       const handler = await mountedA2AHandler(config);
       const event = await claimlessUserEvent();
 
@@ -1579,7 +1579,7 @@ describe("mountA2A auth", () => {
       expect(event.context.__a2aVerifiedOrgId).toBe("org-slides");
       expect(event.context.__a2aOrgFromSoleMembership).toBe(true);
       expect(event.context.__a2aOrgDomain).toBeUndefined();
-      expect(resolveSoleOrgMembershipForEmailMock).toHaveBeenCalledWith(
+      expect(resolveCallerWorkspaceForEmailMock).toHaveBeenCalledWith(
         "owner@example.com",
       );
       expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
@@ -1589,7 +1589,7 @@ describe("mountA2A auth", () => {
       );
     });
 
-    it("stays in personal scope without exactly one workspace", async () => {
+    it("stays in personal scope without a workspace here", async () => {
       const handler = await mountedA2AHandler(config);
       const event = await claimlessUserEvent();
 
@@ -1603,7 +1603,7 @@ describe("mountA2A auth", () => {
     });
 
     it("stays in personal scope when the live roster no longer lists the person", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      resolveCallerWorkspaceForEmailMock.mockResolvedValueOnce("org-slides");
       isOrgMemberForA2AMock.mockResolvedValueOnce(false);
       const handler = await mountedA2AHandler(config);
       const event = await claimlessUserEvent();
@@ -1615,7 +1615,7 @@ describe("mountA2A auth", () => {
     });
 
     it("refuses rather than guessing personal scope when the roster can't be read", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockRejectedValueOnce(
+      resolveCallerWorkspaceForEmailMock.mockRejectedValueOnce(
         new Error("connection reset"),
       );
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1631,7 +1631,7 @@ describe("mountA2A auth", () => {
     });
 
     it("refuses rather than guessing personal scope when the live roster check fails", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      resolveCallerWorkspaceForEmailMock.mockResolvedValueOnce("org-slides");
       isOrgMemberForA2AMock.mockRejectedValueOnce(
         new Error("federation authority unavailable"),
       );

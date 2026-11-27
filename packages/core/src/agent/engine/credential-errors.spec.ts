@@ -126,13 +126,14 @@ describe("provider copy and the run's own reason", () => {
       expect(message).toContain("connect prompt");
     });
 
-    it("points at the peer's real origin when it is known", () => {
+    it("deep links to the peer's LLM settings when its URL is known", () => {
       const message = formatLlmCredentialErrorMessage({
-        agentName: "Slides",
-        connectUrl: "https://slides.example.test",
+        agentName: "Mail",
+        connectUrl: "https://mail.example.test/",
       });
-      expect(message).toContain("https://slides.example.test");
-      expect(message).not.toMatch(/Settings\s*[>\u2192]/i);
+      expect(message).toContain("https://mail.example.test/settings/model#llm");
+      expect(message).toContain("Settings > Agent > AI providers");
+      expect(message).toContain("Mail app");
     });
   });
 });

@@ -77,6 +77,11 @@ export function isLlmCredentialError(
   return MISSING_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(message));
 }
 
+/** The peer app's LLM settings section; `appUrl` is its origin plus any base path. */
+function peerLlmSettingsUrl(appUrl: string): string {
+  return `${appUrl.replace(/\/+$/, "")}/settings/model#llm`;
+}
+
 export function formatLlmCredentialErrorMessage(options?: {
   agentName?: string;
   visitorFacing?: boolean;
@@ -86,7 +91,7 @@ export function formatLlmCredentialErrorMessage(options?: {
   const agentName = options?.agentName?.trim();
   if (agentName) {
     const where = options?.connectUrl
-      ? `Open ${options.connectUrl} and use the connect prompt in its agent chat`
+      ? `Open ${peerLlmSettingsUrl(options.connectUrl)} (Settings > Agent > AI providers) in the ${agentName} app and connect a provider there`
       : `Open the ${agentName} app and use the connect prompt in its agent chat`;
     return `The ${agentName} agent could not finish this request because that app needs an LLM connection. ${where}, then ask me to try again.`;
   }
