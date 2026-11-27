@@ -193,6 +193,7 @@
     "guard:no-untracked-imports": "node scripts/guard-no-untracked-imports.mjs",
     "guard:no-unbounded-table-reads": "node scripts/guard-no-unbounded-table-reads.mjs",
     "guard:no-bare-error-in-actions": "tsx scripts/guard-no-bare-error-in-actions.ts",
+    "guard:no-new-hard-delete": "tsx scripts/guard-no-new-hard-delete.ts",
     "guard:no-unsealed-secret-columns": "tsx scripts/guard-no-unsealed-secret-columns.ts",
     "test:no-unsealed-secret-columns": "tsx --test scripts/guard-no-unsealed-secret-columns.test.ts",
     "guard:no-vault-secrets-table": "tsx scripts/guard-no-vault-secrets-table.ts",

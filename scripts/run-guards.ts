@@ -134,6 +134,7 @@ const guards = [
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
+  "guard:no-new-hard-delete",
   "guard:no-unsealed-secret-columns",
   "guard:no-vault-secrets-table",
   "guard:no-unobserved-writes",
