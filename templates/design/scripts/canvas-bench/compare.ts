@@ -207,6 +207,13 @@ const assertComparable = (base: Bench, change: Bench) => {
         `[${name}] idle refresh ${round(baseHz)} Hz vs ${round(changeHz)} Hz (different display or power state)`,
       );
     }
+    const baseMethod = medianOrNull(series(base, name, "panMethod"));
+    const changeMethod = medianOrNull(series(change, name, "panMethod"));
+    if (baseMethod !== changeMethod) {
+      problems.push(
+        `[${name}] pan method ${baseMethod ?? "unversioned"} vs ${changeMethod ?? "unversioned"} (re-run the baseline with the same bench)`,
+      );
+    }
     const baseCount = medianOrNull(series(base, name, "visibleScreenCount"));
     const changeCount = medianOrNull(
       series(change, name, "visibleScreenCount"),

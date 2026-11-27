@@ -48,6 +48,10 @@ vi.mock("../lib/recordings.js", () => ({
   ownerEmailMatches: (...values: unknown[]) => values,
 }));
 
+vi.mock("../lib/rich-track-recovery.js", () => ({
+  recoverIdleTrackUploads: vi.fn(),
+}));
+
 import { runBrainExportSweepOnce } from "./brain-export.js";
 
 function queryResult(result: unknown) {

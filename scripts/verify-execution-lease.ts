@@ -21,6 +21,8 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -85,17 +87,65 @@ function findJava(): string {
   );
 }
 
+const TLA_DOWNLOAD_MAX_ATTEMPTS = 4;
+const TLA_DOWNLOAD_TIMEOUT_MS = 45_000;
+const TLA_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+async function downloadTlaToolsBytes(url: string): Promise<Buffer> {
+  let lastError = "unknown download error";
+  for (let attempt = 1; attempt <= TLA_DOWNLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(TLA_DOWNLOAD_TIMEOUT_MS),
+      });
+      if (response.ok) {
+        return Buffer.from(await response.arrayBuffer());
+      }
+      lastError = `HTTP ${response.status}`;
+      if (
+        !TLA_RETRYABLE_STATUSES.has(response.status) ||
+        attempt === TLA_DOWNLOAD_MAX_ATTEMPTS
+      ) {
+        throw new CouldNotRun(`downloading ${url} failed: ${lastError}`);
+      }
+    } catch (error) {
+      if (error instanceof CouldNotRun) throw error;
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt === TLA_DOWNLOAD_MAX_ATTEMPTS) {
+        throw new CouldNotRun(
+          `downloading ${url} failed after ${TLA_DOWNLOAD_MAX_ATTEMPTS} attempts: ${lastError}`,
+        );
+      }
+    }
+    const backoffMs = 2_000 * 2 ** (attempt - 1);
+    console.warn(
+      `verify-execution-lease: attempt ${attempt}/${TLA_DOWNLOAD_MAX_ATTEMPTS} failed (${lastError}); retrying in ${backoffMs}ms`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+  }
+  throw new CouldNotRun(`downloading ${url} failed: ${lastError}`);
+}
+
 async function ensureTlaTools(tools: Manifest["tlaTools"]): Promise<string> {
   const jar = path.join(TOOLS_DIR, `tla2tools-${tools.version}.jar`);
   if (!existsSync(jar)) {
     mkdirSync(TOOLS_DIR, { recursive: true });
-    const response = await fetch(tools.url);
-    if (!response.ok) {
+    const bytes = await downloadTlaToolsBytes(tools.url);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (digest !== tools.sha256) {
       throw new CouldNotRun(
-        `downloading ${tools.url} failed: HTTP ${response.status}`,
+        `downloaded ${tools.url} has sha256 ${digest}, expected ${tools.sha256}`,
       );
     }
-    writeFileSync(jar, Buffer.from(await response.arrayBuffer()));
+    const tmpJar = `${jar}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      writeFileSync(tmpJar, bytes);
+      renameSync(tmpJar, jar);
+    } catch (error) {
+      rmSync(tmpJar, { force: true });
+      throw error;
+    }
+    return jar;
   }
   const digest = createHash("sha256").update(readFileSync(jar)).digest("hex");
   if (digest !== tools.sha256) {

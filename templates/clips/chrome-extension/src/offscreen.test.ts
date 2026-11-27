@@ -58,6 +58,7 @@ beforeAll(async () => {
   (globalThis as { chrome?: unknown }).chrome = {
     runtime: {
       onMessage: { addListener: () => undefined },
+      onConnect: { addListener: () => undefined },
       getManifest: () => ({ version: "test" }),
     },
     storage: {

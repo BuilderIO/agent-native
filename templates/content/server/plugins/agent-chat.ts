@@ -213,6 +213,8 @@ export default createAgentChatPlugin({
 
 The current screen is already included as bounded context on every message. Do not call view-screen at the start of a turn or repeatedly; call it only when that context is stale. Its document body is a preview, so call get-document when the full page content is required.
 
+The screen's contextPath names the pages above the open page by title and description only. Before you draft or rewrite on a page, also call get-document on the pages above it whose text could say how to write there, such as a folder page with writing rules, and follow them. Skip this for small fixes such as a typo. Where the person's message asks for something different, the message wins.
+
 Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 
 Provider-specific Content actions are shortcuts, not limits. If a first-class action cannot express the exact Notion endpoint, page/database/comment object, filter, request body, pagination mode, markdown endpoint, payload shape, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real Notion API. Use the raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Content cannot do something the underlying Notion API can do.

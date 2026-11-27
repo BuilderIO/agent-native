@@ -63,10 +63,15 @@ describe("get-mail-settings action", () => {
     );
   });
 
-  it("reports Notes and Recent on and Attachments off until changed", async () => {
+  it("reports Meetings, Notes and Recent on and Attachments off until changed", async () => {
     await expect(action.run({})).resolves.toEqual(
       expect.objectContaining({
-        contactPanelWidgets: { notes: true, attachments: false, recent: true },
+        contactPanelWidgets: {
+          meetings: true,
+          notes: true,
+          attachments: false,
+          recent: true,
+        },
       }),
     );
 
@@ -75,7 +80,12 @@ describe("get-mail-settings action", () => {
     });
     await expect(action.run({})).resolves.toEqual(
       expect.objectContaining({
-        contactPanelWidgets: { notes: false, attachments: true, recent: true },
+        contactPanelWidgets: {
+          meetings: true,
+          notes: false,
+          attachments: true,
+          recent: true,
+        },
       }),
     );
   });

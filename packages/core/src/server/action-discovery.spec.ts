@@ -1013,6 +1013,21 @@ describe("action discovery", () => {
     expect(CORE_ACTION_GROUPS["import-resource-pack"]).toBe("resources");
   });
 
+  it("merges the member role and invitation cancel actions into org administration", async () => {
+    const registry: Parameters<typeof mergeCoreSharingActions>[0] = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "change-organization-member-role",
+      "cancel-organization-invitation",
+    ]) {
+      expect(registry[name]).toBeDefined();
+      expect(typeof registry[name].run).toBe("function");
+      expect(registry[name].needsApproval).toBe(true);
+      expect(CORE_ACTION_GROUPS[name]).toBe("orgAdministration");
+    }
+  });
+
   it("merges toolkit history and review actions", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);

@@ -1,5 +1,52 @@
 # @agent-native/skills
 
+## 0.4.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d70dc40: Switch workspace and `agent-native typecheck` CLI typechecking to native `tsgo` when available, falling back to `tsc`.
+- Updated dependencies [ccbd078]
+- Updated dependencies [b0dbd8b]
+- Updated dependencies [67fbc39]
+- Updated dependencies [6c648b3]
+- Updated dependencies
+- Updated dependencies [c1b7403]
+- Updated dependencies [d70dc40]
+- Updated dependencies [b29387a]
+- Updated dependencies [c34a832]
+- Updated dependencies [d74c9e8]
+- Updated dependencies [c5ea04e]
+- Updated dependencies [52757ad]
+  - @agent-native/core@0.235.1
+
+## 0.4.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [0a08ec4]
+- Updated dependencies [4ce600d]
+- Updated dependencies [a3032a6]
+- Updated dependencies [e2b0256]
+- Updated dependencies [4c03a31]
+- Updated dependencies [9a8fff4]
+- Updated dependencies [581bf53]
+- Updated dependencies [f0dadea]
+- Updated dependencies [8c8475a]
+- Updated dependencies [3cf91b8]
+- Updated dependencies [dbbbd2d]
+- Updated dependencies [890321f]
+- Updated dependencies [5a5160b]
+- Updated dependencies
+- Updated dependencies [fbb491e]
+- Updated dependencies [415f03e]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [e792a5e]
+  - @agent-native/core@0.235.0
+
 ## 0.4.13
 
 ### Patch Changes
@@ -3144,34 +3191,5 @@
 - Updated dependencies
 - Updated dependencies [615c5d5]
   - @agent-native/core@0.174.2
-
-## 0.2.706
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies [5e57bc6]
-- Updated dependencies [7d90274]
-- Updated dependencies [7d5cce0]
-- Updated dependencies [a63c4b3]
-- Updated dependencies
-- Updated dependencies [a026821]
-  - @agent-native/core@0.174.1
-
-## 0.2.705
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies [d9e978f]
-- Updated dependencies [b4c3864]
-- Updated dependencies [b4c3864]
-- Updated dependencies [b4c3864]
-- Updated dependencies [536e193]
-- Updated dependencies
-- Updated dependencies [b4c3864]
-- Updated dependencies [f22b29b]
-- Updated dependencies [eae6742]
-  - @agent-native/core@0.174.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

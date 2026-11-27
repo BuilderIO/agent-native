@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
+  assertAgentNavigationAllowed,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -554,6 +555,13 @@ export default defineAction({
         "Signed-out visual-edit bootstrap is available only from the same-origin Design page.",
         { errorCode: "signed_out_visual_edit_browser_required" },
       );
+    }
+    if (
+      args.navigate &&
+      args.target !== "desktop" &&
+      args.target !== "system-browser"
+    ) {
+      assertAgentNavigationAllowed({ view: "editor" }, { ctx });
     }
     const runForPrincipal = async () => {
       const routeManifest = args.routeManifest

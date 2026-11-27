@@ -56,6 +56,7 @@ const patchSchema = z.object({
   tracking: z.object({ opens: z.boolean(), clicks: z.boolean() }).optional(),
   contactPanelWidgets: z
     .object({
+      meetings: z.boolean().optional(),
       notes: z.boolean().optional(),
       attachments: z.boolean().optional(),
       recent: z.boolean().optional(),

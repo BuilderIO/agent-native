@@ -42,8 +42,7 @@
  * every new opt-out.
  */
 
-import { readFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -109,10 +108,10 @@ const FILE_ALLOWLIST = new Set([
 
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-unscoped\b/;
 
-async function* walk(dir) {
+function* walkSync(dir) {
   let entries;
   try {
-    entries = await readdir(dir, { withFileTypes: true });
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return;
   }
@@ -120,9 +119,30 @@ async function* walk(dir) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
-      yield* walk(full);
+      yield* walkSync(full);
     } else if (entry.isFile()) {
       yield full;
+    }
+  }
+}
+
+function* walkScanRoots(root, templateSubdirs) {
+  const templatesDir = path.join(root, "templates");
+  if (existsSync(templatesDir)) {
+    for (const entry of readdirSync(templatesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+      for (const sub of templateSubdirs) {
+        const candidate = path.join(templatesDir, entry.name, sub);
+        if (existsSync(candidate)) yield* walkSync(candidate);
+      }
+    }
+  }
+  const packagesDir = path.join(root, "packages");
+  if (existsSync(packagesDir)) {
+    for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+      const candidate = path.join(packagesDir, entry.name, "src");
+      if (existsSync(candidate)) yield* walkSync(candidate);
     }
   }
 }
@@ -180,9 +200,47 @@ function extractOwnableExports(contents) {
   return exports;
 }
 
+const SKIP_TEMPLATE_SCHEMA_SUBDIRS = new Set([
+  "app",
+  "e2e",
+  "public",
+  ".agents",
+  "docs",
+  "fixtures",
+  "evals",
+]);
+
+function* walkSchemaRoots(root) {
+  const packagesDir = path.join(root, "packages");
+  if (existsSync(packagesDir)) {
+    yield* walkSync(packagesDir);
+  }
+  const templatesDir = path.join(root, "templates");
+  if (existsSync(templatesDir)) {
+    for (const tpl of readdirSync(templatesDir, { withFileTypes: true })) {
+      if (!tpl.isDirectory() || SKIP_DIRS.has(tpl.name)) continue;
+      const tplDir = path.join(templatesDir, tpl.name);
+      for (const entry of readdirSync(tplDir, { withFileTypes: true })) {
+        const full = path.join(tplDir, entry.name);
+        if (entry.isDirectory()) {
+          if (
+            SKIP_DIRS.has(entry.name) ||
+            SKIP_TEMPLATE_SCHEMA_SUBDIRS.has(entry.name)
+          ) {
+            continue;
+          }
+          yield* walkSync(full);
+        } else if (entry.isFile()) {
+          yield full;
+        }
+      }
+    }
+  }
+}
+
 export async function collectOwnableTables(root = REPO_ROOT) {
   const byDir = new Map();
-  for await (const file of walk(root)) {
+  for (const file of walkSchemaRoots(root)) {
     const rel = path.relative(root, file).replaceAll("\\", "/");
     if (!/^(?:packages|templates)\//.test(rel)) continue;
     if (!/\.[cm]?tsx?$/.test(file) || /\.(?:spec|test)\.[cm]?tsx?$/.test(file))
@@ -193,6 +251,7 @@ export async function collectOwnableTables(root = REPO_ROOT) {
     } catch {
       continue;
     }
+    if (!contents.includes("ownableColumns")) continue;
     if (!/ownableColumns\s*\(/.test(contents)) continue;
     const ownables = extractOwnableExports(contents);
     if (ownables.size > 0) {
@@ -361,21 +420,78 @@ function findChainEnd(contents, startIdx) {
   return limit;
 }
 
-function findStatements(contents, ownableNames, ownableSqlNames) {
-  const statements = [];
-  const lineOffsets = computeLineOffsets(contents);
-
+function compileUnitMatchers(ownableNames, ownableSqlNames) {
   const namesAlt = [...ownableNames]
     .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
+  const drizzleFromRe =
+    namesAlt.length > 0
+      ? new RegExp(
+          `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
+          "g",
+        )
+      : null;
+  const drizzleWriteRes =
+    namesAlt.length > 0
+      ? ["update", "delete", "insert"].map((op) => ({
+          op,
+          re: new RegExp(
+            `\\bdb\\s*\\.\\s*${op}\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
+            "g",
+          ),
+        }))
+      : [];
+  const rawSqlMatchers = [...ownableSqlNames].map((sqlName) => {
+    const escaped = sqlName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return {
+      sqlName,
+      verbs: [
+        [
+          "select",
+          new RegExp(
+            `["'\`][^"'\`]*\\bFROM\\s+${escaped}\\b[\\s\\S]*?["'\`]`,
+            "gi",
+          ),
+        ],
+        [
+          "update",
+          new RegExp(
+            `["'\`][^"'\`]*\\bUPDATE\\s+${escaped}\\b[\\s\\S]*?["'\`]`,
+            "gi",
+          ),
+        ],
+        [
+          "delete",
+          new RegExp(
+            `["'\`][^"'\`]*\\bDELETE\\s+FROM\\s+${escaped}\\b[\\s\\S]*?["'\`]`,
+            "gi",
+          ),
+        ],
+        [
+          "insert",
+          new RegExp(
+            `["'\`][^"'\`]*\\bINSERT\\s+INTO\\s+${escaped}\\b[\\s\\S]*?["'\`]`,
+            "gi",
+          ),
+        ],
+      ],
+    };
+  });
+  return { drizzleFromRe, drizzleWriteRes, rawSqlMatchers };
+}
 
-  if (namesAlt.length > 0) {
-    const fromRe = new RegExp(
-      `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
-      "g",
-    );
+function findStatements(contents, matchers) {
+  const statements = [];
+  let lineOffsets = null;
+  const getLineOffsets = () => {
+    if (!lineOffsets) lineOffsets = computeLineOffsets(contents);
+    return lineOffsets;
+  };
+
+  if (matchers.drizzleFromRe) {
+    matchers.drizzleFromRe.lastIndex = 0;
     let fromMatch;
-    while ((fromMatch = fromRe.exec(contents)) !== null) {
+    while ((fromMatch = matchers.drizzleFromRe.exec(contents)) !== null) {
       const name = fromMatch[1];
       const queryStart = walkBackToChainHead(contents, fromMatch.index);
       const queryEnd = findChainEnd(contents, fromMatch.index);
@@ -384,18 +500,15 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
         kind: "drizzle",
         op: "select",
         name,
-        line: offsetToLine(lineOffsets, fromMatch.index),
+        line: offsetToLine(getLineOffsets(), fromMatch.index),
         queryStart,
         queryEnd,
         snippet,
       });
     }
 
-    for (const op of ["update", "delete", "insert"]) {
-      const re = new RegExp(
-        `\\bdb\\s*\\.\\s*${op}\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
-        "g",
-      );
+    for (const { op, re } of matchers.drizzleWriteRes) {
+      re.lastIndex = 0;
       let m;
       while ((m = re.exec(contents)) !== null) {
         const name = m[1];
@@ -406,7 +519,7 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
           kind: "drizzle",
           op,
           name,
-          line: offsetToLine(lineOffsets, m.index),
+          line: offsetToLine(getLineOffsets(), m.index),
           queryStart,
           queryEnd,
           snippet,
@@ -415,16 +528,10 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
     }
   }
 
-  for (const sqlName of ownableSqlNames) {
-    const escaped = sqlName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const verbs = [
-      ["select", `\\bFROM\\s+${escaped}\\b`],
-      ["update", `\\bUPDATE\\s+${escaped}\\b`],
-      ["delete", `\\bDELETE\\s+FROM\\s+${escaped}\\b`],
-      ["insert", `\\bINSERT\\s+INTO\\s+${escaped}\\b`],
-    ];
-    for (const [op, body] of verbs) {
-      const re = new RegExp(`["'\`][^"'\`]*${body}[\\s\\S]*?["'\`]`, "gi");
+  for (const { sqlName, verbs } of matchers.rawSqlMatchers) {
+    if (!contents.toLowerCase().includes(sqlName.toLowerCase())) continue;
+    for (const [op, re] of verbs) {
+      re.lastIndex = 0;
       let m;
       while ((m = re.exec(contents)) !== null) {
         const matchStart = m.index;
@@ -432,7 +539,7 @@ function findStatements(contents, ownableNames, ownableSqlNames) {
           kind: "raw-sql",
           op,
           name: sqlName,
-          line: offsetToLine(lineOffsets, matchStart),
+          line: offsetToLine(getLineOffsets(), matchStart),
           queryStart: matchStart,
           queryEnd: matchStart + m[0].length,
           snippet: m[0],
@@ -637,7 +744,11 @@ function ownablesForUnit(byUnit, unit, cache) {
     for (const name of entry.names) names.add(name);
     for (const sqlName of entry.sqlNames) sqlNames.add(sqlName);
   }
-  const result = { names, sqlNames };
+  const result = {
+    names,
+    sqlNames,
+    matchers: compileUnitMatchers(names, sqlNames),
+  };
   cache.set(unit, result);
   return result;
 }
@@ -648,7 +759,7 @@ export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
 
   const violations = [];
 
-  for await (const file of walk(root)) {
+  for (const file of walkScanRoots(root, ["server", "actions"])) {
     if (!file.endsWith(".ts") && !file.endsWith(".tsx")) continue;
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(root, file).replaceAll("\\", "/");
@@ -664,8 +775,11 @@ export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
 
     const unit = owningUnit(rel);
     if (!unit) continue;
-    const { names: unitOwnableNames, sqlNames: unitOwnableSqlNames } =
-      ownablesForUnit(ownablesByUnit, unit, unitCache);
+    const {
+      names: unitOwnableNames,
+      sqlNames: unitOwnableSqlNames,
+      matchers,
+    } = ownablesForUnit(ownablesByUnit, unit, unitCache);
     if (unitOwnableNames.size === 0 && unitOwnableSqlNames.size === 0) continue;
 
     let contents;
@@ -685,11 +799,7 @@ export async function scanFiles(ownablesByDir, root = REPO_ROOT) {
     const head = contents.split("\n").slice(0, 30).join("\n");
     if (OPT_OUT_MARKER.test(head)) continue;
 
-    const statements = findStatements(
-      contents,
-      unitOwnableNames,
-      unitOwnableSqlNames,
-    );
+    const statements = findStatements(contents, matchers);
     if (statements.length === 0) continue;
 
     const blocks = buildBlockTree(contents);
@@ -796,7 +906,7 @@ export async function scanMentionProviders(ownablesByDir, root = REPO_ROOT) {
 
   const violations = [];
 
-  for await (const file of walk(root)) {
+  for (const file of walkScanRoots(root, ["server"])) {
     if (!file.endsWith(".ts") && !file.endsWith(".tsx")) continue;
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(root, file).replaceAll("\\", "/");

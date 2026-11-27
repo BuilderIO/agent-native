@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.234.0",
+  "version": "0.235.1",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -658,8 +658,8 @@
   "scripts": {
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsc --noEmit",
-    "typecheck:spec": "tsc -p tsconfig.spec.json",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:spec": "tsgo -p tsconfig.spec.json",
     "storybook": "storybook dev --port 6006 --no-open",
     "storybook:build": "storybook build --output-dir ../../.tmp/storybook-static",
     "test:storybook": "vitest run --config vitest.storybook.config.ts",
@@ -778,8 +778,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "catalog:",
-    "@vitest/browser": "4.1.9",
-    "@vitest/browser-playwright": "4.1.9",
+    "@vitest/browser": "^5.1.2",
+    "@vitest/browser-playwright": "^5.1.2",
     "@webgpu/types": "0.1.74",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
@@ -798,7 +798,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.234.0-0",
+    "@agent-native/core": ">=0.235.1-0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",

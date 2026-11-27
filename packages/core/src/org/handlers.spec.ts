@@ -169,6 +169,8 @@ import {
   createOrgHandler,
   switchOrgHandler,
   leaveOrgHandler,
+  cancelOrgInvitation,
+  changeOrgMemberRole,
 } from "./handlers.js";
 import {
   cachedMemberships,
@@ -1939,5 +1941,321 @@ describe("org handlers", () => {
     await expect(
       cancelInvitationHandler(makeEvent("/_agent-native/org/invitations/gone")),
     ).rejects.toThrow(/No pending invitation/);
+  });
+
+  describe("cancelOrgInvitation", () => {
+    const admin = { orgId: "org-1", role: "admin" as const };
+
+    it("requires an organization", async () => {
+      await expect(
+        cancelOrgInvitation({ orgId: null, role: "owner" }, "inv-1"),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "You must belong to an organization to cancel an invitation",
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("limits cancelling to owners and admins", async () => {
+      for (const role of ["member", null] as const) {
+        await expect(
+          cancelOrgInvitation({ orgId: "org-1", role }, "inv-1"),
+        ).rejects.toMatchObject({
+          statusCode: 403,
+          message: "Only owners and admins can cancel invitations",
+        });
+      }
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("requires an invitation id", async () => {
+      await expect(cancelOrgInvitation(admin, undefined)).rejects.toMatchObject(
+        { statusCode: 400, message: "Invitation ID required" },
+      );
+      await expect(cancelOrgInvitation(admin, "")).rejects.toMatchObject({
+        statusCode: 400,
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("scopes the update to the pending invitation in the caller's org", async () => {
+      mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+      await expect(
+        cancelOrgInvitation({ orgId: "org-1", role: "owner" }, "inv-1"),
+      ).resolves.toEqual({ id: "inv-1", status: "canceled" });
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      const [{ sql, args }] = mockExecute.mock.calls[0];
+      expect(sql).toContain("UPDATE org_invitations SET status = 'canceled'");
+      expect(sql).toContain("id = ? AND org_id = ? AND status = 'pending'");
+      expect(args).toEqual(["inv-1", "org-1"]);
+    });
+
+    it("answers 404 when nothing matched", async () => {
+      mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
+      await expect(cancelOrgInvitation(admin, "gone")).rejects.toMatchObject({
+        statusCode: 404,
+        message: "No pending invitation with that id",
+      });
+    });
+  });
+
+  describe("changeOrgMemberRole", () => {
+    const owner = {
+      email: "Owner@Example.test",
+      orgId: "org-1",
+      role: "owner" as const,
+    };
+    const admin = {
+      email: "Admin@Example.test",
+      orgId: "org-1",
+      role: "admin" as const,
+    };
+    const updates = () =>
+      mockExecute.mock.calls.filter(([q]) =>
+        String(q.sql).startsWith("UPDATE org_members"),
+      );
+
+    function currentRole(role: string | null) {
+      mockExecute.mockImplementation(async ({ sql }: { sql: string }) =>
+        String(sql).startsWith("SELECT role")
+          ? { rows: role ? [{ role }] : [], rowsAffected: 0 }
+          : { rows: [], rowsAffected: 1 },
+      );
+    }
+
+    beforeEach(() => {
+      currentRole("member");
+    });
+
+    it("requires an organization", async () => {
+      await expect(
+        changeOrgMemberRole(
+          { ...owner, orgId: null },
+          "a@example.test",
+          "admin",
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "No organization found",
+      });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("limits role changes to owners and admins", async () => {
+      for (const role of ["member", null] as const) {
+        await expect(
+          changeOrgMemberRole({ ...owner, role }, "a@example.test", "admin"),
+        ).rejects.toMatchObject({
+          statusCode: 403,
+          message: "Only owners and admins can change member roles",
+        });
+      }
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("requires an email", async () => {
+      for (const email of [undefined, ""]) {
+        await expect(
+          changeOrgMemberRole(owner, email, "admin"),
+        ).rejects.toMatchObject({
+          statusCode: 400,
+          message: "Email is required",
+        });
+      }
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("looks the member up case-insensitively within the org and skips pending removals", async () => {
+      await changeOrgMemberRole(owner, "MiXed@Example.TEST", "admin");
+      const [{ sql, args }] = mockExecute.mock.calls[0];
+      expect(sql).toContain("SELECT role FROM org_members");
+      expect(sql).toContain("org_id = ? AND LOWER(email) = ?");
+      expect(sql).toContain("federation_removal_pending_at IS NULL");
+      expect(args).toEqual(["org-1", "mixed@example.test"]);
+    });
+
+    it("answers 404 for an unknown member without syncing", async () => {
+      currentRole(null);
+      await expect(
+        changeOrgMemberRole(owner, "x@example.test", "admin"),
+      ).rejects.toMatchObject({ statusCode: 404, message: "Member not found" });
+      expect(mockUpdateFederatedOrganizationMemberRole).not.toHaveBeenCalled();
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("never changes the owner's role", async () => {
+      currentRole("owner");
+      await expect(
+        changeOrgMemberRole(owner, "o@example.test", "member"),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Cannot change the organization owner's role",
+      });
+      expect(mockUpdateFederatedOrganizationMemberRole).not.toHaveBeenCalled();
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("keeps admins from promoting to admin or touching existing admins", async () => {
+      await expect(
+        changeOrgMemberRole(admin, "m@example.test", "admin"),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: "Only the organization owner can manage admins",
+      });
+      currentRole("admin");
+      await expect(
+        changeOrgMemberRole(admin, "other@example.test", "member"),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: "Only the organization owner can manage admins",
+      });
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("lets an admin keep a plain member as a member", async () => {
+      currentRole("member");
+      await expect(
+        changeOrgMemberRole(admin, "m@example.test", "member"),
+      ).resolves.toEqual({
+        email: "m@example.test",
+        role: "member",
+        previousRole: "member",
+      });
+      expect(updates()).toHaveLength(1);
+    });
+
+    it("stops an admin from changing their own role, matching case-insensitively", async () => {
+      currentRole("member");
+      await expect(
+        changeOrgMemberRole(admin, "ADMIN@example.test", "member"),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Use the owner account to change your own admin role",
+      });
+      expect(updates()).toHaveLength(0);
+    });
+
+    it("exempts the owner from the self-change guard", async () => {
+      currentRole("member");
+      await expect(
+        changeOrgMemberRole(owner, "owner@example.test", "admin"),
+      ).resolves.toMatchObject({ email: "owner@example.test", role: "admin" });
+    });
+
+    it("syncs the authority with the original email before the local update", async () => {
+      const order: string[] = [];
+      mockUpdateFederatedOrganizationMemberRole.mockImplementation(async () => {
+        order.push("sync");
+        return true;
+      });
+      mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+        order.push(String(sql).split(" ")[0]);
+        return String(sql).startsWith("SELECT")
+          ? { rows: [{ role: "member" }] }
+          : { rows: [], rowsAffected: 1 };
+      });
+      const event = makeEvent("/x");
+      await changeOrgMemberRole(owner, "A@Example.test", "admin", event);
+      expect(order).toEqual(["SELECT", "sync", "UPDATE"]);
+      expect(mockUpdateFederatedOrganizationMemberRole).toHaveBeenCalledWith(
+        event,
+        {
+          orgId: "org-1",
+          actorEmail: "Owner@Example.test",
+          actorRole: "owner",
+          memberEmail: "A@Example.test",
+          memberRole: "admin",
+        },
+      );
+    });
+
+    it("answers 503 and leaves the roster alone when the authority sync fails", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockUpdateFederatedOrganizationMemberRole.mockRejectedValueOnce(
+        new Error("down"),
+      );
+      await expect(
+        changeOrgMemberRole(owner, "a@example.test", "admin"),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        message:
+          "Could not synchronize this member role with the identity authority.",
+      });
+      expect(updates()).toHaveLength(0);
+      spy.mockRestore();
+    });
+
+    it("writes the lowercased email and role scoped to the org, and reports the previous role", async () => {
+      currentRole("admin");
+      await expect(
+        changeOrgMemberRole(owner, "A@Example.test", "member"),
+      ).resolves.toEqual({
+        email: "a@example.test",
+        role: "member",
+        previousRole: "admin",
+      });
+      const [[{ sql, args }]] = updates();
+      expect(sql).toBe(
+        "UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?",
+      );
+      expect(args).toEqual(["member", "org-1", "a@example.test"]);
+    });
+
+    it.each(["owner", "root", undefined, null, 1, true])(
+      "coerces the unrecognised role %s to member",
+      async (raw) => {
+        await expect(
+          changeOrgMemberRole(owner, "a@example.test", raw),
+        ).resolves.toMatchObject({ role: "member" });
+        expect(updates()[0][0].args[0]).toBe("member");
+      },
+    );
+
+    it("keeps a requested admin role", async () => {
+      await expect(
+        changeOrgMemberRole(owner, "a@example.test", "admin"),
+      ).resolves.toMatchObject({ role: "admin" });
+      expect(updates()[0][0].args[0]).toBe("admin");
+    });
+
+    it("evicts cached memberships after the update", async () => {
+      __resetProcessMemberOrgCacheForTests();
+      const load = vi.fn(async () => [{ orgId: "org-1", role: "member" }]);
+      await cachedMemberships("a@example.test", load);
+      await changeOrgMemberRole(owner, "a@example.test", "admin");
+      await cachedMemberships("a@example.test", load);
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("changeMemberRoleHandler responses", () => {
+    it("defaults to the member role when the body has none, and returns only email and role", async () => {
+      mockExecute.mockResolvedValue({ rows: [{ role: "admin" }] });
+      const result = await changeMemberRoleHandler(
+        makeEvent("/_agent-native/org/members/Member@Example.test/role"),
+      );
+      expect(result).toEqual({ email: "member@example.test", role: "member" });
+      expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: {
+            email: "member@example.test",
+            previousRole: "admin",
+            role: "member",
+          },
+        }),
+      );
+    });
+
+    it("does not audit a refused change", async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await expect(
+        changeMemberRoleHandler(
+          makeEvent("/_agent-native/org/members/x@example.test/role", {
+            role: "admin",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
+      expect(mockRecordOrgAdminAuditEvent).not.toHaveBeenCalled();
+    });
   });
 });

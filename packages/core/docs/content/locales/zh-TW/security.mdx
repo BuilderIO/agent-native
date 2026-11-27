@@ -350,7 +350,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. 應用程式 B 將經過驗證的 `sub` 聲明讀取到請求脈絡中
 4. 資料範圍適用 - 應用程式 B 僅顯示 Steve 的資料
 
-如果正式環境中沒有 `A2A_SECRET`，每個 A2A 端點和 `/_agent-native/integrations/process-task` 自觸發端點都會返回 **503**。在每個呼叫或接收 A2A 流量的應用程式上設定它。 （對於本機開發，框架仍然允許未經驗證的呼叫。）
+如果正式環境中沒有 `A2A_SECRET`，每個 A2A 端點和 `/_agent-native/integrations/process-task` 自觸發端點都會返回 **503**。在每個呼叫或接收 A2A 流量的應用程式上設定它。 （在本機開發中，A2A 只接受來自同一台機器的未經驗證呼叫；對其他主機可以存取的開發伺服器，請設定 `A2A_SECRET`。）
 
 ## 入站Webhooks {#webhooks}
 

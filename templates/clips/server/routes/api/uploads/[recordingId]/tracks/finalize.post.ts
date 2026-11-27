@@ -68,6 +68,7 @@ import type { StoredResumableSession } from "../../../../../lib/resumable-sessio
 import { resolveResumableUploadProvider } from "../../../../../lib/resumable-upload-provider.js";
 import {
   buildRichRecordingManifest,
+  type FinalizeRichRecordingInput,
   finalizeRichRecordingSchema,
   sanitizeTrackMeta,
 } from "../../../../../lib/rich-recording-manifest.js";
@@ -216,20 +217,32 @@ export async function handleFinalizeTracks(event: H3Event) {
       })),
     };
   }
-  const input = parsed.data;
-
-  let ownerEmail: string;
-  let orgId: string | undefined;
-  let authUserId: string | undefined;
+  let context: Awaited<ReturnType<typeof getEventOwnerContext>>;
   try {
-    const context = await getEventOwnerContext(event);
-    ownerEmail = context.userEmail;
-    orgId = context.orgId;
-    authUserId = context.authUserId;
+    context = await getEventOwnerContext(event);
   } catch {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
+  return finalizeRecordingTracks({
+    recordingId,
+    input: parsed.data,
+    ownerEmail: context.userEmail,
+    orgId: context.orgId,
+    authUserId: context.authUserId,
+    setStatus: (status) => setResponseStatus(event, status),
+  });
+}
 
+export async function finalizeRecordingTracks(params: {
+  recordingId: string;
+  input: FinalizeRichRecordingInput;
+  ownerEmail: string;
+  orgId?: string | undefined;
+  authUserId?: string | undefined;
+  setStatus: (status: number) => void;
+}) {
+  const { recordingId, input, ownerEmail, orgId, authUserId, setStatus } =
+    params;
   return runWithRequestContext(
     {
       userEmail: ownerEmail,
@@ -282,7 +295,7 @@ export async function handleFinalizeTracks(event: H3Event) {
 
       const generationId = existing.uploadGenerationId ?? null;
       if ((input.uploadGenerationId ?? null) !== generationId) {
-        setResponseStatus(event, 409);
+        setStatus(409);
         return {
           ok: false,
           error: "A newer upload of this recording is active.",
@@ -293,7 +306,7 @@ export async function handleFinalizeTracks(event: H3Event) {
       // the flattened video always goes first, so tracks wait for it.
       // An interrupted upload resumes on the same attempt, tracks included.
       if (existing.status === "failed") {
-        setResponseStatus(event, 409);
+        setStatus(409);
         return isRetryableUploadInterruption(existing.failureReason)
           ? {
               ok: false,
@@ -308,7 +321,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             };
       }
       if (existing.status === "uploading") {
-        setResponseStatus(event, 409);
+        setStatus(409);
         return {
           ok: false,
           error: "Finalize the recording before its tracks.",
@@ -331,7 +344,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             `[track-finalize] still stored after a burned redaction: ${left.join(", ")}`,
           );
         }
-        setResponseStatus(event, 409);
+        setStatus(409);
         return {
           ok: false,
           error:
@@ -341,7 +354,7 @@ export async function handleFinalizeTracks(event: H3Event) {
       }
 
       const tracksOff = () => {
-        setResponseStatus(event, 403);
+        setStatus(403);
         return {
           ok: false,
           error: "Separate tracks are off for this recording.",
@@ -358,7 +371,7 @@ export async function handleFinalizeTracks(event: H3Event) {
       // The tracks can show what the owner marked for redaction, so they wait
       // until the marks are burned in, which discards them, or cleared.
       if (isHeldForRedaction(existing.editsJson, null)) {
-        setResponseStatus(event, 409);
+        setStatus(409);
         return {
           ok: false,
           error:
@@ -373,7 +386,7 @@ export async function handleFinalizeTracks(event: H3Event) {
         FINALIZE_LEASE_MS,
       );
       if (!lease) {
-        setResponseStatus(event, 409);
+        setStatus(409);
         return {
           ok: false,
           error:
@@ -382,7 +395,7 @@ export async function handleFinalizeTracks(event: H3Event) {
         };
       }
       const lapsed = () => {
-        setResponseStatus(event, 409);
+        setStatus(409);
         return {
           ok: false,
           error:
@@ -407,7 +420,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             session,
           });
         }
-        setResponseStatus(event, 409);
+        setStatus(409);
         return {
           ok: false,
           error:
@@ -501,7 +514,7 @@ export async function handleFinalizeTracks(event: H3Event) {
           }
           if (!completed.ok) {
             if (completed.retryable) {
-              setResponseStatus(event, 502);
+              setStatus(502);
               return {
                 ok: false,
                 error: `Storage did not finish the ${track.id} track. Finalize again.`,
@@ -559,7 +572,7 @@ export async function handleFinalizeTracks(event: H3Event) {
                 `[track-finalize] ${track.id} track of ${recordingId} could not be counted yet:`,
                 errorMessage(err),
               );
-              setResponseStatus(event, 409);
+              setStatus(409);
               return {
                 ok: false,
                 error:
@@ -710,7 +723,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             `[track-finalize] manifest of ${recordingId} was not stored:`,
             errorMessage(err),
           );
-          setResponseStatus(event, 502);
+          setStatus(502);
           return {
             ok: false,
             error: "Storage did not take the track manifest. Finalize again.",
@@ -802,7 +815,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               message: "Recording not found",
             });
           }
-          setResponseStatus(event, 409);
+          setStatus(409);
           return {
             ok: false,
             error:

@@ -90,9 +90,10 @@ Use `/sidecar <task>` for read-only investigations.
   of repeat user reports here: each layer coerces a failure into a clean value,
   so every layer above it reports something confidently wrong and nobody can see
   it. Prefer a loud, typed failure over a plausible-looking normal state.
-- Before adding a condition to a function that already stacks several special
-  cases, stop: that shape is how the same bug ships twice. Fix the boundary that
-  made the special case necessary, and delete the ones it subsumes.
+- Simplify and subtract first across code, config, scripts, and docs: delete
+  dead paths, collapse redundant layers, and fix the boundary instead of
+  stacking special cases. Follow the 10% rule — if you aren't occasionally
+  adding back ~10% of what you cut, you aren't simplifying enough (`additive-bloat`).
 - Write code that reads like the surrounding code: match its comment density,
   naming, and idiom. When you do comment, comment a constraint the code cannot
   show — a non-obvious trap a future change would otherwise reintroduce — not
@@ -141,15 +142,11 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
 `no-bare-error-in-actions`, `no-unobserved-writes`, `external-result-contract`,
 `no-source-reading-tests`, `no-oracle-loosening`, `no-wall-clock-assertions`,
-`no-raw-sql-interpolation`, `action-output-schema`,
-`strict-lint`, and `compiler-strictness` check only lines this branch added,
-so the
-pre-existing backlog stays a separate cleanup. Each guard has a documented
-opt-out pragma; every opt-out is a decision a reviewer should see.
-`no-new-legacy-mcp-hints`, `no-new-mcp-parity-gaps`, `no-new-escape-hatches`,
-and `compiler-strictness` have none: the MCP `destructiveHint` and parity
-baselines, each file's count of `any`, `!`, and suppression comments, and
-tsconfig's strictness opt-outs only shrink.
+`no-raw-sql-interpolation`, `action-output-schema`, and `strict-lint` check
+only lines this branch added, each with a documented opt-out pragma reviewers
+see. `no-new-legacy-mcp-hints`, `no-new-mcp-parity-gaps`,
+`no-new-escape-hatches`, and `compiler-strictness` are ratchet-scoped with no
+opt-out: baselines, escape hatches, and tsconfig opt-outs only shrink.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
@@ -162,7 +159,7 @@ Shared edits are visible in Git; read `concurrent-agents`. Batch fixes to avoid
 CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs; merge
 shared branches.
 
-**One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
+**One check hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
 file, or when it changed on disk under you. It exists because this is the only
 rule you cannot follow by reading instructions — no amount of guidance tells you
@@ -170,6 +167,8 @@ that a peer session is mid-edit in the same file right now. Re-read and build on
 their change; never force past it. It is a Claude Code mechanism only: it gives
 Codex sessions and plain human edits nothing, so it is a backstop, not a
 guarantee. Read `concurrent-agents` before working in a shared checkout.
+`scripts/hooks/worktree-setup.sh`, also registered, only installs
+dependencies in fresh worktrees.
 `guard:hooks-registered` keeps this section and that file from drifting apart.
 `guard:i18n-catalogs` checks catalog shape, placeholders, raw UI literals,
 English-value debt, and localized docs coverage. `guard:i18n-changed-copy`
@@ -210,28 +209,17 @@ argument rots into exactly the patchwork it warns about.
   PostgreSQL query builder for normal reads and writes and
   `getDbExec().execute()` for reviewed PostgreSQL raw SQL. Never call
   adapter-specific `run()`, `all()`, or `get()` methods.
-- Actions are the single source of truth. Define app operations in `actions/`
-  with `defineAction`; the agent calls them as tools and the frontend calls the
-  shared action surface through `useActionQuery` / `useActionMutation`.
-- Client code imports named helpers, hooks, or client modules instead of
-  hand-writing REST calls to framework routes or template `/api/*` routes. If a
-  browser workflow needs a route and no helper exists, add the helper first and
-  teach that method in docs/skills instead of teaching raw `fetch`.
-- Before adding any custom API or Nitro route for app data, inspect existing
-  actions first. Reuse or extend the action surface instead of creating REST
-  wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
-  actions.
-- Before adding settings, setup, credential, OAuth, or connection UI for an
-  external service, inspect the shared toolkit, settings, vault, OAuth,
-  workspace-connection, onboarding, and provider API primitives. Use the
-  strongest existing primitive by default; keep custom UI only for
-  provider-specific prerequisites, sequencing, status, or health checks.
-- Normal app data must flow through actions. If you are about to write a handler
-  under `server/routes/api/`, or middleware to guard one, stop and write an
-  action instead. The only exceptions are uploads, streaming, inbound webhooks,
-  OAuth callbacks, public unauthenticated URLs, and non-JSON responses.
-  Existing template `/api/*` CRUD is a grandfathered baseline being migrated,
-  not a pattern to copy; `guard:no-action-twin-routes` fails on new ones.
+- Actions are the single source of truth: define normal app operations in
+  `actions/` with `defineAction` and call them from the frontend via
+  `useActionQuery` / `useActionMutation` or named client helpers (never raw
+  `fetch` or pass-through CRUD routes under `server/routes/api/`;
+  `guard:no-action-twin-routes` fails on new twins). Reserve custom routes for
+  uploads, streaming, inbound webhooks, OAuth callbacks, public unauthenticated
+  URLs, and non-JSON responses.
+- Before adding settings, setup, credential, OAuth, or connection UI, reuse the
+  strongest shared toolkit, vault, OAuth, workspace-connection, onboarding, or
+  provider-API primitive; keep custom UI only for provider-specific
+  prerequisites, sequencing, status, or health checks.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
@@ -320,15 +308,17 @@ instructions, and application state.
 
 ## Frontend And UX
 
-- TypeScript everywhere. Do not add `.js` or `.mjs` source files.
-- Run oxfmt on modified source files.
-- Use shadcn/ui primitives for standard controls and dialogs. Do not build custom
-  dropdowns/popovers/modals with absolute positioning.
+- TypeScript everywhere (no `.js`/`.mjs` source files); run oxfmt on modified
+  source files.
+- Match the host app's native UX bar on every new or customized surface
+  (`native-ux-parity`): reuse its primitives (shadcn/ui, toolkit, shared
+  composer stack `AgentComposerFrame` / `PromptComposer` / `TiptapComposer`),
+  semantic tokens, typography, motion, and surfaces — never bolt on bare styled
+  controls, custom absolute dropdowns/popovers/modals, raw colors, duplicate or
+  dead controls, or browser `alert`/`confirm`/`prompt`. Visually inspect
+  rendered states (light/dark, empty/populated, desktop/narrow) before shipping.
 - Use Tabler Icons for UI icons; Design uses Radix Icons
   (`@radix-ui/react-icons`). No emojis as first-party icons.
-- No browser `alert`, `confirm`, or `prompt`; use shadcn dialogs.
-- Agent prompt inputs must use the shared composer stack:
-  `AgentComposerFrame`, `PromptComposer`, and `TiptapComposer`.
 - Background agents must use the core run-manager / agent-teams infrastructure
   unless working on the existing local Code exception.
 - Logged-in app pages can be CSR. Public/SEO pages must SSR real content.
@@ -337,42 +327,33 @@ instructions, and application state.
   `no-store`, `Vary: Cookie`, session/cookie reads, or auth branches to the SSR
   path — personalization is client-side after load. Enforced by
   `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
-- UIs should update optimistically, roll back errors, and avoid blocking spinners
-  except for destructive work.
+- UIs update optimistically and roll back errors. Use layout-matching `Skeleton`
+  for data loads (not "Loading...") and reserve `Spinner` for brief mutations/uploads.
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Data loads use layout-matching `Skeleton` geometry, not a generic "Loading..."
-  label; reserve `Spinner` for brief mutations, uploads, and progress actions.
-- For any user-facing UI change — including screenshot feedback, copy or density
-  cleanup, settings, and control placement — read `frontend-design`.
-- Default surface density is a hard default, not a judgment call. Do not add a
-  page title that repeats the nav item or route, a description or subtitle under
-  any title, an eyebrow, a breadcrumb beside a back arrow, a count/stat strip
-  over content already on screen, or an About section in settings. A card, panel,
-  tab, settings group, or row gets a title or a description, never both;
-  explanation goes in a tooltip, a `Manage` popover, or a menu. Rendering a
-  user's own stored `description` is content, not chrome — keep it, and render
-  nothing when it is empty. Prose props are always optional; never
-  `description: string`. `guard:no-default-chrome` checks lines this branch adds,
-  and `templates/forms/` is the reference implementation. This is the repo's
-  most-repeated correction (`text-heavy-ui`), so it is stated as a default you
-  apply rather than a tradeoff you weigh: if the user wants one of these, they
-  will ask.
-- Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
-  `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
-  details.
+- Default surface density is a hard default (`text-heavy-ui`,
+  `guard:no-default-chrome`, reference: `templates/forms/`): no nav-repeating
+  page titles, subtitles/eyebrows under titles, breadcrumbs beside back arrows,
+  count strips over visible content, or Settings About sections. A card, panel,
+  tab, group, or row gets a title or a description, never both (explanations go
+  in tooltips, popovers, or menus). User-authored `description` is content
+  (render nothing when empty); prose props are always optional.
+- Read `frontend-design` before any user-facing UI change; use `shadcn-ui`,
+  `client-side-routing`, `native-navigation`, `real-time-sync`, and
+  `delegate-to-agent` for details.
 
 ## Packages And Releases
 
-- Publishable package source changes in `packages/core`, `packages/dispatch`,
-  `packages/scheduling`, or `packages/pinpoint` need a `.changeset/*.md`.
+- Publishable package source changes (any package listed in
+  `scripts/public-package-names.ts`) need a `.changeset/*.md` (`patch` or
+  `minor`; `major` bumps are blocked in CI).
 - Do not manually bump package versions; changesets handle versions on merge.
 - The public template allow-list is controlled by
   `packages/shared-app-config/templates.ts` plus mirrored CLI/docs surfaces.
   Hidden templates must not appear in public catalogs unless they are explicitly
   unhidden first.
-- Ship a user-facing change to a template app (new capability, visible
-  improvement, behavior-affecting fix)? Record it from that app with
-  `agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
+- Ship a user-facing change to a changelog-enabled template app
+  (`changelog.enabled: true`)? Record it from that app with
+  `pnpm exec agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
   Skip refactors, tooling, and tests. See the `changelog` skill.
 - The Builder Code starter (`packages/core/src/templates/builder-code-starter`) is patches
   over `templates/chat`. After editing Chat, run `pnpm guard:template-layers`.

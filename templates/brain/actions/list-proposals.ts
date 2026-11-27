@@ -33,6 +33,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ status, limit }) => {
     if (status === "quarantine") {
       const accessibleSources = await getDb()

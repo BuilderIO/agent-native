@@ -141,10 +141,13 @@ export const parityMatrix: ParityRow[] = [
     id: "trash.search-preview-and-purge",
     surface: "sidebar",
     label:
-      "Search root and nested Trash, preview Page bodies, restore or delete loaded items, and empty an explicit space scope with durable progress",
+      "Search and filter Trash, preview Pages, restore or delete one or many, and empty Trash in every workspace with durable progress",
     uiEntrypoints: [
       "app/routes/_app.trash.tsx",
       "app/components/trash/TrashBrowser.tsx",
+      "app/components/trash/TrashFilters.tsx",
+      "app/components/trash/TrashRow.tsx",
+      "app/components/trash/TrashRecoveryActions.tsx",
       "app/components/trash/EmptyTrashDialog.tsx",
       "app/components/trash/TrashRetentionNotice.tsx",
       "app/hooks/use-content-trash.ts",
@@ -152,7 +155,7 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs. Trash roots become eligible for automatic deletion after 30 days in Trash, counted from when automatic deletion started for older roots; a daily system run deletes eligible roots through the same plans and operations, so deletion can come a little later.",
     uiImplementation:
-      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter. The retention notice reads get-content-trash-retention.",
+      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents, plus two read-only page helpers kept off MCP: list-content-trash-purge-spaces says which workspaces the caller may purge, and list-content-trash-filter-options fills the people and location pickers from the whole Trash. Filter chips become list-content-trash's `where` filter. A row restores from its arrow or menu, and ticked rows restore one at a time: Pages through guarded restore-document with their trashedAt and a new idempotency key, Collections and legacy Collection rows through restore-content-database. Selection supports loaded rows or a server-backed matching scope; deleting a selection plans once per purgeable workspace it spans. Empty Trash plans scope mode once per purgeable workspace, lists the others as not purgeable, and ignores search and filters. Each workspace's plan id, idempotency key, and start status are saved to application state before its purge starts, so a lost response or a reload retries with the original key. The retention notice reads get-content-trash-retention.",
     status: "action-backed",
     actions: [
       "execute-content-trash-purge",
@@ -161,8 +164,11 @@ export const parityMatrix: ParityRow[] = [
       "get-content-trash-retention",
       "get-trashed-document",
       "list-content-trash",
+      "list-content-trash-filter-options",
+      "list-content-trash-purge-spaces",
       "permanently-delete-document",
       "plan-content-trash-purge",
+      "restore-content-database",
       "restore-document",
     ],
     exception:
@@ -179,6 +185,12 @@ export const parityMatrix: ParityRow[] = [
       "app/components/trash/TrashRetentionNotice.test.tsx",
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
+      "app/hooks/use-content-trash.test.ts",
+      "app/components/trash/EmptyTrashDialog.test.ts",
+      "app/components/trash/TrashBrowser.selection.test.tsx",
+      "app/components/trash/TrashPurgeDialog.focus.test.tsx",
+      "app/components/trash/TrashRow.actions.test.tsx",
+      "app/components/trash/trash-filter-model.test.ts",
     ],
   },
   {
@@ -730,6 +742,41 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
   },
   {
+    id: "editor.page-checks",
+    surface: "editor",
+    label:
+      "Add, change, pause, delete, run and skip a page's checks, and read what each found",
+    uiEntrypoints: [
+      "app/components/editor/page-checks/PageCheckDialog.tsx",
+      "app/components/editor/page-checks/PageCheckMarks.tsx",
+      "app/components/editor/page-checks/PageChecksSection.tsx",
+      "app/components/editor/page-checks/page-checks-context.tsx",
+    ],
+    durableEffect:
+      "Checks, their stored results and skipped places are saved per page; viewers and public readers are sent none of them.",
+    uiImplementation:
+      "The add box tries a sentence with the same shared counting try-page-check uses; the dots, the Info list and the header count read list-page-checks; Check now and the typing pause call run-page-checks; agents use the same actions.",
+    status: "action-backed",
+    actions: [
+      "add-page-check",
+      "delete-page-check",
+      "list-page-checks",
+      "run-page-checks",
+      "skip-page-check",
+      "try-page-check",
+      "update-page-check",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/page-checks.db.test.ts",
+      "shared/page-checks.spec.ts",
+    ],
+  },
+  {
     id: "sharing.document-discoverability-and-export",
     surface: "sharing",
     label: "Share, hide from search, export, and reveal documents",
@@ -984,20 +1031,70 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.form-submissions",
     surface: "database",
-    label: "Submit public database forms as new rows",
+    label:
+      "Submit a collection's form as a new row, from its Form view or a form link",
     uiEntrypoints: ["app/components/editor/database/FormView.tsx"],
     durableEffect:
-      "A validated form submission atomically creates a database row document and its editable property values.",
+      "One submission engine checks every answer against the collection's rules, then creates the row page, its property values and a receipt together; resending the same key returns the first receipt instead of a second row.",
     uiImplementation:
-      "The public form view calls the same submission action exposed to agents and rolls back the row if a property write fails.",
+      "The Form view calls the same submission action exposed to agents. An agent reads a form link's questions with get-content-form and sends its person's answers with submit-content-form, which go through the same engine.",
     status: "action-backed",
-    actions: ["submit-content-database-form"],
+    actions: [
+      "submit-content-database-form",
+      "get-content-form",
+      "submit-content-form",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/submit-content-database-form.db.test.ts"],
+    coverageRefs: [
+      "actions/submit-content-database-form.db.test.ts",
+      "actions/content-forms.db.test.ts",
+    ],
+  },
+  {
+    id: "database.form-settings",
+    surface: "database",
+    label:
+      "Set who may answer a collection's form through its link, and its thank-you message",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_forms stores one Form view's link token, who may answer (anonymous, signed in, or the collection's organization), whether it accepts answers, one answer per person, the thank-you message and the form's page.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients set up a form's link through the actions; the form's sharing panel will call the same actions.",
+    status: "action-backed",
+    actions: ["configure-content-form", "get-content-form-settings"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/content-forms.db.test.ts"],
+  },
+  {
+    id: "database.form-drafts",
+    surface: "database",
+    label: "Keep a signed-in sender's unsent answers to a form",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_form_drafts holds one signed-in sender's unsent answers per form until they submit, clear them, or the draft expires.",
+    uiImplementation:
+      "No UI yet: the form's answering page will save, read and clear a draft through these actions.",
+    status: "action-backed",
+    actions: [
+      "save-content-form-draft",
+      "get-content-form-draft",
+      "clear-content-form-draft",
+    ],
+    exception:
+      "Hidden with agentTool: false: a draft keeps a person's answers between visits to the answering page, while an agent answering a form sends every answer at once with submit-content-form and has nothing to keep.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/content-forms.db.test.ts"],
   },
   {
     id: "database.rows",

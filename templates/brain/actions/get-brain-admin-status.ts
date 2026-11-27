@@ -14,6 +14,7 @@ export default defineAction({
   outputSchema: z.object({ isAdmin: z.boolean() }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async () => ({
     isAdmin: await isBrainAdmin(getRequestUserEmail(), getRequestOrgId()),
   }),

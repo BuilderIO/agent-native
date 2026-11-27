@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/otel",
-  "version": "0.1.45",
+  "version": "0.1.47",
   "description": "OpenTelemetry SDK wiring for Agent-Native apps: exports core's metrics and traces over OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -32,7 +32,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest --run src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
@@ -47,9 +47,9 @@
     "@agent-native/core": "workspace:*",
     "@types/node": "^24.2.1",
     "typescript-7": "catalog:",
-    "vitest": "^4.1.5"
+    "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.234.0-0"
+    "@agent-native/core": ">=0.235.1-0"
   }
 }

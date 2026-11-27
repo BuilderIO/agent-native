@@ -198,6 +198,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "offboard-member": "orgAdministration",
   "list-organization-members": "orgAdministration",
   "invite-organization-member": "orgAdministration",
+  "change-organization-member-role": "orgAdministration",
+  "cancel-organization-invitation": "orgAdministration",
   "get-file-storage": "orgAdministration",
   "manage-file-storage": "orgAdministration",
   "manage-service-providers": "orgAdministration",

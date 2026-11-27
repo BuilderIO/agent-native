@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -111,14 +111,21 @@ const RELATED_SCRIPT_TESTS = new Map<string, string | readonly string[]>([
     ".github/workflows/auto-publish.yml",
     "scripts/package-release-workflow.test.ts",
   ],
-  [
-    ".github/workflows/feedback-fix-proof.yml",
-    "scripts/feedback-fix-proof.test.ts",
-  ],
 ]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",
 ]);
+
+const STANDALONE_TOOL_SCRIPTS = new Set([
+  "scripts/repo-map.ts",
+  "scripts/audit-template-actions.mjs",
+]);
+
+const DISALLOWED_STANDALONE_SCRIPT_NAME_RE =
+  /^(?:pre|post)?(?:install|prepare|build|dev|start|test|lint|format|typecheck|check|guard|guards|ci|deploy|release|publish|pack|clean|setup|db|migrate)(?:$|[:.-])|[:.-](?:build|test|lint|typecheck|guard|ci|deploy|release)(?:$|[:.-])/iu;
+
+const STANDALONE_SCRIPT_COMMAND_RE =
+  /^(?:node(?:\s+--experimental-strip-types)?|tsx)\s+(scripts\/[A-Za-z0-9_./-]+)(?:\s+[A-Za-z0-9_./=-]+)*$/u;
 
 const CHANGESET_CHECK_FILES = new Set([
   "scripts/check-changeset.mjs",
@@ -989,6 +996,7 @@ export type ChangeScope = {
   scaffoldWorkspaceApps: string[];
   ssrBootApps: string[];
   trustedAcceptanceApps: string[];
+  qaStaticApps: string[];
 };
 
 export type QueryBudgetShard = { shard: string; apps: string[] };
@@ -1118,12 +1126,111 @@ export function isInstructionPath(path: string): boolean {
   return !isDocsPath(normalized) && INSTRUCTION_MARKDOWN_RE.test(normalized);
 }
 
+export function isStandaloneToolScriptPath(path: string): boolean {
+  return STANDALONE_TOOL_SCRIPTS.has(normalizeChangedPath(path));
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function jsonDeepEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right || left === null || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    return left.every((item, index) => jsonDeepEqual(item, right[index]));
+  }
+  if (isPlainJsonObject(left) && isPlainJsonObject(right)) {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    return leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(right, key) &&
+        jsonDeepEqual(left[key], right[key]),
+    );
+  }
+  return false;
+}
+
+function isStandaloneToolPackageScriptEntry(
+  name: string,
+  command: unknown,
+): boolean {
+  if (DISALLOWED_STANDALONE_SCRIPT_NAME_RE.test(name)) return false;
+  if (typeof command !== "string") return false;
+  if (/[;&|`$<>()\n\r]/u.test(command)) return false;
+  const match = STANDALONE_SCRIPT_COMMAND_RE.exec(command.trim());
+  if (!match) return false;
+  return STANDALONE_TOOL_SCRIPTS.has(normalizeChangedPath(match[1]));
+}
+
+export function isRootPackageJsonStandaloneScriptsOnly(
+  baseRaw: string,
+  headRaw: string,
+): boolean {
+  let baseManifest: unknown;
+  let headManifest: unknown;
+  try {
+    baseManifest = JSON.parse(baseRaw);
+    headManifest = JSON.parse(headRaw);
+  } catch {
+    // coercion-ok: malformed root package.json fails closed to full CI scope
+    return false;
+  }
+  if (!isPlainJsonObject(baseManifest) || !isPlainJsonObject(headManifest)) {
+    return false;
+  }
+  const topKeys = new Set([
+    ...Object.keys(baseManifest),
+    ...Object.keys(headManifest),
+  ]);
+  for (const key of topKeys) {
+    if (key === "scripts") continue;
+    if (!jsonDeepEqual(baseManifest[key], headManifest[key])) return false;
+  }
+  const baseScripts = baseManifest.scripts;
+  const headScripts = headManifest.scripts;
+  if (!isPlainJsonObject(baseScripts) || !isPlainJsonObject(headScripts)) {
+    return false;
+  }
+  const scriptKeys = new Set([
+    ...Object.keys(baseScripts),
+    ...Object.keys(headScripts),
+  ]);
+  let changedScripts = 0;
+  for (const key of scriptKeys) {
+    const before = baseScripts[key];
+    const after = headScripts[key];
+    if (before === after) continue;
+    changedScripts += 1;
+    if (
+      after !== undefined &&
+      !isStandaloneToolPackageScriptEntry(key, after)
+    ) {
+      return false;
+    }
+    if (
+      after === undefined &&
+      !isStandaloneToolPackageScriptEntry(key, before)
+    ) {
+      return false;
+    }
+  }
+  return changedScripts > 0;
+}
+
 export function isGuardScopedScriptPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   if (normalized.startsWith("scripts/ci-")) return false;
   if (CHANGESET_CHECK_FILES.has(normalized)) return false;
   return (
     GUARD_SCOPE_FILES.has(normalized) ||
+    STANDALONE_TOOL_SCRIPTS.has(normalized) ||
     SCRIPT_TEST_RE.test(normalized) ||
     GUARD_SCRIPT_RE.test(normalized)
   );
@@ -1330,9 +1437,27 @@ export function testWorkspaceFiltersForPaths(
   return workspaceFiltersForChangedPaths(paths, false);
 }
 
-function isFullPath(path: string): boolean {
+export interface ClassifyChangedPathsOptions {
+  rootPackageJsonStandaloneScriptsOnly?: boolean;
+}
+
+function isEffectiveRootPackageJsonFull(
+  normalized: string,
+  options?: ClassifyChangedPathsOptions,
+): boolean {
+  return (
+    normalized === "package.json" &&
+    options?.rootPackageJsonStandaloneScriptsOnly === true
+  );
+}
+
+function isFullPath(
+  path: string,
+  options?: ClassifyChangedPathsOptions,
+): boolean {
   const normalized = normalizeChangedPath(path);
 
+  if (isEffectiveRootPackageJsonFull(normalized, options)) return false;
   if (FULL_CHECK_FILES.has(normalized)) return true;
   if (normalized.startsWith(".github/")) return true;
   if (isInstructionPath(normalized) || isGuardScopedScriptPath(normalized)) {
@@ -1377,10 +1502,15 @@ function hasUnknownFullPath(paths: readonly string[]): boolean {
   );
 }
 
-function hasGlobalRuntimeInput(paths: readonly string[]): boolean {
-  return paths.some((path) =>
-    GLOBAL_RUNTIME_INPUTS.has(normalizeChangedPath(path)),
-  );
+function hasGlobalRuntimeInput(
+  paths: readonly string[],
+  options?: ClassifyChangedPathsOptions,
+): boolean {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    if (isEffectiveRootPackageJsonFull(normalized, options)) return false;
+    return GLOBAL_RUNTIME_INPUTS.has(normalized);
+  });
 }
 
 function isDesignCanvasE2eSpecPath(path: string): boolean {
@@ -2474,6 +2604,7 @@ function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
   repositoryRoot = process.cwd(),
+  options?: ClassifyChangedPathsOptions,
 ): CheckSelection {
   if (full) {
     const checks = Object.fromEntries(
@@ -2488,9 +2619,14 @@ function buildChecks(
     }
     if (
       !hasUnknownFullPath(changedPaths) &&
-      !hasGlobalRuntimeInput(changedPaths)
+      !hasGlobalRuntimeInput(changedPaths, options)
     ) {
-      const scopedChecks = buildChecks(changedPaths, false, repositoryRoot);
+      const scopedChecks = buildChecks(
+        changedPaths,
+        false,
+        repositoryRoot,
+        options,
+      );
       for (const name of SLOW_APP_CHECKS) {
         checks[name] = scopedChecks[name];
       }
@@ -2504,7 +2640,11 @@ function buildChecks(
       isWorkspacePath(path) && !isStandaloneE2eRunner(path, repositoryRoot),
   );
   const instructionsChanged = changedPaths.some(isInstructionPath);
-  const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
+  const guardScriptsChanged = changedPaths.some(
+    (path) =>
+      isGuardScopedScriptPath(path) ||
+      isEffectiveRootPackageJsonFull(normalizeChangedPath(path), options),
+  );
   const readmeChanged = changedPaths.some(isReadmePath);
   const chatRuntimeChanged = changedPaths.some((path) =>
     isTemplateRuntimePath(path, "chat"),
@@ -2688,6 +2828,7 @@ export function classifyChangedPaths(
   repositoryRoot = process.cwd(),
   deletedPaths: readonly string[] = [],
   addedPaths: readonly string[] = [],
+  options?: ClassifyChangedPathsOptions,
 ): ChangeScope {
   const changedPaths = paths.map(normalizeChangedPath);
   const deletedPathSet = new Set(deletedPaths.map(normalizeChangedPath));
@@ -2723,7 +2864,7 @@ export function classifyChangedPaths(
   const full =
     !markdownOnly &&
     (changedPaths.length === 0 ||
-      changedPaths.some(isFullPath) ||
+      changedPaths.some((path) => isFullPath(path, options)) ||
       (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0));
 
   const checks = markdownOnly
@@ -2739,7 +2880,7 @@ export function classifyChangedPaths(
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
       ) as CheckSelection)
-    : buildChecks(changedPaths, full, repositoryRoot);
+    : buildChecks(changedPaths, full, repositoryRoot, options);
   if (preAuthSessionReplayE2eChanged) {
     checks.pre_auth_session_replay_e2e = true;
   }
@@ -2786,6 +2927,18 @@ export function classifyChangedPaths(
     scaffoldWorkspaceApps: scaffoldWorkspaceAppsFor(changedPaths, full, checks),
     ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
     trustedAcceptanceApps: trustedAcceptanceAppsFor(changedPaths, full, checks),
+    qaStaticApps:
+      !checks.qa_static ||
+      full ||
+      changedPaths.some((p) => !p.startsWith("templates/"))
+        ? []
+        : [
+            ...new Set(
+              changedPaths
+                .map((p) => /^templates\/([^/]+)\//u.exec(p)?.[1])
+                .filter((slug): slug is string => Boolean(slug)),
+            ),
+          ].sort(),
   };
 }
 
@@ -3016,6 +3169,7 @@ function writeOutputs(scope: ChangeScope, changelogOnly: boolean): void {
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
       `slides_authoring_matrix=${JSON.stringify(slidesAuthoringMatrix())}`,
       `trusted_acceptance_apps=${JSON.stringify(scope.trustedAcceptanceApps)}`,
+      `qa_static_apps=${JSON.stringify(scope.qaStaticApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,
@@ -3057,6 +3211,38 @@ function writeOutputs(scope: ChangeScope, changelogOnly: boolean): void {
   }
 }
 
+function readRootPackageJsonStandaloneScriptsOnly(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): boolean {
+  if (!COMMIT_OID.test(baseSha) || !COMMIT_OID.test(headSha)) return false;
+  const mergeBaseResult = spawnSync(
+    "git",
+    ["merge-base", "--all", baseSha, headSha],
+    { encoding: "utf8", cwd },
+  );
+  if (mergeBaseResult.status !== 0) return false;
+  const mergeBase = mergeBaseResult.stdout.trimEnd();
+  if (!COMMIT_OID.test(mergeBase)) return false;
+
+  const baseBlob = spawnSync("git", ["show", `${mergeBase}:package.json`], {
+    encoding: "utf8",
+    cwd,
+    maxBuffer: GIT_DIFF_MAX_BUFFER,
+  });
+  const headBlob = spawnSync("git", ["show", `${headSha}:package.json`], {
+    encoding: "utf8",
+    cwd,
+    maxBuffer: GIT_DIFF_MAX_BUFFER,
+  });
+  if (baseBlob.status !== 0 || headBlob.status !== 0) return false;
+  return isRootPackageJsonStandaloneScriptsOnly(
+    baseBlob.stdout,
+    headBlob.stdout,
+  );
+}
+
 function main(): void {
   const baseSha = process.env.CI_BASE_SHA;
   const headSha = process.env.CI_HEAD_SHA;
@@ -3082,12 +3268,19 @@ function main(): void {
     );
   }
 
+  const rootPackageJsonStandaloneScriptsOnly = changedPaths
+    .map(normalizeChangedPath)
+    .includes("package.json")
+    ? readRootPackageJsonStandaloneScriptsOnly(baseSha, headSha)
+    : false;
+
   const scope = classifyChangedPaths(
     changedPaths,
     sameDirectoryPureDesignSpecRenames,
     process.cwd(),
     deletedPaths,
     addedPaths,
+    { rootPackageJsonStandaloneScriptsOnly },
   );
   console.log(JSON.stringify(scope, null, 2));
   const changelogOnly =

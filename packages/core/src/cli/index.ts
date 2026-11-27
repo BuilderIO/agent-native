@@ -238,11 +238,18 @@ function findTsxBin(): string {
 }
 
 function findTypeScriptCompilerBin(): string | undefined {
-  const names =
+  const groups =
     process.platform === "win32"
-      ? ["tsc.cmd", "tsc", "tsgo.cmd", "tsgo"]
-      : ["tsc", "tsgo"];
-  return findBinUpwards(names);
+      ? [
+          ["tsgo.cmd", "tsgo"],
+          ["tsc.cmd", "tsc"],
+        ]
+      : [["tsgo"], ["tsc"]];
+  for (const names of groups) {
+    const found = findBinUpwards(names);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 function runTypeScriptCompiler(args: string[]): void {

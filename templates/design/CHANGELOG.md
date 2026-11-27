@@ -3,10 +3,32 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-26
+
+### Improved
+
+- Arrange items in the right-click menu now explain why they are disabled.
+- The layers panel now lists the components in your design, and each one opens its
+  component. Export preview now says why it cannot render instead of always
+  reporting "Preview unavailable".
+
+### Fixed
+
+- Zooming a large board no longer snaps back to the previous zoom partway through a pinch or ctrl+scroll.
+- An image edit that succeeds no longer shows a "Generation may have stopped" error.
+- Arrange options in the right-click menu now reorder an image or layer selected in another screen from the overview.
+
+## 2026-11-25
+
+### Improved
+
+- Large boards pan more smoothly when zoomed out: screens and Layers panel rows outside the view no longer slow every frame.
+
 ## 2026-11-24
 
 ### Fixed
 
+- Opening visual edit from an external agent now opens the design overview.
 - Long design titles stay clear of the sidebar controls, with the full title available on hover or keyboard focus.
 - Opening a localhost app in Design from an agent no longer fails with a view-move refusal.
 - The inspector stays readable when resized or reopened.
@@ -2055,22 +2077,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - The collapsed sidebar keeps the Agent-Native logo visible and removes the theme toggle from the sidebar.
-
-## 2026-07-26
-
-### Improved
-
-- Apply design updates from a centered top toolbar without covering the canvas tools
-
-## 2026-07-25
-
-### Improved
-
-- App branding now uses the product name without the Agent-Native prefix.
-- Settings navigation now keeps Manage agent as a dedicated linked destination at the bottom.
-
-### Fixed
-
-- Design edits now retry safely when another collaborator changes the file.
 
 For the full list of updates, see the [changelog folder](./changelog/).

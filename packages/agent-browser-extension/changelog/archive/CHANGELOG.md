@@ -1,3 +1,30 @@
+## 0.1.266
+
+### Patch Changes
+
+- Updated dependencies [5e57bc6]
+- Updated dependencies [7d90274]
+- Updated dependencies [7d5cce0]
+- Updated dependencies [a63c4b3]
+- Updated dependencies
+- Updated dependencies [a026821]
+  - @agent-native/core@0.174.1
+
+## 0.1.265
+
+### Patch Changes
+
+- Updated dependencies [d9e978f]
+- Updated dependencies [b4c3864]
+- Updated dependencies [b4c3864]
+- Updated dependencies [b4c3864]
+- Updated dependencies [536e193]
+- Updated dependencies
+- Updated dependencies [b4c3864]
+- Updated dependencies [f22b29b]
+- Updated dependencies [eae6742]
+  - @agent-native/core@0.174.0
+
 ## 0.1.264
 
 ### Patch Changes

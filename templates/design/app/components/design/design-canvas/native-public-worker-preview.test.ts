@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nativePreviewSurfaceDocumentKey } from "./native-preview-surface";
 import {
   connectNativePublicWorkerPreview,
+  mayContainNativeEffectsManifest,
   prepareNativePublicWorkerPreviewDocument,
 } from "./native-public-worker-preview";
 
@@ -787,4 +788,25 @@ describe("parent-owned public native worker", () => {
       child.channel.port1.close();
     },
   );
+});
+
+describe("native effects manifest prefilter", () => {
+  it("skips documents with no manifest type at all", () => {
+    expect(mayContainNativeEffectsManifest("<p>plain</p>")).toBe(false);
+    expect(
+      mayContainNativeEffectsManifest(
+        '<script type="text/javascript">a && b</script>',
+      ),
+    ).toBe(false);
+    expect(prepareNativePublicWorkerPreviewDocument("<p>plain</p>")).toBeNull();
+  });
+
+  it("still parses a manifest whose type attribute is entity-encoded", () => {
+    const encoded = html.replace(
+      "application/x-agent-native-effects",
+      "application&#x2F;x-agent-native-effects",
+    );
+    expect(mayContainNativeEffectsManifest(encoded)).toBe(true);
+    expect(prepareNativePublicWorkerPreviewDocument(encoded)).not.toBeNull();
+  });
 });

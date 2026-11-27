@@ -102,19 +102,18 @@ export async function verifyA2AOrganizationIdentity(
 /**
  * A user assertion with no workspace claim comes from a caller whose own
  * workspace has no domain to send (organization IDs are local to each app).
- * When the person belongs to exactly one workspace in this app and hasn't
- * picked their personal space, the call runs there: with that workspace's
- * connections, saving what it makes where they will look for it. No workspace,
- * several (a saved choice among them doesn't count), or that personal choice
- * leaves the call in their personal scope, and this returns undefined.
+ * Unless the person picked their personal space (or has no workspace here),
+ * the call runs in the workspace they see in this app: their saved choice, else
+ * their first membership. That is where their provider connections live, so a
+ * person in several workspaces is not left with none. Otherwise this returns
+ * undefined and the call stays in their personal scope.
  */
-export async function resolveSoleA2AUserWorkspace(
+export async function resolveA2AUserWorkspace(
   email: string,
   requestEvent?: H3Event,
 ): Promise<string | undefined> {
-  const { resolveSoleOrgMembershipForEmail } =
-    await import("../org/context.js");
-  const orgId = await resolveSoleOrgMembershipForEmail(email);
+  const { resolveCallerWorkspaceForEmail } = await import("../org/context.js");
+  const orgId = await resolveCallerWorkspaceForEmail(email);
   if (!orgId) return undefined;
 
   const { isOrgMemberForA2A } = await import("../org/membership.js");

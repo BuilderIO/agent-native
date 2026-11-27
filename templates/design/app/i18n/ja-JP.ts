@@ -1977,6 +1977,8 @@ export default {
     bringToFront: "最前面へ移動",
     sendBackward: "背面へ移動",
     sendToBack: "最背面へ移動",
+    arrangeUnavailable:
+      "並べ替えるには、編集可能なデザインでレイヤーを選択してください",
     pasteToReplace: "置き換えて貼り付け",
     frameSelection: "選択範囲をフレーム化",
     flipHorizontal: "水平方向に反転",

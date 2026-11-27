@@ -10,7 +10,7 @@ const resolveA2AOrganizationCredentialsByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
 const isOrgMemberForA2AMock = vi.hoisted(() => vi.fn());
-const resolveSoleOrgMembershipForEmailMock = vi.hoisted(() =>
+const resolveCallerWorkspaceForEmailMock = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const setResponseStatusMock = vi.hoisted(() =>
@@ -49,6 +49,7 @@ const runLeaseMocks = vi.hoisted(() => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event.method ?? "POST",
+  getRequestIP: (event: PeerEvent) => event.node?.req.socket.remoteAddress,
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   setResponseHeader: setResponseHeaderMock,
@@ -78,7 +79,7 @@ vi.mock("../org/context.js", () => ({
   resolveA2AOrganizationMetadataByDomain:
     resolveA2AOrganizationMetadataByDomainMock,
   resolveA2AOrganizationMetadataById: resolveA2AOrganizationMetadataByIdMock,
-  resolveSoleOrgMembershipForEmail: resolveSoleOrgMembershipForEmailMock,
+  resolveCallerWorkspaceForEmail: resolveCallerWorkspaceForEmailMock,
 }));
 
 vi.mock("../org/membership.js", () => ({
@@ -144,8 +145,8 @@ describe("mountA2A auth", () => {
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockReset();
     isOrgMemberForA2AMock.mockResolvedValue(true);
-    resolveSoleOrgMembershipForEmailMock.mockReset();
-    resolveSoleOrgMembershipForEmailMock.mockResolvedValue(undefined);
+    resolveCallerWorkspaceForEmailMock.mockReset();
+    resolveCallerWorkspaceForEmailMock.mockResolvedValue(undefined);
     setResponseStatusMock.mockClear();
     setResponseHeaderMock.mockClear();
     evaluateServicePrincipalMock.mockReset();
@@ -402,10 +403,8 @@ describe("mountA2A auth", () => {
 
     const handler = await mountedA2AProcessorHandler(config);
     const event: any = {
-      method: "POST",
-      headers: {},
+      ...peerEvent("127.0.0.1", {}),
       path: "/_agent-native/a2a/_process-task",
-      context: {},
       body: { taskId: "task-1" },
     };
 
@@ -1548,7 +1547,7 @@ describe("mountA2A auth", () => {
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-    expect(resolveSoleOrgMembershipForEmailMock).not.toHaveBeenCalled();
+    expect(resolveCallerWorkspaceForEmailMock).not.toHaveBeenCalled();
   });
 
   describe("a user assertion with no workspace claim", () => {
@@ -1568,7 +1567,7 @@ describe("mountA2A auth", () => {
     }
 
     it("runs in the person's only workspace here", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      resolveCallerWorkspaceForEmailMock.mockResolvedValueOnce("org-slides");
       const handler = await mountedA2AHandler(config);
       const event = await claimlessUserEvent();
 
@@ -1580,7 +1579,7 @@ describe("mountA2A auth", () => {
       expect(event.context.__a2aVerifiedOrgId).toBe("org-slides");
       expect(event.context.__a2aOrgFromSoleMembership).toBe(true);
       expect(event.context.__a2aOrgDomain).toBeUndefined();
-      expect(resolveSoleOrgMembershipForEmailMock).toHaveBeenCalledWith(
+      expect(resolveCallerWorkspaceForEmailMock).toHaveBeenCalledWith(
         "owner@example.com",
       );
       expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
@@ -1590,7 +1589,7 @@ describe("mountA2A auth", () => {
       );
     });
 
-    it("stays in personal scope without exactly one workspace", async () => {
+    it("stays in personal scope without a workspace here", async () => {
       const handler = await mountedA2AHandler(config);
       const event = await claimlessUserEvent();
 
@@ -1604,7 +1603,7 @@ describe("mountA2A auth", () => {
     });
 
     it("stays in personal scope when the live roster no longer lists the person", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      resolveCallerWorkspaceForEmailMock.mockResolvedValueOnce("org-slides");
       isOrgMemberForA2AMock.mockResolvedValueOnce(false);
       const handler = await mountedA2AHandler(config);
       const event = await claimlessUserEvent();
@@ -1616,7 +1615,7 @@ describe("mountA2A auth", () => {
     });
 
     it("refuses rather than guessing personal scope when the roster can't be read", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockRejectedValueOnce(
+      resolveCallerWorkspaceForEmailMock.mockRejectedValueOnce(
         new Error("connection reset"),
       );
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1632,7 +1631,7 @@ describe("mountA2A auth", () => {
     });
 
     it("refuses rather than guessing personal scope when the live roster check fails", async () => {
-      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      resolveCallerWorkspaceForEmailMock.mockResolvedValueOnce("org-slides");
       isOrgMemberForA2AMock.mockRejectedValueOnce(
         new Error("federation authority unavailable"),
       );
@@ -1874,6 +1873,137 @@ describe("mountA2A auth", () => {
     expect(response).toEqual({
       error:
         "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
+    });
+  });
+
+  describe("unauthenticated requests outside local development", () => {
+    const missingSecretError = {
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32001,
+        message:
+          "A2A_SECRET is not set, so this app accepts unsigned requests only from this machine. Set A2A_SECRET to accept requests from other hosts.",
+      },
+    };
+
+    beforeEach(() => {
+      process.env.NODE_ENV = "development";
+      delete process.env.A2A_SECRET;
+      delete process.env.A2A_ALLOW_UNSIGNED_INTERNAL;
+      delete process.env.FUSION_ENVIRONMENT;
+      delete process.env.FUSION_POD_UID;
+      delete process.env.AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV;
+    });
+
+    it("refuses a loopback-looking request in a public dev container without A2A_SECRET", async () => {
+      process.env.FUSION_ENVIRONMENT = "cloud-v2";
+      process.env.FUSION_POD_UID = "pod-1";
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {});
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual(missingSecretError);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a remote peer in development without A2A_SECRET", async () => {
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("203.0.113.7", {});
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual(missingSecretError);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a loopback peer whose forwarding headers name another client", async () => {
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {
+        "x-forwarded-for": "203.0.113.7",
+      });
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual(missingSecretError);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("serves a loopback request on the developer's machine without A2A_SECRET", async () => {
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {});
+      const response = await handler(event);
+
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event._status).toBeUndefined();
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    });
+
+    it("requires a bearer token from a public dev container when A2A_SECRET is set", async () => {
+      process.env.A2A_SECRET = "shared-global-secret";
+      process.env.FUSION_POD_UID = "pod-1";
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {});
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32001, message: "Authentication required" },
+      });
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("accepts a signed token from a public dev container when A2A_SECRET is set", async () => {
+      process.env.A2A_SECRET = "shared-global-secret";
+      process.env.FUSION_POD_UID = "pod-1";
+      const token = await new jose.SignJWT({ sub: "alice+qa@builder.io" })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {
+        authorization: `Bearer ${token}`,
+      });
+      const response = await handler(event);
+
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    });
+
+    it("refuses an unsigned async processor dispatch in a public dev container", async () => {
+      process.env.FUSION_POD_UID = "pod-1";
+      const handler = await mountedA2AProcessorHandler(config);
+
+      const event = peerEvent("127.0.0.1", {}, { taskId: "t" });
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual({
+        error:
+          "A2A_SECRET is not set, so this app accepts unsigned requests only from this machine. Set A2A_SECRET to accept requests from other hosts.",
+      });
+      expect(processA2ATaskFromQueueMock).not.toHaveBeenCalled();
+    });
+
+    it("runs an unsigned async processor dispatch from the developer's machine", async () => {
+      const handler = await mountedA2AProcessorHandler(config);
+
+      const event = peerEvent("127.0.0.1", {}, { taskId: "t" });
+      const response = await handler(event);
+
+      expect(response).toEqual({ ok: true });
+      expect(processA2ATaskFromQueueMock).toHaveBeenCalledOnce();
     });
   });
 });
@@ -2696,6 +2826,37 @@ async function mountedA2AApprovalHandler(
   );
   if (!route) throw new Error("A2A approval route was not mounted");
   return route.handler;
+}
+
+type PeerEvent = {
+  method: string;
+  headers: Record<string, string>;
+  path: string;
+  context: Record<string, unknown>;
+  body: unknown;
+  node?: {
+    req: {
+      headers: Record<string, string>;
+      socket: { remoteAddress: string };
+    };
+  };
+  _status?: number;
+};
+
+function peerEvent(
+  remoteAddress: string,
+  headers: Record<string, string>,
+  body: unknown = { jsonrpc: "2.0", id: 1, method: "tasks/get", params: {} },
+): PeerEvent {
+  const allHeaders = { host: "localhost:8080", ...headers };
+  return {
+    method: "POST",
+    headers: allHeaders,
+    path: "/",
+    context: {},
+    body,
+    node: { req: { headers: allHeaders, socket: { remoteAddress } } },
+  };
 }
 
 function postEvent(headers: Record<string, string>): any {

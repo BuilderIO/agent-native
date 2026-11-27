@@ -693,7 +693,7 @@ describe("useConfigureDocumentProperty", () => {
     );
   });
 
-  it("rejects ordinary option removal without sending a legacy replacement", () => {
+  it("sends an ordinary option removal as a guarded remove edit", async () => {
     const transportMutateAsync = vi.fn(async () => undefined);
     useQueryClient.mockReturnValue({
       getQueriesData: vi.fn(() => [
@@ -723,6 +723,7 @@ describe("useConfigureDocumentProperty", () => {
                   options: {
                     options: [
                       { id: "draft", name: "Draft", color: "gray" },
+                      { id: "review", name: "Review", color: "blue" },
                       { id: "ready", name: "Ready", color: "green" },
                     ],
                   },
@@ -746,19 +747,32 @@ describe("useConfigureDocumentProperty", () => {
       "database-1",
     );
 
-    expect(() =>
-      configure.mutateAsync({
-        id: "status",
-        documentId: "database-page-1",
-        name: "Status",
-        type: "status",
-        visibility: "always_show",
-        options: {
-          options: [{ id: "draft", name: "Draft", color: "gray" }],
+    await configure.mutateAsync({
+      id: "status",
+      documentId: "database-page-1",
+      name: "Status",
+      type: "status",
+      visibility: "always_show",
+      options: {
+        options: [
+          { id: "draft", name: "Draft", color: "gray" },
+          { id: "ready", name: "Ready", color: "green" },
+        ],
+      },
+    });
+
+    expect(transportMutateAsync).toHaveBeenCalledTimes(1);
+    expect(transportMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "update",
+        expectedSchemaRevision: "schema-rendered",
+        propertyId: "status",
+        patch: {
+          optionEdits: [{ operation: "remove", optionId: "review" }],
         },
       }),
-    ).toThrow("Removing property options is unavailable");
-    expect(transportMutateAsync).not.toHaveBeenCalled();
+      undefined,
+    );
   });
 
   it("sends an ordinary semantic no-op through schema CAS", async () => {

@@ -4658,6 +4658,20 @@ const PATTERNS = [
     fixedBy: ".agents/skills/sharing (make-me-admin recipe, 2026-09-22)",
     re: /\bmake me (?:an )?admin\b|\bmade me (?:an )?admin\b|\bhardcoded (?:my |the )?email\b|\bstill (?:not|no) admin\b/i,
   },
+  {
+    key: "additive-bloat",
+    label: "Told to simplify, delete, or stop piling on layers",
+    fixedBy:
+      "AGENTS.md + .agents/skills/frontend-design (10% subtraction rule, 2026-11-27)",
+    re: /\b(?:stop (?:adding|piling)|too many layers|delete (?:first|more)|simplify (?:first|this|before)|over-?engineered|unnecessary (?:layer|wrapper|abstraction|complexity)|10% rule)\b/i,
+  },
+  {
+    key: "native-ux-parity",
+    label: "Reported a new surface fell below the host app's native UX bar",
+    fixedBy:
+      "AGENTS.md + .agents/skills/frontend-design (native craft / UX parity bar, 2026-11-27)",
+    re: /\b(?:ux|ui|quality) (?:parity|bar)\b[^.!?\n]{0,80}\b(?:below|not up to|degrad\w*|worse|rough|wonky|native)\b|\b(?:bare|raw|unthemed) (?:primitives?|controls?|buttons?)\b|\b(?:duplicate|dead|unwired) (?:controls?|buttons?|composers?)\b/i,
+  },
 ];
 
 const AUTHORED_BY_AGENT =
