@@ -1217,6 +1217,7 @@ describe("call-agent action", () => {
         expect(outcome.message).toContain(
           `Open ${origin}/settings/model#llm (Settings > Agent > AI providers)`,
         );
+        expect(outcome.message).toContain("in the Slides app");
       },
     );
 

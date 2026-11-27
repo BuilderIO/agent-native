@@ -77,7 +77,6 @@ export function isLlmCredentialError(
   return MISSING_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(message));
 }
 
-/** The peer app's LLM settings section; `appUrl` is its origin plus any base path. */
 function peerLlmSettingsUrl(appUrl: string): string {
   return `${appUrl.replace(/\/+$/, "")}/settings/model#llm`;
 }
