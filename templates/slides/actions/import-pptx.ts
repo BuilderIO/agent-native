@@ -1,4 +1,9 @@
-import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+  NoWriteError,
+} from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -369,6 +374,8 @@ export default defineAction({
       .optional()
       .describe("Why the deck is being imported; used only for analytics"),
   }),
+  needsApproval: ({ replaceExisting }, ctx) =>
+    replaceExisting === true && isOutsideAgentCall(ctx),
   mcpTool: "search",
   run: async (
     { filePath, deckId, replaceExisting, title, designSystemId, purpose },

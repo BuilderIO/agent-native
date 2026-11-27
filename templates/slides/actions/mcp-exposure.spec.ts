@@ -26,7 +26,6 @@ const SERVED = [
   "import-from-url",
   "import-google-doc",
   "import-google-slides-reference",
-  "import-pptx",
   "index-design-system-with-builder",
   "list-deck-share-links",
   "list-deck-templates",
@@ -47,7 +46,24 @@ const APPROVED_WHEN_OUTSIDE = [
   "revoke-deck-share-link",
 ] as const;
 
+const ASKS_FIRST = [
+  [
+    "import-pptx",
+    { filePath: "deck.pptx", deckId: "d-1", replaceExisting: true },
+  ],
+] as const;
+
+const RUNS_WITHOUT_ASKING = [
+  ["import-pptx", { filePath: "deck.pptx" }],
+  ["import-pptx", { filePath: "deck.pptx", title: "Imported" }],
+  [
+    "import-pptx",
+    { filePath: "deck.pptx", deckId: "d-1", replaceExisting: false },
+  ],
+] as const;
+
 const IN_APP_ONLY = [
+  "delete-slide-comment",
   "disconnect-google-docs",
   "get-design-system-tier-limit",
   "get-slides-notification-prefs",
@@ -58,6 +74,7 @@ const IN_APP_ONLY = [
 
 type Exposure = {
   mcpTool?: boolean | "search";
+  schema?: { parseAsync(input: unknown): Promise<unknown> };
   needsApproval?:
     | boolean
     | ((args: unknown, ctx?: ActionRunContext) => boolean | Promise<boolean>);
@@ -65,6 +82,18 @@ type Exposure = {
 
 async function load(name: string): Promise<Exposure> {
   return ((await import(`./${name}.ts`)) as { default: Exposure }).default;
+}
+
+async function preparedApprovalRule(name: string) {
+  const action = await load(name);
+  expect(action.mcpTool).toBe("search");
+  const approves = action.needsApproval;
+  if (typeof approves !== "function" || !action.schema) {
+    throw new Error(`${name} has no approval rule`);
+  }
+  const schema = action.schema;
+  return async (args: unknown, ctx: ActionRunContext) =>
+    approves(await schema.parseAsync(args), ctx);
 }
 
 const IN_APP_AGENT = { caller: "tool" } as ActionRunContext;
@@ -105,15 +134,26 @@ describe("Slides actions over MCP", () => {
     },
   );
 
-  it("serves delete-slide-comment through tool-search and keeps its rule for other people's comments", async () => {
-    const action = await load("delete-slide-comment");
-    expect(action.mcpTool).toBe("search");
-    const approves = action.needsApproval;
-    if (typeof approves !== "function") {
-      throw new Error("delete-slide-comment has no approval rule");
-    }
-    expect(await approves({ id: "c-1", deckId: "d-1" }, APP_UI)).toBe(false);
-  });
+  it.each(ASKS_FIRST)(
+    "asks an outside agent before %s with %o",
+    async (name, args) => {
+      const approves = await preparedApprovalRule(name);
+      expect(await approves(args, OUTSIDE_AGENT)).toBe(true);
+      for (const ctx of OTHER_OUTSIDE_CALLERS) {
+        expect(await approves(args, ctx)).toBe(true);
+      }
+      expect(await approves(args, IN_APP_AGENT)).toBe(false);
+      expect(await approves(args, APP_UI)).toBe(false);
+    },
+  );
+
+  it.each(RUNS_WITHOUT_ASKING)(
+    "lets an outside agent call %s with %o without asking",
+    async (name, args) => {
+      const approves = await preparedApprovalRule(name);
+      expect(await approves(args, OUTSIDE_AGENT)).toBe(false);
+    },
+  );
 
   it.each(IN_APP_ONLY)("keeps %s in the app, off MCP", async (name) => {
     expect((await load(name)).mcpTool).toBe(false);

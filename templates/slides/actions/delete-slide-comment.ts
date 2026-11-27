@@ -72,7 +72,7 @@ export default defineAction({
       isOtherPerson(comment.authorEmail, viewer),
     );
   },
-  mcpTool: "search",
+  mcpTool: false,
   run: async (args, ctx) => {
     await assertAccess("deck", args.deckId, "commenter");
     const comment = await findSlideComment(args.deckId, args.id);
