@@ -40,6 +40,7 @@ function required<T>(value: T | null | undefined): T {
 const mocks = vi.hoisted(() => ({
   design: { current: undefined as unknown },
   metadata: { current: undefined as unknown },
+  access: { current: { data: undefined as unknown, updatedAt: 1 } },
   reads: [] as string[],
   failIds: new Set<string>(),
   toast: {
@@ -58,12 +59,20 @@ vi.mock("@agent-native/core/client/hooks", () => {
   const mutations = new Map<string, unknown>();
   return {
     useActionQuery: (name: string) => ({
-      data: name === "get-design" ? mocks.metadata.current : undefined,
+      data:
+        name === "get-design"
+          ? mocks.metadata.current
+          : name === "get-design-access-status"
+            ? mocks.access.current.data
+            : undefined,
       error: null,
       isError: false,
       isLoading: false,
       isFetching: false,
-      dataUpdatedAt: 1,
+      dataUpdatedAt:
+        name === "get-design-access-status"
+          ? mocks.access.current.updatedAt
+          : 1,
       status: "success",
       refetch,
     }),
@@ -247,6 +256,14 @@ async function mountAccess(
   return {
     access: () => required(latest.current),
     queryClient,
+    readReturns: async (
+      read: unknown,
+      accessCheck?: { data: unknown; updatedAt: number },
+    ) => {
+      mocks.metadata.current = read;
+      if (accessCheck) mocks.access.current = accessCheck;
+      await act(async () => root.render(<Harness surface={surface} />));
+    },
     rerender: async (next: Surface, nextDesign: DesignData) => {
       mocks.design.current = nextDesign;
       mocks.metadata.current = metadataOf(nextDesign);
@@ -863,4 +880,63 @@ describe("shared Visual Edit roles", () => {
       expect(access().canEditDesign).toBe(false);
     },
   );
+});
+
+describe("an open design whose read is lost", () => {
+  beforeEach(() => {
+    mocks.reads.length = 0;
+    mocks.failIds.clear();
+    mocks.access.current = { data: undefined, updatedAt: 1 };
+  });
+
+  afterEach(async () => {
+    while (unmounts.length) await required(unmounts.pop())();
+    mocks.access.current = { data: undefined, updatedAt: 1 };
+  });
+
+  it.each([
+    ["is refused or fails", undefined],
+    ["returns something that is not a design", "Bad Gateway"],
+  ])(
+    "stays open, with its loaded sources, when the refetch %s",
+    async (_label, lostRead) => {
+      const { access, readReturns } = await mountAccess(
+        VISUAL_EDIT_SIGNED_IN,
+        designData({}),
+      );
+      const open = access().design;
+      const sourceReads = mocks.reads.length;
+      expect(access().designReadState).toBe("live");
+
+      await readReturns(lostRead);
+
+      expect(access().design).toBe(open);
+      expect(access().designReadState).toBe("retained");
+      expect(access().designLoading).toBe(false);
+      expect(access().sourceMetadata.map((file) => file.id)).toEqual([FILE_ID]);
+      expect(mocks.reads).toHaveLength(sourceReads);
+
+      await readReturns(lostRead, {
+        data: { exists: true, hasAccess: true, signedIn: true },
+        updatedAt: 2,
+      });
+      expect(access().design).toBe(open);
+    },
+  );
+
+  it("closes once the access check confirms the viewer can no longer read it", async () => {
+    const { access, readReturns } = await mountAccess(
+      VISUAL_EDIT_SIGNED_IN,
+      designData({}),
+    );
+    expect(access().design).not.toBeNull();
+
+    await readReturns(undefined, {
+      data: { exists: true, hasAccess: false, signedIn: true },
+      updatedAt: 2,
+    });
+
+    expect(access().design).toBeNull();
+    expect(access().designReadState).toBe("lost");
+  });
 });
