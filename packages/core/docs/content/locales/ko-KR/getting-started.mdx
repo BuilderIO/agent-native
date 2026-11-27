@@ -63,6 +63,19 @@ Welcome 화면에서 **Continue as local dev**를 선택하세요. 로컬 개발
 
 선택 사항: **Use Builder.io**로 연결하거나 **Custom keys**로 키를 추가하거나 로컬 개발용 provider 키를 `.env`에 설정하세요. 셀프 호스팅 배포에서는 서버 측 키를 앱 전체의 대체 키로 사용할 수 있습니다. 자세한 내용은 [LLM provider 키](/docs/environment-variables#llm-provider-keys)를 참조하세요.
 
+### OpenAI 호환 로컬 서버
+
+Apple Silicon의 Rapid-MLX 같은 OpenAI 호환 로컬 서버는 앱의 `.env`에서 동일한 변수를 사용합니다.
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX에는 API 키가 필요하지 않습니다. 공급자/모델 선택기에 OpenAI가 표시되도록 `local` 같은 비어 있지 않은 임시 값을 설정하세요. `AGENT_MODEL`에는 엔드포인트에서 제공하는 모델 ID를 지정하세요. 새 설치의 설정 목록은 로컬 모델을 자동으로 검색하지 않습니다. `.env`를 변경한 후 `pnpm dev`를 다시 시작하세요.
+
 ## 에이전트에서 액션 실행하기
 
 액션은 React UI가 코드에서 호출하고 에이전트가 도구로 사용할 수 있는 타입이 지정된 함수입니다. Chat 템플릿에는 간단한 `hello` 액션이 있어 직접 작성하기 전에 이 패턴을 시험할 수 있습니다.

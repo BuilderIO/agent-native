@@ -65,6 +65,19 @@ Welcome画面で**Continue as local dev**を選択します。ローカル開発
 
 任意: **Use Builder.io** で接続するか、**Custom keys** でキーを追加するか、ローカル開発用のプロバイダーキーを `.env` に設定してください。セルフホスト型のデプロイでは、サーバー側のキーをアプリ全体のフォールバックとして使用できます。詳しくは[LLM プロバイダーキー](/docs/environment-variables#llm-provider-keys)を参照してください。
 
+### OpenAI 互換のローカルサーバー
+
+Apple Silicon 上の Rapid-MLX など、OpenAI 互換のローカルサーバーでは、アプリの `.env` に同じ変数を設定します。
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX に API キーは不要です。プロバイダーとモデルの選択肢に OpenAI を表示するには、`local` などの空でない仮の値を設定します。`AGENT_MODEL` にはエンドポイントが提供するモデル ID を設定してください。新規セットアップの設定一覧ではローカルモデルは自動検出されません。`.env` の変更後は `pnpm dev` を再起動してください。
+
 ## エージェントからアクションを実行する
 
 アクションは、React UIがコードから呼び出せ、エージェントがツールとして使える型付き関数です。Chatテンプレートにはシンプルな`hello`アクションが含まれているため、自分で書く前にこのパターンを試せます。

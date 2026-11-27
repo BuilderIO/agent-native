@@ -70,6 +70,19 @@ besoin de saisir d’adresse e-mail ni de mot de passe pour le développement lo
 
 Facultatif : connectez-vous avec **Use Builder.io**, ajoutez une clé via **Custom keys** ou définissez une clé fournisseur dans `.env` pour le développement local. Pour les déploiements auto-hébergés, une clé côté serveur peut servir de solution de repli à l’échelle de l’application. Consultez [Clés de fournisseurs LLM](/docs/environment-variables#llm-provider-keys).
 
+### Serveurs locaux compatibles avec OpenAI
+
+Un serveur local compatible avec OpenAI, comme Rapid-MLX sur Apple Silicon, utilise les mêmes variables dans le fichier `.env` de l’application :
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX ne nécessite pas de clé API ; définissez une valeur fictive non vide comme `local` pour rendre OpenAI disponible dans les sélecteurs de fournisseur et de modèle. Définissez `AGENT_MODEL` avec un identifiant de modèle servi par votre point de terminaison ; les listes des paramètres d’une nouvelle installation ne découvrent pas les modèles locaux. Redémarrez `pnpm dev` après avoir modifié `.env`.
+
 ## Exécuter l’action depuis l’agent
 
 Une action est une fonction typée que votre interface utilisateur React peut

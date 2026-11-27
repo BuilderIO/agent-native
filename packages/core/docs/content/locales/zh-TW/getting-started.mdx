@@ -60,6 +60,19 @@ pnpm dev
 
 選用：使用 **Use Builder.io** 連線，透過 **Custom keys** 新增金鑰，或在 `.env` 中設定提供者金鑰以供本機開發使用。對於自架部署，伺服器端金鑰可作為整個應用程式的備援金鑰。請參閱[LLM 提供者金鑰](/docs/environment-variables#llm-provider-keys)。
 
+### 相容 OpenAI 的本機伺服器
+
+Apple Silicon 上的 Rapid-MLX 等相容 OpenAI 的本機伺服器使用應用程式 `.env` 中的相同變數：
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX 不需要 API 金鑰；設定 `local` 等非空佔位值，讓 OpenAI 可在供應商和模型選擇器中使用。將 `AGENT_MODEL` 設為端點提供的模型 ID；全新安裝的設定清單不會自動探索本機模型。修改 `.env` 後重新啟動 `pnpm dev`。
+
 ## 從代理執行 action
 
 Action 是 React UI 可從程式碼呼叫、代理可作為工具使用的具型別函式。Chat 範本包含一個簡單的 `hello` action，讓您能在自行撰寫 action 前先嘗試這個模式。

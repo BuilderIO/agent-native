@@ -67,6 +67,19 @@ Welcome screen पर **Continue as local dev** चुनें। Local develop
 
 वैकल्पिक: **Use Builder.io** से कनेक्ट करें, **Custom keys** से key जोड़ें, या local development के लिए `.env` में provider key सेट करें। Self-hosted deployments में, server-side key पूरे app के लिए fallback हो सकती है। [LLM provider keys](/docs/environment-variables#llm-provider-keys) देखें।
 
+### OpenAI-संगत स्थानीय सर्वर
+
+Apple Silicon पर Rapid-MLX जैसे OpenAI-संगत स्थानीय सर्वर के लिए ऐप की `.env` फ़ाइल में वही वेरिएबल उपयोग होते हैं:
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX को API key की ज़रूरत नहीं है; provider/model selectors में OpenAI उपलब्ध करने के लिए `local` जैसा non-empty placeholder सेट करें। `AGENT_MODEL` में अपने endpoint पर उपलब्ध model का ID सेट करें; नए setup की Settings सूचियां local models को अपने-आप नहीं खोजतीं। `.env` बदलने के बाद `pnpm dev` दोबारा शुरू करें।
+
 ## Agent से action चलाएं
 
 Action एक typed function है, जिसे आपका React UI code से call कर सकता है और agents

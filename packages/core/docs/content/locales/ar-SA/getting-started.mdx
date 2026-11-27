@@ -68,6 +68,19 @@ pnpm dev
 
 اختياري: اتصل باستخدام **Use Builder.io**، أو أضف مفتاحًا عبر **Custom keys**، أو ضع مفتاح موفّر في `.env` للتطوير المحلي. في عمليات النشر المستضافة ذاتيًا، يمكن استخدام مفتاح من جهة الخادم كخيار احتياطي على مستوى التطبيق. راجع [مفاتيح موفّري LLM](/docs/environment-variables#llm-provider-keys).
 
+### خوادم محلية متوافقة مع OpenAI
+
+يستخدم خادم محلي متوافق مع OpenAI، مثل Rapid-MLX على Apple Silicon، المتغيرات نفسها في ملف `.env` الخاص بالتطبيق:
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+لا يحتاج Rapid-MLX إلى مفتاح API؛ عيّن قيمة بديلة غير فارغة مثل `local` لإتاحة OpenAI في محددات المزوّد والنموذج. عيّن `AGENT_MODEL` إلى معرّف نموذج يقدمه الخادم؛ لا تكتشف قوائم الإعدادات الجديدة النماذج المحلية. أعد تشغيل `pnpm dev` بعد تعديل `.env`.
+
 ## تشغيل الإجراء من الوكيل
 
 الإجراء هو دالة مكتوبة الأنواع يمكن لواجهة React استدعاؤها من الكود ويمكن

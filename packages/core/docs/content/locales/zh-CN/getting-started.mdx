@@ -60,6 +60,19 @@ pnpm dev
 
 可选：通过 **Use Builder.io** 连接，使用 **Custom keys** 添加密钥，或在 `.env` 中设置提供商密钥以用于本地开发。对于自托管部署，服务器端密钥可作为整个应用的备用密钥。请参阅[LLM 提供商密钥](/docs/environment-variables#llm-provider-keys)。
 
+### 兼容 OpenAI 的本地服务器
+
+Apple Silicon 上的 Rapid-MLX 等兼容 OpenAI 的本地服务器使用应用 `.env` 中的相同变量：
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX 不需要 API 密钥；设置 `local` 等非空占位值，使 OpenAI 在提供商和模型选择器中可用。将 `AGENT_MODEL` 设为端点提供的模型 ID；全新安装的设置列表不会自动发现本地模型。修改 `.env` 后重新启动 `pnpm dev`。
+
 ## 从智能体运行动作
 
 动作是 React UI 可以从代码中调用、智能体可以作为工具使用的类型化函数。Chat 模板包含一个简单的 `hello` 动作，让你可以在自己编写动作前先体验这一模式。

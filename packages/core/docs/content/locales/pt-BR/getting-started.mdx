@@ -60,6 +60,19 @@ Na tela de Boas-vindas, selecione **Continue as local dev**. Você não precisa 
 
 Opcional: conecte-se com **Use Builder.io**, adicione uma chave em **Custom keys** ou defina uma chave do provedor em `.env` para desenvolvimento local. Em implantações auto-hospedadas, uma chave no servidor pode servir como fallback para todo o app. Consulte [Chaves de provedor LLM](/docs/environment-variables#llm-provider-keys).
 
+### Servidores locais compatíveis com OpenAI
+
+Um servidor local compatível com OpenAI, como o Rapid-MLX no Apple Silicon, usa as mesmas variáveis no arquivo `.env` do app:
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+O Rapid-MLX não precisa de chave de API; defina um valor fictício não vazio como `local` para disponibilizar o OpenAI nos seletores de provedor e modelo. Defina `AGENT_MODEL` com um ID de modelo servido pelo endpoint; as listas de Configurações de uma instalação nova não descobrem modelos locais. Reinicie `pnpm dev` após alterar `.env`.
+
 ## Execute a ação pelo agente
 
 Uma ação é uma função tipada que sua UI React pode chamar pelo código e que os agentes podem usar como ferramenta. O modelo de Chat inclui uma ação `hello` simples para que você possa experimentar o padrão antes de escrever uma.

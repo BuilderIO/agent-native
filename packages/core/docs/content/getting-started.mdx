@@ -75,6 +75,23 @@ Connect with **Use Builder.io**, add a key through **Custom keys**, or set a
 provider key in `.env` for local development. Self-hosted apps can set a key in
 the deployment environment for app-wide use. See [LLM provider keys](/docs/environment-variables#llm-provider-keys).
 
+### Local OpenAI-compatible servers
+
+A local OpenAI-compatible server, such as Rapid-MLX on Apple Silicon, uses
+the same variables in the app's `.env`:
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX needs no API key; set a non-empty placeholder such as `local` so
+OpenAI is available in the provider/model selectors. Set `AGENT_MODEL` to an
+ID served by your endpoint; fresh Settings lists do not discover local models.
+Restart `pnpm dev` after changing `.env`.
+
 ## Run the action from the agent
 
 An action is a typed function that your React UI can call from code and agents

@@ -70,6 +70,19 @@ lokale Entwicklung müssen Sie keine E-Mail-Adresse und kein Passwort eingeben.
 
 Optional: Verbinden Sie sich mit **Use Builder.io**, fügen Sie über **Custom keys** einen Schlüssel hinzu oder hinterlegen Sie für die lokale Entwicklung einen Provider-Schlüssel in `.env`. Bei selbst gehosteten Deployments kann ein serverseitiger Schlüssel als appweiter Fallback dienen. Weitere Informationen finden Sie unter [LLM-Provider-Schlüssel](/docs/environment-variables#llm-provider-keys).
 
+### Lokale OpenAI-kompatible Server
+
+Ein lokaler OpenAI-kompatibler Server wie Rapid-MLX auf Apple Silicon verwendet dieselben Variablen in der `.env` der App:
+
+```bash
+OPENAI_BASE_URL=http://localhost:8000/v1
+OPENAI_API_KEY=local
+AGENT_ENGINE=ai-sdk:openai
+AGENT_MODEL=mlx-community/Qwen3.5-4B-MLX-4bit
+```
+
+Rapid-MLX benötigt keinen API-Schlüssel; setzen Sie einen nicht leeren Platzhalter wie `local`, damit OpenAI in der Anbieter- und Modellauswahl verfügbar ist. Setzen Sie `AGENT_MODEL` auf eine vom Endpunkt bereitgestellte Modell-ID; die Listen in neuen Einstellungen erkennen lokale Modelle nicht automatisch. Starten Sie `pnpm dev` nach Änderungen an `.env` neu.
+
 ## Die Action über den Agenten ausführen
 
 Eine Action ist eine typisierte Funktion, die Ihre React-UI aus Code aufrufen
