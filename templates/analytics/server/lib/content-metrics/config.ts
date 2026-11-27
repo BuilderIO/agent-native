@@ -21,6 +21,7 @@ export const CONTENT_COLLECTION_STEPS = [
   "signups",
   "agent_native_signups",
   "youtube",
+  "x",
 ] as const;
 export type ContentCollectionStepId = (typeof CONTENT_COLLECTION_STEPS)[number];
 
@@ -76,6 +77,45 @@ export const youtubeChannelSchema = z
     /^(UC[A-Za-z0-9_-]{22}|@[A-Za-z0-9._-]{3,100})$/,
     "Use a channel ID (UC...) or an @handle",
   );
+
+export const X_HANDLE = /^@[A-Za-z0-9_]{1,15}$/;
+
+export const xAccountSchema = z.object({
+  handle: z.string().trim().regex(X_HANDLE, "Use an X @handle"),
+  allPosts: z.boolean().default(false),
+});
+export type XAccount = z.infer<typeof xAccountSchema>;
+
+export const xAccountsSchema = z
+  .array(xAccountSchema)
+  .max(20)
+  .superRefine((accounts, ctx) => {
+    const seen = new Set<string>();
+    accounts.forEach((account, index) => {
+      const handle = account.handle.toLowerCase();
+      if (seen.has(handle)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index, "handle"],
+          message: `${account.handle} is already listed; X handles ignore case.`,
+        });
+      }
+      seen.add(handle);
+    });
+  });
+
+export const xLinkTargetSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[a-z0-9._~%-]+)*$/,
+    "Use a host and optional path, such as builder.io/blog",
+  );
+
+export const xTermSchema = z.string().trim().min(2).max(50);
+
+export const X_MONTHLY_CAP_USD = 25;
 
 const bigQueryTableSchema = z
   .string()
@@ -180,6 +220,13 @@ export const contentCollectionConfigSchema = z.object({
   youtube: stepToggleSchema
     .extend({ channels: z.array(youtubeChannelSchema).max(20).default([]) })
     .default({ enabled: false, channels: [] }),
+  x: stepToggleSchema
+    .extend({
+      accounts: xAccountsSchema.default([]),
+      links: z.array(xLinkTargetSchema).max(20).default([]),
+      terms: z.array(xTermSchema).max(20).default([]),
+    })
+    .default({ enabled: false, accounts: [], links: [], terms: [] }),
 });
 
 export type ContentCollectionConfig = z.infer<
@@ -213,6 +260,8 @@ export function stepEnabled(
       return config.agentNativeSignups.enabled;
     case "youtube":
       return config.youtube.enabled;
+    case "x":
+      return config.x.enabled;
   }
 }
 
@@ -226,6 +275,21 @@ export function ga4ConfigFingerprint(propertyId: string): string {
 
 export function youtubeConfigFingerprint(channels: string[]): string {
   return sha256(JSON.stringify(channels));
+}
+
+export function xConfigFingerprint(
+  x: Pick<ContentCollectionConfig["x"], "accounts" | "links" | "terms">,
+): string {
+  return sha256(
+    JSON.stringify([
+      x.accounts.map((account) => [
+        account.handle.toLowerCase(),
+        account.allPosts,
+      ]),
+      x.links,
+      x.terms,
+    ]),
+  );
 }
 
 export function agentNativeSignupsConfigFingerprint(
@@ -288,6 +352,8 @@ export function contentStepConfigFingerprint(
         : null;
     case "youtube":
       return youtubeConfigFingerprint(config.youtube.channels);
+    case "x":
+      return xConfigFingerprint(config.x);
     case "builder_blog":
     case "signups":
       return null;

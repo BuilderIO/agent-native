@@ -18,8 +18,10 @@ export type ContentStepResult = {
 
 export type ContentStepContext = {
   collection: ContentCollection;
+  runId: string;
   signal?: AbortSignal;
   now: Date;
+  clock: () => Date;
 };
 
 export type ContentStep = {
