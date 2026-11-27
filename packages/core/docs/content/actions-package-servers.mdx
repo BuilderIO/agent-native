@@ -1,0 +1,173 @@
+---
+title: "Other Frameworks & Servers"
+description: "Use @agent-native/actions in Hono, Express, Fastify, Cloudflare Workers, Bun, Deno, or standalone Node/TypeScript projects with zero web framework."
+---
+
+# Other Frameworks & Servers
+
+`@agent-native/actions` has **zero framework dependencies**. Run it in a plain TypeScript CLI/MCP project with no web server at all, mount one catch-all handler on Hono, Express, Fastify, or Cloudflare Workers, or call actions from any JS/TS client.
+
+## Set Up with Your AI Coding Agent {#setup}
+
+Paste this prompt into **Claude Code**, **Codex**, or **Cursor**:
+
+```text
+Set up @agent-native/actions in this repo following https://agent-native.com/docs/actions-package-servers.md.
+Run `npx @agent-native/actions init`, mount the catch-all handler on our server (or keep it standalone for CLI & stdio MCP), create a sample action in actions/, and verify with `pnpm action --list`.
+```
+
+## Standalone (Plain Node / TypeScript — No Web Framework) {#standalone}
+
+Building an internal tool, backend service, CLI, or local MCP server without a frontend framework? You only need `@agent-native/actions` and `zod`:
+
+<Steps>
+
+### Initialize in any Node / TS repo
+
+```bash
+pnpm add @agent-native/actions zod
+npx @agent-native/actions init
+```
+
+### Drop an action in `actions/`
+
+```ts
+// actions/create-todo.ts
+import { defineAction } from "@agent-native/actions";
+import { z } from "zod";
+import { db } from "../lib/db";
+
+export default defineAction({
+  description: "Create a new todo item",
+  schema: z.object({
+    title: z.string().describe("What needs to be done"),
+  }),
+  run: async ({ title }) => db.todos.create({ title }),
+});
+```
+
+### Call it from code, CLI, or MCP
+
+```bash
+# Run directly from the terminal
+pnpm action create-todo --title "Ship docs"
+
+# Inspect resolved actions without executing them
+npx @agent-native/actions inspect
+
+# Or expose actions/ directly as a local stdio MCP server
+npx @agent-native/actions mcp
+```
+
+Or invoke actions programmatically in scripts, cron jobs, workers, and tests:
+
+```ts
+import { createActions } from "@agent-native/actions";
+import createTodo from "./actions/create-todo";
+
+const actions = createActions({
+  actions: { "create-todo": createTodo },
+});
+
+const todo = await actions.call("create-todo", { title: "Ship docs" });
+```
+
+</Steps>
+
+## Hono, Express, Fastify & Cloudflare Workers {#servers}
+
+Every registry exposes a single catch-all Web Fetch handler (`actions.handler`) serving both `/actions/:name` and `/mcp` — plus `actions.fetchHandler` and `actions.mcpHandler` if you prefer separate mounts, and `toNodeHandler()` for Node HTTP frameworks:
+
+<TabsBlock
+  id="server-runtime-tabs"
+  tabs={[
+    {
+      id: "hono",
+      label: "Hono / Workers / Bun",
+      blocks: [
+        {
+          type: "code",
+          id: "server-runtime-hono",
+          data: {
+            language: "ts",
+            code: `import { Hono } from "hono";
+import { actions } from "./.generated/actions";
+
+const app = new Hono();
+
+// Single catch-all serves /api/agent-native/actions/* and /api/agent-native/mcp
+app.all("/api/agent-native/*", (c) =>
+  actions.handler(c.req.raw, { platform: c.env }),
+);
+
+export default app;`,
+          },
+        },
+      ],
+    },
+    {
+      id: "express",
+      label: "Express",
+      blocks: [
+        {
+          type: "code",
+          id: "server-runtime-express",
+          data: {
+            language: "ts",
+            code: `import express from "express";
+import { toNodeHandler } from "@agent-native/actions";
+import { actions } from "./.generated/actions";
+
+const app = express();
+app.use("/api/agent-native", toNodeHandler(actions.handler));`,
+          },
+        },
+      ],
+    },
+    {
+      id: "fastify",
+      label: "Fastify",
+      blocks: [
+        {
+          type: "code",
+          id: "server-runtime-fastify",
+          data: {
+            language: "ts",
+            code: `import Fastify from "fastify";
+import { toNodeHandler } from "@agent-native/actions";
+import { actions } from "./.generated/actions";
+
+const fastify = Fastify();
+const handler = toNodeHandler(actions.handler);
+
+fastify.all("/api/agent-native/*", (req, reply) => handler(req.raw, reply.raw));`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+## Zero-Dependency Vanilla Client (`@agent-native/actions/client`) {#vanilla-client}
+
+Call your actions with full TypeScript inference from React Native, Electron, Chrome extensions, browser scripts, or another microservice:
+
+```ts
+import { createActionClient, actionErrorMessage } from "@agent-native/actions/client";
+import type { AppActions } from "../.generated/actions";
+
+const client = createActionClient<AppActions>({
+  baseUrl: "https://app.example.com/api/agent-native/actions",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+  }),
+});
+
+const todos = await client.call("list-todos", { done: false });
+
+try {
+  await client.call("create-todo", { title: "Ship docs" });
+} catch (error) {
+  console.error(actionErrorMessage(error));
+}
+```

@@ -1147,6 +1147,78 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
     ],
   },
+  {
+    id: "actions-package",
+    titleKey: "actionsPackageSection",
+    items: [
+      {
+        id: "actions-package-overview",
+        labelKey: "actionsPackageOverview",
+        slug: "actions-package",
+      },
+      {
+        id: "actions-package-quickstart",
+        labelKey: "actionsPackageQuickstart",
+        slug: "actions-package-quickstart",
+      },
+      {
+        id: "actions-package-why",
+        labelKey: "actionsPackageWhy",
+        slug: "actions-package-why",
+      },
+      {
+        id: "actions-package-integrations",
+        labelKey: "actionsPackageIntegrations",
+        children: [
+          {
+            id: "actions-package-next",
+            labelKey: "actionsPackageNext",
+            slug: "actions-package-next",
+          },
+          {
+            id: "actions-package-vite",
+            labelKey: "actionsPackageVite",
+            slug: "actions-package-vite",
+          },
+          {
+            id: "actions-package-solid",
+            labelKey: "actionsPackageSolid",
+            slug: "actions-package-solid",
+          },
+          {
+            id: "actions-package-vue",
+            labelKey: "actionsPackageVue",
+            slug: "actions-package-vue",
+          },
+          {
+            id: "actions-package-svelte",
+            labelKey: "actionsPackageSvelte",
+            slug: "actions-package-svelte",
+          },
+          {
+            id: "actions-package-servers",
+            labelKey: "actionsPackageServers",
+            slug: "actions-package-servers",
+          },
+        ],
+      },
+      {
+        id: "actions-package-surfaces",
+        labelKey: "actionsPackageSurfaces",
+        slug: "actions-package-surfaces",
+      },
+      {
+        id: "actions-package-auth-migration",
+        labelKey: "actionsPackageAuthMigration",
+        slug: "actions-package-auth-migration",
+      },
+      {
+        id: "actions-package-beyond",
+        labelKey: "actionsPackageBeyond",
+        slug: "actions-package-beyond",
+      },
+    ],
+  },
 ];
 
 function enMessage(key: string): string {

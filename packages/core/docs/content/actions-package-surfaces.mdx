@@ -1,0 +1,177 @@
+---
+title: "CLI, MCP & AI SDKs"
+description: "Run your @agent-native/actions from a built-in CLI, serve them over Streamable HTTP or stdio MCP, and export them as tools for Vercel AI SDK, Anthropic SDK, OpenAI SDK, and WebMCP."
+---
+
+# CLI, MCP & AI SDKs
+
+Every action you define with `defineAction()` is immediately usable from a **terminal CLI**, an **MCP server** (Claude, ChatGPT, Cursor, Codex), and popular **AI SDKs** (Vercel AI SDK, Anthropic SDK, OpenAI SDK) — without duplicating a single schema or auth check.
+
+## Built-In CLI (`@agent-native/actions/cli`) {#cli}
+
+`npx @agent-native/actions init` adds `"action": "actions"` to your `package.json`. It automatically discovers `actions/*.ts` (or reads `--registry ./lib/actions.ts` if you use explicit registration):
+
+```bash
+# List every action and its one-line description
+pnpm action --list
+
+# Auto-generated help from your Zod .describe() annotations
+pnpm action create-todo --help
+
+# Call with CLI flags
+pnpm action create-todo --title "Ship docs"
+
+# Or pass structured JSON (ideal for coding agents and scripts)
+pnpm action create-todo '{"title":"Ship docs"}'
+```
+
+### Approval Gates in the Terminal
+
+When an action declares `needsApproval`, the CLI enforces it automatically:
+
+- **Interactive TTY:** Prints the action name and parsed arguments, then asks `Approve and run? [y/N]`.
+- **Non-interactive (coding agent / CI):** Exits with a structured approval-required message showing the exact command so the agent asks the human for confirmation before re-running with `--approved`.
+
+<Callout tone="success">
+
+**Let coding agents drive your app:** Mention `pnpm action --list` in your repo's `AGENTS.md`. Instead of writing ad-hoc SQL or throwaway scripts, Claude Code and Codex immediately discover and call your validated app operations.
+
+</Callout>
+
+## MCP Server (`@agent-native/actions/mcp`) {#mcp}
+
+Every integration mounts a Streamable HTTP MCP server automatically at `/api/agent-native/mcp` — zero extra route files required.
+
+### Streamable HTTP (Hosted / Remote MCP)
+
+Point Claude, ChatGPT, Cursor, or Codex at:
+
+```text
+https://your-app.com/api/agent-native/mcp
+```
+
+### Local `stdio` MCP (Zero Web Server Required)
+
+Connect Claude Desktop, Cursor, or Codex directly to your local repo's `actions/` folder over `stdio`:
+
+```json
+{
+  "mcpServers": {
+    "my-app": {
+      "command": "npx",
+      "args": ["@agent-native/actions", "mcp"]
+    }
+  }
+}
+```
+
+### Automatic MCP Tool Metadata
+
+`@agent-native/actions` maps your action fields onto standard MCP tool annotations automatically:
+
+| Action option | MCP behavior |
+| --- | --- |
+| `description` | Tool description shown to the model |
+| `schema` | Converted to provider-safe JSON Schema (handles strict-mode model quirks) |
+| `outputSchema` | Published as MCP `outputSchema` + validated `structuredContent` |
+| `readOnly: true` | Sets `annotations.readOnlyHint = true` |
+| `destructive: true` | Sets `annotations.destructiveHint = true` |
+| `retrySafe: true` | Sets `annotations.idempotentHint = true` |
+| `mcpTool: false` | Keeps the action available to UI hooks/HTTP while hiding it from MCP clients |
+| `fail(msg, { errorCode, details })` | Returns structured `isError: true` with machine-readable `errorCode` and `details` |
+
+## Export to AI SDKs (Vercel AI SDK, Anthropic, OpenAI) {#ai-sdks}
+
+Building an in-app chat assistant or agent workflow with the **Vercel AI SDK**, **Anthropic SDK**, or **OpenAI SDK**? Export your actions directly into their native tool format in one line so your LLM loop shares the exact same schemas, validation, and authorization as your UI:
+
+<TabsBlock
+  id="ai-sdk-export-tabs"
+  tabs={[
+    {
+      id: "vercel-ai",
+      label: "Vercel AI SDK",
+      blocks: [
+        {
+          type: "code",
+          id: "ai-sdk-vercel",
+          data: {
+            language: "ts",
+            code: `import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { toAiSdkTools } from "@agent-native/actions";
+import { actions } from "@/lib/actions";
+
+const result = await generateText({
+  model: openai("gpt-5"),
+  prompt: "List my open todos and create one for shipping the docs.",
+  tools: toAiSdkTools(actions, {
+    context: { source: "agent", user: currentUser },
+    // Optionally scope which actions this prompt can invoke
+    only: ["list-todos", "create-todo"],
+  }),
+});`,
+          },
+        },
+      ],
+    },
+    {
+      id: "anthropic",
+      label: "Anthropic SDK",
+      blocks: [
+        {
+          type: "code",
+          id: "ai-sdk-anthropic",
+          data: {
+            language: "ts",
+            code: `import Anthropic from "@anthropic-ai/sdk";
+import { toAnthropicTools } from "@agent-native/actions";
+import { actions } from "@/lib/actions";
+
+const { tools, executeToolUse } = toAnthropicTools(actions, {
+  context: { source: "agent", user: currentUser },
+});
+
+const response = await anthropic.messages.create({
+  model: "claude-sonnet-4-6",
+  max_tokens: 1024,
+  tools,
+  messages,
+});`,
+          },
+        },
+      ],
+    },
+    {
+      id: "openai",
+      label: "OpenAI SDK",
+      blocks: [
+        {
+          type: "code",
+          id: "ai-sdk-openai",
+          data: {
+            language: "ts",
+            code: `import OpenAI from "openai";
+import { toOpenAiTools } from "@agent-native/actions";
+import { actions } from "@/lib/actions";
+
+const { tools, executeToolCall } = toOpenAiTools(actions, {
+  context: { source: "agent", user: currentUser },
+});`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+## Browser Agents with WebMCP {#webmcp}
+
+Expose actions to browser-embedded AI agents (such as Chrome's `navigator.modelContext`) under the user's live signed-in session:
+
+```ts
+import { registerWebMcpTools } from "@agent-native/actions/webmcp";
+
+registerWebMcpTools({
+  include: ["list-todos", "create-todo"],
+});
+```

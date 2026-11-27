@@ -1,0 +1,208 @@
+---
+title: "Actions Package"
+description: "Add the Agent-Native action system to any app. Define each operation once and get typed UI hooks, HTTP endpoints, a built-in CLI, an MCP server, and AI SDK tools automatically."
+---
+
+# Actions Package
+
+Add Agent-Native's action system to **any existing app** — Next.js, Vite, SolidJS, Vue, Nuxt, SvelteKit, Hono, Express, or plain Node.js — without adopting the full framework.
+
+Define each backend operation once with `defineAction()`. From that single file you get typed UI hooks, an HTTP API, a CLI for developers and coding agents, a spec-compliant MCP server, and drop-in tools for the Vercel AI SDK, Anthropic SDK, and OpenAI SDK.
+
+## What You Get from One Action {#what-you-get}
+
+<Cards columns={2}>
+
+### :components: [Typed UI Hooks](/docs/actions-package-quickstart#call-from-ui)
+
+End-to-end inferred hooks and reactive primitives for **React**, **SolidJS**, **Vue**, and **Svelte 5** — plus a zero-dependency client. Mutations auto-invalidate related queries.
+
+### :server: [First-Class Framework Support](/docs/actions-package-next)
+
+Minimal-boilerplate integrations and single catch-all handlers for **Next.js**, **Vite**, **SolidJS**, **Vue / Nuxt**, **SvelteKit**, **Hono**, **Express**, and **Node.js**.
+
+### :plug: [Instant MCP & AI SDKs](/docs/actions-package-surfaces#mcp)
+
+Expose every action as a Streamable HTTP or `stdio` MCP server automatically, or export them in one line to the **Vercel AI SDK**, **Anthropic SDK**, and **OpenAI SDK**.
+
+### :terminal: [Built-In CLI](/docs/actions-package-surfaces#cli)
+
+Run `pnpm action create-todo --title "Ship docs"` from any terminal. Humans, scripts, CI, and coding agents like Claude Code and Codex all share the exact same validated entry point.
+
+</Cards>
+
+## Works with Your Existing Stack {#frameworks}
+
+<Diagram id="doc-block-actions-package-frameworks" renderMode="design" frame="hide" title="Works with your existing stack" summary="First-class plugins and reactive client bindings for Next.js, Vite, React, SolidJS, Vue, Svelte, Hono, and Node.js.">
+
+```html
+<div class="anpkg-grid-logos">
+  <a class="anpkg-fw-item" href="/docs/actions-package-next/">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9 15.5V8.5l7.5 9.2M15 8.5v4.5"/></svg>
+    <span>Next.js</span>
+  </a>
+  <a class="anpkg-fw-item" href="/docs/actions-package-vite/">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 4.5 12 20.5 3.5 4.5 12 7.5z"/><path d="M13.5 3.5 9.5 11.5h3l-1.5 5 5-8h-3z"/></svg>
+    <span>Vite</span>
+  </a>
+  <a class="anpkg-fw-item" href="/docs/actions-package-quickstart/#call-from-ui">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="2" fill="currentColor"/><ellipse cx="12" cy="12" rx="9.5" ry="3.8"/><ellipse cx="12" cy="12" rx="9.5" ry="3.8" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9.5" ry="3.8" transform="rotate(120 12 12)"/></svg>
+    <span>React</span>
+  </a>
+  <a class="anpkg-fw-item" href="/docs/actions-package-solid/">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 7.5 14 4 5.5 7l5.5 3.5z"/><path d="M4.5 12.5 10 9l8.5 3-5.5 3.5z"/><path d="M4.5 17 10 20l8.5-3.5-5.5-3z"/></svg>
+    <span>SolidJS</span>
+  </a>
+  <a class="anpkg-fw-item" href="/docs/actions-package-vue/">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h4.2L12 13l4.8-8.5H21L12 20.5z"/><path d="M7.2 4.5 12 13l4.8-8.5"/></svg>
+    <span>Vue &amp; Nuxt</span>
+  </a>
+  <a class="anpkg-fw-item" href="/docs/actions-package-svelte/">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.8 6.4a4.4 4.4 0 0 0-6-1.4L7.2 7.2a4.3 4.3 0 0 0-1.4 5.8c.4.7 1 1.2 1.7 1.5l6.8 2.9a2.5 2.5 0 0 1-.8 4.6l-3.6 2.2a4.4 4.4 0 0 1-6-1.4"/><path d="M16.5 9.5a4.3 4.3 0 0 1 1.7 5.8l-3.6 2.2"/></svg>
+    <span>SvelteKit</span>
+  </a>
+  <a class="anpkg-fw-item" href="/docs/actions-package-servers/">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5c2.5 3 5.5 5.4 5.5 10a5.5 5.5 0 1 1-11 0c0-2.7 1.3-5.2 3-7 .2 2 1.2 3 2.5 3.5-.5-2.2-.8-4.3 0-6.5z"/></svg>
+    <span>Hono</span>
+  </a>
+  <a class="anpkg-fw-item" href="/docs/actions-package-servers/">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4z"/><path d="M9.2 14.5V9.5l5.6 5V9.5"/></svg>
+    <span>Node.js</span>
+  </a>
+</div>
+```
+
+```css
+.anpkg-grid-logos {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 640px) {
+  .anpkg-grid-logos {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.anpkg-fw-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--docs-border, rgba(128, 128, 128, 0.25));
+  background: var(--bg-subtle, transparent);
+  color: inherit;
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.anpkg-fw-item:hover {
+  border-color: var(--docs-accent, currentColor);
+  background: var(--bg-secondary, transparent);
+}
+```
+
+</Diagram>
+
+## Install in Seconds {#install}
+
+Let your AI coding agent wire everything up automatically, or run the CLI initializer:
+
+<TabsBlock
+  id="actions-pkg-start-tabs"
+  tabs={[
+    {
+      id: "agent-prompt",
+      label: "AI Coding Agent (Recommended)",
+      blocks: [
+        {
+          type: "code",
+          id: "actions-pkg-agent-prompt",
+          data: {
+            language: "text",
+            code: `Install @agent-native/actions in this repo following https://agent-native.com/docs/actions-package-quickstart.md.
+Detect our framework and auth setup, run \`npx @agent-native/actions init\`, configure the framework plugin or catch-all route, create one sample action in actions/, and verify it runs via \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+    {
+      id: "cli-init",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "actions-pkg-cli-init",
+          data: {
+            language: "bash",
+            code: `npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "manual",
+      label: "Manual Install",
+      blocks: [
+        {
+          type: "code",
+          id: "actions-pkg-manual-install",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+`npx @agent-native/actions init` detects your framework, generates the single catch-all route and `.generated/actions.ts` manifest, creates a starter `actions/hello.ts`, and adds `"action": "actions"` to `package.json`.
+
+## What an Action Looks Like {#example}
+
+Drop one file per operation in `actions/`. The filename is the action name, the Zod (or Standard Schema) validator types every caller, and `run()` is plain server TypeScript:
+
+```ts
+// actions/create-todo.ts
+import { defineAction } from "@agent-native/actions";
+import { z } from "zod";
+import { db } from "../lib/db";
+
+export default defineAction({
+  description: "Create a new todo item",
+  schema: z.object({
+    title: z.string().describe("What needs to be done"),
+  }),
+  run: async ({ title }) => {
+    return db.todos.create({ title });
+  },
+});
+```
+
+With zero extra wiring, that single file is immediately callable from:
+
+- **UI Hooks:** `const createTodo = useActionMutation("create-todo");`
+- **HTTP:** `POST /api/agent-native/actions/create-todo`
+- **CLI:** `pnpm action create-todo --title "Ship docs"`
+- **MCP:** `create-todo` tool on `/api/agent-native/mcp` (or local `stdio`)
+- **AI SDKs:** `toAiSdkTools()`, `toAnthropicTools()`, `toOpenAiTools()`
+
+## Start Here {#next-steps}
+
+<Cards columns={3}>
+
+### [Quickstart →](/docs/actions-package-quickstart)
+
+Write your first action and call it from UI hooks, HTTP, CLI, MCP, and plain TypeScript in under two minutes.
+
+### [Why Actions? →](/docs/actions-package-why)
+
+How `@agent-native/actions` compares to tRPC, Next.js Server Actions, and rolling your own MCP server.
+
+### [Beyond Actions →](/docs/actions-package-beyond)
+
+See everything else the full Agent-Native framework adds on top of actions when you want to go deeper.
+
+</Cards>

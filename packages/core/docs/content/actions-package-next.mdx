@@ -1,0 +1,238 @@
+---
+title: "Next.js"
+description: "First-class Next.js integration via @agent-native/actions/next: single catch-all route for HTTP and MCP, automatic actions/ codegen, Server Component calls, and FormData Server Actions."
+---
+
+# Next.js Integration
+
+`@agent-native/actions/next` wires `@agent-native/actions` into Next.js App Router with minimal boilerplate: **one config wrapper** (`withAgentNativeActions()`) that generates a static, Turbopack-safe `.generated/actions.ts` manifest and **one catch-all route** serving both `/api/agent-native/actions/:name` and `/api/agent-native/mcp`.
+
+## Set Up with Your AI Coding Agent {#setup}
+
+Paste this prompt into **Claude Code**, **Codex**, or **Cursor** — your agent installs the package, generates the catch-all route, wraps `next.config.ts`, and wires your auth automatically:
+
+```text
+Set up @agent-native/actions in this Next.js app following https://agent-native.com/docs/actions-package-next.md.
+Run `npx @agent-native/actions init`, wrap next.config.ts with withAgentNativeActions(), wire our existing auth into actions/context.ts, and verify with `pnpm action --list`.
+```
+
+Prefer running the CLI directly?
+
+```bash
+pnpm add @agent-native/actions @tanstack/react-query zod
+npx @agent-native/actions init
+```
+
+`npx @agent-native/actions init` automatically creates `app/api/agent-native/[...path]/route.ts`, `.generated/actions.ts`, `.generated/action-types.d.ts`, and a starter `actions/hello.ts`.
+
+<Cards columns={2}>
+
+### :server: One Catch-All Route
+
+A single `app/api/agent-native/[...path]/route.ts` handles `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS` for both HTTP actions and Streamable HTTP MCP.
+
+### :components: RSC & Form Actions
+
+Call read-only actions directly from Server Components with zero HTTP hop (`callNextAction`), or handle `<form action={...}>` with `runFormAction`.
+
+### :plug: Turbopack & Standalone Ready
+
+`withAgentNativeActions()` emits plain static ES imports in `.generated/actions.ts` — no webpack-only hooks and no runtime `fs` scanning on Vercel or `output: "standalone"`.
+
+### :terminal: Auto-Discovery & Typegen
+
+Drop files in `actions/*.ts` and `.generated/actions.ts` + `.generated/action-types.d.ts` update automatically.
+
+</Cards>
+
+## What Setup Produces {#files}
+
+Only two small files wire your entire `actions/` folder into Next.js:
+
+```ts
+// next.config.ts
+import type { NextConfig } from "next";
+import { withAgentNativeActions } from "@agent-native/actions/next/config";
+
+const nextConfig: NextConfig = {};
+
+export default withAgentNativeActions(nextConfig);
+```
+
+```ts
+// app/api/agent-native/[...path]/route.ts
+import { createNextHandler } from "@agent-native/actions/next";
+import { actions } from "../../../../.generated/actions";
+
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } =
+  createNextHandler(actions);
+```
+
+Now drop an action into `actions/`:
+
+```ts
+// actions/create-todo.ts
+import { defineAction } from "@agent-native/actions";
+import { z } from "zod";
+import { db } from "@/lib/db";
+
+export default defineAction({
+  description: "Create a new todo item",
+  schema: z.object({
+    title: z.string().describe("What needs to be done"),
+  }),
+  run: async ({ title }) => {
+    return db.todos.create({ title });
+  },
+});
+```
+
+## Calling Actions Across Next.js {#surfaces}
+
+### 1. Client Components (Typed React Hooks)
+
+Create one typed hooks module (or import the defaults from `@agent-native/actions/react` with `.generated/action-types.d.ts`):
+
+```ts
+// lib/actions-client.ts
+"use client";
+
+import { createActionHooks } from "@agent-native/actions/react";
+import type { AppActions } from "../.generated/actions";
+
+export const {
+  useActionQuery,
+  useActionMutation,
+  actionQueryOptions,
+  callAction,
+  actionErrorMessage,
+} = createActionHooks<AppActions>();
+```
+
+```tsx
+// app/todos/todo-list.tsx
+"use client";
+
+import { useActionQuery, useActionMutation } from "@/lib/actions-client";
+
+export function TodoList() {
+  const { data: todos } = useActionQuery("list-todos", { done: false });
+  const createTodo = useActionMutation("create-todo", {
+    invalidate: ["list-todos"],
+  });
+
+  return (
+    <div>
+      <button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
+        Add todo
+      </button>
+      {todos?.map((todo) => <p key={todo.id}>{todo.title}</p>)}
+    </div>
+  );
+}
+```
+
+### 2. Server Components (Zero HTTP Hop)
+
+Call read-only actions directly inside any Server Component with `callNextAction()`. It forwards incoming Next.js `headers()` and cookies into your `createContext()` and rejects mutations during render by default:
+
+```tsx
+// app/todos/page.tsx
+import { callNextAction } from "@agent-native/actions/next/server";
+import { actions } from "../../.generated/actions";
+
+export default async function TodosPage() {
+  const todos = await callNextAction(actions, "list-todos", { done: false });
+
+  return (
+    <main>
+      <h1>Open Todos ({todos.length})</h1>
+      {todos.map((todo) => <p key={todo.id}>{todo.title}</p>)}
+    </main>
+  );
+}
+```
+
+### 3. React Server Actions (`"use server"` & `<form>`)
+
+Export standard `"use server"` functions wrapping `runFormAction()` — it decodes `FormData`, validates through your Zod schema, runs `authorize` and `needsApproval`, and triggers `revalidatePath` / `revalidateTag` after commit:
+
+```ts
+// app/todos/server-actions.ts
+"use server";
+
+import { runFormAction } from "@agent-native/actions/next/server";
+import { actions } from "../../.generated/actions";
+
+export async function createTodo(formData: FormData) {
+  return runFormAction(actions, "create-todo", formData, {
+    revalidatePaths: ["/todos"],
+    revalidateTags: ["todos"],
+  });
+}
+```
+
+```tsx
+<form action={createTodo}>
+  <input name="title" required placeholder="New todo..." />
+  <button type="submit">Add</button>
+</form>
+```
+
+## Split Transports & Manual Setup (Optional) {#manual}
+
+Need HTTP actions and MCP on different paths or auth policies? Use `createNextActionHandler(actions)` and `createNextMcpHandler(actions, { authenticate })` in separate route files.
+
+Prefer explicit registration without `withAgentNativeActions()`? Create `lib/actions.ts` with `createActions({ actions: { ... }, createContext })` and pass it directly to `createNextHandler(actions)`.
+
+<Callout tone="info">
+
+**Pages Router:** Export `createPagesHandler(actions)` from `@agent-native/actions/next/pages` as the default handler in `pages/api/agent-native/[...path].ts`.
+
+</Callout>
+
+## API Reference {#api-reference}
+
+<Signature
+  id="actions-next-handler-signature"
+  name="createNextHandler"
+  params={[
+    {
+      name: "registry",
+      type: "ActionsRegistry<TCtx, TActions>",
+      description: "The generated or manually constructed registry from `createActions()`.",
+    },
+    {
+      name: "options",
+      type: "CombinedHandlerOptions",
+      optional: true,
+      description: "Optional mount prefix, MCP policy, and CORS/CSRF settings.",
+      fields: [
+        {
+          name: "basePath",
+          type: "string",
+          optional: true,
+          default: '"/api/agent-native"',
+          description: "Mount prefix serving `/actions/:name` and `/mcp`.",
+        },
+        {
+          name: "mcp",
+          type: "boolean | McpHandlerOptions",
+          optional: true,
+          default: "true",
+          description: "Configure MCP server metadata, `include`/`exclude` allowlists, and `authenticate(request)`.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpHandlerOptions",
+          optional: true,
+          description: "Configure `cors` and `csrfProtection` (enabled by default for cookie-authenticated mutations).",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "{ GET, POST, PUT, PATCH, DELETE, OPTIONS }",
+    description: "Next.js App Router Route Handler exports.",
+  }}
+/>

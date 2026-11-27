@@ -1,0 +1,136 @@
+---
+title: "Why Actions?"
+description: "How @agent-native/actions compares to tRPC, oRPC, Next.js Server Actions, and rolling your own MCP server — and why unifying human UI and agent operations pays off."
+---
+
+# Why Actions?
+
+Most backend RPC libraries — **tRPC**, **oRPC**, **Next.js Server Actions**, and custom REST endpoints — were designed for a single caller: **your own browser UI**.
+
+The moment you want an in-app AI assistant, external MCP clients (Claude, ChatGPT, Cursor, Codex), or terminal coding agents to perform the same operations as your users, every app hits the same wall: you end up maintaining 2–3 parallel layers (REST/Server Actions + an MCP server + CLI scripts) with duplicated Zod schemas, drifting auth checks, and hand-rolled error handling.
+
+<Comparison>
+
+### Before
+
+- UI calls REST endpoints, tRPC procedures, or Next.js Server Actions
+- External AI clients call a separate hand-written MCP server
+- Developers and coding agents run throwaway scripts with no shared validation
+- Fixing a bug or adding an auth rule means patching three places
+
+### After
+
+- Every operation lives in one `defineAction()` file
+- UI hooks, HTTP endpoints, MCP tools, AI SDK tools, and CLI commands all share one runtime
+- Validation, auth, approvals, and error codes are enforced identically everywhere
+- Every new UI feature becomes agent-callable automatically
+
+</Comparison>
+
+<Diagram id="doc-block-actions-why-fanout" title="One action definition, every human and agent surface" summary="Each defineAction() feeds typed UI hooks, Server Components, HTTP routes, an MCP server, a CLI, and AI SDK tools through one shared validation and auth pipeline.">
+
+```html
+<div class="diagram-anpkg">
+  <div class="anpkg-col anpkg-src">
+    <div class="anpkg-label diagram-muted">Define once</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">actions/*.ts</span>
+      <small class="diagram-muted">Zod / Standard Schema · auth · approvals · fail()</small>
+    </div>
+  </div>
+  <div class="anpkg-arrow diagram-muted" aria-hidden="true">&#8594;</div>
+  <div class="anpkg-col anpkg-targets">
+    <div class="anpkg-label diagram-muted">Call from anywhere</div>
+    <div class="anpkg-grid">
+      <div class="diagram-node">React / Solid / Vue / Svelte</div>
+      <div class="diagram-node">Next.js RSC &amp; Server Actions</div>
+      <div class="diagram-node">HTTP API (Fetch / Node)</div>
+      <div class="diagram-node">MCP Server (HTTP &amp; stdio)</div>
+      <div class="diagram-node">CLI (Humans &amp; Coding Agents)</div>
+      <div class="diagram-node">Vercel / OpenAI / Anthropic SDK</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-anpkg {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.anpkg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.anpkg-src {
+  flex: 1;
+  min-width: 190px;
+}
+.anpkg-targets {
+  flex: 1.8;
+  min-width: 260px;
+}
+.anpkg-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.anpkg-arrow {
+  font-size: 20px;
+  line-height: 1;
+  padding-top: 18px;
+}
+.diagram-anpkg .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  align-items: flex-start;
+}
+.anpkg-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+```
+
+</Diagram>
+
+## How It Compares {#comparison}
+
+| Capability | `@agent-native/actions` | tRPC / oRPC | Next.js Server Actions | Roll-Your-Own MCP |
+| --- | --- | --- | --- | --- |
+| End-to-end typed UI hooks | React, Solid, Vue, Svelte | React (mainly) | React / Next.js only | None |
+| Framework-agnostic core | Yes (Web Fetch + Node) | Partial | Next.js only | Server-only |
+| Auto-generated MCP server (HTTP + stdio) | Built in | DIY | DIY | Manual per tool |
+| Auto-generated CLI (`pnpm action`) | Built in | DIY | No | DIY |
+| AI SDK tool exports (Vercel / OpenAI / Anthropic) | 1 line | DIY | DIY | Separate protocol |
+| LLM-safe JSON Schema normalization | Built in | No | No | DIY |
+| Dynamic `needsApproval` gates | Built in (UI, CLI, MCP) | No | No | DIY |
+| Structured `fail()` error codes for agents & UI | Built in | Error codes only | DIY | DIY |
+
+## What Agents Need That Ordinary RPC Skips {#agent-grade}
+
+Even if you manually wrap tRPC or REST routes into an MCP server, agents fail in subtle ways that ordinary UI RPC libraries never had to solve:
+
+1. **Strict LLM JSON Schema quirks.** Frontier models in strict tool-calling mode reject certain JSON Schema constructs and frequently pad unused optional fields with `null`, `""`, or `[]`. `@agent-native/actions` generates provider-safe schemas from Zod / Standard Schema and normalizes padded optional inputs before your `run()` executes.
+2. **Actionable, safe errors.** Browsers need clean toast messages; agents need machine-readable `errorCode` and bounded `details` to recover on the next turn without leaking stack traces. `fail(message, { status, errorCode, details })` handles both callers from one throw.
+3. **Safety annotations & human approval.** Marking `readOnly: true`, `destructive: true`, `retrySafe: true`, or `needsApproval: (input, ctx) => boolean` automatically sets MCP tool hints, prompts interactively in the CLI, and guards high-risk calls before side effects run.
+4. **Output contracts.** Optional `outputSchema` validates what your action returns so UI components and agent tool results stay locked to the same shape.
+
+## Adopt Incrementally, Graduate Whenever {#incremental}
+
+You don't have to rewrite your app or switch frameworks to get these benefits:
+
+- Mount `@agent-native/actions` beside your existing REST routes, tRPC routers, or Server Actions.
+- Move one feature slice at a time into `actions/` — or let Claude Code / Codex migrate legacy routes mechanically.
+- If you later adopt the full `@agent-native/core` framework (for an in-app Agent Sidebar, real-time UI sync, approvals UI, audit logs, and A2A), your `actions/*.ts` files work with a one-line import change.
+
+## Next Steps
+
+- [**Quickstart →**](/docs/actions-package-quickstart) — set up your first action in under two minutes
+- [**Auth & Incremental Migration →**](/docs/actions-package-auth-migration) — bring Clerk, Better Auth, or Supabase and migrate route-by-route

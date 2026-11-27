@@ -1,0 +1,80 @@
+---
+title: "Beyond Actions"
+description: "What the full Agent-Native framework (@agent-native/core and @agent-native/toolkit) adds on top of @agent-native/actions when you want an in-app agent, live UI sync, approvals UI, audit logs, and collaborative apps."
+---
+
+# Going Beyond Actions
+
+`@agent-native/actions` gives any existing app the **operations layer**: one typed contract shared by your UI hooks, HTTP API, CLI, MCP server, and AI SDK tools.
+
+When you want your app to go from *"agent-callable"* to a complete **agent-native product** — with an in-app AI assistant that sees the user's screen, updates the live UI as it works, asks for approval inline, and runs background automations — the full **Agent-Native framework** (`@agent-native/core` + `@agent-native/toolkit`) builds directly on top of the same actions.
+
+<Comparison>
+
+### :blue: `@agent-native/actions` (Standalone Package)
+
+- Drops into any existing Next.js, Vite, SolidJS, Vue, SvelteKit, or Node app
+- Bring your own auth, database, and UI
+- Typed UI hooks, HTTP API, CLI, MCP server, and AI SDK tool exports
+- Schema validation, `authorize`, `needsApproval`, and structured `fail()` errors
+
+### :green: Full Agent-Native Framework
+
+- Everything in `@agent-native/actions`, plus:
+- **In-app Agent Sidebar & Chat UI** (`AgentKit`) with streaming tool cards & voice dictation
+- **Live UI ↔ Agent sync** — the agent sees what's on screen and UI updates in real time
+- **Approvals UI, Audit Logs & Write Receipts**
+- **Built-in Auth, Orgs, Sharing, Secrets Vault, Automations & A2A**
+
+</Comparison>
+
+## Everything Else the Full Framework Gives You {#full-framework}
+
+<Cards columns={2}>
+
+### :robot: [In-App Agent Sidebar & AgentKit](/docs/native-chat-ui)
+
+Drop a production-grade agent sidebar or chat-first workspace straight into your app — with streaming tool execution cards, generative inline UI, `@`-mentions, voice dictation, and multi-provider model routing.
+
+### :components: [Context Awareness & Real-Time UI Sync](/docs/context-awareness)
+
+Shared SQL `application_state` lets the agent know exactly what page, record, or selection the user is looking at — and SSE change sync refreshes open browser tabs immediately when an agent mutates data.
+
+### :server: [Auth, Orgs, Sharing & Audit Logs](/docs/authentication)
+
+Built-in Better Auth, organization/team switching, row-level `ownableColumns()` with a drop-in Share dialog, and an append-only audit log recording every human and agent write.
+
+### :plug: [Secrets Vault, OAuth & Provider APIs](/docs/workspace-connections)
+
+Per-organization encrypted credential storage, OAuth connect flows, sidebar onboarding checklists, and the `provider-api-request` substrate for HubSpot, Gong, Slack, Linear, and more.
+
+### :calendar: [Automations & Durable Background Runs](/docs/automations)
+
+Event-triggered, webhook-triggered, and scheduled automations backed by durable execution leases that survive serverless timeouts and server restarts.
+
+### :network: [Multi-App Workspaces & A2A](/docs/multi-app-workspace)
+
+Compose focused apps (Mail, Calendar, Slides, Analytics, CRM, custom apps) into one workspace where agents discover and delegate across apps over A2A with unified SSO.
+
+</Cards>
+
+## Shared UI & Collaboration Kits (`@agent-native/toolkit`) {#toolkit}
+
+In addition to the backend runtime, [`@agent-native/toolkit`](/docs/agent-native-toolkit) ships polished, ejectable UI kits for full Agent-Native apps:
+
+- **Real-time collaborative editing** — Yjs CRDT sync with live cursors, presence bars, and recent-edit highlights when humans and agents edit the same document simultaneously
+- **Review & history UI** — inline comments, threaded review, and version history snapshots
+- **App chrome** — Settings shell, Org & Team management, Command palette (`⌘K`), Onboarding setup cards, and Notifications
+
+## Moving from `@agent-native/actions` to `@agent-native/core` {#upgrading}
+
+Your actions are already written in the same `defineAction()` shape used by `@agent-native/core/action`:
+
+- `description`, `schema`, `outputSchema`, `http`, `readOnly`, `retrySafe`, `mcpTool`, `agentTool`, `authorize(input, ctx)`, `needsApproval(input, ctx)`, `fail()`, and `defineActionErrors()` all match.
+- When moving an action into a full `@agent-native/core` app, swap the import to `@agent-native/core/action` and adapt any app-specific `ctx` fields to Core's built-in `ActionRunContext` (`ctx.userEmail`, `ctx.orgId`, `ctx.caller`).
+
+## Next Steps
+
+- [**Getting Started with the Full Framework →**](/docs/getting-started)
+- [**Explore Agent-Native Toolkit →**](/docs/agent-native-toolkit)
+- [**Browse First-Party Templates →**](/docs/cloneable-saas)

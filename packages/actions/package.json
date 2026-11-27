@@ -1,0 +1,172 @@
+{
+  "name": "@agent-native/actions",
+  "version": "0.1.0",
+  "description": "Define app operations once and get typed UI hooks, HTTP endpoints, a CLI, an MCP server, and AI SDK tools in any framework.",
+  "keywords": [
+    "actions",
+    "agent-native",
+    "ai-sdk",
+    "mcp",
+    "nextjs",
+    "rpc",
+    "solidjs",
+    "standard-schema",
+    "svelte",
+    "vite",
+    "vue",
+    "zod"
+  ],
+  "homepage": "https://agent-native.com/docs/actions-package/",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/actions"
+  },
+  "bin": {
+    "actions": "./dist/cli.js",
+    "agent-native-actions": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./solid": {
+      "types": "./dist/solid.d.ts",
+      "default": "./dist/solid.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "default": "./dist/vue.js"
+    },
+    "./vue/server": {
+      "types": "./dist/vue-server.d.ts",
+      "default": "./dist/vue-server.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "default": "./dist/nuxt.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte.d.ts",
+      "default": "./dist/svelte.js"
+    },
+    "./svelte/server": {
+      "types": "./dist/svelte-server.d.ts",
+      "default": "./dist/svelte-server.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "default": "./dist/next.js"
+    },
+    "./next/server": {
+      "types": "./dist/next-server.d.ts",
+      "default": "./dist/next-server.js"
+    },
+    "./next/config": {
+      "types": "./dist/next-config.d.ts",
+      "default": "./dist/next-config.js"
+    },
+    "./next/pages": {
+      "types": "./dist/next-pages.d.ts",
+      "default": "./dist/next-pages.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    },
+    "./webmcp": {
+      "types": "./dist/webmcp.d.ts",
+      "default": "./dist/webmcp.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "@standard-schema/spec": "^1.1.0",
+    "jiti": "^2.7.0"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.101.2",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.2.14",
+    "react": "catalog:",
+    "solid-js": "^1.9.10",
+    "tsup": "^8.4.0",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": ">=5",
+    "next": ">=14",
+    "react": ">=18",
+    "solid-js": ">=1.9",
+    "svelte": ">=5",
+    "vite": ">=5",
+    "vue": ">=3.4",
+    "zod": ">=3.24"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/react-query": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  }
+}

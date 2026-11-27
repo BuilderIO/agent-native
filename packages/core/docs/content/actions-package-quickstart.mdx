@@ -1,0 +1,267 @@
+---
+title: "Quickstart"
+description: "Add @agent-native/actions to an existing app or standalone Node project, define your first action, and call it from UI hooks, HTTP, CLI, MCP, and plain TypeScript."
+---
+
+# Quickstart
+
+Go from zero to an action callable from your **UI**, **HTTP**, **CLI**, **MCP**, and **plain TypeScript** in under two minutes.
+
+## Option 1: Install with Your Coding Agent {#agent-install}
+
+Paste this into **Claude Code**, **Codex**, or **Cursor**:
+
+```text
+Install @agent-native/actions in this repo using https://agent-native.com/docs/actions-package-quickstart.md.
+Run `npx @agent-native/actions init`, wire our existing auth into actions/context.ts,
+add a sample read action and write action in actions/, and verify with `pnpm action --list`.
+```
+
+## Option 2: Run the CLI Installer {#cli-install}
+
+```bash
+npx @agent-native/actions init
+```
+
+The installer detects your stack and adds the smallest possible setup:
+
+- **Vite (React, SolidJS, Vue, Svelte):** Adds 1 plugin line (`agentNativeActionsPlugin()`) to `vite.config.ts`. No route files needed.
+- **Next.js:** Wraps `next.config.ts` with `withAgentNativeActions()` and adds one single catch-all route at `app/api/agent-native/[...path]/route.ts` (serves both HTTP actions and MCP).
+- **Nuxt / SvelteKit:** Adds the single catch-all server handler and Vite/Nuxt integration.
+- **Plain Node / No Framework:** Creates `actions/` and adds `"action": "actions"` to `package.json`.
+
+## 1. Define a Simple Action {#define-action}
+
+Create one file per operation inside `actions/`. The filename becomes the action name (`actions/create-todo.ts` → `create-todo`).
+
+```ts
+// actions/create-todo.ts
+import { defineAction } from "@agent-native/actions";
+import { z } from "zod";
+import { db } from "../lib/db";
+
+export default defineAction({
+  description: "Create a new todo item",
+  schema: z.object({
+    title: z.string().describe("What needs to be done"),
+  }),
+  run: async ({ title }, ctx) => {
+    return db.todos.create({ title, userId: ctx.user.id });
+  },
+});
+```
+
+Add a read action alongside it with `http: { method: "GET" }` and `readOnly: true`:
+
+```ts
+// actions/list-todos.ts
+import { defineAction } from "@agent-native/actions";
+import { z } from "zod";
+import { db } from "../lib/db";
+
+export default defineAction({
+  description: "List todo items for the signed-in user",
+  schema: z.object({
+    done: z.boolean().optional().describe("Filter by completion status"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ done }, ctx) => {
+    return db.todos.findMany({ where: { userId: ctx.user.id, done } });
+  },
+});
+```
+
+## 2. Call It Everywhere {#call-everywhere}
+
+The moment you save those files, every surface works automatically — with end-to-end TypeScript inference from `.generated/action-types.d.ts`.
+
+### From Your UI (Hooks & Reactive Primitives) {#call-from-ui}
+
+<TabsBlock
+  id="quickstart-ui-hooks-tabs"
+  tabs={[
+    {
+      id: "react",
+      label: "React",
+      blocks: [
+        {
+          type: "code",
+          id: "qs-ui-react",
+          data: {
+            language: "tsx",
+            code: `import { useActionQuery, useActionMutation } from "@agent-native/actions/react";
+
+export function TodoList() {
+  const { data: todos } = useActionQuery("list-todos", { done: false });
+  const createTodo = useActionMutation("create-todo");
+
+  return (
+    <button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
+      Add todo ({todos?.length ?? 0})
+    </button>
+  );
+}`,
+          },
+        },
+      ],
+    },
+    {
+      id: "solid",
+      label: "SolidJS",
+      blocks: [
+        {
+          type: "code",
+          id: "qs-ui-solid",
+          data: {
+            language: "tsx",
+            code: `import { createActionQuery, createActionMutation } from "@agent-native/actions/solid";
+
+export function TodoList() {
+  const todos = createActionQuery("list-todos", () => ({ done: false }));
+  const createTodo = createActionMutation("create-todo");
+
+  return (
+    <button onClick={() => createTodo.mutate({ title: "Ship docs" })}>
+      Add todo ({todos()?.length ?? 0})
+    </button>
+  );
+}`,
+          },
+        },
+      ],
+    },
+    {
+      id: "vue",
+      label: "Vue",
+      blocks: [
+        {
+          type: "code",
+          id: "qs-ui-vue",
+          data: {
+            language: "ts",
+            code: `import { useActionQuery, useActionMutation } from "@agent-native/actions/vue";
+
+const { data: todos } = useActionQuery("list-todos", { done: false });
+const createTodo = useActionMutation("create-todo");
+
+createTodo.mutate({ title: "Ship docs" });`,
+          },
+        },
+      ],
+    },
+    {
+      id: "svelte",
+      label: "Svelte 5",
+      blocks: [
+        {
+          type: "code",
+          id: "qs-ui-svelte",
+          data: {
+            language: "ts",
+            code: `import { createActionQuery, createActionMutation } from "@agent-native/actions/svelte";
+
+const todos = createActionQuery("list-todos", () => ({ done: false }));
+const createTodo = createActionMutation("create-todo");
+
+createTodo.mutate({ title: "Ship docs" });`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+Mutations automatically invalidate active queries so the UI stays fresh without manual query-key wiring.
+
+### From the CLI {#call-from-cli}
+
+```bash
+# Discover every action in the repo
+pnpm action --list
+
+# Run an action with flags or JSON
+pnpm action create-todo --title "Ship docs"
+pnpm action list-todos --done false
+```
+
+### Over HTTP {#call-from-http}
+
+```bash
+curl "http://localhost:3000/api/agent-native/actions/list-todos?done=false"
+
+curl -X POST http://localhost:3000/api/agent-native/actions/create-todo \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Ship docs"}'
+```
+
+### Over MCP (Claude, Cursor, ChatGPT, Codex) {#call-from-mcp}
+
+Point any Streamable HTTP MCP client at your app's single endpoint:
+
+```text
+http://localhost:3000/api/agent-native/mcp
+```
+
+Or connect locally over `stdio` without running a web server at all:
+
+```json
+{
+  "mcpServers": {
+    "my-app": {
+      "command": "npx",
+      "args": ["@agent-native/actions", "mcp"]
+    }
+  }
+}
+```
+
+### Without a Framework (Plain Node / TypeScript) {#call-without-framework}
+
+No web framework required. Call actions directly in scripts, cron jobs, workers, or tests:
+
+```ts
+import { createActions } from "@agent-native/actions";
+import createTodo from "./actions/create-todo";
+import listTodos from "./actions/list-todos";
+
+const actions = createActions({
+  actions: { "create-todo": createTodo, "list-todos": listTodos },
+});
+
+const todo = await actions.call(
+  "create-todo",
+  { title: "Ship docs" },
+  { user: { id: "user_1" } },
+);
+```
+
+## 3. Wire Your Existing Auth (Optional) {#add-auth}
+
+Add `actions/context.ts` to resolve your current user from cookies, bearer tokens, or local CLI env — every surface uses the same context:
+
+```ts
+// actions/context.ts
+import { createActionBuilder, type ActionContextInput } from "@agent-native/actions";
+import { getSession } from "../lib/auth";
+
+export async function createContext({ caller, request }: ActionContextInput) {
+  if (caller === "cli") {
+    const devUserId =
+      process.env.NODE_ENV !== "production" ? process.env.DEV_USER_ID : undefined;
+    return { caller, user: devUserId ? { id: devUserId } : null };
+  }
+  const session = request ? await getSession(request) : null;
+  return { caller, user: session?.user ?? null };
+}
+
+export type AppContext = Awaited<ReturnType<typeof createContext>>;
+export const defineAppAction = createActionBuilder<AppContext>();
+```
+
+## Next Steps
+
+- [**Next.js Integration**](/docs/actions-package-next) — single catch-all route, Server Components, React Server Actions, and `revalidateTag`
+- [**Vite Integration**](/docs/actions-package-vite) — 1-line plugin with HMR and zero dev boilerplate
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — Clerk, Better Auth, Supabase recipes and migrating legacy API routes
+- [**Why Actions?**](/docs/actions-package-why) — how this compares to tRPC, Server Actions, and custom MCP servers
