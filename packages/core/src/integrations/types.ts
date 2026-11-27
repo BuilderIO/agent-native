@@ -50,6 +50,13 @@ export interface IncomingMessage {
   actorTrust?: IntegrationActorTrust;
   contextMessages?: IntegrationContextMessage[];
   files?: IntegrationFileReference[];
+  /**
+   * Set when the platform delivers one user action as several webhook
+   * updates, such as a Telegram album. Waiting updates in the same thread
+   * with the same id are folded into one agent turn with the adapter's
+   * `mergeMessageGroup`.
+   */
+  messageGroupId?: string;
   approvedToolCalls?: string[];
   /**
    * Whether the platform cryptographically authenticated that the message
@@ -185,6 +192,12 @@ export interface PlatformAdapter {
   ): ImmediateWebhookResponse | null;
 
   getLegacyExternalThreadIds?(incoming: IncomingMessage): string[];
+
+  /**
+   * Fold updates that share a `messageGroupId` into one message. Only
+   * adapters that set `messageGroupId` need this.
+   */
+  mergeMessageGroup?(messages: IncomingMessage[]): IncomingMessage;
 
   sendResponse(
     message: OutgoingMessage,

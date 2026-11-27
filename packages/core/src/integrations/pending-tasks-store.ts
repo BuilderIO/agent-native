@@ -404,6 +404,58 @@ export async function getNextPendingTaskForThread(
     : null;
 }
 
+export async function listPendingTasksForThread(
+  platform: string,
+  externalThreadId: string,
+): Promise<PendingTask[]> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, dispatch_scope, error_message, created_at, updated_at, completed_at
+      FROM integration_pending_tasks
+      WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
+        AND created_at >= ?
+      ORDER BY created_at ASC, id ASC LIMIT 50`,
+    args: [
+      platform,
+      externalThreadId,
+      Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+    ],
+  });
+  return rows.map((row) => rowToTask(row as Record<string, unknown>));
+}
+
+/**
+ * Close a still-pending task whose message was folded into another task's
+ * turn. Returns false when the task is no longer pending, so two turns can
+ * never take the same message.
+ */
+export async function absorbPendingTask(id: string): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE integration_pending_tasks
+          SET status = ?, updated_at = ?, completed_at = ?, payload = ?
+          WHERE id = ? AND status = 'pending'
+          RETURNING id`,
+    args: ["completed", now, now, "{}", id],
+  });
+  return rows.length > 0;
+}
+
+export async function updateProcessingTaskPayload(
+  id: string,
+  payload: string,
+): Promise<void> {
+  validatePendingTaskPayload(payload);
+  await ensureTable();
+  await getDbExec().execute({
+    sql: `UPDATE integration_pending_tasks
+          SET payload = ?, updated_at = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: [payload, Date.now(), id],
+  });
+}
+
 export async function markTaskCompleted(id: string): Promise<void> {
   await ensureTable();
   const client = getDbExec();
