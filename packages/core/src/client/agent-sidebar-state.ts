@@ -10,6 +10,8 @@ export { hasChatThreadDeepLink } from "./chat-thread-url.js";
 export const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 export const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 export const SIDEBAR_URL_CHANGE_EVENT = "agent-panel:url-change";
+export const SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT =
+  "agent-panel:open-preference-change";
 export const AGENT_SIDEBAR_MIN_WIDTH = 320;
 export const AGENT_SIDEBAR_DEFAULT_MAX_WIDTH = 704;
 export const AGENT_SIDEBAR_WIDE_WIDTH_RATIO = 0.75;
@@ -199,6 +201,15 @@ export function setAgentSidebarOpenPreference(
       ? setExplicitUrlOpenSessionIntent(open, storageKey)
       : true;
   const preferenceSaved = writeAgentSidebarOpenPreference(open, storageKey);
+  if (preferenceSaved) {
+    // Sidebars that share this preference key adopt it, so none keeps a stale
+    // open state that a later toggle would write back over the saved one.
+    window.dispatchEvent(
+      new CustomEvent(SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT, {
+        detail: { key: getAgentSidebarOpenPreferenceKey(storageKey), open },
+      }),
+    );
+  }
   const storageSaved = sessionIntentSaved && preferenceSaved;
   if (urlOverride !== null || !storageSaved) {
     let urlOverrideSaved = replaceAgentSidebarUrlOpenOverride(
