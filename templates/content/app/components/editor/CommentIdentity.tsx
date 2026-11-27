@@ -10,6 +10,7 @@ import {
 } from "@agent-native/toolkit/composer";
 import {
   T3_CODE_MENTION_ENGINE,
+  t3AgentName,
   type CommentMention,
 } from "@shared/comment-mentions";
 import { IconExternalLink } from "@tabler/icons-react";
@@ -210,9 +211,12 @@ function AgentIdentityCard({
   const ranAt = run?.ranAt ? new Date(run.ranAt) : null;
   const effortKey = run?.effort ? REASONING_EFFORT_KEYS[run.effort] : undefined;
   const clientLabel =
-    onBehalfOf?.source === "mcp" || onBehalfOf?.source === "t3-code"
-      ? mcpConnectHostLabel(onBehalfOf.client)
-      : null;
+    onBehalfOf?.source === "t3-code"
+      ? (t3AgentName(onBehalfOf.client) ??
+        mcpConnectHostLabel(onBehalfOf.client))
+      : onBehalfOf?.source === "mcp"
+        ? mcpConnectHostLabel(onBehalfOf.client)
+        : null;
   return (
     <div className="grid gap-2.5">
       <div className="flex min-w-0 items-center gap-2.5">

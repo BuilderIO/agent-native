@@ -30,6 +30,18 @@ export function isT3AgentMention(
   return mention.kind === "agent" && mention.engine === T3_CODE_MENTION_ENGINE;
 }
 
+/**
+ * The name a T3 Code agent has in the @ menu, from its kind. A T3 reply's
+ * author client is that kind, so its byline matches the tag.
+ */
+export function t3AgentName(kind: string | null | undefined): string | null {
+  return kind === "claude-code"
+    ? "Claude Code"
+    : kind === "codex"
+      ? "Codex"
+      : null;
+}
+
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }

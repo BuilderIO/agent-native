@@ -5,6 +5,7 @@ import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
   isT3AgentMention,
+  t3AgentName,
 } from "@shared/comment-mentions";
 import { IconDots } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -116,9 +117,11 @@ export function AgentAttributionBadge({
         : "comments.aiSourceAgent",
   );
   const clientLabel =
-    source === "mcp" || source === "t3-code"
-      ? (mcpConnectHostLabel(client) ?? null)
-      : null;
+    source === "t3-code"
+      ? (t3AgentName(client) ?? mcpConnectHostLabel(client) ?? null)
+      : source === "mcp"
+        ? (mcpConnectHostLabel(client) ?? null)
+        : null;
   const modelLabel = model ? modelDisplayName(model) : null;
   const title = modelLabel ?? clientLabel;
 
@@ -262,6 +265,7 @@ export function CommentEntry({
     aiAuthored && aiSource === "t3-code"
       ? t("comments.t3AgentAuthor", {
           agent:
+            t3AgentName(comment.author_client) ??
             mcpConnectHostLabel(comment.author_client) ??
             modelDisplayName(comment.author_model),
           name: personName,

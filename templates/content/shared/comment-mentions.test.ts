@@ -7,6 +7,7 @@ import {
   parseCommentMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
+  t3AgentName,
   type CommentMention,
 } from "./comment-mentions";
 
@@ -373,5 +374,12 @@ describe("comment mentions", () => {
     expect(() =>
       parseCommentMentions([{ ...tag, thread: "x".repeat(201) }]),
     ).toThrow(/T3 thread ID/);
+  });
+
+  it("names a T3 Code agent as the @ menu does, and nothing else", () => {
+    expect(t3AgentName("claude-code")).toBe("Claude Code");
+    expect(t3AgentName("codex")).toBe("Codex");
+    expect(t3AgentName("cursor")).toBeNull();
+    expect(t3AgentName(null)).toBeNull();
   });
 });
