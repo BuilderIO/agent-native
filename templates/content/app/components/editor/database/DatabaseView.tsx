@@ -13304,7 +13304,7 @@ function isTablePropertyVisible(
   });
 }
 
-function databaseTableCellDisplayValue(
+export function databaseTableCellDisplayValue(
   property: DocumentProperty,
   item?: Pick<ContentDatabaseItem, "bodyHydration" | "document">,
   wrapCells = false,
@@ -13327,10 +13327,6 @@ function databaseTableCellDisplayValue(
     );
   }
 
-  if (isEmptyPropertyValue(property.value)) {
-    return <span aria-hidden="true">&nbsp;</span>;
-  }
-
   if (property.definition.type === "checkbox") {
     const checked = property.value === true;
     return (
@@ -13346,6 +13342,10 @@ function databaseTableCellDisplayValue(
         {checked ? <IconCheck className="size-3" /> : null}
       </span>
     );
+  }
+
+  if (isEmptyPropertyValue(property.value)) {
+    return <span aria-hidden="true">&nbsp;</span>;
   }
 
   return displayValue(property, undefined, wrapCells ? "wrapped" : "compact", {
