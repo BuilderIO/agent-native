@@ -265,8 +265,6 @@ console.error(
   `[guards] Running ${selectedGuards.length} checks with concurrency ${numericConcurrency}`,
 );
 
-// Start the slowest full-tree guards first (Longest-Processing-Time-First) so
-// they overlap with fast guards instead of sticking out as an idle-worker tail.
 const PRIORITY_HEAVY_GUARDS = new Map<GuardName, number>([
   ["guard:i18n-catalogs", 0],
   ["guard:migration-manifest", 1],
