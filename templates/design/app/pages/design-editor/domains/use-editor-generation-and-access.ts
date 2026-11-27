@@ -492,6 +492,14 @@ export function useEditorGenerationAndAccess({
       clearGenerationCompleteTimer();
       clearAutoRetryTimer();
       const reportFailure = () => {
+        if (failure?.setupRequired) {
+          clearPendingGeneration(id);
+          setHasPendingGeneration(false);
+          setRetryablePrompt(null);
+          setGenerationIssue(null);
+          staleToastShownRef.current = false;
+          return;
+        }
         // A rejected request fails the same way on resend; keep only the manual retry.
         const preservedForRetry = rememberPendingGenerationForRetry(
           failure?.retryable !== false,
