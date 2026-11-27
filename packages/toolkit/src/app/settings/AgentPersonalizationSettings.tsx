@@ -13,6 +13,7 @@ import {
   saveWithMerge,
   type SavedRecord,
 } from "@agent-native/core/save-conflict";
+import type { ModelRow } from "@agent-native/design-system/model";
 import {
   ActionButton,
   Skeleton,
@@ -20,8 +21,8 @@ import {
 } from "@agent-native/toolkit/design-system";
 import { useRef, useState } from "react";
 
+import { ModelSurface, rowAttributes } from "../../design-system/parts.js";
 import { useSaveConflictPrompt } from "../save-conflict.js";
-import { SettingsGroup } from "./SettingsRow.js";
 
 type Field = "instructions" | "memory";
 
@@ -270,75 +271,110 @@ export function AgentPersonalizationSettings() {
     return null;
   };
 
+  const group = (id: string, label: string, description: string): ModelRow => ({
+    id: `settings.agent.${id}`,
+    part: "settings.group",
+    label,
+    description,
+    rows: [
+      {
+        id: `settings.agent.${id}.editor`,
+        part: "settings.content",
+        label,
+        slot: id,
+      },
+    ],
+  });
+
   return (
     <div className="w-full space-y-7">
-      <SettingsGroup
-        title={labels.customInstructions}
-        description={labels.customInstructionsHelp}
-      >
-        <div className="space-y-2 px-5 py-4 sm:px-6">
-          <TextArea
-            id="agent-personal-instructions"
-            aria-label={labels.customInstructions}
-            value={instructionsValue}
-            onChange={(value) => {
-              startDraft("instructions");
-              setInstructionsDraft(value);
-              setSavedField(null);
-              setFailedField(null);
-            }}
-            placeholder={labels.instructionsPlaceholder}
-            rows={8}
-            className="resize-y text-sm"
-            disabled={saving}
-          />
-          <div className="flex min-h-9 items-center gap-3">
-            <ActionButton
-              type="button"
-              emphasis="solid"
-              disabled={!canSaveInstructions || saving}
-              onPress={() => void save("instructions", instructionsValue)}
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            group(
+              "instructions",
+              labels.customInstructions,
+              labels.customInstructionsHelp,
+            ),
+            group(
+              "memory",
+              labels.memoryInstructions,
+              labels.memoryInstructionsHelp,
+            ),
+          ],
+        }}
+        slots={{
+          instructions: (row: ModelRow) => (
+            <div
+              {...rowAttributes(row)}
+              className="space-y-2 px-5 py-4 sm:px-6"
             >
-              {savingField === "instructions" ? labels.saving : labels.save}
-            </ActionButton>
-            {renderSaveStatus("instructions")}
-          </div>
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title={labels.memoryInstructions}
-        description={labels.memoryInstructionsHelp}
-      >
-        <div className="space-y-2 px-5 py-4 sm:px-6">
-          <TextArea
-            id="agent-personal-memory-instructions"
-            aria-label={labels.memoryInstructions}
-            value={memoryValue}
-            onChange={(value) => {
-              startDraft("memory");
-              setMemoryDraft(value);
-              setSavedField(null);
-              setFailedField(null);
-            }}
-            placeholder={labels.memoryPlaceholder}
-            rows={5}
-            className="resize-y text-sm"
-            disabled={saving}
-          />
-          <div className="flex min-h-9 items-center gap-3">
-            <ActionButton
-              type="button"
-              emphasis="solid"
-              disabled={!canSaveMemory || saving}
-              onPress={() => void save("memory", memoryValue)}
+              <TextArea
+                id="agent-personal-instructions"
+                aria-label={labels.customInstructions}
+                value={instructionsValue}
+                onChange={(value) => {
+                  startDraft("instructions");
+                  setInstructionsDraft(value);
+                  setSavedField(null);
+                  setFailedField(null);
+                }}
+                placeholder={labels.instructionsPlaceholder}
+                rows={8}
+                // guard:allow-part-geometry kept from main until the toolkit migration sizes this TextArea
+                className="resize-y text-sm"
+                disabled={saving}
+              />
+              <div className="flex min-h-9 items-center gap-3">
+                <ActionButton
+                  type="button"
+                  emphasis="solid"
+                  disabled={!canSaveInstructions || saving}
+                  onPress={() => void save("instructions", instructionsValue)}
+                >
+                  {savingField === "instructions" ? labels.saving : labels.save}
+                </ActionButton>
+                {renderSaveStatus("instructions")}
+              </div>
+            </div>
+          ),
+          memory: (row: ModelRow) => (
+            <div
+              {...rowAttributes(row)}
+              className="space-y-2 px-5 py-4 sm:px-6"
             >
-              {savingField === "memory" ? labels.saving : labels.save}
-            </ActionButton>
-            {renderSaveStatus("memory")}
-          </div>
-        </div>
-      </SettingsGroup>
+              <TextArea
+                id="agent-personal-memory-instructions"
+                aria-label={labels.memoryInstructions}
+                value={memoryValue}
+                onChange={(value) => {
+                  startDraft("memory");
+                  setMemoryDraft(value);
+                  setSavedField(null);
+                  setFailedField(null);
+                }}
+                placeholder={labels.memoryPlaceholder}
+                rows={5}
+                // guard:allow-part-geometry kept from main until the toolkit migration sizes this TextArea
+                className="resize-y text-sm"
+                disabled={saving}
+              />
+              <div className="flex min-h-9 items-center gap-3">
+                <ActionButton
+                  type="button"
+                  emphasis="solid"
+                  disabled={!canSaveMemory || saving}
+                  onPress={() => void save("memory", memoryValue)}
+                >
+                  {savingField === "memory" ? labels.saving : labels.save}
+                </ActionButton>
+                {renderSaveStatus("memory")}
+              </div>
+            </div>
+          ),
+        }}
+      />
       {conflicts.instructions.prompt}
       {conflicts.memory.prompt}
     </div>

@@ -13,6 +13,11 @@ type TablerIcon = ComponentType<{
   "aria-hidden"?: boolean;
 }>;
 
+/** The integration logo set's image for a brand, or "" when it has none. */
+export function brandLogoUrl(logoId: string | null | undefined): string {
+  return logoId ? mcpIntegrationLogo(logoId) : "";
+}
+
 /**
  * A brand logo from the integration logo set, or the given icon when the set
  * has none. Sized for a `SettingsRow` icon well (`md`) or a select item (`sm`).
@@ -26,7 +31,7 @@ export function BrandLogo({
   fallback?: TablerIcon;
   size?: "sm" | "md";
 }) {
-  const url = logoId ? mcpIntegrationLogo(logoId) : "";
+  const url = brandLogoUrl(logoId);
   const box = size === "sm" ? "size-4" : "size-[18px]";
   if (url) {
     return (

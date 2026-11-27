@@ -5,11 +5,18 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/use-action";
 import type { LabDefinition } from "@agent-native/core/labs/registry";
+import { type ModelRow, rowIdSegment } from "@agent-native/design-system/model";
 import { Switch } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
+import { type ModelFragment, ModelSurface } from "../../design-system/parts.js";
 
 export interface LabsSettingsProps {
   labs: readonly LabDefinition[];
@@ -217,137 +224,172 @@ function useRefocusAfterSave(saving: boolean): (key: string) => void {
   }, []);
 }
 
-function LabRows({ state }: { state: LabsSettingsState }) {
+function useLabRows(state: LabsSettingsState): ModelFragment {
   const t = useT();
   const refocusAfterSave = useRefocusAfterSave(state.disabled);
   const save = (lab: LabDefinition, enabled: boolean | null) => {
     refocusAfterSave(lab.key);
     state.toggle(lab, enabled);
   };
-  return (
-    <>
-      {state.loadFailed ? (
-        <SettingsRow
-          label={t("agentChat.settingsShell.appGroup.labsLoadError")}
-          control={
+  const rows: ModelRow[] = [];
+  const slots: Record<string, ReactNode> = {};
+  if (state.loadFailed) {
+    rows.push({
+      id: "settings.labs.load-error",
+      part: "settings.row",
+      label: t("agentChat.settingsShell.appGroup.labsLoadError"),
+      rows: [
+        {
+          id: "settings.labs.load-error.retry",
+          part: "button",
+          kind: "action",
+          label: t("agentChat.settingsShell.appGroup.retry"),
+          effect: { kind: "action", effectId: "retry-labs" },
+        },
+      ],
+    });
+  }
+  if (state.labs.length > 0) {
+    const showAllLabel = t("agentChat.settingsShell.appGroup.labsShowAll");
+    rows.push({
+      id: "settings.labs.show-all",
+      part: "settings.row",
+      label: showAllLabel,
+      anchor: "labs-show-all",
+      slot: "labs-show-all-control",
+    });
+    slots["labs-show-all-control"] = (
+      <Switch
+        checked={state.showAll}
+        onChange={state.toggleShowAll}
+        disabled={state.disabled || !state.showAllReady}
+        aria-label={showAllLabel}
+      />
+    );
+  }
+  for (const lab of state.labs) {
+    const label = lab.displayNameKey
+      ? t(lab.displayNameKey)
+      : (lab.displayName ?? lab.key);
+    const description = lab.descriptionKey
+      ? t(lab.descriptionKey)
+      : lab.description;
+    const failed = state.failedLab?.key === lab.key;
+    const unreadable = state.hasError(lab);
+    const mixed = state.mixed(lab);
+    const hostDecided = state.hostDecided(lab);
+    const segment = rowIdSegment(lab.key);
+    const error = failed
+      ? t("agentChat.settingsShell.appGroup.labsSaveError", { lab: label })
+      : unreadable
+        ? t("agentChat.settingsShell.appGroup.labsReadError")
+        : null;
+    const hostDecidedText = t(
+      "agentChat.settingsShell.appGroup.labsHostDecided",
+    );
+    const drawnDescription =
+      error ??
+      (mixed
+        ? (lab.inheritedMixedDescription ?? description)
+        : hostDecided
+          ? [description, hostDecidedText].filter(Boolean).join(" ")
+          : description);
+    const describedByRegion = !!error || (!mixed && hostDecided);
+    rows.push({
+      id: `settings.labs.${segment}`,
+      part: "settings.row",
+      label,
+      description: drawnDescription,
+      anchor: `lab-${lab.key}`,
+      ...(describedByRegion
+        ? { regions: { description: `lab-${segment}-description` } }
+        : {}),
+      slot: `lab-${segment}-control`,
+    });
+    slots[`lab-${segment}-description`] = error ? (
+      <span role="alert" className="text-destructive">
+        {error}
+      </span>
+    ) : (
+      <>
+        {description ? <span className="block">{description}</span> : null}
+        <span className="block">{hostDecidedText}</span>
+      </>
+    );
+    slots[`lab-${segment}-control`] =
+      unreadable || mixed ? (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={state.disabled}
+            onClick={() => save(lab, true)}
+            aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.on")}`}
+          >
+            {t("agentChat.settingsShell.channels.state.on")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={state.disabled}
+            onClick={() => save(lab, false)}
+            aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.off")}`}
+          >
+            {t("agentChat.settingsShell.channels.state.off")}
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          {state.chosen(lab) ? (
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              onClick={state.retry}
+              disabled={state.disabled}
+              onClick={() => save(lab, null)}
+              aria-label={`${label}: ${t("agentChat.settingsShell.appGroup.labsUseDefault")}`}
             >
-              {t("agentChat.settingsShell.appGroup.retry")}
+              {t("agentChat.settingsShell.appGroup.labsUseDefault")}
             </Button>
-          }
-        />
-      ) : null}
-      {state.labs.length > 0 ? (
-        <SettingsRow
-          id="labs-show-all"
-          label={t("agentChat.settingsShell.appGroup.labsShowAll")}
-          control={
-            <Switch
-              checked={state.showAll}
-              onChange={state.toggleShowAll}
-              disabled={state.disabled || !state.showAllReady}
-              aria-label={t("agentChat.settingsShell.appGroup.labsShowAll")}
-            />
-          }
-        />
-      ) : null}
-      {state.labs.map((lab) => {
-        const label = lab.displayNameKey
-          ? t(lab.displayNameKey)
-          : (lab.displayName ?? lab.key);
-        const description = lab.descriptionKey
-          ? t(lab.descriptionKey)
-          : lab.description;
-        const failed = state.failedLab?.key === lab.key;
-        const unreadable = state.hasError(lab);
-        const mixed = state.mixed(lab);
-        const hostDecided = state.hostDecided(lab);
-        return (
-          <SettingsRow
-            key={lab.key}
-            id={`lab-${lab.key}`}
-            label={label}
-            description={
-              failed ? (
-                <span role="alert" className="text-destructive">
-                  {t("agentChat.settingsShell.appGroup.labsSaveError", {
-                    lab: label,
-                  })}
-                </span>
-              ) : unreadable ? (
-                <span role="alert" className="text-destructive">
-                  {t("agentChat.settingsShell.appGroup.labsReadError")}
-                </span>
-              ) : mixed ? (
-                (lab.inheritedMixedDescription ?? description)
-              ) : hostDecided ? (
-                <>
-                  {description ? (
-                    <span className="block">{description}</span>
-                  ) : null}
-                  <span className="block">
-                    {t("agentChat.settingsShell.appGroup.labsHostDecided")}
-                  </span>
-                </>
-              ) : (
-                description
-              )
-            }
-            control={
-              unreadable || mixed ? (
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={state.disabled}
-                    onClick={() => save(lab, true)}
-                    aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.on")}`}
-                  >
-                    {t("agentChat.settingsShell.channels.state.on")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={state.disabled}
-                    onClick={() => save(lab, false)}
-                    aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.off")}`}
-                  >
-                    {t("agentChat.settingsShell.channels.state.off")}
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {state.chosen(lab) ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={state.disabled}
-                      onClick={() => save(lab, null)}
-                      aria-label={`${label}: ${t("agentChat.settingsShell.appGroup.labsUseDefault")}`}
-                    >
-                      {t("agentChat.settingsShell.appGroup.labsUseDefault")}
-                    </Button>
-                  ) : null}
-                  <Switch
-                    checked={state.enabled(lab)}
-                    onChange={(next) => save(lab, next)}
-                    disabled={state.disabled || hostDecided}
-                    aria-label={label}
-                  />
-                </div>
-              )
-            }
+          ) : null}
+          <Switch
+            checked={state.enabled(lab)}
+            onChange={(next) => save(lab, next)}
+            disabled={state.disabled || hostDecided}
+            aria-label={label}
           />
-        );
-      })}
-    </>
+        </div>
+      );
+  }
+  return { rows, actions: { "retry-labs": () => state.retry() }, slots };
+}
+
+function LabsGroup({
+  state,
+  group,
+}: {
+  state: LabsSettingsState;
+  group: Omit<ModelRow, "id" | "part" | "rows">;
+}) {
+  const fragment = useLabRows(state);
+  return (
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [
+          {
+            ...group,
+            id: "settings.labs",
+            part: "settings.group",
+            rows: fragment.rows,
+          },
+        ],
+      }}
+      actions={fragment.actions}
+      slots={fragment.slots}
+    />
   );
 }
 
@@ -358,9 +400,7 @@ export function LabsSettings({
 }: LabsSettingsProps) {
   const state = useLabsSettingsState(labs);
   return (
-    <SettingsGroup title={title} description={intro}>
-      <LabRows state={state} />
-    </SettingsGroup>
+    <LabsGroup state={state} group={{ label: title, description: intro }} />
   );
 }
 
@@ -376,9 +416,7 @@ export function LabsSettingsGroup({ labs, title }: LabsSettingsGroupProps) {
   const state = useLabsSettingsState(labs);
   return (
     <div className="flex flex-col gap-2.5">
-      <SettingsGroup id="labs" title={title}>
-        <LabRows state={state} />
-      </SettingsGroup>
+      <LabsGroup state={state} group={{ label: title, anchor: "labs" }} />
       <p className="px-0.5 text-xs text-muted-foreground">
         {t("agentChat.settingsShell.appGroup.labsFootnote")}
       </p>

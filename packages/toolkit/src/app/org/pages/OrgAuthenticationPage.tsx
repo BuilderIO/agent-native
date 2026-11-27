@@ -5,6 +5,12 @@ import {
   type SocialSignInMethod,
 } from "@agent-native/core/org/sign-in-methods";
 import type { OrgInfo } from "@agent-native/core/org/types";
+import type { ScreenModel } from "@agent-native/design-system/model";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -17,13 +23,12 @@ import {
 import { IconCircleCheck, IconCircleOff } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { SettingsGroup, SettingsRow } from "../../settings/SettingsRow.js";
 import {
-  A2AMemberDelegationSection,
-  A2ASecretSection,
-  DomainSettingsSection,
+  useA2AMemberDelegationFragment,
+  useA2ASecretFragment,
+  useDomainSettingsFragment,
 } from "../AuthenticationSection.js";
-import { OrgIdentitySettings } from "../OrgIdentitySettings.js";
+import { useOrgIdentityFragment } from "../OrgIdentitySettings.js";
 import { OrgPageGate } from "./OrgPageGate.js";
 
 const SOCIAL_METHOD_NAMES: Record<SocialSignInMethod, string> = {
@@ -99,117 +104,141 @@ function MethodItem({
   );
 }
 
-function SignInMethodsRow({
-  methods,
-  orgName,
-}: {
-  methods: OrgSignInMethods;
-  orgName: string;
-}) {
+function useSignInMethodsFragment(
+  methods: OrgSignInMethods | null | undefined,
+  orgName: string,
+): ModelFragment {
   const t = useT();
   const [open, setOpen] = useState(false);
   const title = t("agentChat.settingsShell.search.signInMethods");
 
-  return (
-    <SettingsRow
-      id="sign-in-methods"
-      label={title}
-      description={describeSignInMethods(methods, t)}
-      control={
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setOpen(true)}
-          >
-            {t("agentChat.settingsOrg.auth.view")}
-          </Button>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>{title}</DialogTitle>
-              </DialogHeader>
-              <ul className="divide-y divide-border/60 rounded-lg border border-border/70">
+  if (!methods) return { rows: [] };
+  return {
+    rows: [
+      {
+        id: "settings.org.sign-in-methods",
+        part: "settings.row",
+        label: title,
+        description: describeSignInMethods(methods, t),
+        anchor: "sign-in-methods",
+        slot: "sign-in-methods",
+        rows: [
+          {
+            id: "settings.org.sign-in-methods.view",
+            part: "button",
+            kind: "action",
+            label: t("agentChat.settingsOrg.auth.view"),
+            effect: { kind: "action", effectId: "view-sign-in-methods" },
+          },
+        ],
+      },
+    ],
+    actions: { "view-sign-in-methods": () => setOpen(true) },
+    slots: {
+      "sign-in-methods": (
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{title}</DialogTitle>
+            </DialogHeader>
+            <ul className="divide-y divide-border/60 rounded-lg border border-border/70">
+              <MethodItem
+                on
+                name={t("agentChat.settingsOrg.auth.emailPassword")}
+                note={t("agentChat.settingsOrg.auth.emailPasswordNote")}
+              />
+              {SOCIAL_METHODS.map((method) => (
                 <MethodItem
-                  on
-                  name={t("agentChat.settingsOrg.auth.emailPassword")}
-                  note={t("agentChat.settingsOrg.auth.emailPasswordNote")}
+                  key={method}
+                  on={methods[method]}
+                  name={SOCIAL_METHOD_NAMES[method]}
+                  note={
+                    methods[method]
+                      ? t("agentChat.settingsOrg.auth.methodConfigured")
+                      : t("agentChat.settingsOrg.auth.methodNotConfigured")
+                  }
+                  envVars={SIGN_IN_METHOD_ENV_VARS[method]}
                 />
-                {SOCIAL_METHODS.map((method) => (
-                  <MethodItem
-                    key={method}
-                    on={methods[method]}
-                    name={SOCIAL_METHOD_NAMES[method]}
-                    note={
-                      methods[method]
-                        ? t("agentChat.settingsOrg.auth.methodConfigured")
-                        : t("agentChat.settingsOrg.auth.methodNotConfigured")
-                    }
-                    envVars={SIGN_IN_METHOD_ENV_VARS[method]}
-                  />
-                ))}
-              </ul>
-              <p className="text-sm text-muted-foreground">
-                {t("agentChat.settingsOrg.auth.requireHint", { org: orgName })}
-              </p>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="secondary">
-                    {t("agentChat.settingsOrg.auth.close")}
-                  </Button>
-                </DialogClose>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </>
-      }
-    />
-  );
+              ))}
+            </ul>
+            <p className="text-sm text-muted-foreground">
+              {t("agentChat.settingsOrg.auth.requireHint", { org: orgName })}
+            </p>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="secondary">
+                  {t("agentChat.settingsOrg.auth.close")}
+                </Button>
+              </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ),
+    },
+  };
 }
 
 function OrgAuthenticationContent({ org }: { org: OrgInfo }) {
   const t = useT();
 
+  const isOwner = org.role === "owner";
+  const signInMethods = useSignInMethodsFragment(
+    org.signInMethods,
+    org.orgName ?? "",
+  );
+  const signIn = useOrgIdentityFragment({
+    org,
+    requiredAuthProvider: org.requiredAuthProvider,
+    afterSignIn: signInMethods,
+  });
+  const joining = useDomainSettingsFragment({
+    domain: org.allowedDomain,
+    ownerEmail: org.email,
+  });
+  const secret = useA2ASecretFragment({ isSet: Boolean(org.a2aSecretSet) });
+  const delegation = useA2AMemberDelegationFragment({
+    enabled: Boolean(org.a2aMemberDelegationEnabled),
+  });
+  const betweenApps = combineFragments(isOwner ? [secret, delegation] : []);
+  const runtime = combineFragments([signIn, joining, betweenApps]);
+  const model: ScreenModel = {
+    id: "settings",
+    rows: [
+      {
+        id: "settings.org-auth.sign-in",
+        part: "settings.group",
+        label: t("agentChat.settingsOrg.auth.signIn"),
+        anchor: "sign-in",
+        rows: signIn.rows,
+      },
+      {
+        id: "settings.org-auth.joining",
+        part: "settings.group",
+        label: t("agentChat.settingsOrg.auth.joining"),
+        anchor: "joining",
+        rows: joining.rows,
+      },
+      ...(isOwner
+        ? [
+            {
+              id: "settings.org-auth.between-apps",
+              part: "settings.group",
+              label: t("agentChat.settingsOrg.auth.betweenApps"),
+              anchor: "between-apps",
+              rows: betweenApps.rows,
+            },
+          ]
+        : []),
+    ],
+  };
+
   return (
     <div className="space-y-8">
-      <SettingsGroup
-        id="sign-in"
-        title={t("agentChat.settingsOrg.auth.signIn")}
-      >
-        <OrgIdentitySettings
-          org={org}
-          requiredAuthProvider={org.requiredAuthProvider}
-          afterSignIn={
-            org.signInMethods ? (
-              <SignInMethodsRow
-                methods={org.signInMethods}
-                orgName={org.orgName ?? ""}
-              />
-            ) : null
-          }
-        />
-      </SettingsGroup>
-      <SettingsGroup
-        id="joining"
-        title={t("agentChat.settingsOrg.auth.joining")}
-      >
-        <DomainSettingsSection
-          domain={org.allowedDomain}
-          ownerEmail={org.email}
-        />
-      </SettingsGroup>
-      {org.role === "owner" && (
-        <SettingsGroup
-          id="between-apps"
-          title={t("agentChat.settingsOrg.auth.betweenApps")}
-        >
-          <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />
-          <A2AMemberDelegationSection
-            enabled={Boolean(org.a2aMemberDelegationEnabled)}
-          />
-        </SettingsGroup>
-      )}
+      <ModelSurface
+        model={model}
+        actions={runtime.actions}
+        slots={runtime.slots}
+      />
     </div>
   );
 }

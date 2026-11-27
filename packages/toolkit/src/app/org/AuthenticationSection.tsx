@@ -9,7 +9,13 @@ import {
   type SyncA2ASecretResult,
 } from "@agent-native/core/client/org";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
+import type { OrgInfo } from "@agent-native/core/org/types";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
@@ -40,8 +46,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
-import { OrgIdentitySettings } from "./OrgIdentitySettings.js";
+import { useOrgIdentityFragment } from "./OrgIdentitySettings.js";
 import {
   ErrorText,
   OrganizationDescription,
@@ -49,13 +54,16 @@ import {
   SectionTooltipProvider,
 } from "./TeamPrimitives.js";
 
-export function DomainSettingsSection({
-  domain,
-  ownerEmail,
-}: {
+interface DomainSettingsProps {
   domain: string | null;
   ownerEmail: string;
-}) {
+}
+
+/** Domain auto-join: anyone with the organization's email domain can join. */
+export function useDomainSettingsFragment({
+  domain,
+  ownerEmail,
+}: DomainSettingsProps): ModelFragment {
   const t = useT();
   const setOrgDomain = useSetOrgDomain();
   const [editing, setEditing] = useState(false);
@@ -79,11 +87,138 @@ export function DomainSettingsSection({
     });
   }
 
-  return (
-    <SettingsRow
-      id="email-domain"
-      label={t("agentChat.settingsOrg.search.domainAutoJoin")}
-      description={
+  const description = shownDomain
+    ? t("agentChat.settingsOrg.auth.domainDescription", {
+        domain: shownDomain,
+      })
+    : t("agentChat.settingsOrg.auth.domainDescriptionNoDomain");
+
+  return {
+    rows: [
+      {
+        id: "settings.org.email-domain",
+        part: "settings.row",
+        label: t("agentChat.settingsOrg.search.domainAutoJoin"),
+        description,
+        anchor: "email-domain",
+        slot: "email-domain",
+        regions: {
+          description: "email-domain-description",
+          ...(setOrgDomain.error ? { detail: "email-domain-error" } : {}),
+        },
+      },
+    ],
+    slots: {
+      "email-domain": !editing ? (
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          {domain ? (
+            <>
+              <span className="me-1 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm">
+                <IconAt className="size-3.5 text-muted-foreground" />
+                {domain}
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToolkitButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("agentChat.settingsOrg.auth.editDomain")}
+                    onClick={() => {
+                      setDraft(domain);
+                      setEditing(true);
+                    }}
+                  >
+                    <IconPencil />
+                  </ToolkitButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("agentChat.settingsOrg.auth.editDomain")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToolkitButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("agentChat.settingsOrg.auth.removeDomain")}
+                    disabled={setOrgDomain.isPending}
+                    onClick={() => setOrgDomain.mutate(null)}
+                  >
+                    <IconX />
+                  </ToolkitButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("agentChat.settingsOrg.auth.removeDomain")}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          ) : canEnableOwnDomain ? (
+            <ToolkitButton
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={setOrgDomain.isPending}
+              onClick={() => setOrgDomain.mutate(ownDomain)}
+            >
+              <PendingLabel
+                pending={setOrgDomain.isPending}
+                label={t("org.enableDomainJoin", { domain: ownDomain })}
+                pendingLabel={t("org.enableDomainJoin", {
+                  domain: ownDomain,
+                })}
+              />
+            </ToolkitButton>
+          ) : null}
+        </div>
+      ) : (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            save();
+          }}
+        >
+          <Input
+            type="text"
+            size="sm"
+            value={draft}
+            aria-label={t("agentChat.settingsOrg.search.domainAutoJoin")}
+            aria-invalid={setOrgDomain.error ? true : undefined}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditing(false);
+            }}
+            placeholder={ownDomain || "example.com"}
+            className="w-44"
+            autoFocus
+          />
+          <ToolkitButton
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditing(false);
+              setOrgDomain.reset();
+            }}
+          >
+            {t("agentChat.common.cancel")}
+          </ToolkitButton>
+          <ToolkitButton
+            type="submit"
+            size="sm"
+            disabled={setOrgDomain.isPending}
+          >
+            <PendingLabel
+              pending={setOrgDomain.isPending}
+              label={t("agentChat.common.save")}
+              pendingLabel={t("agentChat.common.saving")}
+            />
+          </ToolkitButton>
+        </form>
+      ),
+      "email-domain-description": (
         <OrganizationDescription
           help={t("agentChat.settingsOrg.auth.domainHelp")}
           docsUrl={docsUrl("organizations-teams-permissions", {
@@ -91,131 +226,24 @@ export function DomainSettingsSection({
             content: "domain_auto_join",
           })}
         >
-          {shownDomain
-            ? t("agentChat.settingsOrg.auth.domainDescription", {
-                domain: shownDomain,
-              })
-            : t("agentChat.settingsOrg.auth.domainDescriptionNoDomain")}
+          {description}
         </OrganizationDescription>
-      }
-      control={
-        !editing ? (
-          <div className="flex flex-wrap items-center justify-end gap-1">
-            {domain ? (
-              <>
-                <span className="me-1 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm">
-                  <IconAt className="size-3.5 text-muted-foreground" />
-                  {domain}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <ToolkitButton
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("agentChat.settingsOrg.auth.editDomain")}
-                      onClick={() => {
-                        setDraft(domain);
-                        setEditing(true);
-                      }}
-                    >
-                      <IconPencil />
-                    </ToolkitButton>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("agentChat.settingsOrg.auth.editDomain")}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <ToolkitButton
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("agentChat.settingsOrg.auth.removeDomain")}
-                      disabled={setOrgDomain.isPending}
-                      onClick={() => setOrgDomain.mutate(null)}
-                    >
-                      <IconX />
-                    </ToolkitButton>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("agentChat.settingsOrg.auth.removeDomain")}
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            ) : canEnableOwnDomain ? (
-              <ToolkitButton
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={setOrgDomain.isPending}
-                onClick={() => setOrgDomain.mutate(ownDomain)}
-              >
-                <PendingLabel
-                  pending={setOrgDomain.isPending}
-                  label={t("org.enableDomainJoin", { domain: ownDomain })}
-                  pendingLabel={t("org.enableDomainJoin", {
-                    domain: ownDomain,
-                  })}
-                />
-              </ToolkitButton>
-            ) : null}
-          </div>
-        ) : (
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              save();
-            }}
-          >
-            <Input
-              type="text"
-              size="sm"
-              value={draft}
-              aria-label={t("agentChat.settingsOrg.search.domainAutoJoin")}
-              aria-invalid={setOrgDomain.error ? true : undefined}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setEditing(false);
-              }}
-              placeholder={ownDomain || "example.com"}
-              className="w-44"
-              autoFocus
-            />
-            <ToolkitButton
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditing(false);
-                setOrgDomain.reset();
-              }}
-            >
-              {t("agentChat.common.cancel")}
-            </ToolkitButton>
-            <ToolkitButton
-              type="submit"
-              size="sm"
-              disabled={setOrgDomain.isPending}
-            >
-              <PendingLabel
-                pending={setOrgDomain.isPending}
-                label={t("agentChat.common.save")}
-                pendingLabel={t("agentChat.common.saving")}
-              />
-            </ToolkitButton>
-          </form>
-        )
-      }
-    >
-      {setOrgDomain.error ? <ErrorText error={setOrgDomain.error} /> : null}
-    </SettingsRow>
-  );
+      ),
+      "email-domain-error": <ErrorText error={setOrgDomain.error} />,
+    },
+  };
 }
 
-export function A2ASecretSection({ isSet }: { isSet: boolean }) {
+export function DomainSettingsSection(props: DomainSettingsProps) {
+  return <FragmentSurface fragment={useDomainSettingsFragment(props)} />;
+}
+
+/** The shared secret apps in the organization sign their calls with. */
+export function useA2ASecretFragment({
+  isSet,
+}: {
+  isSet: boolean;
+}): ModelFragment {
   const t = useT();
   const revealA2ASecret = useRevealA2ASecret();
   const setA2ASecret = useSetA2ASecret();
@@ -302,16 +330,21 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
     ? t("agentChat.settingsOrg.auth.hide")
     : t("agentChat.settingsOrg.auth.reveal");
 
-  return (
-    <SettingsRow
-      id="cross-app-authentication"
-      label={t("agentChat.settingsOrg.auth.sharedSecret")}
-      description={
-        isSet
+  return {
+    rows: [
+      {
+        id: "settings.org.cross-app-authentication",
+        part: "settings.row",
+        label: t("agentChat.settingsOrg.auth.sharedSecret"),
+        description: isSet
           ? t("agentChat.settingsOrg.auth.sharedSecretSet")
-          : t("agentChat.settingsOrg.auth.sharedSecretNotSet")
-      }
-      control={
+          : t("agentChat.settingsOrg.auth.sharedSecretNotSet"),
+        anchor: "cross-app-authentication",
+        slot: "cross-app-authentication",
+      },
+    ],
+    slots: {
+      "cross-app-authentication": (
         <Popover>
           <PopoverTrigger asChild>
             <ToolkitButton type="button" variant="outline" size="sm">
@@ -503,19 +536,37 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
             <ErrorText error={syncA2ASecret.error} />
           </PopoverContent>
         </Popover>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
-export function A2AMemberDelegationSection({ enabled }: { enabled: boolean }) {
+export function A2ASecretSection({ isSet }: { isSet: boolean }) {
+  return <FragmentSurface fragment={useA2ASecretFragment({ isSet })} />;
+}
+
+/** Whether members' agents can call other apps in the organization. */
+export function useA2AMemberDelegationFragment({
+  enabled,
+}: {
+  enabled: boolean;
+}): ModelFragment {
   const t = useT();
   const setDelegation = useSetA2AMemberDelegation();
 
-  return (
-    <SettingsRow
-      id="a2a-member-delegation"
-      label={
+  return {
+    rows: [
+      {
+        id: "settings.org.a2a-member-delegation",
+        part: "settings.row",
+        label: t("agentChat.settingsOrg.auth.memberDelegation"),
+        anchor: "a2a-member-delegation",
+        slot: "a2a-member-delegation",
+        regions: { label: "a2a-member-delegation-label" },
+      },
+    ],
+    slots: {
+      "a2a-member-delegation-label": (
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex items-center gap-1" tabIndex={0}>
@@ -530,8 +581,8 @@ export function A2AMemberDelegationSection({ enabled }: { enabled: boolean }) {
             {t("agentChat.settingsOrg.auth.memberDelegationHelp")}
           </TooltipContent>
         </Tooltip>
-      }
-      control={
+      ),
+      "a2a-member-delegation": (
         <div className="flex items-center justify-end gap-3">
           <ErrorText error={setDelegation.error} />
           <Switch
@@ -541,7 +592,23 @@ export function A2AMemberDelegationSection({ enabled }: { enabled: boolean }) {
             aria-label={t("agentChat.settingsOrg.auth.memberDelegation")}
           />
         </div>
-      }
+      ),
+    },
+  };
+}
+
+export function A2AMemberDelegationSection({ enabled }: { enabled: boolean }) {
+  return (
+    <FragmentSurface fragment={useA2AMemberDelegationFragment({ enabled })} />
+  );
+}
+
+function FragmentSurface({ fragment }: { fragment: ModelFragment }) {
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: fragment.rows }}
+      actions={fragment.actions}
+      slots={fragment.slots}
     />
   );
 }
@@ -557,26 +624,56 @@ export function AuthenticationSection({ title }: { title?: string }) {
     return null;
   }
 
+  return <AuthenticationGroup org={org} title={title} />;
+}
+
+function AuthenticationGroup({
+  org,
+  title,
+}: {
+  org: OrgInfo;
+  title: string | undefined;
+}) {
+  const t = useT();
+  const isOwner = org.role === "owner";
+  const domainRow = useDomainSettingsFragment({
+    domain: org.allowedDomain,
+    ownerEmail: org.email,
+  });
+  const identity = useOrgIdentityFragment({
+    org,
+    requiredAuthProvider: org.requiredAuthProvider,
+  });
+  const secret = useA2ASecretFragment({ isSet: Boolean(org.a2aSecretSet) });
+  const delegation = useA2AMemberDelegationFragment({
+    enabled: Boolean(org.a2aMemberDelegationEnabled),
+  });
+  const content = combineFragments(
+    isOwner ? [domainRow, identity, secret, delegation] : [domainRow, identity],
+  );
+
   return (
     <SectionTooltipProvider>
-      <SettingsGroup title={title}>
-        <DomainSettingsSection
-          domain={org.allowedDomain}
-          ownerEmail={org.email}
-        />
-        <OrgIdentitySettings
-          org={org}
-          requiredAuthProvider={org.requiredAuthProvider}
-        />
-        {org.role === "owner" && (
-          <>
-            <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />
-            <A2AMemberDelegationSection
-              enabled={Boolean(org.a2aMemberDelegationEnabled)}
-            />
-          </>
-        )}
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.org.authentication",
+              part: "settings.group",
+              ...(title
+                ? { label: title }
+                : {
+                    label: t("agentChat.settingsShell.page.auth"),
+                    labelHidden: true,
+                  }),
+              rows: content.rows,
+            },
+          ],
+        }}
+        actions={content.actions}
+        slots={content.slots}
+      />
     </SectionTooltipProvider>
   );
 }

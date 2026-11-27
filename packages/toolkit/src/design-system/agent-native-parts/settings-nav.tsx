@@ -1,3 +1,4 @@
+import type { ModelRow } from "@agent-native/design-system/model";
 import {
   type ComponentType,
   createContext,
@@ -26,6 +27,8 @@ export interface SettingsNavRowDetail {
   /** `page`: in-settings navigation; `link`: a plain link; `action`: a button. */
   behavior: "page" | "link" | "action" | "group";
   icon?: ComponentType<{ className?: string }> | undefined;
+  /** Drawn for an `attention` label badge, which names it. */
+  statusIcon?: ComponentType<{ className?: string }> | undefined;
   dataAttributes: Readonly<Partial<Record<string, string>>>;
 }
 
@@ -101,9 +104,37 @@ const SettingsNavGroup: PartComponent = ({ row, children }) => {
   );
 };
 
+function PageTrailing({
+  row,
+  detail,
+}: {
+  row: ModelRow;
+  detail: SettingsNavRowDetail;
+}) {
+  const unreadLabel = useUnreadLabel();
+  const badge = row.state?.badge;
+  if (badge?.kind === "dot") return <Badge dot>{unreadLabel}</Badge>;
+  if (badge?.kind === "label" && badge.tone === "attention") {
+    const StatusIcon = detail.statusIcon;
+    if (!StatusIcon) {
+      throw new Error(`Settings page row ${row.id} has a status but no icon`);
+    }
+    return (
+      <span
+        role="img"
+        aria-label={badge.value}
+        title={badge.value}
+        data-settings-nav-status=""
+      >
+        <StatusIcon />
+      </span>
+    );
+  }
+  return null;
+}
+
 const SettingsNavItem: PartComponent = ({ row }) => {
   const detail = useDetail(row.id);
-  const unreadLabel = useUnreadLabel();
   const run = useRowEffect(row);
   const href = row.effect?.kind === "navigate" ? row.effect.to : undefined;
   const disabled = Boolean(row.state?.disabled);
@@ -120,11 +151,7 @@ const SettingsNavItem: PartComponent = ({ row }) => {
           href={href}
           active={Boolean(row.state?.selected)}
           leading={leading}
-          trailing={
-            row.state?.badge?.kind === "dot" ? (
-              <Badge dot>{unreadLabel}</Badge>
-            ) : undefined
-          }
+          trailing={<PageTrailing row={row} detail={detail} />}
           onClick={(event) => {
             if (isModifiedClick(event)) return;
             event.preventDefault();

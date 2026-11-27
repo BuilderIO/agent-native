@@ -7,6 +7,7 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
 import type { UserProfile } from "@agent-native/core/user-profile/shared";
+import type { ScreenModel } from "@agent-native/design-system/model";
 import {
   ActionButton,
   Avatar,
@@ -43,12 +44,22 @@ import {
   IconLock,
   IconShieldLock,
   IconPencil,
-  IconShieldCheck,
   IconTrash,
 } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "../../design-system/parts.js";
 import {
   passwordErrorText,
   profileInitials,
@@ -63,10 +74,9 @@ import {
   type PrivacyRequestType,
 } from "./account/account-hooks.js";
 import { SchedulingTimezoneField } from "./SchedulingTimezoneField.js";
-import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
-function TwoFactorSettings() {
+function useTwoFactorRow(): ModelFragment {
   const t = useT();
   const {
     signedIn,
@@ -86,7 +96,7 @@ function TwoFactorSettings() {
     turnOff,
   } = useTwoFactorSettings();
 
-  if (!signedIn) return null;
+  if (!signedIn) return { rows: [] };
 
   const error = twoFactorError ? twoFactorErrorText(t, twoFactorError) : null;
 
@@ -192,32 +202,45 @@ function TwoFactorSettings() {
     </div>
   );
 
-  return (
-    <SettingsRow
-      id="two-factor"
-      label={
+  return {
+    rows: [
+      {
+        id: "settings.account.profile.two-factor",
+        part: "settings.row",
+        label: t("settings.twoFactorTitle"),
+        description:
+          error ??
+          (saved
+            ? t("settings.twoFactorSaved")
+            : enabled
+              ? t("settings.twoFactorEnabled")
+              : t("settings.twoFactorDescription")),
+        anchor: "two-factor",
+        regions: {
+          label: "two-factor-label",
+          ...(error || saved ? { description: "two-factor-status" } : {}),
+        },
+        slot: "two-factor-control",
+      },
+    ],
+    slots: {
+      "two-factor-label": (
         <span className="flex items-center gap-2">
           <IconShieldLock className="size-4 text-muted-foreground" />
           {t("settings.twoFactorTitle")}
         </span>
-      }
-      description={
-        error ? (
-          <span className="text-destructive" role="alert">
-            {error}
-          </span>
-        ) : saved ? (
-          <span className="flex items-center gap-1 text-primary" role="status">
-            <IconCheck className="size-3" />
-            {t("settings.twoFactorSaved")}
-          </span>
-        ) : enabled ? (
-          t("settings.twoFactorEnabled")
-        ) : (
-          t("settings.twoFactorDescription")
-        )
-      }
-      control={
+      ),
+      "two-factor-status": error ? (
+        <span className="text-destructive" role="alert">
+          {error}
+        </span>
+      ) : (
+        <span className="flex items-center gap-1 text-primary" role="status">
+          <IconCheck className="size-3" />
+          {t("settings.twoFactorSaved")}
+        </span>
+      ),
+      "two-factor-control": (
         <Popover>
           <PopoverTrigger asChild>
             <ActionButton
@@ -237,12 +260,12 @@ function TwoFactorSettings() {
             {panel}
           </PopoverContent>
         </Popover>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
-function PasswordSettings() {
+function usePasswordRow(): ModelFragment {
   const t = useT();
   const { session } = useSession();
   const form = usePasswordForm();
@@ -257,7 +280,7 @@ function PasswordSettings() {
   } = form;
   const error = passwordErrorText(t, form);
 
-  if (!session?.email) return null;
+  if (!session?.email) return { rows: [] };
 
   const passwordForm = isLoading ? (
     <SettingsSkeleton lines={2} />
@@ -330,19 +353,29 @@ function PasswordSettings() {
     </div>
   );
 
-  return (
-    <SettingsRow
-      id="password"
-      label={
+  const title = hasPassword
+    ? t("settings.passwordChange")
+    : t("settings.passwordTitle");
+  return {
+    rows: [
+      {
+        id: "settings.account.profile.password",
+        part: "settings.row",
+        label: title,
+        description: t("settings.passwordDescription"),
+        anchor: "password",
+        regions: { label: "password-label" },
+        slot: "password-control",
+      },
+    ],
+    slots: {
+      "password-label": (
         <span className="flex items-center gap-2">
           <IconLock className="size-4 text-muted-foreground" />
-          {hasPassword
-            ? t("settings.passwordChange")
-            : t("settings.passwordTitle")}
+          {title}
         </span>
-      }
-      description={t("settings.passwordDescription")}
-      control={
+      ),
+      "password-control": (
         <Popover>
           <PopoverTrigger asChild>
             <ActionButton
@@ -362,14 +395,14 @@ function PasswordSettings() {
             {passwordForm}
           </PopoverContent>
         </Popover>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
-function EmailSettings({ email }: { email: string }) {
+function useEmailRow(email: string | undefined): ModelFragment {
   const t = useT();
-  const [newEmail, setNewEmail] = useState(email);
+  const [newEmail, setNewEmail] = useState(email ?? "");
   const {
     pending,
     status,
@@ -379,9 +412,11 @@ function EmailSettings({ email }: { email: string }) {
   } = useEmailChange();
 
   useEffect(() => {
-    setNewEmail(email);
+    setNewEmail(email ?? "");
     setStatus("idle");
   }, [email, setStatus]);
+
+  if (!email) return { rows: [] };
 
   const submit = async () => {
     const nextEmail = newEmail.trim();
@@ -389,24 +424,36 @@ function EmailSettings({ email }: { email: string }) {
     await requestChange(nextEmail);
   };
 
-  return (
-    <SettingsRow
-      id="email"
-      label={t("settings.emailTitle")}
-      description={
+  const statusText =
+    status === "sent"
+      ? t("settings.emailChangeSent")
+      : status === "error"
+        ? (serverMessage ?? t("settings.emailChangeError"))
+        : null;
+  return {
+    rows: [
+      {
+        id: "settings.account.profile.email",
+        part: "settings.row",
+        label: t("settings.emailTitle"),
+        description: statusText ?? email,
+        anchor: "email",
+        ...(statusText ? { regions: { description: "email-status" } } : {}),
+        slot: "email-control",
+      },
+    ],
+    slots: {
+      "email-status":
         status === "sent" ? (
           <span className="text-primary" role="status">
-            {t("settings.emailChangeSent")}
-          </span>
-        ) : status === "error" ? (
-          <span className="text-destructive" role="alert">
-            {serverMessage ?? t("settings.emailChangeError")}
+            {statusText}
           </span>
         ) : (
-          email
-        )
-      }
-      control={
+          <span className="text-destructive" role="alert">
+            {statusText}
+          </span>
+        ),
+      "email-control": (
         <Popover>
           <PopoverTrigger asChild>
             <ActionButton
@@ -459,16 +506,66 @@ function EmailSettings({ email }: { email: string }) {
             </div>
           </PopoverContent>
         </Popover>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
-function PrivacySettings() {
+function usePrivacyRow(signedIn: boolean): ModelFragment {
+  const t = useT();
+  const [submittedType, setSubmittedType] = useState<PrivacyRequestType | null>(
+    null,
+  );
+
+  if (!signedIn) return { rows: [] };
+
+  return {
+    rows: [
+      {
+        id: "settings.account.profile.privacy-data",
+        part: "settings.row",
+        label: t("settings.privacyTitle"),
+        description: submittedType
+          ? t("settings.privacyRequestRecorded")
+          : t("settings.privacyDescription"),
+        anchor: "privacy-data",
+        icon: { kind: "symbol", key: "shield-check" },
+        ...(submittedType
+          ? { regions: { description: "privacy-status" } }
+          : {}),
+        slot: "privacy-control",
+      },
+    ],
+    slots: {
+      "privacy-status": (
+        <span className="text-primary" role="status">
+          {t("settings.privacyRequestRecorded")}
+        </span>
+      ),
+      "privacy-control": (
+        <PrivacyControl onSubmittedTypeChange={setSubmittedType} />
+      ),
+    },
+  };
+}
+
+function PrivacyControl({
+  onSubmittedTypeChange,
+}: {
+  onSubmittedTypeChange: (type: PrivacyRequestType | null) => void;
+}) {
   const t = useT();
   const privacy = usePrivacyRequest();
   const { pendingType, submittedType } = privacy;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    onSubmittedTypeChange(submittedType);
+  }, [onSubmittedTypeChange, submittedType]);
+  useLayoutEffect(
+    () => () => onSubmittedTypeChange(null),
+    [onSubmittedTypeChange],
+  );
 
   const submitRequest = (requestType: PrivacyRequestType) => {
     privacy.submit(requestType, (result) => {
@@ -477,131 +574,113 @@ function PrivacySettings() {
   };
 
   return (
-    <SettingsRow
-      id="privacy-data"
-      label={t("settings.privacyTitle")}
-      icon={<IconShieldCheck className="size-4" />}
-      description={
-        submittedType ? (
-          <span className="text-primary" role="status">
-            {t("settings.privacyRequestRecorded")}
-          </span>
-        ) : (
-          t("settings.privacyDescription")
-        )
-      }
-      control={
-        <Popover>
-          <PopoverTrigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
+        <ActionButton
+          type="button"
+          intent="neutral"
+          emphasis="outline"
+          size="compact"
+        >
+          {t("settings.privacyManage")}
+        </ActionButton>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="w-[min(440px,calc(100vw-2rem))] p-4"
+      >
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">
+              {t("settings.privacyRightsTitle")}
+            </p>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {t("settings.privacyRightsDescription")}
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
             <ActionButton
               type="button"
               intent="neutral"
               emphasis="outline"
               size="compact"
+              leadingIcon={<IconDownload className="size-3.5" />}
+              pending={pendingType === "access"}
+              disabled={privacy.isPending}
+              onPress={() => submitRequest("access")}
             >
-              {t("settings.privacyManage")}
+              {submittedType === "access"
+                ? t("settings.privacyRequestRecordedShort")
+                : t("settings.privacyRequestCopy")}
             </ActionButton>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            sideOffset={6}
-            className="w-[min(440px,calc(100vw-2rem))] p-4"
-          >
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">
-                  {t("settings.privacyRightsTitle")}
-                </p>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  {t("settings.privacyRightsDescription")}
-                </p>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
+            <AlertDialog
+              open={deleteDialogOpen}
+              onOpenChange={setDeleteDialogOpen}
+            >
+              <AlertDialogTrigger asChild>
                 <ActionButton
                   type="button"
-                  intent="neutral"
+                  intent="danger"
                   emphasis="outline"
                   size="compact"
-                  leadingIcon={<IconDownload className="size-3.5" />}
-                  pending={pendingType === "access"}
+                  leadingIcon={<IconTrash className="size-3.5" />}
                   disabled={privacy.isPending}
-                  onPress={() => submitRequest("access")}
                 >
-                  {submittedType === "access"
-                    ? t("settings.privacyRequestRecordedShort")
-                    : t("settings.privacyRequestCopy")}
+                  {t("settings.privacyRequestDeletion")}
                 </ActionButton>
-                <AlertDialog
-                  open={deleteDialogOpen}
-                  onOpenChange={setDeleteDialogOpen}
-                >
-                  <AlertDialogTrigger asChild>
-                    <ActionButton
-                      type="button"
-                      intent="danger"
-                      emphasis="outline"
-                      size="compact"
-                      leadingIcon={<IconTrash className="size-3.5" />}
-                      disabled={privacy.isPending}
-                    >
-                      {t("settings.privacyRequestDeletion")}
-                    </ActionButton>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        {t("settings.privacyDeletionTitle")}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t("settings.privacyDeletionDescription")}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>
-                        {t("common.cancel")}
-                      </AlertDialogCancel>
-                      <AlertDialogAction
-                        disabled={privacy.isPending}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          submitRequest("deletion");
-                        }}
-                      >
-                        {pendingType === "deletion"
-                          ? t("settings.privacyRequesting")
-                          : t("settings.privacyRequestDeletion")}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-              {privacy.failed && (
-                <p className="text-xs text-destructive" role="alert">
-                  {t("settings.privacyRequestError")}
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={openConsentSettings}
-                className="block text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              >
-                {t("consentBanner.cookieSettings")}
-              </button>
-              <a
-                href={docsUrl("privacy-and-data-rights")}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              >
-                {t("settings.privacyDocsLink")}
-                <IconExternalLink className="size-3" />
-              </a>
-            </div>
-          </PopoverContent>
-        </Popover>
-      }
-    />
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t("settings.privacyDeletionTitle")}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("settings.privacyDeletionDescription")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={privacy.isPending}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      submitRequest("deletion");
+                    }}
+                  >
+                    {pendingType === "deletion"
+                      ? t("settings.privacyRequesting")
+                      : t("settings.privacyRequestDeletion")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+          {privacy.failed && (
+            <p className="text-xs text-destructive" role="alert">
+              {t("settings.privacyRequestError")}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={openConsentSettings}
+            className="block text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            {t("consentBanner.cookieSettings")}
+          </button>
+          <a
+            href={docsUrl("privacy-and-data-rights")}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            {t("settings.privacyDocsLink")}
+            <IconExternalLink className="size-3" />
+          </a>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -695,146 +774,199 @@ export function AccountSettingsForm({
     !!name.trim() &&
     name.trim() !== savedName.trim();
 
-  const profileStatus =
-    photoStatus === "saved" ? (
-      <span className="text-primary">{t("settings.profilePhotoUpdated")}</span>
-    ) : photoStatus === "error" ? (
-      <span className="text-destructive">
-        {t("settings.profilePhotoError")}
-      </span>
-    ) : email ? (
-      email
-    ) : undefined;
+  const photoStatusText =
+    photoStatus === "saved"
+      ? t("settings.profilePhotoUpdated")
+      : photoStatus === "error"
+        ? t("settings.profilePhotoError")
+        : null;
+  const nameStatusText = updateProfile.isSuccess
+    ? t("settings.profileSaved")
+    : updateProfile.error
+      ? t("settings.profileSaveError")
+      : null;
 
-  return (
-    <SettingsGroup
-      id="account"
-      title={t("settings.profileTitle")}
-      description={t("settings.profileDescription")}
-      className={cn(compact && "[&>div:last-child>div>div]:py-3")}
-    >
-      <SettingsRow
-        id="profile"
-        label={t("settings.profileTitle")}
-        description={profileStatus}
-        control={
-          <div className="flex items-center gap-3">
-            <Avatar
-              name={displayName}
-              src={avatarUrl}
-              fallback={profileInitials(displayName)}
-              size="default"
-              className="size-10 shrink-0 rounded-full border border-border bg-accent font-semibold text-muted-foreground"
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleAvatarChange}
-            />
-            <ActionButton
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              size="compact"
-              disabled={!email || uploading}
-              leadingIcon={<IconCamera className="size-3.5" />}
-              onPress={() => fileInputRef.current?.click()}
-            >
-              {uploading
-                ? t("settings.profileUploading")
-                : t("settings.profileChangePhoto")}
-            </ActionButton>
-          </div>
-        }
-      />
-      {email && <EmailSettings email={email} />}
-      <SettingsRow
-        id="profile-name"
-        label={t("settings.profileNameLabel")}
-        description={
-          updateProfile.isSuccess ? (
-            <span className="text-primary">{t("settings.profileSaved")}</span>
-          ) : updateProfile.error ? (
-            <span className="text-destructive">
-              {t("settings.profileSaveError")}
-            </span>
-          ) : (
-            t("settings.profileNameDescription")
-          )
-        }
-        control={
-          isEditingName ? (
-            <div className="flex w-full items-center gap-2 sm:w-80">
-              <TextField
-                id="agent-native-profile-name"
-                value={name}
-                onChange={(value) => {
-                  nameFieldEditedRef.current = true;
-                  updateProfile.reset();
-                  setName(value);
-                }}
-                placeholder={t("settings.profileNamePlaceholder")}
-                disabled={!email || updateProfile.isPending}
-                autoFocus
-                aria-label={t("settings.profileNameLabel")}
-                className="min-w-0 flex-1"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") handleProfileCancel();
-                }}
-              />
-              <ActionButton
+  const twoFactor = useTwoFactorRow();
+  const password = usePasswordRow();
+  const emailRow = useEmailRow(email);
+  const privacy = usePrivacyRow(!!email);
+  const own: ModelFragment = {
+    rows: [],
+    slots: {
+      "profile-status": (
+        <span
+          className={
+            photoStatus === "saved" ? "text-primary" : "text-destructive"
+          }
+        >
+          {photoStatusText}
+        </span>
+      ),
+      "profile-control": (
+        <div className="flex items-center gap-3">
+          <Avatar
+            name={displayName}
+            src={avatarUrl}
+            fallback={profileInitials(displayName)}
+            size="default"
+            className="size-10 shrink-0 rounded-full border border-border bg-accent font-semibold text-muted-foreground"
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarChange}
+          />
+          <ActionButton
+            type="button"
+            intent="neutral"
+            emphasis="outline"
+            size="compact"
+            disabled={!email || uploading}
+            leadingIcon={<IconCamera className="size-3.5" />}
+            onPress={() => fileInputRef.current?.click()}
+          >
+            {uploading
+              ? t("settings.profileUploading")
+              : t("settings.profileChangePhoto")}
+          </ActionButton>
+        </div>
+      ),
+      "profile-name-status": (
+        <span
+          className={
+            updateProfile.isSuccess ? "text-primary" : "text-destructive"
+          }
+        >
+          {nameStatusText}
+        </span>
+      ),
+      "profile-name-control": isEditingName ? (
+        <div className="flex w-full items-center gap-2 sm:w-80">
+          <TextField
+            id="agent-native-profile-name"
+            value={name}
+            onChange={(value) => {
+              nameFieldEditedRef.current = true;
+              updateProfile.reset();
+              setName(value);
+            }}
+            placeholder={t("settings.profileNamePlaceholder")}
+            disabled={!email || updateProfile.isPending}
+            autoFocus
+            aria-label={t("settings.profileNameLabel")}
+            className="min-w-0 flex-1"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") handleProfileCancel();
+            }}
+          />
+          <ActionButton
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            size="compact"
+            pending={updateProfile.isPending}
+            disabled={!canSaveName}
+            onPress={handleProfileSave}
+          >
+            {updateProfile.isPending
+              ? t("settings.profileSaving")
+              : t("settings.profileSave")}
+          </ActionButton>
+        </div>
+      ) : (
+        <div className="flex w-full items-center justify-end gap-2 sm:w-80">
+          <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+            {displayName}
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <IconButton
                 type="button"
-                intent="primary"
-                emphasis="solid"
+                intent="neutral"
+                emphasis="ghost"
                 size="compact"
-                pending={updateProfile.isPending}
-                disabled={!canSaveName}
-                onPress={handleProfileSave}
-              >
-                {updateProfile.isPending
-                  ? t("settings.profileSaving")
-                  : t("settings.profileSave")}
-              </ActionButton>
-            </div>
-          ) : (
-            <div className="flex w-full items-center justify-end gap-2 sm:w-80">
-              <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                {displayName}
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <IconButton
-                    type="button"
-                    intent="neutral"
-                    emphasis="ghost"
-                    size="compact"
-                    icon={<IconPencil size={14} />}
-                    label={t("settings.profileNameEdit")}
-                    title={t("settings.profileNameEdit")}
-                    disabled={!email}
-                    onPress={handleProfileEdit}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>{t("settings.profileNameEdit")}</TooltipContent>
-              </Tooltip>
-            </div>
-          )
-        }
-      />
-      <SettingsRow
-        id="timezone"
-        label={t("settings.timezoneLabel", { defaultValue: "Timezone" })}
-        description={t("settings.timezoneHint", {
-          defaultValue: "Used for timestamps and scheduled automations.",
-        })}
-        control={<SchedulingTimezoneField compact />}
-      />
-      <TwoFactorSettings />
-      <PasswordSettings />
-      {email && <PrivacySettings />}
-    </SettingsGroup>
+                icon={<IconPencil size={14} />}
+                label={t("settings.profileNameEdit")}
+                title={t("settings.profileNameEdit")}
+                disabled={!email}
+                onPress={handleProfileEdit}
+              />
+            </TooltipTrigger>
+            <TooltipContent>{t("settings.profileNameEdit")}</TooltipContent>
+          </Tooltip>
+        </div>
+      ),
+      timezone: <SchedulingTimezoneField compact />,
+    },
+  };
+  const { actions, slots } = combineFragments([
+    own,
+    emailRow,
+    twoFactor,
+    password,
+    privacy,
+  ]);
+  const model: ScreenModel = {
+    id: "settings",
+    rows: [
+      {
+        id: "settings.account.profile",
+        part: "settings.group",
+        label: t("settings.profileTitle"),
+        description: t("settings.profileDescription"),
+        anchor: "account",
+        rows: [
+          {
+            id: "settings.account.profile.photo",
+            part: "settings.row",
+            label: t("settings.profileTitle"),
+            description: photoStatusText ?? email,
+            anchor: "profile",
+            ...(photoStatusText
+              ? { regions: { description: "profile-status" } }
+              : {}),
+            slot: "profile-control",
+          },
+          ...emailRow.rows,
+          {
+            id: "settings.account.profile.name",
+            part: "settings.row",
+            kind: "field",
+            label: t("settings.profileNameLabel"),
+            description: nameStatusText ?? t("settings.profileNameDescription"),
+            anchor: "profile-name",
+            ...(nameStatusText
+              ? { regions: { description: "profile-name-status" } }
+              : {}),
+            slot: "profile-name-control",
+          },
+          {
+            id: "settings.account.profile.timezone",
+            part: "settings.row",
+            kind: "choice",
+            label: t("settings.timezoneLabel", { defaultValue: "Timezone" }),
+            description: t("settings.timezoneHint", {
+              defaultValue: "Used for timestamps and scheduled automations.",
+            }),
+            anchor: "timezone",
+            slot: "timezone",
+          },
+          ...twoFactor.rows,
+          ...password.rows,
+          ...privacy.rows,
+        ],
+      },
+    ],
+  };
+  const surface = (
+    <ModelSurface model={model} actions={actions} slots={slots} />
+  );
+  return compact ? (
+    <div className="[&>section>div:last-child>div>div]:py-3">{surface}</div>
+  ) : (
+    surface
   );
 }
 

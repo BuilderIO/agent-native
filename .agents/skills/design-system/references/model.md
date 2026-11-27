@@ -210,3 +210,11 @@ selector }])` (missing and ambiguous selectors are reported, never guessed),
   capture both with `captureRowStyles`, and diff with
   `compareRowStyles(source, target, properties)`. `properties` limits the diff
   to what the target is meant to carry over.
+
+Worked example: toolkit's settings. `app/settings/settings-part-sets.spec.tsx`
+draws the real Preferences, Profile and Security screens and the settings nav
+with toolkit's parts and the plain set in
+`design-system/testing/plain-settings-parts.tsx`, and fails on purpose for a
+set that drops a label. The `Patterns/Settings` story `RowStyleCheck` runs the
+row style check in Chromium (`test:storybook`) against a set composed from the
+same components, and catches a row drawn soft.

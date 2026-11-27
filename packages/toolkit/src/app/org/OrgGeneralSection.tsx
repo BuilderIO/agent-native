@@ -15,7 +15,15 @@ import {
   workspacePrivateIconUrl,
 } from "@agent-native/core/client/uploads";
 import type { IconValue } from "@agent-native/core/icons";
+import type { OrgInfo } from "@agent-native/core/org/types";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
+import type { ModelRow } from "@agent-native/design-system/model";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+  rowAttributes,
+} from "@agent-native/toolkit/design-system";
 import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
 import {
   AlertDialog,
@@ -50,9 +58,8 @@ import {
   IconUsersGroup,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import {
   Button,
   ErrorText,
@@ -115,11 +122,12 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
   );
 }
 
-export function WorkspaceUrlSettingsSection({
+/** The workspace URL: the domain the organization's apps are served from. */
+export function useWorkspaceUrlFragment({
   workspaceUrl,
 }: {
   workspaceUrl: string | null;
-}) {
+}): ModelFragment {
   const t = useT();
   const setWorkspaceUrl = useSetOrgWorkspaceUrl();
   const [editing, setEditing] = useState(false);
@@ -136,11 +144,136 @@ export function WorkspaceUrlSettingsSection({
     });
   }
 
-  return (
-    <SettingsRow
-      id="workspace-url"
-      label={t("agentChat.settingsOrg.general.workspaceUrl")}
-      description={
+  const description = t(
+    "agentChat.settingsOrg.general.workspaceUrlDescription",
+  );
+
+  return {
+    rows: [
+      {
+        id: "settings.org.workspace-url",
+        part: "settings.row",
+        label: t("agentChat.settingsOrg.general.workspaceUrl"),
+        description,
+        anchor: "workspace-url",
+        slot: "workspace-url",
+        regions: {
+          description: "workspace-url-description",
+          ...(setWorkspaceUrl.error ? { detail: "workspace-url-error" } : {}),
+        },
+      },
+    ],
+    slots: {
+      "workspace-url": !editing ? (
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          {workspaceUrl ? (
+            <>
+              <span className="me-1 inline-flex h-8 max-w-72 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm">
+                <IconExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{workspaceUrl}</span>
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToolkitButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t(
+                      "agentChat.settingsOrg.general.editWorkspaceUrl",
+                    )}
+                    onClick={() => {
+                      setDraft(workspaceUrl);
+                      setEditing(true);
+                    }}
+                  >
+                    <IconPencil />
+                  </ToolkitButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("agentChat.settingsOrg.general.editWorkspaceUrl")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToolkitButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t(
+                      "agentChat.settingsOrg.general.removeWorkspaceUrl",
+                    )}
+                    disabled={setWorkspaceUrl.isPending}
+                    onClick={() => setWorkspaceUrl.mutate(null)}
+                  >
+                    <IconX />
+                  </ToolkitButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("agentChat.settingsOrg.general.removeWorkspaceUrl")}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          ) : (
+            <ToolkitButton
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDraft("");
+                setEditing(true);
+              }}
+            >
+              {t("agentChat.settingsOrg.general.setWorkspaceUrl")}
+            </ToolkitButton>
+          )}
+        </div>
+      ) : (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            save();
+          }}
+        >
+          <Input
+            type="text"
+            size="sm"
+            value={draft}
+            aria-label={t("agentChat.settingsOrg.general.workspaceUrl")}
+            aria-invalid={setWorkspaceUrl.error ? true : undefined}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditing(false);
+            }}
+            placeholder="workspace.example.com"
+            className="w-56"
+            autoFocus
+          />
+          <ToolkitButton
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditing(false);
+              setWorkspaceUrl.reset();
+            }}
+          >
+            {t("agentChat.common.cancel")}
+          </ToolkitButton>
+          <ToolkitButton
+            type="submit"
+            size="sm"
+            disabled={setWorkspaceUrl.isPending}
+          >
+            <PendingLabel
+              pending={setWorkspaceUrl.isPending}
+              label={t("agentChat.common.save")}
+              pendingLabel={t("agentChat.common.saving")}
+            />
+          </ToolkitButton>
+        </form>
+      ),
+      "workspace-url-description": (
         <OrganizationDescription
           help={t("agentChat.settingsOrg.general.workspaceUrlHelp")}
           docsUrl={docsUrl("deployment", {
@@ -148,125 +281,25 @@ export function WorkspaceUrlSettingsSection({
             content: "workspace_url",
           })}
         >
-          {t("agentChat.settingsOrg.general.workspaceUrlDescription")}
+          {description}
         </OrganizationDescription>
-      }
-      control={
-        !editing ? (
-          <div className="flex flex-wrap items-center justify-end gap-1">
-            {workspaceUrl ? (
-              <>
-                <span className="me-1 inline-flex h-8 max-w-72 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-sm">
-                  <IconExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{workspaceUrl}</span>
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <ToolkitButton
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t(
-                        "agentChat.settingsOrg.general.editWorkspaceUrl",
-                      )}
-                      onClick={() => {
-                        setDraft(workspaceUrl);
-                        setEditing(true);
-                      }}
-                    >
-                      <IconPencil />
-                    </ToolkitButton>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("agentChat.settingsOrg.general.editWorkspaceUrl")}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <ToolkitButton
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t(
-                        "agentChat.settingsOrg.general.removeWorkspaceUrl",
-                      )}
-                      disabled={setWorkspaceUrl.isPending}
-                      onClick={() => setWorkspaceUrl.mutate(null)}
-                    >
-                      <IconX />
-                    </ToolkitButton>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("agentChat.settingsOrg.general.removeWorkspaceUrl")}
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            ) : (
-              <ToolkitButton
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setDraft("");
-                  setEditing(true);
-                }}
-              >
-                {t("agentChat.settingsOrg.general.setWorkspaceUrl")}
-              </ToolkitButton>
-            )}
-          </div>
-        ) : (
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              save();
-            }}
-          >
-            <Input
-              type="text"
-              size="sm"
-              value={draft}
-              aria-label={t("agentChat.settingsOrg.general.workspaceUrl")}
-              aria-invalid={setWorkspaceUrl.error ? true : undefined}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setEditing(false);
-              }}
-              placeholder="workspace.example.com"
-              className="w-56"
-              autoFocus
-            />
-            <ToolkitButton
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditing(false);
-                setWorkspaceUrl.reset();
-              }}
-            >
-              {t("agentChat.common.cancel")}
-            </ToolkitButton>
-            <ToolkitButton
-              type="submit"
-              size="sm"
-              disabled={setWorkspaceUrl.isPending}
-            >
-              <PendingLabel
-                pending={setWorkspaceUrl.isPending}
-                label={t("agentChat.common.save")}
-                pendingLabel={t("agentChat.common.saving")}
-              />
-            </ToolkitButton>
-          </form>
-        )
-      }
-    >
-      {setWorkspaceUrl.error ? (
-        <ErrorText error={setWorkspaceUrl.error} />
-      ) : null}
-    </SettingsRow>
+      ),
+      "workspace-url-error": <ErrorText error={setWorkspaceUrl.error} />,
+    },
+  };
+}
+
+export function WorkspaceUrlSettingsSection({
+  workspaceUrl,
+}: {
+  workspaceUrl: string | null;
+}) {
+  const fragment = useWorkspaceUrlFragment({ workspaceUrl });
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: fragment.rows }}
+      slots={fragment.slots}
+    />
   );
 }
 
@@ -467,12 +500,20 @@ export function OrgIconControl({
   );
 }
 
+function errorLabel(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * The "Organization" settings group: icon, name, member count, your role, and
- * the organization switcher. `children` render inside the group, below the
+ * the organization switcher. `rows` render inside the group, below the
  * summary row and above the switch error.
  */
-export function OrgProfileGroup({ children }: { children?: ReactNode }) {
+export function OrgProfileGroup({
+  rows,
+}: {
+  rows?: ModelFragment | undefined;
+}) {
   const t = useT();
   const { data: org } = useOrg();
   const { data: organizationMembersData } = useOrgMembers(0);
@@ -484,12 +525,54 @@ export function OrgProfileGroup({ children }: { children?: ReactNode }) {
   const isOwnerOrAdmin = org.role === "owner" || org.role === "admin";
   const totalOrganizationMembers = organizationMembersData?.totalCount;
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
+  const syncPendingLabel = t("org.workspaceIconSyncPending", {
+    defaultValue: "Saved here. Other apps may take longer to update.",
+  });
 
-  return (
-    <SettingsGroup title="Organization">
-      <SettingsRow
-        id="organization"
-        label={
+  const summary: ModelRow = {
+    id: "settings.org.organization.summary",
+    part: "settings.row",
+    label: org.orgName || t("agentChat.settingsOrg.general.organization"),
+    description:
+      totalOrganizationMembers === undefined
+        ? t("org.youAreRole", { role: org.role })
+        : `${t("org.memberCount", { count: totalOrganizationMembers })} · ${t("org.youAreRole", { role: org.role })}`,
+    anchor: "organization",
+    regions: { label: "organization-name" },
+    ...(hasMultipleOrgs ? { slot: "organization-switcher" } : {}),
+  };
+  const before: ModelRow[] = [summary];
+  if (setVisualIdentity.error) {
+    before.push({
+      id: "settings.org.organization.icon-error",
+      part: "settings.content",
+      label: errorLabel(setVisualIdentity.error),
+      slot: "organization-icon-error",
+    });
+  }
+  if (setVisualIdentity.data?.syncPending) {
+    before.push({
+      id: "settings.org.organization.icon-sync-pending",
+      part: "settings.content",
+      label: syncPendingLabel,
+      slot: "organization-icon-sync-pending",
+    });
+  }
+  const after: ModelRow[] = switchOrg.error
+    ? [
+        {
+          id: "settings.org.organization.switch-error",
+          part: "settings.content",
+          label: errorLabel(switchOrg.error),
+          slot: "organization-switch-error",
+        },
+      ]
+    : [];
+  const content = combineFragments([
+    {
+      rows: before,
+      slots: {
+        "organization-name": (
           <span className="flex items-center gap-2">
             <OrgIconControl
               icon={org.icon}
@@ -498,50 +581,73 @@ export function OrgProfileGroup({ children }: { children?: ReactNode }) {
             />
             <OrgNameDisplay name={org.orgName ?? ""} canEdit={isOwnerOrAdmin} />
           </span>
-        }
-        description={
-          totalOrganizationMembers === undefined
-            ? t("org.youAreRole", { role: org.role })
-            : `${t("org.memberCount", { count: totalOrganizationMembers })} · ${t("org.youAreRole", { role: org.role })}`
-        }
-        control={
-          hasMultipleOrgs ? (
-            <Select
-              value={org.orgId ?? ""}
-              onValueChange={(value) => switchOrg.mutate(value)}
-              disabled={switchOrg.isPending}
+        ),
+        "organization-switcher": (
+          <Select
+            value={org.orgId}
+            onValueChange={(value) => switchOrg.mutate(value)}
+            disabled={switchOrg.isPending}
+          >
+            <SelectTrigger
+              // guard:allow-part-geometry kept from main until the toolkit migration sizes this Select
+              className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
             >
-              <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {org.orgs.map((o) => (
-                  <SelectItem key={o.orgId} value={o.orgId}>
-                    {o.orgName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : undefined
-        }
-      />
-      <ErrorText error={setVisualIdentity.error} />
-      {setVisualIdentity.data?.syncPending && (
-        <p role="status" className="text-xs text-muted-foreground">
-          {t("org.workspaceIconSyncPending", {
-            defaultValue: "Saved here. Other apps may take longer to update.",
-          })}
-        </p>
-      )}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {org.orgs.map((o) => (
+                <SelectItem key={o.orgId} value={o.orgId}>
+                  {o.orgName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ),
+        "organization-icon-error": (row) => (
+          <p {...rowAttributes(row)} className="text-xs text-destructive">
+            {row.label}
+          </p>
+        ),
+        "organization-icon-sync-pending": (row) => (
+          <p
+            {...rowAttributes(row)}
+            role="status"
+            className="text-xs text-muted-foreground"
+          >
+            {row.label}
+          </p>
+        ),
+      },
+    },
+    ...(rows ? [rows] : []),
+    {
+      rows: after,
+      slots: {
+        "organization-switch-error": (row) => (
+          <div {...rowAttributes(row)} className="px-5 pb-4">
+            <p className="text-xs text-destructive">{row.label}</p>
+          </div>
+        ),
+      },
+    },
+  ]);
 
-      {children}
-
-      {switchOrg.error && (
-        <div className="px-5 pb-4">
-          <ErrorText error={switchOrg.error} />
-        </div>
-      )}
-    </SettingsGroup>
+  return (
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [
+          {
+            id: "settings.org.organization",
+            part: "settings.group",
+            label: "Organization",
+            rows: content.rows,
+          },
+        ],
+      }}
+      actions={content.actions}
+      slots={content.slots}
+    />
   );
 }
 
@@ -554,16 +660,19 @@ export function OrgGeneralSection() {
 
   if (!org?.orgId) return null;
 
+  return <OrgGeneralContent org={org} />;
+}
+
+function OrgGeneralContent({ org }: { org: OrgInfo }) {
   const isOwnerOrAdmin = org.role === "owner" || org.role === "admin";
+  const workspaceUrl = useWorkspaceUrlFragment({
+    workspaceUrl: org.workspaceUrl,
+  });
 
   return (
     <SectionTooltipProvider>
       <div className="space-y-6">
-        <OrgProfileGroup>
-          {isOwnerOrAdmin && (
-            <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
-          )}
-        </OrgProfileGroup>
+        <OrgProfileGroup rows={isOwnerOrAdmin ? workspaceUrl : undefined} />
         {org.role === "owner" && <DangerZoneCard orgName={org.orgName ?? ""} />}
       </div>
     </SectionTooltipProvider>

@@ -222,6 +222,14 @@ function row(id: string): HTMLElement {
   return element;
 }
 
+function anchored(id: string): HTMLElement {
+  const element = container.querySelector<HTMLElement>(
+    `[id="${id}"][data-rid]`,
+  );
+  if (!element) throw new Error(`model row ${id} is missing`);
+  return element;
+}
+
 function button(scope: Element, text: string): HTMLButtonElement {
   const match = Array.from(scope.querySelectorAll("button")).find(
     (candidate) => candidate.textContent?.trim() === text,
@@ -546,7 +554,7 @@ describe("Meetings › Calendar accounts", () => {
     mocks.startCalendarOAuth.mockResolvedValue(null);
     await render(<ClipsMeetingsArea canManage={false} />);
 
-    const stale = row("calendar-cal-stale");
+    const stale = anchored("calendar-cal-stale");
     expect(stale.textContent).toContain(
       'clipsSettings.needsReconnect {"account":"stale@example.com"}',
     );
@@ -574,10 +582,12 @@ describe("Meetings › Calendar accounts", () => {
         },
       ],
     };
-    await click(button(row("calendar-cal-stale"), "clipsSettings.reconnect"));
+    await click(
+      button(anchored("calendar-cal-stale"), "clipsSettings.reconnect"),
+    );
     await flush();
 
-    expect(row("calendar-cal-stale").textContent).toContain(
+    expect(anchored("calendar-cal-stale").textContent).toContain(
       'clipsSettings.connectedAs {"account":"stale@example.com"}',
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
@@ -587,7 +597,7 @@ describe("Meetings › Calendar accounts", () => {
 
   it("asks before disconnecting and disconnects that account", async () => {
     await render(<ClipsMeetingsArea canManage={false} />);
-    const connected = row("google-calendar");
+    const connected = anchored("google-calendar");
     expect(connected.textContent).toContain(
       'clipsSettings.connectedAs {"account":"ok@example.com"}',
     );
@@ -613,7 +623,7 @@ describe("Meetings › Calendar accounts", () => {
 
   it("keeps the dialog open and toasts when disconnecting fails", async () => {
     await render(<ClipsMeetingsArea canManage={false} />);
-    await click(button(row("google-calendar"), "common.disconnect"));
+    await click(button(anchored("google-calendar"), "common.disconnect"));
     await click(
       button(
         container.querySelector('[role="alertdialog"]') as Element,
@@ -632,7 +642,7 @@ describe("Meetings › Calendar accounts", () => {
   it("lists a connected account's calendars, only the main one on", async () => {
     await renderWithCalendars();
 
-    const connected = row("google-calendar");
+    const connected = anchored("google-calendar");
     expect(connected.textContent).toContain("clipsSettings.mainCalendar");
     expect(connected.querySelectorAll('[role="switch"]')).toHaveLength(2);
     expect(calendarSwitch("ok@example.com").getAttribute("aria-checked")).toBe(
@@ -640,7 +650,7 @@ describe("Meetings › Calendar accounts", () => {
     );
     expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("false");
     expect(
-      row("calendar-cal-stale").querySelector('[role="switch"]'),
+      anchored("calendar-cal-stale").querySelector('[role="switch"]'),
     ).toBeNull();
   });
 
@@ -701,7 +711,7 @@ describe("Meetings › Calendar accounts", () => {
     };
     await renderWithCalendars();
 
-    const connected = row("google-calendar");
+    const connected = anchored("google-calendar");
     expect(connected.textContent).toContain(
       "clipsSettings.calendarsLoadFailed",
     );

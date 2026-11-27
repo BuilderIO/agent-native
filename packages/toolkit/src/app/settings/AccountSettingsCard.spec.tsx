@@ -15,6 +15,12 @@ const profileQueryState = vi.hoisted(() => ({
 }));
 const updateProfileMock = vi.hoisted(() => vi.fn());
 const privacyRequestMock = vi.hoisted(() => vi.fn());
+const sessionState = vi.hoisted(() => ({
+  session: { email: "steve@example.com", name: "Steve" } as {
+    email: string;
+    name: string;
+  } | null,
+}));
 const fetchMock = vi.hoisted(() => vi.fn());
 const localeOverrides = vi.hoisted(() => ({
   settings: null as Record<string, unknown> | null,
@@ -96,8 +102,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useSession: () => ({
     error: null,
     isLoading: false,
-    session: { email: "steve@example.com", name: "Steve" },
-    status: "authenticated",
+    session: sessionState.session,
+    status: sessionState.session ? "authenticated" : "unauthenticated",
   }),
 }));
 
@@ -183,6 +189,7 @@ describe("AccountSettingsForm name editing", () => {
     };
     updateProfileMock.mockClear();
     privacyRequestMock.mockClear();
+    sessionState.session = { email: "steve@example.com", name: "Steve" };
     fetchMock.mockReset();
     localeOverrides.settings = null;
     fetchMock.mockResolvedValue({
@@ -537,6 +544,46 @@ describe("AccountSettingsForm name editing", () => {
     expect(privacyRequestMock).toHaveBeenLastCalledWith({
       requestType: "deletion",
     });
+  });
+
+  it("forgets a recorded privacy request after signing out and back in", async () => {
+    const draw = () =>
+      act(async () => {
+        root.render(
+          <TooltipProvider>
+            <AccountSettingsForm />
+          </TooltipProvider>,
+        );
+      });
+    const recorded = "Request recorded. An administrator will follow up.";
+    await draw();
+    act(() => {
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>("#privacy-data button"),
+      )
+        .find((button) => button.textContent.trim() === "Manage")
+        ?.click();
+    });
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent.trim() === "Request a copy")
+        ?.click();
+    });
+    expect(container.querySelector("#privacy-data")?.textContent).toContain(
+      recorded,
+    );
+
+    sessionState.session = null;
+    await draw();
+    expect(container.querySelector("#privacy-data")).toBeNull();
+
+    sessionState.session = { email: "steve@example.com", name: "Steve" };
+    await draw();
+    const row = container.querySelector("#privacy-data");
+    expect(row?.textContent).not.toContain(recorded);
+    expect(row?.textContent).toContain(
+      "Request a copy of your data or ask for your personal data to be deleted.",
+    );
   });
 
   it("reopens the cookie banner from Privacy & data", async () => {

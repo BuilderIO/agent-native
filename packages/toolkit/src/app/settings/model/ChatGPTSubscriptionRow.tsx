@@ -11,7 +11,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
@@ -39,7 +38,10 @@ import {
   type ReactNode,
 } from "react";
 
-import { SettingsRow } from "../SettingsRow.js";
+import {
+  type ModelFragment,
+  ModelSurface,
+} from "../../../design-system/parts.js";
 import { isPopupClosed } from "../useBuilderStatus.js";
 
 const K = "agentChat.settingsModel.";
@@ -85,8 +87,18 @@ export function useChatGPTSubscriptionStatus() {
   );
 }
 
-/** Personal providers › ChatGPT plan access. */
-export function ChatGPTSubscriptionRow() {
+/**
+ * The row, and its disconnect confirmation, which the surface drawing the row
+ * renders beside it (it draws nothing while closed).
+ */
+export interface ChatGPTSubscriptionRowFragment extends ModelFragment {
+  dialog: ReactNode;
+}
+
+/** Personal providers › ChatGPT plan access, as rows under `rowId`. */
+export function useChatGPTSubscriptionRow(
+  rowId: string,
+): ChatGPTSubscriptionRowFragment {
   const t = useT();
   const queryClient = useQueryClient();
   const lab = useLabState("chatgpt-subscription");
@@ -319,19 +331,87 @@ export function ChatGPTSubscriptionRow() {
   const legacySignIn = data?.legacyRegistrationCleanupAvailable === true;
   const failed = !!error || status.isError;
 
-  if (!lab.enabled) return null;
+  const detail =
+    noDirectUse || legacySignIn || failed || notice ? (
+      <div className="grid gap-2 text-sm">
+        {noDirectUse ? (
+          <p className="text-muted-foreground">{t(`${K}chatgptNoDirectUse`)}</p>
+        ) : null}
+        {legacySignIn ? (
+          <p className="text-muted-foreground">
+            {t(`${K}chatgptLegacySignInDetails`)}
+          </p>
+        ) : null}
+        {failed ? (
+          <p role="alert" className="text-destructive">
+            {error ?? t(`${K}settingLoadFailed`)}
+          </p>
+        ) : null}
+        {notice ? (
+          <p role="status" className="text-muted-foreground">
+            {t(`${K}chatgptRemoteRevocationUnconfirmed`)}{" "}
+            <a
+              href="https://chatgpt.com/settings/usage"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary underline underline-offset-4"
+            >
+              {t(`${K}chatgptManageAccess`)}
+            </a>
+          </p>
+        ) : null}
+      </div>
+    ) : null;
 
-  return (
-    <>
-      <SettingsRow
-        id="chatgpt-subscription"
-        label={t(`${K}chatgptTitle`)}
-        status={
-          connected ? (
-            <Badge variant="outline">{t(`${K}chatgptConnected`)}</Badge>
-          ) : null
-        }
-        description={
+  const dialog = (
+    <AlertDialog
+      open={confirmingDisconnect}
+      onOpenChange={(open) => {
+        if (!disconnecting) setConfirmingDisconnect(open);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t(`${K}chatgptDisconnectTitle`)}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t(`${K}chatgptDisconnectDescription`, {
+              account: activeAccount?.label ?? "",
+            })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={disconnecting}
+            onClick={() => setConfirmingDisconnect(false)}
+          >
+            {t(`${K}cancel`)}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={disconnecting}
+            onClick={() => void disconnect(activeAccount?.id)}
+          >
+            {disconnecting ? <Spinner /> : null}
+            {disconnecting
+              ? t(`${K}chatgptDisconnecting`)
+              : t(`${K}chatgptDisconnect`)}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  if (!lab.enabled) return { rows: [], dialog: null };
+  return {
+    rows: [
+      {
+        id: rowId,
+        part: "settings.row",
+        label: t(`${K}chatgptTitle`),
+        description:
           data && !supported
             ? t(
                 `${K}${
@@ -342,83 +422,32 @@ export function ChatGPTSubscriptionRow() {
                       : "chatgptLocalOnly"
                 }`,
               )
-            : undefined
-        }
-        control={control}
-      >
-        {noDirectUse || legacySignIn || failed || notice ? (
-          <div className="grid gap-2 text-sm">
-            {noDirectUse ? (
-              <p className="text-muted-foreground">
-                {t(`${K}chatgptNoDirectUse`)}
-              </p>
-            ) : null}
-            {legacySignIn ? (
-              <p className="text-muted-foreground">
-                {t(`${K}chatgptLegacySignInDetails`)}
-              </p>
-            ) : null}
-            {failed ? (
-              <p role="alert" className="text-destructive">
-                {error ?? t(`${K}settingLoadFailed`)}
-              </p>
-            ) : null}
-            {notice ? (
-              <p role="status" className="text-muted-foreground">
-                {t(`${K}chatgptRemoteRevocationUnconfirmed`)}{" "}
-                <a
-                  href="https://chatgpt.com/settings/usage"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-primary underline underline-offset-4"
-                >
-                  {t(`${K}chatgptManageAccess`)}
-                </a>
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </SettingsRow>
-      <AlertDialog
-        open={confirmingDisconnect}
-        onOpenChange={(open) => {
-          if (!disconnecting) setConfirmingDisconnect(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t(`${K}chatgptDisconnectTitle`)}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(`${K}chatgptDisconnectDescription`, {
-                account: activeAccount?.label ?? "",
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={disconnecting}
-              onClick={() => setConfirmingDisconnect(false)}
-            >
-              {t(`${K}cancel`)}
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={disconnecting}
-              onClick={() => void disconnect(activeAccount?.id)}
-            >
-              {disconnecting ? <Spinner /> : null}
-              {disconnecting
-                ? t(`${K}chatgptDisconnecting`)
-                : t(`${K}chatgptDisconnect`)}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            : undefined,
+        anchor: "chatgpt-subscription",
+        state: connected
+          ? { badge: { kind: "label", value: t(`${K}chatgptConnected`) } }
+          : undefined,
+        slot: control ? "chatgpt-subscription-control" : undefined,
+        regions: detail ? { detail: "chatgpt-subscription-detail" } : undefined,
+      },
+    ],
+    slots: {
+      "chatgpt-subscription-control": control,
+      "chatgpt-subscription-detail": detail,
+    },
+    dialog,
+  };
+}
+
+/** Personal providers › ChatGPT plan access, on its own. */
+export function ChatGPTSubscriptionRow() {
+  const { rows, slots, dialog } = useChatGPTSubscriptionRow(
+    "settings.panel.llm.chatgpt-subscription",
+  );
+  return (
+    <>
+      <ModelSurface model={{ id: "settings", rows }} slots={slots} />
+      {dialog}
     </>
   );
 }

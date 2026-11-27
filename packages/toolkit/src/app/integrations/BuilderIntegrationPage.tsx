@@ -19,6 +19,11 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/use-action";
 import type { FileStorageStatus } from "@agent-native/core/file-upload/storage-settings";
+import type {
+  ModelRow,
+  RowAttributes,
+  RowIcon,
+} from "@agent-native/design-system/model";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
@@ -59,11 +64,11 @@ import {
   type ComponentType,
 } from "react";
 
+import { ModelSurface, rowAttributes } from "../../design-system/parts.js";
 import {
   DeferredBuilderConnectChoicePanel,
   DeferredBuilderConnectPopover,
 } from "../settings/deferred-builder-connect-popover.js";
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { useSettingsPageHeader } from "../settings/shell/context.js";
 import type { SettingsPageContext } from "../settings/shell/registry.js";
 import {
@@ -83,45 +88,58 @@ const TRACKING_SOURCE = "settings_builder_page";
 
 const USAGE_META: Record<
   BuilderUsageId,
-  { icon: ComponentType<{ className?: string }>; label: string; note: string }
+  {
+    icon: ComponentType<{ className?: string }>;
+    symbol: string;
+    label: string;
+    note: string;
+  }
 > = {
   "ai-model": {
     icon: IconCpu,
+    symbol: "cpu",
     label: `${K}.use.aiModel`,
     note: `${K}.use.aiModelNote`,
   },
   "file-storage": {
     icon: IconBox,
+    symbol: "box",
     label: "agentChat.settingsShell.search.fileUploads",
     note: `${K}.use.fileStorageNote`,
   },
   voice: {
     icon: IconMicrophone,
+    symbol: "microphone",
     label: `${K}.use.voice`,
     note: `${K}.use.voiceNote`,
   },
   images: {
     icon: IconPhoto,
+    symbol: "photo",
     label: `${K}.use.images`,
     note: `${K}.use.imagesNote`,
   },
   embeddings: {
     icon: IconSearch,
+    symbol: "search",
     label: `${K}.use.embeddings`,
     note: `${K}.use.embeddingsNote`,
   },
   "design-system": {
     icon: IconPalette,
+    symbol: "palette",
     label: `${K}.use.designSystem`,
     note: `${K}.use.designSystemNote`,
   },
   "background-agents": {
     icon: IconCode,
+    symbol: "code",
     label: "agentChat.settingsShell.search.backgroundAgents",
     note: `${K}.use.backgroundAgentsNote`,
   },
   "browser-automation": {
     icon: IconBrowser,
+    symbol: "browser",
     label: "agentChat.settingsShell.search.browserAutomation",
     note: `${K}.use.browserAutomationNote`,
   },
@@ -172,16 +190,6 @@ function useDisconnectBuilder() {
     // Builder status readers outside React Query refresh on this event.
     window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
   };
-}
-
-function BuilderLogo() {
-  return (
-    <img
-      src={mcpIntegrationLogo("builder-cms")}
-      alt=""
-      className="size-[18px] object-contain"
-    />
-  );
 }
 
 /** A read of a POST action, keyed like useActionQuery so invalidation refreshes it. */
@@ -392,30 +400,26 @@ function ManageMenu({
   );
 }
 
-function UsageRows({ usages }: { usages: readonly BuilderUsage[] }) {
-  const t = useT();
-  return (
-    <>
-      {usages.map((usage) => {
-        const meta = USAGE_META[usage.id];
-        const Icon = meta.icon;
-        return (
-          <SettingsRow
-            key={usage.id}
-            id={`builder-use-${usage.id}`}
-            icon={<Icon aria-hidden="true" />}
-            label={t(meta.label)}
-            description={usageNote(t, usage)}
-          />
-        );
-      })}
-    </>
-  );
+function usageRows(
+  t: ReturnType<typeof useT>,
+  usages: readonly BuilderUsage[],
+): ModelRow[] {
+  return usages.map((usage) => {
+    const meta = USAGE_META[usage.id];
+    return {
+      id: `settings.builder.used-for.${usage.id}`,
+      part: "settings.row",
+      label: t(meta.label),
+      description: usageNote(t, usage),
+      icon: { kind: "symbol", key: meta.symbol },
+      anchor: `builder-use-${usage.id}`,
+    };
+  });
 }
 
-function RowSkeleton() {
+function RowSkeleton(attributes: RowAttributes) {
   return (
-    <div className="flex items-center gap-3 px-5 py-4 sm:px-6">
+    <div {...attributes} className="flex items-center gap-3 px-5 py-4 sm:px-6">
       <Skeleton className="size-8 rounded-md" />
       <div className="min-w-0 flex-1 space-y-1.5">
         <Skeleton className="h-3.5 w-28" />
@@ -424,6 +428,11 @@ function RowSkeleton() {
     </div>
   );
 }
+
+const BUILDER_ICON: RowIcon = {
+  kind: "image",
+  src: mcpIntegrationLogo("builder-cms"),
+};
 
 function DisconnectOrgDialog({
   open,
@@ -782,75 +791,117 @@ export function BuilderIntegrationPage({
     />
   );
 
+  const skeletonRow = (id: string): ModelRow => ({
+    id,
+    part: "settings.content",
+    label: t("agentChat.common.loading"),
+    slot: "skeleton",
+  });
+  const usedForErrorRow: ModelRow = {
+    id: "settings.builder.used-for.error",
+    part: "settings.row",
+    label: t(`${K}.usedForLoadFailed`),
+    anchor: "builder-used-for-error",
+    regions: { label: "used-for-error" },
+    rows: [
+      {
+        id: "settings.builder.used-for.error.retry",
+        part: "button",
+        kind: "action",
+        label: t(`${K}.retry`),
+        effect: {
+          kind: "action",
+          effectId: "retry-used-for",
+        },
+      },
+    ],
+  };
+  const personalRow = (description: string): ModelRow => ({
+    id: "settings.builder.connection.personal",
+    part: "settings.row",
+    label: t(`${K}.personal`),
+    description,
+    icon: BUILDER_ICON,
+    anchor: "builder-personal",
+    slot: "personal-control",
+  });
+
   return (
     <div className="flex flex-col gap-8" data-builder-page="">
       <p className="text-sm leading-[1.6] text-muted-foreground">
         {t("agentChat.settingsShell.integrations.builderDescription")}
       </p>
 
-      <SettingsGroup id="connection" title={t(`${K}.connection`)}>
-        {!statusKnown ? (
-          <>
-            <RowSkeleton />
-            {!context.isAdmin && !solo ? <RowSkeleton /> : null}
-          </>
-        ) : grants === null && !solo ? (
-          <SettingsRow
-            id="builder-connection-error"
-            icon={<BuilderLogo />}
-            label={t(`${K}.organization`)}
-            description={
-              flow.authError ? t(`${K}.needsReconnect`) : t(`${K}.grantsFailed`)
-            }
-            control={
-              <div className="flex flex-wrap items-center gap-2">
-                <ConnectButton flow={flow} onStart={onStart} reconnect />
-                {!flow.authError ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => flow.retry()}
-                  >
-                    {t(`${K}.retry`)}
-                  </Button>
-                ) : null}
-              </div>
-            }
-          />
-        ) : solo ? (
-          <SettingsRow
-            id="builder-personal"
-            icon={<BuilderLogo />}
-            label={t(`${K}.personal`)}
-            description={soloDescription}
-            control={soloControl}
-          />
-        ) : (
-          <>
-            <SettingsRow
-              id="builder-organization"
-              icon={<BuilderLogo />}
-              label={t(`${K}.organization`)}
-              description={orgDescription}
-              control={orgControl}
-            />
-            {/* Spec open question 1: owners and admins connect for the
-                organization, so only members can add a personal connection.
-                One an admin already has (account activation saves keys
-                personally) still shows, so they can remove it. */}
-            {!context.isAdmin || personalGrant ? (
-              <SettingsRow
-                id="builder-personal"
-                icon={<BuilderLogo />}
-                label={t(`${K}.personal`)}
-                description={personalDescription}
-                control={personalControl}
-              />
-            ) : null}
-          </>
-        )}
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.builder.connection",
+              part: "settings.group",
+              label: t(`${K}.connection`),
+              anchor: "connection",
+              rows: !statusKnown
+                ? [
+                    skeletonRow("settings.builder.connection.loading-1"),
+                    ...(!context.isAdmin && !solo
+                      ? [skeletonRow("settings.builder.connection.loading-2")]
+                      : []),
+                  ]
+                : grants === null && !solo
+                  ? [
+                      {
+                        id: "settings.builder.connection.error",
+                        part: "settings.row",
+                        label: t(`${K}.organization`),
+                        description: flow.authError
+                          ? t(`${K}.needsReconnect`)
+                          : t(`${K}.grantsFailed`),
+                        icon: BUILDER_ICON,
+                        anchor: "builder-connection-error",
+                        slot: "connection-error",
+                      },
+                    ]
+                  : solo
+                    ? [personalRow(soloDescription)]
+                    : [
+                        {
+                          id: "settings.builder.connection.organization",
+                          part: "settings.row",
+                          label: t(`${K}.organization`),
+                          description: orgDescription,
+                          icon: BUILDER_ICON,
+                          anchor: "builder-organization",
+                          slot: "organization-control",
+                        },
+                        ...(!context.isAdmin || personalGrant
+                          ? [personalRow(personalDescription)]
+                          : []),
+                      ],
+            },
+          ],
+        }}
+        slots={{
+          skeleton: (row) => <RowSkeleton {...rowAttributes(row)} />,
+          "connection-error": (
+            <div className="flex flex-wrap items-center gap-2">
+              <ConnectButton flow={flow} onStart={onStart} reconnect />
+              {!flow.authError ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => flow.retry()}
+                >
+                  {t(`${K}.retry`)}
+                </Button>
+              ) : null}
+            </div>
+          ),
+          "organization-control": orgControl,
+          "personal-control": solo ? soloControl : personalControl,
+        }}
+      />
       {rowError ||
       (flow.error &&
         flow.errorKind !== "status-read" &&
@@ -875,39 +926,38 @@ export function BuilderIntegrationPage({
 
       {active ? (
         <div className="flex flex-col gap-2">
-          <SettingsGroup id="used-for" title={t(`${K}.usedFor`)}>
-            {usage.loading ? (
-              <>
-                <RowSkeleton />
-                <RowSkeleton />
-                <RowSkeleton />
-              </>
-            ) : (
-              <>
-                <UsageRows usages={usage.usages} />
-                {usage.failed ? (
-                  <SettingsRow
-                    id="builder-used-for-error"
-                    label={
-                      <span role="alert" className="text-destructive">
-                        {t(`${K}.usedForLoadFailed`)}
-                      </span>
-                    }
-                    control={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={usage.retry}
-                      >
-                        {t(`${K}.retry`)}
-                      </Button>
-                    }
-                  />
-                ) : null}
-              </>
-            )}
-          </SettingsGroup>
+          <ModelSurface
+            model={{
+              id: "settings",
+              rows: [
+                {
+                  id: "settings.builder.used-for",
+                  part: "settings.group",
+                  label: t(`${K}.usedFor`),
+                  anchor: "used-for",
+                  rows: usage.loading
+                    ? [
+                        skeletonRow("settings.builder.used-for.loading-1"),
+                        skeletonRow("settings.builder.used-for.loading-2"),
+                        skeletonRow("settings.builder.used-for.loading-3"),
+                      ]
+                    : [
+                        ...usageRows(t, usage.usages),
+                        ...(usage.failed ? [usedForErrorRow] : []),
+                      ],
+                },
+              ],
+            }}
+            actions={{ "retry-used-for": () => usage.retry() }}
+            slots={{
+              skeleton: (row) => <RowSkeleton {...rowAttributes(row)} />,
+              "used-for-error": (
+                <span role="alert" className="text-destructive">
+                  {t(`${K}.usedForLoadFailed`)}
+                </span>
+              ),
+            }}
+          />
           {context.isAdmin ? (
             <p className="text-xs leading-5 text-muted-foreground">
               <SentenceWithLink

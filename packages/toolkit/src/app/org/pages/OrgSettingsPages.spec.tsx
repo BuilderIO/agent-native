@@ -81,8 +81,16 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 const mutationStub = { error: null, isPending: false, mutate: vi.fn() };
 
+function mockFragment(id: string) {
+  return {
+    rows: [{ id: `mock.${id}`, part: "settings.content", label: id, slot: id }],
+    slots: { [id]: <div id={id} /> },
+  };
+}
+
 vi.mock("../AppsAccessSection.js", () => ({
   WorkspaceAppPrivacySettingsSection: () => <div id="app-privacy" />,
+  useWorkspaceAppPrivacyFragment: () => mockFragment("app-privacy"),
 }));
 
 vi.mock("../workspace-app-links.js", () => ({
@@ -104,17 +112,33 @@ vi.mock("../OrgIdentitySettings.js", () => ({
       {afterSignIn}
     </>
   ),
+  useOrgIdentityFragment: ({
+    afterSignIn,
+  }: {
+    afterSignIn?: ReturnType<typeof mockFragment>;
+  }) => {
+    const signIn = mockFragment("organization-sign-in");
+    return {
+      ...afterSignIn,
+      rows: [...signIn.rows, ...(afterSignIn?.rows ?? [])],
+      slots: { ...signIn.slots, ...afterSignIn?.slots },
+    };
+  },
 }));
 
 vi.mock("../AuthenticationSection.js", () => ({
   DomainSettingsSection: () => <div id="email-domain" />,
   A2ASecretSection: () => <div id="cross-app-authentication" />,
   A2AMemberDelegationSection: () => <div id="member-delegation" />,
+  useDomainSettingsFragment: () => mockFragment("email-domain"),
+  useA2ASecretFragment: () => mockFragment("cross-app-authentication"),
+  useA2AMemberDelegationFragment: () => mockFragment("member-delegation"),
 }));
 
 vi.mock("../OrgGeneralSection.js", () => ({
   OrgIconControl: () => <span data-testid="org-icon" />,
   WorkspaceUrlSettingsSection: () => <div id="workspace-url" />,
+  useWorkspaceUrlFragment: () => mockFragment("workspace-url"),
 }));
 
 vi.mock("../GroupsSection.js", () => ({

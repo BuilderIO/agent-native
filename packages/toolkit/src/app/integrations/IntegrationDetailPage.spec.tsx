@@ -572,7 +572,7 @@ describe("IntegrationDetailPage", () => {
     await render("linear");
     expect(lastHeader()?.action).toBeNull();
     const row = container.querySelector(
-      "#connection .agent-native-settings-row",
+      '#connection [data-part="settings.row"]',
     );
     expect(row?.textContent).toContain("Connected");
     expect(row?.textContent).toContain("Personal · 12 tools available");

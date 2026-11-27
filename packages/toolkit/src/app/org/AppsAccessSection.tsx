@@ -5,7 +5,14 @@ import {
   useWorkspaceAppAccess,
   useSetWorkspaceAppAccess,
 } from "@agent-native/core/client/org";
-import { Skeleton } from "@agent-native/toolkit/design-system";
+import type { RowAttributes } from "@agent-native/design-system/model";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+  rowAttributes,
+  Skeleton,
+} from "@agent-native/toolkit/design-system";
 import {
   Select,
   SelectContent,
@@ -14,27 +21,34 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { ErrorText, SectionTooltipProvider } from "./TeamPrimitives.js";
 
-export function WorkspaceAppPrivacySettingsSection({
-  visibility,
-}: {
-  visibility: "private" | "org";
-}) {
+/** New app privacy: who a new workspace app starts visible to. */
+export function useWorkspaceAppPrivacyFragment(
+  visibility: "private" | "org",
+): ModelFragment {
   const t = useT();
   const setDefault = useSetWorkspaceAppDefaultVisibility();
-  return (
-    <SettingsRow
-      id="workspace-app-default-visibility"
-      label={t("org.workspaceAppsDefaultPrivacy", {
-        defaultValue: "New app privacy",
-      })}
-      description={t("org.workspaceAppsDefaultPrivacyDescription", {
-        defaultValue:
-          "Choose whether new workspace apps start private to their creator or visible to the organization.",
-      })}
-      control={
+  return {
+    rows: [
+      {
+        id: "settings.org.workspace-app-default-visibility",
+        part: "settings.row",
+        kind: "choice",
+        label: t("org.workspaceAppsDefaultPrivacy", {
+          defaultValue: "New app privacy",
+        }),
+        description: t("org.workspaceAppsDefaultPrivacyDescription", {
+          defaultValue:
+            "Choose whether new workspace apps start private to their creator or visible to the organization.",
+        }),
+        anchor: "workspace-app-default-visibility",
+        state: { value: visibility },
+        slot: "workspace-app-default-visibility",
+      },
+    ],
+    slots: {
+      "workspace-app-default-visibility": (
         <Select
           value={visibility}
           onValueChange={(value) =>
@@ -64,19 +78,53 @@ export function WorkspaceAppPrivacySettingsSection({
             </SelectItem>
           </SelectContent>
         </Select>
-      }
+      ),
+    },
+  };
+}
+
+export function WorkspaceAppPrivacySettingsSection({
+  visibility,
+}: {
+  visibility: "private" | "org";
+}) {
+  const fragment = useWorkspaceAppPrivacyFragment(visibility);
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: fragment.rows }}
+      slots={fragment.slots}
     />
   );
 }
 
-export function WorkspaceApplicationsSection() {
+/** The per-app access list, drawn as a content row of its group. */
+export function useWorkspaceApplicationsFragment(): ModelFragment {
+  const t = useT();
+  return {
+    rows: [
+      {
+        id: "settings.org.applications",
+        part: "settings.content",
+        label: t("org.applications"),
+        slot: "applications",
+      },
+    ],
+    slots: {
+      applications: (row) => (
+        <WorkspaceApplications attributes={rowAttributes(row)} />
+      ),
+    },
+  };
+}
+
+function WorkspaceApplications({ attributes }: { attributes: RowAttributes }) {
   const t = useT();
   const query = useWorkspaceAppAccess();
   const setAccess = useSetWorkspaceAppAccess();
   const apps = query.data?.apps ?? [];
 
   return (
-    <section className="border-t border-border/60 px-5 pt-4">
+    <section {...attributes} className="border-t border-border/60 px-5 pt-4">
       <h3 className="text-sm font-medium">{t("org.applications")}</h3>
       {query.isLoading ? (
         <div className="mt-3 space-y-2" aria-busy="true">
@@ -157,13 +205,47 @@ export function AppsAccessSection({ title }: { title?: string }) {
   }
 
   return (
+    <AppsAccessGroup
+      title={title}
+      visibility={org.workspaceAppDefaultVisibility ?? "org"}
+    />
+  );
+}
+
+function AppsAccessGroup({
+  title,
+  visibility,
+}: {
+  title: string | undefined;
+  visibility: "private" | "org";
+}) {
+  const t = useT();
+  const content = combineFragments([
+    useWorkspaceAppPrivacyFragment(visibility),
+    useWorkspaceApplicationsFragment(),
+  ]);
+
+  return (
     <SectionTooltipProvider>
-      <SettingsGroup title={title}>
-        <WorkspaceAppPrivacySettingsSection
-          visibility={org.workspaceAppDefaultVisibility ?? "org"}
-        />
-        <WorkspaceApplicationsSection />
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.org.apps-access",
+              part: "settings.group",
+              ...(title
+                ? { label: title }
+                : {
+                    label: t("agentChat.settingsShell.page.apps"),
+                    labelHidden: true,
+                  }),
+              rows: content.rows,
+            },
+          ],
+        }}
+        slots={content.slots}
+      />
     </SectionTooltipProvider>
   );
 }

@@ -6,7 +6,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { useShareOrgMemberSearch } from "@agent-native/core/client/sharing/share-controller-helpers";
 import type { WorkspaceUserGroup } from "@agent-native/core/workspace-connections/groups";
-import { Skeleton } from "@agent-native/toolkit/design-system";
+import { rowIdSegment } from "@agent-native/design-system/model";
+import { ModelSurface, Skeleton } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
@@ -40,7 +41,6 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 
-import { SettingsRow } from "../settings/SettingsRow.js";
 import {
   DialogErrorAlert,
   PendingLabel,
@@ -364,16 +364,24 @@ export function WorkspaceGroupsCard({
       </header>
       <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
         {groups.length > 0 ? (
-          groups.map((group) => (
-            <SettingsRow
-              key={group.id}
-              icon={<IconUsersGroup />}
-              label={group.name}
-              description={t("org.memberCount", {
-                count: group.memberEmails.length,
-              })}
-              control={
-                <div className="flex items-center gap-1">
+          <ModelSurface
+            model={{
+              id: "settings",
+              rows: groups.map((group) => ({
+                id: `settings.org.groups.${rowIdSegment(group.id)}`,
+                part: "settings.row",
+                label: group.name,
+                description: t("org.memberCount", {
+                  count: group.memberEmails.length,
+                }),
+                icon: { kind: "symbol", key: "users-group" },
+                slot: `group-${group.id}`,
+              })),
+            }}
+            slots={Object.fromEntries(
+              groups.map((group) => [
+                `group-${group.id}`,
+                <div key={group.id} className="flex items-center gap-1">
                   <ToolkitButton
                     type="button"
                     variant="ghost"
@@ -398,10 +406,10 @@ export function WorkspaceGroupsCard({
                   >
                     <IconTrash />
                   </ToolkitButton>
-                </div>
-              }
-            />
-          ))
+                </div>,
+              ]),
+            )}
+          />
         ) : (
           <Empty>
             <EmptyHeader>

@@ -42,9 +42,9 @@ import {
 } from "@tabler/icons-react";
 import { lazy, Suspense, useState } from "react";
 
+import { ModelSurface } from "../../design-system/parts.js";
 import { AgentAskPopover } from "../chat/index.js";
 import { automationCreationContext } from "../settings/AutomationsSection.js";
-import { SettingsRow } from "../settings/SettingsRow.js";
 import { AgentTabFrame } from "./AgentTabFrame.js";
 import {
   AutomationDetailsDialog,
@@ -658,6 +658,7 @@ export function AgentJobsTab({
     organization?: boolean;
   }) => {
     const empty = !loading && entries.length === 0 && errors.length === 0;
+    const sectionKey = organization ? "organization" : "personal";
     return (
       <section className={settingsVariant ? "space-y-2.5" : "space-y-4"}>
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -692,20 +693,29 @@ export function AgentJobsTab({
 
         <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
           {errors.length > 0 ? (
-            <SettingsRow
-              label={t("jobs.loadError", {
-                defaultValue: "Could not load all automations.",
-              })}
-              control={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={retry}
-                >
-                  {t("agentChat.common.retry")}
-                </Button>
-              }
+            <ModelSurface
+              model={{
+                id: "settings",
+                rows: [
+                  {
+                    id: `settings.automations.${sectionKey}.load-error`,
+                    part: "settings.row",
+                    label: t("jobs.loadError", {
+                      defaultValue: "Could not load all automations.",
+                    }),
+                    rows: [
+                      {
+                        id: `settings.automations.${sectionKey}.load-error.retry`,
+                        part: "button",
+                        kind: "action",
+                        label: t("agentChat.common.retry"),
+                        effect: { kind: "action", effectId: "retry" },
+                      },
+                    ],
+                  },
+                ],
+              }}
+              actions={{ retry: () => retry() }}
             />
           ) : null}
           {loading && entries.length === 0 ? (

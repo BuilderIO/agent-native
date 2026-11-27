@@ -9,6 +9,12 @@ import {
   useCreateOrgScimConnection,
   useDeleteOrgScimConnection,
 } from "@agent-native/core/client/org";
+import type { ModelRow } from "@agent-native/design-system/model";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -30,19 +36,24 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 
 import { SESSION_REPLAY_MASK_PROPS } from "../chat/session-replay-privacy.js";
-import { SettingsRow } from "../settings/SettingsRow.js";
 import { DialogErrorAlert, ErrorText, PendingLabel } from "./TeamPrimitives.js";
 
-export function OrgIdentitySettings({
+export interface OrgIdentityOptions {
+  org: { orgId: string | null; allowedDomain: string | null; access?: unknown };
+  requiredAuthProvider: string | null | undefined;
+  /** Rows drawn between Organization sign-in and Single sign-on. */
+  afterSignIn?: ModelFragment | undefined;
+}
+
+/**
+ * The organization's sign-in policy, SSO and SCIM rows, for the settings
+ * group that draws them.
+ */
+export function useOrgIdentityFragment({
   org,
   requiredAuthProvider,
   afterSignIn,
-}: {
-  org: { orgId: string | null; allowedDomain: string | null; access?: unknown };
-  requiredAuthProvider: string | null | undefined;
-  /** Rows rendered between Organization sign-in and Single sign-on. */
-  afterSignIn?: ReactNode;
-}) {
+}: OrgIdentityOptions): ModelFragment {
   const t = useT();
   const access = org.access as
     | { sso?: { enabled?: boolean }; scim?: { enabled?: boolean } }
@@ -133,393 +144,458 @@ export function OrgIdentitySettings({
     );
   }
 
-  return (
-    <>
-      <SettingsRow
-        id="organization-sign-in"
-        label={t("org.sso.signIn")}
-        description={t("org.sso.signInHelp")}
-        control={
-          <Select
-            value={requiredAuthProvider ?? "optional"}
-            onValueChange={(value) => {
-              const next =
-                value === "optional"
-                  ? null
-                  : (value as "google" | `sso:${string}`);
-              if (next) setPendingAuthProvider(next);
-              else setAuthProvider.mutate(null);
-            }}
-            disabled={
-              setAuthProvider.isPending ||
-              (requiredAuthProvider?.startsWith("sso:") &&
-                !providers.some(
-                  (provider) =>
-                    `sso:${provider.providerId}` === requiredAuthProvider,
-                ))
-            }
-          >
-            <SelectTrigger
-              size="sm"
-              className="w-48"
-              aria-label={t("org.sso.requiredProvider")}
+  const signIn: ModelRow = {
+    id: "settings.org.organization-sign-in",
+    part: "settings.row",
+    kind: "choice",
+    label: t("org.sso.signIn"),
+    description: t("org.sso.signInHelp"),
+    anchor: "organization-sign-in",
+    state: { value: requiredAuthProvider ?? "optional" },
+    slot: "organization-sign-in",
+    ...(setAuthProvider.error && !pendingAuthProvider
+      ? { regions: { detail: "organization-sign-in-error" } }
+      : {}),
+  };
+  const rows: ModelRow[] = [];
+  if (ssoEnabled) {
+    rows.push({
+      id: "settings.org.organization-sso",
+      part: "settings.row",
+      label: t("org.sso.title"),
+      description: t("org.sso.description"),
+      anchor: "organization-sso",
+      regions: { detail: "organization-sso-detail" },
+      rows: showProviderForm
+        ? undefined
+        : [
+            {
+              id: "settings.org.organization-sso.add-provider",
+              part: "button",
+              kind: "action",
+              label: t("org.sso.addProvider"),
+              effect: { kind: "action", effectId: "add-sso-provider" },
+            },
+          ],
+    });
+  }
+  if (scimEnabled) {
+    rows.push({
+      id: "settings.org.organization-scim",
+      part: "settings.row",
+      label: t("org.scim.title"),
+      description: t("org.scim.description"),
+      anchor: "organization-scim",
+      regions: { detail: "organization-scim-detail" },
+      rows: oneTimeScimToken
+        ? undefined
+        : [
+            {
+              id: "settings.org.organization-scim.create-connection",
+              part: "button",
+              kind: "action",
+              label: t("org.scim.createConnection"),
+              state: { pending: createScim.isPending },
+              effect: { kind: "action", effectId: "create-scim-connection" },
+            },
+          ],
+    });
+  }
+
+  return combineFragments([
+    {
+      rows: [signIn],
+      slots: {
+        "organization-sign-in": (
+          <>
+            <Select
+              value={requiredAuthProvider ?? "optional"}
+              onValueChange={(value) => {
+                const next =
+                  value === "optional"
+                    ? null
+                    : (value as "google" | `sso:${string}`);
+                if (next) setPendingAuthProvider(next);
+                else setAuthProvider.mutate(null);
+              }}
+              disabled={
+                setAuthProvider.isPending ||
+                (requiredAuthProvider?.startsWith("sso:") === true &&
+                  !providers.some(
+                    (provider) =>
+                      `sso:${provider.providerId}` === requiredAuthProvider,
+                  ))
+              }
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="optional">{t("org.sso.optional")}</SelectItem>
-              <SelectItem value="google">{t("org.sso.google")}</SelectItem>
-              {providers
-                .filter((provider) => provider.domainVerified)
-                .map((provider) => (
-                  <SelectItem
-                    key={provider.providerId}
-                    value={`sso:${provider.providerId}`}
-                  >
-                    {provider.domain} ({provider.type.toUpperCase()})
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        }
-      >
-        {setAuthProvider.error && !pendingAuthProvider ? (
-          <ErrorText error={setAuthProvider.error} />
-        ) : null}
-      </SettingsRow>
-
-      {afterSignIn}
-
-      {ssoEnabled && (
-        <SettingsRow
-          id="organization-sso"
-          label={t("org.sso.title")}
-          description={t("org.sso.description")}
-          control={
-            showProviderForm ? undefined : (
-              <ToolkitButton
-                type="button"
-                variant="outline"
+              <SelectTrigger
                 size="sm"
-                onClick={() => setShowProviderForm(true)}
+                className="w-48"
+                aria-label={t("org.sso.requiredProvider")}
               >
-                {t("org.sso.addProvider")}
-              </ToolkitButton>
-            )
-          }
-        >
-          {ssoQuery.error ? <ErrorText error={ssoQuery.error} /> : null}
-          {providers.map((provider) => (
-            <div
-              key={provider.providerId}
-              className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="optional">
+                  {t("org.sso.optional")}
+                </SelectItem>
+                <SelectItem value="google">{t("org.sso.google")}</SelectItem>
+                {providers
+                  .filter((provider) => provider.domainVerified)
+                  .map((provider) => (
+                    <SelectItem
+                      key={provider.providerId}
+                      value={`sso:${provider.providerId}`}
+                    >
+                      {provider.domain} ({provider.type.toUpperCase()})
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <Dialog
+              open={pendingAuthProvider !== null}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setPendingAuthProvider(null);
+                  setAuthProvider.reset();
+                }
+              }}
             >
-              <span>
-                {provider.domain} · {provider.type.toUpperCase()} ·{" "}
-                {provider.domainVerified
-                  ? t("org.sso.verified")
-                  : t("org.sso.verifyRequired")}
-              </span>
-              <span className="flex gap-2">
-                {!provider.domainVerified && (
+              <DialogContent>
+                <form
+                  className="grid gap-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!pendingAuthProvider || setAuthProvider.isPending)
+                      return;
+                    setAuthProvider.mutate(pendingAuthProvider, {
+                      onSuccess: () => setPendingAuthProvider(null),
+                    });
+                  }}
+                >
+                  <DialogHeader>
+                    <DialogTitle>{t("org.ssoConfirm.title")}</DialogTitle>
+                    <DialogDescription>
+                      {t("org.ssoConfirm.description")}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogErrorAlert error={setAuthProvider.error} />
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <ToolkitButton type="button" variant="secondary">
+                        {t("org.sso.cancel")}
+                      </ToolkitButton>
+                    </DialogClose>
+                    <ToolkitButton
+                      type="submit"
+                      disabled={setAuthProvider.isPending}
+                    >
+                      <PendingLabel
+                        pending={setAuthProvider.isPending}
+                        label={t("org.ssoConfirm.confirm")}
+                        pendingLabel={t("agentChat.common.saving")}
+                      />
+                    </ToolkitButton>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        ),
+        "organization-sign-in-error": (
+          <ErrorText error={setAuthProvider.error} />
+        ),
+      },
+    },
+    ...(afterSignIn ? [afterSignIn] : []),
+    {
+      rows,
+      actions: {
+        "add-sso-provider": () => setShowProviderForm(true),
+        "create-scim-connection": () =>
+          createScim.mutate(undefined, {
+            onSuccess: (result) => setOneTimeScimToken(result.token),
+          }),
+      },
+      slots: {
+        "organization-sso-detail": (
+          <>
+            {ssoQuery.error ? <ErrorText error={ssoQuery.error} /> : null}
+            {providers.map((provider) => (
+              <div
+                key={provider.providerId}
+                className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
+              >
+                <span>
+                  {provider.domain} · {provider.type.toUpperCase()} ·{" "}
+                  {provider.domainVerified
+                    ? t("org.sso.verified")
+                    : t("org.sso.verifyRequired")}
+                </span>
+                <span className="flex gap-2">
+                  {!provider.domainVerified && (
+                    <ToolkitButton
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={verifySso.isPending}
+                      onClick={() => verifySso.mutate(provider.providerId)}
+                    >
+                      {t("org.sso.verify")}
+                    </ToolkitButton>
+                  )}
                   <ToolkitButton
                     type="button"
                     size="sm"
-                    variant="outline"
-                    disabled={verifySso.isPending}
-                    onClick={() => verifySso.mutate(provider.providerId)}
+                    variant="outline-destructive"
+                    disabled={deleteSso.isPending}
+                    onClick={() => deleteSso.mutate(provider.providerId)}
                   >
-                    {t("org.sso.verify")}
+                    {t("org.sso.remove")}
                   </ToolkitButton>
+                </span>
+                <details className="w-full text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">
+                    {t("org.ssoSetup.idpSetup")}
+                  </summary>
+                  <dl className="mt-2 grid gap-1">
+                    <dt>{t("org.ssoSetup.redirectUri")}</dt>
+                    <dd className="break-all font-mono">
+                      {provider.redirectURI}
+                    </dd>
+                    {provider.spMetadataUrl ? (
+                      <>
+                        <dt>{t("org.ssoSetup.spMetadataUrl")}</dt>
+                        <dd className="break-all font-mono">
+                          {provider.spMetadataUrl}
+                        </dd>
+                      </>
+                    ) : null}
+                    {domainVerificationTokens[provider.providerId] ? (
+                      <>
+                        <dt>{t("org.ssoSetup.dnsRecordName")}</dt>
+                        <dd className="break-all font-mono">
+                          _better-auth-token-{provider.providerId}.
+                          {provider.domain}
+                        </dd>
+                        <dt>{t("org.ssoSetup.dnsRecordValue")}</dt>
+                        <dd className="break-all font-mono">
+                          {domainVerificationTokens[provider.providerId]}
+                        </dd>
+                        <p>{t("org.ssoSetup.dnsPropagation")}</p>
+                      </>
+                    ) : null}
+                  </dl>
+                </details>
+              </div>
+            ))}
+            {verifySso.error ? <ErrorText error={verifySso.error} /> : null}
+            {deleteSso.error ? <ErrorText error={deleteSso.error} /> : null}
+            {showProviderForm ? (
+              <form
+                onSubmit={submitProvider}
+                className="grid gap-2 border-t pt-3"
+              >
+                <Select
+                  value={providerType}
+                  onValueChange={(value) =>
+                    setProviderType(value as "oidc" | "saml")
+                  }
+                >
+                  <SelectTrigger aria-label={t("org.sso.type")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="oidc">OIDC</SelectItem>
+                    <SelectItem value="saml">SAML</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  aria-label={t("org.sso.providerId")}
+                  placeholder={t("org.sso.providerId")}
+                  value={providerId}
+                  onChange={(event) => setProviderId(event.target.value)}
+                  required
+                />
+                <Input
+                  aria-label={t("org.sso.issuer")}
+                  placeholder={t("org.sso.issuer")}
+                  value={issuer}
+                  onChange={(event) => setIssuer(event.target.value)}
+                  required
+                />
+                <Input
+                  aria-label={t("org.sso.domain")}
+                  value={org.allowedDomain ?? t("org.sso.noDomain")}
+                  readOnly
+                />
+                {providerType === "oidc" ? (
+                  <>
+                    <Input
+                      aria-label={t("org.sso.clientId")}
+                      placeholder={t("org.sso.clientId")}
+                      value={clientId}
+                      onChange={(event) => setClientId(event.target.value)}
+                      required
+                    />
+                    <Input
+                      aria-label={t("org.sso.clientSecret")}
+                      placeholder={t("org.sso.clientSecret")}
+                      type="password"
+                      value={clientSecret}
+                      onChange={(event) => setClientSecret(event.target.value)}
+                      required
+                    />
+                    <Input
+                      aria-label={t("org.sso.discoveryEndpoint")}
+                      placeholder={t("org.sso.discoveryEndpoint")}
+                      value={discoveryEndpoint}
+                      onChange={(event) =>
+                        setDiscoveryEndpoint(event.target.value)
+                      }
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      aria-label={t("org.sso.entryPoint")}
+                      placeholder={t("org.sso.entryPoint")}
+                      value={entryPoint}
+                      onChange={(event) => setEntryPoint(event.target.value)}
+                      required
+                    />
+                    <Input
+                      aria-label={t("org.sso.entityId")}
+                      placeholder={t("org.sso.entityId")}
+                      value={entityId}
+                      onChange={(event) => setEntityId(event.target.value)}
+                      required
+                    />
+                    <textarea
+                      aria-label={t("org.sso.metadata")}
+                      className="min-h-28 rounded-md border bg-background p-2 text-sm"
+                      placeholder={t("org.sso.metadata")}
+                      value={metadata}
+                      onChange={(event) => setMetadata(event.target.value)}
+                      required
+                    />
+                    <textarea
+                      aria-label={t("org.sso.certificate")}
+                      className="min-h-20 rounded-md border bg-background p-2 text-sm"
+                      placeholder={t("org.sso.certificate")}
+                      value={cert}
+                      onChange={(event) => setCert(event.target.value)}
+                    />
+                  </>
                 )}
+                <p className="text-xs text-muted-foreground">
+                  {t("org.sso.domainHelp")}
+                </p>
+                {createSso.error ? <ErrorText error={createSso.error} /> : null}
+                <div className="flex justify-end gap-2">
+                  <ToolkitButton
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setShowProviderForm(false);
+                      setClientSecret("");
+                      setMetadata("");
+                      setCert("");
+                    }}
+                  >
+                    {t("org.sso.cancel")}
+                  </ToolkitButton>
+                  <ToolkitButton
+                    type="submit"
+                    disabled={createSso.isPending || !org.allowedDomain}
+                  >
+                    <PendingLabel
+                      pending={createSso.isPending}
+                      label={t("org.sso.saveProvider")}
+                      pendingLabel={t("agentChat.common.saving")}
+                    />
+                  </ToolkitButton>
+                </div>
+              </form>
+            ) : null}
+          </>
+        ),
+        "organization-scim-detail": (
+          <>
+            {scimQuery.error ? <ErrorText error={scimQuery.error} /> : null}
+            {scimQuery.data?.connections.map((connection) => (
+              <div
+                key={connection.connectionId}
+                className="flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
+              >
+                <span>{connection.status}</span>
                 <ToolkitButton
                   type="button"
                   size="sm"
                   variant="outline-destructive"
-                  disabled={deleteSso.isPending}
-                  onClick={() => deleteSso.mutate(provider.providerId)}
+                  disabled={deleteScim.isPending}
+                  onClick={() => deleteScim.mutate(connection.connectionId)}
                 >
-                  {t("org.sso.remove")}
-                </ToolkitButton>
-              </span>
-              <details className="w-full text-xs text-muted-foreground">
-                <summary className="cursor-pointer">
-                  {t("org.ssoSetup.idpSetup")}
-                </summary>
-                <dl className="mt-2 grid gap-1">
-                  <dt>{t("org.ssoSetup.redirectUri")}</dt>
-                  <dd className="break-all font-mono">
-                    {provider.redirectURI}
-                  </dd>
-                  {provider.spMetadataUrl ? (
-                    <>
-                      <dt>{t("org.ssoSetup.spMetadataUrl")}</dt>
-                      <dd className="break-all font-mono">
-                        {provider.spMetadataUrl}
-                      </dd>
-                    </>
-                  ) : null}
-                  {domainVerificationTokens[provider.providerId] ? (
-                    <>
-                      <dt>{t("org.ssoSetup.dnsRecordName")}</dt>
-                      <dd className="break-all font-mono">
-                        _better-auth-token-{provider.providerId}.
-                        {provider.domain}
-                      </dd>
-                      <dt>{t("org.ssoSetup.dnsRecordValue")}</dt>
-                      <dd className="break-all font-mono">
-                        {domainVerificationTokens[provider.providerId]}
-                      </dd>
-                      <p>{t("org.ssoSetup.dnsPropagation")}</p>
-                    </>
-                  ) : null}
-                </dl>
-              </details>
-            </div>
-          ))}
-          {verifySso.error ? <ErrorText error={verifySso.error} /> : null}
-          {deleteSso.error ? <ErrorText error={deleteSso.error} /> : null}
-          {showProviderForm ? (
-            <form
-              onSubmit={submitProvider}
-              className="grid gap-2 border-t pt-3"
-            >
-              <Select
-                value={providerType}
-                onValueChange={(value) =>
-                  setProviderType(value as "oidc" | "saml")
-                }
-              >
-                <SelectTrigger aria-label={t("org.sso.type")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="oidc">OIDC</SelectItem>
-                  <SelectItem value="saml">SAML</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                aria-label={t("org.sso.providerId")}
-                placeholder={t("org.sso.providerId")}
-                value={providerId}
-                onChange={(event) => setProviderId(event.target.value)}
-                required
-              />
-              <Input
-                aria-label={t("org.sso.issuer")}
-                placeholder={t("org.sso.issuer")}
-                value={issuer}
-                onChange={(event) => setIssuer(event.target.value)}
-                required
-              />
-              <Input
-                aria-label={t("org.sso.domain")}
-                value={org.allowedDomain ?? t("org.sso.noDomain")}
-                readOnly
-              />
-              {providerType === "oidc" ? (
-                <>
-                  <Input
-                    aria-label={t("org.sso.clientId")}
-                    placeholder={t("org.sso.clientId")}
-                    value={clientId}
-                    onChange={(event) => setClientId(event.target.value)}
-                    required
-                  />
-                  <Input
-                    aria-label={t("org.sso.clientSecret")}
-                    placeholder={t("org.sso.clientSecret")}
-                    type="password"
-                    value={clientSecret}
-                    onChange={(event) => setClientSecret(event.target.value)}
-                    required
-                  />
-                  <Input
-                    aria-label={t("org.sso.discoveryEndpoint")}
-                    placeholder={t("org.sso.discoveryEndpoint")}
-                    value={discoveryEndpoint}
-                    onChange={(event) =>
-                      setDiscoveryEndpoint(event.target.value)
-                    }
-                  />
-                </>
-              ) : (
-                <>
-                  <Input
-                    aria-label={t("org.sso.entryPoint")}
-                    placeholder={t("org.sso.entryPoint")}
-                    value={entryPoint}
-                    onChange={(event) => setEntryPoint(event.target.value)}
-                    required
-                  />
-                  <Input
-                    aria-label={t("org.sso.entityId")}
-                    placeholder={t("org.sso.entityId")}
-                    value={entityId}
-                    onChange={(event) => setEntityId(event.target.value)}
-                    required
-                  />
-                  <textarea
-                    aria-label={t("org.sso.metadata")}
-                    className="min-h-28 rounded-md border bg-background p-2 text-sm"
-                    placeholder={t("org.sso.metadata")}
-                    value={metadata}
-                    onChange={(event) => setMetadata(event.target.value)}
-                    required
-                  />
-                  <textarea
-                    aria-label={t("org.sso.certificate")}
-                    className="min-h-20 rounded-md border bg-background p-2 text-sm"
-                    placeholder={t("org.sso.certificate")}
-                    value={cert}
-                    onChange={(event) => setCert(event.target.value)}
-                  />
-                </>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {t("org.sso.domainHelp")}
-              </p>
-              {createSso.error ? <ErrorText error={createSso.error} /> : null}
-              <div className="flex justify-end gap-2">
-                <ToolkitButton
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    setShowProviderForm(false);
-                    setClientSecret("");
-                    setMetadata("");
-                    setCert("");
-                  }}
-                >
-                  {t("org.sso.cancel")}
-                </ToolkitButton>
-                <ToolkitButton
-                  type="submit"
-                  disabled={createSso.isPending || !org.allowedDomain}
-                >
-                  <PendingLabel
-                    pending={createSso.isPending}
-                    label={t("org.sso.saveProvider")}
-                    pendingLabel={t("agentChat.common.saving")}
-                  />
+                  {t("org.scim.revoke")}
                 </ToolkitButton>
               </div>
-            </form>
-          ) : null}
-        </SettingsRow>
-      )}
-
-      {scimEnabled && (
-        <SettingsRow
-          id="organization-scim"
-          label={t("org.scim.title")}
-          description={t("org.scim.description")}
-          control={
-            oneTimeScimToken ? undefined : (
-              <ToolkitButton
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={createScim.isPending}
-                onClick={() =>
-                  createScim.mutate(undefined, {
-                    onSuccess: (result) => setOneTimeScimToken(result.token),
-                  })
-                }
-              >
-                <PendingLabel
-                  pending={createScim.isPending}
-                  label={t("org.scim.createConnection")}
-                  pendingLabel={t("org.scim.createConnection")}
-                />
-              </ToolkitButton>
-            )
-          }
-        >
-          {scimQuery.error ? <ErrorText error={scimQuery.error} /> : null}
-          {scimQuery.data?.connections.map((connection) => (
-            <div
-              key={connection.connectionId}
-              className="flex items-center justify-between gap-2 border-b py-2 text-sm last:border-0"
-            >
-              <span>{connection.status}</span>
-              <ToolkitButton
-                type="button"
-                size="sm"
-                variant="outline-destructive"
-                disabled={deleteScim.isPending}
-                onClick={() => deleteScim.mutate(connection.connectionId)}
-              >
-                {t("org.scim.revoke")}
-              </ToolkitButton>
-            </div>
-          ))}
-          {deleteScim.error ? <ErrorText error={deleteScim.error} /> : null}
-          {oneTimeScimToken ? (
-            <div className="grid gap-2 rounded-md border p-3 text-sm">
-              <p>{t("org.scim.copyTokenOnce")}</p>
-              <code {...SESSION_REPLAY_MASK_PROPS} className="break-all">
-                {oneTimeScimToken}
-              </code>
-              <code className="break-all">{scimQuery.data?.endpoint}</code>
-              <ToolkitButton
-                type="button"
-                size="sm"
-                variant="outline"
-                className="justify-self-start"
-                onClick={() => setOneTimeScimToken(null)}
-              >
-                {t("org.scim.dismissToken")}
-              </ToolkitButton>
-            </div>
-          ) : null}
-          {createScim.error ? <ErrorText error={createScim.error} /> : null}
-        </SettingsRow>
-      )}
-      <Dialog
-        open={pendingAuthProvider !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPendingAuthProvider(null);
-            setAuthProvider.reset();
-          }
-        }}
-      >
-        <DialogContent>
-          <form
-            className="grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!pendingAuthProvider || setAuthProvider.isPending) return;
-              setAuthProvider.mutate(pendingAuthProvider, {
-                onSuccess: () => setPendingAuthProvider(null),
-              });
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>{t("org.ssoConfirm.title")}</DialogTitle>
-              <DialogDescription>
-                {t("org.ssoConfirm.description")}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogErrorAlert error={setAuthProvider.error} />
-            <DialogFooter>
-              <DialogClose asChild>
-                <ToolkitButton type="button" variant="secondary">
-                  {t("org.sso.cancel")}
+            ))}
+            {deleteScim.error ? <ErrorText error={deleteScim.error} /> : null}
+            {oneTimeScimToken ? (
+              <div className="grid gap-2 rounded-md border p-3 text-sm">
+                <p>{t("org.scim.copyTokenOnce")}</p>
+                <code {...SESSION_REPLAY_MASK_PROPS} className="break-all">
+                  {oneTimeScimToken}
+                </code>
+                <code className="break-all">{scimQuery.data?.endpoint}</code>
+                <ToolkitButton
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="justify-self-start"
+                  onClick={() => setOneTimeScimToken(null)}
+                >
+                  {t("org.scim.dismissToken")}
                 </ToolkitButton>
-              </DialogClose>
-              <ToolkitButton type="submit" disabled={setAuthProvider.isPending}>
-                <PendingLabel
-                  pending={setAuthProvider.isPending}
-                  label={t("org.ssoConfirm.confirm")}
-                  pendingLabel={t("agentChat.common.saving")}
-                />
-              </ToolkitButton>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+              </div>
+            ) : null}
+            {createScim.error ? <ErrorText error={createScim.error} /> : null}
+          </>
+        ),
+      },
+    },
+  ]);
+}
+
+function FragmentSurface({ fragment }: { fragment: ModelFragment }) {
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: fragment.rows }}
+      actions={fragment.actions}
+      slots={fragment.slots}
+    />
+  );
+}
+
+/** The sign-in, SSO and SCIM rows, drawn inside a settings group. */
+export function OrgIdentitySettings({
+  org,
+  requiredAuthProvider,
+  afterSignIn,
+}: {
+  org: { orgId: string | null; allowedDomain: string | null; access?: unknown };
+  requiredAuthProvider: string | null | undefined;
+  afterSignIn?: ReactNode;
+}) {
+  const fragment = useOrgIdentityFragment({ org, requiredAuthProvider });
+  return (
+    <>
+      <FragmentSurface
+        fragment={{ ...fragment, rows: fragment.rows.slice(0, 1) }}
+      />
+      {afterSignIn}
+      <FragmentSurface
+        fragment={{ ...fragment, rows: fragment.rows.slice(1) }}
+      />
     </>
   );
 }

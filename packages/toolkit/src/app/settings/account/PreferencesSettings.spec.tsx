@@ -42,9 +42,20 @@ vi.mock("../SchedulingTimezoneField.js", () => ({
   SchedulingTimezoneField: () => <div data-testid="timezone-field" />,
 }));
 vi.mock("../VoiceTranscriptionSection.js", () => ({
-  VoiceTranscriptionSection: ({ compact }: { compact?: boolean }) => (
-    <div data-testid="voice" data-compact={String(!!compact)} />
-  ),
+  useVoiceTranscriptionRow: () => ({
+    rows: [
+      {
+        id: "settings.voice.transcription",
+        part: "settings.row",
+        label: "Voice transcription",
+        anchor: "voice",
+        slot: "voice-transcription-control",
+      },
+    ],
+    slots: {
+      "voice-transcription-control": <div data-testid="voice" />,
+    },
+  }),
 }));
 // Its rows have their own spec; here it only needs its anchored group.
 vi.mock("../VoiceChatSettings.js", () => ({
@@ -150,10 +161,8 @@ describe("PreferencesSettings", () => {
     ).not.toBeNull();
 
     expect(
-      groups[2]!
-        .querySelector('[data-testid="voice"]')
-        ?.getAttribute("data-compact"),
-    ).toBe("true");
+      groups.at(2)?.querySelector('#voice [data-testid="voice"]'),
+    ).toBeInstanceOf(HTMLElement);
   });
 
   it("leaves out the language row when the app has no locale provider", async () => {

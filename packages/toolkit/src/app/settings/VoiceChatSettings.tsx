@@ -3,6 +3,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/application-state";
 import { useT } from "@agent-native/core/client/i18n";
+import type { ModelRow } from "@agent-native/design-system/model";
 import type { RealtimeVoiceModeSelectSetting } from "@agent-native/toolkit/composer/RealtimeVoiceMode";
 import {
   buildRealtimeVoiceSettings,
@@ -16,7 +17,6 @@ import {
   type RealtimeVoicePreferences,
 } from "@agent-native/toolkit/composer/useRealtimeVoiceMode";
 import { Skeleton } from "@agent-native/toolkit/design-system";
-import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Select,
   SelectContent,
@@ -25,9 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
+import { ModelSurface, rowAttributes } from "../../design-system/parts.js";
 
 const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 
@@ -127,53 +127,94 @@ export function VoiceChatSettings() {
       ] as const)
     : null;
 
+  const groupRows: ModelRow[] = loadFailed
+    ? [
+        {
+          id: "settings.voice-chat.load-error",
+          part: "settings.row",
+          label: t(key("voiceChatLoadError")),
+          anchor: "voice-chat-load-error",
+          regions: { label: "voice-chat-load-error" },
+          rows: [
+            {
+              id: "settings.voice-chat.load-error.retry",
+              part: "button",
+              kind: "action",
+              label: t("agentChat.common.retry"),
+              effect: { kind: "action", effectId: "retry-voice-chat" },
+            },
+          ],
+        },
+      ]
+    : rows
+      ? rows.map(([id, setting]) => ({
+          id: `settings.voice-chat.${id}`,
+          part: "settings.row",
+          kind: "choice",
+          label: setting.label,
+          anchor: `voice-chat-${id}`,
+          slot: `voice-chat-${id}`,
+        }))
+      : [
+          {
+            id: "settings.voice-chat.loading",
+            part: "settings.row",
+            label: t(key("voiceChat")),
+            anchor: "voice-chat-loading",
+            slot: "voice-chat-loading",
+          },
+        ];
+  if (saveFailed) {
+    groupRows.push({
+      id: "settings.voice-chat.save-error",
+      part: "settings.content",
+      label: t(key("voiceChatSaveError")),
+      slot: "voice-chat-save-error",
+    });
+  }
+  const slots: Record<string, ReactNode | ((row: ModelRow) => ReactNode)> = {
+    "voice-chat-load-error": (
+      <span role="alert">{t(key("voiceChatLoadError"))}</span>
+    ),
+    "voice-chat-loading": (
+      <Skeleton
+        className="h-8 w-44"
+        aria-label={t("agentChat.common.loading")}
+      />
+    ),
+    "voice-chat-save-error": (row: ModelRow) => (
+      <p
+        {...rowAttributes(row)}
+        role="alert"
+        className="px-5 py-3 text-sm text-[hsl(var(--agent-kit-warning))] sm:px-6"
+      >
+        {t(key("voiceChatSaveError"))}
+      </p>
+    ),
+  };
+  for (const [id, setting] of rows ?? []) {
+    slots[`voice-chat-${id}`] = <VoiceChatSettingSelect setting={setting} />;
+  }
+
   return (
-    <SettingsGroup id="voice-chat" title={t(key("voiceChat"))}>
-      {loadFailed ? (
-        <SettingsRow
-          id="voice-chat-load-error"
-          label={<span role="alert">{t(key("voiceChatLoadError"))}</span>}
-          control={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setLoadRequest((current) => current + 1)}
-            >
-              {t("agentChat.common.retry")}
-            </Button>
-          }
-        />
-      ) : rows ? (
-        rows.map(([id, setting]) => (
-          <SettingsRow
-            key={id}
-            id={`voice-chat-${id}`}
-            label={setting.label}
-            control={<VoiceChatSettingSelect setting={setting} />}
-          />
-        ))
-      ) : (
-        <SettingsRow
-          id="voice-chat-loading"
-          label={t(key("voiceChat"))}
-          control={
-            <Skeleton
-              className="h-8 w-44"
-              aria-label={t("agentChat.common.loading")}
-            />
-          }
-        />
-      )}
-      {saveFailed ? (
-        <p
-          role="alert"
-          className="px-5 py-3 text-sm text-[hsl(var(--agent-kit-warning))] sm:px-6"
-        >
-          {t(key("voiceChatSaveError"))}
-        </p>
-      ) : null}
-    </SettingsGroup>
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [
+          {
+            id: "settings.voice-chat",
+            part: "settings.group",
+            label: t(key("voiceChat")),
+            anchor: "voice-chat",
+            rows: groupRows,
+          },
+        ],
+      }}
+      actions={{
+        "retry-voice-chat": () => setLoadRequest((current) => current + 1),
+      }}
+      slots={slots}
+    />
   );
 }
 

@@ -38,6 +38,7 @@ import {
   STANDARD_APP_ROUTES,
 } from "@agent-native/core/navigation";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
+import type { ModelRow } from "@agent-native/design-system/model";
 import {
   Checkbox,
   Picker,
@@ -72,23 +73,14 @@ import {
   IconExternalLink,
   IconBrain,
   IconHierarchy2,
-  IconBrowser,
-  IconGitBranch,
   IconCloud,
-  IconDatabase,
   IconFolder,
-  IconShield,
   IconPlugConnected,
   IconTopologyRing2,
   IconLoader2,
-  IconUpload,
   IconCoin,
-  IconMail,
   IconKey,
-  IconMicrophone,
-  IconEyeOff,
   IconBolt,
-  IconGauge,
   IconApps,
   IconUsersGroup,
   IconTool,
@@ -106,6 +98,10 @@ import React, {
   useRef,
 } from "react";
 
+import {
+  ModelSurface,
+  type ModelSurfaceProps,
+} from "../../design-system/parts.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
@@ -129,9 +125,7 @@ import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { ChatGPTSubscriptionRow } from "./model/ChatGPTSubscriptionRow.js";
 import { T3CodeRow } from "./model/T3CodeRow.js";
 import { SecretsSection } from "./SecretsSection.js";
-import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
-  SettingsSection,
   SettingsSurfaceProvider,
   useSettingsSurface,
   type SettingsSurface,
@@ -152,6 +146,104 @@ import {
 } from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
 import { WhoField } from "./WhoField.js";
+function SectionRow({
+  row,
+  slots,
+}: {
+  row: ModelRow;
+  slots: ModelSurfaceProps["slots"];
+}) {
+  return <ModelSurface model={{ id: "settings", rows: [row] }} slots={slots} />;
+}
+
+function SlotGroup({
+  id,
+  label,
+  hosts,
+  children,
+}: {
+  id: string;
+  label: string;
+  hosts: ModelRow["hosts"];
+  children: React.ReactNode;
+}) {
+  return (
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [{ id, part: "settings.group", label, slot: "body", hosts }],
+      }}
+      slots={{ body: children }}
+    />
+  );
+}
+
+const sectionRowId = (section: SettingsSectionId) =>
+  `settings.panel.${section}`;
+
+function SectionSurface({
+  section,
+  icon,
+  title,
+  subtitle,
+  required = false,
+  connected,
+  flat = false,
+  open = false,
+  onToggle,
+  rows,
+  slots,
+  hosts,
+  children,
+}: {
+  section: SettingsSectionId;
+  icon: string;
+  title: string;
+  subtitle?: string | undefined;
+  required?: boolean | undefined;
+  connected?: boolean | undefined;
+  flat?: boolean | undefined;
+  open?: boolean | undefined;
+  onToggle?: (() => void) | undefined;
+  rows?: readonly ModelRow[];
+  slots?: ModelSurfaceProps["slots"];
+  hosts?: ModelRow["hosts"];
+  children?: React.ReactNode;
+}) {
+  const toggleId = `toggle-${section}`;
+  const row: ModelRow = {
+    id: sectionRowId(section),
+    part: "settings.section",
+    label: title,
+    description: subtitle,
+    anchor: settingsSectionDomId(section),
+    icon: { kind: "symbol", key: icon },
+    state: {
+      expanded: open,
+      complete: connected === true,
+      badge:
+        required && !connected
+          ? { kind: "label", value: "Required", tone: "attention" }
+          : undefined,
+    },
+    effect: onToggle ? { kind: "action", effectId: toggleId } : undefined,
+    ...(children === undefined
+      ? {}
+      : flat
+        ? { regions: { body: "content" } }
+        : { slot: "content" }),
+    rows,
+    hosts,
+  };
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: [row] }}
+      actions={onToggle ? { [toggleId]: onToggle } : undefined}
+      slots={children === undefined ? slots : { ...slots, content: children }}
+    />
+  );
+}
+
 const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
@@ -298,11 +390,11 @@ function UseBuilderCard({
   compact = false,
 }: {
   builderFlow: BuilderConnectFlow;
-  connectUrl?: string;
+  connectUrl?: string | undefined;
   connected: boolean;
-  orgName?: string;
+  orgName?: string | undefined;
   envManaged?: boolean;
-  credentialSource?: "user" | "org" | "workspace" | "env";
+  credentialSource?: "user" | "org" | "workspace" | "env" | undefined;
   trackingSource?: string;
   trackingFlow?: string;
   label?: string;
@@ -869,7 +961,6 @@ function LLMSectionInner({
   orgName,
   envManaged,
   credentialSource,
-  grouped = false,
   open,
   onToggle,
 }: {
@@ -881,7 +972,6 @@ function LLMSectionInner({
   orgName?: string;
   envManaged?: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
-  grouped?: boolean;
   open?: boolean;
   onToggle?: () => void;
 }) {
@@ -1369,9 +1459,10 @@ function LLMSectionInner({
   };
 
   return (
-    <SettingsSection
-      id={settingsSectionDomId("llm")}
-      icon={<IconBrain size={14} />}
+    <SectionSurface
+      section="llm"
+      hosts={["settings.panel.llm.chatgpt-subscription"]}
+      icon="brain"
       title="LLM"
       required
       connected={
@@ -1386,7 +1477,6 @@ function LLMSectionInner({
               defaultValue: "Choose Builder.io or custom keys.",
             })
       }
-      grouped={isPage && grouped}
       open={open}
       onToggle={onToggle}
     >
@@ -1994,7 +2084,7 @@ function LLMSectionInner({
           </div>
         </>
       )}
-    </SettingsSection>
+    </SectionSurface>
   );
 }
 
@@ -2199,11 +2289,9 @@ function AppDefaultModelPicker({
 }
 
 function AppModelDefaultsSectionInner({
-  grouped = false,
   open,
   onToggle,
 }: {
-  grouped?: boolean;
   open?: boolean;
   onToggle?: () => void;
 }) {
@@ -2379,13 +2467,13 @@ function AppModelDefaultsSectionInner({
   };
 
   return (
-    <SettingsSection
-      id={settingsSectionDomId("app-models")}
-      icon={<IconApps size={14} />}
+    <SectionSurface
+      section="app-models"
+      hosts={["settings.panel.app-models.default-model"]}
+      icon="apps"
       title="App Default Model"
       subtitle="Choose the model used by this app by default."
       connected={loading ? undefined : hasAppDefault}
-      grouped={isPage && grouped}
       open={open}
       onToggle={onToggle}
     >
@@ -2393,51 +2481,60 @@ function AppModelDefaultsSectionInner({
         <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
-          <SettingsRow
-            className={grouped ? undefined : "-mx-5 sm:-mx-6"}
-            label="Default model"
-            description={
-              hasAppDefault
+          <SectionRow
+            row={{
+              id: "settings.panel.app-models.default-model",
+              part: "settings.row",
+              label: "Default model",
+              description: hasAppDefault
                 ? `Used by ${friendlyAppName(settings.appId) || "this app"} · ${scopeLabel}.`
-                : "Uses the global LLM default."
-            }
-            status={
-              <span className="text-xs text-muted-foreground">
-                {settings.source}
-              </span>
-            }
-            control={
-              <AppDefaultModelPicker
-                engines={settings.engines}
-                value={
-                  hasAppDefault
-                    ? `${selectedEngine}::${selectedModel}`
-                    : "__global__"
-                }
-                disabled={!settings.canUpdate || saving}
-                onChange={(next) => {
-                  const value = next;
-                  if (value === "__global__") {
-                    void reset();
-                    return;
+                : "Uses the global LLM default.",
+              slot: "picker",
+              regions: { status: "source", detail: "notes" },
+            }}
+            slots={{
+              source: (
+                <span className="text-xs text-muted-foreground">
+                  {settings.source}
+                </span>
+              ),
+              picker: (
+                <AppDefaultModelPicker
+                  engines={settings.engines}
+                  value={
+                    hasAppDefault
+                      ? `${selectedEngine}::${selectedModel}`
+                      : "__global__"
                   }
-                  const separator = value.indexOf("::");
-                  if (separator < 1) return;
-                  void save({
-                    engine: value.slice(0, separator),
-                    model: value.slice(separator + 2),
-                  });
-                }}
-              />
-            }
-          >
-            {!settings.canUpdate && (
-              <p className="text-xs text-muted-foreground">
-                Only organization owners and admins can change this setting.
-              </p>
-            )}
-            {error && <p className="text-xs text-destructive">{error}</p>}
-          </SettingsRow>
+                  disabled={!settings.canUpdate || saving}
+                  onChange={(next) => {
+                    const value = next;
+                    if (value === "__global__") {
+                      void reset();
+                      return;
+                    }
+                    const separator = value.indexOf("::");
+                    if (separator < 1) return;
+                    void save({
+                      engine: value.slice(0, separator),
+                      model: value.slice(separator + 2),
+                    });
+                  }}
+                />
+              ),
+              notes: (
+                <>
+                  {!settings.canUpdate && (
+                    <p className="text-xs text-muted-foreground">
+                      Only organization owners and admins can change this
+                      setting.
+                    </p>
+                  )}
+                  {error && <p className="text-xs text-destructive">{error}</p>}
+                </>
+              ),
+            }}
+          />
         ) : (
           <div className="space-y-2">
             <div
@@ -2583,7 +2680,7 @@ function AppModelDefaultsSectionInner({
           </div>
         )
       ) : null}
-    </SettingsSection>
+    </SectionSurface>
   );
 }
 
@@ -2714,9 +2811,9 @@ export function EmailSectionInner({
   };
 
   return (
-    <SettingsSection
-      id={settingsSectionDomId("email")}
-      icon={<IconMail size={14} />}
+    <SectionSurface
+      section="email"
+      icon="mail"
       title="Email"
       subtitle="Needed before deploy for password resets, team invitations, share notifications, and dashboard email reports. Local development can run without it."
       connected={!envLoaded ? undefined : anyConfigured}
@@ -2928,7 +3025,7 @@ export function EmailSectionInner({
           )}
         </div>
       )}
-    </SettingsSection>
+    </SectionSurface>
   );
 }
 
@@ -2945,11 +3042,9 @@ interface AgentLoopSettingsResponse {
 }
 
 function AgentLimitsSectionInner({
-  grouped = false,
   open,
   onToggle,
 }: {
-  grouped?: boolean;
   open?: boolean;
   onToggle?: () => void;
 }) {
@@ -3072,9 +3167,10 @@ function AgentLimitsSectionInner({
   };
 
   return (
-    <SettingsSection
-      id={settingsSectionDomId("limits")}
-      icon={<IconGauge size={14} />}
+    <SectionSurface
+      section="limits"
+      hosts={["settings.panel.limits.max-iterations"]}
+      icon="gauge"
       title="Agent Limits"
       subtitle="Set how long a response can work before pausing."
       connected={
@@ -3084,7 +3180,6 @@ function AgentLimitsSectionInner({
             ? settings.maxIterations !== settings.defaultMaxIterations
             : false
       }
-      grouped={isPage && grouped}
       open={open}
       onToggle={onToggle}
     >
@@ -3092,97 +3187,109 @@ function AgentLimitsSectionInner({
         <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
-          <SettingsRow
-            className={grouped ? undefined : "-mx-5 sm:-mx-6"}
-            label="Max iterations"
-            description={`Default ${settings.defaultMaxIterations.toLocaleString()} · applies to ${scopeLabel}.`}
-            status={
-              <span className="text-xs text-muted-foreground">
-                {settings.source}
-              </span>
-            }
-            control={
-              <Popover>
-                <PopoverTrigger asChild>
-                  <ManageButton />
-                </PopoverTrigger>
-                <PopoverContent align="end" sideOffset={6} className="w-80 p-4">
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        Max iterations
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Choose how long a response can work before pausing.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min={settings.minMaxIterations}
-                        max={settings.maxMaxIterations}
-                        value={value}
-                        disabled={!settings.canUpdate || saving}
-                        onChange={(event) => {
-                          setValue(event.target.value);
-                          setError(null);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && hasPendingChange) {
-                            void save();
+          <SectionRow
+            row={{
+              id: "settings.panel.limits.max-iterations",
+              part: "settings.row",
+              label: "Max iterations",
+              description: `Default ${settings.defaultMaxIterations.toLocaleString()} · applies to ${scopeLabel}.`,
+              state: { value: String(settings.maxIterations) },
+              slot: "manage",
+              regions: { status: "source" },
+            }}
+            slots={{
+              source: (
+                <span className="text-xs text-muted-foreground">
+                  {settings.source}
+                </span>
+              ),
+              manage: (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <ManageButton />
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    sideOffset={6}
+                    className="w-80 p-4"
+                  >
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Max iterations
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Choose how long a response can work before pausing.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={settings.minMaxIterations}
+                          max={settings.maxMaxIterations}
+                          value={value}
+                          disabled={!settings.canUpdate || saving}
+                          onChange={(event) => {
+                            setValue(event.target.value);
+                            setError(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && hasPendingChange) {
+                              void save();
+                            }
+                          }}
+                          className={cn(
+                            textInputClass(true),
+                            "min-w-0 flex-1 disabled:opacity-60",
+                          )}
+                          style={CONTROL_STYLE_PAGE}
+                        />
+                        <Button
+                          type="button"
+                          intent="primary"
+                          emphasis="solid"
+                          onClick={() => void save()}
+                          disabled={!hasPendingChange || saving}
+                          className={pillButtonClass(true, "solid")}
+                        >
+                          {saving ? (
+                            <IconLoader2 size={14} className="animate-spin" />
+                          ) : saved ? (
+                            <IconCheck size={14} />
+                          ) : (
+                            "Save"
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          intent="neutral"
+                          emphasis="outline"
+                          onClick={() => void reset()}
+                          disabled={
+                            !settings.canUpdate ||
+                            saving ||
+                            settings.maxIterations ===
+                              settings.defaultMaxIterations
                           }
-                        }}
-                        className={cn(
-                          textInputClass(true),
-                          "min-w-0 flex-1 disabled:opacity-60",
-                        )}
-                        style={CONTROL_STYLE_PAGE}
-                      />
-                      <Button
-                        type="button"
-                        intent="primary"
-                        emphasis="solid"
-                        onClick={save}
-                        disabled={!hasPendingChange || saving}
-                        className={pillButtonClass(true, "solid")}
-                      >
-                        {saving ? (
-                          <IconLoader2 size={14} className="animate-spin" />
-                        ) : saved ? (
-                          <IconCheck size={14} />
-                        ) : (
-                          "Save"
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        intent="neutral"
-                        emphasis="outline"
-                        onClick={reset}
-                        disabled={
-                          !settings.canUpdate ||
-                          saving ||
-                          settings.maxIterations ===
-                            settings.defaultMaxIterations
-                        }
-                        className={pillButtonClass(true, "outline")}
-                      >
-                        Reset
-                      </Button>
+                          className={pillButtonClass(true, "outline")}
+                        >
+                          Reset
+                        </Button>
+                      </div>
+                      {!settings.canUpdate && (
+                        <p className="text-xs text-muted-foreground">
+                          Only organization owners and admins can change this
+                          limit.
+                        </p>
+                      )}
+                      {error && (
+                        <p className="text-xs text-destructive">{error}</p>
+                      )}
                     </div>
-                    {!settings.canUpdate && (
-                      <p className="text-xs text-muted-foreground">
-                        Only organization owners and admins can change this
-                        limit.
-                      </p>
-                    )}
-                    {error && (
-                      <p className="text-xs text-destructive">{error}</p>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            }
+                  </PopoverContent>
+                </Popover>
+              ),
+            }}
           />
         ) : (
           <div className="space-y-2">
@@ -3296,7 +3403,7 @@ function AgentLimitsSectionInner({
           </div>
         )
       ) : null}
-    </SettingsSection>
+    </SectionSurface>
   );
 }
 
@@ -3546,7 +3653,13 @@ function SettingsPanelContent({
           ["llm", "app-models", "limits", "voice"].some((section) =>
             shouldShowSection(section as SettingsSectionId),
           ) && (
-            <SettingsGroup title="Agent">
+            <SlotGroup
+              id="settings.panel.agent"
+              label="Agent"
+              hosts={(["llm", "app-models", "limits", "voice"] as const)
+                .filter((section) => shouldShowSection(section))
+                .map(sectionRowId)}
+            >
               {shouldShowSection("llm") && (
                 <LLMSectionInner
                   builderFlow={builderFlow}
@@ -3557,99 +3670,120 @@ function SettingsPanelContent({
                   orgName={orgName}
                   envManaged={envManaged}
                   credentialSource={credentialSource}
-                  grouped
                   open={openSection === "llm"}
                   onToggle={() => toggle("llm")}
                 />
               )}
               {shouldShowSection("app-models") && (
                 <AppModelDefaultsSectionInner
-                  grouped
                   open={openSection === "app-models"}
                   onToggle={() => toggle("app-models")}
                 />
               )}
               {shouldShowSection("limits") && (
                 <AgentLimitsSectionInner
-                  grouped
                   open={openSection === "limits"}
                   onToggle={() => toggle("limits")}
                 />
               )}
               {shouldShowSection("voice") && (
-                <SettingsSection
-                  id={settingsSectionDomId("voice")}
-                  icon={<IconMicrophone size={14} />}
+                <SectionSurface
+                  section="voice"
+                  hosts={["settings.voice.transcription"]}
+                  icon="microphone"
                   title="Voice Transcription"
                   subtitle="Choose how voice input is transcribed."
-                  grouped
                   flat
                   open={openSection === "voice"}
                   onToggle={() => toggle("voice")}
                 >
                   <VoiceTranscriptionSection compact />
-                </SettingsSection>
+                </SectionSurface>
               )}
-            </SettingsGroup>
+            </SlotGroup>
           )}
 
         {isPage && agentAdditionalContent ? (
-          <SettingsGroup title="Notifications">
+          <SlotGroup
+            id="settings.panel.notifications"
+            label="Notifications"
+            hosts="any"
+          >
             {agentAdditionalContent}
-          </SettingsGroup>
+          </SlotGroup>
         ) : null}
 
         {isPage &&
           ["automations", "background"].some((section) =>
             shouldShowSection(section as SettingsSectionId),
           ) && (
-            <SettingsGroup title="Agent workflows">
+            <SlotGroup
+              id="settings.panel.workflows"
+              label="Agent workflows"
+              hosts={(["automations", "background"] as const)
+                .filter((section) => shouldShowSection(section))
+                .map(sectionRowId)}
+            >
               {shouldShowSection("automations") && (
-                <SettingsSection
-                  id={settingsSectionDomId("automations")}
-                  icon={<IconBolt size={14} />}
+                <SectionSurface
+                  section="automations"
+                  hosts={["settings.panel.automations.open"]}
+                  icon="bolt"
                   title="Automations"
                   subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
-                  grouped
                   flat
                   open={openSection === "automations"}
                   onToggle={() => toggle("automations")}
                 >
-                  <SettingsRow
-                    label="Automations"
-                    description="Schedule agent tasks or run them from events and webhooks."
-                    control={
-                      <a
-                        href={appMountedPath(
-                          buildSettingsRoute("agent:automations"),
-                          STANDARD_APP_ROUTES.settings,
-                        )}
-                        className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
-                      >
-                        Open automations
-                        <IconExternalLink size={14} />
-                      </a>
-                    }
+                  <SectionRow
+                    row={{
+                      id: "settings.panel.automations.open",
+                      part: "settings.row",
+                      label: "Automations",
+                      description:
+                        "Schedule agent tasks or run them from events and webhooks.",
+                      slot: "link",
+                    }}
+                    slots={{
+                      link: (
+                        <a
+                          href={appMountedPath(
+                            buildSettingsRoute("agent:automations"),
+                            STANDARD_APP_ROUTES.settings,
+                          )}
+                          className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
+                        >
+                          Open automations
+                          <IconExternalLink size={14} />
+                        </a>
+                      ),
+                    }}
                   />
-                </SettingsSection>
+                </SectionSurface>
               )}
               {shouldShowSection("background") && (
-                <SettingsSection
-                  id={settingsSectionDomId("background")}
-                  icon={<IconGitBranch size={14} />}
+                <SectionSurface
+                  section="background"
+                  hosts={["settings.panel.background.agent"]}
+                  icon="git-branch"
                   title="Background Agent"
                   subtitle="Make code changes from production mode via Builder."
-                  grouped
                   flat
                   connected={connected}
                   open={openSection === "background"}
                   onToggle={() => toggle("background")}
                 >
-                  <SettingsRow
-                    label="Background agent"
-                    description="Make code changes from production mode via Builder."
-                    control={
-                      builderStatusAvailable ? (
+                  <SectionRow
+                    row={{
+                      id: "settings.panel.background.agent",
+                      part: "settings.row",
+                      label: "Background agent",
+                      description:
+                        "Make code changes from production mode via Builder.",
+                      slot: builderStatusAvailable ? "connect" : undefined,
+                    }}
+                    slots={{
+                      connect: (
                         <UseBuilderCard
                           builderFlow={builderFlow}
                           connectUrl={connectUrl}
@@ -3661,247 +3795,288 @@ function SettingsPanelContent({
                           trackingFlow="background_agent"
                           compact
                         />
-                      ) : null
-                    }
+                      ),
+                    }}
                   />
-                </SettingsSection>
+                </SectionSurface>
               )}
-            </SettingsGroup>
+            </SlotGroup>
           )}
 
         {isPage && (isWorkspace || isWorkspacePage) && (
-          <SettingsGroup title="Workspace">
-            {isWorkspace && (
-              <SettingsRow
-                label={t("dispatch.pages.workspaceApps")}
-                control={
-                  <a
-                    href={dispatchAllAppsHref}
-                    // Cross-app destination: it leaves this app for the apps
-                    // directory, so it opens a new tab as the external-link
-                    // icon promises, instead of replacing the page the reader is
-                    // composing in.
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
+          <ModelSurface
+            model={{
+              id: "settings",
+              rows: [
+                {
+                  id: "settings.panel.workspace",
+                  part: "settings.group",
+                  label: "Workspace",
+                  rows: [
+                    ...(isWorkspace
+                      ? [
+                          {
+                            id: "settings.panel.workspace.apps",
+                            part: "settings.row",
+                            label: t("dispatch.pages.workspaceApps"),
+                            slot: "workspace-apps",
+                          },
+                        ]
+                      : []),
+                    ...(isWorkspacePage && shouldShowSection("demo-mode")
+                      ? [
+                          {
+                            id: "settings.panel.workspace.demo-mode",
+                            part: "settings.row",
+                            label: "Demo mode",
+                            description:
+                              "Use sample data in this browser for presentations.",
+                            anchor: settingsSectionDomId("demo-mode"),
+                            slot: "workspace-demo-mode",
+                          },
+                        ]
+                      : []),
+                    ...(isWorkspacePage && shouldShowSection("hosting")
+                      ? [
+                          {
+                            id: "settings.panel.workspace.hosting",
+                            part: "settings.row",
+                            label: "Hosting",
+                            description: "Deploy the app to the cloud.",
+                            anchor: settingsSectionDomId("hosting"),
+                            slot: "workspace-hosting",
+                          },
+                        ]
+                      : []),
+                    ...(shouldShowSection("database")
+                      ? [
+                          {
+                            id: "settings.panel.workspace.database",
+                            part: "settings.row",
+                            label: "Database",
+                            description: "Connect persistent app storage.",
+                            anchor: settingsSectionDomId("database"),
+                            slot: "workspace-database",
+                          },
+                        ]
+                      : []),
+                    ...(shouldShowSection("uploads")
+                      ? [
+                          {
+                            id: "settings.panel.workspace.uploads",
+                            part: "settings.row",
+                            label: "File uploads",
+                            description: "Store avatars and chat attachments.",
+                            anchor: settingsSectionDomId("uploads"),
+                            slot: "workspace-uploads",
+                          },
+                        ]
+                      : []),
+                    ...(shouldShowSection("auth")
+                      ? [
+                          {
+                            id: "settings.panel.workspace.auth",
+                            part: "settings.row",
+                            label: "Authentication",
+                            description: "Set up sign-in and access control.",
+                            anchor: settingsSectionDomId("auth"),
+                            slot: "workspace-auth",
+                          },
+                        ]
+                      : []),
+                  ],
+                },
+              ],
+            }}
+            slots={{
+              "workspace-apps": (
+                <a
+                  href={dispatchAllAppsHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
+                >
+                  {t("dispatch.pages.browseApps")}
+                  <IconExternalLink size={14} />
+                </a>
+              ),
+              "workspace-demo-mode": <DemoModeSection compact />,
+              "workspace-hosting": (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {showWorkspaceBuilderConnect && (
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="hosting_settings"
+                      trackingFlow="hosting"
+                      compact
+                    />
+                  )}
+                  <ManualSetupCard
+                    title="Set up manually"
+                    hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
+                    docsUrl={docsUrl("deployment", {
+                      campaign: "onboarding",
+                      content: "deployment_settings",
+                    })}
+                    dim={connected}
+                    bare
+                    popover
+                    popoverLabel="Manage"
+                    summaryContent={
+                      connected ? (
+                        <UseBuilderCard
+                          builderFlow={builderFlow}
+                          connectUrl={connectUrl}
+                          connected={connected}
+                          orgName={orgName}
+                          envManaged={envManaged}
+                          credentialSource={credentialSource}
+                          trackingSource="hosting_settings"
+                          trackingFlow="hosting"
+                        />
+                      ) : undefined
+                    }
+                  />
+                </div>
+              ),
+              "workspace-database": (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {showWorkspaceBuilderConnect && (
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="database_settings"
+                      trackingFlow="database"
+                      compact
+                    />
+                  )}
+                  <ManualSetupCard
+                    title="Set up manually"
+                    hint="Set DATABASE_URL in your .env to connect a supported database."
+                    docsUrl={docsUrl("database", {
+                      campaign: "onboarding",
+                      content: "database_settings",
+                    })}
+                    dim={connected}
+                    bare
+                    popover
+                    popoverLabel="Manage"
+                    summaryContent={
+                      connected ? (
+                        <UseBuilderCard
+                          builderFlow={builderFlow}
+                          connectUrl={connectUrl}
+                          connected={connected}
+                          orgName={orgName}
+                          envManaged={envManaged}
+                          credentialSource={credentialSource}
+                          trackingSource="database_settings"
+                          trackingFlow="database"
+                        />
+                      ) : undefined
+                    }
+                  />
+                </div>
+              ),
+              "workspace-uploads": (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {showWorkspaceBuilderConnect && (
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="file_upload_settings"
+                      trackingFlow="file_upload"
+                      compact
+                    />
+                  )}
+                  <ManualSetupCard
+                    title="Set up manually"
+                    hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
+                    docsUrl={docsUrl("file-uploads", {
+                      campaign: "onboarding",
+                      content: "file_upload_settings",
+                    })}
+                    dim={connected}
+                    bare
+                    popover
+                    popoverLabel="Manage"
+                    summaryContent={
+                      connected ? (
+                        <UseBuilderCard
+                          builderFlow={builderFlow}
+                          connectUrl={connectUrl}
+                          connected={connected}
+                          orgName={orgName}
+                          envManaged={envManaged}
+                          credentialSource={credentialSource}
+                          trackingSource="file_upload_settings"
+                          trackingFlow="file_upload"
+                        />
+                      ) : undefined
+                    }
                   >
-                    {t("dispatch.pages.browseApps")}
-                    <IconExternalLink size={14} />
-                  </a>
-                }
-              />
-            )}
-            {isWorkspacePage && shouldShowSection("demo-mode") && (
-              <SettingsRow
-                id={settingsSectionDomId("demo-mode")}
-                label="Demo mode"
-                description="Use sample data in this browser for presentations."
-                control={<DemoModeSection compact />}
-              />
-            )}
-            {isWorkspacePage && shouldShowSection("hosting") && (
-              <SettingsRow
-                id={settingsSectionDomId("hosting")}
-                label="Hosting"
-                description="Deploy the app to the cloud."
-                control={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {showWorkspaceBuilderConnect && (
-                      <UseBuilderCard
-                        builderFlow={builderFlow}
-                        connectUrl={connectUrl}
-                        connected={connected}
-                        orgName={orgName}
-                        envManaged={envManaged}
-                        credentialSource={credentialSource}
-                        trackingSource="hosting_settings"
-                        trackingFlow="hosting"
-                        compact
-                      />
-                    )}
-                    <ManualSetupCard
-                      title="Set up manually"
-                      hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                      docsUrl={docsUrl("deployment", {
-                        campaign: "onboarding",
-                        content: "deployment_settings",
-                      })}
-                      dim={connected}
-                      bare
-                      popover
-                      popoverLabel="Manage"
-                      summaryContent={
-                        connected ? (
-                          <UseBuilderCard
-                            builderFlow={builderFlow}
-                            connectUrl={connectUrl}
-                            connected={connected}
-                            orgName={orgName}
-                            envManaged={envManaged}
-                            credentialSource={credentialSource}
-                            trackingSource="hosting_settings"
-                            trackingFlow="hosting"
-                          />
-                        ) : undefined
-                      }
+                    <StorageSettingsForm />
+                  </ManualSetupCard>
+                </div>
+              ),
+              "workspace-auth": (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {showWorkspaceBuilderConnect && (
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="auth_settings"
+                      trackingFlow="auth"
+                      compact
                     />
-                  </div>
-                }
-              />
-            )}
-            {shouldShowSection("database") && (
-              <SettingsRow
-                id={settingsSectionDomId("database")}
-                label="Database"
-                description="Connect persistent app storage."
-                control={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {showWorkspaceBuilderConnect && (
-                      <UseBuilderCard
-                        builderFlow={builderFlow}
-                        connectUrl={connectUrl}
-                        connected={connected}
-                        orgName={orgName}
-                        envManaged={envManaged}
-                        credentialSource={credentialSource}
-                        trackingSource="database_settings"
-                        trackingFlow="database"
-                        compact
-                      />
-                    )}
-                    <ManualSetupCard
-                      title="Set up manually"
-                      hint="Set DATABASE_URL in your .env to connect a supported database."
-                      docsUrl={docsUrl("database", {
-                        campaign: "onboarding",
-                        content: "database_settings",
-                      })}
-                      dim={connected}
-                      bare
-                      popover
-                      popoverLabel="Manage"
-                      summaryContent={
-                        connected ? (
-                          <UseBuilderCard
-                            builderFlow={builderFlow}
-                            connectUrl={connectUrl}
-                            connected={connected}
-                            orgName={orgName}
-                            envManaged={envManaged}
-                            credentialSource={credentialSource}
-                            trackingSource="database_settings"
-                            trackingFlow="database"
-                          />
-                        ) : undefined
-                      }
-                    />
-                  </div>
-                }
-              />
-            )}
-            {shouldShowSection("uploads") && (
-              <SettingsRow
-                id={settingsSectionDomId("uploads")}
-                label="File uploads"
-                description="Store avatars and chat attachments."
-                control={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {showWorkspaceBuilderConnect && (
-                      <UseBuilderCard
-                        builderFlow={builderFlow}
-                        connectUrl={connectUrl}
-                        connected={connected}
-                        orgName={orgName}
-                        envManaged={envManaged}
-                        credentialSource={credentialSource}
-                        trackingSource="file_upload_settings"
-                        trackingFlow="file_upload"
-                        compact
-                      />
-                    )}
-                    <ManualSetupCard
-                      title="Set up manually"
-                      hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
-                      docsUrl={docsUrl("file-uploads", {
-                        campaign: "onboarding",
-                        content: "file_upload_settings",
-                      })}
-                      dim={connected}
-                      bare
-                      popover
-                      popoverLabel="Manage"
-                      summaryContent={
-                        connected ? (
-                          <UseBuilderCard
-                            builderFlow={builderFlow}
-                            connectUrl={connectUrl}
-                            connected={connected}
-                            orgName={orgName}
-                            envManaged={envManaged}
-                            credentialSource={credentialSource}
-                            trackingSource="file_upload_settings"
-                            trackingFlow="file_upload"
-                          />
-                        ) : undefined
-                      }
-                    >
-                      <StorageSettingsForm />
-                    </ManualSetupCard>
-                  </div>
-                }
-              />
-            )}
-            {shouldShowSection("auth") && (
-              <SettingsRow
-                id={settingsSectionDomId("auth")}
-                label="Authentication"
-                description="Set up sign-in and access control."
-                control={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {showWorkspaceBuilderConnect && (
-                      <UseBuilderCard
-                        builderFlow={builderFlow}
-                        connectUrl={connectUrl}
-                        connected={connected}
-                        orgName={orgName}
-                        envManaged={envManaged}
-                        credentialSource={credentialSource}
-                        trackingSource="auth_settings"
-                        trackingFlow="auth"
-                        compact
-                      />
-                    )}
-                    <ManualSetupCard
-                      title="Set up manually"
-                      hint="Configure Better Auth and optional Google or GitHub providers."
-                      docsUrl={docsUrl("authentication", {
-                        campaign: "onboarding",
-                        content: "authentication_settings",
-                      })}
-                      dim={connected}
-                      bare
-                      popover
-                      popoverLabel="Manage"
-                      summaryContent={
-                        connected ? (
-                          <UseBuilderCard
-                            builderFlow={builderFlow}
-                            connectUrl={connectUrl}
-                            connected={connected}
-                            orgName={orgName}
-                            envManaged={envManaged}
-                            credentialSource={credentialSource}
-                            trackingSource="auth_settings"
-                            trackingFlow="auth"
-                          />
-                        ) : undefined
-                      }
-                    />
-                  </div>
-                }
-              />
-            )}
-          </SettingsGroup>
+                  )}
+                  <ManualSetupCard
+                    title="Set up manually"
+                    hint="Configure Better Auth and optional Google or GitHub providers."
+                    docsUrl={docsUrl("authentication", {
+                      campaign: "onboarding",
+                      content: "authentication_settings",
+                    })}
+                    dim={connected}
+                    bare
+                    popover
+                    popoverLabel="Manage"
+                    summaryContent={
+                      connected ? (
+                        <UseBuilderCard
+                          builderFlow={builderFlow}
+                          connectUrl={connectUrl}
+                          connected={connected}
+                          orgName={orgName}
+                          envManaged={envManaged}
+                          credentialSource={credentialSource}
+                          trackingSource="auth_settings"
+                          trackingFlow="auth"
+                        />
+                      ) : undefined
+                    }
+                  />
+                </div>
+              ),
+            }}
+          />
         )}
 
         {!isPage && shouldShowSection("llm") && (
@@ -3934,9 +4109,9 @@ function SettingsPanelContent({
         )}
 
         {!isPage && shouldShowSection("voice") && (
-          <SettingsSection
-            id={settingsSectionDomId("voice")}
-            icon={<IconMicrophone size={14} />}
+          <SectionSurface
+            section="voice"
+            icon="microphone"
             title="Voice Transcription"
             subtitle="How the composer microphone turns your voice into text."
             flat
@@ -3944,14 +4119,14 @@ function SettingsPanelContent({
             onToggle={() => toggle("voice")}
           >
             <VoiceTranscriptionSection />
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* Demo mode */}
         {!isPage && shouldShowSection("demo-mode") && (
-          <SettingsSection
-            id={settingsSectionDomId("demo-mode")}
-            icon={<IconEyeOff size={14} />}
+          <SectionSurface
+            section="demo-mode"
+            icon="eye-off"
             title="Demo mode"
             subtitle="Replace displayed emails with realistic fake data in this browser and reshape supported charts for presentations. Backend, agent integrations, and agent results stay real and access-scoped."
             flat
@@ -3959,14 +4134,14 @@ function SettingsPanelContent({
             onToggle={() => toggle("demo-mode")}
           >
             <DemoModeSection />
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* Automations */}
         {!isPage && shouldShowSection("automations") && (
-          <SettingsSection
-            id={settingsSectionDomId("automations")}
-            icon={<IconBolt size={14} />}
+          <SectionSurface
+            section="automations"
+            icon="bolt"
             title="Automations"
             subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
             flat
@@ -3974,14 +4149,14 @@ function SettingsPanelContent({
             onToggle={() => toggle("automations")}
           >
             <AutomationsSection />
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* API keys */}
         {shouldShowSection("secrets") && (
-          <SettingsSection
-            id={settingsSectionDomId("secrets")}
-            icon={<IconKey size={14} />}
+          <SectionSurface
+            section="secrets"
+            icon="key"
             title="API keys"
             subtitle="Service credentials and automation keys."
             flat
@@ -3989,14 +4164,14 @@ function SettingsPanelContent({
             onToggle={() => toggle("secrets")}
           >
             <SecretsSection focusKey={focusSecretKey} />
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* Hosting */}
         {!isPage && shouldShowSection("hosting") && (
-          <SettingsSection
-            id={settingsSectionDomId("hosting")}
-            icon={<IconCloud size={14} />}
+          <SectionSurface
+            section="hosting"
+            icon="cloud"
             title="Hosting"
             subtitle="Deploy your app to the cloud."
             flat
@@ -4024,14 +4199,14 @@ function SettingsPanelContent({
                 dim={connected}
               />
             </div>
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* Database */}
         {!isPage && shouldShowSection("database") && (
-          <SettingsSection
-            id={settingsSectionDomId("database")}
-            icon={<IconDatabase size={14} />}
+          <SectionSurface
+            section="database"
+            icon="database"
             title="Database"
             subtitle="Connect a cloud database for persistent storage."
             flat
@@ -4059,14 +4234,14 @@ function SettingsPanelContent({
                 dim={connected}
               />
             </div>
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* File uploads */}
         {!isPage && shouldShowSection("uploads") && (
-          <SettingsSection
-            id={settingsSectionDomId("uploads")}
-            icon={<IconUpload size={14} />}
+          <SectionSurface
+            section="uploads"
+            icon="upload"
             title="File uploads"
             subtitle="Where user-uploaded files (avatars, chat attachments) are stored."
             flat
@@ -4096,14 +4271,14 @@ function SettingsPanelContent({
                 <StorageSettingsForm />
               </ManualSetupCard>
             </div>
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* Authentication */}
         {!isPage && shouldShowSection("auth") && (
-          <SettingsSection
-            id={settingsSectionDomId("auth")}
-            icon={<IconShield size={14} />}
+          <SectionSurface
+            section="auth"
+            icon="shield"
             title="Authentication"
             subtitle="Set up user authentication and access control."
             flat
@@ -4131,7 +4306,7 @@ function SettingsPanelContent({
                 dim={connected}
               />
             </div>
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* Email */}
@@ -4144,9 +4319,9 @@ function SettingsPanelContent({
 
         {/* Browser Automation */}
         {shouldShowSection("browser") && (
-          <SettingsSection
-            id={settingsSectionDomId("browser")}
-            icon={<IconBrowser size={14} />}
+          <SectionSurface
+            section="browser"
+            icon="browser"
             title="Browser Automation"
             subtitle="Let agents control a real browser for web tasks."
             flat
@@ -4166,15 +4341,15 @@ function SettingsPanelContent({
                 trackingFlow="browser_automation"
               />
             ) : null}
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {!isPage &&
           builderBranchesAvailable &&
           shouldShowSection("background") && (
-            <SettingsSection
-              id={settingsSectionDomId("background")}
-              icon={<IconGitBranch size={14} />}
+            <SectionSurface
+              section="background"
+              icon="git-branch"
               title="Background Agent"
               subtitle="Make code changes from production mode via Builder."
               flat
@@ -4194,14 +4369,14 @@ function SettingsPanelContent({
                   trackingFlow="background_agent"
                 />
               ) : null}
-            </SettingsSection>
+            </SectionSurface>
           )}
 
         {/* Integrations */}
         {shouldShowSection("integrations") && (
-          <SettingsSection
-            id={settingsSectionDomId("integrations")}
-            icon={<IconPlugConnected size={14} />}
+          <SectionSurface
+            section="integrations"
+            icon="plug-connected"
             title="Integrations"
             subtitle="Connect messaging platforms and external services."
             flat
@@ -4211,14 +4386,14 @@ function SettingsPanelContent({
             <Suspense fallback={null}>
               <IntegrationsPanel />
             </Suspense>
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* Usage & spend */}
         {shouldShowSection("usage") && (
-          <SettingsSection
-            id={settingsSectionDomId("usage")}
-            icon={<IconCoin size={14} />}
+          <SectionSurface
+            section="usage"
+            icon="coin"
             title="Usage"
             subtitle="Track token consumption and estimated cost — broken down by chat, automations, and background jobs."
             flat
@@ -4226,14 +4401,14 @@ function SettingsPanelContent({
             onToggle={() => toggle("usage")}
           >
             <UsageSection />
-          </SettingsSection>
+          </SectionSurface>
         )}
 
         {/* A2A Agents */}
         {shouldShowSection("a2a") && (
-          <SettingsSection
-            id={settingsSectionDomId("a2a")}
-            icon={<IconTopologyRing2 size={14} />}
+          <SectionSurface
+            section="a2a"
+            icon="topology-ring-2"
             title="Connected Agents (A2A)"
             subtitle="Manage remote agents connected via the A2A protocol."
             flat
@@ -4241,7 +4416,7 @@ function SettingsPanelContent({
             onToggle={() => toggle("a2a")}
           >
             <AgentsSection />
-          </SettingsSection>
+          </SectionSurface>
         )}
       </div>
     </SettingsSurfaceProvider>

@@ -6,6 +6,11 @@ import {
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
 } from "@agent-native/core/client/use-action";
+import {
+  type ModelRow,
+  rowIdSegment,
+  type ScreenModel,
+} from "@agent-native/design-system/model";
 import { Skeleton } from "@agent-native/toolkit/design-system";
 import { Avatar, AvatarFallback } from "@agent-native/toolkit/ui/avatar";
 import { Badge } from "@agent-native/toolkit/ui/badge";
@@ -33,10 +38,18 @@ import {
 import { cn } from "@agent-native/toolkit/utils";
 import { IconHistory, IconSettings } from "@tabler/icons-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  type ComponentProps,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
+import {
+  ModelSurface,
+  rowAttributes,
+} from "../../../../design-system/parts.js";
 import { AgentMark } from "../../../shared/AgentMark.js";
-import { SettingsGroup } from "../../SettingsRow.js";
 
 export const AUDIT_PAGE_SIZE = 25;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -168,7 +181,8 @@ function useEventDate() {
 function AuditRow({
   event,
   onOpen,
-}: {
+  ...props
+}: Omit<ComponentProps<"button">, "onClick"> & {
   event: AuditEvent;
   onOpen: (event: AuditEvent) => void;
 }) {
@@ -181,6 +195,7 @@ function AuditRow({
   ].filter(Boolean);
   return (
     <button
+      {...props}
       type="button"
       data-audit-event={event.id}
       onClick={() => onOpen(event)}
@@ -202,10 +217,14 @@ function AuditRow({
   );
 }
 
-function AuditRowsSkeleton({ rows }: { rows: number }) {
+function AuditRowsSkeleton({
+  rows,
+  ...props
+}: ComponentProps<"div"> & { rows: number }) {
   const t = useT();
   return (
     <div
+      {...props}
       role="status"
       aria-busy="true"
       aria-label={t("agentChat.settings.audit.loading")}
@@ -454,10 +473,10 @@ export default function AuditLogSettingsPage() {
     setShownPages(1);
   };
 
-  let body: ReactNode;
-  if (events.isError && !events.data) {
-    body = (
+  const loadFailed =
+    (onRetry: () => void, disabled?: boolean) => (row: ModelRow) => (
       <div
+        {...rowAttributes(row)}
         role="alert"
         className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6"
       >
@@ -468,18 +487,37 @@ export default function AuditLogSettingsPage() {
           type="button"
           variant="outline"
           size="sm"
-          disabled={events.isFetching}
-          onClick={() => void events.refetch()}
+          disabled={disabled}
+          onClick={onRetry}
         >
           {t("agentChat.common.retry")}
         </Button>
       </div>
     );
+  const content = (id: string, label: string): ModelRow => ({
+    id: `settings.audit.log.${id}`,
+    part: "settings.content",
+    label,
+    slot: id,
+  });
+  const loadingLabel = t("agentChat.settings.audit.loading");
+  const rows: ModelRow[] = [];
+  const slots: Record<string, (row: ModelRow) => ReactNode> = {};
+  if (events.isError && !events.data) {
+    rows.push(content("load-failed", t("agentChat.settings.audit.loadFailed")));
+    slots["load-failed"] = loadFailed(
+      () => void events.refetch(),
+      events.isFetching,
+    );
   } else if (!events.data) {
-    body = <AuditRowsSkeleton rows={5} />;
+    rows.push(content("loading", loadingLabel));
+    slots.loading = (row) => (
+      <AuditRowsSkeleton {...rowAttributes(row)} rows={5} />
+    );
   } else if (shown.length === 0) {
-    body = (
-      <Empty>
+    rows.push(content("empty", t("agentChat.settings.audit.empty")));
+    slots.empty = (row) => (
+      <Empty {...rowAttributes(row)}>
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <IconHistory />
@@ -492,45 +530,58 @@ export default function AuditLogSettingsPage() {
       </Empty>
     );
   } else {
-    body = (
-      <>
-        {shown.map((event) => (
-          <AuditRow key={event.id} event={event} onOpen={openDetail} />
-        ))}
-        {nextCount > 0 ? (
-          <div className="flex min-h-12 items-center justify-center px-6 py-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setShownPages((count) => count + 1)}
-            >
-              {t("agentChat.settings.audit.showMore", { count: nextCount })}
-            </Button>
-          </div>
-        ) : lastShownHasMore && events.isFetchNextPageError ? (
-          <div
-            role="alert"
-            className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6"
+    for (const event of shown) {
+      const id = `event-${rowIdSegment(event.id)}`;
+      rows.push(content(id, event.summary || event.action));
+      slots[id] = (row) => (
+        <AuditRow {...rowAttributes(row)} event={event} onOpen={openDetail} />
+      );
+    }
+    if (nextCount > 0) {
+      const label = t("agentChat.settings.audit.showMore", {
+        count: nextCount,
+      });
+      rows.push(content("show-more", label));
+      slots["show-more"] = (row) => (
+        <div
+          {...rowAttributes(row)}
+          className="flex min-h-12 items-center justify-center px-6 py-2"
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShownPages((count) => count + 1)}
           >
-            <p className="text-sm text-destructive">
-              {t("agentChat.settings.audit.loadFailed")}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void fetchNextPage()}
-            >
-              {t("agentChat.common.retry")}
-            </Button>
-          </div>
-        ) : lastShownHasMore ? (
-          <AuditRowsSkeleton rows={1} />
-        ) : null}
-      </>
-    );
+            {label}
+          </Button>
+        </div>
+      );
+    } else if (lastShownHasMore && events.isFetchNextPageError) {
+      rows.push(
+        content("next-failed", t("agentChat.settings.audit.loadFailed")),
+      );
+      slots["next-failed"] = loadFailed(() => void fetchNextPage());
+    } else if (lastShownHasMore) {
+      rows.push(content("next-loading", loadingLabel));
+      slots["next-loading"] = (row) => (
+        <AuditRowsSkeleton {...rowAttributes(row)} rows={1} />
+      );
+    }
   }
+  const model: ScreenModel = {
+    id: "settings",
+    rows: [
+      {
+        id: "settings.audit.log",
+        part: "settings.group",
+        label: t("agentChat.settingsShell.page.audit"),
+        labelHidden: true,
+        anchor: "audit-log",
+        rows,
+      },
+    ],
+  };
 
   return (
     <div className="flex flex-col gap-4" data-audit-log="">
@@ -571,7 +622,7 @@ export default function AuditLogSettingsPage() {
           </SelectContent>
         </Select>
       </div>
-      <SettingsGroup id="audit-log">{body}</SettingsGroup>
+      <ModelSurface model={model} slots={slots} />
       <AuditEventDialog
         event={openEvent}
         open={dialogOpen}

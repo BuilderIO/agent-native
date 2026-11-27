@@ -78,12 +78,12 @@ import {
   type ReactNode,
 } from "react";
 
+import { ModelSurface, rowAttributes } from "../../design-system/parts.js";
 import { AgentTabFrame } from "../agent-page/AgentTabFrame.js";
 import {
   BrandLogo,
   BrandMark,
 } from "../integrations/IntegrationDetailParts.js";
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 
 type McpGuide = ReturnType<typeof getMcpConnectGuides>[number];
@@ -928,82 +928,128 @@ export function McpAccessSettings({
               <p className="text-sm leading-6 text-muted-foreground">
                 {helpText ?? t("settings.mcpSetupIntro", { app: appName })}
               </p>
-              <SettingsGroup>
-                <ItemGroup>
-                  {guides.map((item, index) => {
-                    const clientConnection = connections.data?.connections.find(
-                      (row) => row.client === item.id,
-                    );
-                    const lastUsedAt = clientConnection?.lastUsedAt;
-                    return (
-                      <Fragment key={item.id}>
-                        <div role="listitem">
-                          <Item
-                            asChild
-                            className="rounded-none px-5 py-4 sm:px-6"
-                          >
-                            <a
-                              href={href(item.id)}
-                              onClick={(event) => {
-                                if (modifiedClick(event)) return;
-                                event.preventDefault();
-                                select(item.id);
-                              }}
-                            >
-                              <ItemMedia>
-                                <HostLogo guide={item} />
-                              </ItemMedia>
-                              <ItemContent>
-                                <ItemTitle>{item.label}</ItemTitle>
-                                {!connections.isError && lastUsedAt != null ? (
-                                  <ItemDescription>
-                                    {t("settings.mcpLastUsed", {
-                                      time: formatDate(lastUsedAt, {
-                                        dateStyle: "medium",
-                                        timeStyle: "short",
-                                      }),
-                                    })}
-                                  </ItemDescription>
-                                ) : null}
-                              </ItemContent>
-                              <ItemActions>
-                                {connections.isPending ? (
-                                  <Skeleton className="h-4 w-16" />
-                                ) : connections.isError ||
-                                  !clientConnection ||
-                                  clientConnection.status === "unknown" ? (
-                                  <ConnectionBadge status="unavailable" />
-                                ) : clientConnection.status === "connected" ? (
-                                  <ConnectionBadge status="connected" />
-                                ) : null}
-                                <IconChevronRight
-                                  className="size-4 text-muted-foreground rtl:-scale-x-100"
-                                  aria-hidden="true"
-                                />
-                              </ItemActions>
-                            </a>
-                          </Item>
-                        </div>
-                        {index < guides.length - 1 ? <ItemSeparator /> : null}
-                      </Fragment>
-                    );
-                  })}
-                </ItemGroup>
-              </SettingsGroup>
+              <ModelSurface
+                model={{
+                  id: "settings",
+                  rows: [
+                    {
+                      id: "settings.mcp.assistants",
+                      part: "settings.group",
+                      label: t("settings.mcpChooseAssistant"),
+                      labelHidden: true,
+                      rows: [
+                        {
+                          id: "settings.mcp.assistants.list",
+                          part: "settings.content",
+                          label: t("settings.mcpChooseAssistant"),
+                          slot: "assistants",
+                        },
+                      ],
+                    },
+                  ],
+                }}
+                slots={{
+                  assistants: (row) => (
+                    <ItemGroup {...rowAttributes(row)}>
+                      {guides.map((item, index) => {
+                        const clientConnection =
+                          connections.data?.connections.find(
+                            (row) => row.client === item.id,
+                          );
+                        const lastUsedAt = clientConnection?.lastUsedAt;
+                        return (
+                          <Fragment key={item.id}>
+                            <div role="listitem">
+                              <Item
+                                asChild
+                                className="rounded-none px-5 py-4 sm:px-6"
+                              >
+                                <a
+                                  href={href(item.id)}
+                                  onClick={(event) => {
+                                    if (modifiedClick(event)) return;
+                                    event.preventDefault();
+                                    select(item.id);
+                                  }}
+                                >
+                                  <ItemMedia>
+                                    <HostLogo guide={item} />
+                                  </ItemMedia>
+                                  <ItemContent>
+                                    <ItemTitle>{item.label}</ItemTitle>
+                                    {!connections.isError &&
+                                    lastUsedAt != null ? (
+                                      <ItemDescription>
+                                        {t("settings.mcpLastUsed", {
+                                          time: formatDate(lastUsedAt, {
+                                            dateStyle: "medium",
+                                            timeStyle: "short",
+                                          }),
+                                        })}
+                                      </ItemDescription>
+                                    ) : null}
+                                  </ItemContent>
+                                  <ItemActions>
+                                    {connections.isPending ? (
+                                      <Skeleton className="h-4 w-16" />
+                                    ) : connections.isError ||
+                                      !clientConnection ||
+                                      clientConnection.status === "unknown" ? (
+                                      <ConnectionBadge status="unavailable" />
+                                    ) : clientConnection.status ===
+                                      "connected" ? (
+                                      <ConnectionBadge status="connected" />
+                                    ) : null}
+                                    <IconChevronRight
+                                      className="size-4 text-muted-foreground rtl:-scale-x-100"
+                                      aria-hidden="true"
+                                    />
+                                  </ItemActions>
+                                </a>
+                              </Item>
+                            </div>
+                            {index < guides.length - 1 ? (
+                              <ItemSeparator />
+                            ) : null}
+                          </Fragment>
+                        );
+                      })}
+                    </ItemGroup>
+                  ),
+                }}
+              />
             </>
           ) : (
-            <SettingsGroup>
-              <SettingsRow
-                label={t("settings.mcpUrlLabel")}
-                control={
+            <ModelSurface
+              model={{
+                id: "settings",
+                rows: [
+                  {
+                    id: "settings.mcp.url",
+                    part: "settings.group",
+                    label: t("settings.mcpUrlLabel"),
+                    labelHidden: true,
+                    rows: [
+                      {
+                        id: "settings.mcp.url.server",
+                        part: "settings.row",
+                        label: t("settings.mcpUrlLabel"),
+                        slot: "mcp-url",
+                      },
+                    ],
+                  },
+                ],
+              }}
+              slots={{
+                "mcp-url": (
                   <CopyField
                     fieldLabel={t("settings.mcpUrlLabel")}
                     value={identity.mcpUrl}
                     label={t("settings.mcpCopy")}
                   />
-                }
-              />
-            </SettingsGroup>
+                ),
+              }}
+            />
           )}
         </div>
       ) : identityState.status === "error" ? (
@@ -1018,13 +1064,40 @@ export function McpAccessSettings({
           </AlertDescription>
         </Alert>
       ) : (
-        <SettingsGroup>
-          <div className="space-y-4 px-5 py-4" aria-busy="true">
-            {guides.map((item) => (
-              <Skeleton key={item.id} className="h-8 w-full" />
-            ))}
-          </div>
-        </SettingsGroup>
+        <ModelSurface
+          model={{
+            id: "settings",
+            rows: [
+              {
+                id: "settings.mcp.assistants",
+                part: "settings.group",
+                label: t("settings.mcpChooseAssistant"),
+                labelHidden: true,
+                rows: [
+                  {
+                    id: "settings.mcp.assistants.loading",
+                    part: "settings.content",
+                    label: t("settings.mcpChooseAssistant"),
+                    slot: "assistants-loading",
+                  },
+                ],
+              },
+            ],
+          }}
+          slots={{
+            "assistants-loading": (row) => (
+              <div
+                {...rowAttributes(row)}
+                className="space-y-4 px-5 py-4"
+                aria-busy="true"
+              >
+                {guides.map((item) => (
+                  <Skeleton key={item.id} className="h-8 w-full" />
+                ))}
+              </div>
+            ),
+          }}
+        />
       )}
     </AgentTabFrame>
   );
@@ -1080,47 +1153,81 @@ function AdvancedConnection({ guideId }: { guideId: McpConnectGuideId }) {
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-3">
-        <SettingsGroup>
-          {cardState === "available" ? (
-            <SettingsRow
-              label={t("settings.a2aAgentCard")}
-              control={
-                <CopyField
-                  fieldLabel={t("settings.a2aAgentCard")}
-                  value={new URL(cardPath, window.location.origin).toString()}
-                  label={t("settings.mcpCopy")}
-                />
-              }
-            />
-          ) : cardState === "loading" ? (
-            <div className="px-5 py-4">
-              <Skeleton className="h-8 w-full" />
-            </div>
-          ) : cardState === "error" ? (
-            <Alert>
-              <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-                <span>{t("settings.mcpIdentityError")}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setAttempt((value) => value + 1)}
-                >
-                  {t("settings.mcpRetry")}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          <SettingsRow
-            label={fallback.title}
-            control={
+        <ModelSurface
+          model={{
+            id: "settings",
+            rows: [
+              {
+                id: "settings.mcp.advanced",
+                part: "settings.group",
+                label: t("settings.mcpConnect.advancedOptions"),
+                labelHidden: true,
+                rows: [
+                  ...(cardState === "available"
+                    ? [
+                        {
+                          id: "settings.mcp.advanced.agent-card",
+                          part: "settings.row",
+                          label: t("settings.a2aAgentCard"),
+                          slot: "agent-card",
+                        },
+                      ]
+                    : cardState === "loading" || cardState === "error"
+                      ? [
+                          {
+                            id: `settings.mcp.advanced.agent-card-${cardState}`,
+                            part: "settings.content",
+                            label: t("settings.a2aAgentCard"),
+                            slot: `agent-card-${cardState}`,
+                          },
+                        ]
+                      : []),
+                  {
+                    id: "settings.mcp.advanced.connect-page",
+                    part: "settings.row",
+                    label: fallback.title,
+                    slot: "connect-page",
+                  },
+                ],
+              },
+            ],
+          }}
+          slots={{
+            "agent-card": (
+              <CopyField
+                fieldLabel={t("settings.a2aAgentCard")}
+                value={new URL(cardPath, window.location.origin).toString()}
+                label={t("settings.mcpCopy")}
+              />
+            ),
+            "agent-card-loading": (row) => (
+              <div {...rowAttributes(row)} className="px-5 py-4">
+                <Skeleton className="h-8 w-full" />
+              </div>
+            ),
+            "agent-card-error": (row) => (
+              <Alert {...rowAttributes(row)}>
+                <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                  <span>{t("settings.mcpIdentityError")}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAttempt((value) => value + 1)}
+                  >
+                    {t("settings.mcpRetry")}
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ),
+            "connect-page": (
               <Button asChild variant="outline" size="sm">
                 <DestinationLink href={connectUrl} destination="new-tab">
                   {t("settings.mcpOpenConnectPage")}
                 </DestinationLink>
               </Button>
-            }
-          />
-        </SettingsGroup>
+            ),
+          }}
+        />
       </CollapsibleContent>
     </Collapsible>
   );

@@ -1,8 +1,13 @@
 import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { Skeleton } from "@agent-native/toolkit/design-system";
-import { Badge } from "@agent-native/toolkit/ui/badge";
+import {
+  type ModelRow,
+  type RowAttributes,
+  rowAttributes,
+  rowIdSegment,
+} from "@agent-native/design-system/model";
+import { ModelSurface, Skeleton } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Empty,
@@ -38,7 +43,6 @@ import { keepPreviousData } from "@tanstack/react-query";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { groupRecentPrompts } from "../recent-prompt-groups.js";
-import { SettingsRow } from "../SettingsRow.js";
 import type { SettingsPageContext } from "../shell/registry.js";
 import {
   BuilderCreditUsagePanel,
@@ -97,6 +101,46 @@ const FEATURE_KEYS: Record<string, string> = {
 
 const FILTER_TRIGGER = "w-auto";
 
+function LoadErrorNotice({
+  id,
+  label,
+  retryLabel,
+  retrying,
+  onRetry,
+}: {
+  id: string;
+  label: string;
+  retryLabel: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const retryId = `${id}.retry`;
+  return (
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [
+          {
+            id,
+            part: "settings.notice",
+            label,
+            rows: [
+              {
+                id: retryId,
+                part: "button",
+                kind: "action",
+                label: retryLabel,
+                state: { disabled: retrying },
+                effect: { kind: "action", effectId: retryId },
+              },
+            ],
+          },
+        ],
+      }}
+      actions={{ [retryId]: onRetry }}
+    />
+  );
+}
 function UsageSkeleton() {
   return (
     <div className="space-y-10" aria-hidden="true">
@@ -174,25 +218,53 @@ function ChartHeadline({ value, caption }: { value: string; caption: string }) {
   );
 }
 
+function showAllLabel(t: ReturnType<typeof useT>, expanded: boolean) {
+  return t(
+    expanded
+      ? "agentChat.settings.usage.showLess"
+      : "agentChat.settings.usage.showAll",
+  );
+}
+
 function ShowAllRow({
+  attributes,
   expanded,
   onToggle,
 }: {
+  attributes: RowAttributes;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const t = useT();
   return (
-    <div className="flex min-h-12 items-center justify-center px-5 py-2 sm:px-6">
+    <div
+      {...attributes}
+      className="flex min-h-12 items-center justify-center px-5 py-2 sm:px-6"
+    >
       <Button type="button" variant="ghost" size="sm" onClick={onToggle}>
-        {t(
-          expanded
-            ? "agentChat.settings.usage.showLess"
-            : "agentChat.settings.usage.showAll",
-        )}
+        {showAllLabel(t, expanded)}
       </Button>
     </div>
   );
+}
+
+type RowSlots = Record<string, ReactNode | ((row: ModelRow) => ReactNode)>;
+
+function showAllRow(
+  id: string,
+  label: string,
+  slots: RowSlots,
+  expanded: boolean,
+  onToggle: () => void,
+): ModelRow {
+  slots[`${id}:toggle`] = (row) => (
+    <ShowAllRow
+      attributes={rowAttributes(row)}
+      expanded={expanded}
+      onToggle={onToggle}
+    />
+  );
+  return { id, part: "settings.content", label, slot: `${id}:toggle` };
 }
 
 function ValueText({ children }: { children: ReactNode }) {
@@ -517,20 +589,12 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
   let body: ReactNode = null;
   if (!data && query.isError) {
     body = (
-      <SettingsRow
-        className="rounded-xl border border-border/70"
+      <LoadErrorNotice
+        id="settings.usage.load-error"
         label={t("agentChat.settings.usage.loadError")}
-        control={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void query.refetch()}
-            disabled={query.isFetching}
-          >
-            {t("agentChat.common.retry")}
-          </Button>
-        }
+        retryLabel={t("agentChat.common.retry")}
+        retrying={query.isFetching}
+        onRetry={() => void query.refetch()}
       />
     );
   } else if (!data) {
@@ -576,6 +640,65 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
     const chats = showAllChats
       ? data.topChats
       : data.topChats.slice(0, LIST_PREVIEW);
+    const chatSlots: RowSlots = {};
+    const chatRows: ModelRow[] = chats.map((chat): ModelRow => {
+      const id = `settings.usage.top-chats.${rowIdSegment(chat.threadId)}`;
+      const fallback = t(
+        chat.titleSource === "unavailable"
+          ? "agentChat.settings.usage.titleUnavailable"
+          : "agentChat.settings.usage.untitledChat",
+      );
+      const title = chat.title ?? fallback;
+      chatSlots[`${id}:value`] = <ValueText>{amountText(chat)}</ValueText>;
+      if (title === "") chatSlots[`${id}:label`] = title;
+      return {
+        id,
+        part: "settings.row",
+        label: title || fallback,
+        description: describe([
+          format.formatDate(chat.lastActiveAt, {
+            month: "short",
+            day: "numeric",
+          }),
+          allApps && appName(chat.app),
+          organizationView && person(chat.ownerEmail),
+        ]),
+        slot: `${id}:value`,
+        ...(title === "" ? { regions: { label: `${id}:label` } } : {}),
+      };
+    });
+    if (data.topChats.length > LIST_PREVIEW) {
+      chatRows.push(
+        showAllRow(
+          "settings.usage.top-chats.show-all",
+          showAllLabel(t, showAllChats),
+          chatSlots,
+          showAllChats,
+          () => setShowAllChats((value) => !value),
+        ),
+      );
+    }
+    const peopleSlots: RowSlots = {};
+    const peopleRows: ModelRow[] = data.byUser.map((bucket): ModelRow => {
+      const id = `settings.usage.top-people.${rowIdSegment(bucket.key)}`;
+      peopleSlots[`${id}:value`] = <ValueText>{amountText(bucket)}</ValueText>;
+      return {
+        id,
+        part: "settings.row",
+        label: bucket.key,
+        ...(bucket.key === viewerEmail
+          ? {
+              state: {
+                badge: {
+                  kind: "label" as const,
+                  value: t("agentChat.settings.usage.you"),
+                },
+              },
+            }
+          : {}),
+        slot: `${id}:value`,
+      };
+    });
     body = (
       <div className="space-y-10">
         {showCreditPanel &&
@@ -583,20 +706,12 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
           creditQuery.data ? (
             <BuilderCreditUsagePanel usage={creditQuery.data} />
           ) : creditQuery.isError ? (
-            <SettingsRow
-              className="rounded-xl border border-border/70"
+            <LoadErrorNotice
+              id="settings.usage.credit-error"
               label={t("agentChat.usage.creditUsageUnavailable")}
-              control={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void creditQuery.refetch()}
-                  disabled={creditQuery.isFetching}
-                >
-                  {t("agentChat.common.retry")}
-                </Button>
-              }
+              retryLabel={t("agentChat.common.retry")}
+              retrying={creditQuery.isFetching}
+              onRetry={() => void creditQuery.refetch()}
             />
           ) : (
             <BuilderCreditUsageSkeleton />
@@ -671,57 +786,17 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
           <UsageGroup
             id="usage-top-chats"
             title={t("agentChat.settings.usage.topChats")}
-          >
-            {chats.map((chat) => (
-              <SettingsRow
-                key={chat.threadId}
-                label={
-                  chat.title ??
-                  t(
-                    chat.titleSource === "unavailable"
-                      ? "agentChat.settings.usage.titleUnavailable"
-                      : "agentChat.settings.usage.untitledChat",
-                  )
-                }
-                description={describe([
-                  format.formatDate(chat.lastActiveAt, {
-                    month: "short",
-                    day: "numeric",
-                  }),
-                  allApps && appName(chat.app),
-                  organizationView && person(chat.ownerEmail),
-                ])}
-                control={<ValueText>{amountText(chat)}</ValueText>}
-              />
-            ))}
-            {data.topChats.length > LIST_PREVIEW ? (
-              <ShowAllRow
-                expanded={showAllChats}
-                onToggle={() => setShowAllChats((value) => !value)}
-              />
-            ) : null}
-          </UsageGroup>
+            rows={chatRows}
+            slots={chatSlots}
+          />
         ) : null}
         {organizationView && data.byUser.length > 0 ? (
           <UsageGroup
             id="usage-top-people"
             title={t("agentChat.settings.usage.topPeople")}
-          >
-            {data.byUser.map((bucket) => (
-              <SettingsRow
-                key={bucket.key}
-                label={bucket.key}
-                status={
-                  bucket.key === viewerEmail ? (
-                    <Badge variant="outline">
-                      {t("agentChat.settings.usage.you")}
-                    </Badge>
-                  ) : null
-                }
-                control={<ValueText>{amountText(bucket)}</ValueText>}
-              />
-            ))}
-          </UsageGroup>
+            rows={peopleRows}
+            slots={peopleSlots}
+          />
         ) : null}
         <UsageAlertsGroup appName={appName} />
       </div>
@@ -731,6 +806,50 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
     const prompts = showAllPrompts
       ? promptGroups
       : promptGroups.slice(0, LIST_PREVIEW);
+    const promptSlots: RowSlots = {};
+    const promptRows: ModelRow[] = prompts.map(({ entry, count }): ModelRow => {
+      const id = `settings.usage.recent-prompts.${rowIdSegment(String(entry.id))}`;
+      const fallback = t(
+        entry.promptSource === "unavailable"
+          ? "agentChat.settings.usage.promptUnavailable"
+          : "agentChat.settings.usage.promptNotCaptured",
+      );
+      const prompt = entry.prompt ?? fallback;
+      promptSlots[`${id}:label`] = (
+        <span className="line-clamp-2 font-normal">{prompt}</span>
+      );
+      promptSlots[`${id}:value`] = <ValueText>{amountText(entry)}</ValueText>;
+      return {
+        id,
+        part: "settings.row",
+        label: prompt || fallback,
+        description: describe([
+          format.formatDate(entry.createdAt, {
+            month: "short",
+            day: "numeric",
+          }),
+          allApps && appName(entry.app),
+          organizationView && person(entry.ownerEmail),
+          entry.model,
+        ]),
+        regions: { label: `${id}:label` },
+        ...(count > 1
+          ? { state: { badge: { kind: "label" as const, value: `×${count}` } } }
+          : {}),
+        slot: `${id}:value`,
+      };
+    });
+    if (promptGroups.length > LIST_PREVIEW) {
+      promptRows.push(
+        showAllRow(
+          "settings.usage.recent-prompts.show-all",
+          showAllLabel(t, showAllPrompts),
+          promptSlots,
+          showAllPrompts,
+          () => setShowAllPrompts((value) => !value),
+        ),
+      );
+    }
     body = (
       <div className="space-y-10">
         <UsageGroup
@@ -828,42 +947,9 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
           <UsageGroup
             id="usage-recent-prompts"
             title={t("agentChat.settings.usage.recentPrompts")}
-          >
-            {prompts.map(({ entry, count }) => (
-              <SettingsRow
-                key={entry.id}
-                label={
-                  <span className="line-clamp-2 font-normal">
-                    {entry.prompt ??
-                      t(
-                        entry.promptSource === "unavailable"
-                          ? "agentChat.settings.usage.promptUnavailable"
-                          : "agentChat.settings.usage.promptNotCaptured",
-                      )}
-                  </span>
-                }
-                description={describe([
-                  format.formatDate(entry.createdAt, {
-                    month: "short",
-                    day: "numeric",
-                  }),
-                  allApps && appName(entry.app),
-                  organizationView && person(entry.ownerEmail),
-                  entry.model,
-                ])}
-                status={
-                  count > 1 ? <Badge variant="outline">×{count}</Badge> : null
-                }
-                control={<ValueText>{amountText(entry)}</ValueText>}
-              />
-            ))}
-            {promptGroups.length > LIST_PREVIEW ? (
-              <ShowAllRow
-                expanded={showAllPrompts}
-                onToggle={() => setShowAllPrompts((value) => !value)}
-              />
-            ) : null}
-          </UsageGroup>
+            rows={promptRows}
+            slots={promptSlots}
+          />
         ) : null}
       </div>
     );

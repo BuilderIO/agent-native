@@ -2,6 +2,7 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
 import { PASSWORD_MIN_LENGTH } from "@agent-native/core/shared/password-policy";
+import type { ModelRow } from "@agent-native/design-system/model";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
   AlertDialog,
@@ -26,7 +27,11 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useState, type ComponentProps, type ReactNode } from "react";
 
-import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "../../../design-system/parts.js";
 import { SettingsSkeleton } from "../SettingsSkeleton.js";
 import {
   usePasswordForm,
@@ -42,21 +47,54 @@ const TWO_FACTOR_CODE = /^\d{6,8}$/;
 
 /** Account › Security: sign-in methods and data requests. */
 export function SecuritySettings() {
-  const t = useT();
   const { session, status } = useSession();
   if (status === "loading" && !session) {
     return <SettingsSkeleton lines={4} />;
   }
-  const signedIn = !!session?.email;
+  return <SecurityGroups signedIn={!!session?.email} />;
+}
+
+function SecurityGroups({ signedIn }: { signedIn: boolean }) {
+  const t = useT();
+  const password = usePasswordRow(signedIn);
+  const twoFactor = useTwoFactorRow();
+  const { actions, slots } = combineFragments([password, twoFactor]);
   return (
     <div className="flex flex-col gap-8">
-      <SettingsGroup id="sign-in" title={t(key("signIn"))}>
-        <PasswordRow signedIn={signedIn} />
-        <TwoFactorRow />
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.security.sign-in",
+              part: "settings.group",
+              label: t(key("signIn")),
+              anchor: "sign-in",
+              rows: [...password.rows, ...twoFactor.rows],
+            },
+          ],
+        }}
+        actions={actions}
+        slots={slots}
+      />
       {signedIn ? <YourDataGroup /> : null}
     </div>
   );
+}
+
+interface RowStatus {
+  tone: "ok" | "error";
+  text: string;
+}
+
+function describedBy(
+  status: RowStatus | null,
+  fallback: string,
+  slot: string,
+): Pick<ModelRow, "description" | "regions"> {
+  return status
+    ? { description: status.text, regions: { description: slot } }
+    : { description: fallback };
 }
 
 function StatusText({
@@ -147,7 +185,7 @@ function SubmitButton({
   );
 }
 
-function PasswordRow({ signedIn }: { signedIn: boolean }) {
+function usePasswordRow(signedIn: boolean): ModelFragment {
   const t = useT();
   const form = usePasswordForm();
   const [open, setOpen] = useState(false);
@@ -165,20 +203,31 @@ function PasswordRow({ signedIn }: { signedIn: boolean }) {
     setOpen(next);
   };
 
-  return (
-    <SettingsRow
-      id="password"
-      label={t(key("password"))}
-      description={
-        form.loadFailed ? (
-          <StatusText tone="error">{t(key("passwordLoadError"))}</StatusText>
-        ) : justSaved ? (
-          <StatusText tone="ok">{t(key("passwordSaved"))}</StatusText>
-        ) : (
-          t(key("passwordDescription"))
-        )
-      }
-      control={
+  const status: RowStatus | null = form.loadFailed
+    ? { tone: "error", text: t(key("passwordLoadError")) }
+    : justSaved
+      ? { tone: "ok", text: t(key("passwordSaved")) }
+      : null;
+  return {
+    rows: [
+      {
+        id: "settings.security.sign-in.password",
+        part: "settings.row",
+        label: t(key("password")),
+        ...describedBy(
+          status,
+          t(key("passwordDescription")),
+          "password-status",
+        ),
+        anchor: "password",
+        slot: "password-control",
+      },
+    ],
+    slots: {
+      "password-status": status ? (
+        <StatusText tone={status.tone}>{status.text}</StatusText>
+      ) : null,
+      "password-control": (
         <Dialog open={open} onOpenChange={openDialog}>
           <Button
             type="button"
@@ -276,9 +325,9 @@ function PasswordRow({ signedIn }: { signedIn: boolean }) {
             </form>
           </DialogContent>
         </Dialog>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
 const TWO_FACTOR_ERROR_KEYS: Record<TwoFactorError["fallback"], string> = {
@@ -288,7 +337,7 @@ const TWO_FACTOR_ERROR_KEYS: Record<TwoFactorError["fallback"], string> = {
   disable: key("twoFactorDisableError"),
 };
 
-function TwoFactorRow() {
+function useTwoFactorRow(): ModelFragment {
   const t = useT();
   const twoFactor = useTwoFactorSettings();
   const [open, setOpen] = useState(false);
@@ -464,22 +513,33 @@ function TwoFactorRow() {
     );
   }
 
-  const description = loadFailed ? (
-    <StatusText tone="error">{error}</StatusText>
-  ) : twoFactor.saved && !open ? (
-    <StatusText tone="ok">{t(key("twoFactorSaved"))}</StatusText>
-  ) : enabled ? (
-    t(key("twoFactorEnabled"))
-  ) : (
-    t(key("twoFactorDescription"))
-  );
+  const status: RowStatus | null =
+    loadFailed && error
+      ? { tone: "error", text: error }
+      : twoFactor.saved && !open
+        ? { tone: "ok", text: t(key("twoFactorSaved")) }
+        : null;
 
-  return (
-    <SettingsRow
-      id="two-factor"
-      label={t(key("twoFactor"))}
-      description={description}
-      control={
+  return {
+    rows: [
+      {
+        id: "settings.security.sign-in.two-factor",
+        part: "settings.row",
+        label: t(key("twoFactor")),
+        ...describedBy(
+          status,
+          enabled ? t(key("twoFactorEnabled")) : t(key("twoFactorDescription")),
+          "two-factor-status",
+        ),
+        anchor: "two-factor",
+        slot: "two-factor-control",
+      },
+    ],
+    slots: {
+      "two-factor-status": status ? (
+        <StatusText tone={status.tone}>{status.text}</StatusText>
+      ) : null,
+      "two-factor-control": (
         <Dialog open={open} onOpenChange={openDialog}>
           <Button
             type="button"
@@ -508,9 +568,9 @@ function TwoFactorRow() {
             </form>
           </DialogContent>
         </Dialog>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
 function YourDataGroup() {
@@ -520,23 +580,65 @@ function YourDataGroup() {
   const deletionPending = privacy.pendingType === "deletion";
   const accessPending = privacy.pendingType === "access";
 
-  const describe = (type: PrivacyRequestType, fallback: string) =>
-    privacy.failedType === type ? (
-      <StatusText tone="error">{t("settings.privacyRequestError")}</StatusText>
-    ) : privacy.recorded[type] ? (
-      <StatusText tone="ok">{t("settings.privacyRequestRecorded")}</StatusText>
-    ) : (
-      fallback
-    );
+  const statusOf = (type: PrivacyRequestType): RowStatus | null =>
+    privacy.failedType === type
+      ? { tone: "error", text: t("settings.privacyRequestError") }
+      : privacy.recorded[type]
+        ? { tone: "ok", text: t("settings.privacyRequestRecorded") }
+        : null;
+  const copyStatus = statusOf("access");
+  const deletionStatus = statusOf("deletion");
 
   return (
     <div className="flex flex-col gap-2.5">
-      <SettingsGroup id="your-data" title={t(key("yourData"))}>
-        <SettingsRow
-          id="data-copy"
-          label={t(key("requestCopyLabel"))}
-          description={describe("access", t(key("requestCopyDescription")))}
-          control={
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.security.your-data",
+              part: "settings.group",
+              label: t(key("yourData")),
+              anchor: "your-data",
+              rows: [
+                {
+                  id: "settings.security.your-data.copy",
+                  part: "settings.row",
+                  label: t(key("requestCopyLabel")),
+                  ...describedBy(
+                    copyStatus,
+                    t(key("requestCopyDescription")),
+                    "data-copy-status",
+                  ),
+                  anchor: "data-copy",
+                  slot: "data-copy-control",
+                },
+                {
+                  id: "settings.security.your-data.deletion",
+                  part: "settings.row",
+                  label: t(key("requestDeletionLabel")),
+                  ...describedBy(
+                    deletionStatus,
+                    t(key("requestDeletionDescription")),
+                    "data-deletion-status",
+                  ),
+                  anchor: "data-deletion",
+                  slot: "data-deletion-control",
+                },
+              ],
+            },
+          ],
+        }}
+        slots={{
+          "data-copy-status": copyStatus ? (
+            <StatusText tone={copyStatus.tone}>{copyStatus.text}</StatusText>
+          ) : null,
+          "data-deletion-status": deletionStatus ? (
+            <StatusText tone={deletionStatus.tone}>
+              {deletionStatus.text}
+            </StatusText>
+          ) : null,
+          "data-copy-control": (
             <Button
               type="button"
               variant="outline"
@@ -549,16 +651,8 @@ function YourDataGroup() {
                 ? t("settings.privacyRequesting")
                 : t("settings.privacyRequestCopy")}
             </Button>
-          }
-        />
-        <SettingsRow
-          id="data-deletion"
-          label={t(key("requestDeletionLabel"))}
-          description={describe(
-            "deletion",
-            t(key("requestDeletionDescription")),
-          )}
-          control={
+          ),
+          "data-deletion-control": (
             <AlertDialog
               open={deletionOpen}
               onOpenChange={(next) => {
@@ -611,9 +705,9 @@ function YourDataGroup() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          }
-        />
-      </SettingsGroup>
+          ),
+        }}
+      />
       <Button asChild variant="link" size="xs" className="self-start">
         <a
           href={docsUrl("privacy-and-data-rights")}

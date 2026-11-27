@@ -57,6 +57,7 @@ const PROVIDERS: ReadonlyArray<{
   /** Brand names are not translated; `null` uses the catalog label. */
   name: string | null;
   icon: typeof IconServer;
+  symbol: string;
   endpointPlaceholder: string;
   hintKey: string;
 }> = [
@@ -64,6 +65,7 @@ const PROVIDERS: ReadonlyArray<{
     id: "aws-s3",
     name: "Amazon S3", // i18n-ignore -- provider brand name
     icon: IconBrandAws,
+    symbol: "brand-aws",
     endpointPlaceholder: "https://s3.us-west-2.amazonaws.com",
     hintKey: "agentChat.settings.storage.hintAws",
   },
@@ -71,6 +73,7 @@ const PROVIDERS: ReadonlyArray<{
     id: "cloudflare-r2",
     name: "Cloudflare R2", // i18n-ignore -- provider brand name
     icon: IconBrandCloudflare,
+    symbol: "brand-cloudflare",
     endpointPlaceholder: "https://<account-id>.r2.cloudflarestorage.com",
     hintKey: "agentChat.settings.storage.hintR2",
   },
@@ -78,6 +81,7 @@ const PROVIDERS: ReadonlyArray<{
     id: "supabase",
     name: "Supabase Storage", // i18n-ignore -- provider brand name
     icon: IconBrandSupabase,
+    symbol: "brand-supabase",
     endpointPlaceholder: "https://<project>.supabase.co/storage/v1/s3",
     hintKey: "agentChat.settings.storage.hintSupabase",
   },
@@ -85,6 +89,7 @@ const PROVIDERS: ReadonlyArray<{
     id: "other",
     name: null,
     icon: IconServer,
+    symbol: "server",
     endpointPlaceholder: "https://s3.example.com",
     hintKey: "agentChat.settings.storage.hintOther",
   },
@@ -97,11 +102,12 @@ const PROVIDERS: ReadonlyArray<{
 export function fileStorageProviderPreset(id: FileStorageProviderId): {
   name: string | null;
   icon: typeof IconServer;
+  symbol: string;
 } {
   const preset =
     PROVIDERS.find((entry) => entry.id === id) ??
     PROVIDERS.find((entry) => entry.id === "other")!;
-  return { name: preset.name, icon: preset.icon };
+  return { name: preset.name, icon: preset.icon, symbol: preset.symbol };
 }
 
 type FormValues = Record<FileStorageField, string>;
