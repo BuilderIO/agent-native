@@ -2573,6 +2573,7 @@ const messages = {
     databaseProviders: "資料庫提供者",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databasePrismaPostgres: "Prisma Postgres",
     databaseAwsRds: "Amazon RDS for PostgreSQL",
     databaseCloudSql: "Cloud SQL for PostgreSQL",
     databaseAzurePostgres: "Azure Database for PostgreSQL",

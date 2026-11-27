@@ -2683,6 +2683,7 @@ const frFR = {
     databaseProviders: "Fournisseurs de bases de données",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databasePrismaPostgres: "Prisma Postgres",
     databaseAwsRds: "Amazon RDS for PostgreSQL",
     databaseCloudSql: "Cloud SQL for PostgreSQL",
     databaseAzurePostgres: "Azure Database for PostgreSQL",

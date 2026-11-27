@@ -2628,6 +2628,7 @@ const arSA = {
     databaseProviders: "موفرو قواعد البيانات",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databasePrismaPostgres: "Prisma Postgres",
     databaseAwsRds: "Amazon RDS for PostgreSQL",
     databaseCloudSql: "Cloud SQL for PostgreSQL",
     databaseAzurePostgres: "Azure Database for PostgreSQL",

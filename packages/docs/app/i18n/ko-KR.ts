@@ -2620,6 +2620,7 @@ const koKR = {
     databaseProviders: "데이터베이스 프로바이더",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databasePrismaPostgres: "Prisma Postgres",
     databaseAwsRds: "Amazon RDS for PostgreSQL",
     databaseCloudSql: "Cloud SQL for PostgreSQL",
     databaseAzurePostgres: "Azure Database for PostgreSQL",

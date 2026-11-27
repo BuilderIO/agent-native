@@ -2672,6 +2672,7 @@ const esES = {
     databaseProviders: "Proveedores de bases de datos",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databasePrismaPostgres: "Prisma Postgres",
     databaseAwsRds: "Amazon RDS for PostgreSQL",
     databaseCloudSql: "Cloud SQL for PostgreSQL",
     databaseAzurePostgres: "Azure Database for PostgreSQL",

@@ -100,6 +100,7 @@ Plan MCP connector
 POST JSON to NOTIFICATIONS_WEBHOOK_URL
 PR
 PR push
+Prisma Postgres
 Provider registry
 publicAgent.expose required
 pull · push
