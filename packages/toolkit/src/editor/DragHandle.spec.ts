@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { type AnyExtension, Editor } from "@tiptap/core";
+import { type AnyExtension, Editor, Node } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1707,6 +1707,36 @@ describe("DragHandle block selection", () => {
       }
     },
   );
+
+  it("lets go of a block whose text is hidden by moving past it", () => {
+    const Folded = Node.create({
+      name: "folded",
+      group: "block",
+      content: "text*",
+      parseHTML: () => [{ tag: "aside" }],
+      renderHTML: () => ["aside", ["div", { style: "display: none" }, 0]],
+    });
+    const { editor } = mountEditor(
+      "<p>First</p><aside>Folded</aside><p>Second</p>",
+      {},
+      undefined,
+      undefined,
+      undefined,
+      [StarterKit, Folded],
+    );
+    const page = document.createElement("div");
+    document.body.appendChild(page);
+
+    try {
+      editor.commands.setNodeSelection(7);
+      pointerDown(page);
+
+      expect(editor.state.selection.empty).toBe(true);
+      expect(editor.state.selection.$from.parent.textContent).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
 
   it("keeps the block selected for a click on the editor, the grip or a control", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");

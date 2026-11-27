@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type SyntheticEvent,
 } from "react";
 import { toast } from "sonner";
 
@@ -129,10 +130,11 @@ export function InteractiveHtmlBlockView({
     if (!dialog || dialog.open === fullScreen) return;
     if (!fullScreen) {
       dialog.close();
+      if (editor.view.hasFocus()) editor.view.focus();
       return;
     }
     dialog.showModal();
-  }, [fullScreen]);
+  }, [editor, fullScreen]);
 
   const leaveFullScreen = () => {
     if (!fullScreen) return;
@@ -187,6 +189,10 @@ export function InteractiveHtmlBlockView({
         "content-interactive-html",
         fullScreen && "content-interactive-html--full",
       )}
+      onCancel={(event: SyntheticEvent) => {
+        event.preventDefault();
+        leaveFullScreen();
+      }}
       onClose={leaveFullScreen}
       onKeyDown={(event: KeyboardEvent) => {
         if (fullScreen) event.stopPropagation();

@@ -488,6 +488,12 @@ const KEEPS_BLOCK_SELECTION = [
   "[data-radix-popper-content-wrapper]",
 ].join(", ");
 
+const showsPosition = (view: EditorView, pos: number) => {
+  const { node } = view.domAtPos(pos);
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.checkVisibility?.() ?? true;
+};
+
 const editorArea = (registration: DragHandleRegistration) => {
   const rect = registration.view.dom.getBoundingClientRect();
   return rect.width * rect.height;
@@ -1926,9 +1932,14 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             ) {
               return;
             }
-            const caret =
-              Selection.findFrom(selection.$from, 1, true) ??
-              Selection.findFrom(selection.$from, -1, true);
+            const caret = [
+              Selection.findFrom(selection.$from, 1, true),
+              Selection.findFrom(selection.$to, 1, true),
+              Selection.findFrom(selection.$from, -1, true),
+            ].find(
+              (candidate) =>
+                candidate && showsPosition(editorView, candidate.from),
+            );
             if (caret)
               editorView.dispatch(editorView.state.tr.setSelection(caret));
           };
