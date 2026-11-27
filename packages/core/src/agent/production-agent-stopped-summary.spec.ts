@@ -82,7 +82,44 @@ describe("a run that stops after tool results", () => {
       .filter((event) => event.type === "text")
       .map((event) => (event as { text: string }).text)
       .join("");
-    expect(text).toContain("list-sent-threads");
-    expect(text).toMatch(/not (completed|done|run)/i);
+    expect(text).toContain("Completed: list-sent-threads.");
+    expect(text).not.toContain("Failed:");
+    expect(text).toContain("Not done:");
+  });
+
+  it("lists a tool that errored under Failed, not Completed", async () => {
+    const actions = loadActionsFromStaticRegistry({
+      "list-sent-threads": {
+        default: defineAction({
+          description: "List sent threads",
+          parameters: {},
+          readOnly: true,
+          run: async () => {
+            throw new Error("gmail unavailable");
+          },
+        }),
+      },
+    });
+    const events: AgentChatEvent[] = [];
+    await runAgentLoopWithMainChatInternalContinuations({
+      engine: stallingAfterToolEngine(),
+      model: "test",
+      systemPrompt: "Test",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "List sent." }] },
+      ],
+      actions,
+      maxContinuations: 2,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    }).catch(() => undefined);
+
+    const text = events
+      .filter((event) => event.type === "text")
+      .map((event) => (event as { text: string }).text)
+      .join("");
+    expect(text).toContain("Failed: list-sent-threads.");
+    expect(text).not.toContain("Completed:");
   });
 });
