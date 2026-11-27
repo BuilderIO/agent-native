@@ -27,6 +27,7 @@ export interface ActionGetRequest {
   init: RequestInit;
   headers: Record<string, string>;
   batchUrl: string;
+  batchGroup?: string;
 }
 
 interface PendingGet {
@@ -82,7 +83,11 @@ function flush(): void {
   // (for example X-Request-Source) go out as separate batches.
   const groups = new Map<string, PendingGet[]>();
   for (const item of items) {
-    const key = JSON.stringify(item.request.headers);
+    const key = JSON.stringify([
+      item.request.batchUrl,
+      item.request.headers,
+      item.request.batchGroup ?? "",
+    ]);
     const group = groups.get(key);
     if (group) group.push(item);
     else groups.set(key, [item]);

@@ -207,6 +207,10 @@ _（版本可能有所不同；在 `/.well-known/agent-card.json` 取得目前 `
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -581,7 +585,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-代理卡端點始終是公開的（無需驗證），以便其他代理可以發現功能。 `/_agent-native/a2a` JSON-RPC 端點接受由 `A2A_SECRET` 簽名的 JWT 不記名權杖，並且在設定時還接受舊版 `apiKeyEnv` 權杖。本機開發時，auth可以省略；在託管正式環境執行時中，缺少 A2A 驗證會返回 503，而不是未經驗證執行。
+代理卡端點始終是公開的（無需驗證），以便其他代理可以發現功能。 `/_agent-native/a2a` JSON-RPC 端點接受由 `A2A_SECRET` 簽名的 JWT 不記名權杖，並且在設定時還接受舊版 `apiKeyEnv` 權杖。未設定 `A2A_SECRET` 或 `apiKeyEnv` 時，開發伺服器只接受來自同一台機器的未經驗證呼叫，對其他任何主機返回 401，包括發布在公開預覽 URL 上的開發伺服器。在託管正式環境執行時中，缺少 A2A 驗證會返回 503，而不是未經驗證執行。
 
 ### 驗證策略邊界 {#auth-policy}
 
@@ -591,7 +595,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 - 當 `A2A_SECRET` 設定時，`hasConfiguredA2ASecret()` 返回 `true`。
 - `shouldAdvertiseJwtA2AAuth()`是代理卡用來決定是否發布`jwtBearer`安全方案的依據。
 
-正式環境策略是嚴格的：在任何正式環境執行時中，除非設定了 `A2A_SECRET`（返回 503），否則非同步 `_process-task` 路由拒絕調度，並且 JSON-RPC 端點拒絕未經驗證的呼叫。開發回退（警告一次，允許）僅在未設定正式環境標誌時觸發。
+正式環境策略是嚴格的：在任何正式環境執行時中，除非設定了 `A2A_SECRET`（返回 503），否則非同步 `_process-task` 路由拒絕調度，並且 JSON-RPC 端點拒絕未經驗證的呼叫。在正式環境之外，未經驗證的呼叫只有來自同一台機器時才會被允許（並發出一次性警告）：對端位址、`Host` 以及所有轉送標頭都必須是迴路位址，Builder 雲端開發容器永遠不算作本機。其他任何未經驗證的呼叫，包括未簽署的 `_process-task` 調度，都會返回 401；如需接受，請在應用程式上設定 `A2A_SECRET`。
 
 此邊界很重要，因為代理迴圈接受來自遠端呼叫者的自由格式輸入。將不記名檢查放入迴圈內，或依靠工具來強制執行它，將使提示注入或有問題的處理常式繞過驗證。將其保持在 HTTP 邊界意味著權杖故障會在任何 LLM 呼叫之前短路。
 

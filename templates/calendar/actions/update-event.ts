@@ -1,6 +1,11 @@
 import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
+import {
+  checkSaveRevision,
+  EXPECTED_REVISION_DESCRIPTION,
+} from "@agent-native/core/save-conflict/server";
 import { buildDeepLink } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
@@ -9,7 +14,12 @@ import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
-import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import {
+  discardZoomMeeting,
+  prepareZoomMeetingPatch,
+  type CreatedZoomMeeting,
+} from "../server/lib/event-video-conferencing.js";
+import { isGoogleRequestRejectedError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import { isCalendarEventOrganizer } from "../shared/event-permissions.js";
@@ -122,6 +132,10 @@ export default defineAction({
       .describe(
         "Connected Google account email from list-events/search-events",
       ),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(EXPECTED_REVISION_DESCRIPTION),
     targetAccountEmail: z
       .string()
       .optional()
@@ -371,6 +385,14 @@ export default defineAction({
     if (attendees !== undefined) updates.attendees = attendees;
     Object.assign(updates, reminderFields);
 
+    const checkReadRevision = (read: CalendarEvent) =>
+      checkSaveRevision({
+        record: googleCalendar.CALENDAR_EVENT_RECORD,
+        expectedRevision: args.expectedRevision,
+        current: { value: read, revision: read.revision ?? null },
+        isSameSave: () => false,
+      });
+
     let existingEvent: CalendarEvent | undefined;
     const loadExistingEvent = async () => {
       existingEvent ??= await googleCalendar.getEvent(googleEventId, {
@@ -443,6 +465,7 @@ export default defineAction({
           accountEmail: targetAccountEmail!,
         },
         sendUpdates,
+        expectedRevision: args.expectedRevision,
       });
       if (!result.id) {
         throw new Error("Google did not return an id for the moved event.");
@@ -592,51 +615,11 @@ export default defineAction({
       updates.attendees = attendees;
     }
 
-    let zoomMeetingLink: string | undefined;
-    let zoomAlreadyPresent = false;
-    if (args.addZoom) {
-      const existingEvent = await loadExistingEvent();
-      const eventForZoom: CalendarEvent = {
-        ...existingEvent,
-        ...updates,
-        title: updates.title ?? existingEvent.title,
-        description: updates.description ?? existingEvent.description,
-        location: updates.location ?? existingEvent.location,
-        start: updates.start ?? existingEvent.start,
-        end: updates.end ?? existingEvent.end,
-      };
-      const zoom = await prepareZoomMeetingPatch(ownerEmail, eventForZoom);
-      zoomMeetingLink = zoom.meetingLink;
-      zoomAlreadyPresent = zoom.alreadyPresent;
-      Object.assign(updates, zoom.patch);
-    }
-
-    const eventForNotification = guestNotificationMessage
-      ? await loadExistingEvent()
-      : undefined;
-
-    const updatedKeys = Object.keys(updates).filter(
-      (key) => key !== "accountEmail",
-    );
-    if (updatedKeys.length === 0 && zoomAlreadyPresent) {
-      return {
-        success: true,
-        id: googleEventResultId(args.id, googleEventId, accountEmail),
-        accountEmail,
-        updated: [],
-        meetingLink: zoomMeetingLink,
-        message: "Zoom link already present.",
-      };
-    }
-
-    let result: Awaited<ReturnType<typeof googleCalendar.updateEvent>>;
-    let returnedGoogleEventId = googleEventId;
     const replaceRecurringWorkingLocation =
       hasWorkingLocationPatch &&
       (args.scope ?? "single") === "single" &&
       existingEvent?.recurringEventId &&
       updates.workingLocationProperties;
-
     if (replaceRecurringWorkingLocation) {
       const hasUnsupportedReplacementPatch =
         args.title !== undefined ||
@@ -659,10 +642,57 @@ export default defineAction({
         args.addAttendees !== undefined ||
         args.notificationMessage !== undefined;
       if (hasUnsupportedReplacementPatch) {
-        throw new Error(
+        fail(
           "Change the working location separately from other event fields for a single recurring occurrence.",
+          { errorCode: "working_location_mixed_edit", statusCode: 400 },
         );
       }
+    }
+    const eventForNotification = guestNotificationMessage
+      ? await loadExistingEvent()
+      : undefined;
+
+    let zoomMeetingLink: string | undefined;
+    let zoomAlreadyPresent = false;
+    let zoomCreated: CreatedZoomMeeting | undefined;
+    if (args.addZoom) {
+      const existingEvent = await loadExistingEvent();
+      checkReadRevision(existingEvent);
+      const eventForZoom: CalendarEvent = {
+        ...existingEvent,
+        ...updates,
+        title: updates.title ?? existingEvent.title,
+        description: updates.description ?? existingEvent.description,
+        location: updates.location ?? existingEvent.location,
+        start: updates.start ?? existingEvent.start,
+        end: updates.end ?? existingEvent.end,
+      };
+      const zoom = await prepareZoomMeetingPatch(ownerEmail, eventForZoom);
+      zoomMeetingLink = zoom.meetingLink;
+      zoomAlreadyPresent = zoom.alreadyPresent;
+      zoomCreated = zoom.created;
+      Object.assign(updates, zoom.patch);
+    }
+
+    const updatedKeys = Object.keys(updates).filter(
+      (key) => key !== "accountEmail",
+    );
+    if (updatedKeys.length === 0 && zoomAlreadyPresent) {
+      return {
+        success: true,
+        id: googleEventResultId(args.id, googleEventId, accountEmail),
+        accountEmail,
+        updated: [],
+        meetingLink: zoomMeetingLink,
+        message: "Zoom link already present.",
+      };
+    }
+
+    let result: Awaited<ReturnType<typeof googleCalendar.updateEvent>>;
+    let returnedGoogleEventId = googleEventId;
+    if (replaceRecurringWorkingLocation) {
+      const source = await loadExistingEvent();
+      checkReadRevision(source);
       const now = new Date().toISOString();
       const replacement = await googleCalendar.createEvent(
         {
@@ -697,7 +727,7 @@ export default defineAction({
         await googleCalendar.deleteEvent(
           googleEventId,
           { ownerEmail, accountEmail },
-          { scope: "single" },
+          { scope: "single", ifMatch: source.revision },
         );
       } catch (error) {
         try {
@@ -711,6 +741,14 @@ export default defineAction({
             "Failed to clean up a working-location replacement after the original occurrence could not be cancelled.",
             cleanupError,
           );
+          fail(
+            `The working location wasn't changed, and its replacement "${replacement.id}" couldn't be removed. Delete it before trying again.`,
+            {
+              errorCode: "replacement_not_removed",
+              statusCode: 409,
+              details: { replacementId: replacement.id },
+            },
+          );
         }
         throw error;
       }
@@ -721,17 +759,28 @@ export default defineAction({
         conferenceData: replacement.conferenceData,
       };
     } else {
-      result = await googleCalendar.updateEvent(googleEventId, updates, {
-        account: { ownerEmail, accountEmail },
-        sendUpdates:
-          args.sendUpdates ??
-          (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
-            ? "all"
-            : undefined),
-        addGoogleMeet: args.addGoogleMeet,
-        removeGoogleMeet: args.removeGoogleMeet,
-        scope: args.scope,
-      });
+      try {
+        result = await googleCalendar.updateEvent(googleEventId, updates, {
+          account: { ownerEmail, accountEmail },
+          sendUpdates:
+            args.sendUpdates ??
+            (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
+              ? "all"
+              : undefined),
+          addGoogleMeet: args.addGoogleMeet,
+          removeGoogleMeet: args.removeGoogleMeet,
+          scope: args.scope,
+          expectedRevision: args.expectedRevision,
+        });
+      } catch (error) {
+        if (
+          zoomCreated &&
+          (isSaveConflict(error) || isGoogleRequestRejectedError(error))
+        ) {
+          await discardZoomMeeting(zoomCreated);
+        }
+        throw error;
+      }
     }
 
     const returnedPatch: Partial<CalendarEvent> = {};
@@ -808,6 +857,7 @@ export default defineAction({
       hangoutLink: result.meetLink,
       meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,
+      ...(result.revision ? { revision: result.revision } : {}),
       ...(args.removeGoogleMeet ? { removedGoogleMeet: true } : {}),
       ...returnedPatch,
       change: eventChange(id, title),

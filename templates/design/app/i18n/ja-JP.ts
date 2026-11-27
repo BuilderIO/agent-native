@@ -367,6 +367,8 @@ export default {
       blur: "ブラー",
       spread: "スプレッド",
       rotation3d: "3D 回転",
+      constraints: "制約",
+      absolutePosition: "絶対位置",
       rotationX: "X 軸回転",
       rotationY: "Y 軸回転",
       perspective: "パースペクティブ",
@@ -859,6 +861,10 @@ export default {
     exportPreview: {
       rendering: "プレビューを生成中…",
       failed: "プレビューを表示できません",
+      noPreview: "プレビューする画面がありません",
+      externalPreview: "プレビューにはライブアプリが必要です",
+      readOnlyPreview: "読み取り専用モードではプレビューできません",
+      selectionUnresolved: "選択範囲がこの画面に見つかりません",
     },
     framePresets: {
       title: "フレーム",
@@ -1157,6 +1163,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "{{name}} のカラーを編集",
+      field: {
+        open: "トークン",
+        detach: "トークンを切り離す",
+        primitives: "{{group}}のプリミティブ",
+        loading: "トークンを読み込み中…",
+      },
     },
     import: {
       description:
@@ -1935,6 +1947,7 @@ export default {
   layersPanel: {
     title: "レイヤー",
     screens: "ページ",
+    components: "コンポーネント",
     resizeScreens: "ページセクションのサイズを変更",
     thumbnail: "サムネイル",
     addScreen: "ページを追加",
@@ -1964,6 +1977,8 @@ export default {
     bringToFront: "最前面へ移動",
     sendBackward: "背面へ移動",
     sendToBack: "最背面へ移動",
+    arrangeUnavailable:
+      "並べ替えるには、編集可能なデザインでレイヤーを選択してください",
     pasteToReplace: "置き換えて貼り付け",
     frameSelection: "選択範囲をフレーム化",
     flipHorizontal: "水平方向に反転",

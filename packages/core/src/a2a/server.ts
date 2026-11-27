@@ -49,6 +49,8 @@ import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
+  isTrustedLocalRequest,
+  UNSIGNED_REMOTE_REQUEST_REFUSED,
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
@@ -74,8 +76,8 @@ function warnA2AUnauthOnce(): void {
   _warnedUnauthA2A = true;
   // eslint-disable-next-line no-console
   console.warn(
-    "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint runs unauthenticated. " +
-      "This is allowed in development but blocked in production. Set A2A_SECRET before deploying.",
+    "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint accepts unauthenticated requests from this machine only. " +
+      "Requests from other hosts are refused. Set A2A_SECRET before exposing or deploying this app.",
   );
 }
 
@@ -1031,12 +1033,6 @@ export function mountA2A(
         return { error: "taskId required" };
       }
 
-      // When A2A_SECRET is set, require a valid HMAC token bound to this
-      // taskId. In production, we REQUIRE A2A_SECRET to be set so unsigned
-      // dispatches are never accepted (an attacker who fishes a taskId out
-      // of logs / a share link could otherwise force-replay it). In
-      // development, a missing secret is permitted so local templates work
-      // out of the box, but we log a one-time warning so operators notice.
       if (hasConfiguredA2ASecret()) {
         const auth = getRequestHeader(event, "authorization");
         const tok = extractBearerToken(auth);
@@ -1050,6 +1046,9 @@ export function mountA2A(
           error:
             "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
         };
+      } else if (!isTrustedLocalRequest(event)) {
+        setResponseStatus(event, 401);
+        return { error: UNSIGNED_REMOTE_REQUEST_REFUSED };
       } else {
         warnA2AUnauthOnce();
       }
@@ -1096,11 +1095,6 @@ export function mountA2A(
       let bearerTokenVerified = false;
       let bearerTokenRejectedByJwt = false;
 
-      // SECURITY: when neither A2A_SECRET nor an apiKeyEnv is configured,
-      // there's no way to authenticate the caller. Default to "auth required"
-      // in production — return 503 with a clear message instead of running
-      // the agent loop unauthenticated. In development, log a one-time
-      // warning but allow so local templates work out of the box.
       const hasA2ASecret = hasConfiguredA2ASecret();
       const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
 
@@ -1236,31 +1230,33 @@ export function mountA2A(
           };
         }
 
-        if (!hasA2ASecret && !hasApiKey) {
-          if (isA2AProductionRuntime()) {
-            setResponseStatus(event, 503);
-            return {
-              jsonrpc: "2.0",
-              id: null,
-              error: {
-                code: -32001,
-                message:
-                  "A2A authentication not configured. Set A2A_SECRET (preferred) or configure apiKeyEnv to accept inbound A2A traffic.",
-              },
-            };
-          }
-          warnA2AUnauthOnce();
-        } else if (isA2AProductionRuntime()) {
+        const authConfigured = hasA2ASecret || hasApiKey;
+        if (!authConfigured && isA2AProductionRuntime()) {
+          setResponseStatus(event, 503);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: -32001,
+              message:
+                "A2A authentication not configured. Set A2A_SECRET (preferred) or configure apiKeyEnv to accept inbound A2A traffic.",
+            },
+          };
+        }
+        if (!isTrustedLocalRequest(event)) {
           setResponseStatus(event, 401);
           return {
             jsonrpc: "2.0",
             id: null,
             error: {
               code: -32001,
-              message: "Authentication required",
+              message: authConfigured
+                ? "Authentication required"
+                : UNSIGNED_REMOTE_REQUEST_REFUSED,
             },
           };
         }
+        if (!authConfigured) warnA2AUnauthOnce();
       }
 
       if (verifiedCallerEmail) {

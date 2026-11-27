@@ -13,6 +13,7 @@ vi.mock("./store.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn() }),
   isLocalDatabase: () => true,
 }));

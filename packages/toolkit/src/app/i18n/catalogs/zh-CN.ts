@@ -683,6 +683,8 @@ const messages: ToolkitAgentChatTranslation = {
     "此应用目前无法安全地重试已保存的提示。请先更新应用，然后重试。",
   "errorMessages.runInterrupted": "智能体在完成前停止了。",
   "errorMessages.runFailed": "智能体运行失败。",
+  "errorMessages.writeOutcomeUnknown":
+    "由于之前的尝试可能已经保存了更改，而我无法确认结果，因此我在再次执行写入操作前停止了。请先检查已保存的内容，再重试。",
   "errorMessages.runUnverified":
     "此对话已无法跟踪智能体，它可能仍在运行。请刷新以查看进度。",
   "errorMessages.runSignedOut":
@@ -3218,6 +3220,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "在新标签页中打开",
   "mcpApps.initFailed": "无法初始化 MCP 应用。",
   "mcpApps.readOnly": "此已保存的 MCP 应用为只读。",
+  "markdown.opensInNewTab": "(在新标签页中打开)",
   "iframeEmbed.blocked": "嵌入已被阻止",
   "iframeEmbed.missingSrc": "缺少来源",
   "iframeEmbed.crossOrigin": "不允许跨源 URL",

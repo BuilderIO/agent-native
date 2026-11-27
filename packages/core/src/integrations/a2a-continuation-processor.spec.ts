@@ -2347,7 +2347,7 @@ describe("A2A continuation processor", () => {
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
     expect(sentText).toContain("needs an LLM connection");
-    expect(sentText).toContain("Settings > Agent > AI providers");
+    expect(sentText).toContain("connect prompt");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
     expect(sentText).toContain("Error code: `missing_credentials`");
     expect(sentText).toContain("Request ID: `task-1`");

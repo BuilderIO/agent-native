@@ -1477,6 +1477,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette application ne peut pas encore réessayer votre message enregistré en toute sécurité. Mettez l’application à jour, puis réessayez.",
   "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
   "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
+  "errorMessages.writeOutcomeUnknown":
+    "Je me suis arrêté avant de répéter une action d’écriture, car une tentative précédente a peut-être déjà enregistré des modifications sans que je puisse confirmer le résultat. Vérifiez ce qui a été enregistré avant de réessayer.",
   "errorMessages.runUnverified":
     "Cette conversation a perdu la trace de l’agent, qui est peut-être encore en cours. Rechargez pour voir sa progression.",
   "errorMessages.runSignedOut":
@@ -3802,6 +3804,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "Ouvrir dans un nouvel onglet",
   "mcpApps.initFailed": "Impossible d’initialiser l’application MCP.",
   "mcpApps.readOnly": "Cette application MCP enregistrée est en lecture seule.",
+  "markdown.opensInNewTab": "(s'ouvre dans un nouvel onglet)",
   "iframeEmbed.blocked": "Intégration bloquée",
   "iframeEmbed.missingSrc": "Source manquante",
   "iframeEmbed.crossOrigin": "URL d’une autre origine non autorisée",

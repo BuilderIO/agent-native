@@ -7,13 +7,19 @@ import { z } from "zod";
  * `unavailable` for an item that is private, missing, or not an item at all,
  * so the answer never says whether a private item exists.
  */
-export const LINK_SUMMARY_APPS = ["design", "slides", "clips"] as const;
+export const LINK_SUMMARY_APPS = [
+  "design",
+  "slides",
+  "clips",
+  "content",
+] as const;
 export type LinkSummaryApp = (typeof LINK_SUMMARY_APPS)[number];
 
 export const LINK_SUMMARY_KINDS = {
   design: "design",
   slides: "deck",
   clips: "recording",
+  content: "page",
 } as const satisfies Record<LinkSummaryApp, string>;
 export type LinkSummaryKind = (typeof LINK_SUMMARY_KINDS)[LinkSummaryApp];
 
@@ -21,13 +27,6 @@ export const LINK_SUMMARY_MAX_LINKS = 20;
 export const LINK_SUMMARY_TITLE_CHARS = 300;
 export const LINK_SUMMARY_URL_CHARS = 2048;
 export const LINK_SUMMARY_PARAM_CHARS = 40;
-
-export function isLinkSummaryApp(value: unknown): value is LinkSummaryApp {
-  return (
-    typeof value === "string" &&
-    (LINK_SUMMARY_APPS as readonly string[]).includes(value)
-  );
-}
 
 const CREDENTIAL_PARAM =
   /token|secret|pass|pwd|key|code|session|auth|cred|ticket|grant|access|otp|jwt|nonce|invit|(?:^|[-_.])sig/i;
@@ -76,7 +75,7 @@ export const linkSummaryAvailableSchema = z
   .object({
     status: z.literal("available"),
     app: z.enum(LINK_SUMMARY_APPS),
-    kind: z.enum(["design", "deck", "recording"]),
+    kind: z.enum(["design", "deck", "recording", "page"]),
     title: z.string().max(LINK_SUMMARY_TITLE_CHARS),
     url: z.string().max(LINK_SUMMARY_URL_CHARS),
   })
@@ -125,6 +124,7 @@ const ITEM_ROUTES: Record<
     { route: "p" },
   ],
   clips: [{ route: "r" }, { route: "share" }, { route: "embed" }],
+  content: [{ route: "page" }],
 };
 
 /** The item a path below an app's mount names, or null for any other page. */

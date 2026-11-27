@@ -48,6 +48,7 @@ const DATA_SOURCES: DataSourceType[] = [
   "demo",
   "prometheus",
   "program",
+  "postgres",
 ];
 const CHART_TYPES: ChartType[] = [
   "line",

@@ -12,6 +12,7 @@ const dbExec = vi.hoisted(() => {
 });
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => dbExec,
 }));
 

@@ -150,6 +150,7 @@ describe("magic-link verify on an invite-only workspace", () => {
     delete process.env.ACCESS_TOKENS;
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({
         execute: vi.fn(async () => ({ rows: [] })),
       }),
@@ -259,6 +260,7 @@ describe("magic-link verify on an invite-only workspace", () => {
       getBetterAuthSync: vi.fn(() => ({ api: { getSession } })),
     }));
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
       getRefusedLocalDatabaseSource: () => null,
       isLocalDatabase: () => true,

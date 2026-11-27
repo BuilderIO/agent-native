@@ -38,6 +38,8 @@ import {
   agentEventSequenceEnd,
   isAgentKitProtocolVersion,
   negotiateAgentKitProtocolVersion,
+  AgentProtocolValidationError,
+  parseAgentEvent,
   parseAgentQueuedMessage,
   parseForkThreadInput,
   parseNullableAgentQueuedSubmissionStatus,
@@ -61,6 +63,7 @@ import {
   assertNoInlineImageBytes,
   stripInlineBytes,
 } from "../../shared/inline-bytes.js";
+import { PRIVATE_SNAPSHOT_IDENTITY_FIELDS } from "../../shared/private-snapshot.js";
 import { toolInputFingerprint } from "../../shared/tool-inputs.js";
 import {
   agentEngineStatusUrlForChatApi,
@@ -2223,6 +2226,52 @@ function persistedRetryRequestAttachments(value: unknown): Array<{
   });
 }
 
+function restoredHistoryEvent(value: unknown, path: string): unknown {
+  const event = asRecord(value);
+  if (event?.omitFromPersistedHistory !== true) return value;
+  try {
+    return parseAgentEvent(value, path);
+  } catch (error) {
+    if (
+      !(error instanceof AgentProtocolValidationError) ||
+      !Object.keys(event).every(
+        (key) =>
+          PRIVATE_SNAPSHOT_IDENTITY_FIELDS.has(key) || key === "metadata",
+      )
+    )
+      throw error;
+    const field = error.path.startsWith(path + ".")
+      ? error.path.slice(path.length + 1)
+      : "";
+    const missingPayload =
+      /^[a-zA-Z]+$/.test(field) &&
+      !PRIVATE_SNAPSHOT_IDENTITY_FIELDS.has(field) &&
+      !Object.hasOwn(event, field);
+    const missingToolDelta =
+      error.path === path &&
+      event.type === "tool.delta" &&
+      !Object.hasOwn(event, "inputTextDelta") &&
+      !Object.hasOwn(event, "outputTextDelta");
+    if (!missingPayload && !missingToolDelta) throw error;
+    if (field === "text") parseAgentEvent({ ...event, text: "" }, path);
+    return parseAgentEvent(
+      {
+        id: event.id,
+        threadId: event.threadId,
+        runId: event.runId,
+        sequence: event.sequence,
+        occurredAt: event.occurredAt,
+        ...(Object.hasOwn(event, "metadata")
+          ? { metadata: event.metadata }
+          : {}),
+        type: "x-agent-native.persisted-event-omission",
+        payload: { sourceType: event.type },
+      },
+      path,
+    );
+  }
+}
+
 const MAX_PERSISTED_EVENT_OMISSION_RANGE = 256;
 const MAX_PERSISTED_EVENT_PREFIX_RANGES = 4_096;
 
@@ -3388,34 +3437,9 @@ export function createAgentNativeAgentKitTransport(
               : (messagesWithLegacyRoot ?? agentKitMessages)
             : storedMessageProjection,
           events: Array.isArray(agentKit.events)
-            ? agentKit.events.map((value: unknown) => {
-                const event = asRecord(value);
-                if (
-                  event?.omitFromPersistedHistory === true &&
-                  (((event.type === "activity.started" ||
-                    event.type === "activity.updated" ||
-                    event.type === "activity.completed") &&
-                    !Object.hasOwn(event, "activity")) ||
-                    (event.type === "message.completed" &&
-                      !Object.hasOwn(event, "message")) ||
-                    (event.type === "x-agent-native.persisted-event-omission" &&
-                      !Object.hasOwn(event, "payload")))
-                ) {
-                  return {
-                    id: event.id,
-                    threadId: event.threadId,
-                    runId: event.runId,
-                    sequence: event.sequence,
-                    occurredAt: event.occurredAt,
-                    ...(Object.hasOwn(event, "metadata")
-                      ? { metadata: event.metadata }
-                      : {}),
-                    type: "x-agent-native.persisted-event-omission",
-                    payload: { sourceType: event.type },
-                  };
-                }
-                return value;
-              })
+            ? agentKit.events.map((value: unknown, index: number) =>
+                restoredHistoryEvent(value, `threadSnapshot.events[${index}]`),
+              )
             : agentKit.events,
           runs: agentKit.runs,
           activeRunIds: agentKit.activeRunIds,
@@ -5111,6 +5135,33 @@ export function createAgentNativeAgentKitTransport(
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
     ...options.adapter,
     onRunOutcome,
+    readSavedReplyText: async ({ threadId, runId, signal }) => {
+      const stored = await fetchThread(threadId, signal);
+      if (!stored) return null;
+      const reply = storedMessages(
+        storedRepository(stored).messages,
+        now,
+        options.adapter?.textFormat,
+      )
+        .filter(
+          (message) =>
+            message.role === "assistant" &&
+            asRecord(message.metadata)?.runId === runId,
+        )
+        .at(-1);
+      const custom = asRecord(asRecord(reply?.metadata)?.custom);
+      if (
+        !reply ||
+        (reply.status !== undefined && reply.status !== "complete") ||
+        custom?.userStopped === true ||
+        asRecord(custom?.runError) !== null
+      ) {
+        return null;
+      }
+      return reply.parts
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join("");
+    },
     // A spread would freeze the host's label at its locale when this was built.
     get autoContinueLabel() {
       return options.adapter?.autoContinueLabel;

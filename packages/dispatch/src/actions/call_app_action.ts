@@ -15,7 +15,7 @@ import { callGrantedDispatchMcpAppAction } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    "Run one action of a granted app as the signed-in user and return its result in about a second. Prefer this to ask_app whenever the step is a known action (list the inbox, read a thread, create a draft, list or move an event); ask_app runs the app's whole agent and takes 20 seconds or more. Call list_app_actions first for names and inputs. The app's screen updates from the same data, so call open_app once to show it beside the chat.",
+    "Run a single named action on a granted app as the signed-in user (such as listing an inbox, reading a thread, creating a draft, or listing or moving an event). Accepts an `app` id, an `action` name and input `args` (as described by `list_app_actions`), and returns the action result directly without running the app's agent.",
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     action: z
@@ -29,7 +29,7 @@ export default defineAction({
       .enum(["foreground", "background"])
       .optional()
       .describe(
-        'Set to "background" for secondary lookups that must not hijack the visible foreground pane.',
+        'Viewport targeting mode; "background" keeps the current foreground pane unchanged.',
       ),
   }),
   mcpOutputSchema: true,

@@ -3,6 +3,7 @@ import type {
   AgentLoopFinalResponseGuard,
   ProductionAgentOptions,
 } from "../../agent/production-agent.js";
+import type { ToolLimits } from "../../agent/production-agent.js";
 import type { ActiveRun } from "../../agent/run-manager.js";
 import type { AgentChatScope, MentionProvider } from "../../agent/types.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
@@ -19,6 +20,24 @@ import type {
 import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
+
+/** Whether the run's result reached the durable thread. */
+export type AgentChatRunProjectionOutcome =
+  | { status: "updated" }
+  | { status: "failed"; error: unknown };
+
+export interface AgentChatRunCompleteOutcome {
+  turnContinues: boolean;
+  /** Absent when the run had no thread to project into. */
+  projection?: AgentChatRunProjectionOutcome;
+}
+
+export interface AgentChatRunNotStartedDetails {
+  runId: string;
+  turnId: string;
+  threadId: string;
+  failure: { code: string; message: string };
+}
 
 export interface AgentChatPluginOptions {
   onQueuedSubmissionDrainReady?: (
@@ -48,7 +67,14 @@ export interface AgentChatPluginOptions {
   onAgentRunComplete?: (
     scope: AgentChatScope | null | undefined,
     run: ActiveRun,
-    outcome: { turnContinues: boolean },
+    outcome: AgentChatRunCompleteOutcome,
+  ) => void | Promise<void>;
+  /**
+   * A turn was refused before any run started (for example no usable model
+   * credential). `runId` is the id the client already uses for the turn.
+   */
+  onAgentRunNotStarted?: (
+    details: AgentChatRunNotStartedDetails,
   ) => void | Promise<void>;
   actions?:
     | Record<string, ActionEntry>
@@ -296,11 +322,7 @@ export interface AgentChatPluginOptions {
     bridgeTools?: string[];
   };
 
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
 }
 
 export function resolveA2AAgentDelegationEnabled(

@@ -8920,7 +8920,9 @@ function latestRunId(thread: AgentThreadState): RunId | undefined {
       latest = { id: run.id, startedAt: run.startedAt };
     }
   }
-  return latest?.id ?? thread.events.at(-1)?.runId;
+  return (
+    latest?.id ?? thread.events.at(-1)?.runId ?? Object.keys(thread.runs).at(-1)
+  );
 }
 
 function currentRunActivityLabel(

@@ -4,6 +4,7 @@ const jobs = new Map<string, Record<string, unknown>>();
 const hits = new Map<string, Record<string, unknown>[]>();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {

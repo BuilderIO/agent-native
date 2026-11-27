@@ -285,6 +285,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   // signed-in member's connect flow has to read it from the environment.
   "ZOOM_CLIENT_ID",
   "ZOOM_CLIENT_SECRET",
+  "GITHUB_INTEGRATION_CLIENT_ID",
+  "GITHUB_INTEGRATION_CLIENT_SECRET",
   "SLACK_BOT_TOKEN",
   // Signs events from the deployed Slack app, not the integration owner's identity.
   "SLACK_SIGNING_SECRET",

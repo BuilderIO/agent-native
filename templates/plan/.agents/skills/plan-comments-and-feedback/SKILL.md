@@ -21,6 +21,9 @@ description: >-
   remains for audit/debugging. Deleting a thread root also deletes its replies.
   When feedback has merely been handled, prefer `resolve-plan-comment` and
   `consume-plan-feedback` so review history remains visible.
+- `react-to-plan-comment` adds (`active: true`) or removes (`active: false`) an
+  emoji reaction on a comment. Your reactions are kept apart from the user's,
+  so neither of you can remove the other's.
 - Use `delete-visual-plan` only when the owner explicitly asks to delete or
   restore their hosted plan/recap data. `mode=soft` moves the resource to the
   Deleted tab and makes normal reads/direct links stop working; `mode=restore`

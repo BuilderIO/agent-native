@@ -13,6 +13,7 @@ let execute: (query: { sql: string; args?: unknown[] }) => Promise<{
 }>;
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: (query: { sql: string; args?: unknown[] }) => {
       execCalls.push({ sql: query.sql, args: query.args ?? [] });

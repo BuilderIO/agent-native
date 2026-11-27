@@ -27,6 +27,9 @@ export const organizationSettings = table("organization_settings", {
   })
     .notNull()
     .default("public"),
+  enforceDefaultVisibility: boolean("enforce_default_visibility")
+    .notNull()
+    .default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

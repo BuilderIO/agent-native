@@ -1298,3 +1298,103 @@ describe("AISDKEngine missing-credential fail-closed", () => {
     },
   );
 });
+
+describe("withAnthropicThinkingBlockBinding", () => {
+  async function send(body: unknown, headers: Record<string, string> = {}) {
+    const base = vi.fn().mockResolvedValue(new Response("{}"));
+    const { withAnthropicThinkingBlockBinding } =
+      await import("./ai-sdk-engine.js");
+    await withAnthropicThinkingBlockBinding(base as unknown as typeof fetch)(
+      "https://x/messages",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      },
+    );
+    const init = base.mock.calls[0][1];
+    return {
+      body: JSON.parse(init.body),
+      beta: new Headers(init.headers).get("anthropic-beta"),
+    };
+  }
+
+  it("adds drop_block binding and the beta header for adaptive thinking", async () => {
+    const sent = await send(
+      { model: "claude-sonnet-5-5", thinking: { type: "adaptive" } },
+      { "anthropic-beta": "prompt-caching-2024-07-31" },
+    );
+    expect(sent.body.thinking.block_binding).toEqual({
+      prefix_mismatch_behavior: "drop_block",
+    });
+    expect(sent.beta).toBe(
+      "prompt-caching-2024-07-31,thinking-binding-controls-2026-08-01",
+    );
+  });
+
+  it("leaves manual thinking and unsupported models untouched", async () => {
+    const manual = await send({
+      model: "claude-sonnet-5-5",
+      thinking: { type: "enabled", budget_tokens: 2000 },
+    });
+    expect(manual.body.thinking.block_binding).toBeUndefined();
+    expect(manual.beta).toBeNull();
+    const old = await send({
+      model: "claude-sonnet-4-6",
+      thinking: { type: "adaptive" },
+    });
+    expect(old.body.thinking.block_binding).toBeUndefined();
+  });
+});
+
+describe("AISDKEngine provider fetch wiring", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("routes Anthropic requests through the thinking-binding fetch", async () => {
+    mockAiSdk();
+    const { createAnthropic } = mockAnthropicProvider();
+    const requestFetch = vi.fn().mockResolvedValue(new Response("{}"));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    await drain(
+      createAISDKEngine("anthropic", { apiKey: "key", requestFetch }).stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-sonnet-5-5",
+      }),
+    );
+
+    const config = createAnthropic.mock.calls[0][0];
+    expect(config.fetch).not.toBe(requestFetch);
+    await config.fetch("https://x/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-5-5",
+        thinking: { type: "adaptive" },
+      }),
+    });
+    const sent = JSON.parse(requestFetch.mock.calls[0][1].body);
+    expect(sent.thinking.block_binding.prefix_mismatch_behavior).toBe(
+      "drop_block",
+    );
+  });
+
+  it("leaves non-JSON and malformed bodies untouched", async () => {
+    const base = vi.fn().mockResolvedValue(new Response("{}"));
+    const { withAnthropicThinkingBlockBinding } =
+      await import("./ai-sdk-engine.js");
+    const wrapped = withAnthropicThinkingBlockBinding(
+      base as unknown as typeof fetch,
+    );
+    await wrapped("https://x/messages", { method: "POST", body: "not json" });
+    await wrapped("https://x/messages", { method: "GET" });
+    await wrapped("https://x/messages", { method: "POST", body: "null" });
+    expect(base.mock.calls.map((call) => call[1]?.body)).toEqual([
+      "not json",
+      undefined,
+      "null",
+    ]);
+  });
+});

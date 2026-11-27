@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mocks.execute }),
 }));
 vi.mock("../db/ddl-guard.js", () => ({
@@ -736,6 +737,55 @@ describe("private replay identity and allowlisted private errors", () => {
       omitFromPersistedHistory: true,
     });
   });
+
+  it.each([
+    [
+      "agent_run_stream_ended",
+      "The model stream ended before the agent finished the response.",
+    ],
+    [
+      "run_timeout",
+      "The run reached its time limit before the agent finished.",
+    ],
+    [
+      "loop_limit",
+      "The agent reached its internal step limit before finishing.",
+    ],
+    ["no_progress", "The agent stopped making progress before finishing."],
+    ["gateway_timeout", "The AI gateway timed out before the agent finished."],
+    [
+      "network_interrupted",
+      "The connection to the AI provider was interrupted before the agent finished.",
+    ],
+    [
+      "rate_limited",
+      "The AI provider is rate limiting requests right now. Wait a minute and try again.",
+    ],
+    [
+      "agent_run_no_output",
+      "The agent run ended without producing a response.",
+    ],
+  ])(
+    "persists the fixed private run termination message for %s",
+    (errorCode, error) => {
+      expect(
+        persistPrivate({
+          type: "error",
+          errorCode,
+          error: "private-error-sentinel",
+          details: "private-stack-sentinel",
+          blockedTool: "private-tool-sentinel",
+          requestId: "private-request-sentinel",
+          statusCode: 500,
+        }),
+      ).toEqual({
+        type: "error",
+        errorCode,
+        error,
+        omitFromPersistedHistory: true,
+      });
+    },
+  );
 
   it("reads valid privateReplayIdentity from persisted tool_done events and rejects malformed values", async () => {
     const validIdentity = `hmac-v1:${"9".repeat(64)}`;

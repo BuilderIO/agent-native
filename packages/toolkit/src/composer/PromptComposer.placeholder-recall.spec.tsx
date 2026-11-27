@@ -66,6 +66,33 @@ describe("composer placeholder", () => {
     expect(editor().getAttribute("aria-label")).toBe("Ask anything");
   });
 
+  it("labels the textbox with the host's placeholder when a provider is connected", async () => {
+    await render({ placeholder: "Ask a data question..." });
+    expect(
+      container.querySelector(
+        '[role="textbox"][aria-label="Ask a data question..."]',
+      ),
+    ).not.toBeNull();
+    expect(
+      editor()
+        .querySelector("p.is-editor-empty")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Ask a data question...");
+  });
+
+  it("shows the connect-AI copy instead when the composer is disabled", async () => {
+    await render({
+      placeholder: "Connect AI to start chatting...",
+      disabled: true,
+    });
+    expect(editor().getAttribute("aria-label")).toBe(
+      "Connect AI to start chatting...",
+    );
+    expect(
+      container.querySelector('[aria-label="Ask a data question..."]'),
+    ).toBeNull();
+  });
+
   it("reads as a reply once the conversation has started", async () => {
     await render({ conversationStarted: true, placeholder: "Ask the agent" });
     expect(editor().getAttribute("aria-label")).toBe("Reply…");

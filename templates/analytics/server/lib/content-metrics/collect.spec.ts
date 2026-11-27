@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   querySearchAnalytics: vi.fn(),
   dryRunQuerySchema: vi.fn(),
   runQuery: vi.fn(),
+  listYouTubeChannelVideos: vi.fn(),
   contexts: [] as unknown[],
 }));
 
@@ -51,6 +52,10 @@ vi.mock("../google-analytics.js", () => ({
 
 vi.mock("../search-console.js", () => ({
   querySearchAnalytics: mocks.querySearchAnalytics,
+}));
+
+vi.mock("../youtube.js", () => ({
+  listYouTubeChannelVideos: mocks.listYouTubeChannelVideos,
 }));
 
 vi.mock("../bigquery.js", () => ({
@@ -102,10 +107,12 @@ function onlySteps(
     Record<
       | "builderBlog"
       | "ga4"
+      | "dailyDev"
       | "searchConsole"
       | "searchConsoleQueries"
       | "signups"
-      | "agentNativeSignups",
+      | "agentNativeSignups"
+      | "youtube",
       boolean
     >
   >,
@@ -113,12 +120,14 @@ function onlySteps(
   signups: Partial<SignupsConfig> = {},
   agentNativeSignups: Partial<AgentNativeSignupsConfig> = {},
   searchConsole: { historyMonths?: number; queriesPerPage?: number } = {},
+  youtubeChannels: string[] = ["@Builderio"],
 ) {
   return writeContentCollection(ORG_A, {
     enabled: true,
     config: {
       builderBlog: { enabled: steps.builderBlog ?? false },
       ga4: { enabled: steps.ga4 ?? false, propertyId: "123456789" },
+      dailyDev: { enabled: steps.dailyDev ?? false },
       searchConsole: {
         enabled: steps.searchConsole ?? false,
         sites,
@@ -138,6 +147,7 @@ function onlySteps(
         ...agentNativeSignups,
         enabled: steps.agentNativeSignups ?? false,
       },
+      youtube: { enabled: steps.youtube ?? false, channels: youtubeChannels },
     },
   });
 }
@@ -190,6 +200,7 @@ describe("content collection", () => {
     mocks.querySearchAnalytics.mockReset();
     mocks.dryRunQuerySchema.mockReset();
     mocks.runQuery.mockReset();
+    mocks.listYouTubeChannelVideos.mockReset();
     mocks.contexts.length = 0;
     for (const statement of CONTENT_METRICS_MIGRATION_SQL) {
       await client.exec(statement);
@@ -486,10 +497,12 @@ describe("content collection", () => {
       [
         "builder_blog",
         "ga4",
+        "daily_dev",
         "search_console",
         "search_console_queries",
         "signups",
         "agent_native_signups",
+        "youtube",
       ].map((step) =>
         expect.objectContaining({
           step,
@@ -2766,6 +2779,338 @@ describe("content collection", () => {
       expect(
         agentNativeSignupsSettingsUpdateSchema.parse({ enabled: true }),
       ).toEqual({ enabled: true });
+    });
+  });
+  describe("daily.dev", () => {
+    it("counts sessions daily.dev sent to each article, from its tag or its site", async () => {
+      await onlySteps({ builderBlog: true, dailyDev: true });
+      feed(article("a1"), article("a2"));
+      mocks.runFullReport.mockResolvedValueOnce([
+        ga4Row("20261012", "/blog/post-a1?via=dailydev", 3),
+        ga4Row("20261012", "/blog/post-a1/?utm_source=x&via=dailydev", 1),
+        ga4Row("20261013", "/blog/post-a2", 2),
+        ga4Row("20261013", "/blog/retired-post?via=dailydev", 9),
+      ]);
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries).map((summary) => summary.status)).toEqual([
+        "succeeded",
+        "succeeded",
+      ]);
+      expect(mocks.runFullReport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          propertyId: "123456789",
+          dimensions: ["date", "landingPagePlusQueryString"],
+          metrics: ["sessions"],
+          dateRange: { startDate: "2026-07-17", endDate: "2026-10-14" },
+        }),
+      );
+      const reports = JSON.stringify(mocks.runFullReport.mock.calls);
+      expect(reports).toContain("via=dailydev");
+      expect(reports).toContain("sessionSource");
+      const visits = await snapshots("daily_dev_sessions");
+      expect(visits.filter((row) => Number(row.value) > 0)).toEqual([
+        {
+          external_id: "a1",
+          metric_date: "2026-10-12",
+          value: 4,
+          source: "daily_dev",
+        },
+        {
+          external_id: "a2",
+          metric_date: "2026-10-13",
+          value: 2,
+          source: "daily_dev",
+        },
+      ]);
+      expect(visits).toHaveLength(28);
+      expect(visits).toContainEqual({
+        external_id: "a1",
+        metric_date: "2026-10-14",
+        value: 0,
+        source: "daily_dev",
+      });
+      expect(await snapshots("ga4_pageviews")).toEqual([]);
+      expect(
+        await rows(
+          "SELECT window_start, window_end, row_count FROM analytics_content_collection_runs WHERE step = 'daily_dev'",
+        ),
+      ).toEqual([
+        { window_start: "2026-07-17", window_end: "2026-10-14", row_count: 28 },
+      ]);
+
+      mocks.runFullReport.mockResolvedValueOnce([]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(mocks.runFullReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          dateRange: { startDate: "2026-10-13", endDate: "2026-10-15" },
+        }),
+      );
+      const reread = await snapshots("daily_dev_sessions");
+      expect(reread).toHaveLength(30);
+      expect(reread.filter((row) => Number(row.value) > 0)).toEqual([
+        {
+          external_id: "a1",
+          metric_date: "2026-10-12",
+          value: 4,
+          source: "daily_dev",
+        },
+      ]);
+    });
+
+    it("takes daily.dev's own session sources, not names that only contain it", async () => {
+      const { DAILY_DEV_SOURCE } = await import("./steps/daily-dev.js");
+      const source = new RegExp(`^(?:${DAILY_DEV_SOURCE})$`, "i");
+      for (const value of [
+        "daily.dev",
+        "app.daily.dev",
+        "dailydev",
+        "Daily-Dev",
+      ]) {
+        expect(source.test(value)).toBe(true);
+      }
+      for (const value of [
+        "notdailydev",
+        "daily.dev.example.com",
+        "dailydevotional.com",
+      ]) {
+        expect(source.test(value)).toBe(false);
+      }
+    });
+
+    it("waits for a GA4 property without querying the shared one", async () => {
+      const collection = await onlySteps({ dailyDev: true });
+      await writeContentCollection(ORG_A, {
+        enabled: true,
+        config: {
+          ...collection.config,
+          ga4: { enabled: false, propertyId: null },
+        },
+      });
+
+      const summaries = await collectContentForAllTenants();
+
+      expect(ran(summaries)).toEqual([
+        expect.objectContaining({
+          step: "daily_dev",
+          status: "not_configured",
+          reason: "ga4_property_not_configured",
+        }),
+      ]);
+      expect(mocks.runFullReport).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("YouTube", () => {
+    function youtubeVideo(id: string, overrides: Record<string, unknown> = {}) {
+      return {
+        id,
+        channelId: "UCAN7TYzCJm1yd-QXbwKfoOg",
+        channelTitle: "Builder",
+        title: `Video ${id}`,
+        publishedAt: "2026-10-01T12:00:00Z",
+        durationSeconds: 813,
+        viewCount: 100,
+        likeCount: 5,
+        commentCount: 2,
+        ...overrides,
+      };
+    }
+
+    it("stores each video with its counts to date under the stored owner, leaving a hidden count out", async () => {
+      await onlySteps({ youtube: true }, [], {}, {}, {}, [
+        "@Builderio",
+        "UC80PWRj_ZU8Zu0HSMNVwKWw",
+      ]);
+      mocks.listYouTubeChannelVideos.mockResolvedValueOnce({
+        channels: [
+          {
+            id: "UCAN7TYzCJm1yd-QXbwKfoOg",
+            title: "Builder",
+            uploadsPlaylistId: "UUAN7TYzCJm1yd-QXbwKfoOg",
+          },
+          {
+            id: "UC80PWRj_ZU8Zu0HSMNVwKWw",
+            title: "Codevolution",
+            uploadsPlaylistId: "UU80PWRj_ZU8Zu0HSMNVwKWw",
+          },
+        ],
+        videos: [
+          youtubeVideo("v1"),
+          youtubeVideo("v2", {
+            channelId: "UC80PWRj_ZU8Zu0HSMNVwKWw",
+            channelTitle: "Codevolution",
+            durationSeconds: null,
+            likeCount: null,
+            commentCount: 0,
+          }),
+        ],
+      });
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries)).toEqual([
+        expect.objectContaining({ step: "youtube", status: "succeeded" }),
+      ]);
+      expect(mocks.listYouTubeChannelVideos).toHaveBeenCalledWith(
+        ["@Builderio", "UC80PWRj_ZU8Zu0HSMNVwKWw"],
+        expect.objectContaining({ maxVideos: 10_000 }),
+      );
+      expect(mocks.contexts).toEqual([
+        { userEmail: "alice@example.test", orgId: "org_a" },
+      ]);
+      expect(
+        await rows(
+          "SELECT source, external_id, url, title, author, published_at, metadata FROM analytics_content_items ORDER BY external_id",
+        ),
+      ).toEqual([
+        {
+          source: "youtube",
+          external_id: "v1",
+          url: "https://www.youtube.com/watch?v=v1",
+          title: "Video v1",
+          author: "Builder",
+          published_at: "2026-10-01T12:00:00Z",
+          metadata:
+            '{"channelId":"UCAN7TYzCJm1yd-QXbwKfoOg","durationSeconds":813}',
+        },
+        {
+          source: "youtube",
+          external_id: "v2",
+          url: "https://www.youtube.com/watch?v=v2",
+          title: "Video v2",
+          author: "Codevolution",
+          published_at: "2026-10-01T12:00:00Z",
+          metadata:
+            '{"channelId":"UC80PWRj_ZU8Zu0HSMNVwKWw","durationSeconds":null}',
+        },
+      ]);
+      const read = (externalId: string, value: number) => ({
+        external_id: externalId,
+        metric_date: "2026-10-15",
+        value,
+        source: "youtube",
+      });
+      expect(await snapshots("youtube_views")).toEqual([
+        read("v1", 100),
+        read("v2", 100),
+      ]);
+      expect(await snapshots("youtube_likes")).toEqual([read("v1", 5)]);
+      expect(await snapshots("youtube_comments")).toEqual([
+        read("v1", 2),
+        read("v2", 0),
+      ]);
+      expect(
+        await rows(
+          "SELECT status, row_count, detail, window_start, window_end FROM analytics_content_collection_runs WHERE step = 'youtube'",
+        ),
+      ).toEqual([
+        {
+          status: "succeeded",
+          row_count: 5,
+          detail: "2 videos from Builder, Codevolution.",
+          window_start: "2026-10-15",
+          window_end: "2026-10-15",
+        },
+      ]);
+    });
+
+    it("keeps one read per day, so the view can take the difference", async () => {
+      await onlySteps({ youtube: true });
+      for (const [now, views] of [
+        ["2026-10-15T07:00:00Z", 100],
+        ["2026-10-16T07:00:00Z", 130],
+      ] as const) {
+        mocks.listYouTubeChannelVideos.mockResolvedValueOnce({
+          channels: [],
+          videos: [youtubeVideo("v1", { viewCount: views })],
+        });
+        await collectContentForAllTenants({ now: new Date(now) });
+      }
+      expect(
+        (await snapshots("youtube_views")).map((row) => [
+          row.metric_date,
+          row.value,
+        ]),
+      ).toEqual([
+        ["2026-10-15", 100],
+        ["2026-10-16", 130],
+      ]);
+    });
+
+    it("saves nothing from a read whose channels changed mid-request", async () => {
+      const collection = await onlySteps({ youtube: true });
+      mocks.listYouTubeChannelVideos.mockImplementationOnce(async () => {
+        await writeContentCollection(ORG_A, {
+          enabled: true,
+          config: {
+            ...collection.config,
+            youtube: { enabled: true, channels: ["UC80PWRj_ZU8Zu0HSMNVwKWw"] },
+          },
+        });
+        return {
+          channels: [
+            {
+              id: "UCAN7TYzCJm1yd-QXbwKfoOg",
+              title: "Builder",
+              uploadsPlaylistId: "UUAN7TYzCJm1yd-QXbwKfoOg",
+            },
+          ],
+          videos: [youtubeVideo("v1")],
+        };
+      });
+
+      expect(ran(await collectContentForAllTenants())).toEqual([
+        expect.objectContaining({
+          step: "youtube",
+          status: "failed",
+          reason: "content_config_changed",
+        }),
+      ]);
+      expect(await rows("SELECT id FROM analytics_content_items")).toEqual([]);
+    });
+
+    it("records YouTube without channels, or without a saved key, as not set up", async () => {
+      await onlySteps({ youtube: true }, [], {}, {}, {}, []);
+      expect(ran(await collectContentForAllTenants())).toEqual([
+        expect.objectContaining({
+          step: "youtube",
+          status: "not_configured",
+          reason: "youtube_channels_not_configured",
+        }),
+      ]);
+      expect(mocks.listYouTubeChannelVideos).not.toHaveBeenCalled();
+
+      await onlySteps({ youtube: true });
+      mocks.listYouTubeChannelVideos.mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "No YouTube Data API key is saved. Add one under Data Sources → YouTube.",
+          ),
+          { errorCode: "youtube_api_key_missing", statusCode: 424 },
+        ),
+      );
+      expect(
+        ran(
+          await collectContentForAllTenants({
+            now: new Date(Date.now() + 86_400_000),
+          }),
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          step: "youtube",
+          status: "not_configured",
+          reason: "youtube_api_key_missing",
+        }),
+      ]);
+      expect(await rows("SELECT id FROM analytics_content_items")).toEqual([]);
     });
   });
 });

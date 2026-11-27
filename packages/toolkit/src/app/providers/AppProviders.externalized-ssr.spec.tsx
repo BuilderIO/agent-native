@@ -160,6 +160,20 @@ describe("AppProviders with externalized Core production SSR", () => {
   });
 
   it.each([
+    ["standalone connect", { onboarding: { firstRun: "connect" } }, null, true],
+    ["standalone off", { onboarding: { firstRun: "off" } }, null, false],
+    [
+      "standalone connect with disabled override",
+      { onboarding: { firstRun: "connect" } },
+      "false",
+      false,
+    ],
+    [
+      "standalone off with enabled override",
+      { onboarding: { firstRun: "off" } },
+      "true",
+      true,
+    ],
     ["Mail production", productionConfig, null, true],
     ["connect", { onboarding: { firstRun: "connect" } }, null, true],
     ["off", { onboarding: { firstRun: "off" } }, null, false],

@@ -289,7 +289,8 @@ failure. This preference does not apply to new messages or forwards.
 
 ## Scheduled Sends
 
-Scheduled sends use job ids prefixed `scheduled-`; `send-scheduled-email-now`
+Scheduled sends appear in their own section of Drafts, soonest first; there is
+no separate Scheduled page. They use job ids prefixed `scheduled-`; `send-scheduled-email-now`
 and `cancel-scheduled-email` both strip that prefix internally before looking
 up the job — pass the id as shown to the user either way.
 

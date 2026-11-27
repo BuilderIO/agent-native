@@ -5,8 +5,6 @@ import {
   type BlockSpec,
 } from "@agent-native/core/blocks/server";
 import {
-  LINK_SUMMARY_APPS,
-  isLinkSummaryApp,
   parseLinkSummaryUrl,
   type LinkSummaryApp,
 } from "@agent-native/core/shared";
@@ -15,13 +13,27 @@ import { z } from "zod";
 export const LINK_CARD_BLOCK_TYPE = "link-card";
 export const LINK_CARD_TAG = "LinkCard";
 
+export const LINK_CARD_APPS = [
+  "design",
+  "slides",
+  "clips",
+] as const satisfies readonly LinkSummaryApp[];
+export type LinkCardApp = (typeof LINK_CARD_APPS)[number];
+
+export function isLinkCardApp(value: unknown): value is LinkCardApp {
+  return (
+    typeof value === "string" &&
+    (LINK_CARD_APPS as readonly string[]).includes(value)
+  );
+}
+
 export interface LinkCardData {
-  app: LinkSummaryApp;
+  app: LinkCardApp;
   url: string;
 }
 
 export const linkCardSchema = z.object({
-  app: z.enum(LINK_SUMMARY_APPS),
+  app: z.enum(LINK_CARD_APPS),
   url: z
     .string()
     .refine(
@@ -34,7 +46,7 @@ export const linkCardMdx: BlockMdxConfig<LinkCardData> = {
   tag: LINK_CARD_TAG,
   toAttrs: (data) => ({ app: data.app, url: data.url }),
   fromAttrs: (attrs) => ({
-    app: (attrs.string("app") ?? "") as LinkSummaryApp,
+    app: (attrs.string("app") ?? "") as LinkCardApp,
     url: attrs.string("url") ?? "",
   }),
 };
@@ -118,7 +130,7 @@ function readCardTag(
   const url = attrs.get("url");
   return {
     data:
-      isLinkSummaryApp(app) && typeof url === "string"
+      isLinkCardApp(app) && typeof url === "string"
         ? readLinkCardData({ app, url })
         : null,
     end: RAW_CLOSE.lastIndex,

@@ -110,8 +110,11 @@ pnpm perf:canvas-bench --base-url http://127.0.0.1:9444 --action drag
   finished.
 - Run one benchmark at a time on the machine, with the laptop plugged in
   (battery caps Chrome at 30 Hz). Parallel benchmarks, agents or builds wreck
-  the numbers, and nothing in the result shows it. Nothing enforces this
-  either, so check `pgrep -f canvas-bench` before starting.
+  the numbers, and nothing in the result shows it. A lock file in the OS temp
+  dir makes a second benchmark refuse to start (exit 2, naming the holder),
+  across checkouts; a lock left by a dead process is replaced. It does not
+  cover builds, other agents' browsers or anything else heavy, so keep those
+  away too.
 - The last console line names the output folder
   (`<repo>/.tmp/canvas-bench/<timestamp>/`, or under `--out`).
 
@@ -180,7 +183,10 @@ After changing the sampler or any action, prove it still detects problems:
 
 Never loosen an action's sanity check to get numbers. If the board shape makes
 an action fail, report that action as unmeasured, say why, and measure with
-the actions that do run.
+the actions that do run. Adapting a check to a board shape is allowed only when
+a known-answer test still proves it catches broken input (the `pan` family
+accepts an unchanged set of visible screens only when every screen was already
+in view and the screens moved with the camera).
 
 ## Report
 
@@ -197,12 +203,13 @@ in the JSON), copies or source, runs, both output folders, and whether
   targets heavy boards, and use the same value for the baseline.
 - Screens become live editors only once the camera rests, so a moving pan
   mostly measures static previews (see `design-editor-performance`).
-- `pan`, `zoom` and `pan-zoomed` expect a board of many screens. On a few
-  very tall screens, or a sparse tall board, they fail with "the visible
-  screens did not change after the forward leg although the camera moved" or
-  "zoomed-in shows no screens". `pan-fling`, `idle` and `load` usually still
-  run. `drag` fails with "no screen fits inside the clear area" when every
-  screen is larger than the free canvas.
+- Boards of a few very tall screens (Startup School) and sparse tall boards
+  (Stripe) run every action: `pan-zoomed` pans down the column when no screen
+  lies to the right, `drag` first wheels a title bar into reach and shortens
+  the drag to the room there is, and screens count as visible through any of
+  their breakpoint copies. On such a board `pan` and `pan-fling` travel only a
+  few hundred pixels; `pan-fling` then samples about 15 frames, so lean on
+  `pan` for percentiles.
 - A failed `--source` import (for example 422 `DESIGN_HTML_INTEGRITY` when a
   variant uses `x-data` without the Alpine script) leaves an empty design
   behind. Delete it with `delete-design`.

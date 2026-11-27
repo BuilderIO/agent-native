@@ -1046,6 +1046,7 @@ export interface ContentDatabaseSourceBodyChange {
   sidecarsJson?: string | null;
   warnings?: string[];
   textOnly?: boolean;
+  currentEmpty?: true;
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -1996,6 +1997,8 @@ export type BuilderArticleAutosaveReason =
   | "builder_editor_changes"
   | "checking_last_save"
   | "another_save_running"
+  | "builder_body_unread"
+  | "builder_body_unreadable"
   | "published"
   | "needs_review"
   | "edit_conflict"
@@ -2081,6 +2084,7 @@ export interface PreviewBuilderSourceReviewRequest {
   documentIds?: string[];
   bodyComparison?: "text" | "blocks";
   batchSize?: number;
+  quickStart?: boolean;
 }
 
 export interface PreviewBuilderSourceReviewResponse {

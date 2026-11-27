@@ -14,7 +14,7 @@ import { listAutomationRules } from "../server/lib/automations.js";
 
 export default defineAction({
   description:
-    "Preview active Mail AI tag and spam rules against recent Inbox emails. Archived and trashed messages are ignored.",
+    "Preview active Mail AI label and spam rules against recent Inbox emails. Archived and trashed messages are ignored.",
   schema: z.object({
     emails: z.array(aiFilterPreviewEmailSchema).max(30),
   }),

@@ -29,7 +29,7 @@
   "main": "./dist/extension.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsgo --noEmit -p tsconfig.json",
     "test": "vitest --run src --passWithNoTests",
     "test:e2e": "pnpm run build && node dist/test/runTest.js",
     "vscode:prepublish": "pnpm run build"

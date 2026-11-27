@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => {
     markThreadsOutOfInboxBeforeSync: vi.fn(),
     countInboxThreads: vi.fn(),
     readInboxThreadIds: vi.fn(),
+    readRecentLegacyThreadIds: vi.fn(),
     trimInboxThreadRows: vi.fn(),
     purgeArchivedInboxThreadRows: vi.fn(),
     readSyncAccounts: vi.fn(),
@@ -114,13 +115,13 @@ vi.mock("./inbox-store.js", () => ({
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   countInboxThreads: mocks.countInboxThreads,
   readInboxThreadIds: mocks.readInboxThreadIds,
+  readRecentLegacyThreadIds: mocks.readRecentLegacyThreadIds,
   INBOX_THREAD_CAP: 2_000,
   trimInboxThreadRows: mocks.trimInboxThreadRows,
   purgeArchivedInboxThreadRows: mocks.purgeArchivedInboxThreadRows,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxThreads: mocks.readInboxThreads,
   readInboxTabWindows: mocks.readInboxTabWindows,
-  aiImportantLabelIds: () => [],
   readCachedLabels: mocks.readCachedLabels,
   readGmailQuotaCooldowns: async () => new Map<string, number>(),
   inboxRowToItem: (row: any, labelMap?: Map<string, string>) => ({
@@ -143,7 +144,7 @@ vi.mock("./inbox-store.js", () => ({
     messageCount: row.messageCount ?? 1,
     unreadCount: row.unreadCount ?? 0,
     messageIds: row.messageIds ?? [],
-    isAutomated: !!row.isAutomated,
+    isAutomated: row.isAutomated,
   }),
   withSyncClaim: mocks.withSyncClaim,
   SyncClaimLostError: mocks.SyncClaimLostError,
@@ -296,6 +297,7 @@ beforeEach(() => {
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
   mocks.readInboxPushGeneration.mockResolvedValue(0);
+  mocks.readRecentLegacyThreadIds.mockResolvedValue([]);
   mocks.gmailListLabels.mockImplementation(async () => ({
     labels: [
       {
@@ -350,6 +352,127 @@ function routeHistory(...inboxPages: unknown[]) {
 }
 
 describe("syncInboxAccount — full sync", () => {
+  it("reclassifies older cached rows only when explicitly requested", async () => {
+    currentRow = baseRow({ historyId: "9000", status: "idle" });
+    mocks.readRecentLegacyThreadIds.mockResolvedValue(["older-legacy"]);
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      {
+        id: "older-legacy",
+        data: thread("older-legacy", {
+          from: "sender@example.test",
+          labelIds: ["INBOX", "CATEGORY_PERSONAL"],
+        }),
+      },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+      loadOlder: true,
+    });
+    expect(mocks.readRecentLegacyThreadIds).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      true,
+    );
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          threadId: "older-legacy",
+          isAutomated: false,
+        }),
+      ],
+      expect.anything(),
+    );
+  });
+  it("reclassifies recent legacy rows in a bounded background batch", async () => {
+    currentRow = baseRow({ historyId: "9000", status: "idle" });
+    mocks.readRecentLegacyThreadIds.mockResolvedValue(["legacy"]);
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      {
+        id: "legacy",
+        data: thread("legacy", {
+          from: "sender@example.test",
+          labelIds: ["INBOX", "CATEGORY_PERSONAL"],
+        }),
+      },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+    });
+    expect(mocks.gmailBatchGetThreads).toHaveBeenCalledWith(
+      "tok",
+      ["legacy"],
+      "metadata",
+      expect.any(Array),
+      "incremental",
+    );
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledWith(
+      [expect.objectContaining({ threadId: "legacy", isAutomated: false })],
+      expect.anything(),
+    );
+  });
+  it("does not classify inbox mail from an archived message's category", async () => {
+    currentRow = baseRow();
+    const message = thread("mixed", {
+      from: "sender@example.test",
+      labelIds: ["CATEGORY_PERSONAL"],
+      internalDate: "100",
+    });
+    const current = thread("mixed", {
+      from: "sender@example.test",
+      labelIds: ["INBOX"],
+      internalDate: "200",
+    });
+    message.messages.push(...current.messages);
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "9000" });
+    mocks.gmailListThreads.mockResolvedValue({ threads: [{ id: "mixed" }] });
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      { id: "mixed", data: message },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+    });
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledWith(
+      [expect.objectContaining({ threadId: "mixed", isAutomated: null })],
+      expect.anything(),
+    );
+  });
+  it("classifies a self-addressed inbox conversation as personal", async () => {
+    currentRow = baseRow();
+    const message = thread("self", { from: ACCOUNT, labelIds: ["INBOX"] });
+    const recipient = message.messages
+      .find((candidate) => candidate.id === "self-m1")
+      ?.payload.headers.find((header) => header.name === "To");
+    if (!recipient) throw new Error("Missing recipient fixture");
+    recipient.value = ACCOUNT;
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "9000" });
+    mocks.gmailListThreads.mockResolvedValue({ threads: [{ id: "self" }] });
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      { id: "self", data: message },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+    });
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledWith(
+      [expect.objectContaining({ threadId: "self", isAutomated: false })],
+      expect.anything(),
+    );
+  });
+  it("does not walk older inbox pages during a normal refresh", async () => {
+    currentRow = baseRow({
+      historyId: "9000",
+      fullSyncPageToken: "older-page",
+      fullSyncHistoryId: "9000",
+      fullSyncStartedAt: Date.now(),
+      fullSyncListedCount: 74,
+    });
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5000 });
+    expect(mocks.gmailListThreads).not.toHaveBeenCalled();
+    expect(currentRow.fullSyncPageToken).toBe("older-page");
+  });
   it("returns quota cooldown as an initial status with its exact retry delay", async () => {
     currentRow = baseRow({ labels: null, labelsUpdatedAt: null });
     mocks.gmailGetProfile.mockRejectedValue(
@@ -568,7 +691,10 @@ describe("syncInboxAccount — full sync", () => {
       labels: [{ id: "INBOX", name: "INBOX" }],
     });
 
-    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    const result = await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      loadOlder: true,
+    });
 
     expect(result).toMatchObject({ state: "ready", changed: true });
     expect(result.backfillPending).toBeUndefined();
@@ -641,6 +767,7 @@ describe("syncInboxAccount — full sync", () => {
     try {
       const mismatch = await syncInboxAccount(OWNER, ACCOUNT, {
         budgetMs: 5_000,
+        loadOlder: true,
       });
 
       expect(mismatch).toMatchObject({
@@ -657,6 +784,7 @@ describe("syncInboxAccount — full sync", () => {
 
       const reconciled = await syncInboxAccount(OWNER, ACCOUNT, {
         budgetMs: 5_000,
+        loadOlder: true,
       });
 
       expect(mocks.gmailListThreads).toHaveBeenNthCalledWith(
@@ -727,7 +855,10 @@ describe("syncInboxAccount — full sync", () => {
       })),
     );
 
-    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    const result = await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      loadOlder: true,
+    });
 
     expect(mocks.gmailListThreads).toHaveBeenCalledWith(
       "tok",
@@ -772,10 +903,17 @@ describe("syncInboxAccount — full sync", () => {
     const diagnostic = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     try {
-      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
-      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+      await syncInboxAccount(OWNER, ACCOUNT, {
+        budgetMs: 5_000,
+        loadOlder: true,
+      });
+      await syncInboxAccount(OWNER, ACCOUNT, {
+        budgetMs: 5_000,
+        loadOlder: true,
+      });
       const exhausted = await syncInboxAccount(OWNER, ACCOUNT, {
         budgetMs: 5_000,
+        loadOlder: true,
       });
 
       expect(exhausted).toMatchObject({
@@ -803,6 +941,7 @@ describe("syncInboxAccount — full sync", () => {
       const labelListCalls = mocks.gmailListLabels.mock.calls.length;
       const nextPoll = await syncInboxAccount(OWNER, ACCOUNT, {
         budgetMs: 5_000,
+        loadOlder: true,
       });
 
       expect(nextPoll.state).toBe("ready");
@@ -935,7 +1074,10 @@ describe("syncInboxAccount — full sync", () => {
         afterEager.tabs.find((tab) => tab.id === "__inbox_all__"),
       ).toMatchObject({ total: 74, totalIsLowerBound: true });
 
-      const firstBackfillStep = await syncInbox(OWNER, { budgetMs: 1_800 });
+      const firstBackfillStep = await syncInbox(OWNER, {
+        budgetMs: 1_800,
+        loadOlder: true,
+      });
       expect(firstBackfillStep.accounts[0]).toMatchObject({
         state: "ready",
         changed: true,
@@ -948,7 +1090,10 @@ describe("syncInboxAccount — full sync", () => {
         "backfill",
       );
 
-      const backfillStep = await syncInbox(OWNER, { budgetMs: 1_800 });
+      const backfillStep = await syncInbox(OWNER, {
+        budgetMs: 1_800,
+        loadOlder: true,
+      });
       expect(backfillStep.accounts[0]).toMatchObject({
         state: "ready",
         changed: true,
@@ -969,7 +1114,7 @@ describe("syncInboxAccount — full sync", () => {
       );
       expect(
         afterBackfill.tabs.find((tab) => tab.id === "__inbox_all__"),
-      ).toMatchObject({ total: 10_000 });
+      ).toMatchObject({ total: 172, totalIsLowerBound: true });
     } finally {
       vi.useRealTimers();
     }
@@ -994,7 +1139,10 @@ describe("syncInboxAccount — incremental sync", () => {
     // The last backfill page: no next token, so the step completes the walk.
     mocks.gmailListThreads.mockResolvedValueOnce({ threads: [] });
 
-    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      loadOlder: true,
+    });
 
     expect(currentRow.fullSyncPageToken).toBeNull();
     expect(currentRow.historyId).toBe("1010");
@@ -1048,8 +1196,14 @@ describe("syncInboxAccount — incremental sync", () => {
       ]);
     }
 
-    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
-    const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    const first = await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      loadOlder: true,
+    });
+    const second = await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      loadOlder: true,
+    });
 
     expect(first).toMatchObject({
       state: "initial",
@@ -1387,7 +1541,10 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     });
     mocks.gmailBatchGetThreads.mockResolvedValue([]);
 
-    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    const result = await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      loadOlder: true,
+    });
 
     expect(mocks.gmailListThreads).toHaveBeenCalledWith(
       expect.any(String),
@@ -1495,7 +1652,10 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     });
     mocks.gmailBatchGetThreads.mockResolvedValue([]);
 
-    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    const result = await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      loadOlder: true,
+    });
 
     expect(result.state).toBe("ready");
     expect(mocks.gmailListLabels).toHaveBeenCalled();
@@ -1532,7 +1692,10 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
         threadsUnread: 0,
       });
 
-      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+      await syncInboxAccount(OWNER, ACCOUNT, {
+        budgetMs: 5_000,
+        loadOlder: true,
+      });
 
       expect(mocks.countInboxThreads).toHaveBeenCalled();
       expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
@@ -1556,7 +1719,10 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
         threadsUnread: 0,
       });
 
-      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+      await syncInboxAccount(OWNER, ACCOUNT, {
+        budgetMs: 5_000,
+        loadOlder: true,
+      });
 
       expect(mocks.countInboxThreads).not.toHaveBeenCalled();
       expect(currentRow.fullSyncPhase).toBeNull();
@@ -3081,14 +3247,14 @@ describe("syncInbox — steady-account short-circuit", () => {
     expect(result.accounts[0].pushWatch).toBe("fallback");
   });
 
-  it("never short-circuits a backfill in progress", async () => {
+  it("does not short-circuit an explicitly requested older page", async () => {
     steadyRow({
       fullSyncPageToken: "page-2",
       lastSyncedAt: Date.now() - 1_000,
       lastWatchRenewedAt: Date.now() - HOUR,
     });
 
-    await syncInbox(OWNER);
+    await syncInbox(OWNER, { loadOlder: true });
 
     expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
   });

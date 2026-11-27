@@ -745,7 +745,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       const appearance = page
         .getByRole("heading", { name: "Appearance", exact: true })
         .locator("xpath=ancestor::section");
-      const opacity = appearance.getByRole("textbox", {
+      const opacity = appearance.getByRole("combobox", {
         name: "Opacity",
         exact: true,
       });

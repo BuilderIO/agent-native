@@ -52,6 +52,44 @@ describe("isKeyboardShortcutTarget", () => {
     expect(isKeyboardShortcutTarget(text)).toBe(true);
   });
 
+  it("lets letters and Escape through a focused button, but not its own keys", () => {
+    const button = document.createElement("button");
+    const link = document.createElement("a");
+    link.href = "/inbox";
+    document.body.append(button, link);
+
+    expect(isKeyboardShortcutTarget(button, "j")).toBe(false);
+    expect(isKeyboardShortcutTarget(link, "k")).toBe(false);
+    expect(isKeyboardShortcutTarget(button, "Escape")).toBe(false);
+    expect(isKeyboardShortcutTarget(button, "Enter")).toBe(true);
+    expect(isKeyboardShortcutTarget(button, " ")).toBe(true);
+    expect(isKeyboardShortcutTarget(button, "ArrowDown")).toBe(true);
+  });
+
+  it("keeps letters and Escape for text entry, menus and dialogs", () => {
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.setAttribute("contenteditable", "true");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const menuItem = document.createElement("div");
+    menuItem.setAttribute("role", "menuitem");
+    menu.append(menuItem);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const dialogButton = document.createElement("button");
+    dialog.append(dialogButton);
+    document.body.append(input, editor, menu, dialog);
+
+    expect(isKeyboardShortcutTarget(input, "j")).toBe(true);
+    expect(isKeyboardShortcutTarget(editor, "j")).toBe(true);
+    expect(isKeyboardShortcutTarget(menuItem, "j")).toBe(true);
+    expect(isKeyboardShortcutTarget(dialogButton, "j")).toBe(true);
+    expect(isKeyboardShortcutTarget(input, "Escape")).toBe(true);
+    expect(isKeyboardShortcutTarget(menuItem, "Escape")).toBe(true);
+    expect(isKeyboardShortcutTarget(dialogButton, "Escape")).toBe(true);
+  });
+
   it("leaves a non-interactive list surface available to shortcuts", () => {
     const row = document.createElement("div");
     row.setAttribute("role", "row");
@@ -181,6 +219,29 @@ describe("useKeyboardShortcuts", () => {
     expect(unshiftedSlash.defaultPrevented).toBe(true);
     expect(shiftedSlash.defaultPrevented).toBe(true);
     expect(modifiedSlash.defaultPrevented).toBe(false);
+    unmount();
+  });
+
+  it("runs a letter shortcut while a clicked toolbar button keeps focus", () => {
+    const handler = vi.fn();
+    const button = document.createElement("button");
+    document.body.append(button);
+    button.focus();
+    const { unmount } = renderHook(() =>
+      useKeyboardShortcuts([{ key: "j", handler }]),
+    );
+    const j = new KeyboardEvent("keydown", {
+      key: "j",
+      bubbles: true,
+      cancelable: true,
+    });
+
+    act(() => {
+      button.dispatchEvent(j);
+    });
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(j.defaultPrevented).toBe(true);
     unmount();
   });
 

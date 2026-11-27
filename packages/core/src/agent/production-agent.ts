@@ -1693,6 +1693,11 @@ export interface AgentActionSurfaceDetails {
   requestedTurnId?: string;
   queuedMessageId?: string;
   actionScope?: Readonly<AgentActionScope>;
+  /**
+   * Set for a saved automation run, which has no request: `event` is
+   * `undefined` and `threadId` is unset.
+   */
+  automation?: { name: string };
   availableActionNames: readonly string[];
 }
 
@@ -2423,11 +2428,7 @@ export interface ProductionAgentOptions {
    * not describe tools that require an extra discovery turn before use.
    */
   initialToolNames?: string[];
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
 }
 
 export async function resolveAgentOwnerEmail(
@@ -5662,6 +5663,30 @@ const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 const MAX_TOOL_FAILURE_STREAK = 5;
+
+export interface ToolLimits {
+  timeoutMs?: number;
+  maxResultChars?: number;
+  hardMaxResultChars?: number;
+  /** Identical failures of one tool with the same arguments before the turn stops. Default 3. */
+  maxIdenticalErrors?: number;
+  /** Failures of one tool with the same error across different arguments before the turn stops. Default 3. */
+  maxSameErrorAcrossArguments?: number;
+  /** Consecutive failures of one tool before the loop is told to change course. Default 5. */
+  maxFailureStreak?: number;
+}
+
+/** A limit counts attempts, so only a positive whole number replaces the default. */
+export function resolveToolFailureLimit(
+  configured: number | undefined,
+  fallback: number,
+): number {
+  return typeof configured === "number" &&
+    Number.isSafeInteger(configured) &&
+    configured >= 1
+    ? configured
+    : fallback;
+}
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
 const MAX_STOP_ERROR_LINE_CHARS = 300;
@@ -7798,11 +7823,7 @@ export async function runAgentLoop(opts: {
   durableStepIdForToolCall?: (logicalStepId: string) => string;
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
   /** Recorded by an approved call's own audit rows, and read by nothing else. */
@@ -8585,6 +8606,18 @@ export async function runAgentLoop(opts: {
     toolCallCacheKey,
     normalizeToolErrorForBreaker,
   );
+  const maxToolFailureStreak = resolveToolFailureLimit(
+    opts.toolLimits?.maxFailureStreak,
+    MAX_TOOL_FAILURE_STREAK,
+  );
+  const maxIdenticalToolErrors = resolveToolFailureLimit(
+    opts.toolLimits?.maxIdenticalErrors,
+    MAX_IDENTICAL_TOOL_ERRORS,
+  );
+  const maxSameErrorAcrossArguments = resolveToolFailureLimit(
+    opts.toolLimits?.maxSameErrorAcrossArguments,
+    MAX_SAME_ERROR_ACROSS_ARGUMENTS,
+  );
   const toolFailureBudget = (name: string) => {
     const failures = failureStreaks.get(name) ?? 0;
     let equivalentFailures = 0;
@@ -8594,8 +8627,8 @@ export async function runAgentLoop(opts: {
     return {
       failures: Math.max(failures, equivalentFailures),
       remaining: Math.min(
-        MAX_TOOL_FAILURE_STREAK - failures,
-        MAX_SAME_ERROR_ACROSS_ARGUMENTS - equivalentFailures,
+        maxToolFailureStreak - failures,
+        maxSameErrorAcrossArguments - equivalentFailures,
       ),
     };
   };
@@ -10275,9 +10308,9 @@ export async function runAgentLoop(opts: {
         const anyArgsCount = (toolErrors.get(anyArgsKey) ?? 0) + 1;
         toolErrors.set(anyArgsKey, anyArgsCount);
         if (
-          failureCount >= MAX_TOOL_FAILURE_STREAK &&
-          count < MAX_IDENTICAL_TOOL_ERRORS &&
-          anyArgsCount < MAX_SAME_ERROR_ACROSS_ARGUMENTS
+          failureCount >= maxToolFailureStreak &&
+          count < maxIdenticalToolErrors &&
+          anyArgsCount < maxSameErrorAcrossArguments
         ) {
           requestedActionStop ??= repeatedToolFailureStop(
             toolCall.name,
@@ -10287,8 +10320,8 @@ export async function runAgentLoop(opts: {
           return sanitizedResult;
         }
         if (
-          count < MAX_IDENTICAL_TOOL_ERRORS &&
-          anyArgsCount >= MAX_SAME_ERROR_ACROSS_ARGUMENTS
+          count < maxIdenticalToolErrors &&
+          anyArgsCount >= maxSameErrorAcrossArguments
         ) {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
@@ -10308,7 +10341,7 @@ export async function runAgentLoop(opts: {
           return result;
         }
 
-        if (count < MAX_IDENTICAL_TOOL_ERRORS) return sanitizedResult;
+        if (count < maxIdenticalToolErrors) return sanitizedResult;
         const result =
           `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
           `Last error: ${sanitizedResult}`;

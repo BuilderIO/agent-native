@@ -1628,6 +1628,7 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => true,
         isTransientDatabaseError: () => false,
         getDbExec: () => ({
@@ -1665,6 +1666,7 @@ describe("AgentEngine registry", () => {
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({ execute: async () => ({ rows: [] }) }),
       }));
@@ -2125,6 +2127,10 @@ describe("AgentEngine registry", () => {
       delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
     });
 
+    afterEach(() => {
+      vi.doUnmock("../../settings/org-settings.js");
+    });
+
     it("returns null when no request user is set", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
@@ -2168,19 +2174,23 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "tim@example.com",
         getRequestOrgId: () => "builder_org",
       }));
+      vi.doMock("../../settings/org-settings.js", async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../../settings/org-settings.js")
+        >()),
+        getOrgSetting: vi.fn(async () => null),
+      }));
+      const storageError = new Error("db query timed out after 12000ms");
       const readAppSecret = vi.fn(async () => {
-        throw new Error("db query timed out after 12000ms");
+        throw storageError;
       });
       vi.doMock("../../secrets/storage.js", () => ({
         readAppSecret,
         readAppSecrets: readAppSecret,
       }));
 
-      const {
-        registerAgentEngine,
-        detectEngineFromUserSecrets,
-        listAgentEngines,
-      } = await import("./registry.js");
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
       registerAgentEngine({
         name: "anthropic",
         label: "Anthropic",
@@ -2192,9 +2202,11 @@ describe("AgentEngine registry", () => {
         create: vi.fn() as any,
       });
 
-      await expect(detectEngineFromUserSecrets()).rejects.toThrow(
-        /could not read/i,
-      );
+      await expect(detectEngineFromUserSecrets()).rejects.toMatchObject({
+        message: expect.stringMatching(/could not read/i),
+        statusCode: 503,
+        cause: storageError,
+      });
     });
 
     it("batch-loads candidate provider keys once per scope before the per-engine sweep", async () => {
@@ -4335,6 +4347,7 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),
@@ -4409,6 +4422,7 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),
@@ -4612,6 +4626,7 @@ describe("AgentEngine registry", () => {
         readAppSecrets: readAppSecretsFromSingles(readAppSecret),
       }));
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),

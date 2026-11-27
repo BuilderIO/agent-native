@@ -8,7 +8,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const templatesDir = path.join(repoRoot, "templates");
 
-const SKIP_ACTION_NAMES = new Set(["run"]);
+const SKIP_ACTION_NAMES = new Set([
+  "helpers",
+  "run",
+  "db-connect",
+  "db-status",
+  "registry",
+  "migrate-production",
+]);
 
 const CLUSTER_VERBS = ["update", "set", "change", "edit", "toggle", "rename"];
 
@@ -88,11 +95,28 @@ function findRedundantClusters(actions) {
   return clusters.sort((a, b) => a.prefix.localeCompare(b.prefix));
 }
 
+function listTopLevelActionFiles(actionsDir) {
+  if (!fs.existsSync(actionsDir)) return [];
+  return fs
+    .readdirSync(actionsDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".ts") &&
+        !entry.name.endsWith(".d.ts") &&
+        !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".spec.ts") &&
+        !entry.name.startsWith("_"),
+    )
+    .map((entry) => path.join(actionsDir, entry.name))
+    .sort();
+}
+
 function auditTemplate(slug) {
   const actionsDir = path.join(templatesDir, slug, "actions");
   const appDir = path.join(templatesDir, slug, "app");
 
-  const actionFiles = walk(actionsDir, /\.ts$/);
+  const actionFiles = listTopLevelActionFiles(actionsDir);
   const actions = actionFiles.map(parseActionFile).filter((a) => a !== null);
 
   if (actions.length === 0) {

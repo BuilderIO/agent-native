@@ -472,6 +472,35 @@ describe("builderAutosaveView", () => {
     });
     expect(
       builderAutosaveView(
+        status({ state: "waiting", reason: "builder_body_unread" }),
+        false,
+        t,
+      ),
+    ).toMatchObject({
+      tone: "waiting",
+      label: "builderAutosave.stateWaiting",
+      detail: "builderAutosave.reasonBuilderBodyUnread",
+      canRetry: false,
+    });
+    expect(
+      builderAutosaveView(
+        status({
+          state: "failed",
+          reason: "builder_body_unreadable",
+          error: "Builder no longer returns this source entry.",
+        }),
+        false,
+        t,
+      ),
+    ).toMatchObject({
+      tone: "error",
+      label: "builderAutosave.stateFailed",
+      detail:
+        "builderAutosave.reasonBuilderBodyUnreadable Builder no longer returns this source entry.",
+      canRetry: true,
+    });
+    expect(
+      builderAutosaveView(
         status({
           state: "failed",
           reason: "builder_changed",

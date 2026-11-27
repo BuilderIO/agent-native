@@ -18,6 +18,7 @@ import remarkGfm from "remark-gfm";
 import { Skeleton } from "../../../ui/skeleton.js";
 import { loadCodeHighlighter } from "../../code-highlighter.js";
 import { ActionChatUiSurface } from "../chat/action-chat-ui-surface.js";
+import { NewTabLinkIndicator } from "../chat/new-tab-link-indicator.js";
 import {
   resolveToolRenderer,
   type ToolRendererContext,
@@ -271,6 +272,7 @@ function ConversationMarkdown({ text }: { text: string }) {
                 onClick={(event) => openMarkdownLink(event, href)}
               >
                 {children}
+                <NewTabLinkIndicator />
               </a>
             );
           },

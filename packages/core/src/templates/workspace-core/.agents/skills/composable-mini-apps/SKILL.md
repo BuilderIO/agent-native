@@ -99,6 +99,31 @@ that id to `gong-evidence`, which returns a `call-evidence` artifact id and
 URLs. `deal-brief` then synthesizes the final brief from the artifact ids and
 bounded summaries.
 
+## Saving To Content
+
+Content saves pages and Collection rows as the signed-in person when you
+message it (see Don't). Send what the job needs, then read the receipt block
+at the end of Content's reply rather than its prose:
+
+- **A page.** Send the title, the body, and whether it is private. The reply
+  ends with `Artifacts:` and a line for the page:
+  `- Document "<title>": <url> (ID: <id>)`.
+- **A page in a Collection.** Send the Collection's URL or ID, the title, the
+  property values, and the body. The new row gets the same kind of
+  `Artifacts:` line.
+- **A row added or updated by key.** Send the Collection, your stable key
+  value, and the property values, and say to update the row if that key
+  already exists. This needs a Collection with a key property. The reply adds
+  `Mutation receipts:` with a line per write:
+  `- <receipt id>: created via upsert-database-item-by-key; row <url> (document ID: <id>; item ID: <id>); idempotency: applied`.
+  Sending the same key again says `updated` and returns the same IDs, so keep
+  the key, not the ID, to update the row later.
+
+`Artifacts:` also lists pages Content only read during the turn, such as the
+Collection itself. Match the title you sent, or for a keyed row read its
+`Mutation receipts:` line, instead of taking the first line. Keep IDs and URLs
+verbatim.
+
 ## Provider APIs
 
 Provider-specific actions are shortcuts, not limits. When the upstream API can
@@ -131,8 +156,13 @@ not a single app that clones every provider integration.
 
 ## Don't
 
-- Do not clone Mail, Calendar, Analytics, Brain, Assets, or another first-party
-  app just to reuse its data. Delegate or link to the existing app.
+- Do not clone Mail, Calendar, Analytics, Brain, Assets, Content, or another
+  first-party app just to reuse its data. Delegate or link to the existing app.
+- Do not ask for a Content token, or keep one in an environment variable, to
+  save pages or Collection rows. Message Content to do it as the signed-in
+  person: `call-agent` to `content` from the agent, or `invokeAgent()` from a
+  server request, passing the `userEmail`, `orgDomain` and `orgSecret` that
+  `resolveA2ACallerAuth()` returns.
 - Do not hide a multi-provider workflow inside a giant "misc tools" app.
 - Do not add one-off provider endpoints when `provider-api-request` can express
   the upstream API safely.

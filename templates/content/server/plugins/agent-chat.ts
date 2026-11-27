@@ -198,10 +198,11 @@ export default createAgentChatPlugin({
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
     appApprovalPage: true,
+    skills: ["content"],
     connectorCatalog: [],
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Find documents with list-documents or search-documents; read with get-document, which returns the last saved body. If the page may be open in an editor, read it with pull-document, which saves live edits first. Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. To change a table's rows, columns, cells, headers or colours, use edit-table, which edits that one table. Use update-document for metadata and browser rewrites. delete-document moves pages and sub-pages to recoverable Trash; to restore one, find its Trash root with list-content-trash, then call restore-document with that root's id, its exact trashedAt as expectedTrashedAt, and a new idempotencyKey. Permanent deletion is not offered over MCP.",
+      "Find documents with list-documents or search-documents; read with get-document, which returns the last saved body. If the page may be open in an editor, read it with pull-document, which saves live edits first. Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. To change a table's rows, columns, cells, headers or colours, use edit-table, which edits that one table. Use update-document for metadata and browser rewrites. delete-document moves pages and sub-pages to Trash, where they become eligible for automatic deletion after 30 days (counted from when automatic deletion started, for pages already in Trash then); a daily job deletes them, so it can take a little longer. To restore one in time, find its Trash root with list-content-trash, then call restore-document with that root's id, its exact trashedAt as expectedTrashedAt, and a new idempotencyKey. Permanent deletion is not offered over MCP.",
     directoryProfile: CHATGPT_DIRECTORY_PROFILE,
   },
   anonymousOwner: resolvePublicViewerOwner,
@@ -211,6 +212,8 @@ export default createAgentChatPlugin({
   systemPrompt: `You are an AI document assistant. You manage documents, comments, media blocks, sharing, and connected Notion content through actions and shared application state.
 
 The current screen is already included as bounded context on every message. Do not call view-screen at the start of a turn or repeatedly; call it only when that context is stale. Its document body is a preview, so call get-document when the full page content is required.
+
+The screen's contextPath names the pages above the open page by title and description only. Before you draft or rewrite on a page, also call get-document on the pages above it whose text could say how to write there, such as a folder page with writing rules, and follow them. Skip this for small fixes such as a typo. Where the person's message asks for something different, the message wins.
 
 Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 

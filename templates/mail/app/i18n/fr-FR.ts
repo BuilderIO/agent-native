@@ -15,7 +15,6 @@ const messages = {
       starred: "Starred",
       snoozed: "Snoozed",
       sent: "Sent",
-      draftQueue: "File de brouillons",
       scheduled: "Scheduled",
       drafts: "Drafts",
       archive: "Archiver",
@@ -47,7 +46,7 @@ const messages = {
         "Transformez ce comportement en règle d’importance ou d’archivage automatique.",
       priorityFeedbackAskAgent: "Demander à l’agent de proposer des règles",
       aiSetupTitle: "Configurer votre boîte de réception IA",
-      aiSetupTagLabel: "Créer un tag IA",
+      aiSetupTagLabel: "Créer un libellé IA",
       aiSetupImportanceLabel: "Messages importants",
       aiSetupSpamLabel: "Indésirable",
       aiSetupArchiveLabel: "Ignorer la boîte de réception",
@@ -128,7 +127,7 @@ const messages = {
       aiSetupImportantExample:
         "Tout message de mon responsable, Priya (priya@company.com)…",
       aiSetupTagsDescription:
-        "L’IA attribue des tags aux e-mails correspondants et crée un onglet par tag à côté de votre boîte de réception.",
+        "L’IA attribue des libellés aux e-mails correspondants et crée un onglet par libellé à côté de votre boîte de réception.",
       aiSetupImportantDescription:
         "L’IA ajoute le libellé Important aux e-mails correspondants pour les afficher dans l’onglet Important.",
       aiSetupSkipInboxDescription:
@@ -166,7 +165,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "Fermer la barre latérale",
       settings: "Paramètres",
-      aiSettings: "Gérer les tags et les règles",
+      aiSettings: "Gérer les libellés et les règles",
     },
     search: {
       label: "Rechercher",
@@ -190,7 +189,7 @@ const messages = {
       combinedInbox: "Boîte de réception combinée",
       allTab: "Onglet Tout",
       help: "Affiche les vues, libellés et filtres enregistrés que vous avez choisis dans des onglets distincts. Désactivez-le pour voir tout le courrier reçu dans un seul onglet.",
-      aiSetup: "Configurer les tags et règles IA",
+      aiSetup: "Configurer les libellés et règles IA",
     },
     accounts: {
       remove: "Retirer",
@@ -210,6 +209,7 @@ const messages = {
       moveToTrash: "Déplacer vers la corbeille",
       star: "Ajouter une étoile",
       unstar: "Retirer l’étoile",
+      copyLink: "Copier le lien",
     },
     labels: {
       labelAsPlaceholder: "Ajouter le libellé…",
@@ -333,14 +333,10 @@ const messages = {
       close: "Fermer",
     },
     integrations: {
-      addIntegration: "Ajouter une intégration",
       checking: "Vérification...",
       connect: "Connecter",
       disconnect: "Déconnecter",
       getApiKey: "Pour obtenir votre clé API :",
-      newIntegration: "Nouvelle intégration",
-      newIntegrationPlaceholder:
-        "p. ex. Salesforce CRM — afficher l’étape du deal et l’activité récente du contact",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enrichissement des contacts et données d’entreprise",
       hubspotDescription: "Contacts CRM, affaires et tickets",
@@ -356,8 +352,6 @@ const messages = {
       experience: "Expérience",
       tickets: "Tickets",
       save: "Enregistrer",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Mettre à jour la clé",
     },
     recipients: {
@@ -473,10 +467,13 @@ const messages = {
       tryDifferentKeywords: "Essayez d’autres mots-clés",
       nothingHere: "Rien ici pour l’instant",
       loadingMore: "Chargement...",
+      loadOlder: "Charger les conversations plus anciennes",
       openAllMailForOlder: "Ouvrir tous les e-mails pour les anciens messages",
     },
     toasts: {
       noEmailSelected: "Aucun email sélectionné.",
+      linkCopied: "Lien copié.",
+      linkCopyFailed: "Impossible de copier le lien.",
       reportedSpam: "Signalé comme spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "Aucune conversation sélectionnée.",
@@ -572,8 +569,14 @@ const messages = {
       tryAgain: "Réessayer",
       rateLimitTitle: "Limite de débit Gmail atteinte",
       loadTitle: "Impossible de charger les emails",
+      staleSaved:
+        "Impossible d’actualiser les messages. Les conversations enregistrées sont affichées.",
       rateLimitDescription:
         "Trop de requêtes récentes vers Google. Attente avant nouvelle tentative.",
+      limitedListFrom:
+        "Dernière mise à jour : {{time}}. Des e-mails peuvent manquer. Google limite les requêtes de Mail.",
+      limitedList:
+        "Des e-mails peuvent manquer. Google limite les requêtes de Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:
@@ -721,23 +724,24 @@ const messages = {
       autoArchiveMode: "Archivage automatique",
       skipInboxMode: "Ignorer la boîte de réception",
       spamMode: "Indésirable",
-      tagMode: "Tag",
-      aiTagsTitle: "Tags IA",
+      tagMode: "Libellé",
+      aiTagsTitle: "Libellés IA",
       ruleHelpLabel: "Expliquer les règles {{mode}}",
       aiTagRuleHelp:
-        "Rédigez une consigne en langage naturel. Jev ajoute ce tag aux messages correspondants.",
+        "Rédigez une consigne en langage naturel. Mail ajoute ce libellé aux messages correspondants.",
       importantRuleHelp:
-        "Rédigez une consigne en langage naturel. Jev marque les messages correspondants comme importants.",
+        "Rédigez une consigne en langage naturel. Mail marque les messages correspondants comme importants.",
       skipInboxRuleHelp:
-        "Rédigez une consigne en langage naturel. Jev archive les messages correspondants pour ignorer la boîte de réception.",
+        "Rédigez une consigne en langage naturel. Mail archive les messages correspondants pour ignorer la boîte de réception.",
       spamRuleHelp:
-        "Rédigez une consigne en langage naturel. Jev ajoute le libellé agent-native-filtered et archive les messages correspondants. Ce n’est pas le Spam de Gmail.",
+        "Rédigez une consigne en langage naturel. Mail ajoute le libellé agent-native-filtered et archive les messages correspondants. Ce n’est pas le Spam de Gmail.",
       filteredMode: "Filtrés",
       manageSettings: "Gérer",
-      askJev: "Demander à Jev",
+      askJev: "Demander à l’agent de Mail",
       askJevPrompt:
         "Aidez-moi à améliorer cette règle Mail : {{condition}}. Demandez-moi ce que je souhaite modifier, puis mettez-la à jour.",
-      composerPlaceholder: "Demandez à Jev d’organiser votre boîte…",
+      composerPlaceholder:
+        "Demandez à l’agent de Mail d’organiser votre boîte…",
       chatSuggestionFilter: "Filtrer les messages comme celui-ci",
       chatSuggestionPriority: "Prioriser les e-mails de…",
       chatSuggestionArchive:
@@ -771,7 +775,7 @@ const messages = {
         "ex. Messages nécessitant une réponse ou comportant une échéance",
       ruleAdded: "Règle IA ajoutée.",
       instructionHelp: "Utilisez le langage naturel",
-      tagNamePlaceholder: "Nom du tag",
+      tagNamePlaceholder: "Nom du libellé",
       spamLabelHint:
         "Les correspondances sont marquées et déplacées hors de la boîte de réception.",
       spamPlaceholder: "ex. Messages clairement promotionnels ou indésirables",
@@ -803,8 +807,8 @@ const messages = {
         "Lancez une prévisualisation pour voir les correspondances probables.",
       previewFailed: "Impossible de prévisualiser les emails récents.",
       promptRulesCleared: "Règles de tri supprimées.",
-      tagTabsHelp: "Chaque tag devient un onglet de la boîte de réception",
-      addTag: "Ajouter un tag",
+      tagTabsHelp: "Chaque libellé devient un onglet de la boîte de réception",
+      addTag: "Ajouter un libellé",
       triageTitle: "Tri par IA",
       connectJev: "Connecter un fournisseur d’IA",
       connectJevToRunTriage: "Connectez un fournisseur d’IA pour lancer le tri",
@@ -816,7 +820,7 @@ const messages = {
       addOpenAiApiKey: "Ajouter une clé API OpenAI",
     },
     draftQueue: {
-      title: "Cola de borradores",
+      title: "Brouillons demandés",
       queueDraft: "Poner borrador en cola",
       reviewer: "Revisor",
       chooseMember: "Elegir miembro",
@@ -841,15 +845,20 @@ const messages = {
       send: "Enviar",
       awaitingApproval: "Pendiente de aprobación",
       newDraftRequest: "Nueva solicitud de borrador",
-      needsOrg: "La cola de borradores necesita una organización activa.",
+      needsOrg:
+        "Les demandes de brouillon nécessitent une organisation active.",
       openSettings: "Abrir ajustes",
       statusInReview: "en revisión",
       awaitingApprovalCount: "{{count}} brouillons en attente d’approbation",
       requestedCount: "{{count}} demandes de brouillon créées",
+      requested: "Demandés",
+      askedBy: "{{name}} a demandé :",
+      toReview: "À relire",
+      moreOptions: "Plus d'options de brouillon",
     },
     routeTitles: {
       notFound: "No encontrado - Mail",
-      draftQueue: "Cola de borradores - Mail",
+      draftQueue: "Brouillons demandés - Mail",
       settings: "Ajustes - Mail",
       team: "Equipo - Mail",
       emailThread: "Conversación de email",
@@ -877,13 +886,60 @@ const messages = {
     contacts: {
       noContactSelected: "Aucun contact sélectionné",
     },
+    contactPanel: {
+      addToPanel: "Ajouter à ce panneau",
+      builtIn: "Intégrés",
+      connections: "Connexions",
+      yourWidgets: "Vos widgets",
+      notes: "Notes",
+      attachments: "Pièces jointes",
+      recent: "Récents",
+      connected: "Activé",
+      buildYourOwn: "Créer le vôtre…",
+      buildYourOwnTitle: "Créer le vôtre",
+      back: "Retour",
+      widgetSees:
+        "Un widget voit le nom et l’adresse e-mail de cette personne, ainsi que la conversation ouverte.",
+      widgetDoes:
+        "Il peut afficher vos données Mail, appeler d’autres services avec les clés que vous enregistrez et tenir ses propres notes.",
+      examplePrompt:
+        'Crée un widget pour le panneau à côté d’un e-mail ouvert (emplacement "{{slotId}}") et ajoute-le à mon panneau : {{idea}}',
+      exampleDeals:
+        "Afficher les affaires en cours de cette personne dans Salesforce",
+      exampleLinks:
+        "Lier le site web de l’entreprise de cette personne et sa page LinkedIn",
+      addNote: "Ajouter une note",
+      notesLoadError: "Impossible de charger les notes.",
+      notesContentUnreachable: "Impossible de joindre Content.",
+      olderNotesInContent:
+        "Les notes plus anciennes sont sur la page dans Content.",
+      noteSaveError: "Impossible d’enregistrer la note.",
+      savedToMailNotes: "Enregistré dans les notes Mail",
+      open: "Ouvrir",
+      openInContent: "Ouvrir dans Content",
+      attachmentsLoadError: "Impossible de charger les fichiers.",
+      noAttachments: "Aucun fichier pour l’instant",
+      moreAttachments: "{{count}} de plus",
+      meetings: "Réunions",
+      meetingsUpcoming: "À venir",
+      meetingsPast: "Passées",
+      noMeetings: "Aucune réunion",
+      meetingsLoadError: "Impossible de charger les réunions.",
+      meetingsCalendarUnreachable: "Impossible de joindre Calendar.",
+      meetingsPartial: "Certains agendas n’ont pas pu être lus.",
+      noCalendar: "Aucun agenda connecté",
+      setUpCalendar: "Configurer Calendar",
+      openInCalendar: "Ouvrir dans Calendar",
+      untitledMeeting: "(Sans titre)",
+    },
     readingPane: {
       empty: "Aucun e-mail sélectionné",
       resizeList: "Redimensionner la liste des e-mails",
     },
   },
   agent: {
-    emptyState: "Posez-moi vos questions sur vos e-mails",
+    emptyState:
+      "Je suis l’agent de Mail. Posez-moi vos questions sur vos e-mails ou demandez-moi de les trier.",
     suggestionSummarize: "Resumer mes e-mails non lus",
     suggestionReplies: "A quoi dois-je repondre aujourd'hui?",
     suggestionWidget: "Creer un widget personnalise pour ma boite de reception",
@@ -982,8 +1038,8 @@ const messages = {
     slackDraftRequests: "Demandes de brouillons",
     slackDraftQueue: "Mettre en file des brouillons depuis Slack",
     slackDraftQueueDescription:
-      "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Les brouillons attendent votre relecture dans la file de brouillons.",
-    openDraftQueue: "Ouvrir la file de brouillons",
+      "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Vous relisez chaque brouillon avant son envoi.",
+    openDraftQueue: "Ouvrir les brouillons demandés",
     aiFilter: "Tri par IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",

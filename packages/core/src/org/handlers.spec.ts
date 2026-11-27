@@ -61,6 +61,7 @@ vi.mock("../a2a/server.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute, transaction: mockTransaction }),
 }));
 

@@ -5,6 +5,7 @@ import {
   WHEEL_DELTA_Y,
   WHEEL_TICK_INTERVAL_MS,
   readCamera,
+  readShellOrigins,
   round,
   type ActionContext,
   type ActionResult,
@@ -14,6 +15,8 @@ import {
 
 const MIN_LEG_TRAVEL_FRACTION = 0.8;
 const RETURN_TOLERANCE_FRACTION = 0.1;
+const MIN_TRAVEL_VIEWPORT_FRACTION = 0.5;
+const SCREEN_FOLLOW_TOLERANCE_PX = 4;
 
 export type Leg = {
   direction: "forward" | "back";
@@ -159,12 +162,15 @@ export async function runPan(
       ? extent.clear.right - extent.clear.left
       : extent.clear.bottom - extent.clear.top;
     const boardHeightPx = extent.boardBottom - extent.boardTop;
+    if (!horizontal && extent.columnBottom === null) {
+      ctx.fail(`run ${run}: no screen lies in the canvas area's column`);
+    }
     const travelPx = options.travelPx
       ? options.travelPx(extent, viewportHeightPx)
-      : extent.boardBottom - extent.clear.bottom;
-    if (travelPx < viewportHeightPx) {
+      : (extent.columnBottom ?? extent.boardBottom) - extent.clear.bottom;
+    if (travelPx < MIN_TRAVEL_VIEWPORT_FRACTION * viewportHeightPx) {
       ctx.fail(
-        `run ${run}: the board fits in view at this zoom (board ${Math.round(boardHeightPx)}px, canvas area ${Math.round(viewportHeightPx)}px, travel ${Math.round(travelPx)}px)`,
+        `run ${run}: the board barely extends past the view at this zoom (board ${Math.round(boardHeightPx)}px, canvas area ${Math.round(viewportHeightPx)}px, travel ${Math.round(travelPx)}px, under ${MIN_TRAVEL_VIEWPORT_FRACTION * 100}% of the canvas area)`,
       );
     }
     const pxPerTick = await calibratePxPerTick(ctx, options);
@@ -183,20 +189,44 @@ export async function runPan(
     const startCamera = await readCamera(page);
     if (!startCamera) ctx.fail(`run ${run}: canvas camera is unavailable`);
     const expectedTravelPx = ticks * pxPerTick;
+    const startOrigins = await readShellOrigins(page);
     const forward = await pan(ctx, "forward", ticks, expectedTravelPx, options);
     const afterForward = await ctx.checkpoint("after-forward");
     if (!afterForward.visible) {
       ctx.fail(`run ${run}: after-forward shows no screens`);
     }
     const startIds = new Set(start.screens.map((s) => s.frameId));
-    if (
-      options.screensMustChange !== false &&
+    const screensUnchanged =
       afterForward.screens.length === startIds.size &&
-      afterForward.screens.every((s) => startIds.has(s.frameId))
-    ) {
-      ctx.fail(
-        `run ${run}: the visible screens did not change after the forward leg although the camera moved`,
+      afterForward.screens.every((s) => startIds.has(s.frameId));
+    if (options.screensMustChange !== false && screensUnchanged) {
+      if (start.visible < ctx.screenCount) {
+        ctx.fail(
+          `run ${run}: the visible screens did not change after the forward leg although the camera moved and the board has ${ctx.screenCount - start.visible} screens out of view`,
+        );
+      }
+      if (afterForward.loaded < afterForward.visible) {
+        ctx.fail(
+          `run ${run}: ${afterForward.visible - afterForward.loaded} of ${afterForward.visible} screens are not loaded after the forward leg`,
+        );
+      }
+      const afterOrigins = await readShellOrigins(page);
+      const followed = [...startOrigins].flatMap(([frameId, origin]) => {
+        const now = afterOrigins.get(frameId);
+        return now ? [{ origin, now }] : [];
+      });
+      const stuck = followed.filter(
+        ({ origin, now }) =>
+          Math.abs(now.left - origin.left - forward.dx) >
+            SCREEN_FOLLOW_TOLERANCE_PX ||
+          Math.abs(now.top - origin.top - forward.dy) >
+            SCREEN_FOLLOW_TOLERANCE_PX,
       );
+      if (!followed.length || stuck.length) {
+        ctx.fail(
+          `run ${run}: the camera moved ${Math.round(forward.dx)},${Math.round(forward.dy)}px but ${followed.length ? `${stuck.length} of ${followed.length} screens did not move with it` : "no screen stayed mounted to move"}`,
+        );
+      }
     }
     const back = await pan(ctx, "back", ticks, expectedTravelPx, options);
     const endCamera = await readCamera(page);

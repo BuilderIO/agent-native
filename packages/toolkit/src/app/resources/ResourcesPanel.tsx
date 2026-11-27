@@ -1662,7 +1662,7 @@ export function ResourcesPanel({
         ? `${parentPath}/${normalizedName}`
         : normalizedName;
       createResource.mutate(
-        { path, content: "", shared: scope === "shared" },
+        { path, content: "", shared: scope === "shared", uniquePath: true },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
@@ -1694,6 +1694,7 @@ export function ResourcesPanel({
           path: normalizedName,
           content: "",
           shared: targetScope === "shared",
+          uniquePath: true,
         },
         {
           onSuccess: (data) => {

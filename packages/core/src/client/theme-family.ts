@@ -17,6 +17,7 @@ import {
   themeFamilyStorageKey,
   type ThemeFamily,
 } from "../appearance/theme-family.js";
+import { ACTION_SELF_REFRESHING_META_KEY } from "./action-query-scope.js";
 import {
   injectedAgentNativeAppId,
   injectedAgentNativeConfig,
@@ -416,7 +417,11 @@ export function useThemeFamily(): ThemeFamilyHook {
   const query = useActionQuery<ThemeFamilyPreference>(
     "get-theme-family" as never,
     undefined,
-    { retry: false, queryKeyScope: ["theme-family", runtimeAppId] },
+    {
+      retry: false,
+      queryKeyScope: ["theme-family", runtimeAppId],
+      meta: { [ACTION_SELF_REFRESHING_META_KEY]: true },
+    },
   );
   const queryData = query.data;
   const refetchThemeFamily = query.refetch;

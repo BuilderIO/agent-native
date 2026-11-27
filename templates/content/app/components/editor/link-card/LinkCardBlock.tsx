@@ -3,10 +3,10 @@ import type {
   BlockSpec,
 } from "@agent-native/core/blocks/server";
 import { useT } from "@agent-native/core/client/i18n";
-import type { LinkSummaryApp } from "@agent-native/core/shared";
 import {
   linkCardBlockConfig,
   readLinkCardData,
+  type LinkCardApp,
   type LinkCardData,
 } from "@shared/link-card-block";
 import {
@@ -21,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { useLinkSummary } from "./use-link-summary";
 
-export const LINK_CARD_APP_NAMES: Record<LinkSummaryApp, string> = {
+export const LINK_CARD_APP_NAMES: Record<LinkCardApp, string> = {
   design: "Design",
   slides: "Slides",
   clips: "Clips",

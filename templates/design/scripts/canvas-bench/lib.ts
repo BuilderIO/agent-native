@@ -1,3 +1,15 @@
+import { execFileSync } from "node:child_process";
+import {
+  closeSync,
+  linkSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+
 import type { Page } from "@playwright/test";
 
 export const VIEWPORT = { width: 1280, height: 720 };
@@ -95,6 +107,7 @@ export type BoardExtent = {
   clear: ClearArea;
   boardTop: number;
   boardBottom: number;
+  columnBottom: number | null;
 };
 export type Checkpoint = VisibleScreens & {
   name: string;
@@ -116,6 +129,7 @@ export type ActionContext = {
   run: number;
   actionName: string;
   idleFrameMs: number | null;
+  screenCount: number;
   options: {
     baseUrl: string;
     copies: number;
@@ -151,6 +165,32 @@ export const readCamera = (target: Page): Promise<Camera | null> =>
     return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
   });
 
+export async function waitForCameraRest(
+  page: Page,
+  restMs = 400,
+  timeoutMs = 10_000,
+): Promise<Camera> {
+  const giveUpAt = Date.now() + timeoutMs;
+  let last = required(await readCamera(page), "canvas camera");
+  let stillSince = Date.now();
+  while (Date.now() < giveUpAt) {
+    await page.waitForTimeout(50);
+    const now = required(await readCamera(page), "canvas camera");
+    if (
+      Math.hypot(now.x - last.x, now.y - last.y) > 0.5 ||
+      Math.abs(now.scale - last.scale) > 1e-6
+    ) {
+      last = now;
+      stillSince = Date.now();
+    } else if (Date.now() - stillSince >= restMs) {
+      return now;
+    }
+  }
+  throw new SanityFailure(
+    `canvas camera did not come to rest in ${timeoutMs}ms`,
+  );
+}
+
 export const readClearArea = (target: Page): Promise<ClearArea | null> =>
   target.evaluate(() => window.__bench?.clearArea() ?? null);
 
@@ -162,26 +202,32 @@ export const readVisibleScreens = (target: Page): Promise<VisibleScreens> =>
     for (const shell of document.querySelectorAll(
       "[data-screen-shell][data-frame-id]",
     )) {
-      const content = shell.querySelector("[data-screen-content]");
       const frameId = shell.getAttribute("data-frame-id");
-      const rect = content?.getBoundingClientRect();
-      if (
-        !content ||
-        !frameId ||
-        !rect ||
-        rect.width <= 24 ||
-        rect.right <= clear.left ||
-        rect.bottom <= clear.top ||
-        rect.left >= clear.right ||
-        rect.top >= clear.bottom
-      ) {
-        continue;
-      }
-      const frames = [
-        ...content.querySelectorAll(
-          "iframe[data-design-preview-iframe], iframe[data-screen-static-preview]",
-        ),
-      ];
+      const inView = [
+        ...shell.querySelectorAll("[data-screen-content]"),
+      ].filter((content) => {
+        const rect = content.getBoundingClientRect();
+        return (
+          rect.width > 24 &&
+          rect.right > clear.left &&
+          rect.bottom > clear.top &&
+          rect.left < clear.right &&
+          rect.top < clear.bottom
+        );
+      });
+      if (!frameId || !inView.length) continue;
+      const copiesWithFrames = inView
+        .map((content) => [
+          ...content.querySelectorAll(
+            "iframe[data-design-preview-iframe], iframe[data-screen-static-preview]",
+          ),
+        ])
+        .filter((frames) => frames.length);
+      const loaded =
+        copiesWithFrames.length > 0 &&
+        copiesWithFrames.every((frames) =>
+          frames.some((frame) => frame.hasAttribute("data-bench-loaded")),
+        );
       const title = shell.querySelector("[data-frame-title]");
       const titleInput = shell.querySelector<HTMLInputElement>(
         "input[data-frame-title-input]",
@@ -189,7 +235,7 @@ export const readVisibleScreens = (target: Page): Promise<VisibleScreens> =>
       screens.push({
         frameId,
         name: (title?.textContent || titleInput?.value || "").trim() || null,
-        loaded: frames.some((frame) => frame.hasAttribute("data-bench-loaded")),
+        loaded,
       });
     }
     return {
@@ -199,6 +245,20 @@ export const readVisibleScreens = (target: Page): Promise<VisibleScreens> =>
     };
   });
 
+export type ShellOrigins = Map<string, { left: number; top: number }>;
+export const readShellOrigins = async (target: Page): Promise<ShellOrigins> =>
+  new Map(
+    await target.evaluate(() =>
+      [
+        ...document.querySelectorAll("[data-screen-shell][data-frame-id]"),
+      ].flatMap((shell) => {
+        const frameId = shell.getAttribute("data-frame-id");
+        const { left, top } = shell.getBoundingClientRect();
+        return frameId ? [[frameId, { left, top }] as const] : [];
+      }),
+    ),
+  );
+
 export const readBoardExtent = (target: Page): Promise<BoardExtent | null> =>
   target.evaluate(() => {
     const clear = window.__bench?.clearArea() ?? null;
@@ -207,10 +267,16 @@ export const readBoardExtent = (target: Page): Promise<BoardExtent | null> =>
     ];
     if (!clear || !shells.length) return null;
     const rects = shells.map((shell) => shell.getBoundingClientRect());
+    const inColumn = rects.filter(
+      (r) => r.right > clear.left && r.left < clear.right,
+    );
     return {
       clear,
       boardTop: Math.min(...rects.map((r) => r.top)),
       boardBottom: Math.max(...rects.map((r) => r.bottom)),
+      columnBottom: inColumn.length
+        ? Math.max(...inColumn.map((r) => r.bottom))
+        : null,
     };
   });
 
@@ -320,4 +386,160 @@ export function summarizeOsFocus(
     polls: samples.length,
     unreadablePolls: samples.length - readable.length,
   };
+}
+
+export const BENCH_LOCK_PATH = `${tmpdir()}/agent-native-canvas-bench.lock`;
+
+type LockOwner = {
+  pid: number;
+  processStart: string;
+  acquiredAt: string;
+  cwd: string;
+  command: string;
+};
+
+export class BenchLockHeld extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BenchLockHeld";
+  }
+}
+
+function readProcessStart(pid: number): string | null {
+  try {
+    return execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8",
+      env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+    }).trim();
+  } catch (error) {
+    if ((error as { status?: number }).status === 1) return null;
+    throw error;
+  }
+}
+
+type LockHolder = "alive" | "gone" | "pid-reused";
+
+function classifyLockHolder(owner: LockOwner): LockHolder {
+  try {
+    process.kill(owner.pid, 0);
+  } catch (error) {
+    if ((error as { code?: string }).code === "ESRCH") return "gone";
+    if ((error as { code?: string }).code !== "EPERM") throw error;
+  }
+  const start = readProcessStart(owner.pid);
+  if (start === null) return "gone";
+  return start === owner.processStart ? "alive" : "pid-reused";
+}
+
+function readLock(): { raw: string; owner: LockOwner } | null {
+  let raw: string;
+  try {
+    raw = readFileSync(BENCH_LOCK_PATH, "utf8");
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") return null;
+    throw error;
+  }
+  let owner: LockOwner;
+  try {
+    owner = JSON.parse(raw) as LockOwner;
+  } catch {
+    // coercion-ok: an unreadable lock is reported, never treated as stale
+    throw new BenchLockHeld(
+      `${BENCH_LOCK_PATH} exists but is not readable JSON; check that no benchmark is running, then delete it`,
+    );
+  }
+  if (!Number.isInteger(owner.pid) || typeof owner.processStart !== "string") {
+    throw new BenchLockHeld(
+      `${BENCH_LOCK_PATH} has an unexpected format; check that no benchmark is running, then delete it`,
+    );
+  }
+  return { raw, owner };
+}
+
+export function acquireBenchLock(command: string): () => void {
+  const self: LockOwner = {
+    pid: process.pid,
+    processStart: required(
+      readProcessStart(process.pid),
+      "this process's start time",
+    ),
+    acquiredAt: new Date().toISOString(),
+    cwd: process.cwd(),
+    command,
+  };
+  const staging = `${BENCH_LOCK_PATH}.${process.pid}.tmp`;
+  const stale = `${BENCH_LOCK_PATH}.${process.pid}.stale`;
+  const tryCreate = () => {
+    const fd = openSync(staging, "w");
+    try {
+      writeSync(fd, JSON.stringify(self, null, 2));
+    } finally {
+      closeSync(fd);
+    }
+    try {
+      linkSync(staging, BENCH_LOCK_PATH);
+      return true;
+    } catch (error) {
+      if ((error as { code?: string }).code === "EEXIST") return false;
+      throw error;
+    } finally {
+      unlinkSync(staging);
+    }
+  };
+  const removeStale = (held: { raw: string }) => {
+    try {
+      renameSync(BENCH_LOCK_PATH, stale);
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return;
+      throw error;
+    }
+    const moved = readFileSync(stale, "utf8");
+    if (moved === held.raw) {
+      unlinkSync(stale);
+      return;
+    }
+    try {
+      linkSync(stale, BENCH_LOCK_PATH);
+    } catch (error) {
+      if ((error as { code?: string }).code !== "EEXIST") throw error;
+    } finally {
+      unlinkSync(stale);
+    }
+  };
+  const ATTEMPTS = 5;
+  let acquired = false;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    if (tryCreate()) {
+      acquired = true;
+      break;
+    }
+    const held = readLock();
+    if (!held) continue;
+    const holder = classifyLockHolder(held.owner);
+    if (holder === "alive") {
+      throw new BenchLockHeld(
+        `another canvas benchmark is running (pid ${held.owner.pid}, started ${held.owner.acquiredAt}, in ${held.owner.cwd}: ${held.owner.command}). Two runs at once ruin each other's numbers. Wait for it to finish; the lock is ${BENCH_LOCK_PATH}`,
+      );
+    }
+    console.warn(
+      `removing stale benchmark lock left by pid ${held.owner.pid} (${holder === "gone" ? "no longer running" : "the pid now belongs to another process"})`,
+    );
+    removeStale(held);
+  }
+  if (!acquired && !tryCreate()) {
+    throw new BenchLockHeld(
+      `could not take ${BENCH_LOCK_PATH}: another process keeps recreating it`,
+    );
+  }
+  if (readLock()?.owner.pid !== process.pid) {
+    throw new BenchLockHeld(`could not take ${BENCH_LOCK_PATH}`);
+  }
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    if (readLock()?.owner.pid === process.pid) unlinkSync(BENCH_LOCK_PATH);
+  };
+  process.on("exit", release);
+  return release;
 }

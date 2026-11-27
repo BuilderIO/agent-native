@@ -30,6 +30,7 @@ vi.mock("../db/runtime-diagnostics.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   isLocalDatabase: () => mocks.local,
 }));
 

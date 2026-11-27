@@ -30,6 +30,7 @@ vi.mock("h3", () => ({
   },
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async (input: string | { sql: string; args?: unknown[] }) => {
       if (typeof input === "string") {

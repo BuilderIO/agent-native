@@ -9,6 +9,7 @@ import type {
 
 import "../authorization/check-action.js";
 import type { JWTPayload } from "jose";
+import { z } from "zod";
 
 import {
   A2A_ORG_MEMBER_DELEGATION_TYPE,
@@ -54,6 +55,7 @@ import {
 } from "../org/service-principal-guard.js";
 import { isActionGranted } from "../org/service-principal-policy.js";
 import { isDeploymentEmailDomainAllowed } from "../org/signup-admission.js";
+import { canonicalResourcePath } from "../resources/path-form.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -69,6 +71,7 @@ import {
   getEmbedSessionOrigin,
   validateEmbedRequestOrigin,
 } from "../server/embed-request-origin.js";
+import { refusesLocalDevCredential } from "../server/local-dev-identity.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -116,6 +119,15 @@ import { mcpApprovalAppId } from "./approval-store.js";
 import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import { isFrameworkMcpTool } from "./framework-tools.js";
 import {
+  MCP_SKILLS_EXTENSION_ID,
+  createMcpSkillCatalog,
+  filterAuthorizedMcpSkills,
+  resolveConfiguredMcpSkills,
+  type McpSkillAuthContext,
+  type McpSkillCatalog,
+  type McpSkillConfig,
+} from "./skills-extension.js";
+import {
   admitWithMcpTurnGrantAdmitters,
   type McpTurnGrantAdmitterDecision,
 } from "./turn-grant-admitters.js";
@@ -159,17 +171,22 @@ import {
 } from "./embed-redaction.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
+  MCP_CONNECTION_REQUIRED_TTL_SECONDS,
   type EmbedCredentialGuard,
   type McpActionApprovalState,
   type McpActionCallContext,
   type McpActionCallEffect,
   type McpActionCallOutcome,
+  type McpActionConnectionState,
+  type McpActionRequestState,
   type McpApprovalReview,
+  type McpConnectionRequiredDetails,
   canonicalJson,
   executeMcpActionCall,
   isActionVisibleForOAuthScope,
   mcpActionErrorCode,
   redactEmbedCredentials,
+  resolveTrustedMcpConnectUrl,
   sha256Base64Url,
   UnreadableResultError,
   type UpstreamStatus,
@@ -288,6 +305,10 @@ export interface MCPConfig {
   builtinCrossAppTools?: boolean;
   /** Opt in to an MCP-only, strictly read-only resource lookup. */
   readOnlyResources?: boolean;
+  /** Serve the `an` skill through the MCP Skills extension (SEP-2640). */
+  servesAnSkill?: boolean;
+  /** Serve explicitly configured, exported app skills through the MCP Skills extension (SEP-2640). */
+  skills?: readonly McpSkillConfig[];
   /** Server-only candidate source; it must enforce current workspace grants. */
   taskCandidates?: (input: {
     callableActionNames: readonly string[];
@@ -416,7 +437,73 @@ export function hasVerifiedMcpUserIdentity(
   );
 }
 
+function hasEligibleMcpSkillsIdentity(
+  identity: MCPCallerIdentity | undefined,
+): identity is MCPCallerIdentity & { userEmail: string } {
+  return (
+    Boolean(identity?.userEmail?.trim()) &&
+    identity?.identityAssurance !== "organization" &&
+    hasMcpOAuthScope(identity?.oauthScopes, "mcp:read")
+  );
+}
+
+function buildMcpSkillsAuthContext(
+  identity: MCPCallerIdentity,
+  userEmail: string,
+  orgId: string | null,
+): McpSkillAuthContext {
+  return {
+    userEmail,
+    orgId,
+    ...(identity.identityAssurance !== undefined
+      ? { identityAssurance: identity.identityAssurance }
+      : {}),
+    ...(identity.oauthScopes !== undefined
+      ? { oauthScopes: identity.oauthScopes }
+      : {}),
+  };
+}
+
+function assertMcpSkillsCallerContext(
+  identity: MCPCallerIdentity | undefined,
+  resolvedOrgId: string | undefined,
+): McpSkillAuthContext {
+  const context = getRequestContext();
+  if (
+    !hasEligibleMcpSkillsIdentity(identity) ||
+    !context?.userEmail ||
+    context.userEmail !== identity.userEmail
+  ) {
+    throw new Error("Verified MCP caller context required");
+  }
+  const userEmail = identity.userEmail.trim();
+  if (identity.orgId === null) {
+    if (context.orgScope !== "personal" || context.orgId != null) {
+      throw new Error("Verified MCP caller context required");
+    }
+    return buildMcpSkillsAuthContext(identity, userEmail, null);
+  }
+  if (typeof identity.orgId === "string") {
+    if (
+      !identity.orgId.trim() ||
+      context.orgScope === "personal" ||
+      context.orgId !== identity.orgId
+    ) {
+      throw new Error("Verified MCP caller context required");
+    }
+    return buildMcpSkillsAuthContext(identity, userEmail, identity.orgId);
+  }
+  const expectedOrgId = resolvedOrgId ?? null;
+  const contextOrgId =
+    context.orgScope === "personal" ? null : (context.orgId ?? null);
+  if (contextOrgId !== expectedOrgId) {
+    throw new Error("Verified MCP caller context required");
+  }
+  return buildMcpSkillsAuthContext(identity, userEmail, expectedOrgId);
+}
+
 export const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
+export const MCP_ACTION_CONNECTION_INPUT_KEY = "connectionRequired";
 
 /**
  * The approval prompt a client that offers both kinds gets. A form answers in
@@ -2446,21 +2533,25 @@ function readOnlyResourceEntry(
         ) ||
         args.action !== "read" ||
         (args.scope !== "personal" && args.scope !== "shared") ||
-        typeof args.path !== "string" ||
-        !args.path ||
-        args.path.startsWith("/") ||
-        args.path.includes("\\") ||
-        args.path
+        typeof args.path !== "string"
+      ) {
+        throw new Error("Invalid resource read arguments");
+      }
+      const name = canonicalResourcePath(args.path);
+      if (
+        !name ||
+        name.includes("\\") ||
+        name
           .split("/")
           .some((part) => !part || part === "." || part === "..") ||
-        /[\x00-\x1f\x7f]/.test(args.path)
+        /[\x00-\x1f\x7f]/.test(name)
       ) {
         throw new Error("Invalid resource read arguments");
       }
       const { readScopedResourceForMcp, readScopedSkillForMcp } =
         await import("../resources/store.js");
       const signal = actionContext?.signal;
-      const resource = args.path.startsWith("skills/")
+      const resource = name.startsWith("skills/")
         ? await readScopedSkillForMcp({
             identity,
             scope: args.scope,
@@ -3882,9 +3973,11 @@ export async function createMCPServerForRequest(
       entry.mcpNeedsApproval !== undefined ||
       actionUserTurn(entry) === "approval",
   );
-  const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
+  const hasCallableActions =
+    hasApprovalActions || Object.keys(actions).length > 0;
+  const approvalOrgId = hasCallableActions ? await orgIdPromise : undefined;
   const approvalAppId = mcpApprovalAppId(config);
-  const approvalPrincipal = hasApprovalActions
+  const requestStatePrincipal = hasCallableActions
     ? mcpApprovalPrincipal(
         approvalAppId,
         effectiveIdentity,
@@ -3892,24 +3985,25 @@ export async function createMCPServerForRequest(
         requestMeta,
       )
     : undefined;
-  const approvalCallerKey = approvalPrincipal
-    ? await sha256Base64Url(approvalPrincipal)
-    : undefined;
-  let approvalCodec: RequestStateCodec<McpActionApprovalState> | undefined;
+  const approvalCallerKey =
+    hasApprovalActions && requestStatePrincipal
+      ? await sha256Base64Url(requestStatePrincipal)
+      : undefined;
+  let approvalCodec: RequestStateCodec<McpActionRequestState> | undefined;
   let approvalConfigurationError = false;
-  if (hasApprovalActions && approvalPrincipal) {
+  if (hasCallableActions && requestStatePrincipal) {
     try {
       const { getAuthSecret } =
         await import("../server/better-auth-instance.js");
-      approvalCodec = createRequestStateCodec<McpActionApprovalState>({
+      approvalCodec = createRequestStateCodec<McpActionRequestState>({
         key: getAuthSecret(),
         // A page decision can grant another full use window near the review
         // deadline. The store still enforces expiry and one-use consumption.
         ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS * 2,
-        bind: (ctx) => `${ctx.mcpReq.method}\0${approvalPrincipal}`,
+        bind: (ctx) => `${ctx.mcpReq.method}\0${requestStatePrincipal}`,
       });
     } catch {
-      approvalConfigurationError = true;
+      if (hasApprovalActions) approvalConfigurationError = true;
     }
   }
   const supportsMcpApps =
@@ -3927,6 +4021,15 @@ export async function createMCPServerForRequest(
     scriptCatalogOffered && !scriptCatalog
       ? await scriptCatalogForPointer()
       : undefined;
+  const configuredSkills = resolveConfiguredMcpSkills({
+    ...(config.servesAnSkill !== undefined
+      ? { servesAnSkill: config.servesAnSkill }
+      : {}),
+    ...(config.skills !== undefined ? { skills: config.skills } : {}),
+  });
+  const servesSkills =
+    configuredSkills.length > 0 &&
+    hasEligibleMcpSkillsIdentity(effectiveIdentity);
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
@@ -3943,13 +4046,18 @@ export async function createMCPServerForRequest(
           ),
     capabilities: {
       tools: {},
-      ...(supportsMcpApps
+      ...(supportsMcpApps || servesSkills
         ? {
             resources: {},
             extensions: {
-              [MCP_APP_EXTENSION_ID]: {
-                mimeTypes: [MCP_APP_MIME_TYPE],
-              },
+              ...(supportsMcpApps
+                ? {
+                    [MCP_APP_EXTENSION_ID]: {
+                      mimeTypes: [MCP_APP_MIME_TYPE],
+                    },
+                  }
+                : {}),
+              ...(servesSkills ? { [MCP_SKILLS_EXTENSION_ID]: {} } : {}),
             },
           }
         : {}),
@@ -4192,6 +4300,57 @@ export async function createMCPServerForRequest(
     });
   }
 
+  async function requestMcpActionConnection(
+    name: string,
+    args: unknown,
+    connection: McpConnectionRequiredDetails,
+    ctx: ServerContext,
+  ): Promise<InputRequiredResult | undefined> {
+    const codec = approvalCodec;
+    if (!codec) return undefined;
+    const envelope = ctx.mcpReq.envelope as
+      | Record<string, ClientCapabilities | undefined>
+      | undefined;
+    const elicitation = (
+      envelope
+        ? envelope[CLIENT_CAPABILITIES_META_KEY]
+        : server.getClientCapabilities()
+    )?.elicitation;
+    if (elicitation?.url === undefined) return undefined;
+    const trustedUrl = resolveTrustedMcpConnectUrl(
+      connection.connectUrl,
+      requestMeta,
+    );
+    if (!trustedUrl) return undefined;
+    let argumentsHash: string;
+    try {
+      // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+      argumentsHash = await sha256Base64Url(canonicalJson(args ?? {}));
+    } catch {
+      // coercion-ok: non-JSON arguments cannot be bound into signed requestState; fall back without URL elicitation.
+      return undefined;
+    }
+    const connectionState: McpActionConnectionState = {
+      kind: "connection_required",
+      version: 1,
+      nonce: globalThis.crypto.randomUUID(),
+      actionName: name,
+      argumentsHash,
+      provider: connection.provider,
+      expiresAt: Date.now() + MCP_CONNECTION_REQUIRED_TTL_SECONDS * 1000,
+    };
+    const requestState = await codec.mint(connectionState, ctx);
+    return inputRequired({
+      inputRequests: {
+        [MCP_ACTION_CONNECTION_INPUT_KEY]: inputRequired.elicitUrl({
+          message: connection.message,
+          url: trustedUrl,
+        }),
+      },
+      requestState,
+    });
+  }
+
   // Read per request, never cached: a principal suspended or re-scoped after
   // admission is stopped by the next list or call.
   async function resolveServiceGrant(actionName?: string): Promise<{
@@ -4381,7 +4540,7 @@ export async function createMCPServerForRequest(
               name,
               description:
                 hasLink && !directoryCatalog
-                  ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
+                  ? `${baseDescription} Returns an "Open in … →" link to the app.`
                   : baseDescription,
               inputSchema,
               ...(outputSchema ? { outputSchema } : {}),
@@ -4423,11 +4582,10 @@ export async function createMCPServerForRequest(
         tools.push({
           name: "ask-agent",
           description:
-            "Send a natural-language message to the app's AI agent and get a response. " +
-            "Use this for complex, multi-step tasks that require the agent's reasoning " +
-            "and full context about the app. On hosted MCP, the server waits briefly " +
-            "for fast completions and returns a taskId plus ask_app_status polling " +
-            "instructions when the agent needs longer.",
+            "Send a natural-language message to the app's AI agent and return its response. " +
+            "Runs the app agent with its full context and reasoning for multi-step tasks. " +
+            "On hosted MCP, fast completions return inline and longer tasks return a taskId " +
+            "that can be polled with ask_app_status.",
           inputSchema: {
             type: "object" as const,
             properties: {
@@ -4497,6 +4655,7 @@ export async function createMCPServerForRequest(
     acceptedContent,
     inputResponse,
     requestMcpActionApproval,
+    requestMcpActionConnection,
   });
 
   // A script reaches only what this caller could call directly: an action a
@@ -5033,6 +5192,37 @@ export async function createMCPServerForRequest(
     },
   );
 
+  async function resolveAuthorizedSkillCatalog(
+    actionName: string,
+  ): Promise<McpSkillCatalog> {
+    await resolveServiceGrant(actionName);
+    return withCallerContext(async () => {
+      const authContext = assertMcpSkillsCallerContext(
+        effectiveIdentity,
+        orgId,
+      );
+      const canCheckLab =
+        hasVerifiedMcpUserIdentity(effectiveIdentity) &&
+        (effectiveIdentity.orgId === null ||
+          (typeof effectiveIdentity.orgId === "string" &&
+            effectiveIdentity.orgId.trim().length > 0));
+      const authorizedSkills = await filterAuthorizedMcpSkills(
+        configuredSkills,
+        authContext,
+        canCheckLab
+          ? {
+              checkLab: async (lab) => {
+                const { getMcpSkillLabEnabled } =
+                  await import("../labs/mcp-skill-lab.js");
+                return getMcpSkillLabEnabled(effectiveIdentity, lab);
+              },
+            }
+          : {},
+      );
+      return createMcpSkillCatalog(authorizedSkills);
+    });
+  }
+
   if (supportsMcpApps) {
     server.setRequestHandler(
       "resources/list",
@@ -5121,10 +5311,24 @@ export async function createMCPServerForRequest(
           });
         };
         try {
+          const uri = request.params?.uri;
+          if (
+            servesSkills &&
+            typeof uri === "string" &&
+            uri.startsWith("skill://")
+          ) {
+            const catalog =
+              await resolveAuthorizedSkillCatalog("mcp:resources/read");
+            const skillFile = catalog.readFile(uri);
+            if (!skillFile) {
+              throw new ResourceNotFoundError(uri, `Skill not found: ${uri}`);
+            }
+            emitRead({ resourceName: uri });
+            return skillFile;
+          }
           const grantedActions =
             await grantedResourceActions("mcp:resources/read");
           return await withCallerContext(async () => {
-            const uri = request.params?.uri;
             let found: {
               actionName: string;
               resource: ResolvedMcpAppResource;
@@ -5189,6 +5393,51 @@ export async function createMCPServerForRequest(
         }
       },
     );
+  }
+
+  if (servesSkills) {
+    const notFound = (uri: unknown) => {
+      const label = typeof uri === "string" ? uri : "";
+      return new ResourceNotFoundError(label, `Skill not found: ${label}`);
+    };
+    const skillParams = z.object({
+      uri: z.string().optional(),
+      cursor: z.string().optional(),
+    });
+    server.setRequestHandler(
+      "skills/list",
+      { params: skillParams },
+      async () => {
+        const catalog = await resolveAuthorizedSkillCatalog("mcp:skills/list");
+        return catalog.list();
+      },
+    );
+    server.setRequestHandler(
+      "skills/get",
+      { params: skillParams },
+      async (params) => {
+        const catalog = await resolveAuthorizedSkillCatalog("mcp:skills/get");
+        const result = catalog.get(params.uri);
+        if (!result) throw notFound(params.uri);
+        return result;
+      },
+    );
+    if (!supportsMcpApps) {
+      server.setRequestHandler("resources/list", async () => {
+        await resolveAuthorizedSkillCatalog("mcp:resources/list");
+        return { resources: [] };
+      });
+      server.setRequestHandler(
+        "resources/read",
+        async (request: { params?: { uri?: unknown } }) => {
+          const catalog =
+            await resolveAuthorizedSkillCatalog("mcp:resources/read");
+          const skillFile = catalog.readFile(request.params?.uri);
+          if (!skillFile) throw notFound(request.params?.uri);
+          return skillFile;
+        },
+      );
+    }
   }
 
   return server;
@@ -5863,7 +6112,7 @@ export async function verifyAuth(
     allowDevOpen?: boolean;
     allowLocalOwnerHint?: boolean;
     resourceUrl?: string | string[];
-    event?: unknown;
+    event?: import("h3").H3Event;
     /** This app's public origin; federated orgs need it for the membership check. */
     requestOrigin?: string;
   } = {},
@@ -5895,8 +6144,12 @@ export async function verifyAuth(
           }
         );
       }
-      if (issued)
+      if (issued) {
+        if (refusesLocalDevCredential(issued.userEmail, options.event)) {
+          return { authed: false, refusal: "local-dev-identity" };
+        }
         return admitIssuedMcpCredential(issued, options.requestOrigin);
+      }
     }
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {

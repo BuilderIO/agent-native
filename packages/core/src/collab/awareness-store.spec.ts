@@ -548,6 +548,7 @@ vi.mock("../db/client.js", async () => {
     },
   };
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => {
       if (!dbAvailable.value) throw new Error("db not configured");
       return exec;

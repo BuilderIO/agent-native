@@ -69,6 +69,10 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 import { runInIdleSlices } from "@/pages/design-editor/idle-slices";
+import {
+  PngCaptureError,
+  type PngCaptureErrorCode,
+} from "@/pages/design-editor/png-export-render";
 import type { EditorMode } from "@/pages/design-editor/types";
 
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
@@ -884,7 +888,7 @@ function SelectionHeader({
   return (
     <div
       data-design-inspector-header
-      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-2"
+      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-[var(--design-inspector-section-padding-inline)]"
     >
       <InspectorGrid className="min-h-8 items-center" layout="header-actions">
         {/* Node-type label. Rename lives in the layers panel and device sizing
@@ -958,7 +962,7 @@ function ScreenSelectionHeader({
   return (
     <div
       data-design-inspector-header
-      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-2"
+      className="sticky top-0 z-10 bg-[var(--design-editor-panel-bg)] border-b border-border/90 px-[var(--design-inspector-section-padding-inline)]"
     >
       <InspectorGrid className="min-h-8 items-center" layout="header-actions">
         <InspectorGridCell span={20}>
@@ -1294,7 +1298,6 @@ function ScreenGeometryProperties({
       </PanelSection>
       <PanelSection title={t("editPanel.sections.positionLayout")}>
         <div className="design-sidebar-property-group">
-          <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
           <InspectorActionPairGrid
             className="items-center"
             left={
@@ -1318,7 +1321,6 @@ function ScreenGeometryProperties({
           />
         </div>
         <div className="design-sidebar-property-group">
-          <SubsectionLabel>{t("editPanel.labels.rotation")}</SubsectionLabel>
           <InspectorActionPairGrid
             className="items-center"
             left={
@@ -1361,9 +1363,6 @@ function ScreenGeometryProperties({
           />
         </div>
         <div className="design-sidebar-property-group">
-          <SubsectionLabel>
-            {"Size" /* i18n-ignore design inspector label */}
-          </SubsectionLabel>
           <InspectorActionPairGrid
             className="items-center"
             left={
@@ -1581,6 +1580,20 @@ function PageProperties({
   );
 }
 
+const EXPORT_PREVIEW_FAILURE_KEYS = {
+  "no-preview": "editPanel.exportPreview.noPreview",
+  "external-preview": "editPanel.exportPreview.externalPreview",
+  "read-only-preview": "editPanel.exportPreview.readOnlyPreview",
+  "selection-unresolved": "editPanel.exportPreview.selectionUnresolved",
+  "blob-failed": "editPanel.exportPreview.failed",
+} as const satisfies Record<PngCaptureErrorCode, string>;
+
+export function exportPreviewFailureKey(reason: PngCaptureErrorCode | null) {
+  return reason
+    ? EXPORT_PREVIEW_FAILURE_KEYS[reason]
+    : ("editPanel.exportPreview.failed" as const);
+}
+
 function ExportPreview({
   element,
   onRender,
@@ -1604,7 +1617,7 @@ function ExportPreview({
     | { status: "idle" }
     | { status: "loading" }
     | { status: "ready"; url: string }
-    | { status: "failed" }
+    | { status: "failed"; reason: PngCaptureErrorCode | null }
   >({ status: "idle" });
 
   useEffect(() => {
@@ -1622,8 +1635,12 @@ function ExportPreview({
         objectUrl = URL.createObjectURL(blob);
         setState({ status: "ready", url: objectUrl });
       })
-      .catch(() => {
-        if (!cancelled) setState({ status: "failed" });
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setState({
+          status: "failed",
+          reason: error instanceof PngCaptureError ? error.code : null,
+        });
       });
     return () => {
       cancelled = true;
@@ -1659,7 +1676,7 @@ function ExportPreview({
         ) : (
           <div className="flex size-full items-center justify-center rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] px-2 text-center !text-[10px] text-muted-foreground">
             {state.status === "failed"
-              ? t("editPanel.exportPreview.failed")
+              ? t(exportPreviewFailureKey(state.reason))
               : t("editPanel.exportPreview.rendering")}
           </div>
         )}

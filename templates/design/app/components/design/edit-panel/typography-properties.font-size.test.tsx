@@ -80,13 +80,18 @@ function renderTypography(fontSize: string) {
   return { onStyleChange, input };
 }
 
+// oracle-change: ENG-14616 makes Size a token combobox; its chevron opens one list, which falls back to the type scale when the design has no font-size tokens.
 function openSizes() {
   const trigger = container.querySelector<HTMLButtonElement>(
-    'button[aria-label="editPanel.labels.fontSizes"]',
+    "button[data-token-field-chevron]",
   );
   if (!trigger) throw new Error("missing size list trigger");
   act(() => trigger.click());
-  return Array.from(document.querySelectorAll<HTMLElement>("[cmdk-item]"));
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+}
+
+function scrubHandle(input: HTMLInputElement) {
+  return container.querySelector<HTMLElement>(`label[for="${input.id}"]`);
 }
 
 function setDraft(input: HTMLInputElement, value: string) {
@@ -105,7 +110,8 @@ describe("typography font size field", () => {
 
     expect(input.value).toBe("18");
     expect(container.textContent).not.toContain("px");
-    expect(container.querySelector("[data-font-size-scrub]")).not.toBeNull();
+    // oracle-change: ENG-14616 makes Size a token combobox, scrubbed from its label like the other number fields.
+    expect(scrubHandle(input)).not.toBeNull();
     expect(
       container.querySelector(
         '[aria-label*="ncrease"], [aria-label*="ecrease"]',
@@ -114,10 +120,9 @@ describe("typography font size field", () => {
   });
 
   it("previews a scrub and commits it once on release", () => {
-    const { onStyleChange } = renderTypography("14px");
-    const handle = container.querySelector<HTMLElement>(
-      "[data-font-size-scrub]",
-    );
+    const { onStyleChange, input } = renderTypography("14px");
+    // oracle-change: ENG-14616 makes Size a token combobox, scrubbed from its label like the other number fields.
+    const handle = scrubHandle(input);
     if (!handle) throw new Error("missing scrub handle");
     handle.setPointerCapture = vi.fn();
     handle.hasPointerCapture = vi.fn(() => true);
@@ -139,9 +144,10 @@ describe("typography font size field", () => {
       handle.dispatchEvent(pointer("pointerup", 6));
     });
 
+    // oracle-change: ENG-14616 scrubs Size through the shared scrub input, whose meta also names its source.
     expect(onStyleChange.mock.calls).toEqual([
-      ["fontSize", "20px", { phase: "preview" }],
-      ["fontSize", "20px", { phase: "commit" }],
+      ["fontSize", "20px", expect.objectContaining({ phase: "preview" })],
+      ["fontSize", "20px", expect.objectContaining({ phase: "commit" })],
     ]);
   });
 
@@ -178,8 +184,9 @@ describe("typography font size field", () => {
     expect(options.map((option) => option.textContent)).toEqual(
       FONT_SIZE_SCALE.map(String),
     );
+    // oracle-change: ENG-14616 marks the current size as the selected option of the combobox list.
     const current = options.find(
-      (option) => option.getAttribute("data-current") === "true",
+      (option) => option.getAttribute("aria-selected") === "true",
     );
     expect(current?.textContent).toBe("14");
   });
@@ -189,11 +196,12 @@ describe("typography font size field", () => {
 
     const option = openSizes().find((item) => item.textContent === "32");
     if (!option) throw new Error("missing 32 option");
-    act(() => option.click());
-
-    expect(onStyleChange).toHaveBeenCalledWith("fontSize", "32px", {
-      phase: "commit",
+    // oracle-change: ENG-14616 list rows pick on pointerdown so the field keeps focus, and a pick is a single committed write.
+    act(() => {
+      option.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     });
+
+    expect(onStyleChange).toHaveBeenCalledWith("fontSize", "32px");
   });
 
   it("commits a typed size with one decimal and ignores invalid input", () => {
@@ -213,8 +221,9 @@ describe("typography font size field", () => {
       );
     });
 
+    // oracle-change: ENG-14616 commits Size through the shared scrub input, whose meta also names its source and expression.
     expect(onStyleChange.mock.calls).toEqual([
-      ["fontSize", "15.6px", { phase: "commit" }],
+      ["fontSize", "15.6px", expect.objectContaining({ phase: "commit" })],
     ]);
   });
 
@@ -228,9 +237,12 @@ describe("typography font size field", () => {
       );
     });
 
-    expect(onStyleChange).toHaveBeenCalledWith("fontSize", "15px", {
-      phase: "commit",
-    });
+    // oracle-change: ENG-14616 steps Size through the shared scrub input, whose meta also names its source.
+    expect(onStyleChange).toHaveBeenCalledWith(
+      "fontSize",
+      "15px",
+      expect.objectContaining({ phase: "commit" }),
+    );
   });
 
   it("shows Mixed for a mixed selection", () => {

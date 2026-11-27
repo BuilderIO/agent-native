@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -57,6 +57,8 @@ export default defineAction({
   description:
     "Explicitly merge untouched duplicate default templates for the current owner. Referenced templates are kept and reported.",
   schema: z.object({ dryRun: z.boolean().default(false) }),
+  needsApproval: (args, ctx) => isOutsideAgentCall(ctx) && !args.dryRun,
+  mcpTool: "search",
   run: async ({ dryRun }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");

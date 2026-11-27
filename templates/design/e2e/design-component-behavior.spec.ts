@@ -582,7 +582,7 @@ test("linked edits reject oversized offscreen source sets before loading or chan
     { waitUntil: "domcontentloaded" },
   );
   await selectNodeById(page, "card-main", activeId);
-  const width = page.getByRole("textbox", { name: "W size in pixels" });
+  const width = page.getByRole("combobox", { name: "W size in pixels" });
   await expect(width).toHaveValue("420");
   await width.fill("440");
   await width.press("Enter");

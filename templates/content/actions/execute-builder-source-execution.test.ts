@@ -1372,6 +1372,59 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { currentEmpty: true as const, writes: 0, status: "rejected" },
+    { currentEmpty: undefined, writes: 1, status: "fulfilled" },
+  ])(
+    "stops a body save over a Builder body only when it was reviewed as empty: $status",
+    async ({ currentEmpty, writes, status }) => {
+      const approvedChangeSet = changeSet({
+        bodyChange: {
+          summary: "Builder body changed.",
+          currentExcerpt: null,
+          proposedExcerpt: "New body",
+          currentHash: null,
+          proposedHash: "local-next-hash",
+          proposedContent: "New body",
+          proposedBlocksJson: "[]",
+          sidecarsJson: "{}",
+          warnings: [],
+          currentEmpty,
+        },
+      });
+      const builderSource = source({ changeSets: [approvedChangeSet] });
+      const deps = depsFor({
+        source: builderSource,
+        execution: executionFor({
+          source: builderSource,
+          changeSet: approvedChangeSet,
+        }),
+        readLiveEntry: {
+          exists: true,
+          published: "draft",
+          lastUpdated: BUILDER_LAST_UPDATED_MS,
+          blocksHash: "live-builder-hash",
+          id: "builder-entry-1",
+          values: { "data.title": "Old title" },
+        },
+      });
+
+      const [result] = await Promise.allSettled([
+        executeBuilderSourceExecutionWithDeps(
+          {
+            databaseId: "database-1",
+            changeSetId: approvedChangeSet.id,
+            pushModeConfirmation: "autosave",
+          },
+          deps,
+        ),
+      ]);
+
+      expect(deps.executeWrite).toHaveBeenCalledTimes(writes);
+      expect(result.status).toBe(status);
+    },
+  );
+
   it("blocks existing-entry autosaves when the live Builder body changed", async () => {
     const approvedChangeSet = changeSet({
       bodyChange: {
@@ -2977,6 +3030,35 @@ describe("Builder unpublished saves", () => {
     expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual(
       expect.objectContaining({ liveBlocksHash: "live-hash" }),
     );
+  });
+
+  it("records a draft created without a body as a body with no blocks", () => {
+    const created = changeSet();
+    const builderSource = source({ rows: [], changeSets: [created] });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: created,
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("create_draft");
+    const blockCountAfter = (responseBody: unknown) =>
+      JSON.parse(
+        builderCmsReconciledSourceValuesJson({
+          existingSourceValuesJson: undefined,
+          snapshotSourceValues: undefined,
+          changeSet: created,
+          plan,
+          responseBody,
+        }),
+      )[BUILDER_CMS_BODY_BLOCK_COUNT_KEY];
+
+    expect(blockCountAfter({ id: "builder-entry-1" })).toBe(0);
+    expect(
+      blockCountAfter({
+        id: "builder-entry-1",
+        recoveredByReadOnlyLookup: true,
+      }),
+    ).toBe(0);
   });
 
   it("stores the entry's publication state once the write lands", () => {

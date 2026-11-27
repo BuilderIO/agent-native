@@ -1,10 +1,15 @@
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
+let formatterConstructor = Intl.DateTimeFormat;
 
 export function timezoneFormatter(
   timezone: string | undefined,
   options: Intl.DateTimeFormatOptions,
   locale?: string,
 ): Intl.DateTimeFormat {
+  if (formatterConstructor !== Intl.DateTimeFormat) {
+    formatterCache.clear();
+    formatterConstructor = Intl.DateTimeFormat;
+  }
   const key = `${locale ?? ""}\u0000${timezone ?? ""}\u0000${JSON.stringify(options)}`;
   let formatter = formatterCache.get(key);
   if (!formatter) {
@@ -28,7 +33,7 @@ export function timezoneShortName(timezone: string, locale = "en-US"): string {
 export function isCalendarTimezone(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    timezoneFormatter(value, {}, "en-US").format();
     return true;
   } catch (error) {
     if (error instanceof RangeError) return false;

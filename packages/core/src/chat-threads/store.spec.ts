@@ -8,6 +8,7 @@ const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 const lockThreadRunSlotMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: executeMock,
     transaction: async (

@@ -45,6 +45,7 @@ import {
   findInboxThreadIdByMessageId,
   forgetInboxMutation,
   INBOX_THREADS_QUERY_KEY,
+  inboxThreadShowsRead,
   invalidateInboxThreads,
   markInboxThreadReadOptimistic,
   removeInboxThreadsOptimistic,
@@ -1565,26 +1566,24 @@ export function useMarkRead() {
       const previousThread = resolvedThreadId
         ? getCachedThread(resolvedThreadId, resolvedAccountEmail)
         : undefined;
-      const previousReadState =
-        previousThread?.find((message) => message.id === id)?.isRead ??
-        target?.isRead;
-      const mutationVersion = beginReadMutation(
+      const previousReadState = optimisticBooleanState(
         id,
-        previousReadState ?? target?.isRead,
-        isRead,
+        "isRead",
+        previousThread?.find((message) => message.id === id)?.isRead ??
+          target?.isRead,
       );
+      const inboxThreadId = resolvedThreadId ?? id;
+      const inboxRowChanges = isRead
+        ? previousReadState === false
+        : previousReadState === true || inboxThreadShowsRead(qc, inboxThreadId);
+      const mutationVersion = beginReadMutation(id, previousReadState, isRead);
       const readIntent = resolvedThreadId
         ? beginThreadReadIntent(resolvedThreadId)
         : undefined;
       setOptimisticOverride(id, { isRead });
-      const inboxMutationId =
-        previousReadState !== undefined && previousReadState !== isRead
-          ? adjustInboxThreadUnreadOptimistic(
-              qc,
-              resolvedThreadId ?? id,
-              isRead ? -1 : 1,
-            )
-          : undefined;
+      const inboxMutationId = inboxRowChanges
+        ? adjustInboxThreadUnreadOptimistic(qc, inboxThreadId, isRead ? -1 : 1)
+        : undefined;
       const restartThread = resolvedThreadId
         ? supersedeCachedThreadFetch(resolvedThreadId, resolvedAccountEmail)
         : false;

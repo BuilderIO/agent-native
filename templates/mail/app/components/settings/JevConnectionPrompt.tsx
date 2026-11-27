@@ -3,8 +3,8 @@ import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
+  type BuilderConnectFlow,
 } from "@agent-native/toolkit/app/settings";
-import { useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -13,30 +13,20 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
-export function JevConnectionPrompt({
-  variant = "row",
-  onConnected,
-  disabled = false,
-  showHeading = true,
-}: {
-  variant?: "row" | "trigger" | "menu-item";
-  onConnected?: () => void;
-  disabled?: boolean;
-  showHeading?: boolean;
-}) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const flow = useBuilderConnectFlow({
+function useJevConnectFlow(onConnected?: () => void) {
+  return useBuilderConnectFlow({
     trackingSource: "mail_jev_triage_setup",
     trackingFlow: "connect_jev",
-    onConnected,
+    onConnected: () => onConnected?.(),
   });
+}
 
-  const actions = (
+function JevConnectActions({ flow }: { flow: BuilderConnectFlow }) {
+  const t = useT();
+  return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1">
       <BuilderConnectPopover flow={flow}>
         <Button
@@ -68,61 +58,69 @@ export function JevConnectionPrompt({
       </Link>
     </div>
   );
+}
 
-  const dialogContent = (
-    <DialogContent className="sm:max-w-[420px]">
-      <DialogHeader>
-        <DialogTitle>{t("mail.aiFilter.connectJev")}</DialogTitle>
-      </DialogHeader>
-      <p className="text-sm text-muted-foreground">
-        {t("mail.aiFilter.freeBuilderOrApiKey")}
-      </p>
-      {actions}
-      {flow.error ? (
-        <p className="text-xs text-destructive">{flow.error}</p>
-      ) : null}
-    </DialogContent>
+export function JevConnectionMenuItem({
+  onSelect,
+  disabled = false,
+}: {
+  onSelect: () => void;
+  disabled?: boolean;
+}) {
+  const t = useT();
+  return (
+    <DropdownMenuItem
+      onSelect={onSelect}
+      disabled={disabled}
+      className="justify-between gap-4"
+    >
+      {t("mail.sort.priority")}
+      <span className="whitespace-nowrap text-xs text-muted-foreground">
+        {t("mail.aiFilter.connectJev")}
+      </span>
+    </DropdownMenuItem>
   );
+}
 
-  if (variant === "menu-item") {
-    return (
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            setOpen(true);
-          }}
-          disabled={disabled || flow.connecting}
-          className="justify-between"
-        >
-          {t("mail.sort.priority")}
-          <span className="text-xs text-muted-foreground">
-            {t("mail.aiFilter.connectJev")}
-          </span>
-        </DropdownMenuItem>
-        {dialogContent}
-      </Dialog>
-    );
-  }
+export function JevConnectionDialog({
+  open,
+  onOpenChange,
+  onConnected,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConnected?: () => void;
+}) {
+  const t = useT();
+  const flow = useJevConnectFlow(onConnected);
 
-  if (variant === "trigger") {
-    return (
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled || flow.connecting}
-            className="h-7 px-2 text-[11px]"
-          >
-            {t("mail.aiFilter.connectJev")}
-          </Button>
-        </DialogTrigger>
-        {dialogContent}
-      </Dialog>
-    );
-  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>{t("mail.aiFilter.connectJev")}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {t("mail.aiFilter.freeBuilderOrApiKey")}
+        </p>
+        <JevConnectActions flow={flow} />
+        {flow.error ? (
+          <p className="text-xs text-destructive">{flow.error}</p>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function JevConnectionPrompt({
+  onConnected,
+  showHeading = true,
+}: {
+  onConnected?: () => void;
+  showHeading?: boolean;
+}) {
+  const t = useT();
+  const flow = useJevConnectFlow(onConnected);
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
@@ -136,7 +134,7 @@ export function JevConnectionPrompt({
           {t("mail.aiFilter.freeBuilderOrApiKey")}
         </p>
       </div>
-      {actions}
+      <JevConnectActions flow={flow} />
       {flow.error ? (
         <p className="basis-full text-xs text-destructive">{flow.error}</p>
       ) : null}

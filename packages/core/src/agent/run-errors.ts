@@ -55,6 +55,14 @@ export const PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE =
   "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.";
 
 export const PRIVATE_SAFE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  [RUN_STREAM_ENDED_ERROR_CODE]: RUN_STREAM_ENDED_MESSAGE,
+  [AGENT_RUN_NO_OUTPUT_ERROR_CODE]: AGENT_RUN_NO_OUTPUT_MESSAGE,
+  run_timeout: RUN_TIMEOUT_MESSAGE,
+  loop_limit: RUN_LOOP_LIMIT_MESSAGE,
+  no_progress: RUN_NO_PROGRESS_MESSAGE,
+  gateway_timeout: RUN_GATEWAY_TIMEOUT_MESSAGE,
+  network_interrupted: RUN_NETWORK_INTERRUPTED_MESSAGE,
+  rate_limited: RUN_RATE_LIMITED_MESSAGE,
   [PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE]:
     PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
   [TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE]:

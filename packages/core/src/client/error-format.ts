@@ -16,6 +16,10 @@ import {
   isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
+import {
+  PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+  WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+} from "../agent/run-errors.js";
 import { commercialSurfacesHidden } from "./app-config.js";
 import {
   RUN_FAILED_MESSAGE,
@@ -162,6 +166,10 @@ type ErrorTranslate = (
 ) => string;
 
 const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
+  [
+    PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+    "agentChat.errorMessages.writeOutcomeUnknown",
+  ],
   [
     CREDITS_LIMIT_REACHED_MESSAGE,
     "agentChat.errorMessages.creditsLimitReached",
@@ -343,7 +351,9 @@ function parseProviderErrorPayload(
   raw: string,
 ): ParsedProviderErrorPayload | null {
   try {
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(
+      raw.replace(/^(?:Error:\s*)?(?:HTTP\s+)?[45]\d{2}\s+(?=\{)/i, ""),
+    );
     if (!parsed || typeof parsed !== "object") return null;
     const record = parsed as Record<string, unknown>;
     const error = record.error;
@@ -446,6 +456,15 @@ export function normalizeChatError(
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const credential = chatCredentialState(text, code);
+
+  if (code === WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE) {
+    return {
+      message: PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+      ...(text !== PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE
+        ? { details: text }
+        : {}),
+    };
+  }
   const rejectedRequest = isRejectedRequestErrorCode(code);
 
   if (credential?.kind === "exhausted") {
@@ -519,7 +538,10 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderRateLimit(text, code)) {
+  if (
+    isProviderRateLimit(text, code) ||
+    providerPayload?.errorCode === "overloaded_error"
+  ) {
     return {
       message:
         providerMessage ??

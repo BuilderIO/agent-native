@@ -138,6 +138,14 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+async function readInventoryPage(
+  args: Parameters<typeof listEventsAction.run>[0],
+) {
+  const result = await listEventsAction.run(args, { caller: "mcp" });
+  if (Array.isArray(result)) throw new Error("Expected an inventory page");
+  return result;
+}
+
 describe("listCalendarEvents booking merge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -385,6 +393,26 @@ describe("list-events inventory contract", () => {
       { caller: "frontend" },
     );
     expect(Array.isArray(result)).toBe(true);
+  });
+
+  it("reports rate limiting to the calendar without treating it as an authentication failure", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [
+        {
+          email: "owner@example.com",
+          error: "quota exceeded",
+          code: "RATE_LIMITED",
+        },
+      ],
+    });
+
+    await expect(
+      listEventsAction.run({
+        from: "2026-06-17",
+        to: "2026-06-18",
+      }),
+    ).rejects.toMatchObject({ errorCode: "calendar_rate_limited" });
   });
 
   it("does not apply a legacy bare id when multiple Google accounts make it ambiguous", async () => {
@@ -1007,6 +1035,57 @@ describe("list-events inventory contract", () => {
     expect(result).toEqual([]);
   });
 
+  it("reports a throttled overlay read to the calendar instead of presenting incomplete coverage", async () => {
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [
+        {
+          email: "guest@example.test",
+          error: "Throttled",
+          code: "RATE_LIMITED",
+        },
+      ],
+      accountErrors: [],
+    });
+    await expect(
+      listEventsAction.run({
+        from: "2026-06-17",
+        to: "2026-06-18",
+        overlayEmails: ["guest@example.test"],
+        incremental: true,
+      }),
+    ).rejects.toMatchObject({ errorCode: "calendar_rate_limited" });
+  });
+
+  it("returns healthy events inside the typed partial failure", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({ bookings: [bookingRow({ googleEventId: null })] }),
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [
+        {
+          email: "broken@example.test",
+          error: "Throttled",
+          code: "RATE_LIMITED",
+        },
+      ],
+    });
+    await expect(
+      listEventsAction.run({
+        from: "2026-06-17",
+        to: "2026-06-18",
+        incremental: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "calendar_rate_limited",
+      details: {
+        partialEvents: [expect.objectContaining({ id: "booking:booking-1" })],
+      },
+    });
+  });
+
   it("still fails the whole request when the primary account read itself errors with no events", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [],
@@ -1021,7 +1100,10 @@ describe("list-events inventory contract", () => {
         },
         {},
       ),
-    ).rejects.toThrow("Refresh token revoked");
+    ).rejects.toMatchObject({
+      errorCode: "calendar_auth_required",
+      statusCode: 409,
+    });
   });
 
   it("fails when one account errors and another account read succeeds with no events", async () => {
@@ -1036,7 +1118,10 @@ describe("list-events inventory contract", () => {
 
     await expect(
       listEventsAction.run({ from: "2026-06-17", to: "2026-06-18" }),
-    ).rejects.toThrow("broken@example.com: Refresh failed");
+    ).rejects.toMatchObject({
+      errorCode: "calendar_read_failed",
+      statusCode: 503,
+    });
   });
 
   it("still fails when the primary read errors even if a supplementary overlay event exists", async () => {
@@ -1075,7 +1160,10 @@ describe("list-events inventory contract", () => {
         },
         {},
       ),
-    ).rejects.toThrow("Refresh token revoked");
+    ).rejects.toMatchObject({
+      errorCode: "calendar_auth_required",
+      statusCode: 409,
+    });
   });
 
   it("trusts a successful primary read over a local booking fallback even when an overlay account errors", async () => {
@@ -1212,6 +1300,89 @@ describe("list-events inventory contract", () => {
       ),
     ).rejects.toThrow("Expired or invalid");
     expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("pages through events whose starts carry different UTC offsets", async () => {
+    const event = (id: string, start: string, end: string) => ({
+      id: `google-${id}`,
+      googleEventId: id,
+      title: id,
+      description: "",
+      start,
+      end,
+      location: "",
+      allDay: false,
+      source: "google",
+      accountEmail: "steve@example.com",
+      createdAt: "2026-06-12T10:13:39.746Z",
+      updatedAt: "2026-06-12T10:13:39.746Z",
+    });
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        event(
+          "new-york",
+          "2026-06-17T10:00:00-05:00",
+          "2026-06-17T11:00:00-05:00",
+        ),
+        event(
+          "paris",
+          "2026-06-17T10:00:00+01:00",
+          "2026-06-17T11:00:00+01:00",
+        ),
+        event("utc", "2026-06-17T12:00:00.000Z", "2026-06-17T13:00:00.000Z"),
+      ],
+      errors: [],
+    });
+    const ids: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 4; page += 1) {
+      const result = await readInventoryPage({
+        from: "2026-06-17",
+        to: "2026-06-18",
+        format: "inventory",
+        pageSize: 1,
+        cursor,
+      });
+      ids.push(...result.items.map((item) => item.id));
+      cursor = result.page.nextCursor;
+      if (!cursor) break;
+    }
+
+    expect(ids).toEqual(["paris", "utc", "new-york"]);
+  });
+
+  it("reports a failed workspace calendar connection instead of an empty calendar", async () => {
+    getOwnedAccountEmailsMock.mockResolvedValue([]);
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "workspace", error: "Workspace grant revoked" }],
+    });
+
+    const result = await readInventoryPage({
+      from: "2026-06-17",
+      to: "2026-06-18",
+      format: "inventory",
+      sources: ["google"],
+    });
+
+    expect(result.accounts).toEqual([
+      {
+        accountEmail: "workspace",
+        status: "error",
+        count: 0,
+        exhausted: false,
+        error: {
+          code: "PROVIDER_READ_FAILED",
+          message: "Workspace grant revoked",
+          retryable: true,
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      coverageComplete: false,
+      complete: false,
+      items: [],
+    });
   });
 
   it("uses the saved timezone for omitted-range inventory cursors", async () => {

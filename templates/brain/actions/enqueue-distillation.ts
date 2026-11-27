@@ -15,6 +15,7 @@ export default defineAction({
     instructions: z.string().optional(),
     payload: optionalJsonRecordSchema,
   }),
+  mcpTool: "search",
   run: async (args) => {
     const access = await getAccessibleCapture(args.captureId);
     if (!access) throw new Error(`No access to capture ${args.captureId}`);

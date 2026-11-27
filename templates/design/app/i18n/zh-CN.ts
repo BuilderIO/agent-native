@@ -354,6 +354,8 @@ export default {
       blur: "模糊",
       spread: "扩散",
       rotation3d: "3D 旋转",
+      constraints: "约束",
+      absolutePosition: "绝对定位",
       rotationX: "旋转 X",
       rotationY: "旋转 Y",
       perspective: "透视",
@@ -843,6 +845,10 @@ export default {
     exportPreview: {
       rendering: "正在生成预览…",
       failed: "无法生成预览",
+      noPreview: "没有可预览的屏幕",
+      externalPreview: "预览需要实时应用",
+      readOnlyPreview: "只读模式下无法预览",
+      selectionUnresolved: "在此屏幕上找不到所选内容",
     },
     framePresets: {
       title: "画框",
@@ -1125,6 +1131,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "编辑 {{name}} 的颜色",
+      field: {
+        open: "令牌",
+        detach: "分离令牌",
+        primitives: "{{group}}原始令牌",
+        loading: "正在加载令牌…",
+      },
     },
     import: {
       description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 页面。",
@@ -1845,6 +1857,7 @@ export default {
   layersPanel: {
     title: "图层",
     screens: "页面",
+    components: "组件",
     resizeScreens: "调整页面区域大小",
     thumbnail: "缩略图",
     addScreen: "添加页面",
@@ -1874,6 +1887,7 @@ export default {
     bringToFront: "置于顶层",
     sendBackward: "下移一层",
     sendToBack: "置于底层",
+    arrangeUnavailable: "请在可编辑的设计中选择一个图层以调整顺序",
     pasteToReplace: "粘贴替换",
     frameSelection: "创建画框",
     flipHorizontal: "水平翻转",

@@ -357,6 +357,59 @@ describe("workspace provider OAuth", () => {
     });
   });
 
+  it.each([
+    {
+      name: "a complete integration pair",
+      secrets: {
+        GITHUB_INTEGRATION_CLIENT_ID: "integration-client",
+        GITHUB_INTEGRATION_CLIENT_SECRET: "integration-secret",
+        GITHUB_CLIENT_ID: "sign-in-client",
+        GITHUB_CLIENT_SECRET: "sign-in-secret",
+      },
+      clientId: "integration-client",
+    },
+    {
+      name: "the sign-in pair when the integration pair is incomplete",
+      secrets: {
+        GITHUB_INTEGRATION_CLIENT_ID: "integration-client",
+        GITHUB_CLIENT_ID: "sign-in-client",
+        GITHUB_CLIENT_SECRET: "sign-in-secret",
+      },
+      clientId: "sign-in-client",
+    },
+  ])("starts GitHub OAuth with $name", async ({ secrets, clientId }) => {
+    const email = "requester@example.com";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    const secretValues = new Map(Object.entries(secrets));
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secretValues.get(key) ?? null,
+    );
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/github/start",
+    );
+    requestUrl.searchParams.set("appId", "content");
+    requestUrl.searchParams.set("scope", "user");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "github");
+
+    expect(result).toBeInstanceOf(Response);
+    const location = (result as Response).headers.get("Location");
+    expect(location).toEqual(expect.any(String));
+    expect(new URL(location ?? "").searchParams.get("client_id")).toBe(
+      clientId,
+    );
+  });
+
   it("binds a start without an appId to the current app so its callback grants that app", async () => {
     const email = "requester@example.com";
     defineAppConfig({ app: { id: "content-test-app" } });

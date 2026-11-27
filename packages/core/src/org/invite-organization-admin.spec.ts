@@ -231,6 +231,19 @@ describe("public authenticated admin invitation", () => {
     });
     effectsAbsent();
   });
+  it("does not report a suppressed send as delivered", async () => {
+    seam.send.mockResolvedValueOnce({
+      status: "suppressed",
+      reason: "test-identity",
+    });
+    await expect(invoke(input)).resolves.toMatchObject({
+      status: "pending",
+      emailSent: false,
+      emailError: "The invitation email was not delivered",
+    });
+    expect(writes()).toHaveLength(1);
+    expect(seam.record).toHaveBeenCalledTimes(1);
+  });
   it("preserves shared transport failure semantics and audits the created pending invitation once", async () => {
     seam.send.mockRejectedValueOnce(new Error("synthetic SMTP failure"));
     await expect(invoke(input)).resolves.toMatchObject({

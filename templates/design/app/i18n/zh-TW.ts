@@ -550,6 +550,8 @@ export default {
       blur: "模糊",
       spread: "擴散",
       rotation3d: "3D 旋轉",
+      constraints: "約束",
+      absolutePosition: "絕對定位",
       rotationX: "旋轉 X",
       rotationY: "旋轉 Y",
       perspective: "透視",
@@ -1027,6 +1029,10 @@ export default {
     exportPreview: {
       rendering: "正在產生預覽…",
       failed: "無法產生預覽",
+      noPreview: "沒有可預覽的畫面",
+      externalPreview: "預覽需要即時應用程式",
+      readOnlyPreview: "唯讀模式下無法預覽",
+      selectionUnresolved: "在此畫面上找不到所選內容",
     },
     framePresets: {
       title: "外框",
@@ -1351,6 +1357,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "編輯 {{name}} 的顏色",
+      field: {
+        open: "權杖",
+        detach: "卸離權杖",
+        primitives: "{{group}}原始權杖",
+        loading: "正在載入權杖…",
+      },
     },
     import: {
       description: "將 Figma 剪貼簿 HTML 或獨立 HTML 匯入為 Design 頁面。",
@@ -2012,6 +2024,7 @@ export default {
   layersPanel: {
     title: "圖層",
     screens: "頁面",
+    components: "元件",
     resizeScreens: "調整頁面區塊大小",
     thumbnail: "縮圖",
     addScreen: "新增頁面",
@@ -2041,6 +2054,7 @@ export default {
     bringToFront: "移到最上層",
     sendBackward: "下移一層",
     sendToBack: "移到最下層",
+    arrangeUnavailable: "請在可編輯的設計中選取圖層以調整順序",
     pasteToReplace: "貼上以取代",
     frameSelection: "將選取範圍建立畫框",
     flipHorizontal: "水平翻轉",

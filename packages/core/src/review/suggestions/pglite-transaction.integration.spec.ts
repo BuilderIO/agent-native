@@ -160,7 +160,7 @@ afterAll(async () => {
   else process.env.DATABASE_URL = previousDatabaseUrl;
 });
 
-describe.sequential("suggestion actions on native PGlite transactions", () => {
+describe("suggestion actions on native PGlite transactions", () => {
   it("rechecks proposal creation access in the transaction", async () => {
     const type = "pglite-review-transaction-revoked-resource";
     registerReviewableResource({

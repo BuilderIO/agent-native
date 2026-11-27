@@ -64,6 +64,7 @@ export interface BuilderCmsExecutionPayload {
   };
   /** Builder's entry as read right before the write. */
   livePreflight?: BuilderCmsLivePreflight;
+  reviewedBodyEmpty?: true;
 }
 
 export interface BuilderCmsLivePreflight {
@@ -1093,6 +1094,9 @@ export function buildBuilderCmsExecutionPlan(args: {
         checks: safety.checks,
         blockers: safety.blockers,
       },
+      ...(args.changeSet.bodyChange?.currentEmpty
+        ? { reviewedBodyEmpty: true as const }
+        : {}),
     },
     lastError,
   };
@@ -1186,6 +1190,11 @@ export function validateBuilderCmsExecutionDryRun(args: {
   ) {
     mismatches.push(
       "Builder entry changed since this change was reviewed. Refresh and review it again.",
+    );
+  }
+  if (storedComparable.reviewedBodyEmpty && !planComparable.reviewedBodyEmpty) {
+    mismatches.push(
+      "Builder body changed since this change was reviewed. Refresh and review it again.",
     );
   }
 

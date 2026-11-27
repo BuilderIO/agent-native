@@ -41,6 +41,7 @@ const dbMockState = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isConnectionError: (error: { code?: string }) => error?.code === "ECONNRESET",
   isLocalDatabase: () => dbMockState.localDatabase,
@@ -268,6 +269,24 @@ describe("application-state store", () => {
       ]),
     );
     expect(entries).toHaveLength(2);
+  });
+
+  it("distinguishes an absent pane from corrupt stored state", async () => {
+    const pane = { appId: "mail", path: "/inbox" };
+    await appStatePut(SESSION, "chat-first-pane", pane);
+    await expect(
+      appStateGetManyEntries(SESSION, ["chat-first-pane", "absent-pane"]),
+    ).resolves.toEqual([{ key: "chat-first-pane", value: pane }]);
+    await rawClient.execute({
+      sql: "UPDATE application_state SET value = ? WHERE session_id = ? AND key = ?",
+      args: ["{invalid", SESSION, "chat-first-pane"],
+    });
+    await expect(
+      appStateGetManyEntries(SESSION, ["chat-first-pane"]),
+    ).rejects.toBeInstanceOf(SyntaxError);
+    await expect(
+      appStateGetManyEntries(SESSION, ["absent-pane"]),
+    ).resolves.toEqual([]);
   });
 
   it("does not report connection failures as missing state", async () => {

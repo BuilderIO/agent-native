@@ -1,5 +1,6 @@
 import {
   acquireGmailQuota,
+  assertGmailTokenNotCoolingDown,
   GmailQuotaAccountUnavailableError,
   GmailQuotaCooldownError,
   markGmailQuotaSuccess,
@@ -271,7 +272,7 @@ export async function googleFetch(
   const maxRetries = 3;
   const method = requestOptions.method?.toUpperCase() ?? "GET";
   const canRetry = method === "GET" || method === "HEAD";
-  const gmailRequest = url.includes("gmail.googleapis.com");
+  const gmailRequest = new URL(url).hostname === "gmail.googleapis.com";
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     signal?.throwIfAborted();
@@ -340,7 +341,7 @@ export async function googleFetch(
       }
     }
 
-    if (!res.ok && isQuotaError(res.status, data)) {
+    if (gmailRequest && !res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
       let effectiveCooldownMs = cooldownMs;
       try {
@@ -726,6 +727,7 @@ export interface GmailBatchResult {
 }
 
 const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
+const MAX_PARTS_PER_GMAIL_BATCH_REQUEST = 10;
 
 async function gmailBatchGet(
   accessToken: string,
@@ -764,8 +766,32 @@ async function gmailBatchGet(
     ids.length * costPerItem,
     lane,
   );
-  signal?.throwIfAborted();
 
+  const results: GmailBatchResult[] = [];
+  for (let i = 0; i < ids.length; i += MAX_PARTS_PER_GMAIL_BATCH_REQUEST) {
+    if (i > 0) await assertGmailTokenNotCoolingDown(accessToken);
+    const part = await sendGmailBatch(
+      accessToken,
+      ids.slice(i, i + MAX_PARTS_PER_GMAIL_BATCH_REQUEST),
+      buildPath,
+      signal,
+    );
+    results.push(...part);
+  }
+  await markGmailQuotaSuccessAfterResponse(
+    accessToken,
+    clearCooldownAfterSuccess,
+  );
+  return results;
+}
+
+async function sendGmailBatch(
+  accessToken: string,
+  ids: string[],
+  buildPath: (id: string) => string,
+  signal?: AbortSignal,
+): Promise<GmailBatchResult[]> {
+  signal?.throwIfAborted();
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
   const CRLF = "\r\n";
   const parts: string[] = [];
@@ -836,10 +862,6 @@ async function gmailBatchGet(
     );
     throw new GmailQuotaCooldownError(cooldownMs);
   }
-  await markGmailQuotaSuccessAfterResponse(
-    accessToken,
-    clearCooldownAfterSuccess,
-  );
   return parsed;
 }
 
@@ -995,6 +1017,25 @@ export function peopleListOtherContacts(
   } = {},
 ) {
   return googleFetch(`${PEOPLE_BASE}/otherContacts${qs(params)}`, accessToken);
+}
+
+export function calendarListEvents(
+  accessToken: string,
+  calendarId: string,
+  params: {
+    q?: string;
+    timeMin?: string;
+    timeMax?: string;
+    singleEvents?: "true";
+    orderBy?: "startTime";
+    maxResults?: number;
+    pageToken?: string;
+  },
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs(params)}`,
+    accessToken,
+  );
 }
 
 export function calendarGetEvent(

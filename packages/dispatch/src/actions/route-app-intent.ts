@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { classifyDataIntent } from "../lib/data-intent.js";
 import { matchDispatchAppCandidates } from "../lib/dispatch-app-identity.js";
 import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
 import { listPointers, matchPointer } from "../server/lib/pointers-store.js";
@@ -151,6 +152,23 @@ export default defineAction({
           latencyMs: 0,
         };
       }
+    }
+
+    const intentApp = classifyDataIntent(text);
+    const intentCandidates = intentApp
+      ? matchDispatchAppCandidates(apps, intentApp)
+      : [];
+    const intentCandidate = intentCandidates.at(0);
+    if (intentCandidates.length === 1 && intentCandidate) {
+      return {
+        status: "ok",
+        app: intentCandidate.id,
+        confidence: 1,
+        provider: "routing",
+        model: "data-intent",
+        cached: false,
+        latencyMs: 0,
+      };
     }
 
     const hit = matchPointer(text, grantedPointers);

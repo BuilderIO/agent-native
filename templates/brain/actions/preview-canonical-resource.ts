@@ -30,6 +30,7 @@ export default defineAction({
       },
     ),
   readOnly: true,
+  mcpTool: "search",
   run: async ({ knowledgeId, proposalId, operation, draft }) => ({
     preview: await previewKnowledgeCanonicalResource({
       knowledgeId,

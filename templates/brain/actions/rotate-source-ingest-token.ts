@@ -1,6 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -12,19 +11,8 @@ import {
   sha256Hex,
   stableJson,
 } from "../server/lib/brain.js";
-
-function sourceKeyFor(source: {
-  sourceKey?: string | null;
-  configJson?: string | null;
-}) {
-  const columnValue = source.sourceKey?.trim();
-  if (columnValue) return columnValue;
-  const config = parseJson<Record<string, unknown>>(source.configJson, {});
-  const configValue = config.sourceKey;
-  return typeof configValue === "string" && configValue.trim()
-    ? configValue.trim()
-    : null;
-}
+import { sourceKeyFor } from "../server/lib/source-ingest.js";
+import { sourceConfigUnchanged } from "./_source-config.js";
 
 export default defineAction({
   description:
@@ -56,7 +44,7 @@ export default defineAction({
       ingestTokenHash,
     };
     const db = getDb();
-    await db
+    const saved = await db
       .update(schema.brainSources)
       .set({
         sourceKey,
@@ -64,14 +52,15 @@ export default defineAction({
         configJson: stableJson(config),
         updatedAt: nowIso(),
       })
-      .where(eq(schema.brainSources.id, sourceId));
-    const [source] = await db
-      .select()
-      .from(schema.brainSources)
-      .where(eq(schema.brainSources.id, sourceId))
-      .limit(1);
-    if (!source) throw new Error(`Brain source ${sourceId} was not found`);
+      .where(sourceConfigUnchanged(existing))
+      .returning();
+    const source = saved.find((row) => row.id === sourceId);
+    if (!source)
+      fail("The source changed. Reload it and retry the rotation.", {
+        errorCode: "source_config_conflict",
+        statusCode: 409,
+      });
 
-    return { source: serializeSource(source), ingestToken };
+    return { source: serializeSource(source), sourceKey, ingestToken };
   },
 });

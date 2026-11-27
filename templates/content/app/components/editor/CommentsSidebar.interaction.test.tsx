@@ -97,12 +97,19 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (date: Date | string) => new Date(date).toISOString(),
   }),
-  useT: () => (key: string, params?: { count?: number; name?: string }) =>
-    key === "comments.proposalEditCount"
-      ? `${key}:${params?.count}`
-      : key === "comments.aiAttribution"
-        ? `${key}:${params?.name}`
-        : key,
+  useT:
+    () =>
+    (
+      key: string,
+      params?: { count?: number; name?: string; old?: string; new?: string },
+    ) =>
+      key === "comments.proposalEditCount"
+        ? `${key}:${params?.count}`
+        : key === "comments.aiAttribution"
+          ? `${key}:${params?.name}`
+          : key === "comments.suggestionReplaceWith"
+            ? `${key}: “${params?.old}” → “${params?.new}”`
+            : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
   ...(await importOriginal<
@@ -442,8 +449,13 @@ describe("comment review interactions", () => {
   });
   describe("review units", () => {
     const source = "Teh team will recieve the files.";
-    const piece = (id: string, reviewUnit: string, find: string) => {
-      const from = source.indexOf(find);
+    const piece = (
+      id: string,
+      reviewUnit: string,
+      find: string,
+      text = source,
+    ) => {
+      const from = text.indexOf(find);
       return {
         ...proposalSuggestion(id),
         metadata: { reviewUnit },
@@ -451,9 +463,9 @@ describe("comment review interactions", () => {
           {
             id: `operation-${id}`,
             kind: "replace_text",
-            before: { markdown: source, changedText: find },
+            before: { markdown: text, changedText: find },
             after: {
-              markdown: source.replace(find, find.toUpperCase()),
+              markdown: text.replace(find, find.toUpperCase()),
               changedText: find.toUpperCase(),
             },
             anchor: { from, to: from + find.length },
@@ -584,6 +596,120 @@ describe("comment review interactions", () => {
       );
     });
 
+    it("hands focus on to the card past a proposal decided from the keyboard", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:1", "recieve"),
+      ];
+      const lone = {
+        ...piece("three", "k:2", "files"),
+        proposalId: null,
+      } as ResourceSuggestion;
+      const options = { onDecideSuggestionProposal };
+      render(null, [], "history", {
+        ...options,
+        suggestions: [...members, lone],
+      });
+      const acceptAll = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal-decision='accepted']",
+      );
+      if (!acceptAll) throw new Error("The proposal has no Accept all");
+      acceptAll.focus();
+      act(() => {
+        acceptAll.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members,
+      );
+
+      render(null, [], "history", { ...options, suggestions: [lone] });
+      expect(container.querySelector("[data-suggestion-proposal]")).toBeNull();
+      const next = container.querySelector(
+        "[data-suggestion-id='three'] [data-thread-card]",
+      );
+      expect(next).not.toBeNull();
+      expect(document.activeElement).toBe(next);
+    });
+
+    it("finds the decided card again when deciding a proposal's first rebuilds the group", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const one = piece("one", "k:0", "Teh");
+      const two = piece("two", "k:1", "recieve");
+      const lone = {
+        ...piece("three", "k:2", "files"),
+        proposalId: null,
+      } as ResourceSuggestion;
+      const options = { onDecideSuggestionProposal, activeSuggestionId: "one" };
+      render(null, [], "inline", {
+        ...options,
+        suggestions: [one, two, lone],
+      });
+      const cardOf = (id: string) =>
+        container.querySelector(
+          `[data-suggestion-id='${id}'] [data-thread-card]`,
+        );
+      const before = cardOf("one");
+      expect(before).not.toBeNull();
+      const accept = acceptIn("one");
+      accept.focus();
+      act(() => {
+        accept.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      });
+
+      render(null, [], "inline", {
+        ...options,
+        suggestions: [{ ...one, status: "accepted" }, two, lone],
+      });
+      const rebuilt = cardOf("one");
+      expect(rebuilt).not.toBeNull();
+      expect(rebuilt).not.toBe(before);
+      expect(document.activeElement).toBe(rebuilt);
+    });
+
+    it("keeps focus on a proposal that stays listed after Accept all", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:1", "recieve"),
+      ];
+      const options = { onDecideSuggestionProposal };
+      render(null, [], "history", { ...options, suggestions: members });
+      act(() => replyState.setHistoryFilters({ status: "all" }));
+      const acceptAll = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal-decision='accepted']",
+      );
+      if (!acceptAll) throw new Error("The proposal has no Accept all");
+      acceptAll.focus();
+      act(() => {
+        acceptAll.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      });
+
+      render(null, [], "history", {
+        ...options,
+        suggestions: members.map((member) => ({
+          ...member,
+          status: "accepted" as const,
+        })),
+      });
+      expect(
+        container.querySelector("[data-suggestion-proposal-decision]"),
+      ).toBeNull();
+      const header = container.querySelector(
+        "[data-suggestion-proposal='proposal'] > button[aria-expanded]",
+      );
+      expect(header).not.toBeNull();
+      expect(document.activeElement).toBe(header);
+    });
+
     it("shows what a one-piece unit replaces, where cards would read alike", () => {
       render(null, [], "inline", {
         suggestions: [piece("one", "k:0", "Teh"), piece("two", "k:1", "files")],
@@ -592,16 +718,19 @@ describe("comment review interactions", () => {
         onDecideSuggestionProposal: vi.fn(),
       });
       const card = container.querySelector("[data-suggestion-id='one']");
-      expect(card?.textContent).toContain("comments.suggestionWith: “TEH”");
-      expect(card?.textContent).toContain("comments.suggestionReplace: “Teh”");
+      expect(card?.textContent).toContain(
+        "comments.suggestionReplaceWith: “Teh” → “TEH”",
+      );
     });
 
     it("opens a unit's card when a later piece is commented on", () => {
+      const long =
+        "Teh team that looks after the shared drive will, once the quarterly review is finished and signed off by everyone, recieve the files.";
       render(null, [], "inline", {
         suggestions: [
-          piece("one", "k:0", "Teh"),
-          piece("two", "k:0", "recieve"),
-          piece("three", "k:1", "files"),
+          piece("one", "k:0", "Teh", long),
+          piece("two", "k:0", "recieve", long),
+          piece("three", "k:1", "files", long),
         ],
         activeSuggestionId: "one",
         alignToAnchors: false,
@@ -899,7 +1028,10 @@ describe("comment review interactions", () => {
     expect(badge("one")?.textContent).toContain("Codex");
     expect(
       badge("one")?.querySelector("[aria-label]")?.getAttribute("aria-label"),
-    ).toContain("comments.aiAttribution:writer.");
+    ).toContain("comments.aiAttribution:Writer.");
+    expect(
+      container.querySelector("[data-suggestion-id='one']")?.textContent,
+    ).toContain("Writer");
     expect(badge("two")?.getAttribute("data-comment-ai-attribution")).toBe(
       "agent",
     );

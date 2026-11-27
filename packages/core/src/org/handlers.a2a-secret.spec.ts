@@ -64,6 +64,7 @@ vi.mock("../settings/org-settings.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute }),
 }));
 

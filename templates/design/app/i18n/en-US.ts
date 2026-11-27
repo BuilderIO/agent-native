@@ -291,6 +291,8 @@ export default {
       blur: "Blur",
       spread: "Spread",
       rotation3d: "3D rotation",
+      constraints: "Constraints",
+      absolutePosition: "Absolute position",
       rotationX: "Rotate X",
       rotationY: "Rotate Y",
       perspective: "Perspective",
@@ -781,6 +783,10 @@ export default {
     exportPreview: {
       rendering: "Rendering preview…",
       failed: "Preview unavailable",
+      noPreview: "No screen to preview",
+      externalPreview: "Preview needs the live app",
+      readOnlyPreview: "Preview unavailable in read-only mode",
+      selectionUnresolved: "Selection not found on this screen",
     },
     framePresets: {
       title: "Frame",
@@ -1077,6 +1083,12 @@ export default {
         opacity: "Opacity",
       },
       editColor: "Edit color for {{name}}",
+      field: {
+        open: "Tokens",
+        detach: "Detach token",
+        primitives: "{{group}} primitives",
+        loading: "Loading tokens…",
+      },
     },
     import: {
       description:
@@ -1846,6 +1858,7 @@ export default {
   layersPanel: {
     title: "Layers",
     screens: "Pages",
+    components: "Components",
     resizeScreens: "Resize pages section",
     thumbnail: "Thumbnail",
     addScreen: "Add page",
@@ -1875,6 +1888,7 @@ export default {
     bringToFront: "Bring to front",
     sendBackward: "Send backward",
     sendToBack: "Send to back",
+    arrangeUnavailable: "Select a layer in an editable design to reorder it",
     pasteToReplace: "Paste to replace",
     frameSelection: "Frame selection",
     flipHorizontal: "Flip horizontal",

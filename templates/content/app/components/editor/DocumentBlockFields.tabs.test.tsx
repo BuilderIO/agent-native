@@ -471,6 +471,31 @@ describe("DocumentBlockFields tabs", () => {
       ).not.toBeNull();
       expect(container.querySelector("[data-primary-editor]")).not.toBeNull();
     });
+
+    it("lets every layout's column shrink below its widest line", async () => {
+      const layouts: [string, () => void][] = [
+        ["multi", () => setFields([content(), notes()])],
+        ["solo", () => setFields([content()])],
+        ["empty", () => setFields([])],
+        [
+          "loading",
+          () => {
+            mocks.query = { data: undefined, isError: false };
+          },
+        ],
+      ];
+      for (const [layout, arrange] of layouts) {
+        arrange();
+        await render();
+        const state = container.querySelector(
+          `[data-block-fields-state="${layout}"]`,
+        );
+        expect({
+          layout,
+          shrinks: state?.classList.contains("grid-cols-[minmax(0,1fr)]"),
+        }).toEqual({ layout, shrinks: true });
+      }
+    });
   });
 
   describe("switching", () => {

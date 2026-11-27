@@ -45,6 +45,11 @@ describe("link card source", () => {
     ).toBeNull();
     expect(
       linkCardDataFromRaw(
+        '<LinkCard id="x" app="content" url="https://content.example.test/page/launch" />',
+      ),
+    ).toBeNull();
+    expect(
+      linkCardDataFromRaw(
         '<LinkCard id="x" app="design" url={"javascript:alert(1)"} />',
       ),
     ).toBeNull();

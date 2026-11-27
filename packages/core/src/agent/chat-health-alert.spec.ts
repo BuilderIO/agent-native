@@ -51,6 +51,7 @@ const execute = vi.fn(async ({ sql }: { sql: string; args?: unknown[] }) => {
 });
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute }),
 }));
 

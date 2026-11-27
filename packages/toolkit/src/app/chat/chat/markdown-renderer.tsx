@@ -1,6 +1,10 @@
 // Owns the shared markdown loader, streaming text helpers, and renderer.
 
 import { NEW_CHAT_ACTION_HREF } from "@agent-native/core/client/agent-chat";
+import {
+  resolveAppBasePath,
+  WorkspaceAppMountResolutionError,
+} from "@agent-native/core/client/api-path";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, { useState, useEffect, useMemo } from "react";
@@ -31,6 +35,7 @@ import {
   parseLegacyChartShorthand,
   wrapLegacyChartShorthandLines,
 } from "./legacy-chart-shorthand.js";
+import { NewTabLinkIndicator } from "./new-tab-link-indicator.js";
 
 // ─── Lazy markdown loader ────────────────────────────────────────────────────
 // react-markdown + remark-gfm are deferred so they stay off the critical path
@@ -219,15 +224,28 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
 
 function opensMarkdownLinkInNewTab(href: string | undefined): boolean {
   if (!href || typeof window === "undefined") return false;
+  let url: URL;
   try {
-    const url = new URL(href, window.location.href);
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      url.origin !== window.location.origin
-    );
+    url = new URL(href, window.location.href);
   } catch {
     // coercion-ok: malformed links remain in the current tab and are not fetched here.
     return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (url.origin !== window.location.origin) return true;
+  const basePath = currentAppBasePath();
+  if (!basePath) return false;
+  return !(
+    url.pathname === basePath || url.pathname.startsWith(`${basePath}/`)
+  );
+}
+
+function currentAppBasePath(): string | null {
+  try {
+    return resolveAppBasePath();
+  } catch (error) {
+    if (error instanceof WorkspaceAppMountResolutionError) return null;
+    throw error;
   }
 }
 
@@ -310,6 +328,7 @@ export const markdownComponents = {
           {...rest}
         >
           {children}
+          {openInNewTab ? <NewTabLinkIndicator /> : null}
         </a>
       );
     }

@@ -1840,6 +1840,106 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_analytics_chart_citation_dashboard_idx
         ON content_analytics_chart_citations (dashboard_id)`,
     },
+    {
+      version: 145,
+      name: "content-column-fills",
+      sql: `CREATE TABLE IF NOT EXISTS content_column_fills (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        database_id TEXT NOT NULL,
+        database_document_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        rewrite BOOLEAN NOT NULL DEFAULT FALSE,
+        status TEXT NOT NULL DEFAULT 'running',
+        total INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE INDEX IF NOT EXISTS content_column_fills_database_idx
+        ON content_column_fills (database_id, created_at);
+      CREATE INDEX IF NOT EXISTS content_column_fills_status_idx
+        ON content_column_fills (status);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fills_active_idx
+        ON content_column_fills (database_id, property_id)
+        WHERE status IN ('running', 'stopping');
+      CREATE TABLE IF NOT EXISTS content_column_fill_cells (
+        fill_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'waiting',
+        base_generation BIGINT,
+        task_id TEXT,
+        agent_thread_id TEXT,
+        run_id TEXT,
+        attempt INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fill_cells_cell_idx
+        ON content_column_fill_cells (fill_id, document_id);
+      CREATE INDEX IF NOT EXISTS content_column_fill_cells_status_idx
+        ON content_column_fill_cells (fill_id, status, position)`,
+    },
+    {
+      version: 146,
+      name: "content-page-checks",
+      sql: `CREATE TABLE IF NOT EXISTS content_page_checks (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        sentence TEXT NOT NULL,
+        parts TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        wording_hash TEXT NOT NULL,
+        paused BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE INDEX IF NOT EXISTS content_page_checks_document_idx
+        ON content_page_checks (document_id, created_at);
+      CREATE TABLE IF NOT EXISTS content_page_check_results (
+        check_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        place_key TEXT NOT NULL,
+        wording_hash TEXT NOT NULL,
+        text_hash TEXT NOT NULL,
+        finding TEXT NOT NULL,
+        parts TEXT NOT NULL,
+        checked_by TEXT NOT NULL,
+        checked_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_results_place_idx
+        ON content_page_check_results (check_id, place_key);
+      CREATE INDEX IF NOT EXISTS content_page_check_results_document_idx
+        ON content_page_check_results (document_id);
+      CREATE TABLE IF NOT EXISTS content_page_check_skips (
+        check_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        place_key TEXT NOT NULL,
+        text_hash TEXT NOT NULL,
+        skipped_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_skips_place_idx
+        ON content_page_check_skips (check_id, place_key);
+      CREATE INDEX IF NOT EXISTS content_page_check_skips_document_idx
+        ON content_page_check_skips (document_id)`,
+    },
+    {
+      version: 147,
+      name: "content-page-check-questions",
+      sql: `ALTER TABLE content_page_checks
+        ADD COLUMN IF NOT EXISTS sure TEXT NOT NULL DEFAULT 'balanced';
+      CREATE TABLE IF NOT EXISTS content_page_check_usage (
+        document_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        questions INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_usage_day_idx
+        ON content_page_check_usage (document_id, day)`,
+    },
   ],
   { table: "content_migrations" },
 );

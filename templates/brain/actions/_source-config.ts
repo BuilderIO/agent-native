@@ -1,6 +1,8 @@
 import { fail } from "@agent-native/core/action";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
+import { schema } from "../server/db/index.js";
 import {
   isGoogleSourceProvider,
   parseGoogleSourceConfig,
@@ -100,6 +102,21 @@ export function mergeSourceConfigJson(
     });
   }
   return { ...config, ...(parsed as Record<string, unknown>) };
+}
+
+export function sourceConfigUnchanged(
+  source: typeof schema.brainSources.$inferSelect,
+) {
+  return and(
+    eq(schema.brainSources.id, source.id),
+    eq(schema.brainSources.configJson, source.configJson),
+    source.sourceKey === null
+      ? isNull(schema.brainSources.sourceKey)
+      : eq(schema.brainSources.sourceKey, source.sourceKey),
+    source.ingestTokenHash === null
+      ? isNull(schema.brainSources.ingestTokenHash)
+      : eq(schema.brainSources.ingestTokenHash, source.ingestTokenHash),
+  );
 }
 
 export function assertValidSourceConfig(

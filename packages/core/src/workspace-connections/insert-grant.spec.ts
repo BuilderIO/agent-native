@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   isActiveTransactionExec: () => state.activeTransaction,
 }));
 vi.mock("../server/request-context.js", () => ({

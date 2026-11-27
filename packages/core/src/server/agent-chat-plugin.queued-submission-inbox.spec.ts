@@ -2070,10 +2070,14 @@ describe("queued submission inbox recurring sweep", () => {
         getQueuedSubmissionReceipt(threadId, messageId),
       ).resolves.toBeNull();
       const fresh = await getDbExec().execute({
-        sql: `SELECT status FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+        sql: `SELECT id, status FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
         args: [threadId, freshTurn],
       });
-      expect(fresh.rows).toEqual([{ status: "completed" }]);
+      expect(fresh.rows.map(({ status }) => ({ status }))).toEqual([
+        { status: "completed" },
+      ]);
+      const { getRun } = await import("../agent/run-manager.js");
+      await getRun(String(fresh.rows[0].id))?.finalized;
     },
   );
 

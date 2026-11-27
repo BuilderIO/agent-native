@@ -1,3 +1,5 @@
+import { isAuthDisabled } from "./auth-disabled.js";
+
 /**
  * Stable code for "this deployed server is missing a setting it refuses to
  * run without" — a hosted database or the auth signing secret. The refusal
@@ -128,10 +130,6 @@ function valueOf(
 ): string | undefined {
   const value = env[key]?.trim();
   return value || undefined;
-}
-
-function truthy(value: string | undefined): boolean {
-  return isTruthyRuntimeValue(value);
 }
 
 function isProductionEnvironment(
@@ -287,7 +285,7 @@ export function getRuntimeConfigReport(
 
   if (environment === "production") {
     if (authEnabled) {
-      if (truthy(valueOf(env, "AUTH_DISABLED"))) {
+      if (isAuthDisabled(env)) {
         addIssue(
           issues,
           {

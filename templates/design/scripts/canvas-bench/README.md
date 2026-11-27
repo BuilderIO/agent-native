@@ -17,7 +17,8 @@ The `ActionContext` the harness passes in:
 - `page`, `designId`, `designUrl`, `run` (1-based), `actionName`, `options`, `constants`.
 - `idleFrameMs`: idle rAF median measured before the action (null when `ownsNavigation`).
 - `sampler.start()` / `sampler.stop()`: bracket the window whose frames and LoAFs are reported. Anything outside is not measured.
-- `checkpoint(label)`: records the visible screens and, per `--screenshots`, writes `run-<n>-<action>-<label>.png`.
+- `checkpoint(label)`: records the visible screens and, per `--screenshots`, writes `run-<n>-<action>-<label>.png`. A screen counts as visible when any of its breakpoint copies is in the canvas area. It counts as loaded when at least one copy in view has a preview frame and every in-view copy that has one has loaded; a copy still showing a placeholder is skipped, but a screen with only placeholders in view is not loaded. A checkpoint with no visible screens logs the canvas area and the screen rectangles.
+- `screenCount`: screens in the design's `canvasFrames`.
 - `waitReady()`, `readBoardExtent()`, `clearArea()`, `measurePxPerTick()`.
 - `fail(message)`: throws a `SanityFailure`.
 
@@ -49,6 +50,10 @@ pnpm perf:canvas-bench --base-url http://localhost:<port> --action pan,idle,zoom
 
 `--action` takes comma-separated names or repeated flags. The default is `pan`. Within a run, actions execute in the order given.
 
+## One run at a time
+
+Two benchmarks on one machine ruin each other's frame timings and nothing in the result shows it, so the harness takes a lock before it seeds or launches anything: `agent-native-canvas-bench.lock` in the OS temp dir, shared by every checkout on the machine. It holds the pid, the process start time, the working directory and the command line. A second invocation prints who holds the lock and exits 2. A lock whose process is gone, or whose pid now belongs to a different process, is replaced with a warning. A lock file that is not valid JSON is never treated as stale: the run refuses and asks you to delete it. The lock is released on exit, including `Ctrl-C`, a failed run and a thrown error. It only guards benchmarks; builds and other browsers still contaminate a run.
+
 ## Workflow
 
 1. Run `--video --screenshots always --runs 1` to check the script does the right thing. The JSON is marked `numbersValid: false` because recording distorts timing.
@@ -65,7 +70,9 @@ Wheels vertically (120 delta, 16 ms between ticks) from the top of the board to 
 
 `extra`: `cameraDistancePx`, `liveIframesAtEnd`, `wheelElapsedMs`, `legFrameCounts`, `pan` (board and viewport size, travel, `pxPerTick`, `ticks`), `legs` (dx/dy per leg).
 
-Fails when: the board fits in view, a leg needs more than 1500 ticks, calibration does not move and return the camera, a leg moves the camera under 100 px or under 80% of ticks x `pxPerTick`, the camera ends the back leg more than 10% of the forward leg from where it started (`returnedErrorPx`), the visible screens are the same before and after the forward leg, or no frames were sampled.
+Fails when: the board extends less than half a canvas area past the view, a leg needs more than 1500 ticks, calibration does not move and return the camera, a leg moves the camera under 100 px or under 80% of ticks x `pxPerTick`, the camera ends the back leg more than 10% of the forward leg from where it started (`returnedErrorPx`), or no frames were sampled.
+
+The forward leg must also show it rendered. Normally the visible screens must differ before and after. When they are the same, that is accepted only if every screen of the design was already in view at the start (a few tall screens leave nothing new to reveal), every visible screen is loaded after the leg, and every screen that stayed mounted moved on screen by the camera's own movement within 4 px. A camera that moved without the screens following it still fails.
 
 ### pan-fling
 
@@ -75,11 +82,13 @@ Fails when: the board fits in view, a leg needs more than 1500 ticks, calibratio
 
 ### pan-zoomed
 
-Aligns the board's top-left corner into view, Ctrl+wheels to about 100% around it (not sampled), then pans horizontally across the columns and back with deltaX. A page-side timer polls live editor iframes every 50 ms during each leg.
+Aligns the board's top-left corner into view, Ctrl+wheels to about 100% around it (not sampled), then pans across the board and back. It pans horizontally with deltaX across the columns; when no screen starts to the right of the view on the row the camera is looking at (a board stacked in one column), it pans vertically along the column instead, because a sideways pan would sweep empty canvas. A page-side timer polls live editor iframes every 50 ms during each leg.
 
-`extra`: everything from `pan`, plus `zoom`, `liveIframesMax`, `liveScreensDistinct`. Leg length is capped at 1500 ticks.
+The zoom-in is setup and is not sampled. It anchors on the visible screen nearest the top-left of the canvas area, waits for the camera to rest first, and sends ticks 40 ms apart (up to 150) because on a heavy board bunched ticks are clamped per frame and the zoom falls short. If the zoomed view shows no loaded screen within 20 s, the page is reloaded and the setup restarts, up to 4 attempts; the attempts used are recorded as `zoomAttempts`. On Stripe's 499-screen board the first attempt after a cold load usually fails and the second succeeds, so read `zoomAttempts` above 1 as "the legs ran on a reloaded page". The pan legs and their checks are the same either way.
 
-Fails when: the corner cannot be aligned, zoom ends under 80% of 100%, plus the `pan` checks (the unchanged-screens check is on).
+`extra`: everything from `pan`, plus `zoom`, `axis` (`x` or `y`), `zoomAttempts`, `liveIframesMax`, `liveScreensDistinct`. Leg length is capped at 1500 ticks.
+
+Fails when: the corner cannot be aligned, zoom ends under 80% of 100% or shows no loaded screen on every one of the 4 setup attempts, plus the `pan` checks.
 
 ### zoom
 
@@ -107,11 +116,11 @@ Fails when: the watcher is not armed, ready (stable for 1.5 s) is not reached wi
 
 ### drag
 
-Picks the screen nearest the center whose title bar is grabbable, selects it, drags it 500 px sideways by its title bar in 30 steps, then drags it back. Sampled: the drag moves plus a 500 ms window that opens before mouse up, so the drop commit is included and also reported separately. A page-side probe measures mousemove to the next frame where the screen's style changed.
+Picks the screen nearest the center whose title bar is grabbable, selects it, drags it sideways by its title bar in 30 steps, then drags it back. The distance is 500 px when the screen has that much room beside it, else 90% of the room (never under 100 px; `dragDistancePx` records it, negative for leftward). When no title bar is in the grabbable band, as with tall screens, it first wheels the camera until one sits mid-canvas; that move is not sampled. Sampled: the drag moves plus a 500 ms window that opens before mouse up, so the drop commit is included and also reported separately. A page-side probe measures mousemove to the next frame where the screen's style changed.
 
 `extra`: `dragDistancePx`, `movedPx`, `returnedErrorPx`, `persistedOutWorld`, `persistedBackWorld`, `persistedErrorWorldPx`, `steps`, `legFrameCounts`, `frameId`, `inputToFrameMsMedian`, `inputToFrameMsMax`, `latencySamples`, `dropWindowMs`, `drop` (both legs' drop-window rAF intervals: `frameCount`, `frameP95Ms`, `frameWorstMs`, `framesOver50Ms`; `compare` lists these as `drop.*` rows), `dropFrames` (per leg: `worstMs`, `over50Ms` as drop-window frame intervals over 50 ms, `longAnimationFrames` as the Long Animation Frame count in that window, `frames`).
 
-Fails when: no screen fits in the clear area or there is no room for 500 px between the screen's edges and the clear area, the selecting click does not select or moves the screen, the screen moves more than 10% off 500 px, the saved position (read through `get-design` without file content) does not move by the dragged distance in world px (movedPx / scale, within 3 screen px) within 15 s of the drag out, it does not return within 3 px, or the saved position is not the original again within 15 s of the drag back. The saved position is checked before the drag back starts, so the back leg does not overlap the first save. If a check fails after the first drag, the original position is written back with `update-design` and the failure message says whether the restore worked. This matters most with `--design`, which is not deleted.
+Fails when: no screen fits across the clear area even after the camera moved, there is no room for 100 px between the screen's edges (all its breakpoint copies together) and the clear area, the selecting click does not select or moves the screen, the screen moves more than 10% off the drag distance, the saved position (read through `get-design` without file content) does not move by the dragged distance in world px (movedPx / scale, within 3 screen px) within 15 s of the drag out, it does not return within 3 px, or the saved position is not the original again within 15 s of the drag back. The saved position is checked before the drag back starts, so the back leg does not overlap the first save. If a check fails after the first drag, the original position is written back with `update-design` and the failure message says whether the restore worked. This matters most with `--design`, which is not deleted.
 
 ## Flags
 
@@ -159,7 +168,7 @@ Top-level JSON fields: `timestamp`, `debug`, `injectedJank`, `breakInput`, `timi
 ## Exit codes
 
 - `0`: the measurement completed. Check `numbersValid` before trusting the numbers; invalid focus does not change the exit code.
-- `2`: an action name is unknown, seeding failed, anything threw outside a measured step, or an action failed a sanity check. A failing (run, action) is recorded in `failures` (`run`, `action`, `message`, `screenshot`) and left out of `runs`; the remaining actions and runs still execute, the JSON is written, the failures are printed at the end and the exit code is 2. `compare` refuses a result that has any failure. Seed failures abort at once with no JSON. If the reused design changes mid-invocation and reseeding fails, the invocation stops, writes the JSON with the runs so far, `aborted` set and `numbersValid: false`, and exits 2. A failed delete of the seeded design is reported in `cleanupError` and also exits 2.
+- `2`: another benchmark holds the lock, `--design` names a design that does not exist, an action name is unknown, seeding failed, anything threw outside a measured step, or an action failed a sanity check. A failing (run, action) is recorded in `failures` (`run`, `action`, `message`, `screenshot`) and left out of `runs`; the remaining actions and runs still execute, the JSON is written, the failures are printed at the end and the exit code is 2. `compare` refuses a result that has any failure. Seed failures abort at once with no JSON. If the reused design changes mid-invocation and reseeding fails, the invocation stops, writes the JSON with the runs so far, `aborted` set and `numbersValid: false`, and exits 2. A failed delete of the seeded design is reported in `cleanupError` and also exits 2.
 
 ## Known limitations
 
@@ -170,5 +179,6 @@ Top-level JSON fields: `timestamp`, `debug`, `injectedJank`, `breakInput`, `timi
 - The display refresh rate sets the idle frame time (8.3 ms at 120 Hz). Compare `idleFrameMs` before comparing machines.
 - Wheel and mouse input is synthetic, not a real trackpad.
 - Headless and dev-server numbers are not a baseline.
+- `pan-fling` on a board that barely extends past the view is a few ticks long and samples few frames (about 15 on Startup School), so its percentiles rest on little data. Prefer `pan` there.
 - `pan-zoomed` sees few live editors during the gesture, because screens stay static previews while moving.
 - The OS focus check only exists on macOS. It records another app in front as a warning; it does not change the numbers.

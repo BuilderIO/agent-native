@@ -161,6 +161,7 @@ import {
   resolveNativeAuthCopy,
   signupDomainNotAllowedMessage,
 } from "../shared/auth-copy.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -305,6 +306,11 @@ import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
 } from "./legacy-auth-migration.js";
+import {
+  isLocalDevIdentityEmail,
+  LEGACY_LOCAL_DEV_IDENTITY_EMAIL,
+  LOCAL_DEV_IDENTITY_EMAIL,
+} from "./local-dev-identity.js";
 import * as loopback from "./loopback.js";
 import {
   encodeMagicLinkSignupAttribution,
@@ -1081,20 +1087,20 @@ export function getConfiguredLoginHtml(
  * `X-Forwarded-For` value — a remote client cannot spoof its way past this.
  * Used to scope local-only conveniences (the desktop SSO broker and the dev
  * auto-account) so a directly network-reachable dev server never exposes
- * them to a remote visitor. NOTE: a reverse proxy / tunnel that connects to
- * the dev server over localhost still appears as loopback, so this is a
- * necessary but not sufficient gate — callers pair it with NODE_ENV and,
- * for the dev account, a throwaway per-DB password.
+ * them to a remote visitor. NOTE: a peer address alone does not prove a
+ * local caller — a same-host proxy or tunnel connects over loopback too.
+ * Gate on `isLoopbackRequest(event)`, which also checks the headers and the
+ * environment.
  */
 export function isLoopbackAddress(ip: string | undefined): boolean {
   return loopback.isLoopbackAddress(ip);
 }
 /**
- * True when the request's actual socket peer is loopback. Uses
- * `getRequestIP(event)` WITHOUT `{ xForwardedFor: true }`, so it reflects the
- * real connecting IP and a remote client cannot spoof it via the `Host` /
- * `X-Forwarded-*` headers. Use this — not a parsed `Host`-header origin — for
- * any "is this local dev?" security gate (MCP/connect dev-open).
+ * True when the request comes from the developer's own machine: the real
+ * socket peer is loopback, `Host` and any forwarding headers name only
+ * loopback, and this is not a dev container whose preview URL is public.
+ * Use this — not a parsed `Host`-header origin — for any "is this local
+ * dev?" security gate (MCP/connect dev-open).
  */
 export function isLoopbackRequest(event: H3Event): boolean {
   return loopback.isLoopbackRequest(event);
@@ -1442,6 +1448,7 @@ export async function getMcpOAuthBearerSession(
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
       requestOrigin: getOrigin(event),
+      event,
     });
     if (!result.authed && result.unavailable) {
       markCredentialMembershipUnavailable(event);
@@ -4771,21 +4778,21 @@ function createAuthGuardFn(
     if (
       p === "/_agent-native/dev/action" &&
       resolveDeployEnvironment() !== "production" &&
-      isLoopbackRequest(event)
+      loopback.isLoopbackPeerRequest(event)
     ) {
       return;
     }
     if (
       p === "/_agent-native/dev/db-query" &&
       resolveDeployEnvironment() !== "production" &&
-      isLoopbackRequest(event)
+      loopback.isLoopbackPeerRequest(event)
     ) {
       return;
     }
     if (
       p === "/_agent-native/dev/db-migrate" &&
       resolveDeployEnvironment() !== "production" &&
-      isLoopbackRequest(event)
+      loopback.isLoopbackPeerRequest(event)
     ) {
       return;
     }
@@ -4874,7 +4881,7 @@ function createAuthGuardFn(
         if (
           !workspaceOrgId &&
           !hasExplicitPersonalOrgScope(event) &&
-          isSyntheticAutoDevIdentity(session.email) &&
+          isLocalDevIdentityEmail(session.email) &&
           isLoopbackDevRequest(event) &&
           getAppConfig().access.orgCreation === "open" &&
           getAppConfig().access.autoCreateDefaultOrg
@@ -4970,22 +4977,10 @@ function createAuthGuardFn(
   };
 }
 
-const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
 // No fixed password: maybeAutoCreateDevSession mints a random one per DB and
 // never emits it to logs.
 
-// Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
-// legacy address as the dev account too, so the "any real users?" check
-// below doesn't mistake the old auto-account for a real signup (which would
-// permanently disable auto-create) and the post-logout guard still fires.
-const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
-
 let authDisabledWarningLogged = false;
-
-function isAuthDisabled(): boolean {
-  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
-  return value === "1" || value === "true";
-}
 
 function getAuthDisabledSession(event: H3Event): AuthSession | null {
   if (!isAuthDisabled()) return null;
@@ -4995,10 +4990,10 @@ function getAuthDisabledSession(event: H3Event): AuthSession | null {
   if (!authDisabledWarningLogged) {
     authDisabledWarningLogged = true;
     console.warn(
-      `[agent-native] AUTH_DISABLED — login/signup disabled; all requests run as ${AUTO_DEV_ACCOUNT_EMAIL}`,
+      `[agent-native] AUTH_DISABLED — login/signup disabled; all requests run as ${LOCAL_DEV_IDENTITY_EMAIL}`,
     );
   }
-  return { email: AUTO_DEV_ACCOUNT_EMAIL };
+  return { email: LOCAL_DEV_IDENTITY_EMAIL };
 }
 
 function optOutOfAuthDisabledSession(event: H3Event): void {
@@ -5017,7 +5012,7 @@ async function hasAutoDevAccountUser(
 ): Promise<boolean> {
   const { rows } = await db.execute({
     sql: 'SELECT 1 FROM "user" WHERE email IN (?, ?) LIMIT 1',
-    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+    args: [LOCAL_DEV_IDENTITY_EMAIL, LEGACY_LOCAL_DEV_IDENTITY_EMAIL],
   });
   return rows.length > 0;
 }
@@ -5025,7 +5020,7 @@ async function hasAutoDevAccountUser(
 async function hasRealUser(db: ReturnType<typeof getDbExec>): Promise<boolean> {
   const { rows } = await db.execute({
     sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+    args: [LOCAL_DEV_IDENTITY_EMAIL, LEGACY_LOCAL_DEV_IDENTITY_EMAIL],
   });
   return rows.length > 0;
 }
@@ -5055,7 +5050,7 @@ async function createAutoDevAccountForSession(
       try {
         await auth.api.signUpEmail({
           body: {
-            email: AUTO_DEV_ACCOUNT_EMAIL,
+            email: LOCAL_DEV_IDENTITY_EMAIL,
             password: devPassword,
             name: "Dev",
           },
@@ -5100,9 +5095,6 @@ function isHostedPreviewRequest(event: H3Event): boolean {
   );
 }
 
-const BUILDER_PREVIEW_LOCAL_DEV_ENV =
-  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
-
 function isBuilderPreviewHost(host: string): boolean {
   return (
     host.endsWith(".builderio.xyz") ||
@@ -5112,15 +5104,8 @@ function isBuilderPreviewHost(host: string): boolean {
   );
 }
 
-function isBuilderPreviewLocalDevEnabled(): boolean {
-  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
-    ?.trim()
-    .toLowerCase();
-  return value === "1" || value === "true";
-}
-
 function isBuilderPreviewLocalDevRequest(event: H3Event): boolean {
-  if (!isBuilderPreviewLocalDevEnabled()) return false;
+  if (!getAppConfig().auth.allowBuilderPreviewLocalDev) return false;
   const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
   return isBuilderPreviewHost(host);
 }
@@ -5153,24 +5138,17 @@ function isLoopbackDevRequest(event: H3Event): boolean {
   );
 }
 
-/** The framework's own throwaway local account, never a real signup. */
-function isSyntheticAutoDevIdentity(email: string | undefined): boolean {
-  return (
-    email === AUTO_DEV_ACCOUNT_EMAIL || email === LEGACY_AUTO_DEV_ACCOUNT_EMAIL
-  );
-}
-
 async function createOrReuseAutoDevSession(
   auth: NonNullable<Awaited<ReturnType<typeof getBetterAuth>>>,
   config?: BetterAuthConfig,
 ): Promise<{ email: string; token: string } | null> {
   let session = await createBetterAuthSessionForEmail(
-    AUTO_DEV_ACCOUNT_EMAIL,
+    LOCAL_DEV_IDENTITY_EMAIL,
     config,
   );
   if (!session) {
     session = await createBetterAuthSessionForEmail(
-      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      LEGACY_LOCAL_DEV_IDENTITY_EMAIL,
       config,
     );
   }
@@ -5183,12 +5161,12 @@ async function createOrReuseAutoDevSession(
   if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
 
   session = await createBetterAuthSessionForEmail(
-    AUTO_DEV_ACCOUNT_EMAIL,
+    LOCAL_DEV_IDENTITY_EMAIL,
     config,
   );
   if (!session) {
     session = await createBetterAuthSessionForEmail(
-      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      LEGACY_LOCAL_DEV_IDENTITY_EMAIL,
       config,
     );
   }
@@ -5323,7 +5301,7 @@ async function maybeAutoCreateDevSession(
 
     const result = await auth.api.signInEmail({
       body: {
-        email: AUTO_DEV_ACCOUNT_EMAIL,
+        email: LOCAL_DEV_IDENTITY_EMAIL,
         password: devPassword,
       },
     });
@@ -5332,7 +5310,7 @@ async function maybeAutoCreateDevSession(
     setFrameworkSessionCookie(event, result.token);
     clearIdentityGoogleAuthCookie(event);
     setFirstRunOnboardingCookie(event);
-    await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
+    await addSession(result.token, LOCAL_DEV_IDENTITY_EMAIL);
 
     return redirectWithStagedCookies(event, redirectTo);
   } catch (e) {

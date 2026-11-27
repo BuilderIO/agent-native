@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mocks.execute }),
   isUniqueViolation: () => false,
   safeJsonParse: <T>(_value: unknown, fallback: T) => fallback,

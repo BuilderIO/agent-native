@@ -52,6 +52,7 @@ const client = {
 } as unknown as DbExec;
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => client,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,

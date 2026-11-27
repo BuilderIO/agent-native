@@ -11,6 +11,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id }) => {
     const access = await resolveAccess("brain-source", id);
     if (!access) return { source: null };

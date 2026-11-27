@@ -3,8 +3,9 @@ name: contacts-and-crm
 description: >-
   Resolve a name or partial address to a real email and enrich a thread with
   CRM/contact context (HubSpot, Apollo) before drafting or triaging. Use
-  when the user names a person instead of an email, or asks "who is this"
-  / "what deals/tickets does this contact have".
+  when the user names a person instead of an email, asks "who is this" /
+  "what deals/tickets does this contact have" / "what did she send me", or
+  wants to change what the person panel beside an open email shows.
 ---
 
 # Contacts and CRM
@@ -44,8 +45,8 @@ better than guessing an address pattern.
   reading the user's own HubSpot API key configured in Settings. If no key is
   configured it returns `{ error: "HubSpot API key not configured" }` —
   surface that plainly rather than treating it as "no CRM data exists."
-- **Gong MCP is available to the agent after connecting it from the CRM
-  sidebar.** Users without a workspace can add a personal connection there. In
+- **Gong MCP is available to the agent after connecting it from the person
+  panel's "Add to this panel" menu.** Users without a workspace can add a personal connection there. In
   a workspace, shared setup is only shown to organization owners and admins;
   Gong also requires its tech admin to register the MCP integration. Connected
   Gong tools inherit the authorizing user's Gong permissions. Use those tools
@@ -77,6 +78,57 @@ better than guessing an address pattern.
   property metadata), use `provider-api-catalog` / `provider-api-docs` with
   `provider: "hubspot"`, then `provider-api-request` — `get-hubspot-contact`
   only covers the single "lookup by email" shape.
+
+## The person panel
+
+The panel beside an open email shows the sender (or the address the user
+picked). Its "Add to this panel" menu holds three kinds of things:
+
+- **Built-in widgets:** `meetings`, `notes`, `attachments` and `recent`. Read
+  which are on with `get-mail-settings` (`contactPanelWidgets`) and switch them
+  with `update-mail-settings` with `contactPanelWidgets: { attachments: true }`.
+  A switch applies to every email, and widgets you leave out keep their state.
+  Meetings, Notes and Recent start on, Attachments off.
+- **Connections:** HubSpot, Apollo, Gong and Pylon, set up from the same menu
+  as above.
+- **The user's own widgets:** extensions that declare the
+  `mail.contact-sidebar.bottom` slot. Add one to the panel with
+  `install-extension` and that slot id, remove it with `uninstall-extension`.
+  When the user asks you to build one, create the extension, declare the slot
+  with `add-extension-slot-target`, then install it so it appears. The widget
+  gets `contactEmail`, `contactName`, `threadId` and `focusedEmailId`.
+
+`list-contact-attachments --email=<address>` returns the files that person
+sent, newest first, each with the `threadId`, subject and date of its email,
+so you can open or cite it. It searches Gmail when an account is connected and
+throws when Gmail fails; an empty list means the person really sent no files.
+
+`list-contact-meetings --email=<address>` returns the user's meetings with
+that person: `upcoming` (next 60 days, soonest first) and `recent` (last 90
+days, newest first), each with a `url` that opens the event. Pass the user's
+IANA `--timeZone` so an all-day event stays upcoming until their day ends. It
+asks Agent-Native Calendar first (`source: "calendar"`) and falls back to the Google
+Calendar of each account connected to Mail (`source: "mail"`) when Calendar
+has no Google account (`calendar: "not_connected"`) or doesn't answer in a few
+seconds (`calendar: "unavailable"`). `source: "none"` means no calendar is
+connected at all, not that there are no meetings; `failedAccounts` names
+accounts that couldn't be read, so the lists may be short. It fails with
+`meetings_unavailable` when every account failed.
+
+Notes live in Content, not Mail: one private page per person in a "Mail
+notes" collection in the user's Personal space, keyed by email address.
+`get-contact-note --email=<address>` reads that page (`note: null` means no
+notes yet). `add-contact-note` with `email`, `text`, and the open email's
+`threadId` and `subject` adds a dated line that links back to the email; the
+first note creates the page, titled with `name` when you pass it. `truncated:
+true` means a long page came back as its newest lines only; open `url` for the
+rest. `appended: false` means the page already ended with that exact line, so
+nothing was added. Both fail loudly when Content can't be reached
+(`content_unavailable`), the page is in Trash (`mail_note_trashed`), or the
+collection left Personal or lost its Email key (`mail_notes_moved`,
+`mail_notes_key_changed`), or Content's saved pointer to the collection is
+unreadable (`mail_notes_setting_invalid`); say so rather than reporting no
+notes.
 
 ## Related Skills
 

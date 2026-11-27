@@ -12,6 +12,7 @@ export interface CalendarEvent {
   source: "local" | "google" | "ical";
   sourceId?: string;
   googleEventId?: string;
+  revision?: string;
   htmlLink?: string;
   accountEmail?: string;
   calendarSourceKey?: string;

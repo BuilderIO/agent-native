@@ -22,6 +22,7 @@ vi.mock("./store.js", () => ({
 
 const mockDbExecute = vi.fn();
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockDbExecute }),
   isLocalDatabase: () => true,
 }));

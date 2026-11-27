@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { PARTS } from "@agent-native/design-system/catalog";
 import type { Manifests } from "storybook/internal/types";
 
 const IMPORT_TAG = /@import\s+import\s*\{([^}]*)\}\s*from\s*"([^"]+)";/g;
@@ -101,6 +102,13 @@ export function withImportTags(
   const components = manifests.components;
   if (!components) return manifests;
   const modules = readImportTags(componentDirs);
+  const inputsByModule = new Map(
+    PARTS.flatMap((part) =>
+      part.cssInputs && part.toolkit
+        ? [[part.toolkit, part.cssInputs] as const]
+        : [],
+    ),
+  );
   const isComponentSource = (source: string) =>
     source === packageName ||
     (source.startsWith(".") && source.includes("/src/"));
@@ -144,6 +152,8 @@ export function withImportTags(
       components: Object.fromEntries(
         Object.entries(components.components).map(([id, entry]) => {
           const sources = storyModules(entry.path);
+          const module = sources.get(entry.name);
+          const cssInputs = module && inputsByModule.get(module);
           const rewrite = (code: string | undefined) =>
             code === undefined
               ? undefined
@@ -152,6 +162,7 @@ export function withImportTags(
             id,
             {
               ...entry,
+              ...(cssInputs ? { cssInputs } : {}),
               description: guideFor(entry.path) ?? entry.description,
               import: rewrite(entry.import),
               ...(entry.subcomponents

@@ -10,6 +10,7 @@ import {
   isUnsetReasoningEffort,
   resolveReasoningEffortSelection,
   stepDownReasoningEffort,
+  supportsAnthropicThinkingBlockBinding,
   supportsClaudeAdaptiveThinking,
 } from "./reasoning-effort.js";
 
@@ -241,5 +242,30 @@ describe("allowsSamplingParams", () => {
     expect(
       allowsSamplingParams({ model: undefined, thinkingEnabled: true }),
     ).toBe(true);
+  });
+});
+
+describe("supportsAnthropicThinkingBlockBinding", () => {
+  it.each([
+    "claude-fable-5-1",
+    "claude-mythos-5-2",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "claude-haiku-5.5",
+    "claude-opus-5-5",
+    "anthropic/claude-Sonnet-5-5",
+  ])("accepts %s", (model) => {
+    expect(supportsAnthropicThinkingBlockBinding(model)).toBe(true);
+  });
+
+  it.each([
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
+    "gpt-5",
+    "",
+    undefined,
+  ])("rejects %s", (model) => {
+    expect(supportsAnthropicThinkingBlockBinding(model)).toBe(false);
   });
 });

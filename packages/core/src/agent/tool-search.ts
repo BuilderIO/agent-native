@@ -116,7 +116,7 @@ export function createToolSearchEntry(
   return frameworkMcpTool({
     tool: {
       description:
-        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Results rank by words, not intent: before calling one marked `destructive`, confirm the user wants that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A query makes the matching tools callable, with their full schemas, on the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. When you already know the names, pass them as one comma-separated query (`list-projects, get-project`) and only those tools load. If every match is already callable, call it directly instead of searching again. Results rank by words, not intent: before calling one marked `destructive`, confirm the user wants that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
@@ -151,7 +151,7 @@ export function createToolSearchEntry(
           includeSchemas: {
             type: "boolean",
             description:
-              "Accepted for compatibility. Full schemas are supplied automatically for tools returned by a targeted search.",
+              "Only set this when you need the schema JSON in the result text. Matching tools already load with their full schemas for your next call.",
           },
           readOnlyOnly: {
             type: "boolean",
@@ -259,9 +259,18 @@ export function searchToolRegistry(
           message: [output.message, truncationNote].filter(Boolean).join(" "),
         }
       : output;
+  const exactNames = [...names];
+  const fuzzyQueries: string[] = [];
+  for (const query of queries) {
+    const queryNames = knownActionNames(registry, query);
+    if (queryNames) exactNames.push(...queryNames);
+    else fuzzyQueries.push(query);
+  }
   const targets: SearchTarget[] = [
-    ...queries.map((query) => ({ query })),
-    ...(names.length > 0 ? [{ names }] : []),
+    ...fuzzyQueries.map((query) => ({ query })),
+    ...(exactNames.length > 0
+      ? [{ names: [...new Set(exactNames)].slice(0, MAX_NAMES) }]
+      : []),
   ];
   if (targets.length <= 1) {
     return withTruncationNote(
@@ -298,6 +307,27 @@ export function searchToolRegistry(
     ...(message ? { message } : {}),
     results,
   });
+}
+
+function knownActionNames(
+  registry: Record<string, ActionEntry>,
+  query: string,
+): string[] | undefined {
+  const words = query.split(/[\s,]+/).filter(Boolean);
+  if (words.length === 0) return undefined;
+  const byLowerName = new Map<string, string>();
+  for (const name of Object.keys(registry)) {
+    if (name !== TOOL_SEARCH_ACTION_NAME) {
+      byLowerName.set(name.toLowerCase(), name);
+    }
+  }
+  const resolved: string[] = [];
+  for (const word of words) {
+    const name = byLowerName.get(word.toLowerCase());
+    if (!name) return undefined;
+    resolved.push(name);
+  }
+  return resolved;
 }
 
 type SearchTarget = { query: string } | { names: string[] };

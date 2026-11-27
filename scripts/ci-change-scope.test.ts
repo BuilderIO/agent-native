@@ -4004,6 +4004,16 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
 test("scopes Content DB tests to Content and shared database runtime changes", () => {
   for (const path of [
     "templates/content/actions/update-document.ts",
+    "templates/content/actions/query-content-database-items.ts",
+    "templates/content/actions/_database-navigation.ts",
+    "templates/content/actions/_content-database-personal-view.ts",
+    "templates/content/actions/_content-space-access.ts",
+    "templates/content/actions/_database-utils.ts",
+    "packages/core/src/settings/store.ts",
+    "packages/core/src/settings/index.ts",
+    "packages/core/src/org/federation.ts",
+    "packages/core/src/org/membership.ts",
+    "packages/core/src/org/index.ts",
     "templates/content/server/db/schema.ts",
     "templates/content/actions/update-document.db.test.ts",
     "templates/content/acceptance/one-stored-form.db.test.ts",
@@ -4113,8 +4123,13 @@ test("selects Core integration E2E for its runtime dependencies and specs", () =
     "packages/core/src/server/core-routes-plugin.ts",
     "packages/core/src/server/action-routes.ts",
     "packages/core/src/server/embedded.ts",
+    "packages/core/src/server/ssr-handler.ts",
+    "packages/core/src/shared/cache-control.ts",
+    "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
     "packages/core/src/extensions/session-replay-iframe.ts",
     "packages/core/src/mcp/script-writes.ts",
+    "packages/core/src/client/route-chunk-recovery.ts",
+    "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
     "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
     "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
     "packages/core/src/server/embedded.integration.spec.ts",
@@ -4559,12 +4574,16 @@ test("selects the release workflow test when the publish workflow changes", () =
   ]);
 });
 
-test("selects the feedback proof workflow test when its workflow changes", () => {
-  const scope = classifyChangedPaths([
-    ".github/workflows/feedback-fix-proof.yml",
-  ]);
+test("scopes qa_static_apps to changed template slugs for template-only edits", () => {
+  const scoped = classifyChangedPaths(["templates/mail/app/routes/home.tsx"]);
+  assert.equal(scoped.checks.qa_static, true);
+  assert.deepEqual(scoped.qaStaticApps, ["mail"]);
 
-  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+  const full = classifyChangedPaths([
+    "templates/mail/app/routes/home.tsx",
+    "packages/core/src/index.ts",
+  ]);
+  assert.deepEqual(full.qaStaticApps, []);
 });
 
 test("selects the feedback proof contract test when CI changes", () => {

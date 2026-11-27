@@ -1089,6 +1089,7 @@ const messages = {
     visibilityDescription:
       "套用於你建立的錄製內容。你可以在任何錄製內容上變更。",
     useOrgDefault: "使用 {{org}} 的預設值（{{visibility}}）",
+    enforceOrgDefault: "成員無法設定自己的預設值",
     useDefault: "使用預設值（{{visibility}}）",
     transcriptExport: "逐字稿匯出",
     logoDescription: "顯示在分享郵件和公開 Clip 頁面中。",

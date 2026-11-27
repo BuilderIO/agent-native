@@ -80,6 +80,19 @@ DATABASE_URL=pglite:./data/pglite
 
 O [PGlite](https://pglite.dev/) executa um banco de dados Postgres WASM em processo. Ele permite detectar problemas de esquema exclusivos do Postgres antes de implantar, mantendo a configuração tão simples quanto o padrão PGlite. Assim como o PGlite, é um armazenamento apenas local. Não o use para produção ou ambientes compartilhados.
 
+#### Extensões do PGlite {#pglite-extensions}
+
+O PGlite só carrega extensões quando o cliente é criado. Registre-as com `configurePgliteExtensions` antes do primeiro acesso ao banco, em um módulo importado por todos os pontos de entrada (por exemplo `server/db/index.ts`), e depois ative-as com `CREATE EXTENSION` em uma migração executada após o registro:
+
+```ts
+import { configurePgliteExtensions } from "@agent-native/core/db";
+import { pg_textsearch } from "@electric-sql/pglite-pg_textsearch";
+
+configurePgliteExtensions({ pg_textsearch });
+```
+
+Registrar depois que um cliente PGlite já existe gera um erro. O PostgreSQL hospedado ignora o registro, então instale a extensão nesse servidor separadamente.
+
 ### Banco de dados de produção {#production}
 
 Defina `DATABASE_URL` no seu arquivo `.env` ou no ambiente do provedor de implantação para conectar um banco de dados PostgreSQL hospedado. As opções gerenciadas comuns incluem [Neon](/docs/neon), [Supabase](/docs/supabase), [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) e [Azure Database for PostgreSQL](/docs/azure-postgresql). Use o guia [Plain Postgres](/docs/postgres) para outros serviços gerenciados e servidores PostgreSQL auto-hospedados:

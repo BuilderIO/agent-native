@@ -73,6 +73,7 @@ mockDb.transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
 );
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   getScopedDbExec: () => undefined,
 }));

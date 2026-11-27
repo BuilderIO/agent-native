@@ -5,19 +5,23 @@ import {
   type CreateMcpServerArgs,
 } from "@agent-native/core/client/resources";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
-import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { McpIntegrationDialog } from "@agent-native/toolkit/app/resources";
-import {
-  IconPlus,
-  IconCheck,
-  IconSettings,
-  IconChevronLeft,
-  IconArrowUp,
-} from "@tabler/icons-react";
-import { useCallback, useState, useEffect, useRef } from "react";
+import { IconSettings, IconChevronLeft } from "@tabler/icons-react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
 
+import {
+  CONTACT_PANEL_SLOT_ID,
+  ContactPanelMenu,
+} from "@/components/email/ContactPanelMenu";
+import {
+  AttachmentsWidget,
+  MeetingsWidget,
+  NotesWidget,
+  RecentWidget,
+  type RecentContactEmail,
+} from "@/components/email/ContactPanelWidgets";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,11 +29,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -37,6 +36,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useApolloPerson } from "@/hooks/use-apollo";
+import { useContactPanelWidgets } from "@/hooks/use-contact-panel";
 import {
   useIntegration,
   useAllIntegrations,
@@ -51,7 +51,6 @@ import {
 } from "@/lib/gong-connection";
 import type { MailIntegrationStatuses } from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { cn } from "@/lib/utils";
 
 function safeExternalHref(value?: string | null): string | null {
   if (!value) return null;
@@ -196,17 +195,19 @@ export function IntegrationsSidebar({
   recentEmails,
   recentEmailsError,
   threadId,
+  subject,
   focusedEmailId,
 }: {
   email: string;
   displayName: string;
-  recentEmails: { id: string; subject: string }[];
+  recentEmails: RecentContactEmail[];
   recentEmailsError?: boolean;
   threadId?: string;
+  subject?: string;
   focusedEmailId?: string;
 }) {
-  const t = useT();
   const statuses = useAllIntegrations();
+  const { widgets, loaded } = useContactPanelWidgets();
   const anyConnected =
     statuses.apollo || statuses.hubspot || statuses.gong || statuses.pylon;
 
@@ -235,60 +236,40 @@ export function IntegrationsSidebar({
         </div>
       )}
 
-      {/* Recent emails */}
-      {recentEmailsError ? (
-        <div
-          className="mx-4 border-t border-border/30 px-0 py-3"
-          aria-live="polite"
-        >
-          <p className="text-[11px] text-muted-foreground/70">
-            {t("mail.error.loadTitle")}
-          </p>
-        </div>
-      ) : recentEmails.length > 0 ? (
-        <>
-          <div className="h-px bg-border/30 mx-4" />
-          <div className="px-4 py-3">
-            <h4 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-2">
-              Recent
-            </h4>
-            {recentEmails.map((e) => (
-              <p
-                key={e.id}
-                className="text-[12px] text-muted-foreground/70 truncate mb-0.5"
-              >
-                {e.subject.length > 40
-                  ? e.subject.slice(0, 40) + "..."
-                  : e.subject}
-              </p>
-            ))}
-          </div>
-        </>
-      ) : null}
+      {loaded && widgets.meetings && <MeetingsWidget email={email} />}
+      {loaded && widgets.notes && (
+        <NotesWidget
+          email={email}
+          name={displayName}
+          threadId={threadId}
+          subject={subject}
+        />
+      )}
+      {loaded && widgets.attachments && <AttachmentsWidget email={email} />}
+      {loaded && widgets.recent && (
+        <RecentWidget emails={recentEmails} error={recentEmailsError} />
+      )}
 
-      {/* Tool extension-point slot — user-installed widgets render here */}
       <ExtensionSlot
-        id="mail.contact-sidebar.bottom"
+        id={CONTACT_PANEL_SLOT_ID}
         context={{
           contactEmail: email,
           contactName: displayName,
           threadId,
           focusedEmailId,
         }}
-        showEmptyAffordance
       />
 
-      {/* Integration setup */}
       <div className="h-px bg-border/30 mx-4" />
-      <IntegrationSetup statuses={statuses} />
+      <PanelSetup statuses={statuses} />
     </div>
   );
 }
 
-function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
+function PanelSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const t = useT();
   const navigate = useNavigate();
-  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderId | null>(null);
   const [gongDialogOpen, setGongDialogOpen] = useState(false);
   const mcpServersQuery = useMcpServers({ defer: true });
@@ -323,74 +304,48 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     );
   }
 
-  if (!expanded) {
-    const connectedCount = [
-      statuses.apollo,
-      statuses.hubspot,
-      statuses.gong || gongConnected,
-      statuses.pylon,
-    ].filter(Boolean).length;
-    const visibleIntegrationCount = INTEGRATIONS.length - Number(!showGong);
-    return (
-      <div className="px-4 py-2">
-        {gongPermissionError}
-        <button
-          onClick={() => setExpanded(true)}
-          className="text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-        >
-          {connectedCount > 0
-            ? `Integrations (${connectedCount}/${visibleIntegrationCount})`
-            : "Add integrations"}
-        </button>
-      </div>
-    );
-  }
+  const configure = (id: ProviderId) => {
+    setMenuOpen(false);
+    if (id === "gong") setGongDialogOpen(true);
+    else setConfiguring(id);
+  };
+
+  const connections = INTEGRATIONS.filter(
+    (def) => def.id !== "gong" || showGong,
+  ).map((def) => (
+    <IntegrationRow
+      key={def.id}
+      def={def}
+      connected={
+        def.id === "gong" ? statuses.gong || gongConnected : statuses[def.id]
+      }
+      mcpConnected={def.id === "gong" && gongConnected}
+      legacyConnected={def.id === "gong" && statuses.gong}
+      canManageMcpSetup={def.id !== "gong" || canManageGong}
+      onManage={() => {
+        setMenuOpen(false);
+        void navigate(buildSettingsRoute("integrations"));
+      }}
+      onConfigure={() => configure(def.id)}
+      onLegacyConfigure={
+        def.id === "gong"
+          ? () => {
+              setMenuOpen(false);
+              setConfiguring("gong");
+            }
+          : undefined
+      }
+    />
+  ));
 
   return (
-    <div className="px-4 py-3">
+    <div className="px-4 py-2">
       {gongPermissionError}
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          Integrations
-        </h4>
-        <button
-          onClick={() => setExpanded(false)}
-          className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-        >
-          Collapse
-        </button>
-      </div>
-      <div className="space-y-1.5">
-        {INTEGRATIONS.filter((def) => def.id !== "gong" || showGong).map(
-          (def) => {
-            const connected =
-              def.id === "gong"
-                ? statuses.gong || gongConnected
-                : statuses[def.id];
-            return (
-              <IntegrationRow
-                key={def.id}
-                def={def}
-                connected={connected}
-                mcpConnected={def.id === "gong" && gongConnected}
-                legacyConnected={def.id === "gong" && statuses.gong}
-                canManageMcpSetup={def.id !== "gong" || canManageGong}
-                onManage={() =>
-                  void navigate(buildSettingsRoute("integrations"))
-                }
-                onConfigure={() => {
-                  if (def.id === "gong") setGongDialogOpen(true);
-                  else setConfiguring(def.id);
-                }}
-                onLegacyConfigure={
-                  def.id === "gong" ? () => setConfiguring("gong") : undefined
-                }
-              />
-            );
-          },
-        )}
-        <AddIntegrationButton />
-      </div>
+      <ContactPanelMenu
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        connections={connections}
+      />
       <McpIntegrationDialog
         open={gongDialogOpen}
         onOpenChange={setGongDialogOpen}
@@ -433,116 +388,6 @@ function GongPermissionLookupError({
   );
 }
 
-function AddIntegrationButton() {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { send, codeRequiredDialog } = useSendToAgentChat();
-
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => textareaRef.current?.focus(), 50);
-    } else {
-      setValue("");
-    }
-  }, [open]);
-
-  const handleSubmit = () => {
-    const prompt = value.trim();
-    if (!prompt) return;
-    send({
-      message: `Add a new integration to the sidebar: ${prompt}`,
-      context: `The user wants to add a new integration to the contact sidebar. Their request: "${prompt}". Look at the existing integrations in client/components/email/IntegrationsSidebar.tsx and the pattern in server/routes/ and client/hooks/use-integrations.ts. Add the new provider following the same pattern: server route, hook, sidebar section, and logo. Use the real brand logo SVG if possible.`,
-      submit: true,
-      requiresCode: true,
-    });
-    setValue("");
-    setOpen(false);
-  };
-
-  return (
-    <>
-      {codeRequiredDialog}
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors">
-            <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
-              <IconPlus className="h-3 w-3" />
-            </div>
-            <span>{t("mail.integrations.addIntegration")}</span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          side="left"
-          align="end"
-          sideOffset={8}
-          className="w-80 p-0 rounded-xl border-border/50 shadow-2xl shadow-black/40 overflow-hidden"
-          collisionPadding={12}
-        >
-          <div className="px-3.5 pt-3 pb-1.5">
-            <span className="text-[12px] font-medium text-foreground/80">
-              {t("mail.integrations.newIntegration")}
-            </span>
-          </div>
-
-          <div className="px-3.5 pb-2">
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={(e) => {
-                setValue(e.target.value);
-                const el = e.target;
-                el.style.height = "auto";
-                el.style.height = Math.min(el.scrollHeight, 200) + "px";
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  handleSubmit();
-                }
-              }}
-              placeholder={t("mail.integrations.newIntegrationPlaceholder")}
-              className="w-full bg-transparent text-[12px] text-foreground/90 placeholder:text-muted-foreground/30 outline-none resize-none"
-              rows={3}
-              style={{ maxHeight: "200px" }}
-            />
-          </div>
-
-          <div className="px-3.5 py-2 flex items-center justify-end gap-2 border-t border-border/30">
-            <span className="text-[11px] text-muted-foreground/60">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter {t("mail.compose.toSubmit")}
-            </span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleSubmit}
-                  disabled={!value.trim()}
-                  className={cn(
-                    "p-1.5 rounded-lg",
-                    value.trim()
-                      ? "bg-primary hover:bg-primary/90 text-primary-foreground"
-                      : "bg-muted/50 text-muted-foreground/30 cursor-not-allowed",
-                  )}
-                  aria-label={t("mail.integrations.submit")}
-                >
-                  <IconArrowUp className="w-4 h-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("mail.integrations.submitShortcut", {
-                  shortcut: `${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter`,
-                })}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </>
-  );
-}
-
 function IntegrationRow({
   def,
   connected,
@@ -560,7 +405,7 @@ function IntegrationRow({
   canManageMcpSetup?: boolean;
   onManage?: () => void;
   onConfigure: () => void;
-  onLegacyConfigure?: () => void;
+  onLegacyConfigure?: (() => void) | undefined;
 }) {
   const t = useT();
   const { disconnect } = useIntegration(def.id);
@@ -580,9 +425,9 @@ function IntegrationRow({
       </div>
       {connected ? (
         <div className="flex items-center gap-1 shrink-0">
-          <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-            <IconCheck className="h-3 w-3 text-emerald-400" />
-          </div>
+          <span className="text-[11px] text-muted-foreground">
+            {t("mail.contactPanel.connected")}
+          </span>
           {showSettings && (
             <DropdownMenu>
               <Tooltip>

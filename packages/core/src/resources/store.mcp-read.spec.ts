@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
     | undefined,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: state.execute }),
 }));
 vi.mock("../server/request-context.js", () => ({

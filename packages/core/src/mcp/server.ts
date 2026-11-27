@@ -256,6 +256,8 @@ const directoryLogMethods = new Set([
   "resources/list",
   "resources/templates/list",
   "resources/read",
+  "skills/list",
+  "skills/get",
   "prompts/list",
   "prompts/get",
   "ping",

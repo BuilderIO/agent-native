@@ -104,6 +104,25 @@ describe("Dispatch direct app action MCP catalog", () => {
     expect(await listTools(true)).toEqual(expect.arrayContaining(names));
   });
 
+  it("advertises neutral capability descriptions without prescriptive cross-tool instructions", async () => {
+    const forbidden =
+      /\b(?:call\s+\w+\s+(?:first|before)|call\s+it\s+(?:before|after)|prefer\s+this\s+to|prefer\s+list_app_actions|do\s+not\s+require|do\s+not\s+ask\s+the\s+user|do\s+not\s+scaffold|never\s+resubmit|after\s+calling,\s+surface)\b/i;
+    for (const enabled of [false, true]) {
+      const response = await requestMcp(enabled, "tools/list", {});
+      const tools = response.result.tools as Array<{
+        name: string;
+        description?: string;
+      }>;
+      expect(tools.length).toBeGreaterThan(0);
+      for (const tool of tools) {
+        expect(
+          tool.description ?? "",
+          `${tool.name} (directAppActions=${enabled})`,
+        ).not.toMatch(forbidden);
+      }
+    }
+  });
+
   it.each([
     { name: "list_app_actions", arguments: { app: "slides" } },
     {

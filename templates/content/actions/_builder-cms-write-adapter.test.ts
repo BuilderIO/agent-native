@@ -1789,6 +1789,48 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("marks a gate stale when the body it was reviewed over is no longer empty", () => {
+    const bodyChange = {
+      summary: "Builder body blocks changed.",
+      currentExcerpt: null,
+      proposedExcerpt: "New",
+      currentHash: null,
+      proposedHash: "next-hash",
+      proposedContent: "New",
+      proposedBlocksJson: JSON.stringify([{ id: "text-1" }]),
+      sidecarsJson: "{}",
+      warnings: [],
+    };
+    const planFor = (change: ContentDatabaseSourceChangeSet["bodyChange"]) =>
+      buildBuilderCmsExecutionPlan({
+        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+        changeSet: {
+          ...approvedChangeSet(),
+          kind: "body_update",
+          fieldChanges: [],
+          bodyChange: change,
+        },
+        pushModeConfirmation: "autosave",
+      });
+    const overNothing = planFor({ ...bodyChange, currentEmpty: true });
+    const overBody = planFor({ ...bodyChange, currentHash: "builder-hash" });
+    const mismatches = (
+      reviewed: ReturnType<typeof planFor>,
+      rebuilt: ReturnType<typeof planFor>,
+    ) =>
+      validateBuilderCmsExecutionDryRun({
+        storedPayload: reviewed.payload as unknown as Record<string, unknown>,
+        plan: rebuilt,
+        now: "2026-06-08T01:00:00.000Z",
+      }).dryRun?.mismatches;
+
+    expect(mismatches(overNothing, overBody)).toEqual([
+      "Builder body changed since this change was reviewed. Refresh and review it again.",
+    ]);
+    expect(mismatches(overNothing, overNothing)).toEqual([]);
+    expect(mismatches(overBody, overNothing)).toEqual([]);
+  });
+
   it("validates a stored dry-run payload when it matches the rebuilt plan", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(false, BUILDER_CMS_SAFE_WRITE_MODEL),

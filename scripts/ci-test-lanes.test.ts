@@ -4,9 +4,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   assertFullCoverage,
+  catalogContractAppsForChangedPaths,
   catalogContractCoreSpecs,
   cliEntryCoreSpecs,
   isShardableTestScript,
@@ -154,17 +156,17 @@ test("runs the catalog contract specs for any workspace source change", (t) => {
     "src/mcp/instructions-name-advertised-tools.spec.ts",
     "src/mcp/hidden-inline-apps.spec.ts",
   ];
+  const specsWithoutHiddenInline = specs.filter(
+    (spec) => spec !== "src/mcp/hidden-inline-apps.spec.ts",
+  );
   for (const changed of [
     "templates/mail/actions/send-email.ts",
     "templates/mail/actions/e2e/inspect-catalog.ts",
     "templates/mail/e2e/helper.ts",
     "templates/mail/e2e/unreadable.ts",
-    "templates/forms/server/plugins/agent-chat.ts",
     "templates/content/server/lib/chatgpt-directory-tools.ts",
     "templates/slides/shared/api.ts",
     "templates/design/app/lib/design-tokens.ts",
-    "templates/newapp/actions/create-thing.ts",
-    "templates/newapp/scripts/run-task.ts",
     "templates/mail/agent-native.json",
     "templates/mail/package.json",
     "packages/core/src/server/agent-chat-plugin.ts",
@@ -180,6 +182,44 @@ test("runs the catalog contract specs for any workspace source change", (t) => {
   ]) {
     assert.deepEqual(catalogContractCoreSpecs([changed], root), specs, changed);
   }
+  for (const changed of [
+    "templates/forms/server/plugins/agent-chat.ts",
+    "templates/newapp/actions/create-thing.ts",
+    "templates/newapp/scripts/run-task.ts",
+  ]) {
+    assert.deepEqual(
+      catalogContractCoreSpecs([changed], root),
+      specsWithoutHiddenInline,
+      changed,
+    );
+  }
+  assert.equal(
+    catalogContractAppsForChangedPaths(
+      ["templates/forms/server/plugins/agent-chat.ts"],
+      root,
+    ),
+    "forms",
+  );
+  assert.equal(
+    catalogContractAppsForChangedPaths(
+      [
+        "templates/mail/actions/send-email.ts",
+        "templates/forms/actions/save-form.ts",
+      ],
+      root,
+    ),
+    "forms,mail",
+  );
+  assert.equal(
+    catalogContractAppsForChangedPaths(
+      [
+        "templates/mail/actions/send-email.ts",
+        "packages/core/src/mcp/server.ts",
+      ],
+      root,
+    ),
+    "",
+  );
   for (const unrelated of [
     "templates/mail/actions/send-email.test.ts",
     ...runners,
@@ -274,6 +314,150 @@ test("shards a Vitest package heavier than a fair lane share", () => {
   assertFullCoverage(lanes, rest, true);
 });
 
+test("a configured shard minimum splits Toolkit across separate lanes without changing other work", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "ci-package-shards-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const [dir, name, files, script] of [
+    ["toolkit", "@agent-native/toolkit", 240, "vitest --run"],
+    ["other", "other", 320, "vitest --run"],
+    ["tiny", "tiny", 1, "vitest --run"],
+    ["custom", "custom", 1, "node --test"],
+  ] as const) {
+    const workspace = join(root, "packages", dir);
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(
+      join(workspace, "package.json"),
+      JSON.stringify({ name, scripts: { test: script } }),
+    );
+    for (let index = 0; index < files; index++) {
+      writeFileSync(join(workspace, `fixture-${index}.spec.ts`), "");
+    }
+  }
+
+  const toolkit = "@agent-native/toolkit";
+  const planner = fileURLToPath(new URL("./ci-test-lanes.ts", import.meta.url));
+  const env: NodeJS.ProcessEnv = { ...process.env, LANES: "2" };
+  delete env.GITHUB_OUTPUT;
+  delete env.GITHUB_STEP_SUMMARY;
+  delete env.CI_WORKSPACE_FILTERS;
+  delete env.CI_MIN_PACKAGE_SHARDS;
+  const run = (minimums?: string) =>
+    spawnSync(process.execPath, ["--experimental-strip-types", planner], {
+      cwd: root,
+      encoding: "utf8",
+      env:
+        minimums === undefined
+          ? env
+          : { ...env, CI_MIN_PACKAGE_SHARDS: minimums },
+    });
+  const matrix = (result: ReturnType<typeof run>) => {
+    assert.equal(result.status, 0, result.stderr);
+    const output = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("matrix="));
+    assert.ok(output);
+    return (
+      JSON.parse(output.slice("matrix=".length)) as {
+        include: ReturnType<typeof partitionWeighted>;
+      }
+    ).include;
+  };
+  const baseline = matrix(run());
+  assert.equal(
+    baseline.filter((lane) => lane.packages.includes(toolkit)).length,
+    1,
+  );
+
+  const sharded = matrix(run(JSON.stringify({ [toolkit]: 2 })));
+  assert.equal(sharded.length, baseline.length);
+  assert.ok(sharded.every((lane) => !lane.packages.includes(toolkit)));
+  const toolkitShards = sharded.map((lane) =>
+    lane.packageShards
+      .filter((shard) => shard.name === toolkit)
+      .map((shard) => shard.shard),
+  );
+  assert.deepEqual(toolkitShards.sort(), [["1/2"], ["2/2"]]);
+  const otherWork = (lanes: ReturnType<typeof partitionWeighted>) =>
+    lanes
+      .flatMap((lane) => [
+        ...lane.packages.filter((name) => name !== toolkit),
+        ...lane.packageShards
+          .filter(({ name }) => name !== toolkit)
+          .map(({ name, shard }) => `${name}:${shard}`),
+      ])
+      .sort();
+  assert.deepEqual(otherWork(sharded), otherWork(baseline));
+  assert.deepEqual(matrix(run("{}")), baseline);
+
+  for (const [input, error] of [
+    ["{", /CI_MIN_PACKAGE_SHARDS.*JSON/],
+    ["[]", /CI_MIN_PACKAGE_SHARDS.*object/],
+    [JSON.stringify({ [toolkit]: "2" }), /CI_MIN_PACKAGE_SHARDS.*integer/],
+    [JSON.stringify({ [toolkit]: 3 }), /CI_MIN_PACKAGE_SHARDS.*integer/],
+    ['{"unknown":2}', /CI_MIN_PACKAGE_SHARDS.*unknown/],
+    ['{"custom":2}', /CI_MIN_PACKAGE_SHARDS.*custom.*shardable/],
+    ['{"tiny":2}', /CI_MIN_PACKAGE_SHARDS.*tiny.*2/],
+  ] as const) {
+    const result = run(input);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, error);
+    assert.equal(result.stdout, "");
+  }
+});
+
+void test("keeps required Toolkit shards on distinct lanes in each planning mode", () => {
+  const toolkit = {
+    name: "@agent-native/toolkit",
+    files: 200,
+    shardable: true,
+  };
+  const minimums = new Map([[toolkit.name, 2]]);
+  const weighted = [...pkgs(["big-a", 1000]), toolkit];
+  const solo = [...weighted, ...pkgs(["big-b", 1000])];
+  for (const { label, lanes, work, coreFiles } of [
+    {
+      label: "no Core",
+      lanes: partitionWeighted(weighted, 2, null, minimums),
+      work: weighted,
+      coreFiles: 0,
+    },
+    {
+      label: "solo search",
+      lanes: partitionWeighted(solo, 3, 10, minimums),
+      work: solo,
+      coreFiles: 10,
+    },
+    {
+      label: "targeted Core",
+      lanes: partitionTargetedWeighted(
+        weighted,
+        2,
+        1,
+        "changed",
+        ["a.spec.ts"],
+        minimums,
+      ),
+      work: weighted,
+      coreFiles: 1,
+    },
+  ]) {
+    assertFullCoverage(lanes, work, coreFiles, minimums);
+    const toolkitShards = lanes
+      .map((lane) =>
+        lane.packageShards
+          .filter(({ name }) => name === toolkit.name)
+          .map(({ shard }) => shard),
+      )
+      .filter((shards) => shards.length > 0);
+    assert.deepEqual(toolkitShards.sort(), [["1/2"], ["2/2"]], label);
+    assert.equal(
+      lanes.reduce((count, lane) => count + lane.files, 0),
+      work.reduce((count, pkg) => count + pkg.files, coreFiles),
+      label,
+    );
+  }
+});
+
 test("shards a Vitest script behind a pnpm prefix such as Design's bridge codegen", () => {
   assert.equal(isShardableTestScript("vitest --run"), true);
   assert.equal(
@@ -343,6 +527,21 @@ test("refuses lanes that skip, repeat, or also run a sharded package whole", () 
         expected,
       ),
     /design test shards are missing or duplicated/,
+  );
+  assert.throws(
+    () =>
+      assertFullCoverage(
+        [
+          lane([
+            { name: "design", shard: "1/2" },
+            { name: "design", shard: "2/2" },
+          ]),
+        ],
+        expected,
+        undefined,
+        new Map([["design", 2]]),
+      ),
+    /design must run on at least 2 distinct lanes/,
   );
   assertFullCoverage(
     [

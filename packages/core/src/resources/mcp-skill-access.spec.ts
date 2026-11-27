@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   lab: vi.fn(),
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mocks.execute }),
 }));
 vi.mock("../server/request-context.js", () => ({

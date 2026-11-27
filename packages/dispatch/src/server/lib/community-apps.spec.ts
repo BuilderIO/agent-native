@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -127,7 +128,7 @@ describe("curated community apps", () => {
       encoding: "utf8",
     }).trim();
     const templatePath = "templates/community/qr";
-    const trackedFiles = execFileSync(
+    const gitTrackedFiles = execFileSync(
       "git",
       ["ls-files", "-z", "--", templatePath],
       { cwd: repoRoot, encoding: "utf8" },
@@ -136,6 +137,23 @@ describe("curated community apps", () => {
       .filter((file) => file.startsWith(templatePath + "/"))
       .map((file) => file.slice(templatePath.length + 1))
       .sort();
+    const listTemplateFiles = (dir: string, prefix = ""): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        if (
+          entry.name === "node_modules" ||
+          entry.name === ".git" ||
+          entry.name === "dist"
+        ) {
+          return [];
+        }
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        const full = path.join(dir, entry.name);
+        return entry.isDirectory() ? listTemplateFiles(full, rel) : [rel];
+      });
+    const trackedFiles =
+      gitTrackedFiles.length > 0
+        ? gitTrackedFiles
+        : listTemplateFiles(path.join(repoRoot, templatePath)).sort();
 
     expect(source.ref).toBe("main");
     expect(source.templatePath).toBe(templatePath);

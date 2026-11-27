@@ -14,6 +14,7 @@ import type {
 import {
   AGENTKIT_PROFILE_HEADER,
   AGENTKIT_PROFILE_ID,
+  agentEventSequenceEnd,
   decodeAgUiEvent,
   encodeAgentEvent,
   AgentProtocolValidationError,
@@ -332,7 +333,7 @@ async function* parseEventStream(
             `must be contiguous after sequence ${lastSequence}`,
           );
         }
-        lastSequence = event.sequence;
+        lastSequence = agentEventSequenceEnd(event);
         yield event;
       }
       if (done) {
@@ -888,32 +889,29 @@ function eventStream(
     new ReadableStream({
       async pull(controller) {
         try {
-          const next = await iterator.next();
-          if (next.done) {
-            if (!readerCancelled) controller.close();
-            await finalize();
-            return;
-          }
-          const event = parseAgentEvent(next.value);
-          if (subscription && event.threadId !== subscription.threadId) {
-            throw new AgentProtocolValidationError(
-              "event.threadId",
-              "must match the subscribed thread",
-            );
-          }
-          if (subscription && event.runId !== subscription.runId) {
-            throw new AgentProtocolValidationError(
-              "event.runId",
-              "must match the subscribed run",
-            );
-          }
+          let event: AgentEvent;
+          do {
+            const next = await iterator.next();
+            if (next.done) {
+              if (!readerCancelled) controller.close();
+              await finalize();
+              return;
+            }
+            event = parseAgentEvent(next.value);
+            if (subscription && event.threadId !== subscription.threadId) {
+              throw new AgentProtocolValidationError(
+                "event.threadId",
+                "must match the subscribed thread",
+              );
+            }
+          } while (subscription && event.runId !== subscription.runId);
           if (event.sequence !== lastSequence + 1) {
             throw new AgentProtocolValidationError(
               "event.sequence",
               `must be contiguous after sequence ${lastSequence}`,
             );
           }
-          lastSequence = event.sequence;
+          lastSequence = agentEventSequenceEnd(event);
           controller.enqueue(
             encoder.encode(
               `id: ${event.sequence}\ndata: ${JSON.stringify(encodeAgentEvent(event))}\n\n`,

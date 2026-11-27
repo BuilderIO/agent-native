@@ -347,7 +347,7 @@ async function fetchEmailList(
     let emails = await readLocalEmails(ownerEmail);
     switch (effectiveView) {
       case "inbox":
-        emails = buildLocalInboxItems(emails);
+        emails = buildLocalInboxItems(emails, ownerEmail);
         break;
       case "unread":
         emails = emails.filter(
@@ -475,7 +475,7 @@ async function buildInboxTabsSummary(
         readLocalEmails(ownerEmail),
         getUserSetting(ownerEmail, "labels"),
       ]);
-      items = buildLocalInboxItems(emails);
+      items = buildLocalInboxItems(emails, ownerEmail);
       labels = Array.isArray(localSettings?.labels)
         ? (localSettings.labels as Label[])
         : [];
@@ -611,6 +611,46 @@ export default defineAction({
         },
         emails: compact,
       };
+      if (nav.view === "drafts") {
+        const scheduled = await fetchEmailList(
+          "scheduled",
+          nav.search,
+          undefined,
+          undefined,
+          nav.activeAccounts,
+        );
+        const emailList = screen.emailList as Record<string, unknown>;
+        emailList.scheduled = scheduled.emails
+          .slice(0, SCREEN_EMAIL_LIMIT)
+          .map((e: EmailMessage) => ({
+            id: e.id,
+            threadId: e.threadId,
+            to: e.to.map((address) => address.email),
+            subject: e.subject,
+            sendAt: e.date,
+          }));
+        if (!nav.search) {
+          try {
+            const requested = await listQueuedDrafts({
+              scope: "review",
+              status: "active",
+              limit: 50,
+            });
+            emailList.requested = requested.map((draft) => ({
+              id: draft.id,
+              requesterEmail: draft.requesterEmail,
+              requesterName: draft.requesterName,
+              to: draft.to,
+              subject: draft.subject,
+              createdAt: draft.createdAt,
+            }));
+          } catch (err) {
+            emailList.requested = {
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }
+      }
       if (nav.view === "inbox" && !nav.search) {
         const ownerEmail = getRequestUserEmail();
         const requestedTab = nav.tab ?? nav.activeInboxTab ?? nav.label;

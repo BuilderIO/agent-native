@@ -5129,6 +5129,10 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         await openFirstThread();
         await openCommentMenu("reply-1");
         await act(async () => menuItem("review.deleteComment")?.click());
+        await act(async () => {
+          // fixed-sleep-ok: Delete waits for the closed menu's zero-delay focus timer
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
 
         const dialog = document.querySelector('[role="alertdialog"]');
         expect(dialog?.textContent).toContain("review.deleteCommentTitle");

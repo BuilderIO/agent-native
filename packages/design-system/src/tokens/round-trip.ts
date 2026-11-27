@@ -1,3 +1,4 @@
+import { COMPONENTS_FILE, importComponentToken } from "./component-inputs.js";
 import {
   colorComponents,
   colorToken,
@@ -35,6 +36,7 @@ export const COLLECTIONS: readonly Collection[] = [
     modes: [{ mode: "Value", source: FOUNDATIONS_FILE }],
   },
   { folder: "Palette", modes: [{ mode: "Value", source: PALETTE_FILE }] },
+  { folder: "Components", modes: [{ mode: "Value", source: COMPONENTS_FILE }] },
   ...THEME_NAMES.map((name) => ({
     folder: `Theme ${name}`,
     modes: THEME_MODES.map((mode) => ({
@@ -108,6 +110,7 @@ function importToken(
   tokenPath: string,
   current: DtcgToken,
   incoming: unknown,
+  source: string,
 ): DtcgToken {
   if (typeof incoming !== "object" || incoming === null) {
     throw new TokenError(file, tokenPath, "is not a token");
@@ -120,6 +123,8 @@ function importToken(
       `is a ${String(token.$type)}, expected a ${current.$type}`,
     );
   }
+  if (source === COMPONENTS_FILE)
+    return importComponentToken(file, tokenPath, current, token as DtcgToken);
   const value = token.$value;
   if (typeof value === "string" && ALIAS.test(value)) {
     throw new TokenError(
@@ -265,7 +270,13 @@ export function importFromFigma(
           }
           try {
             const imported = withoutEmptyExtensions(
-              importToken(label, tokenPath, token, incoming.get(tokenPath)),
+              importToken(
+                label,
+                tokenPath,
+                token,
+                incoming.get(tokenPath),
+                source,
+              ),
             );
             if (
               JSON.stringify(imported.$value) !== JSON.stringify(token.$value)

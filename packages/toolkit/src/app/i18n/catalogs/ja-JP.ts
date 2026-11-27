@@ -743,6 +743,8 @@ const messages: ToolkitAgentChatTranslation = {
     "このアプリは、保存したプロンプトをまだ安全に再試行できません。アプリを更新してから、もう一度お試しください。",
   "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
   "errorMessages.runFailed": "エージェントの実行に失敗しました。",
+  "errorMessages.writeOutcomeUnknown":
+    "以前の試行ですでに変更が保存された可能性があり、結果を確認できなかったため、書き込み操作を繰り返す前に停止しました。再試行する前に、何が保存されたか確認してください。",
   "errorMessages.runUnverified":
     "このチャットはエージェントを追跡できなくなりました。エージェントはまだ実行中の可能性があります。再読み込みして進捗を確認してください。",
   "errorMessages.runSignedOut":
@@ -3541,6 +3543,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "新しいタブで開く",
   "mcpApps.initFailed": "MCP アプリを初期化できませんでした。",
   "mcpApps.readOnly": "この保存済み MCP アプリは読み取り専用です。",
+  "markdown.opensInNewTab": "(新しいタブで開きます)",
   "iframeEmbed.blocked": "埋め込みがブロックされました",
   "iframeEmbed.missingSrc": "ソースがありません",
   "iframeEmbed.crossOrigin": "別オリジンの URL は許可されていません",

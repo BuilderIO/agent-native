@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../../db/client.js", () => {
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => sharedClient,
     getScopedDbExec: () => undefined,
     isProductionServerlessFunctionRuntime: () => false,

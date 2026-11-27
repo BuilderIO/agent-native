@@ -70,7 +70,6 @@ export {
   LINK_SUMMARY_TITLE_CHARS,
   LINK_SUMMARY_URL_CHARS,
   UNAVAILABLE_LINK_SUMMARY,
-  isLinkSummaryApp,
   linkSummaryAvailableSchema,
   linkSummaryItemFromPath,
   linkSummaryItemFromUrl,

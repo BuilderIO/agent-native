@@ -9,9 +9,14 @@ const {
   linkMirroredReviewReplies,
   listMirroredResourceIds,
   mirrorReviewComments,
+  moveMirroredReviewAnchors,
 } = await import("./mirror.js");
-const { __resetReviewInitForTests, ensureReviewTables, getReviewCommentById } =
-  await import("./store.js");
+const {
+  __resetReviewInitForTests,
+  ensureReviewTables,
+  getReviewCommentById,
+  listReviewCommentReactors,
+} = await import("./store.js");
 type ReviewCommentCopy = import("./mirror.js").ReviewCommentCopy;
 type DbExec = import("../db/client.js").DbExec;
 
@@ -408,6 +413,90 @@ describe("linkMirroredReviewReplies", () => {
       ]),
     ).toEqual({ linked: 0 });
     expect(await linkMirroredReviewReplies(DECK, [])).toEqual({ linked: 0 });
+  });
+});
+
+describe("moveMirroredReviewAnchors", () => {
+  it("moves each live comment on the resource to its new anchor", async () => {
+    const moving = copy({ anchor: { x: 1, y: 1 } });
+    const deleted = copy({ anchor: { x: 2, y: 2 } });
+    const elsewhere = copy({ anchor: { x: 3, y: 3 } });
+    await mirrorReviewComments(DECK, [moving, deleted]);
+    await mirrorReviewComments({ ...DECK, resourceId: "deck-moved" }, [
+      elsewhere,
+    ]);
+    await deleteMirroredReviewComments(DECK, [deleted.id]);
+    const before = await stored(moving.id);
+    const deletedBefore = await stored(deleted.id);
+
+    expect(
+      await moveMirroredReviewAnchors(DECK, [
+        { id: moving.id, anchor: { x: 11, y: 21 } },
+        { id: deleted.id, anchor: { x: 12, y: 22 } },
+        { id: elsewhere.id, anchor: { x: 13, y: 23 } },
+      ]),
+    ).toEqual({ moved: 1 });
+
+    expect(await stored(moving.id)).toMatchObject({
+      anchor: { x: 11, y: 21 },
+      anchorKind: "slide-point",
+      anchorVersion: 1,
+      revision: (before?.revision ?? 0) + 1,
+    });
+    expect(await stored(deleted.id)).toEqual(deletedBefore);
+    expect((await stored(elsewhere.id))?.anchor).toEqual({ x: 3, y: 3 });
+    expect(await moveMirroredReviewAnchors(DECK, [])).toEqual({ moved: 0 });
+  });
+
+  it("moves more comments than one statement takes", async () => {
+    const deck = { ...DECK, resourceId: "deck-many-moved" };
+    const many = Array.from({ length: 101 }, (_, x) =>
+      copy({ anchor: { x, y: 0 } }),
+    );
+    await mirrorReviewComments(deck, many);
+
+    expect(
+      await moveMirroredReviewAnchors(
+        deck,
+        many.map((comment, x) => ({ id: comment.id, anchor: { x, y: 1 } })),
+      ),
+    ).toEqual({ moved: 101 });
+    const anchors = await Promise.all(
+      many.map(async (comment) => (await stored(comment.id))?.anchor),
+    );
+    expect(anchors).toEqual(many.map((_, x) => ({ x, y: 1 })));
+  });
+});
+
+describe("listReviewCommentReactors", () => {
+  it("names who reacted with what on each comment, and gives the rest none", async () => {
+    const reacted = copy({
+      reactions: [
+        { actorEmail: "sam@example.com", reaction: "👍" },
+        { actorEmail: "ana@example.com", reaction: "👍" },
+        { actorEmail: "sam@example.com", reaction: "🎉" },
+      ],
+    });
+    const quiet = copy({ reactions: [] });
+    await mirrorReviewComments(DECK, [reacted, quiet]);
+
+    const reactors = await listReviewCommentReactors([
+      reacted.id,
+      quiet.id,
+      "never-written",
+    ]);
+
+    expect(Object.keys(reactors).sort()).toEqual(
+      [reacted.id, quiet.id, "never-written"].sort(),
+    );
+    expect(reactors[reacted.id]?.["👍"]?.sort()).toEqual([
+      "ana@example.com",
+      "sam@example.com",
+    ]);
+    expect(reactors[reacted.id]?.["🎉"]).toEqual(["sam@example.com"]);
+    expect(reactors[quiet.id]).toEqual({});
+    expect(reactors["never-written"]).toEqual({});
+    expect(await listReviewCommentReactors([])).toEqual({});
   });
 });
 

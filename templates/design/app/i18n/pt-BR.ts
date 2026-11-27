@@ -366,6 +366,8 @@ export default {
       blur: "Desfoque",
       spread: "Espalhamento",
       rotation3d: "Rotação 3D",
+      constraints: "Restrições",
+      absolutePosition: "Posição absoluta",
       rotationX: "Girar X",
       rotationY: "Girar Y",
       perspective: "Perspectiva",
@@ -859,6 +861,10 @@ export default {
     exportPreview: {
       rendering: "Gerando pré-visualização…",
       failed: "Pré-visualização indisponível",
+      noPreview: "Nenhuma tela para visualizar",
+      externalPreview: "A visualização precisa do app ao vivo",
+      readOnlyPreview: "Visualização indisponível no modo somente leitura",
+      selectionUnresolved: "Seleção não encontrada nesta tela",
     },
     framePresets: {
       title: "Quadro",
@@ -1152,6 +1158,12 @@ export default {
         opacity: "Opacidade",
       },
       editColor: "Editar a cor de {{name}}",
+      field: {
+        open: "Tokens",
+        detach: "Desvincular token",
+        primitives: "Primitivos de {{group}}",
+        loading: "Carregando tokens…",
+      },
     },
     import: {
       description:
@@ -1939,6 +1951,7 @@ export default {
   layersPanel: {
     title: "Camadas",
     screens: "Páginas",
+    components: "Componentes",
     resizeScreens: "Redimensionar a seção de páginas",
     thumbnail: "Miniatura",
     addScreen: "Adicionar página",
@@ -1968,6 +1981,8 @@ export default {
     bringToFront: "Trazer para o topo",
     sendBackward: "Enviar para trás",
     sendToBack: "Enviar para o fundo",
+    arrangeUnavailable:
+      "Selecione uma camada em um design editável para reordená-la",
     pasteToReplace: "Colar para substituir",
     frameSelection: "Enquadrar seleção",
     flipHorizontal: "Inverter horizontalmente",

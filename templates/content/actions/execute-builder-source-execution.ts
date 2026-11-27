@@ -25,6 +25,7 @@ import {
   type ContentDatabaseResponse,
   type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
+  type ContentDatabaseSourceBodyChange,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceExecutionState,
   type ContentDatabaseSourcePushMode,
@@ -625,6 +626,8 @@ export function builderCmsReconciledSourceValuesJson(args: {
     const requestBlocks = (requestData as Record<string, unknown>).blocks;
     if (Array.isArray(requestBlocks)) {
       next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = requestBlocks.length;
+    } else if (effect === "create_draft") {
+      next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
     }
     for (const [fieldName, value] of Object.entries(requestData)) {
       if (fieldName === "blocks") continue;
@@ -730,7 +733,7 @@ function liveTimestampsDiffer(args: {
 function livePreflightBlockMessage(args: {
   liveState: BuilderCmsEntryLiveState;
   baselineLastUpdated: string | null;
-  baselineBlocksHash: string | null;
+  bodyChange: ContentDatabaseSourceBodyChange | null | undefined;
   baselineValues: Record<string, DocumentPropertyValue> | undefined;
   effect: BuilderCmsExecutionPayload["effect"];
   request: BuilderCmsExecutionPayload["request"];
@@ -780,6 +783,8 @@ function livePreflightBlockMessage(args: {
         values: liveValues,
         expected: savedOver.liveValues,
       }));
+  const written = builderCmsWrittenSourceFields(args.request);
+  const baselineBlocksHash = args.bodyChange?.currentHash ?? null;
   if (
     liveTimestampsDiffer({
       liveLastUpdated: args.liveState.lastUpdated,
@@ -792,12 +797,10 @@ function livePreflightBlockMessage(args: {
       isBuilderCmsUnpublishedSaveEffect(args.effect) ||
       args.effect === "update_in_place";
     const liveValues = args.liveState.values;
-    const written = builderCmsWrittenSourceFields(args.request);
     // The body check below skips a missing hash, which is only safe while
     // the timestamps still vouch for the body.
     const bodyUnverifiable =
-      written.wroteBody &&
-      (!args.baselineBlocksHash || !args.liveState.blocksHash);
+      written.wroteBody && (!baselineBlocksHash || !args.liveState.blocksHash);
     if (!fieldLevel || !liveValues || bodyUnverifiable) {
       return "Builder entry changed since this diff was approved; refresh and re-review.";
     }
@@ -808,10 +811,12 @@ function livePreflightBlockMessage(args: {
       return `${changedFields.map(args.fieldLabel).join(", ")} changed in Builder since you edited it; refresh and re-review.`;
     }
   }
+  const reviewedBodyEmpty =
+    written.wroteBody && args.bodyChange?.currentEmpty === true;
   if (
-    args.baselineBlocksHash &&
+    (baselineBlocksHash || reviewedBodyEmpty) &&
     args.liveState.blocksHash &&
-    args.liveState.blocksHash !== args.baselineBlocksHash &&
+    args.liveState.blocksHash !== baselineBlocksHash &&
     args.liveState.blocksHash !== savedOver?.liveBlocksHash
   ) {
     return "Builder body changed since this diff was approved; refresh and re-review.";
@@ -2387,7 +2392,7 @@ export async function executeBuilderSourceExecutionWithDeps(
       const message = livePreflightBlockMessage({
         liveState,
         baselineLastUpdated,
-        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
+        bodyChange: changeSet.bodyChange,
         baselineValues,
         effect: plan.payload.effect,
         request: plan.payload.request,

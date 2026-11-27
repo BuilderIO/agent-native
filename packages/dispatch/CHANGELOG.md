@@ -1,5 +1,87 @@
 # @agent-native/dispatch
 
+## 0.43.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [8959acb]
+- Updated dependencies [3cf91b8]
+- Updated dependencies [6409765]
+- Updated dependencies [3b2114d]
+- Updated dependencies
+- Updated dependencies [415f03e]
+- Updated dependencies [a37f935]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [0a08ec4]
+- Updated dependencies [3e81b56]
+  - @agent-native/toolkit@0.235.0
+  - @agent-native/agentkit@0.235.0
+
+## 0.43.2
+
+### Patch Changes
+
+- 4a34f01: The `an` skill now describes when a live app view helps, carries the user's selection into follow-ups, updates the same view after a change and reads back what was saved. Dispatch's MCP server serves the skill through the MCP Skills extension, so hosts that support Skills over MCP get it with the connector.
+- f3976d7: Starting an app branch for an email Builder does not recognize now retries with the connected account's user id whatever status Builder answers with. When there is no account to fall back to, the failure says the email is not a member of the connected Builder space instead of calling it temporary.
+- feadc42: An app pane in ChatGPT now tells the host it is ready as soon as ChatGPT's bridge is read, instead of after a five second wait for the host handshake, so the pane stays open. The open-app tool description now asks the model to open the pane for show, open, draft, chart, calendar, and dashboard requests.
+- 969463c: Hosted apps on the Dispatch chat home open in place and no longer show an external-link arrow on the Open button.
+- Release all public npm packages with a patch version bump.
+- 7f630e8: Rewrite Dispatch and core cross-app MCP tool descriptions as neutral, factual capability descriptions so hosts like ChatGPT do not flag prescriptive cross-tool instructions as suspicious.
+- ccf8c31: Restore the last app pane after a reload when its saved state is valid. The pane read no longer gets dropped when the first mount is discarded, and a saved pane that is malformed is reported as unreadable instead of being treated as never saved.
+- 11f193e: Route requests about GitHub issues and pull requests to Tasks even when they mention messages, while email and inbox requests still go to Mail.
+- 343d243: Fix email change in multi-app workspaces: Dispatch's identity policies now ship in core, so any app sharing the database can rekey. Workspace apps no longer answer 503 `org-domain-missing` for an org without an allowed domain; the registry token names the org by id instead. Add `setupDispatch({ hostedCatalog: false })` to hide Builder-hosted apps from Dispatch lists.
+- aecb9db: Show suggested actions as a labeled summary, and open the existing target instead of failing when it already exists.
+- Updated dependencies [0f7bf06]
+- Updated dependencies [e466d90]
+- Updated dependencies
+- Updated dependencies [459726e]
+- Updated dependencies [0315ffa]
+- Updated dependencies [124141d]
+- Updated dependencies [4ad86d5]
+- Updated dependencies [f037abc]
+- Updated dependencies [971ad70]
+- Updated dependencies [631ee7c]
+  - @agent-native/toolkit@0.234.0
+  - @agent-native/agentkit@0.234.0
+
+## 0.43.1
+
+### Patch Changes
+
+- 969523d: Show readable suggested action details and open an existing workspace app when creation finds it.
+- 88e0754: Take the sidebar toggle from the visible workspace app after another app was kept alive, so a retained app's hidden frame no longer shadows the one on screen.
+- 7188162: Make an embedded app's chat rail on `/dispatch/apps/:appId` send the app frame's own browser tab id instead of Dispatch's, so asking the app chat to open something navigates the app frame instead of bouncing Dispatch to its overview.
+- f3ff142: Fix workspace app chat session routing for cross-origin mounted apps.
+- 98cd62f: Use a caller's scoped remote MCP OAuth connection for app actions and provide an authorization link when a target requires a connection.
+- 6cd1113: Allow embedded workspace apps and browser pages to request fullscreen.
+- df6374d: Route email and message requests to Mail before matching service pointers, while routing GitHub issues and pull requests to Tasks.
+- Release all public npm packages with a patch version bump.
+- b1197d4: Fix A2A browser tab and viewport mode propagation, add turn-scoped foreground viewport lock and early open_app pane commit, upgrade AppCapabilityManifest to v2 with route template validation, and add rendered screen verification receipts.
+- Updated dependencies [6f4b56e]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c71955a]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [7c866e8]
+- Updated dependencies [6f84c01]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c541b37]
+- Updated dependencies
+- Updated dependencies [a57a58f]
+- Updated dependencies [c3bcccd]
+- Updated dependencies [bb20dd7]
+- Updated dependencies [2a7cf8c]
+- Updated dependencies [4b68858]
+- Updated dependencies [b755252]
+- Updated dependencies [87dfdb6]
+- Updated dependencies [a57a58f]
+  - @agent-native/toolkit@0.233.0
+  - @agent-native/agentkit@0.233.0
+
 ## 0.43.0
 
 ### Minor Changes
@@ -1666,28 +1748,5 @@
 - Release all public npm packages with a patch version bump.
 - Updated dependencies
   - @agent-native/toolkit@0.16.14
-
-## 0.31.18
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- eff9004: Include available and connected apps in Dispatch app search results.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.13
-
-## 0.31.17
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.12
-
-## 0.31.16
-
-### Patch Changes
-
-- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

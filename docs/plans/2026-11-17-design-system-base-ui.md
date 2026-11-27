@@ -48,7 +48,7 @@ Tailwind v4 owns the layer order `theme, base, components, utilities`.
 
 - Tokens are plain custom properties outside the layers, scoped by selector.
 - Component CSS lives in `@layer components`. Themes never write selectors
-  against parts: they set the part's public inputs (`--button-outline-bg`),
+  against parts: they set the part's public inputs (`--switch-soft-track-color`),
   which the part reads with a role fallback. A part therefore paints correctly
   with no theme at all, and a theme is pure data.
 - Utilities always beat components. A template's `className="h-8"` on a
@@ -102,10 +102,11 @@ with shadcn's Tailwind colors.
 the scale steps (`bg-gray-3`, `text-brand-11`), plus `theme-*:`, `compact:`
 and `comfortable:` variants.
 
-**3. Component tokens**: declared on the part, defaulting to roles.
-`.button` reads `--button-height`, `--button-bg`, `--button-radius` and so on.
-A theme overrides these without writing selectors for every variant. This is
-the knob layer that makes a new theme cheap.
+**3. Component tokens** are opt-in, cataloged inputs. Switch pilots this
+contract. For example, a theme can set `--switch-soft-track-color` on a
+container to change the unchecked soft track. With the input unset, the
+switch resolves `--gray-a4` at the control, including inside nested themes.
+Props still choose the variant, color, radius and contrast.
 
 ### Scopes
 
@@ -147,9 +148,9 @@ theme's light and dark values. `tokens:export` writes them one file per mode
 of a Figma collection; `tokens:import` takes a Figma export back, refuses
 anything code cannot read, and keeps each unchanged color's exact HSL text, so
 a trip through Figma with no edits changes no CSS. The contractor's foundations
-work lands through `tokens:import`, then `css` and a reviewed diff. Not yet in
-the files: motion, layers, density spacing and part inputs, which stay in code
-until there is a Figma collection for them.
+work lands through `tokens:import`, then `css` and a reviewed diff. The
+Components collection contains one token per Switch styling input. Motion,
+layers and density spacing remain in code.
 
 ### Legacy styling paths go (decided 2026-11-18)
 
@@ -217,7 +218,9 @@ own vocabulary rather than shadcn's:
   classes: `menu.item` is `.menu-item`, `dialog.popup` is `.dialog-popup`.
 - Component CSS uses tokens only. `guard:no-raw-colors` covers
   `css/parts/` and the hand-written theme files.
-- A part's public inputs are `--<part>-*`; its private values are `--_*` and
+- Each public styling input uses `--<part>-*` and has a catalog entry with its
+  purpose and default. Switch reads these inputs with local fallbacks in the
+  relevant base, variant or state rule. Its private values use `--_*` and
   never reference themselves (CSS invalidates a self-reference even through a
   `var()` fallback, so size rules write `--_size-*` and the base reads them).
 
@@ -268,7 +271,7 @@ model.
   theme. The seam is toolkit's existing `defineDesignSystem` /
   `ToolkitProvider`, which already swaps the markup of 17 semantic components,
   extended to the part catalog.
-- **Row ids.** Every part renders `data-row-id` from its row. It is the join
+- **Row ids.** Every part renders `data-rid` from its row. It is the join
   key between a source rendering and a target part set.
 - **Equivalence check:** `checkPartSetEquivalence({ model, target })`.
   Structural, never visual: the target renders the same row ids, names,
@@ -312,7 +315,7 @@ Found while building the parts; each is checked in its swap PR.
 - **Muted text** (2026-11-18): the app themes map `--fg-muted` a fifth of the way from shadcn's muted gray toward the text color, so it holds 4.5:1 on the nav surface, sunken tracks and selected rows as well as the canvas.
 - **Native parts** (decided 2026-11-18): parts take Base UI's own API and the design system's own look; no Radix-shaped props, no shadcn-matching theme inputs, no shadcn parity stories. Tabs, switch, slider, input, textarea, field, fieldset, checkbox, radio, accordion, collapsible, toggle, toggle group, scroll area, separator, avatar, progress, meter, badge, keycap, spinner, skeleton, app shell, sidebar, navigation menu, page header and toolbar are built this way; the sidebar is a layout filled with real parts (NavigationMenu, Collapsible, Separator, Badge, Button, Menu), not a family of its own; Base UI has no textarea, so ours is its field control rendered as one. The popover and select above are compat-shaped and move to the native overlay run with the dialog family.
 - **One part per Base UI component** (decided 2026-11-18): parts follow base-ui.com/react/components one to one, each with its own module, CSS file, catalog entry (`kind: "component"`) and story under `Components/<Base UI name>`. Static parts Base UI has no component for (Badge, Keycap, Spinner, Skeleton, Item, Banner, Textarea) are additions; layouts of parts (Sidebar, Settings, Page header) are patterns.
-- **Flat part CSS** (decided 2026-11-18): part CSS reads roles and scale tokens directly, like hand-written component CSS. Parts have no `--<part>-*` inputs and `src/themes/parts/` is gone. A pattern that needs a part to look different gives the part a prop (Button's row form, Input's `emphasis="solid"`).
+- **Flat part CSS** (2026-11-18, updated for the Switch pilot): parts resolve roles and scale steps in their own CSS. Switch exposes cataloged styling inputs through local fallbacks in those same rules. Themes may set an input on a container. The original flattening (`ac292414a9`, before PR #9575 was squashed) removed the per-theme Button maps used for shadcn parity and moved the sidebar’s row and solid-field treatments into props. The pilot keeps those props and the flat stylesheets.
 - **Select** (built 2026-11-18)
   - Typing on a closed trigger does not change the value, as it did in Radix.
   - The selected item's children render twice while the list is open (once in the detached label source); item children with side effects would run them twice.
@@ -354,7 +357,7 @@ Each PR ships live with no flag. Every swap proves parity first.
    and `guard:no-part-class-redefinition`.
 2. **Headless model and part sets** (`claude/design-system-headless-model`,
    stacked on the foundation; built): model types and row ids in the design
-   system, the part-set seam in toolkit, `data-row-id` on every part, the
+   system, the part-set seam in toolkit, `data-rid` on every part, the
    equivalence check, and the row style check keyed by row id.
 3. **Settings, the first pattern** (MVP, Dec 14; `claude/design-system-settings`,
    stacked on step 2. Built: the shared nav for every app, the group, row,

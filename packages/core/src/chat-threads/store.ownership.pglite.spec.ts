@@ -47,6 +47,7 @@ vi.mock("../db/create-get-db.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getScopedDbExec: () => undefined,
   getDbExec: () => ({
     execute: async (input: string | { sql: string; args?: unknown[] }) => {

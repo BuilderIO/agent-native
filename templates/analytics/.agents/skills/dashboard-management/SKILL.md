@@ -194,13 +194,38 @@ set `agentNativeSignups.eventsTable` and `maxBytesBilled` with
 `estimate-content-signups-cost` and `step: "agent_native_signups"`, which
 prices the first run's 90-day backfill. Later runs read back three days.
 
+The `daily_dev` step writes `daily_dev_sessions` per article: GA4 sessions
+that landed on it with daily.dev's `via=dailydev` tag or from a daily.dev
+session source, read from the collection's GA4 property, so it needs nothing
+else and reads back three days like pageviews. Like pageviews, it writes a 0
+for each article on each day it reads, so a count GA4 later drops is cleared.
+The `youtube` step stores every video on `youtube.channels` (channel IDs or
+`@handles`, set with `configure-content-collection --youtubeChannels`) as a
+`youtube` item and writes `youtube_views`, `youtube_likes` and
+`youtube_comments`: counts to date, dated the day they were read, with the
+channel's ID in the item's `metadata.channelId`. A count the channel hides has
+no row, so the Videos table shows only counts from a video's newest read.
+Views gained is the difference between two reads, and a video first read
+after its channel's first read (by channel ID) starts from 0, as the YouTube
+tab does. A successful read stamps every video it returns with an
+`updated_at` after the run started, so the tab takes the videos stamped since
+the newest successful `youtube` run started as that read: its chart shows only
+channels that read covered, and its Videos table only videos it covered, so a
+channel taken off `youtube.channels` or a deleted video drops off while its
+rows stay stored. It needs
+`YOUTUBE_API_KEY` under Data Sources → YouTube, stays off until turned on,
+reports `not_configured` without channels or a key, and costs about one
+quota unit per 25 videos of the key's free 10,000 a day. A run whose channels
+have more than 10,000 videos in all fails rather than storing part of them.
+
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing
 data callout has no `tab`, so it shows on every tab. It joins the expected
 sources to their latest run in the last 30 days, so it names each source whose
 run failed, hit the cost cap or isn't connected, and each one with no run in
 that window; keep that pattern rather than letting a missing row read as
-"nothing missing". The
+"nothing missing". YouTube, which is off by default, is named only once it
+has run. The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
 instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`
@@ -208,7 +233,9 @@ lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
 compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
 rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
 uncollected day would draw as a zero instead of a gap. Pivot only where a
-missing row is a real zero, like an author's week without signups. Each daily
+missing row is a real zero, like an author's week without signups. A pivoted
+daily line or area is also filled through today; the YouTube chart is stacked
+bars, which aren't filled, because its days end before today. Each daily
 chart's "Since collection began" starts at the first day of its own metric, so
 16 months of search history doesn't stretch the signups charts. Its Search tab
 has clicks per full month since collection began, each article's clicks

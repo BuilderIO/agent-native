@@ -165,7 +165,7 @@ async function commandLayerState(app: App, screens: Screens) {
 }
 
 async function editSelectedWidth(page: Page, width: string) {
-  const input = page.getByRole("textbox", {
+  const input = page.getByRole("combobox", {
     name: /^W(?: size in pixels)?$/,
   });
   await expect(input).toBeVisible();
@@ -204,7 +204,7 @@ test("a legacy unscoped selection link resolves inside the Screen the link names
 
   await expect.poll(() => app.selectedLayers()).toEqual(["Screen A Button"]);
   await expect(
-    app.page.getByRole("textbox", { name: /^W(?: size in pixels)?$/ }),
+    app.page.getByRole("combobox", { name: /^W(?: size in pixels)?$/ }),
   ).toHaveValue("100");
 });
 
@@ -224,7 +224,7 @@ test("a legacy unscoped selection link without a Screen selects nothing", async 
 
   expect(await app.selectedLayers()).toEqual([]);
   await expect(
-    app.page.getByRole("textbox", { name: /^W(?: size in pixels)?$/ }),
+    app.page.getByRole("combobox", { name: /^W(?: size in pixels)?$/ }),
   ).toHaveCount(0);
 });
 
@@ -250,7 +250,7 @@ test("identical authored node IDs stay scoped to their Screen", async ({
   expect(new Set(rowIds).size).toBe(2);
 
   await clickNode(app, SHARED_NODE_ID, screenAId);
-  const widthInput = page.getByRole("textbox", {
+  const widthInput = page.getByRole("combobox", {
     name: /^W(?: size in pixels)?$/,
   });
   await expect(widthInput).toHaveValue("100");
@@ -339,7 +339,7 @@ test("structural commands stay in the selected Screen with duplicate authored ID
   expect(initial.screenB.companion).toHaveLength(1);
 
   await clickNode(app, SHARED_NODE_ID, screenAId);
-  const widthInput = page.getByRole("textbox", {
+  const widthInput = page.getByRole("combobox", {
     name: /^W(?: size in pixels)?$/,
   });
   await expect(widthInput).toHaveValue("100");

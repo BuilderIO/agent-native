@@ -223,6 +223,183 @@ describe("PGlite dev reloads", () => {
   );
 });
 
+describe("enclosing transaction executor", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.unstubAllEnvs();
+    vi.doUnmock("@neondatabase/serverless");
+    vi.doUnmock("@electric-sql/pglite");
+    await resetAppConfig();
+    vi.resetModules();
+  });
+
+  it("recognizes scoped Drizzle transaction handles but not ordinary scopes", async () => {
+    const {
+      getEnclosingTransactionDbExec,
+      getScopedDbExec,
+      markDrizzleTransactionExec,
+      withDbExec,
+    } = await import("./client.js");
+    const execute = vi.fn(async () => ({ rows: [], rowsAffected: 0 }));
+    const ordinary = { execute };
+    const transaction = markDrizzleTransactionExec({ execute });
+
+    expect(getEnclosingTransactionDbExec()).toBeUndefined();
+    await withDbExec(ordinary, async () => {
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+      await withDbExec(transaction, async () => {
+        const enclosing = getEnclosingTransactionDbExec();
+        expect(enclosing).toBe(getScopedDbExec());
+        if (!enclosing) throw new Error("Expected a scoped transaction");
+        await enclosing.execute("SELECT 1");
+        await withDbExec(ordinary, async () => {
+          expect(getEnclosingTransactionDbExec()).toBeUndefined();
+        });
+        expect(getEnclosingTransactionDbExec()).toBe(enclosing);
+      });
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+    });
+    expect(execute).toHaveBeenCalledWith("SELECT 1");
+    expect(getEnclosingTransactionDbExec()).toBeUndefined();
+  });
+
+  it("requires a transaction callback to scope its own handle unless explicitly opted out", async () => {
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    );
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    await resetAppConfig();
+    const query = vi.fn(async (_statement: string) => ({
+      rows: [],
+      rowCount: 0,
+    }));
+    const client = { query, release: vi.fn() };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const {
+      getDbExec,
+      getEnclosingTransactionDbExec,
+      getScopedDbExec,
+      withDbExec,
+    } = await import("./client.js");
+    const unrelated = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+    const exec = getDbExec();
+    if (!exec.transaction) throw new Error("Expected transaction support");
+    await exec.transaction(async (tx) => {
+      expect(() => getEnclosingTransactionDbExec()).toThrow(
+        "Scope this transaction's handle with withDbExec(tx, …)",
+      );
+      expect(
+        getEnclosingTransactionDbExec({ allowUnscoped: true }),
+      ).toBeUndefined();
+      await withDbExec(unrelated, async () => {
+        expect(() => getEnclosingTransactionDbExec()).toThrow(
+          "Scope this transaction's handle with withDbExec(tx, …)",
+        );
+        expect(
+          getEnclosingTransactionDbExec({ allowUnscoped: true }),
+        ).toBeUndefined();
+      });
+      await withDbExec(tx, async () => {
+        const enclosing = getEnclosingTransactionDbExec();
+        expect(enclosing).toBe(getScopedDbExec());
+        if (!enclosing) throw new Error("Expected a scoped transaction");
+        expect(getEnclosingTransactionDbExec({ allowUnscoped: true })).toBe(
+          enclosing,
+        );
+        await enclosing.execute("SELECT 1");
+      });
+      expect(() => getEnclosingTransactionDbExec()).toThrow();
+    });
+    expect(query.mock.calls.map(([statement]) => statement)).toContain(
+      "SELECT 1",
+    );
+    expect(unrelated.execute).not.toHaveBeenCalled();
+    expect(getEnclosingTransactionDbExec()).toBeUndefined();
+  });
+
+  it("joins only the PGlite transaction for the runtime database", async () => {
+    const dataDir = mkdtempSync(
+      join(tmpdir(), "agent-native-transaction-scope-"),
+    );
+    const runtimeUrl = `pglite:${join(dataDir, "runtime")}`;
+    const otherUrl = `pglite:${join(dataDir, "other")}`;
+    vi.stubEnv("DATABASE_URL", runtimeUrl);
+    await resetAppConfig();
+    const runtimeQuery = vi.fn(async () => ({
+      rows: [{ database: "runtime" }],
+    }));
+    const otherQuery = vi.fn(async () => ({ rows: [{ database: "other" }] }));
+    const createClient = (query: typeof runtimeQuery) => ({
+      query,
+      transaction: async (run: (tx: unknown) => Promise<unknown>) =>
+        run({ query }),
+      close: vi.fn(async () => {}),
+    });
+    const runtimeClient = createClient(runtimeQuery);
+    const otherClient = createClient(otherQuery);
+    vi.doMock("@electric-sql/pglite", () => ({
+      PGlite: {
+        create: vi.fn(async (dir: string) =>
+          dir === join(dataDir, "runtime") ? runtimeClient : otherClient,
+        ),
+      },
+    }));
+    const {
+      closeDbExec,
+      createDbExec,
+      getDbExec,
+      getEnclosingTransactionDbExec,
+    } = await import("./client.js");
+    try {
+      const runtime = await createDbExec({ url: runtimeUrl });
+      const other = await createDbExec({ url: otherUrl });
+      if (!runtime.transaction || !other.transaction) {
+        throw new Error("Expected PGlite transaction support");
+      }
+
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+      await other.transaction(async () => {
+        expect(getEnclosingTransactionDbExec()).toBeUndefined();
+        await expect(getDbExec().execute("SELECT 1")).resolves.toMatchObject({
+          rows: [{ database: "runtime" }],
+        });
+        await runtime.transaction(async () => {
+          const enclosing = getEnclosingTransactionDbExec();
+          if (!enclosing) throw new Error("Expected the runtime transaction");
+          await expect(enclosing.execute("SELECT 2")).resolves.toMatchObject({
+            rows: [{ database: "runtime" }],
+          });
+        });
+        expect(getEnclosingTransactionDbExec()).toBeUndefined();
+      });
+      expect(runtimeQuery).toHaveBeenCalledTimes(2);
+      expect(otherQuery).not.toHaveBeenCalled();
+      expect(getEnclosingTransactionDbExec()).toBeUndefined();
+    } finally {
+      await closeDbExec();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("db/client Postgres URL handling", () => {
   let originalEnv: NodeJS.ProcessEnv;
 

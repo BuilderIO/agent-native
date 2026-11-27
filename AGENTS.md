@@ -141,15 +141,11 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
 `no-bare-error-in-actions`, `no-unobserved-writes`, `external-result-contract`,
 `no-source-reading-tests`, `no-oracle-loosening`, `no-wall-clock-assertions`,
-`no-raw-sql-interpolation`, `action-output-schema`,
-`strict-lint`, and `compiler-strictness` check only lines this branch added,
-so the
-pre-existing backlog stays a separate cleanup. Each guard has a documented
-opt-out pragma; every opt-out is a decision a reviewer should see.
-`no-new-legacy-mcp-hints`, `no-new-mcp-parity-gaps`, `no-new-escape-hatches`,
-and `compiler-strictness` have none: the MCP `destructiveHint` and parity
-baselines, each file's count of `any`, `!`, and suppression comments, and
-tsconfig's strictness opt-outs only shrink.
+`no-raw-sql-interpolation`, `action-output-schema`, and `strict-lint` check
+only lines this branch added, each with a documented opt-out pragma reviewers
+see. `no-new-legacy-mcp-hints`, `no-new-mcp-parity-gaps`,
+`no-new-escape-hatches`, and `compiler-strictness` are ratchet-scoped with no
+opt-out: baselines, escape hatches, and tsconfig opt-outs only shrink.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
@@ -363,16 +359,17 @@ instructions, and application state.
 
 ## Packages And Releases
 
-- Publishable package source changes in `packages/core`, `packages/dispatch`,
-  `packages/scheduling`, or `packages/pinpoint` need a `.changeset/*.md`.
+- Publishable package source changes (any package listed in
+  `scripts/public-package-names.ts`) need a `.changeset/*.md` (`patch` or
+  `minor`; `major` bumps are blocked in CI).
 - Do not manually bump package versions; changesets handle versions on merge.
 - The public template allow-list is controlled by
   `packages/shared-app-config/templates.ts` plus mirrored CLI/docs surfaces.
   Hidden templates must not appear in public catalogs unless they are explicitly
   unhidden first.
-- Ship a user-facing change to a template app (new capability, visible
-  improvement, behavior-affecting fix)? Record it from that app with
-  `agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
+- Ship a user-facing change to a changelog-enabled template app
+  (`changelog.enabled: true`)? Record it from that app with
+  `pnpm exec agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
   Skip refactors, tooling, and tests. See the `changelog` skill.
 - The Builder Code starter (`packages/core/src/templates/builder-code-starter`) is patches
   over `templates/chat`. After editing Chat, run `pnpm guard:template-layers`.

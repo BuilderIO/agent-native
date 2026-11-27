@@ -2,7 +2,14 @@ import {
   DEFAULT_CODE_LANGUAGES,
   type CodeLanguageOption,
 } from "@agent-native/toolkit/editor";
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
+import {
+  INTERACTIVE_HTML_LANGUAGE,
+  isInteractiveHtmlLanguage,
+} from "@shared/interactive-html-language";
+import {
+  CodeBlockLowlight,
+  type CodeBlockLowlightOptions,
+} from "@tiptap/extension-code-block-lowlight";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   NodeSelection,
@@ -15,9 +22,11 @@ import type { EditorView } from "@tiptap/pm/view";
 import { ReactNodeViewRenderer, type NodeViewRenderer } from "@tiptap/react";
 import { common, createLowlight } from "lowlight";
 
+import { InteractiveHtmlBlockView } from "./InteractiveHtmlBlockView";
 import { MermaidCodeBlockView } from "./MermaidCodeBlockView";
 
 const lowlight = createLowlight(common);
+lowlight.registerAlias({ xml: [INTERACTIVE_HTML_LANGUAGE] });
 
 const MORE_CODE_LANGUAGES: [value: string, label: string][] = [
   ["shell", "Shell"],
@@ -83,6 +92,21 @@ export function isMermaidCodeBlock(
   );
 }
 
+export function isInteractiveHtmlCodeBlock(
+  node: ProseMirrorNode | null | undefined,
+): boolean {
+  return (
+    node?.type.name === "codeBlock" &&
+    isInteractiveHtmlLanguage(node.attrs.language)
+  );
+}
+
+export function isDrawnCodeBlock(
+  node: ProseMirrorNode | null | undefined,
+): boolean {
+  return isMermaidCodeBlock(node) || isInteractiveHtmlCodeBlock(node);
+}
+
 const ARROW_DIRECTIONS = new Map<string, "up" | "down" | "left" | "right">([
   ["ArrowUp", "up"],
   ["ArrowDown", "down"],
@@ -95,7 +119,7 @@ const ARROW_DIRECTIONS = new Map<string, "up" | "down" | "left" | "right">([
  * would skip over it. Arrowing into one from beside it selects the block
  * instead, where Enter opens the source.
  */
-function selectRestingMermaidOnArrow(
+function selectRestingDrawingOnArrow(
   view: EditorView,
   event: KeyboardEvent,
 ): boolean {
@@ -114,7 +138,7 @@ function selectRestingMermaidOnArrow(
     return false;
   }
   const next = Selection.findFrom($start, forward ? 1 : -1, true);
-  if (!next || !isMermaidCodeBlock(next.$from.parent)) return false;
+  if (!next || !isDrawnCodeBlock(next.$from.parent)) return false;
   const blockPos = next.$from.before();
   const blockDom = view.nodeDOM(blockPos);
   if (
@@ -130,18 +154,16 @@ function selectRestingMermaidOnArrow(
   return true;
 }
 
-function isSelectedMermaidDrawing(view: EditorView): boolean {
+function isSelectedDrawing(view: EditorView): boolean {
   const { selection } = view.state;
-  return (
-    selection instanceof NodeSelection && isMermaidCodeBlock(selection.node)
-  );
+  return selection instanceof NodeSelection && isDrawnCodeBlock(selection.node);
 }
 
 /**
  * Typing on a selected drawing would replace the whole block, source and all.
  * Like a selected block in Notion, it types nothing; Enter opens the source.
  */
-function ignoreTypingOnSelectedMermaid(
+function ignoreTypingOnSelectedDrawing(
   view: EditorView,
   event: KeyboardEvent,
 ): boolean {
@@ -151,13 +173,29 @@ function ignoreTypingOnSelectedMermaid(
     (event.ctrlKey && !event.altKey)
   )
     return false;
-  return isSelectedMermaidDrawing(view);
+  return isSelectedDrawing(view);
 }
+
+const INTERACTIVE_HTML_ATTR = "data-interactive-html";
 
 export const CodeBlock = CodeBlockLowlight.extend({
   addAttributes() {
+    const parent = this.parent?.() ?? {};
+    const language = new Map(Object.entries(parent)).get("language");
     return {
-      ...this.parent?.(),
+      ...parent,
+      language: {
+        ...language,
+        rendered: true,
+        parseHTML: (element: HTMLElement) =>
+          element.hasAttribute(INTERACTIVE_HTML_ATTR)
+            ? INTERACTIVE_HTML_LANGUAGE
+            : language?.parseHTML?.(element),
+        renderHTML: (attributes: Record<string, unknown>) =>
+          isInteractiveHtmlLanguage(attributes.language)
+            ? { [INTERACTIVE_HTML_ATTR]: "" }
+            : {},
+      },
       wrap: {
         default: false,
         parseHTML: (element) => element.getAttribute("data-wrap") === "true",
@@ -184,27 +222,49 @@ export const CodeBlock = CodeBlockLowlight.extend({
   defaultLanguage: null,
 });
 
-/**
- * The code block that draws `mermaid` blocks as their diagrams. Public pages
- * keep the plain {@link CodeBlock}, so they never run document source.
- */
-export const DrawingCodeBlock = CodeBlock.extend({
+function drawnBlockRenderer(
+  component: Parameters<typeof ReactNodeViewRenderer>[0],
+  draws: (node: ProseMirrorNode) => boolean,
+): NodeViewRenderer {
+  return ReactNodeViewRenderer(component, {
+    update: ({ newNode, updateProps }) => {
+      if (!draws(newNode)) return false;
+      updateProps();
+      return true;
+    },
+    stopEvent: ({ event }) =>
+      event.target instanceof Element &&
+      event.target.closest(
+        "[data-mermaid-control],[data-interactive-html-control]",
+      ) !== null,
+  });
+}
+
+export const DrawingCodeBlock = CodeBlock.extend<
+  CodeBlockLowlightOptions & { drawDiagrams: boolean }
+>({
+  addOptions() {
+    const parent = this.parent?.();
+    if (!parent) throw new Error("The code block has no options to extend.");
+    return { ...parent, drawDiagrams: true };
+  },
+
   addNodeView() {
-    const drawn = ReactNodeViewRenderer(MermaidCodeBlockView, {
-      // A block that stops being Mermaid goes back to the plain code block.
-      update: ({ newNode, updateProps }) => {
-        if (!isMermaidCodeBlock(newNode)) return false;
-        updateProps();
-        return true;
-      },
-      // The drawing and the header buttons are the view's own controls.
-      stopEvent: ({ event }) =>
-        event.target instanceof Element &&
-        event.target.closest("[data-mermaid-control]") !== null,
-    });
+    const diagram = drawnBlockRenderer(
+      MermaidCodeBlockView,
+      isMermaidCodeBlock,
+    );
+    const interactive = drawnBlockRenderer(
+      InteractiveHtmlBlockView,
+      isInteractiveHtmlCodeBlock,
+    );
     // ProseMirror draws the plain code block when a factory returns nothing.
-    const view: NodeViewRenderer = (props) =>
-      isMermaidCodeBlock(props.node) ? drawn(props) : (null as never);
+    const view: NodeViewRenderer = (props) => {
+      if (isInteractiveHtmlCodeBlock(props.node)) return interactive(props);
+      return this.options.drawDiagrams && isMermaidCodeBlock(props.node)
+        ? diagram(props)
+        : (null as never);
+    };
     return view;
   },
 
@@ -219,15 +279,14 @@ export const DrawingCodeBlock = CodeBlock.extend({
       // The code block's Tab types a tab, which would replace a selected
       // drawing as any other typing would.
       Tab: (props) =>
-        isSelectedMermaidDrawing(props.editor.view) ||
-        (parentTab?.(props) ?? false),
+        isSelectedDrawing(props.editor.view) || (parentTab?.(props) ?? false),
       // Like a table cell, the first Escape from a Mermaid source only closes
       // it, leaving the drawing selected; the next one leaves the editor.
       Escape: ({ editor }) => {
         const { selection } = editor.state;
         if (
           !(selection instanceof TextSelection) ||
-          !isMermaidCodeBlock(selection.$from.parent)
+          !isDrawnCodeBlock(selection.$from.parent)
         )
           return false;
         return editor.commands.setNodeSelection(selection.$from.before());
@@ -236,7 +295,7 @@ export const DrawingCodeBlock = CodeBlock.extend({
         const { selection } = props.editor.state;
         if (
           selection instanceof NodeSelection &&
-          isMermaidCodeBlock(selection.node)
+          isDrawnCodeBlock(selection.node)
         ) {
           return props.editor.commands.setTextSelection(selection.to - 1);
         }
@@ -249,12 +308,12 @@ export const DrawingCodeBlock = CodeBlock.extend({
     return [
       ...(this.parent?.() ?? []),
       new Plugin({
-        key: new PluginKey("mermaidSelectedDrawing"),
+        key: new PluginKey("selectedCodeDrawing"),
         props: {
           handleKeyDown: (view, event) =>
-            selectRestingMermaidOnArrow(view, event) ||
-            ignoreTypingOnSelectedMermaid(view, event),
-          handleTextInput: (view) => isSelectedMermaidDrawing(view),
+            selectRestingDrawingOnArrow(view, event) ||
+            ignoreTypingOnSelectedDrawing(view, event),
+          handleTextInput: (view) => isSelectedDrawing(view),
         },
       }),
     ];
