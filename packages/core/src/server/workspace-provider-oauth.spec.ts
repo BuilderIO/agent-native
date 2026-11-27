@@ -2007,7 +2007,6 @@ describe("workspace provider OAuth", () => {
       "profile",
       "https://www.googleapis.com/auth/calendar.readonly",
       "https://www.googleapis.com/auth/calendar.events",
-      "https://www.googleapis.com/auth/calendar.calendarlist",
     ]);
   });
 
