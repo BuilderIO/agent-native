@@ -73,7 +73,7 @@ describe("commenting on suggested text", () => {
     }
   });
 
-  it("names the suggestion whose inserted words a selection starts or ends in", () => {
+  it("names the suggestion whose inserted words a selection starts, ends or stops beside", () => {
     const element = document.createElement("div");
     const outside = document.createElement("p");
     outside.textContent = "Elsewhere";
@@ -156,6 +156,13 @@ describe("commenting on suggested text", () => {
       expect(select(inserted, [textIn("d1"), 2], at, 1)).toBe("s1");
       expect(select([textIn("d1"), 2], [before, 2], 1, 3)).toBeUndefined();
       expect(select(inserted, [textIn("s2"), 2], at, end)).toBeUndefined();
+
+      const beside = [before, "Keep ".length] as const;
+      expect(select(after, beside, at + 2, at)).toBe("s1");
+      expect(select(beside, after, at, at + 2)).toBe("s1");
+      expect(select([before, 0], beside, 1, at)).toBeUndefined();
+      expect(select([before, 0], after, 1, at + 2)).toBeUndefined();
+      expect(select(after, beside, 1, 3)).toBeUndefined();
     } finally {
       selection.removeAllRanges();
       editor.destroy();

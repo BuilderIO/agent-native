@@ -350,28 +350,25 @@ export function shouldShowBubbleToolbar({
 
 export function selectedSuggestionWidgetId(view: EditorView) {
   const selection = view.dom.ownerDocument.getSelection();
-  if (!selection || selection.isCollapsed) return undefined;
-  const { anchor, head } = view.state.selection;
-  const ids = new Set<string>();
-  const ends = [
-    [selection.anchorNode, anchor],
-    [selection.focusNode, head],
-  ] as const;
-  for (const [node, position] of ends) {
+  if (!selection || selection.isCollapsed || !selection.rangeCount)
+    return undefined;
+  for (const node of [selection.anchorNode, selection.focusNode]) {
     if (!node || !view.dom.contains(node)) return undefined;
-    const widget = (
-      node instanceof Element ? node : node.parentElement
-    )?.closest<HTMLElement>(
-      ".suggestion-proposed-text[data-suggestion-widget][data-suggestion-id]",
-    );
-    if (!widget) continue;
+  }
+  const range = selection.getRangeAt(0);
+  const { from, to } = view.state.selection;
+  const ids = new Set<string>();
+  for (const widget of view.dom.querySelectorAll<HTMLElement>(
+    ".suggestion-proposed-text[data-suggestion-widget][data-suggestion-id]",
+  )) {
+    if (!range.intersectsNode(widget)) continue;
     const at = view.state.doc.resolve(view.posAtDOM(widget, 0));
     const placed = [
       at.pos,
       Selection.near(at, 1).head,
       Selection.near(at, -1).head,
     ];
-    if (!placed.includes(position)) return undefined;
+    if (!placed.includes(from) && !placed.includes(to)) continue;
     if (widget.dataset.suggestionId) ids.add(widget.dataset.suggestionId);
   }
   return ids.size === 1 ? [...ids][0] : undefined;
