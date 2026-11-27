@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
-import { docToNfm, nfmToDoc } from "@shared/nfm";
+import { docToNfm, nfmToDoc, type PMDoc } from "@shared/nfm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
 import {
@@ -389,6 +389,10 @@ describe("a numbered item added in the middle of a list", () => {
     editor.view.dispatch(editor.state.tr.insertText(text));
   }
 
+  function markdown(editor: Editor): string {
+    return docToNfm(editor.getJSON() as PMDoc);
+  }
+
   function required<T>(value: T | null | undefined): T {
     if (value === null || value === undefined)
       throw new Error("Expected a value");
@@ -416,7 +420,7 @@ describe("a numbered item added in the middle of a list", () => {
     let presentation: VisualEditorSuggestion | null = null;
     try {
       addItemAfter(source.editor, "Stove", "Rain jacket");
-      const draft = docToNfm(source.editor.getJSON());
+      const draft = markdown(source.editor);
       expect(draft).toContain("3. Rain jacket\n4. Water filter\n5. Headlamp");
       const preview = draftPreview(draft);
       expect(preview.suggestions).toHaveLength(1);
@@ -474,7 +478,7 @@ describe("a numbered item added in the middle of a list", () => {
         "Water filter",
         "Headlamp",
       ]);
-      expect(docToNfm(editor.getJSON())).toBe(fixture);
+      expect(markdown(editor)).toBe(fixture);
     } finally {
       dispose();
     }
@@ -486,7 +490,7 @@ describe("a numbered item added in the middle of a list", () => {
     try {
       addItemAfter(source.editor, "Tent", "Rain jacket");
       addItemAfter(source.editor, "Stove", "Sunscreen");
-      const draft = docToNfm(source.editor.getJSON());
+      const draft = markdown(source.editor);
       expect(draft).toContain(
         "2. Rain jacket\n3. Stove\n4. Sunscreen\n5. Water filter",
       );
@@ -561,7 +565,7 @@ describe("a numbered item added in the middle of a list", () => {
     try {
       addItemAfter(editor, "Tent", "Rain jacket");
       addItemAfter(editor, "Stove", "Sunscreen");
-      const draft = docToNfm(editor.getJSON());
+      const draft = markdown(editor);
       const preview = draftPreview(draft);
       const presentations = documentEditorSuggestionPresentations({
         savedSuggestions: [saved],

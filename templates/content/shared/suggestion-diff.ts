@@ -1296,10 +1296,32 @@ export function markdownSuggestionOperationsForReplacements(input: {
 const ORDERED_ITEM = /^(\t*)(\d+)([.)] )/;
 const MAX_LIST_LINE_CELLS = 250_000;
 
+interface OrderedItem {
+  indent: string;
+  digits: string;
+  marker: string;
+}
+
 interface ListLine {
   key: string;
   indent: number;
-  item: RegExpExecArray | null;
+  line: string;
+  item: OrderedItem | null;
+}
+
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return items[index];
+}
+
+function orderedItem(line: string): OrderedItem | null {
+  const match = ORDERED_ITEM.exec(line);
+  if (!match) return null;
+  const indent = itemAt(match, 1);
+  const digits = itemAt(match, 2);
+  const marker = itemAt(match, 3);
+  return indent === undefined || digits === undefined || marker === undefined
+    ? null
+    : { indent, digits, marker };
 }
 
 function listLines(markdown: string): ListLine[] {
@@ -1307,16 +1329,21 @@ function listLines(markdown: string): ListLine[] {
   return markdown.split("\n").map((line) => {
     const text = line.replace(/^\t+/, "");
     const indent = line.length - text.length;
-    let item: RegExpExecArray | null = null;
+    let item: OrderedItem | null = null;
     if (fence) {
       if (closesFence(text.match(FENCE_CLOSE), fence)) fence = null;
     } else {
       fence = matchFenceOpen(text)?.[1] ?? null;
-      if (!fence) item = ORDERED_ITEM.exec(line);
+      if (!fence) item = orderedItem(line);
     }
     return {
-      key: item ? `\0${item[1]}${item[3]}${line.slice(item[0].length)}` : line,
+      key: item
+        ? `\0${item.indent}${item.marker}${line.slice(
+            item.indent.length + item.digits.length + item.marker.length,
+          )}`
+        : line,
       indent,
+      line,
       item,
     };
   });
@@ -1332,23 +1359,23 @@ export function listNumberDifferences(
   const differences: Array<{ from: number; to: number; number: string }> = [];
   let offset = 0;
   for (const [index, line] of fromLines.entries()) {
-    const other = toLines[index];
+    const other = toLines[index] ?? "";
     if (line !== other) {
-      const item = ORDERED_ITEM.exec(line);
-      const otherItem = ORDERED_ITEM.exec(other);
+      const item = orderedItem(line);
+      const otherItem = orderedItem(other);
       if (
         !item ||
         !otherItem ||
-        item[1] !== otherItem[1] ||
-        line.slice(item[1].length + item[2].length) !==
-          other.slice(otherItem[1].length + otherItem[2].length)
+        item.indent !== otherItem.indent ||
+        line.slice(item.indent.length + item.digits.length) !==
+          other.slice(otherItem.indent.length + otherItem.digits.length)
       )
         return null;
-      const start = offset + item[1].length;
+      const start = offset + item.indent.length;
       differences.push({
         from: start,
-        to: start + item[2].length,
-        number: otherItem[2],
+        to: start + item.digits.length,
+        number: otherItem.digits,
       });
     }
     offset += line.length + 1;
@@ -1360,12 +1387,14 @@ function sharedLines(
   before: ListLine[],
   after: ListLine[],
 ): Array<[number, number]> {
+  const sameKey = (beforeIndex: number, afterIndex: number) =>
+    before[beforeIndex]?.key === after[afterIndex]?.key;
   const pairs: Array<[number, number]> = [];
   let start = 0;
   while (
     start < before.length &&
     start < after.length &&
-    before[start].key === after[start].key
+    sameKey(start, start)
   ) {
     pairs.push([start, start]);
     start += 1;
@@ -1374,7 +1403,7 @@ function sharedLines(
   while (
     end < before.length - start &&
     end < after.length - start &&
-    before[before.length - 1 - end].key === after[after.length - 1 - end].key
+    sameKey(before.length - 1 - end, after.length - 1 - end)
   ) {
     end += 1;
   }
@@ -1383,25 +1412,21 @@ function sharedLines(
   if (rows > 0 && columns > 0 && rows * columns <= MAX_LIST_LINE_CELLS) {
     const width = columns + 1;
     const common = new Uint32Array((rows + 1) * width);
+    const commonAt = (row: number, column: number) =>
+      common[row * width + column] ?? 0;
     for (let row = rows - 1; row >= 0; row -= 1) {
       for (let column = columns - 1; column >= 0; column -= 1) {
-        common[row * width + column] =
-          before[start + row].key === after[start + column].key
-            ? common[(row + 1) * width + column + 1] + 1
-            : Math.max(
-                common[(row + 1) * width + column],
-                common[row * width + column + 1],
-              );
+        common[row * width + column] = sameKey(start + row, start + column)
+          ? commonAt(row + 1, column + 1) + 1
+          : Math.max(commonAt(row + 1, column), commonAt(row, column + 1));
       }
     }
     for (let row = 0, column = 0; row < rows && column < columns; ) {
-      if (before[start + row].key === after[start + column].key) {
+      if (sameKey(start + row, start + column)) {
         pairs.push([start + row, start + column]);
         row += 1;
         column += 1;
-      } else if (
-        common[(row + 1) * width + column] >= common[row * width + column + 1]
-      ) {
+      } else if (commonAt(row + 1, column) >= commonAt(row, column + 1)) {
         row += 1;
       } else {
         column += 1;
@@ -1419,9 +1444,9 @@ function withPageListNumbers(page: string, draft: string): string {
   const pageLines = listLines(page);
   const pageNumbers = new Map<number, string>();
   for (const [pageIndex, draftIndex] of sharedLines(pageLines, draftLines)) {
-    const pageItem = pageLines[pageIndex].item;
-    if (pageItem && draftLines[draftIndex].item)
-      pageNumbers.set(draftIndex, pageItem[2]);
+    const pageItem = pageLines[pageIndex]?.item;
+    if (pageItem && draftLines[draftIndex]?.item)
+      pageNumbers.set(draftIndex, pageItem.digits);
   }
   const numbered = draft.split("\n");
   const openListNumbers = new Map<number, number>();
@@ -1433,7 +1458,7 @@ function withPageListNumbers(page: string, draft: string): string {
       openListNumbers.delete(line.indent);
       continue;
     }
-    const [, indent, digits] = line.item;
+    const { indent, digits } = line.item;
     const previous = openListNumbers.get(line.indent);
     const number =
       pageNumbers.get(index) ??
@@ -1441,7 +1466,7 @@ function withPageListNumbers(page: string, draft: string): string {
     openListNumbers.set(line.indent, Number(number));
     if (number === digits) continue;
     numbered[index] =
-      indent + number + line.item.input.slice(indent.length + digits.length);
+      indent + number + line.line.slice(indent.length + digits.length);
     changed = true;
   }
   if (!changed) return draft;

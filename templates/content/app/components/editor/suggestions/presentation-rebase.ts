@@ -321,6 +321,10 @@ export function createDraftSuggestionPresentationTransition(
   return verifiedTransition(transition) ? transition : null;
 }
 
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return items[index];
+}
+
 function withListNumberChanges(
   before: string,
   changes: Change[],
@@ -342,12 +346,16 @@ function withListNumberChanges(
   let delta = 0;
   for (const number of numbers) {
     for (; index < edits.length; index += 1) {
-      const edit = edits[index];
-      if (edit.from + delta + edit.afterText.length > number.from) break;
-      delta += edit.afterText.length - (edit.to - edit.from);
+      const passed = itemAt(edits, index);
+      if (
+        !passed ||
+        passed.from + delta + passed.afterText.length > number.from
+      )
+        break;
+      delta += passed.afterText.length - (passed.to - passed.from);
     }
-    if (index < edits.length && edits[index].from + delta < number.to) {
-      const edit = edits[index];
+    const edit = itemAt(edits, index);
+    if (edit && edit.from + delta < number.to) {
       const offset = number.from - edit.from - delta;
       const end = offset + number.to - number.from;
       if (offset < 0 || end > edit.afterText.length) return null;

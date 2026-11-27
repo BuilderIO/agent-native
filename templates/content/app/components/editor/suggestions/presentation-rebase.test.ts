@@ -23,6 +23,10 @@ import {
   type SuggestionPresentationTransition,
 } from "./presentation-rebase";
 
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return items[index];
+}
+
 function edit(
   before: string,
   from: number,
@@ -1310,14 +1314,18 @@ describe("a draft that adds a list item under an edited one", () => {
       [{ operations }],
       draft,
     );
-    const [saved] = markdownSuggestionOperationsForFindReplace({
-      before: page,
-      find: "C",
-      replace: "Cats",
-      start: page.indexOf("C"),
-    });
+    const saved = itemAt(
+      markdownSuggestionOperationsForFindReplace({
+        before: page,
+        find: "C",
+        replace: "Cats",
+        start: page.indexOf("C"),
+      }),
+      0,
+    );
     const range =
       transition &&
+      saved &&
       resolveSuggestionPresentationRangeInDraft(transition, saved);
     expect(range && draft.slice(range.from, range.to)).toBe("C");
   });
