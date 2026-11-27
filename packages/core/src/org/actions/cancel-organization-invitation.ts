@@ -12,6 +12,7 @@ export default defineAction({
   needsApproval: true,
   allowPersistentApproval: false,
   toolCallable: false,
+  outputSchema: z.object({ id: z.string(), status: z.literal("canceled") }),
   audit: orgAdminAudit({
     targetType: "org-invitation",
     targetId: (args) => args.invitationId,

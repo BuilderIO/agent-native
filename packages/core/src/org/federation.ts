@@ -325,8 +325,6 @@ async function sendFederatedMemberOperation(
     );
   }
 
-  // An agent call has no H3 event; the request context's origin stands in.
-  // Failing here keeps a federated role change from skipping the authority.
   const requestEvent = event ?? requestEventFromContext();
   if (!requestEvent) {
     throw new Error(

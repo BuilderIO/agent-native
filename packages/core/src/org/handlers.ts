@@ -1726,7 +1726,7 @@ export async function changeOrgMemberRole(
   if (current.rows.length === 0) {
     throw createError({ statusCode: 404, message: "Member not found" });
   }
-  const currentRole = String((current.rows[0] as any).role) as OrgRole;
+  const currentRole = String(current.rows[0].role) as OrgRole;
 
   if (currentRole === "owner") {
     throw createError({

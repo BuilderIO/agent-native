@@ -153,7 +153,7 @@ describe("change-organization-member-role", () => {
   });
 
   it("rejects roles other than member and admin", () => {
-    const parsed = changeOrganizationMemberRole.schema!["~standard"].validate({
+    const parsed = changeOrganizationMemberRole.schema?.["~standard"].validate({
       email: "a@example.test",
       role: "owner",
     });
