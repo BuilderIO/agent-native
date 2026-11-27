@@ -66,9 +66,10 @@ export function measureCommentBlocks(
   // Highlights share blocks, and a block's path walks its siblings.
   const paths = new Map<Element, string | null>();
   for (const highlight of container.querySelectorAll(
-    "[data-comment-thread], [data-comment-block-threads], [data-clip-comment-threads]",
+    "[data-comment-threads], [data-comment-thread], [data-comment-block-threads], [data-clip-comment-threads]",
   )) {
     const threadIds =
+      highlight.getAttribute("data-comment-threads") ??
       highlight.getAttribute("data-comment-thread") ??
       highlight.getAttribute("data-comment-block-threads") ??
       highlight.getAttribute("data-clip-comment-threads") ??

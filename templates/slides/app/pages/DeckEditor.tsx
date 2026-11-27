@@ -161,6 +161,7 @@ import { useDeckAccessReload } from "@/hooks/use-deck-access-reload";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
+import { useMissingDeckRecheck } from "@/hooks/use-missing-deck-recheck";
 import {
   clearNewDeckGenerationRun,
   NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
@@ -3342,6 +3343,12 @@ export default function DeckEditor() {
       setRetryingMissingDeck(false);
     }
   }, [refetchDeckAccessStatus, refetchOrg, reloadDecks]);
+
+  useMissingDeckRecheck({
+    active: Boolean(id) && !deck,
+    autoRetry: deckAccessCheck !== "denied",
+    retry: retryOpenDeck,
+  });
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({

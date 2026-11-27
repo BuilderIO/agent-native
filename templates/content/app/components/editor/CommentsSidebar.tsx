@@ -41,6 +41,7 @@ import type { CommentImage } from "@shared/comment-images";
 import {
   commentMentionsForText,
   findCommentMentions,
+  isT3AgentMention,
 } from "@shared/comment-mentions";
 import type { CommentPropertyTarget } from "@shared/comment-property-target";
 import { findReplaceSuggestionSummary } from "@shared/suggestion-diff";
@@ -57,6 +58,10 @@ import {
   type CommentThread,
 } from "@/hooks/use-comments";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import {
+  T3AgentRequestsContext,
+  useT3AgentRequests,
+} from "@/hooks/use-t3-agents";
 import { cn } from "@/lib/utils";
 
 import {
@@ -227,7 +232,7 @@ function mentionsJsonFor(
   return commentMentionsForText(
     text,
     mentions.flatMap((entry) =>
-      entry.kind !== "agent"
+      entry.kind !== "agent" || isT3AgentMention(entry)
         ? [draftMention(entry)]
         : agent
           ? [aiRecipientMention(agent)]
@@ -438,12 +443,17 @@ function measureThreadQuotes(
 ): Map<string, string> {
   const marked = new Map<string, Element[]>();
   for (const element of container.querySelectorAll(
-    ".ProseMirror [data-comment-thread]",
+    ".ProseMirror [data-comment-threads], .ProseMirror [data-comment-thread]",
   )) {
-    const threadId = element.getAttribute("data-comment-thread")!;
-    const elements = marked.get(threadId);
-    if (elements) elements.push(element);
-    else marked.set(threadId, [element]);
+    const threadIds =
+      element.getAttribute("data-comment-threads") ??
+      element.getAttribute("data-comment-thread") ??
+      "";
+    for (const threadId of threadIds.split(" ")) {
+      const elements = marked.get(threadId);
+      if (elements) elements.push(element);
+      else marked.set(threadId, [element]);
+    }
   }
   const quotes = new Map<string, string>();
   for (const { threadId, quotedText } of threads) {
@@ -1294,7 +1304,16 @@ export function commentAiModelStorageKey(
   );
 }
 
-export function CommentsSidebar({
+export function CommentsSidebar(props: CommentsSidebarProps) {
+  const t3Requests = useT3AgentRequests(props.documentId);
+  return (
+    <T3AgentRequestsContext.Provider value={t3Requests}>
+      <CommentsSidebarBody {...props} />
+    </T3AgentRequestsContext.Provider>
+  );
+}
+
+function CommentsSidebarBody({
   compact = false,
   replyDrafts,
   documentId,
@@ -2856,6 +2875,7 @@ export function CommentsSidebar({
           attributeFilter: [
             "hidden",
             "data-comment-thread",
+            "data-comment-threads",
             "data-comment-block-threads",
             "data-clip-comment-threads",
           ],
@@ -2871,6 +2891,7 @@ export function CommentsSidebar({
         attributes: true,
         attributeFilter: [
           "data-comment-thread",
+          "data-comment-threads",
           "data-comment-block-threads",
           "data-clip-comment-threads",
         ],

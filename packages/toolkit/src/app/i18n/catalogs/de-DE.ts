@@ -3430,6 +3430,45 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptSelectAccount": "ChatGPT-Konto",
   "settingsModel.chatgptUsageLimit":
     "Das Nutzungslimit deines ChatGPT-Plans ist erreicht.",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "Markiere Claude Code und Codex in Kommentaren. Sie laufen mit deinen eigenen Plänen auf deinem Computer, über T3 Code.",
+  "settingsModel.t3CodeConnect": "Verbinden",
+  "settingsModel.t3CodeReadOnly": "Nur lesen",
+  "settingsModel.t3CodeCanStart": "Kann Threads starten",
+  "settingsModel.t3CodeReadOnlyHint":
+    "Mit „Nur lesen“ lassen sich keine Threads starten. Verbinde dich neu und wähle Supervised oder höher, damit deine Agenten antworten können.",
+  "settingsModel.t3CodeNoAgents":
+    "In T3 Code ist weder Claude Code noch Codex angemeldet.",
+  "settingsModel.t3CodeSignInAgain":
+    "T3 bittet dich am {{date}}, dich erneut anzumelden.",
+  "settingsModel.t3CodeReconnectHint":
+    "T3 Code hat diese Anmeldung beendet. Verbinde dich neu, um deine Agenten wieder zu markieren.",
+  "settingsModel.t3CodeUnreachable":
+    "T3 Code ist nicht erreichbar. Prüfe, ob es läuft und T3 Connect für diesen Computer an ist.",
+  "settingsModel.t3CodeDialogTitle": "T3 Code verbinden",
+  "settingsModel.t3CodeDialogDescription":
+    "Deine Markierungen gehen an T3 Code auf deinem Computer. Deine Anmeldungen bei Claude Code und Codex bleiben dort; diese App sieht sie nie.",
+  "settingsModel.t3CodeDialogStep1":
+    "Öffne in T3 Code Settings › Environments, dann das Menü dieses Computers, und wähle Copy MCP URL.",
+  "settingsModel.t3CodeDialogStep2":
+    "Füge sie hier ein. T3 Connect muss an sein, damit diese App deinen Computer erreicht.",
+  "settingsModel.t3CodeAddressLabel": "MCP-URL von T3 Code",
+  "settingsModel.t3CodeAccessHint":
+    "Danach fragt T3 Code, was diese App darf. Wähle Supervised oder höher, damit deine Agenten antworten können.",
+  "settingsModel.t3CodeContinue": "Weiter zu T3 Code",
+  "settingsModel.t3CodeChecking": "Wird geprüft…",
+  "settingsModel.t3CodeAddressHttp":
+    "Nutze die https-Adresse von T3 Connect. Mit einer einfachen http-Adresse lässt sich die Anmeldung nicht abschließen.",
+  "settingsModel.t3CodeAddressInvalid":
+    "Das ist keine Webadresse. Kopiere sie in T3 Code mit Copy MCP URL.",
+  "settingsModel.t3CodeAddressNotMcp":
+    "Die Adresse sollte auf /mcp enden. Kopiere sie in T3 Code mit Copy MCP URL.",
+  "settingsModel.t3CodeAddressUnreachable":
+    "T3 Code ist unter dieser Adresse nicht erreichbar. Schalte in T3 Code T3 Connect für diesen Computer ein und nutze die Adresse aus Copy MCP URL.",
+  "settingsModel.t3CodeDisconnectTitle": "T3 Code trennen?",
+  "settingsModel.t3CodeDisconnectDescription":
+    "Claude Code und Codex verschwinden aus deinem @-Menü, und T3 Code wird gebeten, diese Anmeldung zu beenden. Du kannst dich jederzeit wieder verbinden.",
   "settingsModel.checkAgain": "Erneut prüfen",
   "settingsModel.checkedJustNow": "Gerade eben geprüft.",
   "settingsModel.checkedOn": "Geprüft am {{date}}.",

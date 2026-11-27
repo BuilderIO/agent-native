@@ -24,6 +24,10 @@ import { ownerEmailMatches } from "./recordings.js";
 import type { StoredResumableSession } from "./resumable-session.js";
 import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "./resumable-upload-provider.js";
+import {
+  type FinalizeRichRecordingInput,
+  finalizeRichRecordingSchema,
+} from "./rich-recording-manifest.js";
 import { deleteRejectedHostedUpload } from "./upload-recording-media.js";
 
 /**
@@ -109,6 +113,50 @@ export async function listTrackSessions(
     (entry): entry is { track: RichTrackId; session: StoredResumableSession } =>
       entry.session !== null,
   );
+}
+
+export function richDraftKey(recordingId: string): string {
+  return `recording-rich-draft-${recordingId}`;
+}
+
+export async function readSavedRichDraft(
+  recordingId: string,
+): Promise<Record<string, unknown> | null> {
+  return readAppState(richDraftKey(recordingId));
+}
+
+export async function readRichDraft(
+  recordingId: string,
+): Promise<FinalizeRichRecordingInput | null> {
+  const saved = await readSavedRichDraft(recordingId);
+  const parsed = finalizeRichRecordingSchema.safeParse(saved?.body);
+  return parsed.success ? parsed.data : null;
+}
+
+export async function saveRichDraft(
+  recordingId: string,
+  previous: Record<string, unknown> | null,
+  draft: FinalizeRichRecordingInput,
+): Promise<Record<string, unknown> | null> {
+  const saved = { version: 1, body: draft };
+  return (await compareAndSetAppState(
+    richDraftKey(recordingId),
+    previous,
+    saved,
+  ))
+    ? saved
+    : null;
+}
+
+export async function withdrawRichDraft(
+  recordingId: string,
+  saved: Record<string, unknown>,
+): Promise<void> {
+  await compareAndSetAppState(richDraftKey(recordingId), saved, null);
+}
+
+export async function deleteRichDraft(recordingId: string): Promise<void> {
+  await deleteAppState(richDraftKey(recordingId));
 }
 
 /** All of a recording's tracks together may not pass this many bytes. */
@@ -250,11 +298,14 @@ export async function discardTrackUpload(input: {
  * the track. Returns the uploads storage didn't confirm, whose sessions are
  * kept so permanent deletion still finds them.
  */
-export async function discardTrackUploads(recording: {
-  id: string;
-  ownerEmail: string;
-  storageMode: "own" | "hosted" | null;
-}): Promise<string[]> {
+export async function discardTrackUploads(
+  recording: {
+    id: string;
+    ownerEmail: string;
+    storageMode: "own" | "hosted" | null;
+  },
+  options: { stillHeld?: () => Promise<boolean> } = {},
+): Promise<string[]> {
   // The owner's track uploads keep their sessions in the owner's app state,
   // and an editor can run a burn.
   const asOwner = <T>(run: () => Promise<T>) =>
@@ -272,6 +323,10 @@ export async function discardTrackUploads(recording: {
     ),
   );
   for (const { track, session } of sessions) {
+    if (options.stillHeld && !(await options.stillHeld())) {
+      left.push(`unfinished ${track} track upload of ${recording.id}`);
+      continue;
+    }
     const completedUrl = session.meta.completedUrl;
     const discarded =
       (typeof completedUrl === "string" && stored.has(completedUrl)) ||

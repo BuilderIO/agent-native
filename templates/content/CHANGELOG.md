@@ -5,19 +5,27 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-11-26
 
+### Added
+
+- Checks can look at each section on its own, and Only where narrows each section or each paragraph to the ones under a heading you name, like headings that start with "Step", or headings at one level. The add box says how many match before you save.
+
 ### Improved
 
+- A collection's form now lists every answer that needs fixing at once, and refuses values the collection itself wouldn't take, such as an email address with no @.
+- Empty Trash now lists the workspaces with nothing to delete on one line, instead of a 0 eligible, 0 blocked line for each.
 - The block menu now opens beside the block instead of on top of it, and it looks like the slash menu.
 
 ## 2026-11-25
 
 ### Added
 
+- Checks can ask a yes/no question too, like "Opens with something that happened to a developer". Content shows the question it will ask and the model that answers it before you save, lets you choose how sure it must be before it marks a place, and never switches models on you.
 - A Mail notes collection in your Personal space holds the notes you write about people in Mail, one private page per person with a dated line for each note.
 - Put a check on a page, like "Under 120 words", and Content marks each part that doesn't pass with a dot in the margin. Checks count words, sentences and paragraphs, run a few seconds after you stop typing, and never change your text.
 
 ### Improved
 
+- Sorts and filters now live in the toolbar's Sort and Filter menus instead of a row of tiles above the table.
 - Each bulleted, numbered and to-do item is now a block of its own, with its own handle and menu, as in Notion. Drag one item, or drop any block between two items. Turn into, colors, comments and Markdown shortcuts change just that item, the selection toolbar can make lists, Ctrl+Enter ticks a to-do, and Tab tucks the line below a list into its last item.
 - The agent reads the pages above a page before it drafts there, so writing rules on a folder page apply to the pages inside it.
 - Trash now works like a collection: it fills the page, filters with the same chips (people, workspace, location, deleted date), restores pages from a hover arrow or several at once, opens a real row menu, and empties every workspace in one step.

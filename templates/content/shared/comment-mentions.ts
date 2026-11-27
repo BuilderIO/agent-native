@@ -19,6 +19,23 @@ export interface CommentAgentMention {
   engine?: string;
   provider?: string;
   name: string;
+  thread?: string;
+}
+
+export const T3_CODE_MENTION_ENGINE = "t3-code";
+
+export function isT3AgentMention(
+  mention: CommentMention,
+): mention is CommentAgentMention {
+  return mention.kind === "agent" && mention.engine === T3_CODE_MENTION_ENGINE;
+}
+
+export function t3AgentName(kind: string | null | undefined): string | null {
+  return kind === "claude-code"
+    ? "Claude Code"
+    : kind === "codex"
+      ? "Codex"
+      : null;
 }
 
 function text(value: unknown): string | undefined {
@@ -56,12 +73,20 @@ function mentionFrom(entry: unknown): CommentMention | string {
     }
     const engine = text(record.engine);
     const provider = text(record.provider);
+    if (record.thread != null) {
+      if (engine !== T3_CODE_MENTION_ENGINE)
+        return "Only a T3 Code agent mention names a thread";
+      if (typeof record.thread !== "string" || record.thread.length > 200)
+        return "Comment agent mention thread must be a T3 thread ID";
+    }
+    const thread = text(record.thread);
     return {
       kind: "agent",
       model,
       ...(engine ? { engine } : {}),
       ...(provider ? { provider } : {}),
       name,
+      ...(thread ? { thread } : {}),
     };
   }
   const email = text(record.email);
@@ -139,6 +164,7 @@ export function serializeStoredCommentMentions(
             ...(mention.engine ? { engine: mention.engine } : {}),
             ...(mention.provider ? { provider: mention.provider } : {}),
             name: mention.name,
+            ...(mention.thread ? { thread: mention.thread } : {}),
           }
         : { kind: "person", email: mention.email, name: mention.name },
     ),

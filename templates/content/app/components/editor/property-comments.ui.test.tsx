@@ -58,6 +58,9 @@ vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/hooks/use-t3-agents-lab", () => ({
+  useT3AgentsLab: () => false,
+}));
 vi.mock("./comment-images", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./comment-images")>()),
   useCommentImageStorage: () => true,

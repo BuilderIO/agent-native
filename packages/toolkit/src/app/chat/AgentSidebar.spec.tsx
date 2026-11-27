@@ -24,6 +24,7 @@ const mockHostedHarness = vi.hoisted(() => ({
   queryEnabled: undefined as boolean | undefined,
 }));
 const mockAgentNativeDesktop = vi.hoisted(() => ({ enabled: false }));
+const mockPerAppChat = vi.hoisted(() => ({ enabled: false }));
 
 const mockPanel = vi.hoisted(() => {
   let resolveImport!: () => void;
@@ -219,7 +220,8 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
     buildAppChatSidebarStateMessage: (open: boolean) => ({
       data: { open },
     }),
-    isPerAppChatStorageKey: () => false,
+    isPerAppChatStorageKey: (key: string | undefined) =>
+      mockPerAppChat.enabled && actual.isPerAppChatStorageKey(key),
     requestPerAppChatCommand: vi.fn(),
     useActionQuery: (
       action: string,
@@ -2718,6 +2720,73 @@ describe("AgentSidebar panel", () => {
     expect(
       container?.querySelector("[data-agent-sidebar-main-position='left']"),
     ).toBeTruthy();
+  });
+
+  it("keeps every per-app desktop sidebar on one shared open state", async () => {
+    const mount = (appId: string, toggleScopeId: string) => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const appRoot = createRoot(host);
+      flushSync(() => {
+        appRoot.render(
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen
+              enabled
+              openStorageKey="desktop-app-chat"
+              storageKey={`desktop-app-chat:${appId}`}
+              toggleScopeId={toggleScopeId}
+            >
+              <div>{appId}</div>
+            </AgentSidebar>
+          </MemoryRouter>,
+        );
+      });
+      return { host, appRoot };
+    };
+    const state = (host: HTMLElement) =>
+      host
+        .querySelector("[data-agent-sidebar-main-state]")
+        ?.getAttribute("data-agent-sidebar-main-state");
+    mockPerAppChat.enabled = true;
+    const mail = mount("mail", "tab:mail");
+    const calendar = mount("calendar", "tab:calendar");
+    await act(async () => {});
+    expect(state(mail.host)).toBe("open");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:toggle", {
+          detail: { scopeId: "tab:mail" },
+        }),
+      );
+    });
+    expect(state(mail.host)).toBe("closed");
+    expect(state(calendar.host)).toBe("closed");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-panel:toggle"));
+    });
+    const persisted = localStorage.getItem(
+      "agent-native.desktop-app-chat.sidebar-open",
+    );
+    expect(persisted).toBe("true");
+    expect(state(mail.host)).toBe("open");
+    expect(state(calendar.host)).toBe("open");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-panel:close"));
+    });
+    for (const view of [mail, calendar]) {
+      await act(async () => view.appRoot.unmount());
+      view.host.remove();
+    }
+    const relaunched = mount("calendar", "tab:calendar");
+    await act(async () => {});
+    expect(state(relaunched.host)).toBe("closed");
+    await act(async () => relaunched.appRoot.unmount());
+    relaunched.host.remove();
+    mockPerAppChat.enabled = false;
   });
 
   it("respects a saved closed state when hosted harness would otherwise open", async () => {

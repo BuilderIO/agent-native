@@ -8,7 +8,11 @@ import {
   MentionChip,
   type MentionItemMedia as MentionMedia,
 } from "@agent-native/toolkit/composer";
-import type { CommentMention } from "@shared/comment-mentions";
+import {
+  T3_CODE_MENTION_ENGINE,
+  t3AgentName,
+  type CommentMention,
+} from "@shared/comment-mentions";
 import { IconExternalLink } from "@tabler/icons-react";
 import {
   useEffect,
@@ -50,7 +54,7 @@ export type CommentIdentity =
 
 export interface CommentAgentAttribution {
   name: string;
-  source: "mcp" | "agent";
+  source: "mcp" | "agent" | "t3-code";
   client?: string | null | undefined;
 }
 
@@ -82,6 +86,11 @@ export function personMentionMedia(
       };
 }
 
+const T3_AGENT_LOGO_ENGINES: Record<string, string> = {
+  "claude-code": "anthropic",
+  codex: "ai-sdk:openai",
+};
+
 /** The provider logo an agent shows in the composer's mention menu and chips. */
 export function agentMentionMedia(
   model: string,
@@ -89,7 +98,9 @@ export function agentMentionMedia(
   provider: string | null | undefined,
 ): MentionMedia {
   const identity = resolveAgentProviderLogo(
-    agentLogoEngine(model, engine),
+    engine === T3_CODE_MENTION_ENGINE
+      ? (T3_AGENT_LOGO_ENGINES[model] ?? "")
+      : agentLogoEngine(model, engine),
     provider ?? undefined,
   );
   return identity.logoUrl
@@ -200,9 +211,12 @@ function AgentIdentityCard({
   const ranAt = run?.ranAt ? new Date(run.ranAt) : null;
   const effortKey = run?.effort ? REASONING_EFFORT_KEYS[run.effort] : undefined;
   const clientLabel =
-    onBehalfOf?.source === "mcp"
-      ? mcpConnectHostLabel(onBehalfOf.client)
-      : null;
+    onBehalfOf?.source === "t3-code"
+      ? (t3AgentName(onBehalfOf.client) ??
+        mcpConnectHostLabel(onBehalfOf.client))
+      : onBehalfOf?.source === "mcp"
+        ? mcpConnectHostLabel(onBehalfOf.client)
+        : null;
   return (
     <div className="grid gap-2.5">
       <div className="flex min-w-0 items-center gap-2.5">
@@ -231,7 +245,9 @@ function AgentIdentityCard({
               t(
                 onBehalfOf.source === "mcp"
                   ? "comments.aiSourceMcp"
-                  : "comments.aiSourceAgent",
+                  : onBehalfOf.source === "t3-code"
+                    ? "comments.aiSourceT3Code"
+                    : "comments.aiSourceAgent",
               ),
             ]
               .filter(Boolean)

@@ -6,6 +6,7 @@ import { act, type ReactElement, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { T3AgentRequestsContext } from "@/hooks/use-t3-agents";
 import { messagesByLocale } from "@/i18n-data";
 
 import { typeRichEditorText } from "./comment-composer-test-utils";
@@ -627,6 +628,37 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     );
     expect(rows).toEqual([
       expect.stringMatching(/Claude Opus 5.*Sign in to use/),
+    ]);
+  });
+
+  it("keeps your own agents beside the signed-out models", async () => {
+    staleSavedPick([]);
+    models.current = {
+      ...models.current,
+      availableModels: [
+        { ...claudeGroup, configured: false, models: ["claude-opus-5"] },
+      ],
+    };
+    await render(
+      <T3AgentRequestsContext.Provider
+        value={{
+          agents: [{ kind: "claude-code", name: "Claude Code" }],
+          requests: [],
+          unreachable: false,
+        }}
+      >
+        <Owner />
+      </T3AgentRequestsContext.Provider>,
+    );
+
+    await typeRichEditorText(editor(), "@");
+    await settle();
+    const rows = [...document.querySelectorAll('[role="option"]')].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual([
+      expect.stringMatching(/Claude Opus 5.*Sign in to use/),
+      expect.stringContaining("Claude Code"),
     ]);
   });
 });

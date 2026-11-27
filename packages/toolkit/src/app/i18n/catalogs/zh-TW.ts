@@ -2988,6 +2988,43 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptReconnect": "重新連線",
   "settingsModel.chatgptSelectAccount": "ChatGPT 帳戶",
   "settingsModel.chatgptUsageLimit": "已達到您的 ChatGPT 方案使用上限。",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "在留言中標記 Claude Code 和 Codex。它們透過 T3 Code 在你的電腦上、以你自己的方案執行。",
+  "settingsModel.t3CodeConnect": "連線",
+  "settingsModel.t3CodeReadOnly": "唯讀",
+  "settingsModel.t3CodeCanStart": "可以開始對話串",
+  "settingsModel.t3CodeReadOnlyHint":
+    "唯讀無法開始對話串。請重新連線並選擇 Supervised 或更高等級，你的代理程式才能回覆。",
+  "settingsModel.t3CodeNoAgents": "T3 Code 中沒有登入 Claude Code 或 Codex。",
+  "settingsModel.t3CodeSignInAgain": "T3 會在 {{date}} 要求你重新登入。",
+  "settingsModel.t3CodeReconnectHint":
+    "T3 Code 已結束這次登入。重新連線後即可再次標記你的代理程式。",
+  "settingsModel.t3CodeUnreachable":
+    "無法連上 T3 Code。請確認它正在執行，且這台電腦已開啟 T3 Connect。",
+  "settingsModel.t3CodeDialogTitle": "連線 T3 Code",
+  "settingsModel.t3CodeDialogDescription":
+    "你的標記會傳到你電腦上的 T3 Code。你的 Claude Code 和 Codex 登入資訊留在那裡，這個應用程式永遠看不到。",
+  "settingsModel.t3CodeDialogStep1":
+    "在 T3 Code 中開啟 Settings › Environments，開啟這台電腦的選單，選擇 Copy MCP URL。",
+  "settingsModel.t3CodeDialogStep2":
+    "貼到這裡。必須開啟 T3 Connect，這個應用程式才能連到你的電腦。",
+  "settingsModel.t3CodeAddressLabel": "T3 Code 的 MCP 網址",
+  "settingsModel.t3CodeAccessHint":
+    "接下來 T3 Code 會詢問這個應用程式可以做什麼。請選擇 Supervised 或更高等級，你的代理程式才能回覆。",
+  "settingsModel.t3CodeContinue": "繼續前往 T3 Code",
+  "settingsModel.t3CodeChecking": "檢查中…",
+  "settingsModel.t3CodeAddressHttp":
+    "請使用 T3 Connect 提供的 https 位址。一般 http 位址無法完成登入。",
+  "settingsModel.t3CodeAddressInvalid":
+    "這不是網址。請在 T3 Code 中用 Copy MCP URL 複製。",
+  "settingsModel.t3CodeAddressNotMcp":
+    "位址應以 /mcp 結尾。請在 T3 Code 中用 Copy MCP URL 複製。",
+  "settingsModel.t3CodeAddressUnreachable":
+    "無法透過該位址連上 T3 Code。請在 T3 Code 中為這台電腦開啟 T3 Connect，並使用 Copy MCP URL 提供的位址。",
+  "settingsModel.t3CodeDisconnectTitle": "要中斷 T3 Code 的連線嗎？",
+  "settingsModel.t3CodeDisconnectDescription":
+    "Claude Code 和 Codex 會從你的 @ 選單移除，並請 T3 Code 結束這次登入。你可以隨時重新連線。",
   "settingsModel.checkAgain": "重新檢查",
   "settingsModel.checkedJustNow": "剛剛已檢查。",
   "settingsModel.checkedOn": "已於 {{date}} 檢查。",

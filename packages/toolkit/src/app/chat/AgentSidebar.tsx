@@ -36,6 +36,8 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import {
   AGENT_SIDEBAR_WIDTH_STEP,
+  getAgentSidebarOpenPreferenceKey,
+  SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT,
   snapAgentSidebarWidth,
 } from "@agent-native/core/client/agent-sidebar-state";
 import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
@@ -251,6 +253,8 @@ const EXPECTED_CANCELLATION_REASONS = new Set([
   "navigation-closed",
   "navigation-superseded",
 ]);
+
+const claimedPerAppToggleEvents = new WeakSet<Event>();
 
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
@@ -626,6 +630,25 @@ export function AgentSidebar({
     },
     [enabled, setOpenCurrent, sidebarOpenStorageKey],
   );
+  useEffect(() => {
+    if (!isPerAppChatSidebar) return;
+    const key = getAgentSidebarOpenPreferenceKey(sidebarOpenStorageKey);
+    const handleSharedOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: unknown; open?: unknown }>)
+        .detail;
+      if (detail.key !== key || typeof detail.open !== "boolean") return;
+      if (openRef.current !== detail.open) setOpenCurrent(detail.open);
+    };
+    window.addEventListener(
+      SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT,
+      handleSharedOpen,
+    );
+    return () =>
+      window.removeEventListener(
+        SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT,
+        handleSharedOpen,
+      );
+  }, [isPerAppChatSidebar, setOpenCurrent, sidebarOpenStorageKey]);
   const autoOpen = useCallback(() => {
     if (openRef.current) return;
     setEntryAnimated(true);
@@ -1399,6 +1422,10 @@ export function AgentSidebar({
     if (!enabled) return;
     const toggleHandler = (event: Event) => {
       if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
+      if (isPerAppChatSidebar) {
+        if (claimedPerAppToggleEvents.has(event)) return;
+        claimedPerAppToggleEvents.add(event);
+      }
       const focusOnOpen =
         (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
       const sidebarIsOpen = isPerAppChatHosted
@@ -1473,6 +1500,7 @@ export function AgentSidebar({
     frameSidebarOpen,
     enabled,
     isPerAppChatHosted,
+    isPerAppChatSidebar,
     open,
     perAppChatState.open,
     setOpenPersisted,

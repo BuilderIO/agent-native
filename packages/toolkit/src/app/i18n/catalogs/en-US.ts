@@ -3278,6 +3278,45 @@ const messages = {
   "settingsModel.chatgptSelectAccount": "ChatGPT account",
   "settingsModel.chatgptUsageLimit":
     "Your ChatGPT plan usage limit has been reached.",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "Tag Claude Code and Codex in comments. They run on your own plans, on your computer, through T3 Code.",
+  "settingsModel.t3CodeConnect": "Connect",
+  "settingsModel.t3CodeReadOnly": "Read only",
+  "settingsModel.t3CodeCanStart": "Can start threads",
+  "settingsModel.t3CodeReadOnlyHint":
+    "Read only can't start threads. Reconnect and choose Supervised or higher so your agents can reply.",
+  "settingsModel.t3CodeNoAgents":
+    "T3 Code has no Claude Code or Codex signed in.",
+  "settingsModel.t3CodeSignInAgain":
+    "T3 asks you to sign in again on {{date}}.",
+  "settingsModel.t3CodeReconnectHint":
+    "T3 Code ended this sign-in. Reconnect to tag your agents again.",
+  "settingsModel.t3CodeUnreachable":
+    "Can't reach T3 Code. Check that it's running and T3 Connect is on for this computer.",
+  "settingsModel.t3CodeDialogTitle": "Connect T3 Code",
+  "settingsModel.t3CodeDialogDescription":
+    "Your tags go to T3 Code on your computer. Your Claude Code and Codex sign-ins stay there; this app never sees them.",
+  "settingsModel.t3CodeDialogStep1":
+    "In T3 Code, open Settings › Environments, open this computer's menu and choose Copy MCP URL.",
+  "settingsModel.t3CodeDialogStep2":
+    "Paste it here. T3 Connect has to be on, so this app can reach your computer.",
+  "settingsModel.t3CodeAddressLabel": "T3 Code MCP URL",
+  "settingsModel.t3CodeAccessHint":
+    "Next, T3 Code asks what this app may do. Choose Supervised or higher so your agents can reply.",
+  "settingsModel.t3CodeContinue": "Continue to T3 Code",
+  "settingsModel.t3CodeChecking": "Checking…",
+  "settingsModel.t3CodeAddressHttp":
+    "Use the https address T3 Connect gives you. A plain http address can't finish signing in.",
+  "settingsModel.t3CodeAddressInvalid":
+    "That isn't a web address. Copy it with Copy MCP URL in T3 Code.",
+  "settingsModel.t3CodeAddressNotMcp":
+    "The address should end in /mcp. Copy it with Copy MCP URL in T3 Code.",
+  "settingsModel.t3CodeAddressUnreachable":
+    "Can't reach T3 Code at that address. Turn on T3 Connect for this computer in T3 Code, and use the address Copy MCP URL gives you.",
+  "settingsModel.t3CodeDisconnectTitle": "Disconnect T3 Code?",
+  "settingsModel.t3CodeDisconnectDescription":
+    "Claude Code and Codex leave your @ menu, and T3 Code is asked to end this sign-in. You can connect again anytime.",
   "settingsModel.checkAgain": "Check again",
   "settingsModel.checkedJustNow": "Checked just now.",
   "settingsModel.checkedOn": "Checked {{date}}.",

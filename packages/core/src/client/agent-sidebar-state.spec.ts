@@ -16,6 +16,7 @@ const {
   hasChatThreadDeepLink,
   requestAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
+  SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT,
   SIDEBAR_STATE_CHANGE_EVENT,
   setAgentSidebarOpenPreference,
   subscribeAgentSidebarUrlChanges,
@@ -281,6 +282,39 @@ describe("getInitialAgentSidebarOpen", () => {
     expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
     expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
     expect(getInitialAgentSidebarOpen(false, "content")).toBe(false);
+  });
+
+  it("announces a saved open preference to sidebars sharing its key", () => {
+    const details: unknown[] = [];
+    const listener = (event: Event) =>
+      details.push((event as CustomEvent).detail);
+    window.addEventListener(SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT, listener);
+
+    expect(SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT).toBe(
+      "agent-panel:open-preference-change",
+    );
+    expect(setAgentSidebarOpenPreference(false, "desktop-app-chat")).toBe(true);
+    expect(setAgentSidebarOpenPreference(true, "desktop-app-chat")).toBe(true);
+
+    window.removeEventListener(SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT, listener);
+    const key = getAgentSidebarOpenPreferenceKey("desktop-app-chat");
+    expect(details).toEqual([
+      { key, open: false },
+      { key, open: true },
+    ]);
+  });
+
+  it("does not announce a preference that failed to save", () => {
+    const listener = vi.fn();
+    window.addEventListener(SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT, listener);
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("storage write denied");
+    });
+
+    setAgentSidebarOpenPreference(false, "desktop-app-chat");
+
+    window.removeEventListener(SIDEBAR_OPEN_PREFERENCE_CHANGE_EVENT, listener);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("clears consumed explicit open intent when the user closes the sidebar", () => {

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { T3_CODE_MENTION_ENGINE } from "@shared/comment-mentions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot as createReactRoot } from "react-dom/client";
@@ -61,6 +62,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
+}));
+vi.mock("@/hooks/use-t3-agents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-t3-agents")>()),
+  useT3AgentRequests: () => ({ agents: [], requests: [], unreachable: false }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 vi.mock("./comment-images", async (importOriginal) => ({
@@ -354,4 +359,99 @@ describe("reply real mutation observer lifetime", () => {
       }
     },
   );
+});
+
+describe("T3 Code agent tags", () => {
+  it("stores a tag of the author's own T3 Code agent with the comment", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ id: "created", threadId: "created-thread" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const client = new QueryClient({
+      defaultOptions: {
+        mutations: { retry: false },
+        queries: { retry: false },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    let owner!: ReturnType<typeof usePendingCommentDraft>;
+    function Owner() {
+      owner = usePendingCommentDraft("document-one");
+      const replyDrafts = useCommentReplyDrafts("document-one");
+      return (
+        <CommentsSidebar
+          documentId="document-one"
+          replyDrafts={replyDrafts}
+          pendingComment={owner.pendingComment}
+          onPendingChange={owner.changePendingComment}
+          onPendingDone={() => {}}
+          alignToAnchors={false}
+          forceVisible
+        />
+      );
+    }
+    const claudeCode = {
+      kind: "agent",
+      model: "claude-code",
+      engine: T3_CODE_MENTION_ENGINE,
+      provider: "T3 Code",
+      name: "Claude Code",
+    } as const;
+    try {
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <Owner />
+          </QueryClientProvider>,
+        ),
+      );
+      await act(async () =>
+        owner.setPendingComment({
+          quotedText: "better",
+          offsetTop: 80,
+          range: { from: 3, to: 9 },
+        }),
+      );
+      const pendingId = owner.pendingComment?.id;
+      if (!pendingId) throw new Error("No pending comment");
+      await act(async () =>
+        owner.changePendingComment(pendingId, () => ({
+          text: "@Claude Code which day?",
+          mentions: [claudeCode],
+        })),
+      );
+      await vi.waitFor(() => {
+        const editor = richEditor(container);
+        expect(editor ? richEditorValue(editor) : "").toContain("which day?");
+      });
+      const submit = [...container.querySelectorAll("button")].find(
+        (node) => node.getAttribute("aria-label") === "comments.submit",
+      );
+      if (!submit) throw new Error("No submit button");
+      await act(async () => submit.click());
+      expect(String(fetch.mock.calls[0]?.[0])).toContain("add-comment");
+      const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as {
+        mentions?: string;
+      };
+      expect(JSON.parse(body.mentions ?? "[]")).toEqual([
+        expect.objectContaining({
+          kind: "agent",
+          model: "claude-code",
+          engine: T3_CODE_MENTION_ENGINE,
+        }),
+      ]);
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
 });

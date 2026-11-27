@@ -1526,4 +1526,36 @@ export const contentFormDrafts = table(
   ],
 );
 
+export const t3AgentRequests = table(
+  "t3_agent_requests",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    documentId: text("document_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    commentId: text("comment_id").notNull(),
+    agent: text("agent").notNull(),
+    t3ThreadId: text("t3_thread_id"),
+    t3ThreadTitle: text("t3_thread_title"),
+    t3ThreadLink: text("t3_thread_link"),
+    baseRunOrdinal: integer("base_run_ordinal"),
+    status: text("status").notNull().default("sending"),
+    model: text("model"),
+    replyCommentId: text("reply_comment_id"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (request) => [
+    uniqueIndex("t3_agent_requests_comment_idx").on(
+      request.commentId,
+      request.agent,
+    ),
+    index("t3_agent_requests_document_owner_idx").on(
+      request.documentId,
+      request.ownerEmail,
+    ),
+  ],
+);
+
 export const documentShares = createSharesTable("document_shares");

@@ -56,7 +56,7 @@ import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
   A2A_ORG_MEMBER_DELEGATION_TYPE,
   organizationPrincipalClaims,
-  resolveSoleA2AUserWorkspace,
+  resolveA2AUserWorkspace,
   verifyA2AOrganizationIdentity,
   type A2AOrganizationCredential,
 } from "./organization-identity.js";
@@ -1170,7 +1170,7 @@ export function mountA2A(
           !parseServiceIdentityEmail(verifiedCallerEmail)
         ) {
           try {
-            verifiedOrgId = await resolveSoleA2AUserWorkspace(
+            verifiedOrgId = await resolveA2AUserWorkspace(
               verifiedCallerEmail,
               event,
             );

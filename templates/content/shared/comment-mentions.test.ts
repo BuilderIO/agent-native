@@ -7,6 +7,7 @@ import {
   parseCommentMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
+  t3AgentName,
   type CommentMention,
 } from "./comment-mentions";
 
@@ -350,5 +351,35 @@ describe("comment mentions", () => {
       ),
     ).toBe('[{"kind":"person","email":"sam@example.com","name":"Sam"}]');
     expect(serializeStoredCommentMentions([])).toBeNull();
+  });
+
+  it("keeps the thread a T3 Code agent tag picked, and only on a T3 Code tag", () => {
+    const tag = {
+      kind: "agent",
+      model: "claude-code",
+      engine: "t3-code",
+      provider: "T3 Code",
+      name: "Claude Code",
+      thread: "thread-42",
+    };
+    const mentions = parseCommentMentions([tag]);
+    expect(mentions).toEqual([tag]);
+    const stored = serializeStoredCommentMentions(mentions);
+    expect(stored).toBe(JSON.stringify([tag]));
+    expect(readStoredCommentMentions(stored)).toEqual([tag]);
+
+    expect(() =>
+      parseCommentMentions([{ ...tag, engine: "anthropic" }]),
+    ).toThrow(/Only a T3 Code agent mention names a thread/);
+    expect(() =>
+      parseCommentMentions([{ ...tag, thread: "x".repeat(201) }]),
+    ).toThrow(/T3 thread ID/);
+  });
+
+  it("names a T3 Code agent as the @ menu does, and nothing else", () => {
+    expect(t3AgentName("claude-code")).toBe("Claude Code");
+    expect(t3AgentName("codex")).toBe("Codex");
+    expect(t3AgentName("cursor")).toBeNull();
+    expect(t3AgentName(null)).toBeNull();
   });
 });

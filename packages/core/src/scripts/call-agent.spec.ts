@@ -1214,8 +1214,10 @@ describe("call-agent action", () => {
           peerContext(),
         ).catch((error) => error);
 
-        expect(outcome.message).toContain(`Open ${origin} and`);
-        expect(outcome.message).not.toMatch(/Settings\s*[>\u2192]/i);
+        expect(outcome.message).toContain(
+          `Open ${origin}/settings/model#llm (Settings > Agent > AI providers)`,
+        );
+        expect(outcome.message).toContain("in the Slides app");
       },
     );
 

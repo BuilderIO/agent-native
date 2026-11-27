@@ -3192,6 +3192,9 @@ audio.media-block__content {
   -webkit-box-decoration-break: clone;
   transition: background-color 160ms var(--ease-out-strong);
 }
+.content-editor .comment-highlight.comment-highlight--overlap {
+  --comment-highlight-fill: hsl(45 93% 47% / 0.22);
+}
 .content-editor .comment-highlight:hover,
 .content-editor .comment-highlight.comment-highlight--hovered {
   --comment-highlight-fill: hsl(45 93% 47% / 0.28);

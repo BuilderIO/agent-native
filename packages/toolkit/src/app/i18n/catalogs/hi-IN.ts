@@ -3206,6 +3206,45 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptSelectAccount": "ChatGPT खाता",
   "settingsModel.chatgptUsageLimit":
     "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "कमेंट में Claude Code और Codex को टैग करें। ये T3 Code के ज़रिए आपके कंप्यूटर पर, आपके अपने प्लान से चलते हैं।",
+  "settingsModel.t3CodeConnect": "कनेक्ट करें",
+  "settingsModel.t3CodeReadOnly": "केवल पढ़ने के लिए",
+  "settingsModel.t3CodeCanStart": "थ्रेड शुरू कर सकता है",
+  "settingsModel.t3CodeReadOnlyHint":
+    "केवल पढ़ने की अनुमति से थ्रेड शुरू नहीं होते। फिर से कनेक्ट करें और Supervised या उससे ऊपर चुनें, ताकि आपके एजेंट जवाब दे सकें।",
+  "settingsModel.t3CodeNoAgents":
+    "T3 Code में Claude Code या Codex साइन इन नहीं है।",
+  "settingsModel.t3CodeSignInAgain":
+    "T3 आपसे {{date}} को फिर से साइन इन करने को कहेगा।",
+  "settingsModel.t3CodeReconnectHint":
+    "T3 Code ने यह साइन-इन खत्म कर दिया। अपने एजेंट को फिर से टैग करने के लिए दोबारा कनेक्ट करें।",
+  "settingsModel.t3CodeUnreachable":
+    "T3 Code तक नहीं पहुँच पा रहे। जाँचें कि यह चल रहा है और इस कंप्यूटर के लिए T3 Connect चालू है।",
+  "settingsModel.t3CodeDialogTitle": "T3 Code कनेक्ट करें",
+  "settingsModel.t3CodeDialogDescription":
+    "आपके टैग आपके कंप्यूटर पर T3 Code को जाते हैं। आपके Claude Code और Codex साइन-इन वहीं रहते हैं; यह ऐप उन्हें कभी नहीं देखता।",
+  "settingsModel.t3CodeDialogStep1":
+    "T3 Code में Settings › Environments खोलें, इस कंप्यूटर का मेन्यू खोलें और Copy MCP URL चुनें।",
+  "settingsModel.t3CodeDialogStep2":
+    "इसे यहाँ पेस्ट करें। T3 Connect चालू होना चाहिए, ताकि यह ऐप आपके कंप्यूटर तक पहुँच सके।",
+  "settingsModel.t3CodeAddressLabel": "T3 Code का MCP URL",
+  "settingsModel.t3CodeAccessHint":
+    "इसके बाद T3 Code पूछता है कि यह ऐप क्या कर सकता है। Supervised या उससे ऊपर चुनें, ताकि आपके एजेंट जवाब दे सकें।",
+  "settingsModel.t3CodeContinue": "T3 Code पर जारी रखें",
+  "settingsModel.t3CodeChecking": "जाँच हो रही है…",
+  "settingsModel.t3CodeAddressHttp":
+    "T3 Connect से मिला https पता इस्तेमाल करें। सादे http पते से साइन-इन पूरा नहीं हो सकता।",
+  "settingsModel.t3CodeAddressInvalid":
+    "यह वेब पता नहीं है। इसे T3 Code में Copy MCP URL से कॉपी करें।",
+  "settingsModel.t3CodeAddressNotMcp":
+    "पता /mcp पर खत्म होना चाहिए। इसे T3 Code में Copy MCP URL से कॉपी करें।",
+  "settingsModel.t3CodeAddressUnreachable":
+    "उस पते पर T3 Code तक नहीं पहुँच पा रहे। T3 Code में इस कंप्यूटर के लिए T3 Connect चालू करें और Copy MCP URL से मिला पता इस्तेमाल करें।",
+  "settingsModel.t3CodeDisconnectTitle": "T3 Code डिस्कनेक्ट करें?",
+  "settingsModel.t3CodeDisconnectDescription":
+    "Claude Code और Codex आपके @ मेन्यू से हट जाएँगे, और T3 Code से यह साइन-इन खत्म करने को कहा जाएगा। आप कभी भी फिर से कनेक्ट कर सकते हैं।",
   "settingsModel.checkAgain": "फिर से जाँचें",
   "settingsModel.checkedJustNow": "अभी जाँचा गया।",
   "settingsModel.checkedOn": "{{date}} को जाँचा गया।",

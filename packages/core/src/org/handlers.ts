@@ -1305,48 +1305,51 @@ export const listInvitationsHandler = defineEventHandler(
   },
 );
 
+export async function cancelOrgInvitation(
+  ctx: { orgId: string | null; role: OrgRole | null },
+  invitationId: string | undefined,
+): Promise<{ id: string; status: "canceled" }> {
+  if (!ctx.orgId) {
+    throw createError({
+      statusCode: 400,
+      message: "You must belong to an organization to cancel an invitation",
+    });
+  }
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    throw createError({
+      statusCode: 403,
+      message: "Only owners and admins can cancel invitations",
+    });
+  }
+  if (!invitationId) {
+    throw createError({
+      statusCode: 400,
+      message: "Invitation ID required",
+    });
+  }
+
+  const e = await exec();
+  const result = await e.execute({
+    sql: `UPDATE org_invitations SET status = 'canceled'
+          WHERE id = ? AND org_id = ? AND status = 'pending'`,
+    args: [invitationId, ctx.orgId],
+  });
+  if (Number(result.rowsAffected) === 0) {
+    throw createError({
+      statusCode: 404,
+      message: "No pending invitation with that id",
+    });
+  }
+  return { id: invitationId, status: "canceled" };
+}
+
 /**
  * Cancel a pending invitation. An invite that cannot be withdrawn leaves a person in
  * the roster who was never asked twice, and there was no way back from a typo.
  */
 export const cancelInvitationHandler = defineEventHandler(
-  async (event: H3Event) => {
-    const ctx = await getOrgContext(event);
-    if (!ctx.orgId) {
-      throw createError({
-        statusCode: 400,
-        message: "You must belong to an organization to cancel an invitation",
-      });
-    }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
-      throw createError({
-        statusCode: 403,
-        message: "Only owners and admins can cancel invitations",
-      });
-    }
-
-    const invitationId = extractInvitationId(event);
-    if (!invitationId) {
-      throw createError({
-        statusCode: 400,
-        message: "Invitation ID required",
-      });
-    }
-
-    const e = await exec();
-    const result = await e.execute({
-      sql: `UPDATE org_invitations SET status = 'canceled'
-            WHERE id = ? AND org_id = ? AND status = 'pending'`,
-      args: [invitationId, ctx.orgId],
-    });
-    if (Number(result.rowsAffected) === 0) {
-      throw createError({
-        statusCode: 404,
-        message: "No pending invitation with that id",
-      });
-    }
-    return { id: invitationId, status: "canceled" };
-  },
+  async (event: H3Event) =>
+    cancelOrgInvitation(await getOrgContext(event), extractInvitationId(event)),
 );
 
 export const acceptInvitationHandler = defineEventHandler(
@@ -1688,97 +1691,114 @@ export const listDeactivatedMembersHandler = defineEventHandler(
   },
 );
 
+export async function changeOrgMemberRole(
+  ctx: { email: string; orgId: string | null; role: OrgRole | null },
+  rawMemberEmail: string | undefined,
+  rawRole: unknown,
+  event?: H3Event,
+): Promise<{ email: string; role: "admin" | "member"; previousRole: OrgRole }> {
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No organization found" });
+  }
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    throw createError({
+      statusCode: 403,
+      message: "Only owners and admins can change member roles",
+    });
+  }
+
+  const memberEmail = rawMemberEmail;
+  if (!memberEmail) {
+    throw createError({ statusCode: 400, message: "Email is required" });
+  }
+  const memberEmailLower = memberEmail.toLowerCase();
+  const role = rawRole === "admin" ? "admin" : "member";
+
+  const e = await exec();
+
+  const current = await e.execute({
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
+    args: [ctx.orgId, memberEmailLower],
+  });
+  if (current.rows.length === 0) {
+    throw createError({ statusCode: 404, message: "Member not found" });
+  }
+  const currentRole = String(current.rows[0].role) as OrgRole;
+
+  if (currentRole === "owner") {
+    throw createError({
+      statusCode: 400,
+      message: "Cannot change the organization owner's role",
+    });
+  }
+
+  if (ctx.role === "admin" && (currentRole === "admin" || role === "admin")) {
+    throw createError({
+      statusCode: 403,
+      message: "Only the organization owner can manage admins",
+    });
+  }
+
+  if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "admin") {
+    throw createError({
+      statusCode: 400,
+      message: "Use the owner account to change your own admin role",
+    });
+  }
+
+  try {
+    await updateFederatedOrganizationMemberRole(event, {
+      orgId: ctx.orgId,
+      actorEmail: ctx.email,
+      actorRole: ctx.role,
+      memberEmail,
+      memberRole: role,
+    });
+  } catch (error) {
+    console.error("[org] member role: identity authority sync failed", error);
+    throw createError({
+      statusCode: 503,
+      message:
+        "Could not synchronize this member role with the identity authority.",
+    });
+  }
+
+  await e.execute({
+    sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
+    args: [role, ctx.orgId, memberEmailLower],
+  });
+  invalidateMemberOrgCaches();
+  return { email: memberEmailLower, role, previousRole: currentRole };
+}
+
 export const changeMemberRoleHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
-    if (!ctx.orgId) {
-      throw createError({ statusCode: 400, message: "No organization found" });
-    }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
-      throw createError({
-        statusCode: 403,
-        message: "Only owners and admins can change member roles",
-      });
-    }
-
-    const memberEmail = extractMemberEmail(event);
-    if (!memberEmail) {
-      throw createError({ statusCode: 400, message: "Email is required" });
-    }
-    const memberEmailLower = memberEmail.toLowerCase();
-
     const body = await readBody(event);
-    const role = body?.role === "admin" ? "admin" : "member";
-
-    const e = await exec();
-
-    const current = await e.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [ctx.orgId, memberEmailLower],
-    });
-    if (current.rows.length === 0) {
-      throw createError({ statusCode: 404, message: "Member not found" });
-    }
-    const currentRole = String((current.rows[0] as any).role) as OrgRole;
-
-    if (currentRole === "owner") {
-      throw createError({
-        statusCode: 400,
-        message: "Cannot change the organization owner's role",
-      });
-    }
-
-    if (ctx.role === "admin" && (currentRole === "admin" || role === "admin")) {
-      throw createError({
-        statusCode: 403,
-        message: "Only the organization owner can manage admins",
-      });
-    }
-
-    if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "admin") {
-      throw createError({
-        statusCode: 400,
-        message: "Use the owner account to change your own admin role",
-      });
-    }
-
-    try {
-      await updateFederatedOrganizationMemberRole(event, {
-        orgId: ctx.orgId,
-        actorEmail: ctx.email,
-        actorRole: ctx.role,
-        memberEmail,
-        memberRole: role,
-      });
-    } catch (error) {
-      console.error("[org] member role: identity authority sync failed", error);
-      throw createError({
-        statusCode: 503,
-        message:
-          "Could not synchronize this member role with the identity authority.",
-      });
-    }
-
-    await e.execute({
-      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [role, ctx.orgId, memberEmailLower],
-    });
-    invalidateMemberOrgCaches();
+    const result = await changeOrgMemberRole(
+      ctx,
+      extractMemberEmail(event),
+      body?.role,
+      event,
+    );
     await recordOrgAdminAuditEvent({
       action: "change-member-role",
       targetType: "org-member-role",
-      targetId: memberEmailLower,
-      summary: `Changed ${memberEmailLower} from ${currentRole} to ${role}`,
+      targetId: result.email,
+      summary: `Changed ${result.email} from ${result.previousRole} to ${result.role}`,
       userEmail: ctx.email,
       orgId: ctx.orgId,
-      args: { email: memberEmailLower, previousRole: currentRole, role },
+      args: {
+        email: result.email,
+        previousRole: result.previousRole,
+        role: result.role,
+      },
       attribution: routeAuditAttribution(event),
     });
-
-    return { email: memberEmailLower, role };
+    return { email: result.email, role: result.role };
   },
 );
 

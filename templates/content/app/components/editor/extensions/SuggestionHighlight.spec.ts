@@ -2328,8 +2328,11 @@ describe("settling suggestions", () => {
         ".suggestion-settling-text .comment-highlight",
       );
       expect(highlight?.getAttribute("data-comment-thread")).toBe("second");
+      expect(highlight?.getAttribute("data-comment-threads")).toBe(
+        "first second",
+      );
       expect(highlight?.className).toBe(
-        "comment-highlight comment-highlight--active",
+        "comment-highlight comment-highlight--overlap comment-highlight--active",
       );
     } finally {
       view.destroy();

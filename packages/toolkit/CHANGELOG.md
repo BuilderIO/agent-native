@@ -1,5 +1,19 @@
 # @agent-native/toolkit
 
+## 0.235.1
+
+### Patch Changes
+
+- 409e04a: `@agent-native/toolkit/app/filters` exports line edits for a filter list where "and" binds before "or", such as `joinFilterLine`, `moveFilterLine`, `groupFilterLineWith` and `takeFilterLineOut`, and its `FilterFieldPicker`, `FilterOperatorSelect` and `FilterRuleEditor`, so an app can build its own filter menu.
+- Release all public npm packages with a patch version bump.
+- d70dc40: Switch workspace and `agent-native typecheck` CLI typechecking to native `tsgo` when available, falling back to `tsc`.
+- 1f5e3fe: Settings > Model: when no provider is connected, the Default Model row offers an Add provider button instead of a disabled dropdown.
+- 52757ad: Upgrade Vitest and `@vitest/*` packages to `5.1.2` and align workspace packages onto the pnpm catalog.
+- Updated dependencies
+- Updated dependencies [d70dc40]
+  - @agent-native/agentkit@0.235.1
+  - @agent-native/design-system@0.235.1
+
 ## 0.235.0
 
 ### Minor Changes
@@ -1816,12 +1830,6 @@
 - Release all public npm packages with a patch version bump.
 
 ## 0.16.15
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.16.14
 
 ### Patch Changes
 

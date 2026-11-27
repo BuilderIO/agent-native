@@ -980,3 +980,7 @@
 .dark .design-editor-app-menu-content {
   box-shadow: 0 12px 28px rgb(0 0 0 / 0.34);
 }
+
+[data-screen-shell][data-screen-paint-suppressed="true"] {
+  visibility: hidden;
+}

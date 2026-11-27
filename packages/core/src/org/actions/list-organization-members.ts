@@ -48,7 +48,7 @@ export default defineAction({
       return { members, hasMore, nextOffset: hasMore ? offset + limit : null };
     }
     const invites = await db.execute({
-      sql: `SELECT email, role, invited_by AS "invitedBy", created_at AS "createdAt"
+      sql: `SELECT id, email, role, invited_by AS "invitedBy", created_at AS "createdAt"
             FROM org_invitations
             WHERE org_id = ? AND status = 'pending'
             ORDER BY created_at DESC
@@ -62,6 +62,7 @@ export default defineAction({
       pendingInvitations: invites.rows
         .slice(0, MAX_PENDING_INVITATIONS)
         .map((row: any) => ({
+          id: String(row.id),
           email: String(row.email),
           role: row.role === "admin" ? "admin" : "member",
           invitedBy: String(row.invitedBy ?? row.invited_by),

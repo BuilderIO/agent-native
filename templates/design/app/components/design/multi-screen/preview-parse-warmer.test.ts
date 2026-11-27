@@ -20,6 +20,11 @@ class FakeWorker {
   }
 }
 
+function present<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("expected a value");
+  return value;
+}
+
 async function loadWarmer() {
   vi.resetModules();
   const warmer = await import("./preview-parse-warmer");
@@ -168,4 +173,59 @@ it("keeps only a screen's newest queued color count", async () => {
   const owner = pool.find((worker) => worker.posted.includes(colorJobs[0]!))!;
   reply(owner, colorJobs[0]!);
   expect(await fresh).toEqual([new Map()]);
+});
+
+it("drops a requested parse once every requester cancels it", async () => {
+  const warmer = await loadWarmer();
+  const contents = Array.from({ length: 8 }, (_, index) => `<p>${index}</p>`);
+  warmer.requestPreviewParses(contents);
+  const pool = FakeWorker.instances;
+  const [queuedFirst, ...others] = contents.slice(pool.length);
+  const cancelled = present(queuedFirst);
+  expect(others.every(warmer.isPreviewParsePending)).toBe(true);
+
+  warmer.requestPreviewParses([cancelled]);
+  warmer.cancelPreviewParses([cancelled]);
+  expect(warmer.isPreviewParsePending(cancelled)).toBe(true);
+
+  warmer.cancelPreviewParses([cancelled]);
+  expect(warmer.isPreviewParsePending(cancelled)).toBe(false);
+  expect(others.every(warmer.isPreviewParsePending)).toBe(true);
+
+  const answered = new Set<number>();
+  for (let round = 0; round < 8; round += 1) {
+    for (const worker of pool) {
+      for (const request of worker.posted) {
+        if (answered.has(request.id)) continue;
+        answered.add(request.id);
+        reply(worker, request);
+      }
+    }
+  }
+  const posted = pool.flatMap((worker) => worker.posted);
+  expect(
+    posted.some(
+      (request) => request.kind === "preview" && request.content === cancelled,
+    ),
+  ).toBe(false);
+});
+
+it("forgets a request once its parse arrives, so a one-shot caller leaves no count behind", async () => {
+  const warmer = await loadWarmer();
+  const pool = FakeWorker.instances;
+  warmer.requestPreviewParses(["<p>one-shot</p>"]);
+  const worker = present(pool[0]);
+  reply(worker, present(worker.posted[0]));
+  expect(warmer.isPreviewParsePending("<p>one-shot</p>")).toBe(false);
+
+  for (let index = 0; index < 200; index += 1) {
+    warmer.createSourceDocumentProvenance(`<p>filler ${index}</p>`);
+  }
+  const fillers = pool.map((_, index) => `<p>busy ${index}</p>`);
+  warmer.requestPreviewParses(fillers);
+  warmer.requestPreviewParses(["<p>one-shot</p>"]);
+  expect(warmer.isPreviewParsePending("<p>one-shot</p>")).toBe(true);
+
+  warmer.cancelPreviewParses(["<p>one-shot</p>"]);
+  expect(warmer.isPreviewParsePending("<p>one-shot</p>")).toBe(false);
 });

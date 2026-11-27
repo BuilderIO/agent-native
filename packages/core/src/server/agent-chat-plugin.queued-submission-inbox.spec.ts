@@ -123,6 +123,7 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
     getRunById: vi.fn(async () => null),
     retryRunThreadProjection: vi.fn(async () => ({ state: "projected" })),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
+    cleanupOldRuns: vi.fn(async () => {}),
     reapAllStaleRuns: vi.fn(async () => {
       if (sweepHarness.staleReapError) throw sweepHarness.staleReapError;
       return sweepHarness.staleReapResult;

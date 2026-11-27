@@ -80,6 +80,7 @@ import {
 import { ProviderDialog } from "./ProviderDialog.js";
 import { RemoveProviderDialog } from "./RemoveProviderDialog.js";
 import { RestrictKeysDialog } from "./RestrictKeysDialog.js";
+import { T3CodeRow } from "./T3CodeRow.js";
 
 const K = "agentChat.settingsModel.";
 // The row labels settings search already uses for these rows.
@@ -567,6 +568,7 @@ function PersonalProvidersGroup({
           />
         ))}
         <ChatGPTSubscriptionRow />
+        <T3CodeRow />
         {!hasProviderRows && restricted ? (
           <SettingsEmpty icon={IconLock} title={t(`${K}restricted`)} />
         ) : null}
