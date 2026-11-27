@@ -57,6 +57,7 @@ import {
   TreeGridSectionHead,
 } from "@/components/design/TreeGridRow";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -88,6 +89,13 @@ export type LayersPanelNodeType =
   | "element"
   | "board-element"
   | "unknown";
+
+export interface LayersPanelComponent {
+  name: string;
+  instanceCount: number;
+  sampleFileId: string;
+  sampleNodeId: string;
+}
 
 export interface LayersPanelNode {
   id: string;
@@ -156,6 +164,7 @@ interface LayersPanelMoveIntent {
 export interface LayersPanelLabels {
   title: string;
   screens: string;
+  components: string;
   resizeScreens: string;
   addScreen: string;
   searchPlaceholder: string;
@@ -191,6 +200,10 @@ export interface LayersPanelProps {
   labels?: Partial<LayersPanelLabels>;
   onSearchQueryChange: (query: string) => void;
   onScreenSelect?: (id: string) => void;
+  components?: readonly LayersPanelComponent[];
+  componentsLoading?: boolean;
+  onComponentsExpandedChange?: (expanded: boolean) => void;
+  onComponentSelect?: (component: LayersPanelComponent) => void;
   onAddScreen?: () => void;
   onExpandedIdsChange: (ids: string[]) => void;
   onSelectionChange: (
@@ -310,6 +323,7 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
+    components: t("layersPanel.components"),
     resizeScreens: t("layersPanel.resizeScreens"),
     addScreen: t("layersPanel.addScreen"),
     searchPlaceholder: t("layersPanel.searchPlaceholder"),
@@ -905,6 +919,10 @@ function LayersPanelImpl(
     labels: labelsProp,
     onSearchQueryChange,
     onScreenSelect,
+    components,
+    componentsLoading,
+    onComponentsExpandedChange,
+    onComponentSelect,
     onAddScreen,
     onExpandedIdsChange,
     onSelectionChange,
@@ -960,6 +978,7 @@ function LayersPanelImpl(
     useState<LayersPanelMoveIntent | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
   const [screensExpanded, setScreensExpanded] = useState(true);
+  const [componentsExpanded, setComponentsExpanded] = useState(false);
   const [layersExpanded, setLayersExpanded] = useState(true);
 
   const roots = useMemo(
@@ -1514,6 +1533,58 @@ function LayersPanelImpl(
                     </button>
                   );
                 })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {onComponentsExpandedChange || (components && components.length > 0) ? (
+          <div
+            data-components-section
+            className="flex max-h-[25%] min-h-0 shrink-0 flex-col overflow-hidden border-b border-[var(--design-editor-panel-divider-color)] pb-1"
+          >
+            <TreeGridSectionHead
+              headerId="components"
+              label={labels.components}
+              expanded={componentsExpanded}
+              onExpandedChange={(expanded) => {
+                setComponentsExpanded(expanded);
+                onComponentsExpandedChange?.(expanded);
+              }}
+            />
+            {componentsExpanded ? (
+              <div className="min-h-0 flex-1 overflow-auto">
+                {componentsLoading ? (
+                  <Skeleton className="mx-2 my-1 h-5" />
+                ) : null}
+                {(components ?? []).map((component) => (
+                  <button
+                    key={component.name}
+                    type="button"
+                    data-component-row={component.name}
+                    className={cn(
+                      TREE_GRID_ROW_CLASS,
+                      "w-full cursor-default text-start text-foreground/85 outline-none hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--design-focus-ring-color)]",
+                    )}
+                    onClick={() => onComponentSelect?.(component)}
+                  >
+                    <TreeGridLead depth={0} />
+                    <span
+                      className={cn(
+                        TREE_GRID_ICON_SLOT_CLASS,
+                        "me-2 text-[var(--design-editor-component-color)]",
+                      )}
+                    >
+                      <IconComponents className="design-ui-icon" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {component.name}
+                    </span>
+                    <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
+                      {component.instanceCount}
+                    </span>
+                  </button>
+                ))}
               </div>
             ) : null}
           </div>

@@ -869,6 +869,10 @@ export default {
     exportPreview: {
       rendering: "Vorschau wird erstellt…",
       failed: "Vorschau nicht verfügbar",
+      noPreview: "Kein Screen zur Vorschau",
+      externalPreview: "Die Vorschau benötigt die Live-App",
+      readOnlyPreview: "Vorschau im Nur-Lese-Modus nicht verfügbar",
+      selectionUnresolved: "Auswahl auf diesem Screen nicht gefunden",
     },
     framePresets: {
       title: "Rahmen",
@@ -1971,6 +1975,7 @@ export default {
   layersPanel: {
     title: "Ebenen",
     screens: "Seiten",
+    components: "Komponenten",
     resizeScreens: "Größe des Seitenbereichs ändern",
     thumbnail: "Miniaturansicht",
     addScreen: "Seite hinzufügen",
@@ -2000,6 +2005,8 @@ export default {
     bringToFront: "In den Vordergrund",
     sendBackward: "Nach hinten",
     sendToBack: "In den Hintergrund",
+    arrangeUnavailable:
+      "Wähle eine Ebene in einem bearbeitbaren Design aus, um sie neu anzuordnen",
     pasteToReplace: "Einfügen zum Ersetzen",
     frameSelection: "Auswahl rahmen",
     flipHorizontal: "Horizontal spiegeln",

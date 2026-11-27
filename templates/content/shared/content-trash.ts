@@ -25,6 +25,34 @@ export interface ContentTrashItem {
   canRestore: boolean;
   canPermanentlyDelete: boolean;
   hasAccessibleTrashedChildren: boolean;
+  collectionRestore: ContentTrashCollectionRestore | null;
+}
+
+export interface ContentTrashCollectionRestore {
+  spaceId: string;
+  databaseDocumentId: string;
+  configurationRevision: string;
+}
+
+export type ContentTrashWhereCondition =
+  | {
+      field: "spaceId" | "parentId" | "createdBy" | "updatedBy" | "deletedBy";
+      operator?: "is" | "isNot";
+      values: string[];
+    }
+  | {
+      field: "kind";
+      operator?: "is" | "isNot";
+      values: Array<"page" | "database">;
+    }
+  | { field: "deletedAt"; from?: string; to?: string };
+
+export interface ContentTrashWhere {
+  mode: "and" | "or";
+  items: Array<
+    | ContentTrashWhereCondition
+    | { mode: "and" | "or"; conditions: ContentTrashWhereCondition[] }
+  >;
 }
 
 export interface ListContentTrashResponse {
@@ -63,4 +91,19 @@ export interface ContentTrashPurgePlanResponse {
   blockedCount: number;
   affectedPreview: ContentTrashPurgePreviewItem[];
   filtersIgnored: boolean;
+}
+
+export interface ContentTrashPurgeSpace {
+  spaceId: string;
+  name: string;
+  canPurge: boolean;
+}
+
+export interface ListContentTrashPurgeSpacesResponse {
+  spaces: ContentTrashPurgeSpace[];
+}
+
+export interface ContentTrashFilterOptionsResponse {
+  people: Array<{ email: string; name: string | null }>;
+  locations: Array<{ id: string; title: string }>;
 }

@@ -45,6 +45,7 @@ describe("block menu registry", () => {
       { type: "horizontalRule" },
       { type: "codeBlock", attrs: { language: "mermaid" } },
       { type: "codeBlock", attrs: { language: "ts" } },
+      { type: "codeBlock", attrs: { language: "html interactive" } },
       {
         type: "registryBlock",
         attrs: { blockType: "source-component", blockId: "hero-1" },
@@ -61,6 +62,7 @@ describe("block menu registry", () => {
       "editor.slash.divider",
       "editor.mermaid.source",
       "editor.slash.codeBlock",
+      "editor.slash.interactiveHtml",
       "editor.sourceComponent.defaultTitle",
       "editor.blockMenu.bookmark",
       "editor.blockMenu.block",
@@ -109,5 +111,34 @@ describe("block menu registry", () => {
     switches[1]?.toggle(tr, table);
     page.view.dispatch(tr);
     expect(getTableHeaders(page.state.doc.child(0)).column).toBe(true);
+  });
+
+  it("gives HTML code a switch that runs it on the page, and other code none", () => {
+    const code = (language: string) => ({
+      type: "codeBlock",
+      attrs: { language },
+      content: [{ type: "text", text: "<p>Hi</p>" }],
+    });
+    const page = mount([code("html"), code("ts")]);
+    const switchesOf = (index: number) => {
+      const node = page.state.doc.child(index);
+      return blockMenuEntry(node).switches?.(node, t) ?? [];
+    };
+    const flip = () => {
+      const tr = page.state.tr;
+      switchesOf(0)[0]?.toggle(tr, { node: page.state.doc.child(0), pos: 0 });
+      page.view.dispatch(tr);
+    };
+
+    expect(switchesOf(1)).toEqual([]);
+    expect(switchesOf(0).map(({ checked }) => checked)).toEqual([false]);
+
+    flip();
+    expect(page.state.doc.child(0).attrs.language).toBe("html interactive");
+    expect(page.state.doc.child(0).textContent).toBe("<p>Hi</p>");
+    expect(switchesOf(0).map(({ checked }) => checked)).toEqual([true]);
+
+    flip();
+    expect(page.state.doc.child(0).attrs.language).toBe("html");
   });
 });

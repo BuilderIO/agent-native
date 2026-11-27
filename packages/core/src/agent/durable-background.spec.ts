@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,6 +25,15 @@ import {
   resolveDurableBackgroundDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+
+const isLoopbackRequestMock = vi.hoisted(() =>
+  vi.fn((_event: H3Event) => false),
+);
+
+vi.mock("../server/loopback.js", async (importActual) => ({
+  ...(await importActual<typeof import("../server/loopback.js")>()),
+  isLoopbackRequest: isLoopbackRequestMock,
+}));
 
 /**
  * The single gate that decides whether a long agent-chat turn is routed through
@@ -648,11 +658,14 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
     });
 
     it("allows an unsigned dispatch in local dev (SQL claim is the guard)", () => {
+      const event = {} as H3Event;
+      isLoopbackRequestMock.mockReturnValueOnce(true);
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
-        true,
+        event,
       );
+      expect(isLoopbackRequestMock).toHaveBeenCalledWith(event);
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error("expected ok");
       expect(r.runId).toBe(RUN_ID);
@@ -662,6 +675,16 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
+      );
+      expect(r).toMatchObject({ ok: false, status: 503, runId: RUN_ID });
+    });
+
+    it("refuses an unsigned dispatch whose request is not local (fail closed)", () => {
+      isLoopbackRequestMock.mockReturnValueOnce(false);
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        undefined,
+        {} as H3Event,
       );
       expect(r).toMatchObject({ ok: false, status: 503, runId: RUN_ID });
     });

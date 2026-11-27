@@ -3088,13 +3088,24 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
+const INLINE_LINK = /\[([^\]]+)\]\(([^)]+)\)/g;
+
 function inlineMarkdownToHtml(value: string) {
   return escapeHtml(value)
+    .replace(
+      INLINE_LINK,
+      (_match, label: string, destination: string) =>
+        `[${label}](${destination.replace(/[*_`]/g, (mark) => `&#${mark.charCodeAt(0)};`)})`,
+    )
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/_([^_]+)_/g, "<em>$1</em>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, destination) => {
-      const href = destination.trim();
+    .replace(INLINE_LINK, (_match, label, destination) => {
+      const href = destination
+        .trim()
+        .replace(/&#(42|95|96);/g, (_entity: string, code: string) =>
+          String.fromCharCode(Number(code)),
+        );
       const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(href);
       const hasSafeScheme = /^(?:https?:\/\/|mailto:|tel:)/i.test(href);
       const isNetworkPath = /^(?:\/\/|\\\\)/.test(href);

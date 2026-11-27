@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockGetDocumentContextPath = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockGetForwardedRequestOrigin = vi.hoisted(() => vi.fn());
+const mockInteractiveHtmlBlockLinks = vi.hoisted(() => vi.fn());
 const { document } = vi.hoisted(() => ({
   document: {
     id: "child-page",
@@ -92,6 +93,11 @@ vi.mock("../../lib/document-context.js", () => ({
     mockGetDocumentContextPath(...args),
 }));
 
+vi.mock("../../../actions/_interactive-html-blocks.js", () => ({
+  interactiveHtmlBlockLinks: (...args: unknown[]) =>
+    mockInteractiveHtmlBlockLinks(...args),
+}));
+
 // The share-link image links have their own database test.
 vi.mock("../../lib/private-media-agent-links.js", () => ({
   privateMediaAgentLinks: async () => undefined,
@@ -107,6 +113,7 @@ describe("GET /api/document-agent-context.json", () => {
     mockGetForwardedRequestOrigin.mockReturnValue(
       "https://content.example.test",
     );
+    mockInteractiveHtmlBlockLinks.mockResolvedValue([]);
     mockGetDocumentContextPath.mockResolvedValue([
       {
         id: "parent-page",
@@ -131,6 +138,26 @@ describe("GET /api/document-agent-context.json", () => {
         },
       ],
     });
+  });
+
+  it("links each interactive HTML block on the page", async () => {
+    expect(await handler({} as never)).not.toHaveProperty("interactiveBlocks");
+
+    const interactiveBlocks = [
+      {
+        blockId: "block_1",
+        title: "Tap counter",
+        url: "https://content.example.test/page/child-page?block=block_1",
+      },
+    ];
+    mockInteractiveHtmlBlockLinks.mockResolvedValue(interactiveBlocks);
+
+    expect(await handler({} as never)).toMatchObject({ interactiveBlocks });
+    expect(mockInteractiveHtmlBlockLinks).toHaveBeenLastCalledWith(
+      document.id,
+      document.content,
+      "https://content.example.test",
+    );
   });
 
   it("directs anonymous private reads to authenticated Content MCP", async () => {

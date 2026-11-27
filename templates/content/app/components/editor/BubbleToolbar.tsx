@@ -16,6 +16,7 @@ import {
   Plugin,
   PluginKey,
   Selection,
+  TextSelection,
   type EditorState,
 } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
@@ -37,11 +38,16 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  selectedListItem,
+  turnSelectedListItemInto,
+  type TurnIntoTarget,
+} from "./block-actions";
+import {
   captureAnchor,
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
-import { isMermaidCodeBlock } from "./extensions/CodeBlockNode";
+import { isDrawnCodeBlock } from "./extensions/CodeBlockNode";
 import { rangeTouchesToggleTitle } from "./extensions/NotionExtensions";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
@@ -91,7 +97,22 @@ type SelectionFillRange = {
   to: number;
 };
 
-type TextStyle = "paragraph" | 1 | 2 | 3 | 4 | 5 | 6;
+type ListStyle = "bulletList" | "orderedList" | "taskList";
+type TextStyle = "paragraph" | 1 | 2 | 3 | 4 | 5 | 6 | ListStyle;
+
+function isListStyle(name: string): name is ListStyle {
+  return name === "bulletList" || name === "orderedList" || name === "taskList";
+}
+
+const TEXT_STYLE_TARGETS: Partial<Record<TextStyle, TurnIntoTarget>> = {
+  paragraph: "text",
+  1: "heading1",
+  2: "heading2",
+  3: "heading3",
+  bulletList: "bulletedList",
+  orderedList: "numberedList",
+  taskList: "todoList",
+};
 type ColorAttribute = "color" | "bgColor";
 type ColorName =
   | "gray"
@@ -267,6 +288,9 @@ export function setSelectionNotionSpanAttribute(
 }
 
 function activeTextStyle(editor: Editor): TextStyle {
+  const item = selectedListItem(editor.state.selection);
+  const list = item && editor.state.doc.resolve(item.pos).parent.type.name;
+  if (list && isListStyle(list)) return list;
   for (const level of [1, 2, 3, 4, 5, 6] as const) {
     if (editor.isActive("heading", { level })) return level;
   }
@@ -289,7 +313,7 @@ function selectionIncludesBubbleToolbarExcludedNode(
   if (
     state.selection instanceof NodeSelection &&
     (BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name) ||
-      isMermaidCodeBlock(state.selection.node))
+      isDrawnCodeBlock(state.selection.node))
   ) {
     return true;
   }
@@ -597,6 +621,24 @@ export function BubbleToolbar({
       menuLabel: "H4",
       label: t("editor.heading4"),
     },
+    {
+      value: "bulletList" as const,
+      shortLabel: t("editor.slash.bulletedList"),
+      menuLabel: "•",
+      label: t("editor.slash.bulletedList"),
+    },
+    {
+      value: "orderedList" as const,
+      shortLabel: t("editor.slash.numberedList"),
+      menuLabel: "1.",
+      label: t("editor.slash.numberedList"),
+    },
+    {
+      value: "taskList" as const,
+      shortLabel: t("editor.slash.todoList"),
+      menuLabel: "[]",
+      label: t("editor.slash.todoList"),
+    },
   ];
   const selectedTextStyle =
     textStyles.find((style) => style.value === textStyle) ??
@@ -612,13 +654,39 @@ export function BubbleToolbar({
   const applyTextStyle = (style: TextStyle) => {
     const chain = toolbarEditChain(editor);
     if (!chain) return;
-    if (textStyleSelection.current) {
-      chain.setTextSelection(textStyleSelection.current);
+    const saved = textStyleSelection.current;
+    const target = TEXT_STYLE_TARGETS[style];
+    const tr = editor.state.tr;
+    if (saved) {
+      const size = tr.doc.content.size;
+      tr.setSelection(
+        TextSelection.create(
+          tr.doc,
+          Math.min(saved.from, size),
+          Math.min(saved.to, size),
+        ),
+      );
     }
-    if (style === "paragraph") {
-      chain.setNode("paragraph").focus().run();
+    if (
+      target &&
+      selectedListItem(tr.selection) &&
+      turnSelectedListItemInto(tr, target)
+    ) {
+      editor.view.dispatch(tr);
+      editor.commands.focus();
     } else {
-      chain.setHeading({ level: style }).focus().run();
+      if (saved) chain.setTextSelection(saved);
+      if (style === "paragraph") {
+        chain.setNode("paragraph").focus().run();
+      } else if (style === "bulletList") {
+        chain.toggleBulletList().focus().run();
+      } else if (style === "orderedList") {
+        chain.toggleOrderedList().focus().run();
+      } else if (style === "taskList") {
+        chain.toggleTaskList().focus().run();
+      } else {
+        chain.setHeading({ level: style }).focus().run();
+      }
     }
     textStyleApplied.current = true;
     setTextStyle(style);

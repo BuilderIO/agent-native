@@ -782,14 +782,16 @@ describe("ModelSettingsPage", () => {
     expect(defaultRow.textContent).toContain(
       "Add a provider to choose a default model.",
     );
-    expect(
-      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
-        ?.disabled,
-    ).toBe(true);
+    expect(defaultRow.querySelector('[role="combobox"]')).toBeNull();
     expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
+    const addInRow = [...defaultRow.querySelectorAll("button")].find(
+      (button) => button.textContent === "Add provider",
+    ) as HTMLButtonElement;
+    expect(addInRow.disabled).toBe(false);
+    await act(async () => addInRow.click());
     expect(
-      defaultRow.querySelector('[role="combobox"]')?.textContent?.trim(),
-    ).toBe("");
+      document.querySelector('[data-testid="provider-dialog"]'),
+    ).not.toBeNull();
 
     await act(async () => {
       (
@@ -951,10 +953,7 @@ describe("ModelSettingsPage", () => {
       ).toBeNull();
     });
     expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
-    expect(
-      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
-        ?.disabled,
-    ).toBe(true);
+    expect(defaultRow.querySelector('[role="combobox"]')).toBeNull();
     expect(row("llm").textContent).toContain("Add a model provider");
   });
 

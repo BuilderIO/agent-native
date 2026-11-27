@@ -41,6 +41,12 @@ actions, and local folders that sync into the same collection model.
   its exact title, then inspect it with `get-content-database` before creating
   or submitting anything. Do not create a second collection when the canonical
   one already exists.
+- "Mail notes" in the user's Personal space is the collection Mail's Notes
+  widget writes: one private page per person, keyed by the Email property,
+  each note a dated line linking back to the email. Read and edit it like any
+  collection; keep it in Personal with Email as its key, since Mail finds a
+  person's page by it and refuses (`mail_notes_moved`,
+  `mail_notes_key_changed`) when either changes.
 - Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.
@@ -94,9 +100,12 @@ For a named intake workflow:
    from this skill.
 2. Once Content is selected, find the canonical collection by the instructed ID
    or exact title with `list-documents` or `search-documents`; inspect it with
-   `get-content-database` and, when available,
-   `get-content-database-form`. Preserve its collection and document IDs. Never
-   guess IDs or create a duplicate queue.
+   `describe-content-database`, whose `database.viewConfig.views` include the
+   Form view's `formQuestions` (which properties it asks and which are
+   required), and `get-content-form-settings` for that view: when it has a
+   `canvasDocumentId`, the questions on that page replace the view's.
+   Preserve its collection and document IDs. Never guess IDs or create a
+   duplicate queue.
 3. Read the current property/form schema and required fields before asking the
    user anything. Ask only for required values that are actually missing.
 4. You may infer low-risk values from the request, sender identity, and source
@@ -121,7 +130,10 @@ For a named intake workflow:
    a provided source URL with an invented Slack URL.
 7. Submit exactly once with `submit-content-database-form` when that action is
    available. Prefer it over piecemeal writes because it validates required
-   fields and verifies the saved row. Fall back to `add-database-item` only
+   fields and verifies the saved row. Pass a new random `idempotencyKey`, such
+   as a UUID, and reuse that same key if you resend after an error or a lost
+   response, so a retry returns the first row instead of adding another.
+   Fall back to `add-database-item` only
    when the collection has no form contract and all required values have already
    been confirmed. Pass `propertyEntries` with one explicit `{ property, value }`
    entry for every unambiguous enabled form field the user supplied, even when

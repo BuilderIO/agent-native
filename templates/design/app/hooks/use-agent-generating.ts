@@ -52,7 +52,15 @@ function isCorrelatedContinuationRun(args: {
 export interface GenerationFailure {
   /** False when the server knows the same prompt would fail the same way. */
   retryable: boolean;
+  setupRequired?: boolean;
 }
+
+const SETUP_REQUIRED_TERMINAL_REASONS = new Set([
+  "missing_api_key",
+  "error:missing_api_key",
+  "AGENT_CHAT_AI_SETUP_REQUIRED",
+  "error:AGENT_CHAT_AI_SETUP_REQUIRED",
+]);
 
 interface UseAgentGeneratingOptions {
   onComplete?: (tabId: string | null) => void;
@@ -659,6 +667,10 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
               if (typeof state.retryable === "boolean") {
                 callbacksRef.current.onFailed?.(tabId, {
                   retryable: state.retryable,
+                  ...(typeof state.terminalReason === "string" &&
+                  SETUP_REQUIRED_TERMINAL_REASONS.has(state.terminalReason)
+                    ? { setupRequired: true }
+                    : {}),
                 });
               } else {
                 callbacksRef.current.onFailed?.(tabId);

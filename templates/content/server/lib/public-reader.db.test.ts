@@ -2,10 +2,13 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getAppConfig } from "@agent-native/core/app-config";
 import { serializeIconValue } from "@agent-native/core/icons";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { identityBlockIds } from "../../shared/block-identity-ids.js";
+import { legacyBlocksFieldIdentity } from "../../shared/blocks-field-identity.js";
 import { firstRow } from "./first-row.js";
 
 const TEST_DB_PATH = join(
@@ -268,6 +271,52 @@ describe("public reader context", () => {
     expect(context.pageLinks).toEqual({
       [notionPage]: { id: own, title: "Imported", icon: null },
     });
+  });
+
+  it("names its interactive blocks' IDs and where they may show media from, so they work without an account", async () => {
+    const content = [
+      "Intro",
+      "```html interactive",
+      "<button>0</button>",
+      "```",
+      "```html",
+      "<p>Plain</p>",
+      "```",
+    ].join("\n");
+    const tracker = await page();
+    const leaf = await page({ parentId: tracker, content });
+    const propertyId = `public-reader-body-${leaf}`;
+    await db.insert(schema.contentDatabases).values({
+      id: `public-reader-database-${tracker}`,
+      ownerEmail: OWNER,
+      documentId: tracker,
+      primaryBlocksPropertyId: propertyId,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `public-reader-item-${leaf}`,
+      ownerEmail: OWNER,
+      databaseId: `public-reader-database-${tracker}`,
+      documentId: leaf,
+      position: 0,
+    });
+    const { idsByPath } = identityBlockIds(
+      legacyBlocksFieldIdentity({
+        documentId: leaf,
+        propertyId,
+        markdown: content,
+      }).blocks,
+    );
+
+    const { iframeImageSources, iframeMediaSources } =
+      getAppConfig().extensions;
+    expect((await contextFor(leaf)).interactiveHtml).toEqual({
+      blockIds: { "1": idsByPath["1"] },
+      displaySources: {
+        imageSources: iframeImageSources,
+        mediaSources: iframeMediaSources,
+      },
+    });
+    expect((await contextFor(tracker)).interactiveHtml).toBeNull();
   });
 
   it("drops uploaded icons, which a reader without an account can't load", async () => {

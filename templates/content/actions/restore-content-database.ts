@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -49,7 +49,7 @@ async function shouldClearStaleInlineOwnership(args: {
 
 export default defineAction({
   description:
-    "Restore one exact ordinary collection from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
+    "Restore one exact ordinary collection from Trash, before automatic deletion removes it (it becomes eligible after 30 days in Trash), using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   mcpAnnotations: {
@@ -64,6 +64,12 @@ export default defineAction({
     z
       .object({
         databaseId: z.string().describe("Content collection ID"),
+        expectedDeletedAt: z
+          .string()
+          .optional()
+          .describe(
+            "When the collection or its page moved to Trash, as listed; a later deletion refuses the restore",
+          ),
       })
       .strict(),
   ]),
@@ -128,6 +134,16 @@ export default defineAction({
               context.database.ownerEmail,
               locks,
             );
+            if (context.database.deletedAt)
+              await tx
+                .update(schema.contentDatabases)
+                .set({ deletedAt: null, updatedAt: new Date().toISOString() })
+                .where(
+                  and(
+                    eq(schema.contentDatabases.id, context.database.id),
+                    isNotNull(schema.contentDatabases.deletedAt),
+                  ),
+                );
             return {
               outcome: context.database.deletedAt
                 ? ("restored" as const)
@@ -147,7 +163,7 @@ export default defineAction({
       await refreshAfterSetup(result.receipt);
       return { success: true, ...result.value, receipt: result.receipt };
     }
-    const { databaseId } = args;
+    const { databaseId, expectedDeletedAt } = args;
     const ownership = await assertContentDatabaseLifecycleAccess(databaseId);
     const db = getDb();
     const now = new Date().toISOString();
@@ -174,12 +190,34 @@ export default defineAction({
         .select({
           trashedAt: schema.documents.trashedAt,
           trashRootId: schema.documents.trashRootId,
+          deletedAt: sql<
+            string | null
+          >`coalesce(${schema.documents.trashedAt}, ${schema.contentDatabases.deletedAt})`,
         })
         .from(schema.documents)
-        .where(eq(schema.documents.id, ownership.database.documentId))
+        .innerJoin(
+          schema.contentDatabases,
+          eq(schema.contentDatabases.documentId, schema.documents.id),
+        )
+        .where(
+          and(
+            eq(schema.documents.id, ownership.database.documentId),
+            eq(schema.contentDatabases.id, databaseId),
+          ),
+        )
         .limit(1);
       if (!backingDocument) {
         throw new Error(`Database "${databaseId}" not found`);
+      }
+      if (
+        expectedDeletedAt !== undefined &&
+        backingDocument.deletedAt !== null &&
+        backingDocument.deletedAt !== expectedDeletedAt
+      ) {
+        setupError(
+          "TRASH_REVISION_CONFLICT",
+          "The Trash item changed after you read it. List Trash again and retry with its current deletion time.",
+        );
       }
       if (
         backingDocument.trashedAt &&

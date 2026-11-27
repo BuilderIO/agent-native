@@ -1282,6 +1282,11 @@ async function deleteCollectedDocuments(
       .where(
         inArray(schema.contentWebhookDeliveries.documentId, documentIdBatch),
       );
+    await db
+      .delete(schema.contentFormSubmissions)
+      .where(
+        inArray(schema.contentFormSubmissions.documentId, documentIdBatch),
+      );
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
@@ -1549,7 +1554,7 @@ export default defineAction({
       ? null
       : documentChangeResource(input.id),
   description:
-    "Move one page and all its sub-pages to recoverable Trash, guarded by the page's exact updatedAt and an idempotency key. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
+    "Move one page and all its sub-pages to Trash, guarded by the page's exact updatedAt and an idempotency key. They become eligible for automatic deletion after 30 days in Trash, and a daily job deletes them, so it can take a little longer. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   mcpAnnotations: {

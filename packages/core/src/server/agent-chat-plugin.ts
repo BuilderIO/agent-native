@@ -17,7 +17,6 @@ import {
   getMethod,
   getQuery,
   getHeader,
-  getRequestIP,
   readBody as readH3Body,
   type H3Event,
 } from "h3";
@@ -34,8 +33,7 @@ import {
 } from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
-  isLoopbackAddress,
-  isTrustedLocalRuntime,
+  isTrustedLocalRequest,
 } from "../a2a/auth-policy.js";
 import {
   sanitizeA2ACorrelationId,
@@ -568,7 +566,7 @@ import {
   filterDelegatedRegistry,
   filterMcpOnlyActions,
   filterPublicAgentActions,
-  filterDirectA2AActions,
+  resolveDirectA2AAction,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
   shouldSelectedA2AReceiverOwnObjective,
@@ -2786,18 +2784,16 @@ export function createAgentChatPlugin(
         connect: options?.connectApps,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
-          const actions = filterDirectA2AActions(
+          const resolved = resolveDirectA2AAction(
             externalFullActions ?? externalActions,
             mcpOptions,
+            action,
+            getRequestContext()?.a2aIdentityAssurance,
           );
-          const entry = actions[action];
-          if (!entry) {
-            return {
-              status: "failed" as const,
-              output:
-                "Unknown or unavailable read-only action. Direct cross-app action mode only accepts explicitly exposed read-only operations; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
-            };
+          if ("refused" in resolved) {
+            return { status: "failed" as const, output: resolved.refused };
           }
+          const entry = resolved.entry;
 
           const result = await executeAgentToolCall({
             actions: { [action]: entry },
@@ -2814,7 +2810,7 @@ export function createAgentChatPlugin(
           if (result.status === "approval_required") {
             return {
               status: "failed" as const,
-              output: "Read-only action unexpectedly requires approval",
+              output: "Direct action unexpectedly requires approval",
             };
           }
           return a2aActionResult(result);
@@ -2993,12 +2989,17 @@ export function createAgentChatPlugin(
               }
             }
           }
+          const a2aCredentialOrgId = getRequestOrgId();
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: ownerApiKey,
             apiKeyEnvVar: ownerApiKeyEnvVar,
             apiKeyProvenance: ownerApiKeyProvenance,
             appId: options?.appId,
+            credentialIdentity: {
+              userEmail,
+              ...(a2aCredentialOrgId ? { orgId: a2aCredentialOrgId } : {}),
+            },
           });
 
           const devActive = isDevMode();
@@ -6214,17 +6215,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else {
-            const loopback = isLoopbackAddress(
-              getRequestIP(event, { xForwardedFor: false }),
-            );
-            if (!isTrustedLocalRuntime({ loopback })) {
-              setResponseStatus(event, 503);
-              return {
-                error:
-                  "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
-              };
-            }
+          } else if (!isTrustedLocalRequest(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+            };
           }
 
           try {
@@ -10619,16 +10615,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
 
-          // Validate + HMAC-authenticate the self-dispatch and prepare the
-          // background-worker body. Pure decision (unit-tested in
-          // durable-background.spec.ts); the route only wires it to h3. This
-          // handler DOES have the h3 event, so it can see the real socket
-          // peer — thread the loopback signal through so unsigned local-dev
-          // self-dispatch (no A2A_SECRET) still works over 127.0.0.1/::1.
           const prepared = prepareProcessRunRequest(
             processBody,
             getHeader(event, "authorization"),
-            isLoopbackAddress(getRequestIP(event, { xForwardedFor: false })),
+            event,
           );
           if (!prepared.ok) {
             // DIAGNOSTIC: record the auth/validation failure ONTO the run

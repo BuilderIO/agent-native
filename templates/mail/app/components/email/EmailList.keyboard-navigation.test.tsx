@@ -1543,6 +1543,41 @@ describe("EmailList keyboard navigation interactions", () => {
     ]);
   });
 
+  it("keeps the current row where it is when the pointer passes over others", () => {
+    render(<Harness />);
+    const lastRow = rows()[2] as HTMLElement | undefined;
+    if (!lastRow) throw new Error("missing row");
+    fireEvent.mouseEnter(lastRow);
+    fireEvent.mouseMove(lastRow);
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    press("j");
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+  });
+
+  it("quiets hover while j and k drive the list, until the pointer moves", () => {
+    render(<Harness />);
+    const keyboardDriven = () => document.querySelector("[data-keyboard-nav]");
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    press("j");
+    expect(keyboardDriven()).not.toBeNull();
+
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 10 });
+    expect(keyboardDriven()).not.toBeNull();
+    fireEvent.mouseMove(document, { clientX: 14, clientY: 10 });
+    expect(keyboardDriven()).toBeNull();
+  });
+
+  it("makes a row the current row when it takes keyboard focus", () => {
+    render(<Harness />);
+    const lastRow = rows()[2] as HTMLElement | undefined;
+    if (!lastRow) throw new Error("missing row");
+    fireEvent.focus(lastRow);
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe("last");
+    expect(lastRow.getAttribute("aria-current")).toBe("true");
+  });
+
   it("brings keyboard focus along to the current row only when a row holds it", () => {
     render(<Harness />);
     press("j");
@@ -1703,24 +1738,87 @@ describe("EmailList keyboard navigation interactions", () => {
     );
   });
 
-  it("opens each row the focus lands on beside the reading pane", () => {
-    render(<Harness readingPane />);
+  it("opens the top row on the first j beside an empty reading pane, then steps", () => {
+    const { rerender } = render(<Harness readingPane />);
     press("j");
 
     expect(mocks.navigate).toHaveBeenLastCalledWith(
-      "/all/thread-middle?accountEmail=synthetic%40example.test",
+      "/all/thread-first?accountEmail=synthetic%40example.test",
       { replace: false },
     );
-  });
 
-  it("replaces history while the reading pane already shows an email", () => {
-    mocks.threadId = "thread-middle";
-    render(<Harness readingPane />);
+    mocks.threadId = "thread-first";
+    rerender(<Harness readingPane />);
     press("j");
 
     expect(mocks.navigate).toHaveBeenLastCalledWith(
       "/all/thread-middle?accountEmail=synthetic%40example.test",
       { replace: true },
+    );
+  });
+
+  it("steps on from an email you close instead of reopening it", () => {
+    mocks.threadId = "thread-middle";
+    const { rerender } = render(<Harness readingPane />);
+    mocks.threadId = undefined;
+    rerender(<Harness readingPane />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-last?accountEmail=synthetic%40example.test",
+      { replace: false },
+    );
+  });
+
+  it("continues from the email the reading pane shows, replacing history", () => {
+    mocks.threadId = "thread-middle";
+    render(<Harness readingPane />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+    press("j");
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/all/thread-last?accountEmail=synthetic%40example.test",
+      { replace: true },
+    );
+  });
+
+  it("makes a thread opened from outside the list the current row, once", () => {
+    const { rerender } = render(<Harness />);
+    mocks.threadId = "thread-last";
+    rerender(<Harness />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("last");
+
+    press("k");
+    rerender(<Harness emails={[...messages]} />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+  });
+
+  it("keeps the open email's row current when a new message arrives in it", () => {
+    const { rerender } = render(<Harness />);
+    mocks.threadId = "thread-middle";
+    rerender(<Harness />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("middle");
+
+    const reply = {
+      id: "middle-reply",
+      threadId: "thread-middle",
+      from: { name: "Sender reply", email: "reply@example.test" },
+      to: [{ name: "Synthetic User", email: "user@example.test" }],
+      subject: "Subject middle",
+      snippet: "Snippet reply",
+      body: "Body reply",
+      date: new Date(Date.UTC(2026, 0, 2, 12)).toISOString(),
+      isRead: true,
+      isStarred: false,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: [],
+      accountEmail: "synthetic@example.test",
+    };
+    rerender(<Harness emails={[...messages, reply]} />);
+    expect(screen.getByLabelText("Focused id").textContent).toBe(
+      "middle-reply",
     );
   });
 

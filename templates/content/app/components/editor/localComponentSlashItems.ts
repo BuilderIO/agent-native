@@ -1,11 +1,7 @@
-import { IconComponents } from "@tabler/icons-react";
-import type { ElementType } from "react";
-
 export interface LocalComponentSlashItem {
   title: string;
   description: string;
   searchText?: string;
-  icon: ElementType;
   action: (editor: LocalComponentSlashEditor) => void;
 }
 
@@ -44,7 +40,6 @@ export function buildLocalComponentSlashItems(
         title,
         description: copy.description ?? "Local MDX component", // i18n-ignore fallback for tests/non-React callers
         searchText: `${name} ${title} local component mdx`,
-        icon: IconComponents,
         action: (editor) => {
           editor
             .chain()

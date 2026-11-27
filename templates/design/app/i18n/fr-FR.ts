@@ -865,6 +865,10 @@ export default {
     exportPreview: {
       rendering: "Génération de l'aperçu…",
       failed: "Aperçu indisponible",
+      noPreview: "Aucun écran à prévisualiser",
+      externalPreview: "L'aperçu nécessite l'app en direct",
+      readOnlyPreview: "Aperçu indisponible en lecture seule",
+      selectionUnresolved: "Sélection introuvable sur cet écran",
     },
     framePresets: {
       title: "Cadre",
@@ -1962,6 +1966,7 @@ export default {
   layersPanel: {
     title: "Calques",
     screens: "Pages",
+    components: "Composants",
     resizeScreens: "Redimensionner la section des pages",
     thumbnail: "Miniature",
     addScreen: "Ajouter une page",
@@ -1991,6 +1996,8 @@ export default {
     bringToFront: "Mettre au premier plan",
     sendBackward: "Reculer",
     sendToBack: "Mettre à l’arrière-plan",
+    arrangeUnavailable:
+      "Sélectionnez un calque dans un design modifiable pour le réorganiser",
     pasteToReplace: "Coller pour remplacer",
     frameSelection: "Encadrer la sélection",
     flipHorizontal: "Retourner horizontalement",

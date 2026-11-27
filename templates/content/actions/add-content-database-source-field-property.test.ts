@@ -91,6 +91,7 @@ describe("propertyTypeForSourceField", () => {
 
 describe("source-field materialization lock order", () => {
   it("locks memberships before updating Builder source rows", () => {
+    // source-read-ok: lock order between transactions is only observable with two PostgreSQL connections, and the PostgreSQL lock-order suite has no case for materializing a source field.
     const source = readFileSync(
       new URL(
         "./add-content-database-source-field-property.ts",

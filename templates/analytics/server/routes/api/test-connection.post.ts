@@ -303,6 +303,8 @@ export default defineEventHandler(async (event) => {
         case "twitter": {
           const token = await resolveCredential("TWITTER_BEARER_TOKEN", ctx);
           if (!token) return { ok: false, error: "Missing bearer token" };
+          const { testXBearerToken } = await import("../../lib/x-api");
+          await testXBearerToken(token);
           return { ok: true };
         }
 

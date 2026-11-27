@@ -861,6 +861,10 @@ export default {
     exportPreview: {
       rendering: "プレビューを生成中…",
       failed: "プレビューを表示できません",
+      noPreview: "プレビューする画面がありません",
+      externalPreview: "プレビューにはライブアプリが必要です",
+      readOnlyPreview: "読み取り専用モードではプレビューできません",
+      selectionUnresolved: "選択範囲がこの画面に見つかりません",
     },
     framePresets: {
       title: "フレーム",
@@ -1943,6 +1947,7 @@ export default {
   layersPanel: {
     title: "レイヤー",
     screens: "ページ",
+    components: "コンポーネント",
     resizeScreens: "ページセクションのサイズを変更",
     thumbnail: "サムネイル",
     addScreen: "ページを追加",
@@ -1972,6 +1977,8 @@ export default {
     bringToFront: "最前面へ移動",
     sendBackward: "背面へ移動",
     sendToBack: "最背面へ移動",
+    arrangeUnavailable:
+      "並べ替えるには、編集可能なデザインでレイヤーを選択してください",
     pasteToReplace: "置き換えて貼り付け",
     frameSelection: "選択範囲をフレーム化",
     flipHorizontal: "水平方向に反転",

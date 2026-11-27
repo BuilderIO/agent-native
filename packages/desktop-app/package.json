@@ -29,7 +29,7 @@
     "smoke:packaged-multi-frontier": "tsx scripts/smoke-packaged-multi-frontier.ts",
     "test": "vitest run src/main src/renderer shared --exclude \"**/*.test.ts\"",
     "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@agent-native/code-agents-ui": "workspace:*",
@@ -67,7 +67,7 @@
     "tailwindcss": "^4.3.0",
     "typescript-7": "catalog:",
     "vite": "catalog:",
-    "vitest": "^4.1.10"
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.29.1",
   "productName": "Agent-Native"

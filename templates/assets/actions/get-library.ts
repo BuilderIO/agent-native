@@ -26,6 +26,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id }, ctx) => {
     const access = await requireLibraryAccess(id, ctx);
     const library = access.resource;

@@ -93,12 +93,12 @@ El flujo del navegador es el mismo flujo de Better Auth en todas partes: **no ha
 Algunas banderas sintonizan esto; Los detalles completos se encuentran en la tabla [Environment Variables](#environment-variables):
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`: utilice la página de registro normal en el desarrollador local en lugar de la cuenta de desarrollo automático.
-- `AUTH_DISABLED=true`: omita el inicio de sesión/registro por completo y ejecute cada solicitud como un usuario compartido (solo desarrollo local, vistas previas y demostraciones, nunca producción con usuarios reales).
+- `AUTH_DISABLED=true`: omita el inicio de sesión/registro por completo y ejecute cada solicitud como un usuario compartido. Solo para desarrollo local en un servidor de loopback (`localhost`); nunca lo active en vistas previas alojadas, demostraciones ni producción.
 - `AUTH_MODE=local`: afecta solo a CLI/identidad del agente (con el que se ejecuta el usuario de desarrollo `pnpm action`); **no** es una omisión de inicio de sesión en el navegador.
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true` inicia sesión con **cada solicitud como un mismo usuario compartido**, así que cualquiera que llegue al servidor tiene acceso completo. Úselo solo para desarrollo local en un servidor de loopback (`localhost`). Las vistas previas alojadas, las demostraciones y la producción necesitan un inicio de sesión real; en vistas previas de QA, `AUTH_SKIP_EMAIL_VERIFICATION=1` evita esperar el correo sin desactivar la autenticación.
 
 </Callout>
 
@@ -465,7 +465,7 @@ La ruta `/_agent-native/google/auth-url` predeterminada hace esto automáticamen
 | `BETTER_AUTH_SECRET`                    | Clave de firma para una mejor autenticación (generada automáticamente si no está configurada)                                                                                                                               |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | Establezca en `1` en entornos de control de calidad/vista previa para permitir que los registros de correo electrónico/contraseña se realicen sin verificación; El desarrollo/prueba local se salta de forma predeterminada |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Establezca en `0` o `1` para declarar la política de verificación del registro con contraseña en cualquier entorno, incluida la producción; prevalece sobre `AUTH_SKIP_EMAIL_VERIFICATION`                                  |
-| `AUTH_DISABLED`                         | Establezca en `true` o `1` para omitir el inicio de sesión/registro; todas las solicitudes se ejecutan como un usuario compartido (solo desarrollo/vista previa local, no para producción con usuarios reales)              |
+| `AUTH_DISABLED`                         | Establezca en `true` o `1` para omitir el inicio de sesión/registro; todas las solicitudes se ejecutan como un usuario compartido (solo desarrollo local en loopback; nunca alojado ni en producción)                       |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Establezca en `1` para deshabilitar el inicio de sesión automático de localhost en una base de datos de desarrollo nueva                                                                                                    |
 | `AUTH_MODE`                             | `local` resuelve solo la identidad de CLI/agente (con la que se ejecuta el usuario de desarrollo `pnpm action`); nunca una omisión de inicio de sesión del navegador                                                        |
 | `COOKIE_DOMAIN`                         | Opte por las cookies de sesión compartida entre subdominios de la misma base de datos (consulte [Cookie Realms](#cookie-realms))                                                                                            |

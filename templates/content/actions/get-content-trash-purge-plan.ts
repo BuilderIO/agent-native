@@ -47,7 +47,7 @@ export default defineAction({
           statusCode: 404,
         });
     }
-    await assertContentTrashPurgeReadAccess(planId);
+    await assertContentTrashPurgeReadAccess(planId, plan.orgId);
     const rows = await getDb()
       .select({
         id: schema.contentTrashPurgePlanItems.id,

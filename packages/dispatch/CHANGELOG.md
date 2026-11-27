@@ -1,5 +1,52 @@
 # @agent-native/dispatch
 
+## 0.43.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [8959acb]
+- Updated dependencies [3cf91b8]
+- Updated dependencies [6409765]
+- Updated dependencies [3b2114d]
+- Updated dependencies
+- Updated dependencies [415f03e]
+- Updated dependencies [a37f935]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [0a08ec4]
+- Updated dependencies [3e81b56]
+  - @agent-native/toolkit@0.235.0
+  - @agent-native/agentkit@0.235.0
+
+## 0.43.2
+
+### Patch Changes
+
+- 4a34f01: The `an` skill now describes when a live app view helps, carries the user's selection into follow-ups, updates the same view after a change and reads back what was saved. Dispatch's MCP server serves the skill through the MCP Skills extension, so hosts that support Skills over MCP get it with the connector.
+- f3976d7: Starting an app branch for an email Builder does not recognize now retries with the connected account's user id whatever status Builder answers with. When there is no account to fall back to, the failure says the email is not a member of the connected Builder space instead of calling it temporary.
+- feadc42: An app pane in ChatGPT now tells the host it is ready as soon as ChatGPT's bridge is read, instead of after a five second wait for the host handshake, so the pane stays open. The open-app tool description now asks the model to open the pane for show, open, draft, chart, calendar, and dashboard requests.
+- 969463c: Hosted apps on the Dispatch chat home open in place and no longer show an external-link arrow on the Open button.
+- Release all public npm packages with a patch version bump.
+- 7f630e8: Rewrite Dispatch and core cross-app MCP tool descriptions as neutral, factual capability descriptions so hosts like ChatGPT do not flag prescriptive cross-tool instructions as suspicious.
+- ccf8c31: Restore the last app pane after a reload when its saved state is valid. The pane read no longer gets dropped when the first mount is discarded, and a saved pane that is malformed is reported as unreadable instead of being treated as never saved.
+- 11f193e: Route requests about GitHub issues and pull requests to Tasks even when they mention messages, while email and inbox requests still go to Mail.
+- 343d243: Fix email change in multi-app workspaces: Dispatch's identity policies now ship in core, so any app sharing the database can rekey. Workspace apps no longer answer 503 `org-domain-missing` for an org without an allowed domain; the registry token names the org by id instead. Add `setupDispatch({ hostedCatalog: false })` to hide Builder-hosted apps from Dispatch lists.
+- aecb9db: Show suggested actions as a labeled summary, and open the existing target instead of failing when it already exists.
+- Updated dependencies [0f7bf06]
+- Updated dependencies [e466d90]
+- Updated dependencies
+- Updated dependencies [459726e]
+- Updated dependencies [0315ffa]
+- Updated dependencies [124141d]
+- Updated dependencies [4ad86d5]
+- Updated dependencies [f037abc]
+- Updated dependencies [971ad70]
+- Updated dependencies [631ee7c]
+  - @agent-native/toolkit@0.234.0
+  - @agent-native/agentkit@0.234.0
+
 ## 0.43.1
 
 ### Patch Changes
@@ -1701,22 +1748,5 @@
 - Release all public npm packages with a patch version bump.
 - Updated dependencies
   - @agent-native/toolkit@0.16.14
-
-## 0.31.18
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- eff9004: Include available and connected apps in Dispatch app search results.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.13
-
-## 0.31.17
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.12
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

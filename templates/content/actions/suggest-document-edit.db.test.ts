@@ -1575,6 +1575,117 @@ describe("suggest-document-edit", () => {
     },
   );
 
+  describe("of interactive HTML", () => {
+    const page = (...code: string[]) =>
+      ["Intro", "```html interactive", ...code, "```"].join("\n");
+
+    function suggestOperation(
+      { id, revision }: { id: string; revision: string },
+      content: string,
+      find: string,
+      replace: string,
+      caller: "cli" | "frontend",
+    ) {
+      return runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const createResourceSuggestion = (
+            await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+          ).default;
+          const { buildMarkdownSuggestionOperation } =
+            await import("./suggest-document-edit.js");
+          return createResourceSuggestion.run(
+            {
+              resourceType: "document",
+              resourceId: id,
+              adapterKind: "content.document-markdown",
+              baseRevision: revision,
+              summary: "Change the block",
+              idempotencyKey: `interactive-${caller}-${id}`,
+              operations: [
+                buildMarkdownSuggestionOperation({
+                  content,
+                  find,
+                  replace,
+                  start: content.indexOf(find),
+                }),
+              ],
+            },
+            { ...ctx, caller },
+          );
+        },
+      );
+    }
+
+    it("is refused when an agent's would not work, whichever tool it uses", async () => {
+      const content = page(
+        '<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>',
+      );
+      const created = await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        () => createPage(content),
+      );
+      const refused = { errorCode: "INTERACTIVE_HTML_BLOCK_REFUSED" };
+
+      await expect(
+        suggestOperation(
+          created,
+          content,
+          "cdn.jsdelivr.net/npm",
+          "unpkg.com",
+          "cli",
+        ),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        runWithRequestContext({ userEmail: ctx.userEmail, orgId: null }, () =>
+          suggestDocumentEdit.run(
+            {
+              id: created.id,
+              baseRevision: created.revision,
+              idempotencyKey: `interactive-edit-${created.id}`,
+              find: "cdn.jsdelivr.net/npm",
+              replace: "unpkg.com",
+            },
+            ctx,
+          ),
+        ),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        suggestOperation(
+          created,
+          content,
+          "cdn.jsdelivr.net/npm",
+          "unpkg.com",
+          "frontend",
+        ),
+      ).resolves.toMatchObject({ status: "pending" });
+    });
+
+    it("is checked as the whole edit, not piece by piece", async () => {
+      const content = page("<p>one</p>", "<p>kept</p>", "<p>two</p>");
+      const created = await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        () => createPage(content),
+      );
+
+      await expect(
+        runWithRequestContext({ userEmail: ctx.userEmail, orgId: null }, () =>
+          suggestDocumentEdit.run(
+            {
+              id: created.id,
+              baseRevision: created.revision,
+              idempotencyKey: `interactive-whole-${created.id}`,
+              find: "<p>one</p>\n<p>kept</p>\n<p>two</p>",
+              replace:
+                '<!--\n<p>kept</p>\n<script src="https://unpkg.com/d3"></script>-->',
+            },
+            ctx,
+          ),
+        ),
+      ).resolves.toMatchObject({ suggestionId: expect.any(String) });
+    });
+  });
+
   it("rejects an ambiguous find", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

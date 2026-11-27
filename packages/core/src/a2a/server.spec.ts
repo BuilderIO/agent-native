@@ -49,6 +49,7 @@ const runLeaseMocks = vi.hoisted(() => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event.method ?? "POST",
+  getRequestIP: (event: PeerEvent) => event.node?.req.socket.remoteAddress,
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   setResponseHeader: setResponseHeaderMock,
@@ -402,10 +403,8 @@ describe("mountA2A auth", () => {
 
     const handler = await mountedA2AProcessorHandler(config);
     const event: any = {
-      method: "POST",
-      headers: {},
+      ...peerEvent("127.0.0.1", {}),
       path: "/_agent-native/a2a/_process-task",
-      context: {},
       body: { taskId: "task-1" },
     };
 
@@ -1876,6 +1875,137 @@ describe("mountA2A auth", () => {
         "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
     });
   });
+
+  describe("unauthenticated requests outside local development", () => {
+    const missingSecretError = {
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32001,
+        message:
+          "A2A_SECRET is not set, so this app accepts unsigned requests only from this machine. Set A2A_SECRET to accept requests from other hosts.",
+      },
+    };
+
+    beforeEach(() => {
+      process.env.NODE_ENV = "development";
+      delete process.env.A2A_SECRET;
+      delete process.env.A2A_ALLOW_UNSIGNED_INTERNAL;
+      delete process.env.FUSION_ENVIRONMENT;
+      delete process.env.FUSION_POD_UID;
+      delete process.env.AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV;
+    });
+
+    it("refuses a loopback-looking request in a public dev container without A2A_SECRET", async () => {
+      process.env.FUSION_ENVIRONMENT = "cloud-v2";
+      process.env.FUSION_POD_UID = "pod-1";
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {});
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual(missingSecretError);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a remote peer in development without A2A_SECRET", async () => {
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("203.0.113.7", {});
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual(missingSecretError);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a loopback peer whose forwarding headers name another client", async () => {
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {
+        "x-forwarded-for": "203.0.113.7",
+      });
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual(missingSecretError);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("serves a loopback request on the developer's machine without A2A_SECRET", async () => {
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {});
+      const response = await handler(event);
+
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event._status).toBeUndefined();
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    });
+
+    it("requires a bearer token from a public dev container when A2A_SECRET is set", async () => {
+      process.env.A2A_SECRET = "shared-global-secret";
+      process.env.FUSION_POD_UID = "pod-1";
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {});
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32001, message: "Authentication required" },
+      });
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("accepts a signed token from a public dev container when A2A_SECRET is set", async () => {
+      process.env.A2A_SECRET = "shared-global-secret";
+      process.env.FUSION_POD_UID = "pod-1";
+      const token = await new jose.SignJWT({ sub: "alice+qa@builder.io" })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      const handler = await mountedA2AHandler(config);
+
+      const event = peerEvent("127.0.0.1", {
+        authorization: `Bearer ${token}`,
+      });
+      const response = await handler(event);
+
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    });
+
+    it("refuses an unsigned async processor dispatch in a public dev container", async () => {
+      process.env.FUSION_POD_UID = "pod-1";
+      const handler = await mountedA2AProcessorHandler(config);
+
+      const event = peerEvent("127.0.0.1", {}, { taskId: "t" });
+      const response = await handler(event);
+
+      expect(event._status).toBe(401);
+      expect(response).toEqual({
+        error:
+          "A2A_SECRET is not set, so this app accepts unsigned requests only from this machine. Set A2A_SECRET to accept requests from other hosts.",
+      });
+      expect(processA2ATaskFromQueueMock).not.toHaveBeenCalled();
+    });
+
+    it("runs an unsigned async processor dispatch from the developer's machine", async () => {
+      const handler = await mountedA2AProcessorHandler(config);
+
+      const event = peerEvent("127.0.0.1", {}, { taskId: "t" });
+      const response = await handler(event);
+
+      expect(response).toEqual({ ok: true });
+      expect(processA2ATaskFromQueueMock).toHaveBeenCalledOnce();
+    });
+  });
 });
 
 describe("verifyA2AToken (exported)", () => {
@@ -2696,6 +2826,37 @@ async function mountedA2AApprovalHandler(
   );
   if (!route) throw new Error("A2A approval route was not mounted");
   return route.handler;
+}
+
+type PeerEvent = {
+  method: string;
+  headers: Record<string, string>;
+  path: string;
+  context: Record<string, unknown>;
+  body: unknown;
+  node?: {
+    req: {
+      headers: Record<string, string>;
+      socket: { remoteAddress: string };
+    };
+  };
+  _status?: number;
+};
+
+function peerEvent(
+  remoteAddress: string,
+  headers: Record<string, string>,
+  body: unknown = { jsonrpc: "2.0", id: 1, method: "tasks/get", params: {} },
+): PeerEvent {
+  const allHeaders = { host: "localhost:8080", ...headers };
+  return {
+    method: "POST",
+    headers: allHeaders,
+    path: "/",
+    context: {},
+    body,
+    node: { req: { headers: allHeaders, socket: { remoteAddress } } },
+  };
 }
 
 function postEvent(headers: Record<string, string>): any {
