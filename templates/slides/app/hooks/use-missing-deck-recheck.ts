@@ -2,13 +2,6 @@ import { useEffect, useRef } from "react";
 
 const DEFAULT_RETRY_DELAYS_MS = [1_500, 4_000, 10_000];
 
-/**
- * Re-checks a deck the editor could not open. The desktop app keeps a hidden
- * Slides webview alive while another app is in front, so a missing-deck pane
- * rendered from one failed read would otherwise stay on screen until a manual
- * reload. Coming back to the page re-checks, and an unreadable deck gets a
- * short bounded retry for transient races (session or org not ready yet).
- */
 export function useMissingDeckRecheck({
   active,
   autoRetry,
@@ -43,9 +36,8 @@ export function useMissingDeckRecheck({
 
     const scheduleAttempt = (attempt: number) => {
       if (cancelled || attempt >= delaysMs.length) return;
-      timer = setTimeout(async () => {
-        await run();
-        scheduleAttempt(attempt + 1);
+      timer = setTimeout(() => {
+        void run().then(() => scheduleAttempt(attempt + 1));
       }, delaysMs[attempt]);
     };
 
