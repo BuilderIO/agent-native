@@ -238,12 +238,20 @@ async function expectCanonicalPageControls(
   await expect(
     preview.getByRole("button", { name: "Share", exact: true }),
   ).toBeVisible();
+  const pageActions = preview.getByRole("button", {
+    name: "More page actions",
+  });
+  await expect(pageActions).toBeVisible();
+  const discussion = preview.getByRole("button", {
+    name: "Discussion",
+    exact: true,
+  });
+  if (await discussion.isVisible()) return;
+  await pageActions.click();
   await expect(
-    preview.getByRole("button", { name: "Discussion", exact: true }),
+    preview.page().getByRole("menuitem", { name: /^Discussion/ }),
   ).toBeVisible();
-  await expect(
-    preview.getByRole("button", { name: "More page actions" }),
-  ).toBeVisible();
+  await preview.page().keyboard.press("Escape");
 }
 
 for (const theme of ["light", "dark"] as const) {
@@ -268,25 +276,6 @@ for (const theme of ["light", "dark"] as const) {
       await expect(preview.locator(".ProseMirror")).toContainText(row.body);
       await expectCanonicalPageControls(preview);
 
-      const rowActions = preview.getByRole("button", {
-        name: `Preview actions for ${row.title}`,
-      });
-      await rowActions.click();
-      const rowMenu = page.getByRole("menu").filter({
-        has: page.getByRole("menuitem", { name: "Duplicate row" }),
-      });
-      await expect(rowMenu).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(rowActions).toBeFocused();
-      await expect(preview).toBeVisible();
-
-      await rowActions.press("Enter");
-      await expect(
-        rowMenu.getByRole("menuitem", { name: "Duplicate row" }),
-      ).toBeFocused();
-      await page.keyboard.press("Escape");
-      await expect(rowActions).toBeFocused();
-
       const pageActions = preview.getByRole("button", {
         name: "More page actions",
       });
@@ -294,6 +283,21 @@ for (const theme of ["light", "dark"] as const) {
       const pageMenu = page.getByRole("menu").filter({
         has: page.getByRole("menuitem", { name: "Version history" }),
       });
+      await expect(
+        pageMenu.getByRole("menuitem", { name: "Duplicate row" }),
+      ).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(pageActions).toBeFocused();
+      await expect(preview).toBeVisible();
+
+      await pageActions.press("Enter");
+      await expect(
+        pageMenu.getByRole("menuitem", { name: "Duplicate row" }),
+      ).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(pageActions).toBeFocused();
+
+      await pageActions.click();
       for (const name of ["Info", "Version history", "Export", "Delete"]) {
         await expect(
           pageMenu.getByRole("menuitem", { name, exact: true }),
@@ -701,7 +705,9 @@ async function startPreviewFrameLog(page: Page) {
       const dialog = [...document.querySelectorAll('[role="dialog"]')].find(
         (candidate) =>
           [...candidate.querySelectorAll("button")].some((button) =>
-            button.textContent?.includes("Open page"),
+            (button.getAttribute("aria-label") ?? button.textContent)?.includes(
+              "Open page",
+            ),
           ),
       );
       const share = [...(dialog?.querySelectorAll("button") ?? [])].find(
@@ -871,7 +877,7 @@ test("a preview draws the next row while its slow page read finishes", async ({
   }
 });
 
-test("a preview's Row menu holds its place, and Duplicate waits for the page's read", async ({
+test("a preview's page actions, Duplicate among them, wait for the page's read", async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -901,17 +907,14 @@ test("a preview's Row menu holds its place, and Duplicate waits for the page's r
       preview.locator("[data-database-item-preview-placeholder]"),
     ).toContainText(rowB.title);
 
-    const rowActions = preview.getByRole("button", {
-      name: `Preview actions for ${rowB.title}`,
-    });
-    const duplicate = page.getByRole("menuitem", { name: "Duplicate row" });
-    await rowActions.click();
-    await expect(duplicate).toHaveAttribute("aria-disabled", "true");
-    await page.keyboard.press("Escape");
+    const controls = preview.locator("[data-database-preview-controls]");
+    await expect(controls.locator("[inert]").first()).toBeAttached();
 
     releaseRead();
     await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
-    await rowActions.click();
+    await expect(controls.locator("[inert]")).toHaveCount(0);
+    const duplicate = page.getByRole("menuitem", { name: "Duplicate row" });
+    await preview.getByRole("button", { name: "More page actions" }).click();
     await expect(duplicate).toBeVisible();
     await expect(duplicate).not.toHaveAttribute("aria-disabled", "true");
     await page.keyboard.press("Escape");
