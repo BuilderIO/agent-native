@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   secrets: {} as Record<string, string>,
   orgVoiceProvider: null as string | null,
   orgVoiceProviderError: null as Error | null,
+  parts: null as Array<{ name: string; data: Buffer; type?: string }> | null,
 }));
 const getSession = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => null as { email: string } | null),
@@ -27,6 +28,7 @@ vi.mock("h3", () => ({
     // Node's IncomingMessage emits `close` as soon as its body is fully
     // read, while the client is still waiting for the response.
     event?.node?.req?.emit?.("close");
+    if (state.parts) return state.parts;
     return [
       { name: "provider", data: Buffer.from(state.provider) },
       { name: "audio", data: Buffer.from([1, 2, 3]), type: "audio/webm" },
@@ -321,6 +323,60 @@ describe("transcribe-voice Gemini key", () => {
     expect(state.status).toBe(400);
     expect(result.error).toContain("GOOGLE_GENERATIVE_AI_API_KEY");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcribe-voice text cleanup", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    state.status = 0;
+    state.hasGatewayCredential = false;
+    state.secrets = { OPENAI_API_KEY: "sk-test", GROQ_API_KEY: "gsk-test" };
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: "Cleaned." } }] }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    state.parts = null;
+    vi.unstubAllGlobals();
+  });
+
+  function cleanupRequest(provider: string) {
+    state.parts = [
+      { name: "provider", data: Buffer.from(provider) },
+      { name: "text", data: Buffer.from("uh cleaned") },
+    ];
+  }
+
+  function sentBody(): Record<string, unknown> {
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    return JSON.parse(String(init?.body));
+  }
+
+  it("asks OpenAI without temperature, which its cleanup model refuses", async () => {
+    cleanupRequest("openai");
+
+    await expect(post()).resolves.toEqual({ text: "Cleaned." });
+    const body = sentBody();
+    expect(body).not.toHaveProperty("temperature");
+    expect(body.reasoning_effort).toBe("none");
+  });
+
+  it("keeps temperature 0 for Groq", async () => {
+    cleanupRequest("groq");
+
+    await expect(post()).resolves.toEqual({ text: "Cleaned." });
+    const body = sentBody();
+    expect(body.temperature).toBe(0);
+    expect(body).not.toHaveProperty("reasoning_effort");
   });
 });
 
