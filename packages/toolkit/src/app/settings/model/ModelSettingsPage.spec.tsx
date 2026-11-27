@@ -782,7 +782,6 @@ describe("ModelSettingsPage", () => {
     expect(defaultRow.textContent).toContain(
       "Add a provider to choose a default model.",
     );
-    // A dead disabled dropdown reads as broken; the row offers the way out.
     expect(defaultRow.querySelector('[role="combobox"]')).toBeNull();
     expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
     const addInRow = [...defaultRow.querySelectorAll("button")].find(

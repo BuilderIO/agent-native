@@ -52,7 +52,6 @@ function isCorrelatedContinuationRun(args: {
 export interface GenerationFailure {
   /** False when the server knows the same prompt would fail the same way. */
   retryable: boolean;
-  /** No model provider is connected; the chat's own setup card explains it. */
   setupRequired?: boolean;
 }
 
