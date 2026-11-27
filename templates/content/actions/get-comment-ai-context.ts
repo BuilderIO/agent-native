@@ -1,9 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, NoWriteError } from "@agent-native/core/action";
 import listSuggestions from "@agent-native/core/review/suggestions/actions/list-resource-suggestions";
 import { z } from "zod";
 
 import {
   beginCommentAiAttempt,
+  CommentAiOperationError,
   requireCommentAiRequest,
   serializeCommentAiRequest,
 } from "../server/lib/comment-ai.js";
@@ -21,7 +22,9 @@ export default defineAction({
     "Read the text the comment is on (the Page body, or the Blocks field tab named in `field`) and the exact submitted comment conversation before acting. This starts or resumes a bounded reasoning attempt. If a prior action reports refreshRequired, call this again and reason from this new attempt before publishing.",
   schema: z.object({}),
   run: async (_args, ctx) => {
-    const request = await requireCommentAiRequest();
+    const request = await requireCommentAiRequest(undefined, {
+      deferBookkeeping: true,
+    });
     const receipt = serializeCommentAiRequest(request);
     if (["replied", "suggested", "resolved"].includes(request.status)) {
       return { request: receipt, operationCompleted: true, nextAction: null };
@@ -30,7 +33,23 @@ export default defineAction({
       request: currentRequest,
       attempt,
       source,
-    } = await beginCommentAiAttempt(request);
+    } = await beginCommentAiAttempt(request, { recordRun: true }).catch(
+      (error: unknown) => {
+        if (
+          error instanceof CommentAiOperationError &&
+          error.code === "refresh_exhausted"
+        ) {
+          throw Object.assign(
+            new NoWriteError(error.message, {
+              errorCode: error.code,
+              statusCode: 409,
+            }),
+            { code: error.code, recoverable: error.recoverable },
+          );
+        }
+        throw error;
+      },
+    );
     if (!attempt) {
       return {
         request: serializeCommentAiRequest(currentRequest),

@@ -1,25 +1,28 @@
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import {
+  invocationEffect,
+  runActionWithExecutionOutcome,
+  type ActionExecutionOutcome,
+} from "@agent-native/core/action";
+import {
+  getDbExec,
+  getMigrationDatabaseUrl,
+  getRuntimeDatabaseUrl,
+} from "@agent-native/core/db";
+import { registerLabs } from "@agent-native/core/labs/registry";
 import { createThread, runWithRequestContext } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { knownLossTest } from "../acceptance/known-loss";
-
-const CREATIVE_CONTEXT_LAB_LOSS = {
-  lane: "unowned",
-  reason:
-    "Applying a comment AI change throws Unknown lab: creative-context.library, because nothing in this test registers the Creative Context lab.",
-} as const;
-
-const TEST_DB_PATH = join(
-  tmpdir(),
-  `content-comment-ai-concurrency-${process.pid}-${Date.now()}.pglite`,
+const TEST_DB_DIR = mkdtempSync(
+  join(tmpdir(), "content-comment-ai-concurrency-"),
 );
+const TEST_DB_PATH = join(TEST_DB_DIR, "database.pglite");
 const OWNER = "comment-ai-owner@example.com";
 const OTHER_USER = "comment-ai-collaborator@example.com";
 const DOCUMENT_ID = "comment-ai-page";
@@ -37,6 +40,7 @@ let applyRequest: typeof import("./apply-comment-ai-request.js").default;
 let addComment: typeof import("./add-comment.js").default;
 let commentIdForIdempotency: typeof import("./add-comment.js").commentIdForIdempotency;
 let replyRequest: typeof import("./reply-to-comment-ai-request.js").default;
+let getContext: typeof import("./get-comment-ai-context.js").default;
 
 const asUser = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -60,7 +64,10 @@ function runOperation<T>(
   operationId: string,
   agentThreadId: string,
   run: () => Promise<T>,
-  runId = `run-${operationId}`,
+  metadata: { runId: string; model: string; engine?: string } = {
+    runId: `run-${operationId}`,
+    model: "openai/gpt-5.6-sol",
+  },
 ) {
   return runWithRequestContext(
     {
@@ -68,8 +75,26 @@ function runOperation<T>(
       run: {
         actionScope: { kind: "content-comment-ai", requestId: operationId },
         threadId: agentThreadId,
-        runId,
-        model: "openai/gpt-5.6-sol",
+        runId: metadata.runId,
+        model: metadata.model,
+        ...(metadata.engine
+          ? {
+              engine: {
+                name: metadata.engine,
+                label: metadata.engine,
+                defaultModel: metadata.model,
+                supportedModels: [metadata.model],
+                capabilities: {
+                  thinking: false,
+                  promptCaching: false,
+                  vision: false,
+                  computerUse: false,
+                  parallelToolCalls: false,
+                },
+                async *stream() {},
+              },
+            }
+          : {}),
       },
     },
     run,
@@ -100,7 +125,15 @@ async function bindTurn(operationId: string) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
+  const databaseUrl = `pglite:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = databaseUrl;
+  if (
+    getRuntimeDatabaseUrl() !== databaseUrl ||
+    getMigrationDatabaseUrl() !== databaseUrl
+  ) {
+    throw new Error("Comment AI tests require their isolated PGlite database");
+  }
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -115,6 +148,7 @@ beforeAll(async () => {
   addComment = addCommentModule.default;
   commentIdForIdempotency = addCommentModule.commentIdForIdempotency;
   replyRequest = (await import("./reply-to-comment-ai-request.js")).default;
+  getContext = (await import("./get-comment-ai-context.js")).default;
 }, 60_000);
 
 beforeEach(async () => {
@@ -141,7 +175,7 @@ beforeEach(async () => {
 });
 
 afterAll(() => {
-  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+  rmSync(TEST_DB_DIR, { force: true, recursive: true });
 });
 
 describe("comment AI operation isolation", () => {
@@ -529,7 +563,7 @@ describe("comment AI durable action binding", () => {
         const request = await commentAi.requireCommentAiRequest("reply");
         return commentAi.beginCommentAiAttempt(request);
       },
-      "run-retry",
+      { runId: "run-retry", model: "openai/gpt-5.6-sol" },
     );
 
     await expect(
@@ -652,6 +686,439 @@ describe("comment AI durable action binding", () => {
 });
 
 describe("operation-scoped refresh and commits", () => {
+  it.each(["existing", "missing"] as const)(
+    "reports exhausted context without changing %s run metadata",
+    async (metadata) => {
+      const started = await asUser(() =>
+        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+      );
+      for (const revision of [1, 2]) {
+        await runOperation(OP_A, started.agentThreadId, async () => {
+          const request = await commentAi.requireCommentAiRequest("reply");
+          await commentAi.beginCommentAiAttempt(request);
+        });
+        await getDb()
+          .update(schema.documents)
+          .set({ content: `Revision ${revision}`, bodyRevision: revision + 1 })
+          .where(eq(schema.documents.id, DOCUMENT_ID));
+      }
+      if (metadata === "missing") {
+        await getDb()
+          .update(schema.commentAiRequests)
+          .set({ runId: null, model: null, engine: null })
+          .where(eq(schema.commentAiRequests.id, OP_A));
+      }
+      const beforeRequest = await asUser(() =>
+        commentAi.loadCommentAiRequest(OP_A),
+      );
+      const beforeAttempts = await getDb()
+        .select()
+        .from(schema.commentAiAttempts);
+      const beforeComments = await getDb()
+        .select()
+        .from(schema.documentComments);
+      const beforeDocuments = await getDb().select().from(schema.documents);
+      const outcome: ActionExecutionOutcome = { refused: false };
+      const error = await runOperation(OP_A, started.agentThreadId, () =>
+        runActionWithExecutionOutcome(
+          getContext.run,
+          {},
+          {
+            caller: "tool",
+            userEmail: OWNER,
+            actionName: "get-comment-ai-context",
+          },
+          outcome,
+          getContext,
+        ),
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      );
+      expect(
+        invocationEffect(getContext, outcome, { failed: { error } }),
+      ).toEqual({
+        effect: "none",
+        changed: false,
+      });
+      expect(error).toMatchObject({
+        code: "refresh_exhausted",
+        errorCode: "refresh_exhausted",
+      });
+      let release!: () => void;
+      let locked!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const lockAcquired = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      const transaction = getDb().transaction(async (tx) => {
+        await tx
+          .select()
+          .from(schema.commentAiRequests)
+          .where(eq(schema.commentAiRequests.id, OP_A))
+          .for("update");
+        locked();
+        await held;
+      });
+      await lockAcquired;
+      const lostOutcome: ActionExecutionOutcome = { refused: false };
+      const running = runOperation(OP_A, started.agentThreadId, () =>
+        runActionWithExecutionOutcome(
+          getContext.run,
+          {},
+          {
+            caller: "tool",
+            userEmail: OWNER,
+            actionName: "get-comment-ai-context",
+          },
+          lostOutcome,
+          getContext,
+        ),
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      );
+      let settled = false;
+      void running.then(() => {
+        settled = true;
+      });
+      try {
+        await expect
+          .poll(() => lostOutcome.record?.evidence.handlerEntered)
+          .toBe(true);
+        expect(settled).toBe(false);
+        expect(
+          invocationEffect(getContext, lostOutcome, { failed: { lost: true } }),
+        ).toEqual({
+          effect: "unknown",
+          changed: true,
+        });
+      } finally {
+        release();
+        await transaction;
+      }
+      const lostError = await running;
+      expect(
+        invocationEffect(getContext, lostOutcome, {
+          failed: { error: lostError },
+        }),
+      ).toEqual({
+        effect: "none",
+        changed: false,
+      });
+      expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+        beforeRequest,
+      );
+      expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
+        beforeAttempts,
+      );
+      expect(await getDb().select().from(schema.documentComments)).toEqual(
+        beforeComments,
+      );
+      expect(await getDb().select().from(schema.documents)).toEqual(
+        beforeDocuments,
+      );
+
+      await getDb()
+        .update(schema.documentComments)
+        .set({ content: "Changed feedback" })
+        .where(eq(schema.documentComments.id, ROOT_A));
+      const conflictOutcome: ActionExecutionOutcome = { refused: false };
+      const conflict = await runOperation(
+        OP_A,
+        started.agentThreadId,
+        () =>
+          runActionWithExecutionOutcome(
+            getContext.run,
+            {},
+            {
+              caller: "tool",
+              userEmail: OWNER,
+              actionName: "get-comment-ai-context",
+            },
+            conflictOutcome,
+            getContext,
+          ),
+        {
+          runId: "conflict-run",
+          model: "example/conflict-model",
+          engine: "example-engine",
+        },
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      );
+      expect(conflict).toMatchObject({ code: "root_comment_changed" });
+      expect(
+        invocationEffect(getContext, conflictOutcome, {
+          failed: { error: conflict },
+        }),
+      ).toEqual({
+        effect: "unknown",
+        changed: true,
+      });
+      expect(
+        await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+      ).toMatchObject({
+        status: "needs-review",
+        errorCode: "root_comment_changed",
+        attemptCount: 2,
+        runId: "conflict-run",
+        model: "example/conflict-model",
+        engine: "example-engine",
+      });
+      expect(await getDb().select().from(schema.commentAiAttempts)).toEqual(
+        beforeAttempts,
+      );
+    },
+  );
+
+  it.each(["replied", "newer-attempt", "newer-run"] as const)(
+    "does not overwrite a %s when stale context validation fails",
+    async (change) => {
+      const started = await asUser(() =>
+        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+      );
+      const stale = await runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.requireCommentAiRequest(undefined, {
+          deferBookkeeping: true,
+        }),
+      );
+      await getDb()
+        .update(schema.documentComments)
+        .set({ content: "Changed feedback" })
+        .where(eq(schema.documentComments.id, ROOT_A));
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set(
+          change === "replied"
+            ? { status: "replied", runId: "winning-run" }
+            : change === "newer-run"
+              ? { runId: "winning-run" }
+              : {
+                  status: "running",
+                  attemptCount: 1,
+                  activeAttemptId: `${OP_A}:attempt:1`,
+                },
+        )
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      const before = await asUser(() => commentAi.loadCommentAiRequest(OP_A));
+      const result = await runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.beginCommentAiAttempt(stale, { recordRun: true }),
+      ).then(
+        (value) => ({ kind: "completed", value }),
+        (error: unknown) => ({ kind: "failed", error }),
+      );
+      expect(result).toMatchObject(
+        change === "replied"
+          ? { kind: "completed", value: { request: before, attempt: null } }
+          : { kind: "failed", error: { code: "root_comment_changed" } },
+      );
+      expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+        before,
+      );
+    },
+  );
+
+  it.each(["new-error", "new-timestamp"] as const)(
+    "preserves a newer needs-review conflict with the same run and attempt (%s)",
+    async (change) => {
+      const started = await asUser(() =>
+        commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+      );
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({
+          status: "needs-review",
+          errorCode: "operation_failed",
+          error: "Earlier review",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      const stale = await runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.requireCommentAiRequest(undefined, {
+          deferBookkeeping: true,
+        }),
+      );
+      await getDb()
+        .update(schema.documentComments)
+        .set({ content: "Changed feedback" })
+        .where(eq(schema.documentComments.id, ROOT_A));
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set(
+          change === "new-error"
+            ? { errorCode: "run_unavailable", error: "Newer review" }
+            : { updatedAt: "2026-01-01T00:00:01.000Z" },
+        )
+        .where(eq(schema.commentAiRequests.id, OP_A));
+      const before = await asUser(() => commentAi.loadCommentAiRequest(OP_A));
+      await expect(
+        runOperation(OP_A, started.agentThreadId, () =>
+          commentAi.beginCommentAiAttempt(stale, { recordRun: true }),
+        ),
+      ).rejects.toMatchObject({ code: "root_comment_changed" });
+      expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+        before,
+      );
+    },
+  );
+
+  it("uses the latest locked metadata when the executing run omits an engine", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    const stale = await runOperation(OP_A, started.agentThreadId, () =>
+      commentAi.requireCommentAiRequest(undefined, { deferBookkeeping: true }),
+    );
+    await getDb()
+      .update(schema.documentComments)
+      .set({ content: "Changed feedback" })
+      .where(eq(schema.documentComments.id, ROOT_A));
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ engine: "latest-engine" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    await expect(
+      runOperation(
+        OP_A,
+        started.agentThreadId,
+        () => commentAi.beginCommentAiAttempt(stale, { recordRun: true }),
+        { runId: "conflict-run", model: "example/conflict-model" },
+      ),
+    ).rejects.toMatchObject({ code: "root_comment_changed" });
+    expect(
+      await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+    ).toMatchObject({
+      status: "needs-review",
+      runId: "conflict-run",
+      model: "example/conflict-model",
+      engine: "latest-engine",
+    });
+  });
+
+  it("records the executing run when the request changes before attempt locking", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    let snapshotRead!: () => void;
+    let continueAttempt!: () => void;
+    const snapshotReady = new Promise<void>((resolve) => {
+      snapshotRead = resolve;
+    });
+    const continueAfterUpdate = new Promise<void>((resolve) => {
+      continueAttempt = resolve;
+    });
+    const attempt = runOperation(
+      OP_A,
+      started.agentThreadId,
+      async () => {
+        const request = await commentAi.requireCommentAiRequest(undefined, {
+          deferBookkeeping: true,
+        });
+        snapshotRead();
+        await continueAfterUpdate;
+        return commentAi.beginCommentAiAttempt(request, { recordRun: true });
+      },
+      { runId: "executing-run", model: "example/executing-model" },
+    );
+    await snapshotReady;
+    try {
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({
+          runId: "intervening-run",
+          model: "example/intervening-model",
+          status: "refreshing",
+        })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+    } finally {
+      continueAttempt();
+    }
+    const result = await attempt;
+    expect(result.request).toMatchObject({
+      runId: "executing-run",
+      model: "example/executing-model",
+      attemptCount: 1,
+    });
+    expect(result.attempt).toMatchObject({
+      runId: "executing-run",
+      model: "example/executing-model",
+    });
+    expect(
+      await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+    ).toMatchObject({
+      runId: "executing-run",
+      model: "example/executing-model",
+      activeAttemptId: result.attempt?.id,
+    });
+  });
+
+  it("records the current run and model when an existing attempt resumes", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    const first = await runOperation(OP_A, started.agentThreadId, async () => {
+      const request = await commentAi.requireCommentAiRequest("reply");
+      return commentAi.beginCommentAiAttempt(request);
+    });
+    const resumed = await runOperation(
+      OP_A,
+      started.agentThreadId,
+      () => getContext.run({}, { caller: "tool", userEmail: OWNER }),
+      { runId: "resumed-run", model: "example/resumed-model" },
+    );
+    expect(resumed).toMatchObject({ attemptId: first.attempt?.id });
+    expect(
+      await asUser(() => commentAi.loadCommentAiRequest(OP_A)),
+    ).toMatchObject({
+      runId: "resumed-run",
+      model: "example/resumed-model",
+      attemptCount: 1,
+    });
+  });
+
+  it("keeps reconciliation and established run metadata when context bookkeeping overlaps", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    await bindTurn(OP_A);
+    await Promise.all([
+      runOperation(OP_A, started.agentThreadId, () =>
+        commentAi.requireCommentAiRequest("reply"),
+      ),
+      asUser(() =>
+        commentAi.reconcileCommentAiSession({
+          operationId: OP_A,
+          threadId: started.agentThreadId,
+          turnId: TURN_ID,
+          status: "unavailable",
+          runId: "reconciled-run",
+        }),
+      ),
+    ]);
+    const reviewed = await asUser(() => commentAi.loadCommentAiRequest(OP_A));
+    expect(reviewed).toMatchObject({
+      status: "needs-review",
+      errorCode: "run_unavailable",
+      runId: "reconciled-run",
+    });
+    const retry = await runOperation(OP_A, started.agentThreadId, () =>
+      commentAi.requireCommentAiRequest("reply"),
+    );
+    // oracle-change: resumed runs replace attribution while retaining review state.
+    expect(retry).toMatchObject({
+      status: "needs-review",
+      errorCode: "run_unavailable",
+      runId: `run-${OP_A}`,
+    });
+    expect(await asUser(() => commentAi.loadCommentAiRequest(OP_A))).toEqual(
+      retry,
+    );
+  });
+
   it("refreshes a reply after a Page edit, then publishes once from the new basis", async () => {
     const started = await asUser(() =>
       commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
@@ -795,7 +1262,7 @@ describe("operation-scoped refresh and commits", () => {
           const request = await commentAi.requireCommentAiRequest("reply");
           return commentAi.beginCommentAiAttempt(request);
         },
-        runId,
+        runId ? { runId, model: "openai/gpt-5.6-sol" } : undefined,
       );
     const endInReview = async ({
       attempt,
@@ -875,137 +1342,139 @@ describe("operation-scoped refresh and commits", () => {
     });
   });
 
-  it(
-    "allows disjoint apply operations to commit against the latest Page",
-    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
-    async () => {
-      const [startedA, startedB] = await Promise.all([
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_A, ROOT_A, "apply-resolve"),
-          ),
+  it("allows disjoint apply operations to commit against the latest Page", async () => {
+    const [startedA, startedB] = await Promise.all([
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_A, ROOT_A, "apply-resolve"),
         ),
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_B, ROOT_B, "apply-resolve"),
-          ),
+      ),
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_B, ROOT_B, "apply-resolve"),
         ),
-      ]);
-      const [attemptA, attemptB] = await Promise.all([
-        runOperation(OP_A, startedA.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-        runOperation(OP_B, startedB.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-      ]);
+      ),
+    ]);
+    const [attemptA, attemptB] = await Promise.all([
+      runOperation(OP_A, startedA.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+      runOperation(OP_B, startedB.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+    ]);
+    if (!attemptA.attempt || !attemptB.attempt) {
+      throw new Error("Both operations must have a reasoning attempt");
+    }
+    const attemptAId = attemptA.attempt.id;
+    const attemptBId = attemptB.attempt.id;
 
-      const appliedA = await runOperation(OP_A, startedA.agentThreadId, () =>
+    const appliedA = await runOperation(OP_A, startedA.agentThreadId, () =>
+      applyRequest.run(
+        {
+          attemptId: attemptAId,
+          edits: [{ find: "Alpha one", replace: "Alpha changed" }],
+          summary: "Changed Alpha",
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+    const appliedB = await runOperation(OP_B, startedB.agentThreadId, () =>
+      applyRequest.run(
+        {
+          attemptId: attemptBId,
+          edits: [{ find: "Beta two", replace: "Beta changed" }],
+          summary: "Changed Beta",
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+
+    expect(appliedA.status).toBe("resolved");
+    expect(appliedB.status).toBe("resolved");
+    const [document] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    expect(document.content).toBe("Alpha changed. Beta changed.");
+  });
+
+  it("keeps an overlapping apply open with a typed recoverable conflict", async () => {
+    const [startedA, startedB] = await Promise.all([
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_A, ROOT_A, "apply-resolve"),
+        ),
+      ),
+      asUser(() =>
+        commentAi.startCommentAiRequest(
+          startArgs(OP_B, ROOT_B, "apply-resolve"),
+        ),
+      ),
+    ]);
+    const [attemptA, attemptB] = await Promise.all([
+      runOperation(OP_A, startedA.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+      runOperation(OP_B, startedB.agentThreadId, async () => {
+        const request =
+          await commentAi.requireCommentAiRequest("apply-resolve");
+        return commentAi.beginCommentAiAttempt(request);
+      }),
+    ]);
+    if (!attemptA.attempt || !attemptB.attempt) {
+      throw new Error("Both operations must have a reasoning attempt");
+    }
+    const attemptAId = attemptA.attempt.id;
+    const attemptBId = attemptB.attempt.id;
+    await runOperation(OP_A, startedA.agentThreadId, () =>
+      applyRequest.run(
+        {
+          attemptId: attemptAId,
+          edits: [{ find: "Alpha one", replace: "Alpha changed" }],
+          summary: "Changed Alpha",
+        },
+        { caller: "tool", userEmail: OWNER },
+      ),
+    );
+
+    await expect(
+      runOperation(OP_B, startedB.agentThreadId, () =>
         applyRequest.run(
           {
-            attemptId: attemptA.attempt!.id,
-            edits: [{ find: "Alpha one", replace: "Alpha changed" }],
-            summary: "Changed Alpha",
+            attemptId: attemptBId,
+            edits: [{ find: "Alpha one", replace: "Another Alpha" }],
+            summary: "Changed Alpha again",
           },
           { caller: "tool", userEmail: OWNER },
         ),
-      );
-      const appliedB = await runOperation(OP_B, startedB.agentThreadId, () =>
-        applyRequest.run(
-          {
-            attemptId: attemptB.attempt!.id,
-            edits: [{ find: "Beta two", replace: "Beta changed" }],
-            summary: "Changed Beta",
-          },
-          { caller: "tool", userEmail: OWNER },
-        ),
-      );
+      ),
+    ).rejects.toMatchObject({ code: "target_deleted" });
 
-      expect(appliedA.status).toBe("resolved");
-      expect(appliedB.status).toBe("resolved");
-      const [document] = await getDb()
+    const [request, root] = await Promise.all([
+      getDb()
         .select()
-        .from(schema.documents)
-        .where(eq(schema.documents.id, DOCUMENT_ID));
-      expect(document.content).toBe("Alpha changed. Beta changed.");
-    },
-  );
-
-  it(
-    "keeps an overlapping apply open with a typed recoverable conflict",
-    knownLossTest(CREATIVE_CONTEXT_LAB_LOSS),
-    async () => {
-      const [startedA, startedB] = await Promise.all([
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_A, ROOT_A, "apply-resolve"),
-          ),
-        ),
-        asUser(() =>
-          commentAi.startCommentAiRequest(
-            startArgs(OP_B, ROOT_B, "apply-resolve"),
-          ),
-        ),
-      ]);
-      const [attemptA, attemptB] = await Promise.all([
-        runOperation(OP_A, startedA.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-        runOperation(OP_B, startedB.agentThreadId, async () => {
-          const request =
-            await commentAi.requireCommentAiRequest("apply-resolve");
-          return commentAi.beginCommentAiAttempt(request);
-        }),
-      ]);
-      await runOperation(OP_A, startedA.agentThreadId, () =>
-        applyRequest.run(
-          {
-            attemptId: attemptA.attempt!.id,
-            edits: [{ find: "Alpha one", replace: "Alpha changed" }],
-            summary: "Changed Alpha",
-          },
-          { caller: "tool", userEmail: OWNER },
-        ),
-      );
-
-      await expect(
-        runOperation(OP_B, startedB.agentThreadId, () =>
-          applyRequest.run(
-            {
-              attemptId: attemptB.attempt!.id,
-              edits: [{ find: "Alpha one", replace: "Another Alpha" }],
-              summary: "Changed Alpha again",
-            },
-            { caller: "tool", userEmail: OWNER },
-          ),
-        ),
-      ).rejects.toMatchObject({ code: "target_deleted" });
-
-      const [request, root] = await Promise.all([
-        getDb()
-          .select()
-          .from(schema.commentAiRequests)
-          .where(eq(schema.commentAiRequests.id, OP_B))
-          .then((rows) => rows[0]),
-        getDb()
-          .select()
-          .from(schema.documentComments)
-          .where(eq(schema.documentComments.id, ROOT_B))
-          .then((rows) => rows[0]),
-      ]);
-      expect(request).toMatchObject({
-        status: "needs-review",
-        errorCode: "target_deleted",
-      });
-      expect(root?.resolved).toBe(0);
-    },
-  );
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, OP_B))
+        .then((rows) => rows[0]),
+      getDb()
+        .select()
+        .from(schema.documentComments)
+        .where(eq(schema.documentComments.id, ROOT_B))
+        .then((rows) => rows[0]),
+    ]);
+    expect(request).toMatchObject({
+      status: "needs-review",
+      errorCode: "target_deleted",
+    });
+    expect(root.resolved).toBe(0);
+  });
 
   it("resumes receipt and resolve after a verified edit without spending another reasoning attempt", async () => {
     const started = await asUser(() =>

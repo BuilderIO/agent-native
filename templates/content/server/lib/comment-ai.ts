@@ -1227,7 +1227,10 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
   return { request: serializeCommentAiRequest(request), pendingSession: next };
 }
 
-export async function requireCommentAiRequest(intent?: CommentAiIntent) {
+export async function requireCommentAiRequest(
+  intent?: CommentAiIntent,
+  options?: { deferBookkeeping?: boolean },
+) {
   const run = getRequestRunContext();
   if (!run) throw new Error("This operation requires a scoped comment AI run");
   const scope = commentAiActionScopeSchema.parse(run.actionScope);
@@ -1243,22 +1246,28 @@ export async function requireCommentAiRequest(intent?: CommentAiIntent) {
   if (request.fieldId !== "body" && request.intent === "apply-resolve") {
     throw new Error("Ask AI can't apply changes in a Blocks field tab");
   }
-  const now = new Date().toISOString();
+  if (options?.deferBookkeeping) return request;
   const [updated] = await getDb()
     .update(schema.commentAiRequests)
-    .set({
-      status:
-        request.status === "queued" || request.status === "classified"
-          ? "running"
-          : request.status,
-      runId: run.runId ?? request.runId,
-      model: run.model?.trim().slice(0, 120) || request.model,
-      engine: run.engine?.name ?? request.engine,
-      updatedAt: now,
-    })
+    .set(commentAiRunBookkeeping(request))
     .where(eq(schema.commentAiRequests.id, request.id))
     .returning();
   return updated ?? request;
+}
+
+function commentAiRunBookkeeping(request: RequestRow) {
+  const run = getRequestRunContext();
+  if (!run) throw new Error("This operation requires a scoped comment AI run");
+  return {
+    status:
+      request.status === "queued" || request.status === "classified"
+        ? "running"
+        : request.status,
+    runId: run.runId ?? request.runId,
+    model: run.model?.trim().slice(0, 120) || request.model,
+    engine: run.engine?.name ?? request.engine,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export async function getCommentAiAttempt(
@@ -1309,9 +1318,37 @@ async function recordConflict(
   request: RequestRow,
   attempt: CommentAiAttemptRow | null,
   error: CommentAiOperationError,
+  options?: { recordRun?: boolean },
 ) {
   const now = new Date().toISOString();
-  await getDb().transaction(async (tx) => {
+  const result = await getDb().transaction(async (tx) => {
+    let current = request;
+    if (!attempt) {
+      const rows = await tx
+        .select()
+        .from(schema.commentAiRequests)
+        .where(eq(schema.commentAiRequests.id, request.id))
+        .for("update");
+      const locked = rows.at(0);
+      if (!locked) throw new Error("Comment AI operation not found");
+      current = locked;
+      if (
+        terminalSuccess(current.status) ||
+        current.status === "cancelled" ||
+        current.status === "failed" ||
+        current.status !== request.status ||
+        (current.status === "needs-review" &&
+          (request.status !== "needs-review" ||
+            current.updatedAt !== request.updatedAt ||
+            current.errorCode !== request.errorCode ||
+            current.error !== request.error)) ||
+        current.runId !== request.runId ||
+        current.attemptCount !== request.attemptCount ||
+        current.activeAttemptId !== request.activeAttemptId
+      ) {
+        return { recorded: false, request: current };
+      }
+    }
     if (attempt) {
       await tx
         .update(schema.commentAiAttempts)
@@ -1326,17 +1363,24 @@ async function recordConflict(
     await tx
       .update(schema.commentAiRequests)
       .set({
+        ...(options?.recordRun ? commentAiRunBookkeeping(current) : {}),
         status: "needs-review",
         errorCode: error.code,
         error: error.message,
         updatedAt: now,
       })
-      .where(eq(schema.commentAiRequests.id, request.id));
+      .where(eq(schema.commentAiRequests.id, current.id));
+    return { recorded: true, request: current };
   });
-  await writeAppState("refresh-signal", { ts: Date.now() });
+  if (result.recorded)
+    await writeAppState("refresh-signal", { ts: Date.now() });
+  return result;
 }
 
-export async function beginCommentAiAttempt(request: RequestRow) {
+export async function beginCommentAiAttempt(
+  request: RequestRow,
+  options?: { recordRun?: boolean },
+) {
   let source: CommentSource;
   try {
     source = await readCommentAiSource(request);
@@ -1356,7 +1400,10 @@ export async function beginCommentAiAttempt(request: RequestRow) {
               ? error.message
               : "Comment context could not be read",
           );
-    await recordConflict(request, null, typed);
+    const conflict = await recordConflict(request, null, typed, options);
+    if (!conflict.recorded && terminalSuccess(conflict.request.status)) {
+      return { request: conflict.request, attempt: null, source: null };
+    }
     throw typed;
   }
 
@@ -1365,7 +1412,7 @@ export async function beginCommentAiAttempt(request: RequestRow) {
   const now = new Date().toISOString();
 
   return getDb().transaction(async (tx) => {
-    const [locked] = await tx
+    let [locked] = await tx
       .select()
       .from(schema.commentAiRequests)
       .where(eq(schema.commentAiRequests.id, request.id))
@@ -1373,6 +1420,13 @@ export async function beginCommentAiAttempt(request: RequestRow) {
     if (!locked) throw new Error("Comment AI operation not found");
     if (terminalSuccess(locked.status)) {
       return { request: locked, attempt: null, source };
+    }
+    if (options?.recordRun) {
+      [locked] = await tx
+        .update(schema.commentAiRequests)
+        .set(commentAiRunBookkeeping(locked))
+        .where(eq(schema.commentAiRequests.id, locked.id))
+        .returning();
     }
     if (locked.activeAttemptId) {
       const [active] = await tx
