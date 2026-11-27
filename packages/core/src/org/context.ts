@@ -775,11 +775,12 @@ export async function resolveMembershipOrgScope(
 }
 
 /**
- * A person's one workspace in this app, unless they picked their personal
- * space. Undefined for no membership, several (even with a saved choice among
- * them), or that personal choice. An app without workspace tables has none.
+ * The workspace a person sees in this app when they have not named one: their
+ * saved choice, else the deterministic first membership (what the signed-in UI
+ * resolves). Undefined for no membership or an explicit Personal choice. An app
+ * without workspace tables has none.
  */
-export async function resolveSoleOrgMembershipForEmail(
+export async function resolveCallerWorkspaceForEmail(
   email: string,
 ): Promise<string | undefined> {
   const normalized = email.trim().toLowerCase();
@@ -793,7 +794,7 @@ export async function resolveSoleOrgMembershipForEmail(
             INNER JOIN organizations o ON m.org_id = o.id
             WHERE LOWER(m.email) = ?
               AND m.federation_removal_pending_at IS NULL
-            LIMIT 2`,
+            ORDER BY m.joined_at ASC, m.org_id ASC`,
         args: [normalized],
       }),
     ));
@@ -801,16 +802,21 @@ export async function resolveSoleOrgMembershipForEmail(
     if (isMissingOrganizationTableError(error)) return undefined;
     throw error;
   }
-  if (rows.length !== 1) return undefined;
-  const orgId = String(rows[0]?.orgId ?? "").trim();
-  if (!orgId) return undefined;
+  const orgIds = rows
+    .map((row) => String(row.orgId ?? "").trim())
+    .filter(Boolean);
+  if (orgIds.length === 0) return undefined;
 
   const activeOrgSetting = (await getUserSetting(
     normalized,
     ACTIVE_ORG_SETTING_KEY,
     { bypassCache: true },
   )) as ActiveOrgSetting;
-  return activeOrgSetting?.orgId === null ? undefined : orgId;
+  if (activeOrgSetting?.orgId === null) return undefined;
+  if (activeOrgSetting?.orgId && orgIds.includes(activeOrgSetting.orgId)) {
+    return activeOrgSetting.orgId;
+  }
+  return orgIds[0];
 }
 
 export async function resolveOrgIdForEmail(
