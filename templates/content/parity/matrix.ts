@@ -1663,6 +1663,33 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "comments.t3-code-agents",
+    surface: "comments",
+    label:
+      "Tag one of your own T3 Code agents in a comment, pick the thread it answers in, see it working, and get its answer as a reply",
+    uiEntrypoints: [
+      "app/components/editor/CommentComposer.tsx",
+      "app/components/editor/T3ThreadPicker.tsx",
+      "app/components/editor/T3AgentRequestLine.tsx",
+    ],
+    durableEffect:
+      "add-comment stores the tag as a mention and, in the same transaction, a t3_agent_requests row owned by the comment's author; an agent's comment never makes one. sync-t3-agent-requests starts a thread on the author's T3 Code or messages the picked one with the comment as the request, the discussion as background and the page, follows that turn, and posts the thread's final message once as a reply attributed to the agent, for the author.",
+    uiImplementation:
+      "With the T3 Code agents Lab on and T3 Code connected, the @ menu lists the author's own agents under Your agents and a pill under the comment box picks the thread. While a request is unfinished, the author's open page calls the sync action every few seconds and shows a line under the comment; everyone sees the reply.",
+    status: "action-backed",
+    actions: [
+      "add-comment",
+      "list-t3-agent-requests",
+      "sync-t3-agent-requests",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/t3-agent-requests.db.test.ts"],
+  },
+  {
     id: "comments.email-preferences",
     surface: "comments",
     label:

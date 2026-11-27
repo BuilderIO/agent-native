@@ -6,6 +6,8 @@ import {
   type ActionRunContext,
 } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
+import { T3_CODE_AGENTS_LAB } from "@agent-native/core/labs/core-labs";
+import { getUserLabEnabled } from "@agent-native/core/labs/server";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -27,8 +29,12 @@ import {
   submittedCommentMentions,
 } from "../server/lib/comment-mention-input.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
-import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
+import {
+  commentSubmissionSource,
+  T3_CODE_SUBMISSION_SOURCE,
+} from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { t3AgentTags } from "../server/lib/t3-agent-tags.js";
 import { displayNameFromEmail } from "../shared/author-name.js";
 import {
   COMMENT_ANCHOR_BLOCK_TYPES,
@@ -304,10 +310,17 @@ async function replyBlocksField(
   return inherited;
 }
 
+export interface T3AgentCommentAuthor {
+  model: string;
+  client: string;
+  threadId: string;
+}
+
 export async function addCommentWithGuard(
   args: z.infer<typeof commentSchema>,
   ctx?: ActionRunContext,
   beforeInsert?: (tx: CommentTransaction) => Promise<void>,
+  t3Author?: T3AgentCommentAuthor,
 ) {
   const documentId = args.documentId;
   const content = args.content;
@@ -357,6 +370,7 @@ export async function addCommentWithGuard(
   const parentId = args.parentId ?? null;
 
   const actorKind =
+    t3Author ||
     getRequestRunContext()?.runId ||
     ctx?.caller === "tool" ||
     ctx?.caller === "mcp" ||
@@ -366,12 +380,17 @@ export async function addCommentWithGuard(
       : "human";
   const runContext = getRequestRunContext();
   const runModel = runContext?.model?.trim();
-  const authorModel = actorKind === "agent" && runModel ? runModel : null;
-  const authorEffort = authorModel
-    ? (runContext?.reasoningEffort ?? null)
-    : null;
+  const authorModel = t3Author
+    ? t3Author.model
+    : actorKind === "agent" && runModel
+      ? runModel
+      : null;
+  const authorEffort =
+    authorModel && !t3Author ? (runContext?.reasoningEffort ?? null) : null;
   const requestName =
-    actorKind === "agent" ? undefined : getRequestUserName()?.trim();
+    actorKind === "agent" && !t3Author
+      ? undefined
+      : getRequestUserName()?.trim();
   let name: string;
   if (requestName) {
     name = requestName;
@@ -383,6 +402,20 @@ export async function addCommentWithGuard(
   const mentions = submittedCommentMentions(args.mentions ?? []);
   assertMentionsInText(content, mentions);
   const mentionsJson = serializeStoredCommentMentions(mentions);
+  const t3Tags = actorKind === "human" ? t3AgentTags(mentions) : [];
+  if (
+    t3Tags.length &&
+    !(await getUserLabEnabled(
+      email,
+      T3_CODE_AGENTS_LAB.key,
+      ctx?.orgId ? { orgId: ctx.orgId } : {},
+    ))
+  ) {
+    fail(
+      `${T3_CODE_AGENTS_LAB.key} is a Lab and isn't turned on. Turn it on in Settings › Labs to tag your T3 Code agents.`,
+      { statusCode: 403 },
+    );
+  }
   const images = args.attachments?.length
     ? await attachableCommentImages({
         documentId,
@@ -391,10 +424,13 @@ export async function addCommentWithGuard(
         byAgent: commentWriteByAgent(ctx),
       })
     : [];
-  const submissionSource = commentSubmissionSource(ctx?.caller);
+  const submissionSource = t3Author
+    ? T3_CODE_SUBMISSION_SOURCE
+    : commentSubmissionSource(ctx?.caller);
   const submissionRunId = ctx?.runId ?? null;
-  const submissionThreadId =
-    actorKind === "agent"
+  const submissionThreadId = t3Author
+    ? t3Author.threadId
+    : actorKind === "agent"
       ? (ctx?.threadId ?? runContext?.threadId ?? null)
       : null;
   // A retry of a submission that was saved replays it, even after the
@@ -529,8 +565,9 @@ export async function addCommentWithGuard(
     actorKind,
     authorModel,
     authorEffort,
-    authorClient:
-      actorKind === "agent" && submissionSource === "mcp"
+    authorClient: t3Author
+      ? t3Author.client
+      : actorKind === "agent" && submissionSource === "mcp"
         ? (resolveMcpClientHostId(ctx?.mcpClient) ?? null)
         : null,
   };
@@ -665,6 +702,22 @@ export async function addCommentWithGuard(
         statusCode: 409,
         errorCode: "comment_submission_conflict",
       });
+    }
+    if (t3Tags.length) {
+      await tx
+        .insert(schema.t3AgentRequests)
+        .values(
+          t3Tags.map((tag) => ({
+            id: crypto.randomUUID(),
+            ownerEmail: email,
+            documentId,
+            threadId,
+            commentId: id,
+            agent: tag.agent,
+            t3ThreadId: tag.t3ThreadId,
+          })),
+        )
+        .onConflictDoNothing();
     }
     webhookEvents = await enqueueCommentWebhooks(
       tx as unknown as ReturnType<typeof getDb>,

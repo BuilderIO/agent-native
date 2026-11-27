@@ -462,6 +462,7 @@ import {
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
 import { SyncedPageBanner } from "./SyncedPageBanner";
+import { T3AgentRequestSync } from "./T3AgentRequestSync";
 import {
   refreshedProposalMembers,
   reviewedAsOne,
@@ -11826,6 +11827,7 @@ function PageEditorSessionBody({
           onPersisted={handleLinkedLocalAgentPersistence}
         />
       ) : null}
+      <T3AgentRequestSync documentId={documentId} />
       <div
         ref={documentLayoutRef}
         className="relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)] overflow-hidden"

@@ -189,6 +189,42 @@ describe("optimistic comment mutations", () => {
     });
   });
 
+  it("refetches the page's T3 Code requests after a comment tags a T3 agent", async () => {
+    const client = queryClient();
+    useQueryClient.mockReturnValue(client);
+    const mutation = useCreateComment({
+      email: "jane.doe@example.com",
+    }) as unknown as {
+      onMutate: (variables: object) => Promise<unknown>;
+      onSuccess: (data: object, variables: object, context: unknown) => void;
+    };
+    const variables = {
+      documentId: "doc-1",
+      content: "@Claude Code which day?",
+      mentions: JSON.stringify([
+        {
+          kind: "agent",
+          model: "claude-code",
+          engine: "t3-code",
+          provider: "T3 Code",
+          name: "Claude Code",
+        },
+      ]),
+    };
+
+    const context = await mutation.onMutate(variables);
+    mutation.onSuccess(
+      { id: "server-comment", threadId: "server-comment" },
+      variables,
+      context,
+    );
+
+    expect(client.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["action", "list-t3-agent-requests", { documentId: "doc-1" }],
+      exact: true,
+    });
+  });
+
   it("does not duplicate a create when an external refetch sees the returned row first", async () => {
     const client = queryClient();
     useQueryClient.mockReturnValue(client);

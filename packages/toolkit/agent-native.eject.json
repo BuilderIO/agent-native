@@ -557,6 +557,7 @@
         "@agent-native/core/client/frame",
         "@agent-native/core/client/hooks",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/integrations",
         "@agent-native/core/client/integrations/channel-setup",
         "@agent-native/core/client/labs/use-lab",
         "@agent-native/core/client/mcp-app-host",

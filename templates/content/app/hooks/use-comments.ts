@@ -5,6 +5,7 @@ import {
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import type { CommentImage } from "@shared/comment-images";
 import {
+  isT3AgentMention,
   parseCommentMentions,
   type CommentMention,
 } from "@shared/comment-mentions";
@@ -636,6 +637,19 @@ export function useCreateComment(author: CommentAuthor = {}) {
           }),
       );
       void invalidateDocumentComments(queryClient, context.queryKey);
+      if (
+        variables.mentions !== undefined &&
+        parseCommentMentions(variables.mentions).some(isT3AgentMention)
+      ) {
+        void queryClient.invalidateQueries({
+          queryKey: [
+            "action",
+            "list-t3-agent-requests",
+            { documentId: context.queryKey[2].documentId },
+          ],
+          exact: true,
+        });
+      }
       if (!variables.parentId) {
         void invalidateCollectionRowsShowingDocument(
           queryClient,

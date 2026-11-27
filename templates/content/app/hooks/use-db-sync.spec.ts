@@ -858,6 +858,24 @@ describe("contentActionInvalidatePredicate", () => {
     },
   );
 
+  it("refreshes only the comments after a T3 Code sync posts a reply", () => {
+    const predicate = contentActionInvalidatePredicate("/page/document-1");
+    const event = [{ source: "action", key: "sync-t3-agent-requests" }];
+
+    expect(
+      predicate(
+        { queryKey: ["action", "list-comments", { documentId: "document-1" }] },
+        event,
+      ),
+    ).toBe(true);
+    for (const queryKey of [
+      ["action", "get-document", { id: "document-1" }],
+      ["action", "list-document-properties", { documentId: "document-1" }],
+    ] as const) {
+      expect(predicate({ queryKey }, event)).toBe(false);
+    }
+  });
+
   it("refreshes request status after starting a comment AI request", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
     const event = [{ source: "action", key: "start-comment-ai-request" }];

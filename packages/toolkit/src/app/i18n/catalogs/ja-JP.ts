@@ -3264,6 +3264,45 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptReconnect": "再接続",
   "settingsModel.chatgptSelectAccount": "ChatGPTアカウント",
   "settingsModel.chatgptUsageLimit": "ChatGPTプランの使用上限に達しました。",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "コメントで Claude Code と Codex をメンションできます。T3 Code を通じて、あなたのコンピューター上で、あなた自身のプランで動作します。",
+  "settingsModel.t3CodeConnect": "接続",
+  "settingsModel.t3CodeReadOnly": "読み取り専用",
+  "settingsModel.t3CodeCanStart": "スレッドを開始可能",
+  "settingsModel.t3CodeReadOnlyHint":
+    "読み取り専用ではスレッドを開始できません。再接続して Supervised 以上を選ぶと、エージェントが返信できます。",
+  "settingsModel.t3CodeNoAgents":
+    "T3 Code に Claude Code も Codex もサインインしていません。",
+  "settingsModel.t3CodeSignInAgain":
+    "{{date}} に T3 から再サインインを求められます。",
+  "settingsModel.t3CodeReconnectHint":
+    "T3 Code がこのサインインを終了しました。再接続すると、もう一度エージェントをメンションできます。",
+  "settingsModel.t3CodeUnreachable":
+    "T3 Code に接続できません。起動していること、このコンピューターで T3 Connect がオンになっていることを確認してください。",
+  "settingsModel.t3CodeDialogTitle": "T3 Code を接続",
+  "settingsModel.t3CodeDialogDescription":
+    "メンションはあなたのコンピューター上の T3 Code に送られます。Claude Code と Codex のサインイン情報はそこに残り、このアプリからは見えません。",
+  "settingsModel.t3CodeDialogStep1":
+    "T3 Code で Settings › Environments を開き、このコンピューターのメニューから Copy MCP URL を選びます。",
+  "settingsModel.t3CodeDialogStep2":
+    "ここに貼り付けます。このアプリがコンピューターに届くよう、T3 Connect をオンにしておく必要があります。",
+  "settingsModel.t3CodeAddressLabel": "T3 Code の MCP URL",
+  "settingsModel.t3CodeAccessHint":
+    "次に、このアプリに何を許可するかを T3 Code が尋ねます。エージェントが返信できるよう Supervised 以上を選んでください。",
+  "settingsModel.t3CodeContinue": "T3 Code へ進む",
+  "settingsModel.t3CodeChecking": "確認中…",
+  "settingsModel.t3CodeAddressHttp":
+    "T3 Connect の https アドレスを使ってください。http のアドレスではサインインを完了できません。",
+  "settingsModel.t3CodeAddressInvalid":
+    "Web アドレスではありません。T3 Code の Copy MCP URL でコピーしてください。",
+  "settingsModel.t3CodeAddressNotMcp":
+    "アドレスは /mcp で終わる必要があります。T3 Code の Copy MCP URL でコピーしてください。",
+  "settingsModel.t3CodeAddressUnreachable":
+    "そのアドレスで T3 Code に接続できません。T3 Code でこのコンピューターの T3 Connect をオンにし、Copy MCP URL のアドレスを使ってください。",
+  "settingsModel.t3CodeDisconnectTitle": "T3 Code の接続を解除しますか？",
+  "settingsModel.t3CodeDisconnectDescription":
+    "Claude Code と Codex が @ メニューから消え、T3 Code にこのサインインの終了を依頼します。いつでも再接続できます。",
   "settingsModel.checkAgain": "もう一度確認",
   "settingsModel.checkedJustNow": "たった今確認しました。",
   "settingsModel.checkedOn": "{{date}} に確認しました。",
