@@ -781,6 +781,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@agent-native/actions": "workspace:^",
     "@agent-native/agentkit": "workspace:^",
     "@agent-native/recap-cli": "workspace:^",
     "@anthropic-ai/sdk": "^0.90.0",

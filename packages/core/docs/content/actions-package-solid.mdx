@@ -1,0 +1,145 @@
+---
+title: "SolidJS"
+description: "Integrate @agent-native/actions with SolidJS using the Vite plugin and signal-based createActionQuery and createActionMutation primitives."
+---
+
+# SolidJS
+
+`@agent-native/actions/solid` provides signal-based Solid primitives (`createActionQuery`, `createActionMutation`, `callAction`) built on Solid's `createResource` and `createSignal`.
+
+## Setup {#setup}
+
+<TabsBlock
+  id="solid-setup-tabs"
+  tabs={[
+    {
+      id: "cli",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "solid-setup-cli",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "agent",
+      label: "AI Coding Agent",
+      blocks: [
+        {
+          type: "code",
+          id: "solid-setup-agent",
+          data: {
+            language: "text",
+            code: `Set up @agent-native/actions in this SolidJS app following https://agent-native.com/docs/actions-package-solid.md.
+Run \`npx @agent-native/actions init\`, add agentNativeActionsPlugin() to vite.config.ts beside solid(), create a sample action in actions/, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+Add `agentNativeActionsPlugin()` alongside `solid()` in `vite.config.ts`:
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import solid from "vite-plugin-solid";
+import { agentNativeActionsPlugin } from "@agent-native/actions/vite";
+
+export default defineConfig({
+  plugins: [solid(), agentNativeActionsPlugin()],
+});
+```
+
+## Usage {#primitives}
+
+`createActionQuery` returns a Solid `Resource<TOutput | undefined>` and accepts a reactive accessor `() => input` (returning `false` or `null` skips fetching). `createActionMutation` returns `{ pending, error, data, mutate, mutateAsync, reset }` and automatically refetches active queries on success (or only the names listed in `invalidate`, or none with `invalidate: false`).
+
+```tsx
+// src/components/TodoBoard.tsx
+import { createSignal, For, Show } from "solid-js";
+import {
+  createActionQuery,
+  createActionMutation,
+  actionErrorMessage,
+} from "@agent-native/actions/solid";
+
+export function TodoBoard() {
+  const [showDone, setShowDone] = createSignal(false);
+
+  const todos = createActionQuery("list-todos", () => ({ done: showDone() }));
+
+  const toggleTodo = createActionMutation("toggle-todo", {
+    invalidate: ["list-todos"],
+    onError: (err) => console.error(actionErrorMessage(err)),
+  });
+
+  return (
+    <section>
+      <button onClick={() => setShowDone((v) => !v)}>
+        Showing: {showDone() ? "Completed" : "Open"}
+      </button>
+
+      <Show when={!todos.loading} fallback={<p>Loading...</p>}>
+        <For each={todos()}>
+          {(todo) => (
+            <label>
+              <input
+                type="checkbox"
+                checked={todo.done}
+                disabled={toggleTodo.pending}
+                onChange={() =>
+                  toggleTodo.mutate({ id: todo.id, done: !todo.done })
+                }
+              />
+              {todo.title}
+            </label>
+          )}
+        </For>
+      </Show>
+    </section>
+  );
+}
+```
+
+### Custom Client Configuration {#custom-client}
+
+For a separate API origin or dynamic auth headers, create a bound set of primitives with `createSolidActionHooks<AppActions>()`:
+
+```ts
+import { createSolidActionHooks } from "@agent-native/actions/solid";
+import type { AppActions } from "../.generated/actions";
+
+export const { createActionQuery, createActionMutation, callAction } =
+  createSolidActionHooks<AppActions>({
+    baseUrl: "https://api.example.com/api/agent-native/actions",
+    headers: () => ({ Authorization: `Bearer ${getToken()}` }),
+  });
+```
+
+## Production {#production}
+
+`agentNativeActionsPlugin()` serves `/api/agent-native/actions/*` and `/api/agent-native/mcp` in Vite dev mode only. In production, mount `.generated/actions.ts` on your server runtime (see [Node & Server Adapters](/docs/actions-package-servers)):
+
+```ts
+// server/index.ts
+import { Hono } from "hono";
+import { actions } from "../.generated/actions";
+
+const app = new Hono();
+app.all("/api/agent-native/*", (c) => actions.handler(c.req.raw));
+
+export default app;
+```
+
+## Next Steps
+
+- [**Vite**](/docs/actions-package-vite) — plugin options and `actions/context.ts`
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — auth recipes, approvals, and structured errors

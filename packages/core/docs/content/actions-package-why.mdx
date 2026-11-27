@@ -1,0 +1,46 @@
+---
+title: "Why Actions?"
+description: "How @agent-native/actions compares to tRPC, oRPC, Next.js Server Actions, and custom MCP servers — and the agent-specific runtime problems it solves."
+---
+
+# Why Actions?
+
+Most RPC libraries — **tRPC**, **oRPC**, **Next.js Server Actions**, and hand-written REST routes — target a single caller: your browser UI.
+
+When you also want an in-app AI assistant, remote MCP clients (Claude, ChatGPT, Cursor, Codex), or terminal coding agents to perform the same operations, teams typically end up maintaining parallel layers (UI endpoints, a separate MCP server, and ad-hoc scripts) with duplicated schemas, drifting auth checks, and inconsistent error formats.
+
+`@agent-native/actions` puts every operation behind one `defineAction()` contract so UI hooks, HTTP endpoints, MCP tools, AI SDK tool definitions, and CLI commands share a single validation, authorization, and error pipeline.
+
+## Comparison {#comparison}
+
+| Capability                                       | `@agent-native/actions`   | tRPC / oRPC      | Next.js Server Actions | Custom MCP Server |
+| ------------------------------------------------ | ------------------------- | ---------------- | ---------------------- | ----------------- |
+| Typed UI hooks                                   | React, Solid, Vue, Svelte | React (primary)  | Next.js / React only   | None              |
+| Framework-agnostic runtime                       | Web Fetch + Node          | Partial          | Next.js only           | Server-only       |
+| MCP server (Streamable HTTP + `stdio`)           | Built in                  | Manual           | Manual                 | Manual per tool   |
+| Built-in CLI (`pnpm action`)                     | Built in                  | Manual           | No                     | Manual            |
+| AI SDK tool exporters (Vercel / OpenAI / Claude) | Built in                  | Manual           | Manual                 | Separate protocol |
+| LLM-safe JSON Schema normalization               | Built in                  | No               | No                     | Manual            |
+| Dynamic `needsApproval` gates                    | UI, HTTP, CLI, MCP        | No               | No                     | Manual            |
+| Structured `fail()` error codes                  | Built in                  | Error codes only | Manual                 | Manual            |
+
+## What Agents Need Beyond Standard RPC {#agent-grade}
+
+Wrapping REST or tRPC handlers into an MCP server still leaves four failure modes that UI-only RPC libraries do not address:
+
+1. **Strict-mode JSON Schema quirks.** Frontier models in strict tool-calling mode reject certain JSON Schema constructs and frequently pad unused optional fields with `null`, `""`, or `[]`. `@agent-native/actions` emits provider-safe schemas from Zod / Standard Schema and strips padded empty values before `run()` executes.
+2. **Actionable, safe errors.** Browsers need a concise message for toasts; agents need a machine-readable `errorCode` and bounded `details` to recover on the next turn without exposing stack traces. `fail(message, { statusCode, errorCode, details })` and `defineActionErrors()` produce consistent responses across HTTP, MCP, and CLI.
+3. **Safety annotations and approval gates.** Declaring `readOnly: true`, `destructive: true`, `retrySafe: true`, or `needsApproval: (input, ctx) => boolean` populates MCP tool hints automatically, prompts interactively in the CLI, and blocks unapproved execution before side effects run.
+4. **Output contracts and post-commit safety.** An optional `outputSchema` validates returned payloads so UI and agent callers stay locked to the same shape. If validation fails after `run()` already committed a write, `ActionPostCommitError` marks `committed: true` so callers do not blindly retry a mutation.
+
+## Incremental Adoption {#incremental}
+
+- Mount `@agent-native/actions` beside existing REST routes, tRPC routers, or Server Actions and move one feature slice at a time into `actions/`.
+- Control exposure per action or per mount with `mcpTool: false`, `agentTool: false`, or `mcp: { include, exclude, authenticate }`.
+- When you later adopt the full `@agent-native/core` framework, Core shares `@agent-native/actions/contract` and natively discovers `@agent-native/actions` files dropped into `actions/`.
+
+## Next Steps
+
+- [**Quickstart →**](/docs/actions-package-quickstart) — set up and call your first actions
+- [**Auth & Migration →**](/docs/actions-package-auth-migration) — wire Clerk, Better Auth, or Supabase and migrate routes incrementally
+- [**Beyond Actions →**](/docs/actions-package-beyond) — see what `@agent-native/core` adds on top of `@agent-native/actions`

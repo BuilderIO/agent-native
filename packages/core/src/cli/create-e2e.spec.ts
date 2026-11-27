@@ -2032,6 +2032,7 @@ describe("build artifacts", () => {
 
   it("core package.json only uses workspace:* for publishable package deps", () => {
     const publishableWorkspaceDeps = new Set([
+      "@agent-native/actions",
       "@agent-native/agentkit",
       "@agent-native/recap-cli",
       "@agent-native/toolkit",
