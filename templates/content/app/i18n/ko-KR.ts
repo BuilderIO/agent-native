@@ -1231,6 +1231,10 @@ const editor = {
     remove: "제거",
     removeFileOrMedia: "{{name}} 제거",
     removeOption: "{{name}} 옵션 제거",
+    optionInUse:
+      "{{name}} 옵션이 아직 사용 중입니다. 해당 행을 다른 옵션으로 옮기고 보기 필터에서 뺀 다음 제거하세요.",
+    optionKeptByRule:
+      "규칙이 {{name}} 옵션을 사용하고 있어 규칙을 변경하기 전에는 제거할 수 없습니다.",
     removePerson: "{{name}} 제거",
     renameOption: "옵션 {{name}} 이름 바꾸기",
     reorderOption: "옵션 {{name}} 순서 변경",

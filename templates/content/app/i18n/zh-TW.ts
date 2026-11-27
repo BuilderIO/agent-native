@@ -1002,6 +1002,9 @@ const overrides = {
       remove: "刪除",
       removeFileOrMedia: "刪除 {{name}}",
       removeOption: "刪除選項 {{name}}",
+      optionInUse:
+        "{{name}} 仍在使用中。請先將相關列移到其他選項，並從檢視篩選中移除，然後再刪除。",
+      optionKeptByRule: "有規則依賴 {{name}}，在修改規則之前無法刪除。",
       removePerson: "刪除 {{name}}",
       renameOption: "重新命名選項 {{name}}",
       reorderOption: "重新排序選項 {{name}}",

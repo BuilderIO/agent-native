@@ -150,6 +150,9 @@ const { schema } = vi.hoisted(() => ({
     contentWebhookDeliveries: {
       documentId: "contentWebhookDeliveries.documentId",
     },
+    contentFormSubmissions: {
+      documentId: "contentFormSubmissions.documentId",
+    },
     contentDatabaseMigrationReceipts: {
       databaseId: "contentDatabaseMigrationReceipts.databaseId",
     },
@@ -434,6 +437,18 @@ describe("deleteDocumentRecursive", () => {
     );
     expect(eventDeletes.map((c) => c.cond)).toEqual([
       { __inArray: [schema.contentWebhookDeliveries.documentId, ["doc-1"]] },
+    ]);
+  });
+
+  it("deletes the form receipts that point at the deleted record", async () => {
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    expect(
+      deleteCalls
+        .filter((c) => c.table === "contentFormSubmissions")
+        .map((c) => c.cond),
+    ).toEqual([
+      { __inArray: [schema.contentFormSubmissions.documentId, ["doc-1"]] },
     ]);
   });
 

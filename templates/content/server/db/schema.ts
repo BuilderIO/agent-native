@@ -1448,4 +1448,82 @@ export const contentPageCheckUsage = table(
   ],
 );
 
+export const contentForms = table(
+  "content_forms",
+  {
+    databaseId: text("database_id").notNull(),
+    viewId: text("view_id").notNull(),
+    // guard:allow-plaintext-secret-column — a form's share link code its collection's editors copy again; it lets people answer that form and grants no access to the collection or any account
+    linkToken: text("link_token").notNull(),
+    canvasDocumentId: text("canvas_document_id"),
+    audience: text("audience").notNull().default("signed_in"),
+    oneAnswerPerPerson: integer("one_answer_per_person").notNull().default(0),
+    acceptingAnswers: integer("accepting_answers").notNull().default(1),
+    thankYouMessage: text("thank_you_message").notNull().default(""),
+    updatedBy: text("updated_by"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (form) => [
+    uniqueIndex("content_forms_view_unique").on(form.databaseId, form.viewId),
+    uniqueIndex("content_forms_link_token_unique").on(form.linkToken),
+  ],
+);
+
+export const contentFormSubmissions = table(
+  "content_form_submissions",
+  {
+    id: text("id").primaryKey(),
+    databaseId: text("database_id").notNull(),
+    viewId: text("view_id").notNull(),
+    documentId: text("document_id").notNull(),
+    itemId: text("item_id").notNull(),
+    channel: text("channel").notNull(),
+    senderKind: text("sender_kind").notNull(),
+    senderEmail: text("sender_email"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    answersDigest: text("answers_digest").notNull(),
+    receiptJson: text("receipt_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (submission) => [
+    uniqueIndex("content_form_submissions_key_unique").on(
+      submission.databaseId,
+      submission.viewId,
+      submission.idempotencyKey,
+    ),
+    index("content_form_submissions_form_idx").on(
+      submission.databaseId,
+      submission.viewId,
+      submission.createdAt,
+    ),
+    index("content_form_submissions_sender_idx").on(
+      submission.databaseId,
+      submission.viewId,
+      submission.senderEmail,
+    ),
+    index("content_form_submissions_document_idx").on(submission.documentId),
+  ],
+);
+
+export const contentFormDrafts = table(
+  "content_form_drafts",
+  {
+    databaseId: text("database_id").notNull(),
+    viewId: text("view_id").notNull(),
+    senderEmail: text("sender_email").notNull(),
+    answersJson: text("answers_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (draft) => [
+    uniqueIndex("content_form_drafts_sender_unique").on(
+      draft.databaseId,
+      draft.viewId,
+      draft.senderEmail,
+    ),
+    index("content_form_drafts_updated_idx").on(draft.updatedAt),
+  ],
+);
+
 export const documentShares = createSharesTable("document_shares");
