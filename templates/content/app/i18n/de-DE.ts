@@ -2363,6 +2363,15 @@ const overrides = {
     aiOpenConversation: "KI-Unterhaltung öffnen",
     aiConversationPrefill: "Diese Kommentarunterhaltung fortsetzen…",
     aiConversationUnavailable: "Diese KI-Unterhaltung ist nicht verfügbar.",
+    aiRetryRefusedNewer:
+      "Die KI beantwortet bereits eine neuere Nachricht in diesem Thread.",
+    aiRetryRefusedStarted: "Diese KI-Anfrage wurde bereits neu gestartet.",
+    aiRetryRefusedResolved:
+      "Öffne den Thread wieder, um es erneut zu versuchen.",
+    aiRetryRefusedEditApplied:
+      "Die KI hat die Seite für diese Nachricht bereits geändert. Prüfe die Änderung, statt es erneut zu versuchen.",
+    aiRetryRefusedViewOnly:
+      "Agenten können diese Seite nur ansehen, daher kann die KI hier nicht auf Kommentare antworten.",
     aiFollowUpYou: "Du",
     aiFollowUpIncomplete: "Diese Antwort wurde vorzeitig beendet.",
     aiRequestCouldNotBeConfirmed:

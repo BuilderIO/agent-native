@@ -125,6 +125,14 @@ export interface CommentAiContinuationState {
   error?: string;
 }
 
+const RETRY_REFUSALS: Record<string, string> = {
+  comment_ai_already_active: "comments.aiRetryRefusedNewer",
+  comment_ai_operation_conflict: "comments.aiRetryRefusedStarted",
+  comment_ai_thread_resolved: "comments.aiRetryRefusedResolved",
+  comment_ai_edit_applied: "comments.aiRetryRefusedEditApplied",
+  AGENT_VIEW_ONLY: "comments.aiRetryRefusedViewOnly",
+};
+
 class CommentAiConversationUnavailableError extends Error {
   readonly cause: unknown;
 
@@ -690,6 +698,9 @@ export function useCommentAiRequests(
       options: BackgroundAgentSessionStartOptions,
       phase?: "classification" | "execution",
     ) => {
+      const owns = (current: Record<string, CommentAiDispatchRecovery>) =>
+        (current[requestId] as CommentAiDispatchRecovery | undefined)?.options
+          .threadId === options.threadId;
       setDispatchRecoveryRecord((current) => ({
         ...current,
         [requestId]: { options, phase },
@@ -698,7 +709,7 @@ export function useCommentAiRequests(
       try {
         await handle.accepted;
         setDispatchRecoveryRecord((current) => {
-          if (!current[requestId]) return current;
+          if (!owns(current)) return current;
           const next = { ...current };
           delete next[requestId];
           return next;
@@ -714,7 +725,7 @@ export function useCommentAiRequests(
         }
         if (snapshot && shouldReconcileCommentAiSnapshot(snapshot)) {
           setDispatchRecoveryRecord((current) => {
-            if (!current[requestId]) return current;
+            if (!owns(current)) return current;
             const next = { ...current };
             delete next[requestId];
             return next;
@@ -722,21 +733,27 @@ export function useCommentAiRequests(
           await refetchRef.current();
           return;
         }
-        setDispatchRecoveryRecord((current) => ({
-          ...current,
-          [requestId]: {
-            options,
-            phase,
-            error: [
-              error instanceof Error
-                ? error.message
-                : t("comments.aiRequestCouldNotBeConfirmed"),
-              statusError instanceof Error ? statusError.message : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          },
-        }));
+        setDispatchRecoveryRecord((current) =>
+          owns(current)
+            ? {
+                ...current,
+                [requestId]: {
+                  options,
+                  ...(phase ? { phase } : {}),
+                  error: [
+                    error instanceof Error
+                      ? error.message
+                      : t("comments.aiRequestCouldNotBeConfirmed"),
+                    statusError instanceof Error
+                      ? statusError.message
+                      : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                },
+              }
+            : current,
+        );
       }
     },
     [setDispatchRecoveryRecord],
@@ -835,9 +852,18 @@ export function useCommentAiRequests(
       continuationOfRequestId,
       requestId: retryRequestId,
     }) => {
-      const recovery = retryRequestId
-        ? dispatchRecoveryRecord[retryRequestId]
+      const savedRecovery = retryRequestId
+        ? (dispatchRecoveryRecord[retryRequestId] as
+            | CommentAiDispatchRecovery
+            | undefined)
         : undefined;
+      const recovery =
+        savedRecovery?.phase === "classification" &&
+        serverRequestsRef.current.find(
+          (request) => request.operationId === retryRequestId,
+        )?.status !== "classifying"
+          ? undefined
+          : savedRecovery;
       const continuationRecovery = retryRequestId
         ? continuationRecordRef.current[retryRequestId]
         : undefined;
@@ -981,9 +1007,14 @@ export function useCommentAiRequests(
           ? { continuationOfRequestId: request.continuationOfRequestId }
           : {}),
         requestId: request.requestId,
-      }).catch(() => resumedPendingRequestsRef.current.delete(resumeKey));
+      })
+        .then((outcome) => {
+          if (outcome === "busy")
+            resumedPendingRequestsRef.current.delete(resumeKey);
+        })
+        .catch(() => resumedPendingRequestsRef.current.delete(resumeKey));
     }
-  }, [serverRequests, start, t]);
+  }, [serverRequests, start, startingThreadIds, t]);
 
   const monitorContinuation = useCallback(
     async (request: CommentAiRequest, receipt: CommentAiContinuationState) => {
@@ -991,9 +1022,15 @@ export function useCommentAiRequests(
       monitoredContinuationsRef.current.add(receipt.turnId);
       let retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
       try {
+        const replaced = () =>
+          (
+            continuationRecordRef.current[request.operationId] as
+              | CommentAiContinuationState
+              | undefined
+          )?.turnId !== receipt.turnId;
         for (;;) {
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
-          if (!mountedRef.current) return;
+          if (!mountedRef.current || replaced()) return;
           let snapshot;
           try {
             snapshot = await getBackgroundAgentSessionStatus({
@@ -1006,6 +1043,7 @@ export function useCommentAiRequests(
             retryDelay = Math.min(retryDelay * 2, 10_000);
             continue;
           }
+          if (replaced()) return;
           if (snapshot.status !== "unavailable") {
             updateContinuation(request.operationId, {
               ...receipt,
@@ -1161,10 +1199,18 @@ export function useCommentAiRequests(
 
   const retryConversation = useCallback<CommentAiController["retry"]>(
     async (request) => {
-      const continuation = continuationRecordRef.current[request.operationId];
+      const continuation = continuationRecordRef.current[
+        request.operationId
+      ] as CommentAiContinuationState | undefined;
+      const stored = serverRequestsRef.current.find(
+        (current) => current.operationId === request.operationId,
+      );
       if (
-        (continuation?.status === "unavailable" && continuation.options) ||
-        dispatchRecoveryRecord[request.operationId]
+        continuation?.status === "unavailable" &&
+        continuation.options &&
+        (stored?.status === "replied" ||
+          stored?.status === "suggested" ||
+          stored?.status === "resolved")
       ) {
         await start({
           threadId: request.threadId,
@@ -1185,9 +1231,43 @@ export function useCommentAiRequests(
         });
         return;
       }
-      await resumeConversation(request);
+      const restarted = await callAction<StartCommentAiResult>(
+        "retry-comment-ai-request",
+        { requestId: request.requestId, expectedUpdatedAt: request.updatedAt },
+      );
+      const forget = <T,>(current: Record<string, T>) => {
+        if (!current[request.operationId]) return current;
+        const next = { ...current };
+        delete next[request.operationId];
+        return next;
+      };
+      setDispatchRecoveryRecord(forget);
+      continuationRecordRef.current = forget(continuationRecordRef.current);
+      setContinuationRecord(forget);
+      for (const status of ["classifying", "classified"]) {
+        resumedPendingRequestsRef.current.delete(
+          `${request.operationId}:${status}`,
+        );
+      }
+      resumedPendingRequestsRef.current.add(
+        `${restarted.operationId}:${restarted.status}`,
+      );
+      const { pendingSession } = restarted;
+      void dispatch(
+        restarted.operationId,
+        {
+          message: pendingSession.prompt,
+          ...(pendingSession.context === undefined
+            ? {}
+            : { instructions: pendingSession.context }),
+          ...pendingSession.backgroundSession,
+          usageLabel: "content:comment-ai",
+        },
+        pendingSession.phase,
+      );
+      await refetchRef.current();
     },
-    [dispatchRecoveryRecord, resumeConversation, start, t],
+    [dispatch, setContinuationRecord, setDispatchRecoveryRecord, start, t],
   );
 
   const stop = useCallback<CommentAiController["stop"]>(
@@ -1402,7 +1482,9 @@ export function CommentAiRequestStatus({
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"
-          ? t("comments.aiReplied")
+          ? request.status === "failed" || request.status === "needs-review"
+            ? requestStatusLabel(request, t)
+            : t("comments.aiReplied")
           : t("comments.aiFailed")
     : null;
   const label = stopping
@@ -1451,10 +1533,16 @@ export function CommentAiRequestStatus({
               try {
                 await onRetry();
               } catch (error) {
+                const refusal =
+                  RETRY_REFUSALS[
+                    String((error as { errorCode?: unknown } | null)?.errorCode)
+                  ];
                 toast.error(
-                  error instanceof CommentAiConversationUnavailableError
-                    ? error.message
-                    : t("empty.genericError"),
+                  refusal
+                    ? t(refusal)
+                    : error instanceof CommentAiConversationUnavailableError
+                      ? error.message
+                      : t("empty.genericError"),
                 );
               }
             })();

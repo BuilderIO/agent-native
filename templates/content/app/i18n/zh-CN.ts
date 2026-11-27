@@ -2281,6 +2281,12 @@ const overrides = {
     aiOpenConversation: "打开 AI 对话",
     aiConversationPrefill: "继续此评论对话…",
     aiConversationUnavailable: "此 AI 对话不可用。",
+    aiRetryRefusedNewer: "AI 已在回复此讨论中更新的一条消息。",
+    aiRetryRefusedStarted: "此 AI 请求已重新开始。",
+    aiRetryRefusedResolved: "重新打开此讨论后再重试。",
+    aiRetryRefusedEditApplied:
+      "AI 已为此消息编辑了页面。请检查此修改，而不是重试。",
+    aiRetryRefusedViewOnly: "智能体只能查看此页面，因此 AI 无法在此回复评论。",
     aiFollowUpYou: "你",
     aiFollowUpIncomplete: "此回复未完成。",
     aiRequestCouldNotBeConfirmed: "无法确认 AI 请求",

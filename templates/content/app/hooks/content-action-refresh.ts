@@ -282,6 +282,7 @@ const REVIEW_MUTATIONS = new Set([
 
 const PAGE_COMMENT_AI_MUTATIONS = new Set([
   "start-comment-ai-request",
+  "retry-comment-ai-request",
   "submit-comment-ai-classification",
   "get-comment-ai-context",
   "reconcile-comment-ai-session",

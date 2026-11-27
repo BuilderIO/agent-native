@@ -2278,6 +2278,14 @@ const overrides = {
     aiOpenConversation: "AI 대화 열기",
     aiConversationPrefill: "이 댓글 대화 계속하기…",
     aiConversationUnavailable: "이 AI 대화를 사용할 수 없습니다.",
+    aiRetryRefusedNewer:
+      "AI가 이 스레드의 더 최근 메시지에 이미 답하고 있습니다.",
+    aiRetryRefusedStarted: "이 AI 요청은 이미 다시 시작되었습니다.",
+    aiRetryRefusedResolved: "다시 시도하려면 스레드를 다시 여세요.",
+    aiRetryRefusedEditApplied:
+      "AI가 이 메시지를 위해 이미 페이지를 수정했습니다. 다시 시도하는 대신 변경 사항을 확인하세요.",
+    aiRetryRefusedViewOnly:
+      "에이전트는 이 페이지를 보기만 할 수 있어 AI가 여기서 댓글에 답할 수 없습니다.",
     aiFollowUpYou: "나",
     aiFollowUpIncomplete: "이 답변은 완료되기 전에 종료되었습니다.",
     aiRequestCouldNotBeConfirmed: "AI 요청을 확인할 수 없습니다",

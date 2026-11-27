@@ -2302,6 +2302,14 @@ const overrides = {
     aiOpenConversation: "AI 会話を開く",
     aiConversationPrefill: "このコメントの会話を続ける…",
     aiConversationUnavailable: "この AI 会話は利用できません。",
+    aiRetryRefusedNewer:
+      "AI はこのスレッドの新しいメッセージにすでに回答しています。",
+    aiRetryRefusedStarted: "この AI リクエストはすでに再開されています。",
+    aiRetryRefusedResolved: "再試行するにはスレッドを再度開いてください。",
+    aiRetryRefusedEditApplied:
+      "AI はこのメッセージのためにすでにページを編集しました。再試行する代わりに変更を確認してください。",
+    aiRetryRefusedViewOnly:
+      "エージェントはこのページを表示することしかできないため、AI はここでコメントに回答できません。",
     aiFollowUpYou: "あなた",
     aiFollowUpIncomplete: "この返信は完了前に終了しました。",
     aiRequestCouldNotBeConfirmed: "AI リクエストを確認できませんでした",

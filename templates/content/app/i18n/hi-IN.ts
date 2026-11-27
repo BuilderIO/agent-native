@@ -2241,6 +2241,13 @@ const overrides = {
     aiOpenConversation: "AI बातचीत खोलें",
     aiConversationPrefill: "इस टिप्पणी की बातचीत जारी रखें…",
     aiConversationUnavailable: "यह AI बातचीत उपलब्ध नहीं है।",
+    aiRetryRefusedNewer: "AI इस थ्रेड के एक नए संदेश का जवाब पहले से दे रहा है।",
+    aiRetryRefusedStarted: "यह AI अनुरोध पहले ही फिर से शुरू हो चुका है।",
+    aiRetryRefusedResolved: "फिर से कोशिश करने के लिए थ्रेड दोबारा खोलें।",
+    aiRetryRefusedEditApplied:
+      "AI इस संदेश के लिए पेज पहले ही बदल चुका है। फिर से कोशिश करने के बजाय बदलाव देखें।",
+    aiRetryRefusedViewOnly:
+      "एजेंट इस पेज को सिर्फ़ देख सकते हैं, इसलिए AI यहाँ टिप्पणियों का जवाब नहीं दे सकता।",
     aiFollowUpYou: "आप",
     aiFollowUpIncomplete: "यह जवाब पूरा होने से पहले समाप्त हो गया।",
     aiRequestCouldNotBeConfirmed: "AI अनुरोध की पुष्टि नहीं हो सकी",

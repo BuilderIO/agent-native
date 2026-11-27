@@ -232,7 +232,7 @@ describe("comment AI controls", () => {
     "The AI conversation could not be loaded",
     "Internal details that must not be displayed",
   ])(
-    "reports a protected conversation load failure and can retry: %s",
+    "reports a protected conversation load failure and can resume: %s",
     async (message) => {
       const partial = request({
         status: "needs-review",
@@ -266,7 +266,7 @@ describe("comment AI controls", () => {
         return createElement(CommentAiRequestStatus, {
           request: current,
           continuation: controller.continuations.get(current.operationId),
-          onRetry: () => controller.retry(current),
+          onRetry: () => controller.resume(current),
           onStop: () => controller.stop(current),
         });
       }
@@ -410,7 +410,7 @@ describe("comment AI controls", () => {
       fields: {},
       expected: { model: undefined, engine: undefined },
     },
-  ])("retries a stopped request on $name", async ({ fields, expected }) => {
+  ])("resumes a stopped request on $name", async ({ fields, expected }) => {
     const base = request({
       status: "needs-review",
       agentThreadId: "agent-thread-1",
@@ -432,11 +432,172 @@ describe("comment AI controls", () => {
       return null;
     }
     await act(async () => root.render(createElement(Probe)));
-    await act(async () => controller.retry(base));
+    await act(async () => controller.resume(base));
     expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
     const started = api.startBackgroundAgentSession.mock.calls[0]?.[0];
     expect({ model: started?.model, engine: started?.engine }).toEqual(
       expected,
+    );
+  });
+
+  it("starts a stopped request over on the server and sends its new session", async () => {
+    const stopped = request({
+      status: "needs-review",
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "initial-turn-1",
+    });
+    api.requests = [stopped];
+    const backgroundSession = {
+      operationId: "request-1",
+      threadId: "agent-thread-2",
+      turnId: "agent-turn-2",
+      scope: { type: "content-comment-ai" as const, id: "request-1" },
+      actionScope: {
+        kind: "content-comment-ai" as const,
+        requestId: "request-1",
+      },
+    };
+    api.callAction.mockResolvedValue({
+      ...stopped,
+      status: "queued",
+      agentThreadId: "agent-thread-2",
+      agentTurnId: "agent-turn-2",
+      errorCode: null,
+      error: null,
+      outcome: "confirmed-start",
+      dispatch: true,
+      pendingSession: {
+        phase: "execution",
+        backgroundSession,
+        prompt: "Suggest changes: Please suggest a change",
+        context: "Hidden comment AI instructions",
+      },
+      backgroundSession,
+      actionScope: backgroundSession.actionScope,
+      prompt: "Suggest changes: Please suggest a change",
+      context: "Hidden comment AI instructions",
+    });
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => controller.retry(stopped));
+
+    expect(api.callAction).toHaveBeenCalledWith("retry-comment-ai-request", {
+      requestId: "request-1",
+      expectedUpdatedAt: stopped.updatedAt,
+    });
+    expect(api.loadCommentAiConversation).not.toHaveBeenCalled();
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledWith({
+      message: "Suggest changes: Please suggest a change",
+      instructions: "Hidden comment AI instructions",
+      ...backgroundSession,
+      usageLabel: "content:comment-ai",
+    });
+  });
+
+  it.each([
+    ["comment_ai_already_active", "comments.aiRetryRefusedNewer"],
+    ["comment_ai_operation_conflict", "comments.aiRetryRefusedStarted"],
+    ["comment_ai_thread_resolved", "comments.aiRetryRefusedResolved"],
+    ["comment_ai_edit_applied", "comments.aiRetryRefusedEditApplied"],
+    ["AGENT_VIEW_ONLY", "comments.aiRetryRefusedViewOnly"],
+  ])("says why Retry was refused (%s) in one sentence", async (code, copy) => {
+    const refusal = Object.assign(new Error("Request failed"), {
+      errorCode: code,
+    });
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: request(),
+          onRetry: vi.fn().mockRejectedValue(refusal),
+          onStop: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {
+      requireValue(
+        [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === "comments.retry",
+        ),
+        "retry button",
+      ).click();
+    });
+    expect(api.toastError).toHaveBeenCalledExactlyOnceWith(copy);
+  });
+
+  it("says how a request ended when a resume turn finished without finishing it", async () => {
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: request({ status: "needs-review" }),
+          continuation: {
+            operationId: "resume-1",
+            threadId: "agent-thread-1",
+            turnId: "resume-turn-1",
+            status: "completed",
+          },
+          onRetry: vi.fn(),
+          onStop: vi.fn(),
+        }),
+      );
+    });
+    const status = document.querySelector('[role="alert"]')?.textContent;
+    expect(status).toContain("comments.aiNeedsReview");
+    expect(status).not.toContain("comments.aiReplied");
+  });
+
+  it("finishes an Auto request reloaded while its classifier was still starting", async () => {
+    const operationId = "00000000-0000-4000-8000-000000000077";
+    const auto = request({
+      operationId,
+      requestId: operationId,
+      status: "classifying",
+      submittedMode: "auto",
+      intent: null,
+      errorCode: null,
+      error: null,
+    });
+    let finishClassifierStart!: (value: unknown) => void;
+    api.callAction
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishClassifierStart = resolve;
+        }),
+      )
+      .mockResolvedValue({
+        ...auto,
+        status: "classified",
+        outcome: "confirmed-start",
+        dispatch: false,
+      });
+    api.requests = [auto];
+    function Probe() {
+      useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => root.render(createElement(Probe)));
+    expect(api.callAction).toHaveBeenCalledOnce();
+
+    api.requests = [{ ...auto, status: "classified", intent: "reply" }];
+    await act(async () => root.render(createElement(Probe)));
+    expect(api.callAction).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      finishClassifierStart({
+        ...auto,
+        outcome: "confirmed-start",
+        dispatch: false,
+      });
+      for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
+    });
+    expect(api.callAction).toHaveBeenCalledTimes(2);
+    expect(api.callAction).toHaveBeenLastCalledWith(
+      "start-comment-ai-request",
+      expect.objectContaining({ requestId: operationId }),
     );
   });
 

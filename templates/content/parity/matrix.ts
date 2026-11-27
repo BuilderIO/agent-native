@@ -1646,6 +1646,7 @@ export const parityMatrix: ParityRow[] = [
       "list-comment-ai-requests",
       "reconcile-comment-ai-session",
       "reply-to-comment-ai-request",
+      "retry-comment-ai-request",
       "start-comment-ai-request",
       "submit-comment-ai-classification",
       "undo-comment-ai-request",
