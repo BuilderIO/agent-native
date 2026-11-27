@@ -17,6 +17,7 @@ import {
   issueLocalhostBridgeOperationCapability,
   LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD,
 } from "../server/visual-edit-bridge-capability.js";
+import { measureCpuMs } from "../testing/cpu-time.js";
 
 const spawnMock = vi.hoisted(() => vi.fn());
 
@@ -4310,10 +4311,14 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     try {
-      const module = await getText(
-        `http://127.0.0.1:${port}/main.js?previewToken=${bridge.previewToken}`,
-        { origin: "null", "sec-fetch-dest": "script" },
-      );
+      let module!: Awaited<ReturnType<typeof getText>>;
+      const cpuMs = await measureCpuMs(async () => {
+        module = await getText(
+          `http://127.0.0.1:${port}/main.js?previewToken=${bridge.previewToken}`,
+          { origin: "null", "sec-fetch-dest": "script" },
+        );
+      });
+      expect(cpuMs).toBeLessThan(1000);
       expect(module.status).toBe(200);
       for (let index = 0; index < 5; index++) {
         expect(module.body).toContain(
