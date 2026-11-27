@@ -2222,6 +2222,20 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(focusedRows[0].textContent).toContain("Subject row-7");
   });
 
+  it("keeps an email and a half in view past the mark at either edge", () => {
+    const view = render(<Harness />);
+    expect(vi.mocked(useVirtualizer).mock.lastCall?.[0]).toMatchObject({
+      scrollPaddingStart: 57,
+      scrollPaddingEnd: 57,
+    });
+
+    view.rerender(<Harness readingPane />);
+    expect(vi.mocked(useVirtualizer).mock.lastCall?.[0]).toMatchObject({
+      scrollPaddingStart: 144,
+      scrollPaddingEnd: 144,
+    });
+  });
+
   it("warms only the resting row and its neighbours after fast j presses", () => {
     vi.useFakeTimers();
     const manyMessages = Array.from({ length: 10 }, (_, index) => ({

@@ -478,6 +478,8 @@ const RATE_LIMIT_RETRY_MS = 60_000;
 
 const RICH_ROW_HEIGHT_ESTIMATE = 96;
 
+const ROWS_KEPT_IN_VIEW_PAST_FOCUS = 1.5;
+
 function getRateLimitRetryMs(error: {
   message?: string;
   retryAfterMs?: number | undefined;
@@ -2272,6 +2274,7 @@ export function EmailList({
   const estimatedRowHeight = readingPane
     ? RICH_ROW_HEIGHT_ESTIMATE
     : rowHeightEstimate;
+  const focusScrollPadding = estimatedRowHeight * ROWS_KEPT_IN_VIEW_PAST_FOCUS;
 
   const rowVirtualizerRef = useRef<{ scrollOffset: number | null } | null>(
     null,
@@ -2281,6 +2284,8 @@ export function EmailList({
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => estimatedRowHeight,
     overscan: 10,
+    scrollPaddingStart: focusScrollPadding,
+    scrollPaddingEnd: focusScrollPadding,
     getItemKey: (index) => threads[index]?.latestMessage.id ?? index,
     anchorTo:
       (rowVirtualizerRef.current?.scrollOffset ?? 0) > 0 ? "end" : "start",
