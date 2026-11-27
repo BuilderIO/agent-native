@@ -1,5 +1,25 @@
 # @agent-native/skills
 
+## 0.4.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d70dc40: Switch workspace and `agent-native typecheck` CLI typechecking to native `tsgo` when available, falling back to `tsc`.
+- Updated dependencies [ccbd078]
+- Updated dependencies [b0dbd8b]
+- Updated dependencies [67fbc39]
+- Updated dependencies [6c648b3]
+- Updated dependencies
+- Updated dependencies [c1b7403]
+- Updated dependencies [d70dc40]
+- Updated dependencies [b29387a]
+- Updated dependencies [c34a832]
+- Updated dependencies [d74c9e8]
+- Updated dependencies [c5ea04e]
+- Updated dependencies [52757ad]
+  - @agent-native/core@0.235.1
+
 ## 0.4.14
 
 ### Patch Changes
@@ -3171,18 +3191,5 @@
 - Updated dependencies
 - Updated dependencies [615c5d5]
   - @agent-native/core@0.174.2
-
-## 0.2.706
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies [5e57bc6]
-- Updated dependencies [7d90274]
-- Updated dependencies [7d5cce0]
-- Updated dependencies [a63c4b3]
-- Updated dependencies
-- Updated dependencies [a026821]
-  - @agent-native/core@0.174.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

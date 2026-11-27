@@ -1,5 +1,19 @@
 # @agent-native/scheduling
 
+## 0.4.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d70dc40: Switch workspace and `agent-native typecheck` CLI typechecking to native `tsgo` when available, falling back to `tsc`.
+- 52757ad: Upgrade Vitest and `@vitest/*` packages to `5.1.2` and align workspace packages onto the pnpm catalog.
+- Updated dependencies [409e04a]
+- Updated dependencies
+- Updated dependencies [d70dc40]
+- Updated dependencies [1f5e3fe]
+- Updated dependencies [52757ad]
+  - @agent-native/toolkit@0.235.1
+
 ## 0.4.3
 
 ### Patch Changes
@@ -1418,13 +1432,5 @@
 - Release all public npm packages with a patch version bump.
 - Updated dependencies
   - @agent-native/toolkit@0.16.15
-
-## 0.1.43
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.14
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

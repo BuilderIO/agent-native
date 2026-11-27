@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.8.80
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d70dc40: Switch workspace and `agent-native typecheck` CLI typechecking to native `tsgo` when available, falling back to `tsc`.
+
 ## 0.8.79
 
 ### Patch Changes
@@ -627,12 +634,6 @@
 - Release all public npm packages with a patch version bump.
 
 ## 0.7.7
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.7.6
 
 ### Patch Changes
 
