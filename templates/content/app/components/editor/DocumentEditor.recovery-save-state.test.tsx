@@ -18,7 +18,7 @@ import {
 import { type QueryClient, useMutation } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
-import type { Root } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { toast } from "sonner";
 import {
   afterEach,
