@@ -393,10 +393,57 @@ export interface McpDirectoryWidgetTarget {
   writeActions?: readonly string[];
 }
 
+export type McpCallerContext = {
+  /** Mirrors the admitted A2A marker, not proof of a particular sender or user. */
+  firstPartyMcp: boolean;
+  /** A signed subject is not proof of local issuance or a verified person; a connect subject also matched a local token row. */
+  principal:
+    | { kind: "signed-subject"; email: string }
+    | { kind: "connect-subject"; email: string }
+    | { kind: "service"; email: string }
+    | { kind: "org-member"; email: string }
+    | { kind: "asserted-user"; email: string }
+    | { kind: "owner-hint"; email: string }
+    | { kind: "organization" }
+    | { kind: "anonymous" };
+  /** The verifier's identity inputs, not a downstream effective organization. */
+  organization: {
+    /** Unresolved still requires the existing domain/email resolution path. */
+    scope: { kind: "identity"; orgId: string | null } | { kind: "unresolved" };
+    domain:
+      | { kind: "signed-claim"; value: string }
+      | { kind: "local-metadata"; value: string }
+      | { kind: "absent" };
+  };
+  /** The verified JWT's own issue time, not the OAuth grant time. */
+  issuedAt: { valueMs: number; source: "jwt-iat" } | null;
+  /** The signed time selected by the existing widget logout-revocation policy. */
+  revocationAnchor: {
+    valueMs: number;
+    source: "signed-grant-created-at" | "jwt-iat";
+  } | null;
+} & (
+  | {
+      credentialKind: "oauth" | "connect-oauth";
+      oauth: { scopes: string[]; clientId: string };
+    }
+  | {
+      credentialKind:
+        | "connect-legacy"
+        | "a2a-deployment"
+        | "a2a-organization"
+        | "a2a-org-member"
+        | "static"
+        | "dev-open";
+      /** No OAuth scope restriction was supplied; this is not general authorization. */
+      oauth: null;
+    }
+);
+
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
   identityAssurance?: "user" | "org-member" | "organization" | "service";
-  /** Issue time, in milliseconds, from a verified app-issued MCP credential. */
+  /** Legacy widget revocation anchor from a verified MCP credential, in milliseconds. */
   mcpCredentialIssuedAtMs?: number;
   /** Dedicated host chat grant anchor from an audience-verified user assertion. */
   workspaceAppChatIssuedAtMs?: number;
@@ -5534,6 +5581,8 @@ export class McpIdentityVerificationRefusedError extends Error {
 
 interface VerifiedMcpA2AIdentity {
   payload: Record<string, unknown>;
+  credentialKind: "a2a-deployment" | "a2a-organization" | "a2a-org-member";
+  issuedAt: number | undefined;
   identityAssurance?: "org-member";
 }
 
@@ -5569,6 +5618,7 @@ async function verifyA2AJwtForMcp(
       delegatedIdentity = await verifyA2AToken(token, event, {
         expectedAudience: audiences,
         requireAudience: true,
+        includeClaims: true,
       });
     } catch (error) {
       if (isA2AIdentityVerificationUnavailableError(error)) {
@@ -5592,6 +5642,8 @@ async function verifyA2AJwtForMcp(
           : {}),
       },
       identityAssurance: "org-member",
+      credentialKind: "a2a-org-member",
+      issuedAt: delegatedIdentity.claims?.iat,
     };
   }
 
@@ -5637,7 +5689,14 @@ async function verifyA2AJwtForMcp(
             payload as JWTPayload,
             organization,
           ) as Record<string, unknown> | null;
-          return claims ? { payload: claims } : null;
+          return claims
+            ? {
+                payload: claims,
+                credentialKind: "a2a-organization",
+                issuedAt:
+                  typeof payload.iat === "number" ? payload.iat : undefined,
+              }
+            : null;
         }
       }
 
@@ -5653,7 +5712,11 @@ async function verifyA2AJwtForMcp(
         !hasOrganizationClaim &&
         !hasOrganizationDomainClaim
       ) {
-        return { payload };
+        return {
+          payload,
+          credentialKind: "a2a-deployment",
+          issuedAt: typeof payload.iat === "number" ? payload.iat : undefined,
+        };
       }
 
       let verifiedOrganization:
@@ -5676,6 +5739,8 @@ async function verifyA2AJwtForMcp(
               org_domain: verifiedOrganization.orgDomain,
             }
           : payload,
+        credentialKind: "a2a-deployment",
+        issuedAt: typeof payload.iat === "number" ? payload.iat : undefined,
       };
     }
   }
@@ -5704,7 +5769,13 @@ async function verifyA2AJwtForMcp(
     payload as JWTPayload,
     organization,
   ) as Record<string, unknown> | null;
-  return claims ? { payload: claims } : null;
+  return claims
+    ? {
+        payload: claims,
+        credentialKind: "a2a-organization",
+        issuedAt: typeof payload.iat === "number" ? payload.iat : undefined,
+      }
+    : null;
 }
 
 async function isOrgMemberDelegationToken(token: string): Promise<boolean> {
@@ -5746,28 +5817,41 @@ async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
   }
 }
 
-export type VerifyAuthResult = {
-  authed: boolean;
+type McpAdmissionSuccess = {
+  authed: true;
   identity?: MCPCallerIdentity;
   fullSurface?: boolean;
   fullCatalog?: boolean;
-  /**
-   * The token verified, but its standing could not be checked: the
-   * connect-token lookup, the retired-address check, or the
-   * membership check hit a database or identity-authority error. Answer with
-   * a retryable error, not an auth challenge: signing in again would not help.
-   */
-  unavailable?: true;
-  /**
-   * Why a presented bearer token was refused. Absent when no token was
-   * presented, and when the refusal is `unavailable`.
-   */
-  refusal?: BearerCredentialRefusal;
+  unavailable?: never;
+  refusal?: never;
 };
 
+type McpAuthFailure = {
+  authed: false;
+  identity?: never;
+  callerContext?: never;
+  fullSurface?: never;
+  fullCatalog?: never;
+} & (
+  | {
+      /** Verification or admission could not complete; retry rather than reauthenticate. */
+      unavailable: true;
+      refusal?: never;
+    }
+  | {
+      unavailable?: never;
+      /** Absent when no bearer token was presented. */
+      refusal?: BearerCredentialRefusal;
+    }
+);
+
+export type VerifyAuthResult =
+  | (McpAdmissionSuccess & { callerContext: McpCallerContext })
+  | McpAuthFailure;
+
 /**
- * A verified MCP credential this app issued: an MCP OAuth access token
- * (Connect mints these too), or a connect token in the older A2A format.
+ * A verified MCP OAuth access token, or a connect token in the older A2A
+ * format. Signature verification alone does not establish the issuing app.
  */
 type IssuedMcpCredential = {
   userEmail: string;
@@ -5776,22 +5860,30 @@ type IssuedMcpCredential = {
   orgDomain: string | undefined;
   /** Set for connect tokens, whose standing lives in `mcp_connect_tokens`. */
   connect?: { jti: string | undefined };
-  oauthScopes?: string[];
-  oauthClientId?: string;
   oauthResource?: string;
   catalogScope?: "full";
-  /** Immutable server-recorded OAuth grant creation time, in milliseconds. */
+  /** Signed OAuth grant creation-time claim, in milliseconds. */
   grantCreatedAtMs?: number;
   /** `iat`, in seconds. */
   issuedAt: number | undefined;
-};
+} & (
+  | {
+      credentialKind: "connect-legacy";
+      oauthScopes?: never;
+      oauthClientId?: never;
+    }
+  | {
+      credentialKind: "oauth" | "connect-oauth";
+      oauthScopes: string[];
+      oauthClientId: string;
+    }
+);
 
 /**
  * Connect tokens minted before Connect used the MCP OAuth format: an
  * A2A-shaped JWT with `scope: "mcp-connect"` and no audience, signed with this
- * deployment's A2A_SECRET. They are this app's own credentials, not cross-app
- * assertions, so organization secrets and organization-principal rules never
- * apply to them: their identity is their stored row.
+ * deployment's A2A_SECRET. Organization secrets and organization-principal
+ * rules never apply to them: admission also requires a matching stored row.
  */
 async function verifyLegacyConnectToken(
   token: string,
@@ -5819,6 +5911,7 @@ async function verifyLegacyConnectToken(
   }
   return {
     userEmail: payload.sub,
+    credentialKind: "connect-legacy",
     orgId: orgIdClaim.orgId,
     orgDomain:
       typeof payload.org_domain === "string" ? payload.org_domain : undefined,
@@ -5832,7 +5925,7 @@ async function verifyLegacyConnectToken(
 
 /**
  * Classifies a bearer token by the credential it declares itself to be, then
- * verifies it as that. A token claiming to be one this app issued never
+ * verifies it as that. A token claiming to be an MCP credential never
  * reaches the A2A checks, even when it fails to verify: that is
  * `unverified`. Null means it makes no such claim.
  */
@@ -5859,6 +5952,10 @@ async function verifyIssuedMcpCredential(
   if (!oauth) return "unverified";
   return {
     userEmail: oauth.userEmail,
+    credentialKind:
+      oauth.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+        ? "connect-oauth"
+        : "oauth",
     orgId: oauth.orgId,
     orgDomain: oauth.orgDomain,
     ...(oauth.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
@@ -5875,8 +5972,19 @@ async function verifyIssuedMcpCredential(
   };
 }
 
+function signedJwtIssuedAt(
+  issuedAt: number | undefined,
+): McpCallerContext["issuedAt"] {
+  if (typeof issuedAt !== "number" || !Number.isFinite(issuedAt)) return null;
+  const valueMs = issuedAt * 1000;
+  return Number.isFinite(valueMs) &&
+    Math.abs(valueMs) <= Number.MAX_SAFE_INTEGER
+    ? { valueMs, source: "jwt-iat" }
+    : null;
+}
+
 /**
- * The one admission path for MCP credentials this app issued. A connect token
+ * The one admission path for MCP OAuth and connect credentials. A connect token
  * is admitted only while its stored row exists, is unrevoked, and names the
  * token's subject and org claim; the row also supplies the org of a token
  * without a claim and marks service identities. Every credential then passes
@@ -5981,12 +6089,54 @@ async function admitIssuedMcpCredential(
       console.warn("[mcp] Could not record client activity", error);
     }
   }
-  return admitted;
+  if (!admitted.authed) return admitted;
+  const callerCredential =
+    credential.credentialKind === "connect-legacy"
+      ? { credentialKind: credential.credentialKind, oauth: null }
+      : {
+          credentialKind: credential.credentialKind,
+          oauth: {
+            scopes: credential.oauthScopes,
+            clientId: credential.oauthClientId,
+          },
+        };
+  return {
+    ...admitted,
+    callerContext: {
+      ...callerCredential,
+      firstPartyMcp: false,
+      principal: {
+        kind:
+          stored?.kind === "service"
+            ? "service"
+            : stored
+              ? "connect-subject"
+              : "signed-subject",
+        email: credential.userEmail,
+      },
+      organization: mcpOrganizationContext(
+        orgId,
+        credential.orgDomain === undefined
+          ? { kind: "absent" }
+          : { kind: "signed-claim", value: credential.orgDomain },
+      ),
+      issuedAt: signedJwtIssuedAt(credential.issuedAt),
+      revocationAnchor:
+        mcpCredentialIssuedAtMs === undefined
+          ? null
+          : {
+              valueMs: mcpCredentialIssuedAtMs,
+              source:
+                credential.grantCreatedAtMs !== undefined
+                  ? "signed-grant-created-at"
+                  : "jwt-iat",
+            },
+    },
+  };
 }
 
 /**
- * Credentials this app issues (MCP OAuth access tokens and connect tokens)
- * carry the organization chosen when they were issued: the signed `org_id`
+ * MCP OAuth access tokens and connect tokens carry the signed `org_id`
  * claim, or the stored org of a connect token. Membership can end after
  * issuance, so that org is admitted only while the subject is still a member
  * here. The action-route bearer path reuses verifyAuth and gets the same
@@ -5996,11 +6146,11 @@ async function admitIssuedMcpCredential(
  * credential signed for it before the change is refused, Personal or not.
  */
 async function admitIssuedCredential(
-  result: VerifyAuthResult & { identity: MCPCallerIdentity },
+  result: McpAdmissionSuccess & { identity: MCPCallerIdentity },
   requestOrigin: string | undefined,
   storedConnectToken: StoredConnectTokenIdentity | undefined,
   issuedAt: number | undefined,
-): Promise<VerifyAuthResult> {
+): Promise<McpAdmissionSuccess | McpAuthFailure> {
   const admitted = await checkIssuedCredential(
     result,
     requestOrigin,
@@ -6016,8 +6166,8 @@ async function admitIssuedCredential(
  * email is not service-shaped returns before any database read.
  */
 async function admitServicePrincipal(
-  result: VerifyAuthResult,
-): Promise<VerifyAuthResult> {
+  result: McpAdmissionSuccess,
+): Promise<McpAdmissionSuccess | McpAuthFailure> {
   const email = result.identity?.userEmail;
   try {
     await assertServicePrincipalMayRun(
@@ -6048,11 +6198,11 @@ async function admitServicePrincipal(
 }
 
 async function checkIssuedCredential(
-  result: VerifyAuthResult & { identity: MCPCallerIdentity },
+  result: McpAdmissionSuccess & { identity: MCPCallerIdentity },
   requestOrigin: string | undefined,
   storedConnectToken: StoredConnectTokenIdentity | undefined,
   issuedAt: number | undefined,
-): Promise<VerifyAuthResult> {
+): Promise<McpAdmissionSuccess | McpAuthFailure> {
   const { checkCredentialEmailRetirement, checkCredentialOrgMembership } =
     await import("./credential-membership.js");
   if (result.identity.userEmail) {
@@ -6081,8 +6231,8 @@ async function checkIssuedCredential(
 
 /**
  * Verify the inbound auth header. Returns:
- *   - { authed: true, identity } when verified. A credential this app issued
- *     (an MCP OAuth access token or a connect token) supplies its subject and
+ *   - { authed: true, identity } when verified. An MCP OAuth or connect
+ *     credential supplies its subject and
  *     org, checked against live membership. A deployment-secret A2A JWT may
  *     supply its asserted user (`sub`), while an org-secret JWT supplies only
  *     verified organization scope. Static-token auth gets identity from
@@ -6092,7 +6242,7 @@ async function checkIssuedCredential(
  *   - { authed: false, refusal? } on rejection; `refusal` is set whenever a
  *     presented token was refused.
  *
- * Credentials this app issued are recognized and verified before any A2A
+ * MCP OAuth and connect credentials are recognized and verified before any A2A
  * rule runs, so a change to cross-app trust cannot reclassify them. Both A2A
  * paths bind `org_domain` to local organization metadata. The MCP endpoint
  * wraps tool runs in `runWithRequestContext({ userEmail, orgId })`. Without
@@ -6156,9 +6306,11 @@ export async function verifyAuth(
     if (options.allowDevOpen === false) {
       return { authed: false };
     }
+    const identity = deriveStaticTokenIdentity(trustedOwnerHeader);
     return {
       authed: true,
-      identity: deriveStaticTokenIdentity(trustedOwnerHeader),
+      identity,
+      callerContext: staticCallerContext("dev-open", identity),
       fullSurface: !!(trustedOwnerHeader && trustedOwnerHeader.trim()),
     };
   }
@@ -6203,7 +6355,7 @@ export async function verifyAuth(
         : firstPartyMcp || tokenScope === MCP_CONNECT_SCOPE
           ? null
           : undefined;
-    return admitServicePrincipal({
+    const admitted = await admitServicePrincipal({
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
@@ -6238,6 +6390,37 @@ export async function verifyAuth(
       fullSurface: true,
       fullCatalog: payload.catalog_scope === "full",
     });
+    if (!admitted.authed) return admitted;
+    const email = admitted.identity?.userEmail;
+    const principal: McpCallerContext["principal"] = email
+      ? {
+          kind:
+            verifiedA2AIdentity.credentialKind === "a2a-org-member"
+              ? "org-member"
+              : "asserted-user",
+          email,
+        }
+      : verifiedA2AIdentity.credentialKind === "a2a-organization" ||
+          typeof admitted.identity?.orgId === "string"
+        ? { kind: "organization" }
+        : { kind: "anonymous" };
+    return {
+      ...admitted,
+      callerContext: {
+        credentialKind: verifiedA2AIdentity.credentialKind,
+        firstPartyMcp: admitted.identity?.firstPartyMcp === true,
+        principal,
+        organization: mcpOrganizationContext(
+          admitted.identity?.orgId,
+          admitted.identity?.orgDomain === undefined
+            ? { kind: "absent" }
+            : { kind: "local-metadata", value: admitted.identity.orgDomain },
+        ),
+        oauth: null,
+        issuedAt: signedJwtIssuedAt(verifiedA2AIdentity.issuedAt),
+        revocationAnchor: null,
+      },
+    };
   }
 
   // A token that declares the member-delegation type must pass that verifier;
@@ -6254,6 +6437,36 @@ export async function verifyAuth(
       refusal: "invalid",
     }
   );
+}
+
+function mcpOrganizationContext(
+  orgId: string | null | undefined,
+  domain: McpCallerContext["organization"]["domain"],
+): McpCallerContext["organization"] {
+  return {
+    scope:
+      orgId === undefined
+        ? { kind: "unresolved" }
+        : { kind: "identity", orgId },
+    domain,
+  };
+}
+
+function staticCallerContext(
+  credentialKind: "static" | "dev-open",
+  identity: MCPCallerIdentity | undefined,
+): McpCallerContext {
+  return {
+    credentialKind,
+    firstPartyMcp: false,
+    principal: identity?.userEmail
+      ? { kind: "owner-hint", email: identity.userEmail }
+      : { kind: "anonymous" },
+    organization: mcpOrganizationContext(undefined, { kind: "absent" }),
+    oauth: null,
+    issuedAt: null,
+    revocationAnchor: null,
+  };
 }
 
 /**
@@ -6285,6 +6498,7 @@ async function matchStaticAccessToken(
   return {
     authed: true,
     identity,
+    callerContext: staticCallerContext("static", identity),
     fullSurface: true,
   };
 }
