@@ -3284,7 +3284,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.t3CodeDialogDescription":
     "メンションはあなたのコンピューター上の T3 Code に送られます。Claude Code と Codex のサインイン情報はそこに残り、このアプリからは見えません。",
   "settingsModel.t3CodeDialogStep1":
-    "T3 Code で Settings › Environments を開き、このコンピューターのメニューから Copy MCP URL を選びます。",
+    "エージェントを動かすコンピューターの T3 Code で Settings › Sharing & access を開き、Use in another app (MCP)、Something else… の順に選んで URL をコピーします。",
   "settingsModel.t3CodeDialogStep2":
     "ここに貼り付けます。このアプリがコンピューターに届くよう、T3 Connect をオンにしておく必要があります。",
   "settingsModel.t3CodeAddressLabel": "T3 Code の MCP URL",

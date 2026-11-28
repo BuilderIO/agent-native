@@ -3298,7 +3298,7 @@ const messages = {
   "settingsModel.t3CodeDialogDescription":
     "Your tags go to T3 Code on your computer. Your Claude Code and Codex sign-ins stay there; this app never sees them.",
   "settingsModel.t3CodeDialogStep1":
-    "In T3 Code, open Settings › Environments, open this computer's menu and choose Copy MCP URL.",
+    "On the computer your agents will run on, open T3 Code's Settings › Sharing & access, choose Use in another app (MCP), then Something else…, and copy the URL.",
   "settingsModel.t3CodeDialogStep2":
     "Paste it here. T3 Connect has to be on, so this app can reach your computer.",
   "settingsModel.t3CodeAddressLabel": "T3 Code MCP URL",

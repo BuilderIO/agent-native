@@ -24,39 +24,47 @@ export function T3AgentRequestLine({ commentId }: { commentId: string }) {
   const agent = mcpConnectHostLabel(request.agent) ?? request.agent;
   const thread = request.t3ThreadTitle ?? t("comments.t3NewThread");
   const active = isT3AgentRequestActive(request);
+  const working = request.status === "working";
+  const message =
+    request.status === "sending"
+      ? t("comments.t3Sending", { agent })
+      : working
+        ? t("comments.t3Working", { agent, thread })
+        : request.status === "needs-you"
+          ? t("comments.t3NeedsYou", { agent })
+          : t("comments.t3Failed", {
+              agent,
+              reason: request.error ?? t("comments.t3FailedUnknown"),
+            });
   return (
     <div
-      className="grid gap-0.5 text-xs text-muted-foreground"
+      className="flex min-w-0 items-start gap-1.5 text-xs text-muted-foreground"
       data-t3-agent-request={request.status}
       role="status"
     >
-      <span className="flex min-w-0 items-center gap-1.5">
+      <span className="flex h-4 items-center">
         <StatusIcon request={request} />
-        <span className="min-w-0">
-          {request.status === "sending"
-            ? t("comments.t3Sending", { agent })
-            : request.status === "working"
-              ? t("comments.t3Working", { agent, thread })
-              : request.status === "needs-you"
-                ? t("comments.t3NeedsYou", { agent })
-                : t("comments.t3Failed", {
-                    agent,
-                    reason: request.error ?? t("comments.t3FailedUnknown"),
-                  })}
+      </span>
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span
+          className={working ? "truncate" : "break-words"}
+          title={working ? message : undefined}
+        >
+          {message}
         </span>
         {request.t3ThreadLink && request.status !== "sending" ? (
           <a
             href={request.t3ThreadLink}
-            className="inline-flex shrink-0 items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline"
+            className="inline-flex w-fit items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline"
           >
             {t("comments.t3OpenInT3")}
             <IconExternalLink size={12} aria-hidden />
           </a>
         ) : null}
+        {active && unreachable ? (
+          <span>{t("comments.t3Unreachable")}</span>
+        ) : null}
       </span>
-      {active && unreachable ? (
-        <span>{t("comments.t3Unreachable")}</span>
-      ) : null}
     </div>
   );
 }

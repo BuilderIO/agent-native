@@ -16,6 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   lastAnsweredThread,
   useT3AgentRequestsContext,
@@ -26,6 +27,16 @@ import {
 import { agentMentionMedia } from "./CommentIdentity";
 
 const NEW_THREAD = "__new__";
+const LOADING_WIDTHS = [
+  "w-3/4",
+  "w-1/2",
+  "w-2/3",
+  "w-4/5",
+  "w-3/5",
+  "w-2/3",
+  "w-1/2",
+  "w-3/4",
+];
 
 export interface T3ThreadChoice {
   threadId: string | null;
@@ -55,7 +66,7 @@ export function T3ThreadPicker({
   }, [search]);
   const { requests } = useT3AgentRequestsContext();
   const last = lastAnsweredThread(requests, agent);
-  const threads = useT3Threads(agent, query, open);
+  const threads = useT3Threads(agent, query, true);
   const listed = (threads.data?.threads ?? []).filter(
     (thread) => thread.threadId !== last?.threadId,
   );
@@ -162,6 +173,17 @@ export function T3ThreadPicker({
               </p>
             ) : threads.isSuccess && listed.length === 0 && search.trim() ? (
               <CommandEmpty>{t("comments.t3NoThreads")}</CommandEmpty>
+            ) : null}
+            {threads.isPending && !search.trim() ? (
+              <CommandGroup heading={t("comments.t3OtherThreads")}>
+                <div aria-hidden data-t3-threads-loading>
+                  {LOADING_WIDTHS.map((width, index) => (
+                    <div key={index} className="flex h-8 items-center px-2">
+                      <Skeleton className={`h-3.5 ${width}`} />
+                    </div>
+                  ))}
+                </div>
+              </CommandGroup>
             ) : null}
             {listed.length ? (
               <CommandGroup
