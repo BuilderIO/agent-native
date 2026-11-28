@@ -7,6 +7,28 @@ description: Administra el contexto de organización, los roles de equipo y apli
 
 La organización define la membresía del equipo y el límite del tenant. El espacio de trabajo agrupa aplicaciones y configuración de despliegue, pero no reemplaza a la organización. El servidor debe comprobar los permisos. Ocultar un botón no es control de acceso.
 
+## Consultar el dominio de la organización {#get-org-domain}
+
+`getOrgDomain()` lee el dominio de correo permitido de una organización. Recibe un ID de organización como cadena y devuelve `Promise<string | null>`.
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+En una operación ya autorizada que usa el contexto de una acción, trata la ausencia de una organización activa antes de consultar su dominio:
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+El resultado es `null` si la organización no existe o si `allowed_domain` está vacío. Un dominio no vacío se devuelve sin cambios. Un fallo de base de datos rechaza la promesa. Esta consulta no comprueba la autenticación, la pertenencia ni los roles. El resultado no demuestra autorización. Quien llama debe autorizar por separado.
+
 ## Tres ámbitos de roles
 
 - Los roles `owner`, `admin` y `member` de la organización controlan la administración del equipo. Los propietarios y administradores gestionan la unión automática por dominio de correo; solo el propietario gestiona el secreto A2A compartido entre apps.

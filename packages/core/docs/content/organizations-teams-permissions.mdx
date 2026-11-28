@@ -135,6 +135,33 @@ setting. If a signed-in user has no membership, the framework creates a
 personal organization by default. Set `AUTO_CREATE_DEFAULT_ORG=0` when an app
 must require an explicit invite or organization-creation step.
 
+### Organization domain lookup {#get-org-domain}
+
+`getOrgDomain()` reads the allowed email domain for an organization. It accepts
+an organization ID as a string and returns `Promise<string | null>`.
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+For an already authorized operation using an action's context, handle a missing
+active organization before looking up its domain:
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+The result is `null` if the organization does not exist or its `allowed_domain`
+is empty. A nonempty domain is returned unchanged. Database failures reject
+the promise. This lookup does not check authentication, membership, or roles.
+The result is not evidence of authorization. Callers must authorize separately.
+
 ## Organization roles (membership RBAC)
 
 Organization roles answer: **what may this person do to the team itself?**

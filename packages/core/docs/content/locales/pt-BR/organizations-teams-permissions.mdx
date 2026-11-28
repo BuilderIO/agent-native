@@ -7,6 +7,28 @@ description: Gerencie o contexto da organização, funções de equipe e aplicat
 
 A organização define os membros da equipe e o limite do tenant. O workspace agrupa aplicativos e configuração de implantação, mas não substitui a organização. O servidor precisa verificar permissões. Ocultar um botão não é controle de acesso.
 
+## Consultar o domínio da organização {#get-org-domain}
+
+`getOrgDomain()` lê o domínio de e-mail permitido de uma organização. Recebe um ID de organização como string e retorna `Promise<string | null>`.
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+Em uma operação já autorizada que usa o contexto de uma ação, trate a ausência de uma organização ativa antes de consultar seu domínio:
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+O resultado é `null` se a organização não existir ou se `allowed_domain` estiver vazio. Um domínio não vazio é retornado sem alterações. Uma falha no banco de dados rejeita a promessa. Esta consulta não verifica autenticação, associação ou funções. O resultado não é prova de autorização. Quem chama deve autorizar separadamente.
+
 ## Três escopos de função
 
 - As funções `owner`, `admin` e `member` da organização controlam a administração da equipe. Proprietários e administradores gerenciam a entrada automática por domínio de e-mail; só o proprietário gerencia o segredo A2A compartilhado entre apps.

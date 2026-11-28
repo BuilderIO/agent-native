@@ -7,6 +7,28 @@ description: 管理组织上下文、团队和应用角色以及资源访问。
 
 组织定义团队成员关系和租户边界。工作区汇集应用和部署配置，但不能替代组织。权限必须由服务端检查。在界面隐藏按钮并不等于访问控制。
 
+## 查询组织域名 {#get-org-domain}
+
+`getOrgDomain()` 读取组织允许的电子邮件域名。它接收字符串类型的组织 ID，并返回 `Promise<string | null>`。
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+在使用操作上下文的已授权操作中，查询域名之前先处理没有活动组织的情况：
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+如果组织不存在或 `allowed_domain` 为空，结果为 `null`。非空域名原样返回。数据库失败会使 Promise 被拒绝。此查询不检查身份验证、成员资格或角色。结果不能作为授权依据。调用方必须单独进行授权。
+
 ## 三种角色范围
 
 - 组织角色 `owner`、`admin` 和 `member` 控制团队管理。所有者和管理员管理邮箱域名自动加入；应用之间共享的 A2A 密钥只有所有者可以管理。

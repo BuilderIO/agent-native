@@ -7,6 +7,28 @@ description: 조직 컨텍스트, 팀 및 앱 역할, 리소스 액세스를 관
 
 조직은 팀 멤버십과 테넌트 경계를 정의합니다. 워크스페이스는 앱과 배포 설정을 묶지만 조직을 대체하지 않습니다. 권한은 서버에서 확인해야 합니다. UI에서 버튼을 숨기는 것은 접근 제어가 아닙니다.
 
+## 조직 도메인 조회 {#get-org-domain}
+
+`getOrgDomain()`은 조직의 허용된 이메일 도메인을 읽습니다. 조직 ID를 문자열로 받고 `Promise<string | null>`을 반환합니다.
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+이미 권한이 부여된 작업에서 액션의 컨텍스트를 사용할 때는 도메인을 조회하기 전에 활성 조직이 없는 경우를 처리합니다.
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+조직이 없거나 `allowed_domain`이 비어 있으면 결과는 `null`입니다. 비어 있지 않은 도메인은 변경 없이 반환됩니다. 데이터베이스 오류가 발생하면 Promise가 거부됩니다. 이 조회는 인증, 멤버십 또는 역할을 확인하지 않습니다. 결과는 권한 부여의 증거가 아닙니다. 호출자는 별도로 권한을 확인해야 합니다.
+
 ## 세 가지 역할 범위
 
 - 조직의 `owner`, `admin`, `member` 역할은 팀 관리를 제어합니다. 소유자와 관리자는 이메일 도메인 자동 참여를 관리하고, 앱 간 A2A 공유 시크릿은 소유자만 관리합니다.
