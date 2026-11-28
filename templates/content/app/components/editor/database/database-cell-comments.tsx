@@ -115,6 +115,7 @@ export function DatabaseCellComments({
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const controlsRef = useRef<HTMLSpanElement>(null);
   const startRef = useRef<HTMLButtonElement>(null);
+  const atStart = property.definition.type === "number";
   // Set while the card holds unsent text, so a stray click or Escape keeps it.
   const keepOpenRef = useRef(false);
   // Set when focus belongs elsewhere once the card closes: wherever the user
@@ -185,7 +186,10 @@ export function DatabaseCellComments({
       </PopoverPrimitive.Anchor>
       <span
         ref={controlsRef}
-        className="relative ms-auto flex min-h-6 shrink-0 items-center"
+        className={cn(
+          "relative flex min-h-6 shrink-0 items-center",
+          atStart ? "order-first" : "ms-auto",
+        )}
       >
         {canComment ? (
           <Tooltip>
@@ -194,8 +198,10 @@ export function DatabaseCellComments({
                 ref={startRef}
                 type="button"
                 className={cn(
-                  "pointer-events-none absolute end-full top-0 flex size-6 items-center justify-center rounded bg-background text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-hover/cell:opacity-100 [@media(any-hover:none)]:hidden",
-                  besideEditButton ? "me-6" : "me-0.5",
+                  "pointer-events-none absolute top-0 flex size-6 items-center justify-center rounded bg-background text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-hover/cell:opacity-100 [@media(any-hover:none)]:hidden",
+                  atStart
+                    ? "start-full ms-0.5"
+                    : cn("end-full", besideEditButton ? "me-6" : "me-0.5"),
                   card?.mode === "start" && "pointer-events-auto opacity-100",
                   rowSelected &&
                     "[@media(any-hover:none)]:pointer-events-auto [@media(any-hover:none)]:flex [@media(any-hover:none)]:opacity-100",

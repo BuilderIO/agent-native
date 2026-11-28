@@ -7036,6 +7036,7 @@ function DatabaseTableView({
               columns={dataGridColumns}
               getRowId={(item) => item.id}
               columnWidths={columnWidths}
+              className="[&_[data-data-grid-overflow-edge=end]]:z-30"
               // Below `lg` the page owns vertical scrolling: a nested 70vh
               // scroller traps the swipe and leaves the table a short window.
               scrollContainerProps={{
@@ -15665,6 +15666,7 @@ function DatabasePropertyHeader({
   const Icon = TYPE_ICONS[property.definition.type];
   const canReorder = canEdit;
   const narrow = width < NARROW_PROPERTY_HEADER_WIDTH;
+  const numeric = property.definition.type === "number";
   const openFillWithAi = useColumnFillMenu(property);
   const nameTooltip = useTruncatedHeaderTooltip();
   const columnState = databaseColumnHeaderState(
@@ -15690,14 +15692,19 @@ function DatabasePropertyHeader({
           {canReorder && !readOnlyPresentation && (
             <span
               aria-hidden="true"
-              className="flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/50 active:cursor-grabbing"
+              className="flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/50 opacity-0 transition-opacity active:cursor-grabbing group-hover:opacity-100 group-focus-within:opacity-100 [@media(any-hover:none)]:opacity-100"
               onPointerDown={onPointerDown}
             >
               <IconGripVertical className="size-3.5" />
             </span>
           )}
           {readOnlyPresentation ? (
-            <div className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-xs text-muted-foreground">
+            <div
+              className={cn(
+                "flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-xs text-muted-foreground",
+                numeric && "justify-end",
+              )}
+            >
               <Icon className={cn("size-4 shrink-0", narrow && "hidden")} />
               <span className="truncate">{property.definition.name}</span>
               <DatabaseColumnStateIndicators
@@ -15717,6 +15724,7 @@ function DatabasePropertyHeader({
               triggerClassName={cn(
                 "h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground",
                 narrow && "gap-1",
+                numeric && "justify-end",
               )}
               iconClassName={narrow ? "hidden" : undefined}
               triggerTrailing={
@@ -15751,6 +15759,7 @@ function DatabasePropertyHeader({
                   className={cn(
                     "flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     narrow && "gap-1",
+                    numeric && "justify-end",
                   )}
                 >
                   <Icon className={cn("size-4 shrink-0", narrow && "hidden")} />
@@ -16820,6 +16829,8 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
               wrapCells
                 ? "whitespace-pre-wrap break-words"
                 : "truncate whitespace-nowrap",
+              itemProperty.definition.type === "number" &&
+                "w-full text-end tabular-nums",
               isEmptyPropertyValue(itemProperty.value) &&
                 !bodyCellHydrationPending &&
                 "text-transparent",
