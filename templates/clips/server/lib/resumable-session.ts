@@ -12,6 +12,7 @@ export interface StoredResumableSession {
   bytesUploaded: number;
   lastCommittedIndex?: number;
   providerClosed?: boolean;
+  discarding?: true;
 }
 
 export async function compareAndSetResumableSession(

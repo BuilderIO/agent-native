@@ -14,6 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 
+import type { FileUploadResult } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull, notInArray } from "drizzle-orm";
 import {
@@ -34,8 +35,12 @@ import {
 } from "../../../../../lib/pending-redactions.js";
 import {
   claimLease,
+  isLeaseLost,
+  leaseHeld,
+  LeaseLostError,
   releaseLease,
   renewLease,
+  type RecordingLease,
 } from "../../../../../lib/recording-leases.js";
 import { deleteStoredMediaUrl } from "../../../../../lib/recording-media-cleanup.js";
 import {
@@ -52,6 +57,7 @@ import {
   listRecordingTracks,
   listTrackSessions,
   type RecordingTrackRow,
+  retireTrackUpload,
   trackSessionGeneration,
 } from "../../../../../lib/recording-tracks.js";
 import {
@@ -66,10 +72,8 @@ import {
   finalizeRichRecordingSchema,
   sanitizeTrackMeta,
 } from "../../../../../lib/rich-recording-manifest.js";
-import {
-  deleteRejectedHostedUpload,
-  uploadRecordingMedia,
-} from "../../../../../lib/upload-recording-media.js";
+import { isUploadPrivateToCaller } from "../../../../../lib/s3-upload-provider-ids.js";
+import { uploadRecordingMedia } from "../../../../../lib/upload-recording-media.js";
 import { addHostedClipRecordingBytes } from "../../../../../lib/video-storage.js";
 
 type DroppedTrack = {
@@ -83,6 +87,12 @@ type DroppedTrack = {
  * stops once it has lapsed, since another finalize may have taken over.
  */
 const FINALIZE_LEASE_MS = 2 * 60 * 1000;
+
+async function keepFinalizeLease(lease: RecordingLease): Promise<void> {
+  if (!(await renewLease(lease, FINALIZE_LEASE_MS))) {
+    throw new LeaseLostError(lease);
+  }
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -106,19 +116,27 @@ export async function completeTrackUpload(input: {
   ownerEmail: string;
   track: RichTrackId;
   session: StoredResumableSession;
+  lease?: RecordingLease;
 }): Promise<
-  | { ok: true; url: string; session: StoredResumableSession }
+  | {
+      ok: true;
+      url: string;
+      session: StoredResumableSession;
+      recorded: boolean;
+    }
   | { ok: false; retryable: boolean }
 > {
   let session = input.session;
   const completedUrl = session.meta.completedUrl;
   if (typeof completedUrl === "string" && completedUrl) {
-    return { ok: true, url: completedUrl, session };
+    return { ok: true, url: completedUrl, session, recorded: true };
   }
   const provider = await resolveResumableUploadProvider(session.providerId);
   if (!provider?.resumable) return { ok: false, retryable: true };
+  const { lease } = input;
 
   if (!session.providerClosed) {
+    if (lease) await keepFinalizeLease(lease);
     const closed = await provider.resumable.relayChunk(
       { sessionId: session.sessionId, meta: session.meta },
       `bytes */${session.bytesUploaded}`,
@@ -143,6 +161,7 @@ export async function completeTrackUpload(input: {
         input.track,
         session,
         next,
+        lease,
       ))
     ) {
       return { ok: false, retryable: true };
@@ -150,6 +169,7 @@ export async function completeTrackUpload(input: {
     session = next;
   }
 
+  if (lease) await keepFinalizeLease(lease);
   const url = await completeClosedTrackUpload({
     recordingId: input.recordingId,
     ownerEmail: input.ownerEmail,
@@ -160,13 +180,14 @@ export async function completeTrackUpload(input: {
     ...session,
     meta: { ...session.meta, completedUrl: url },
   };
-  await compareAndSetTrackSession(
+  const recorded = await compareAndSetTrackSession(
     input.recordingId,
     input.track,
     session,
     completed,
+    lease,
   );
-  return { ok: true, url, session: completed };
+  return { ok: true, url, session: completed, recorded };
 }
 
 export async function handleFinalizeTracks(event: H3Event) {
@@ -382,6 +403,31 @@ export async function finalizeRecordingTracks(params: {
           retryable: true,
         };
       };
+      const changedMidway = async (
+        track: RichTrackId,
+        url: string,
+        session: StoredResumableSession,
+      ) => {
+        const current = await getTrackSession(recordingId, track);
+        const referenced = (
+          await listRecordingTracks(recordingId, ownerEmail)
+        ).some((row) => row.url === url);
+        if (!referenced && current?.sessionId !== session.sessionId) {
+          await discardTrackUpload({
+            recordingId,
+            ownerEmail,
+            storageMode: existing.storageMode,
+            session,
+          });
+        }
+        setStatus(409);
+        return {
+          ok: false,
+          error:
+            "The recording changed while its tracks were finalized. Finalize again.",
+          retryable: true,
+        };
+      };
       try {
         const editsUnchanged = eq(
           schema.recordings.editsJson,
@@ -413,23 +459,27 @@ export async function finalizeRecordingTracks(params: {
             current &&
             listed.has(track) &&
             !stored.has(track) &&
-            session.bytesUploaded > 0
+            session.bytesUploaded > 0 &&
+            !session.discarding
           ) {
             continue;
           }
-          if (
-            (typeof session.meta.completedUrl === "string" &&
-              session.meta.completedUrl === stored.get(track)?.url) ||
-            (await discardTrackUpload({
-              recordingId,
-              ownerEmail,
-              storageMode: existing.storageMode,
-              session,
-            }))
-          ) {
-            // Unless a chunk started a newer upload over it meanwhile.
-            await deleteTrackSessionIf(recordingId, track, session);
+          const keptByTrack =
+            typeof session.meta.completedUrl === "string" &&
+            session.meta.completedUrl === stored.get(track)?.url;
+          if (keptByTrack) {
+            await deleteTrackSessionIf(recordingId, track, session, lease);
+            continue;
           }
+          await keepFinalizeLease(lease);
+          await retireTrackUpload({
+            recordingId,
+            ownerEmail,
+            storageMode: existing.storageMode,
+            track,
+            session,
+            lease,
+          });
         }
 
         const dropped: DroppedTrack[] = [];
@@ -438,14 +488,13 @@ export async function finalizeRecordingTracks(params: {
           const uploaded = sessions.find(
             (entry) =>
               entry.track === track.id &&
-              trackSessionGeneration(entry.session) === generationId,
+              trackSessionGeneration(entry.session) === generationId &&
+              !entry.session.discarding,
           )?.session;
           if (!uploaded || uploaded.bytesUploaded <= 0) {
             dropped.push({ id: track.id, reason: "not_uploaded" });
             continue;
           }
-          if (!(await renewLease(lease, FINALIZE_LEASE_MS))) return lapsed();
-
           let completed;
           try {
             completed = await completeTrackUpload({
@@ -453,8 +502,10 @@ export async function finalizeRecordingTracks(params: {
               ownerEmail,
               track: track.id,
               session: uploaded,
+              lease,
             });
           } catch (err) {
+            if (isLeaseLost(err)) throw err;
             console.warn(
               `[track-finalize] ${track.id} track of ${recordingId} did not complete:`,
               errorMessage(err),
@@ -471,24 +522,50 @@ export async function finalizeRecordingTracks(params: {
               };
             }
             dropped.push({ id: track.id, reason: "storage_refused" });
-            await deleteTrackSessionIf(recordingId, track.id, uploaded);
+            await deleteTrackSessionIf(recordingId, track.id, uploaded, lease);
             continue;
           }
 
+          if (!completed.recorded) {
+            await keepFinalizeLease(lease);
+            return changedMidway(track.id, completed.url, completed.session);
+          }
           let session = completed.session;
           if (
             existing.storageMode === "hosted" &&
             session.meta.hostedBytesCounted !== true
           ) {
+            await keepFinalizeLease(lease);
+            const uncounted = session;
+            const counted: StoredResumableSession = {
+              ...uncounted,
+              meta: { ...uncounted.meta, hostedBytesCounted: true },
+            };
             let accounting;
             try {
               accounting = await addHostedClipRecordingBytes({
                 recordingId,
                 ownerEmail,
                 userId: authUserId ?? null,
-                additionalBytes: session.bytesUploaded,
+                additionalBytes: uncounted.bytesUploaded,
+                whileCharging: async () => {
+                  if (
+                    !(await compareAndSetTrackSession(
+                      recordingId,
+                      track.id,
+                      uncounted,
+                      counted,
+                      lease,
+                    ))
+                  ) {
+                    throw new Error(
+                      "The track's upload changed while its bytes were counted.",
+                    );
+                  }
+                },
               });
             } catch (err) {
+              if (isLeaseLost(err)) throw err;
               // Most often the recording's own bytes aren't counted yet. The
               // completed track is kept on its session for the next try.
               console.warn(
@@ -505,43 +582,23 @@ export async function finalizeRecordingTracks(params: {
               };
             }
             if (!accounting.ok) {
-              // The helper throws the failure it was given once the file is
-              // gone, and counts the bytes when it couldn't delete them.
-              const full = new Error("Hosted Clips storage is full.");
-              const deleted = await deleteRejectedHostedUpload({
+              await keepFinalizeLease(lease);
+              const discarded = await retireTrackUpload({
                 recordingId,
                 ownerEmail,
-                url: completed.url,
-                additionalBytes: session.bytesUploaded,
-                failure: full,
-              }).catch((err: unknown) => {
-                if (err === full) return true;
-                console.warn(
-                  `[track-finalize] ${track.id} track of ${recordingId} over the hosted limit:`,
-                  errorMessage(err),
-                );
-                return false;
+                storageMode: existing.storageMode,
+                track: track.id,
+                session: uncounted,
+                lease,
               });
-              dropped.push({ id: track.id, reason: "storage_full" });
-              // A file storage kept keeps its session, the only thing that
-              // points to it, so a retry or permanent deletion still finds it.
-              if (deleted) {
-                await deleteTrackSessionIf(recordingId, track.id, session);
+              if (!discarded) {
+                console.warn(
+                  `[track-finalize] ${track.id} track of ${recordingId} over the hosted limit is still stored`,
+                );
               }
+              dropped.push({ id: track.id, reason: "storage_full" });
               continue;
             }
-            // Marked before the row is written, so a retry never counts the
-            // track twice. Losing the mark only counts it twice, never zero.
-            const counted: StoredResumableSession = {
-              ...session,
-              meta: { ...session.meta, hostedBytesCounted: true },
-            };
-            await compareAndSetTrackSession(
-              recordingId,
-              track.id,
-              session,
-              counted,
-            );
             session = counted;
           }
 
@@ -560,7 +617,7 @@ export async function finalizeRecordingTracks(params: {
             metaJson: JSON.stringify(sanitizeTrackMeta(track.id, track.meta)),
             updatedAt: now,
           };
-          if (!(await renewLease(lease, FINALIZE_LEASE_MS))) return lapsed();
+          await keepFinalizeLease(lease);
           // The recording's row stays locked while the track's row is written:
           // a redaction marked since the read either lands first, and the track
           // isn't kept, or waits, and the burn that follows it deletes the track.
@@ -574,6 +631,7 @@ export async function finalizeRecordingTracks(params: {
                   eq(schema.recordings.mediaFormat, "flat"),
                   editsUnchanged,
                   attemptUnchanged,
+                  leaseHeld(lease),
                 ),
               )
               .for("update")
@@ -605,50 +663,31 @@ export async function finalizeRecordingTracks(params: {
               ? ("kept" as const)
               : ("changed" as const);
           });
+          if (kept !== "kept") await keepFinalizeLease(lease);
           if (kept === "stopped") {
             // No finalize keeps this track now, so its upload goes too, unless
             // a stored track already points to the same file.
             const referenced = (
               await listRecordingTracks(recordingId, ownerEmail)
             ).some((row) => row.url === completed.url);
-            if (
-              referenced ||
-              (await discardTrackUpload({
+            if (referenced) {
+              await deleteTrackSessionIf(recordingId, track.id, session, lease);
+            } else {
+              await retireTrackUpload({
                 recordingId,
                 ownerEmail,
                 storageMode: existing.storageMode,
+                track: track.id,
                 session,
-              }))
-            ) {
-              await deleteTrackSessionIf(recordingId, track.id, session);
+                lease,
+              });
             }
             return tracksOff();
           }
           if (kept === "changed") {
-            // The completed upload stays on its session for the next try, unless
-            // a burn already discarded the session and left the file to this
-            // one. A file a stored track points to is never this one's to delete.
-            const current = await getTrackSession(recordingId, track.id);
-            const referenced = (
-              await listRecordingTracks(recordingId, ownerEmail)
-            ).some((row) => row.url === completed.url);
-            if (!referenced && current?.meta.completedUrl !== completed.url) {
-              await discardTrackUpload({
-                recordingId,
-                ownerEmail,
-                storageMode: existing.storageMode,
-                session,
-              });
-            }
-            setStatus(409);
-            return {
-              ok: false,
-              error:
-                "The recording changed while its tracks were finalized. Finalize again.",
-              retryable: true,
-            };
+            return changedMidway(track.id, completed.url, session);
           }
-          await deleteTrackSessionIf(recordingId, track.id, session);
+          await deleteTrackSessionIf(recordingId, track.id, session, lease);
         }
 
         const rows = await listRecordingTracks(recordingId, ownerEmail);
@@ -664,9 +703,9 @@ export async function finalizeRecordingTracks(params: {
           };
         }
 
-        if (!(await renewLease(lease, FINALIZE_LEASE_MS))) return lapsed();
+        await keepFinalizeLease(lease);
         const manifest = buildRichRecordingManifest(recordingId, input, rows);
-        let manifestUrl: string;
+        let manifestUpload: FileUploadResult;
         try {
           const uploaded = await uploadRecordingMedia({
             recordingId,
@@ -678,7 +717,7 @@ export async function finalizeRecordingTracks(params: {
             recordAsset: false,
           });
           if (!uploaded) throw new Error("No file storage took the manifest.");
-          manifestUrl = uploaded.url;
+          manifestUpload = uploaded;
         } catch (err) {
           console.warn(
             `[track-finalize] manifest of ${recordingId} was not stored:`,
@@ -692,6 +731,7 @@ export async function finalizeRecordingTracks(params: {
           };
         }
 
+        const manifestUrl = manifestUpload.url;
         const richBytes = rows.reduce((sum, row) => sum + row.bytes, 0);
         // Under the row lock and the stop check, like each track's row.
         const flipped = await db.transaction(async (tx) => {
@@ -705,6 +745,7 @@ export async function finalizeRecordingTracks(params: {
                 // A redaction marked since the read would make these tracks stale.
                 editsUnchanged,
                 attemptUnchanged,
+                leaseHeld(lease),
               ),
             )
             .for("update")
@@ -727,22 +768,24 @@ export async function finalizeRecordingTracks(params: {
         if (flipped !== "rich") {
           // Another finalize finished first, the recording's edits changed, or
           // a burn stopped its tracks; this manifest copy is surplus either way.
-          const surplusDeleted = await deleteStoredMediaUrl(manifestUrl, {
-            storageMode: existing.storageMode,
-            recordingId,
-          }).catch((err: unknown) => {
-            console.warn(
-              `[track-finalize] surplus manifest of ${recordingId} could not be deleted:`,
-              errorMessage(err),
-            );
-            return false;
-          });
+          const held = await renewLease(lease, FINALIZE_LEASE_MS);
+          const surplusDeleted =
+            isUploadPrivateToCaller(manifestUpload) &&
+            (await deleteStoredMediaUrl(manifestUrl, {
+              storageMode: existing.storageMode,
+              recordingId,
+            }).catch((err: unknown) => {
+              console.warn(
+                `[track-finalize] surplus manifest of ${recordingId} could not be deleted:`,
+                errorMessage(err),
+              );
+              return false;
+            }));
           if (!surplusDeleted) {
             console.warn(
               `[track-finalize] surplus manifest of ${recordingId} is left in storage: ${manifestUrl}`,
             );
           }
-          if (flipped === "stopped") return tracksOff();
           const currentRows = await db
             .select({
               mediaFormat: schema.recordings.mediaFormat,
@@ -752,30 +795,32 @@ export async function finalizeRecordingTracks(params: {
             .where(recordingWhere)
             .limit(1);
           const current = currentRows.length ? currentRows[0] : null;
+          if (current?.mediaFormat === "rich") {
+            return {
+              ok: true,
+              recordingId,
+              mediaFormat: "rich" as const,
+              richBytes: current.richBytes,
+              tracks: trackSummary(
+                await listRecordingTracks(recordingId, ownerEmail),
+              ),
+              alreadyFinalized: true,
+            };
+          }
+          if (!held) return lapsed();
+          if (flipped === "stopped") return tracksOff();
           if (!current) {
             throw createError({
               statusCode: 404,
               message: "Recording not found",
             });
           }
-          if (current.mediaFormat !== "rich") {
-            setStatus(409);
-            return {
-              ok: false,
-              error:
-                "The recording changed while its tracks were finalized. Finalize again.",
-              retryable: true,
-            };
-          }
+          setStatus(409);
           return {
-            ok: true,
-            recordingId,
-            mediaFormat: "rich" as const,
-            richBytes: current.richBytes,
-            tracks: trackSummary(
-              await listRecordingTracks(recordingId, ownerEmail),
-            ),
-            alreadyFinalized: true,
+            ok: false,
+            error:
+              "The recording changed while its tracks were finalized. Finalize again.",
+            retryable: true,
           };
         }
 
@@ -787,6 +832,9 @@ export async function finalizeRecordingTracks(params: {
           tracks: trackSummary(rows),
           ...(dropped.length ? { droppedTracks: dropped } : {}),
         };
+      } catch (err) {
+        if (isLeaseLost(err)) return lapsed();
+        throw err;
       } finally {
         try {
           await releaseLease(lease);

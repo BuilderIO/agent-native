@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
+import type { DbExec } from "@agent-native/core/db";
 import {
   afterAll,
   beforeAll,
@@ -28,12 +29,36 @@ const mocks = vi.hoisted(() => ({
   deleteDraft: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({
+vi.mock("@agent-native/core/db", async (original) => {
+  const core = await original<typeof import("@agent-native/core/db")>();
+  const exec = {
     execute: async (statement: SqlStatement) =>
       client.query(statement.sql, statement.args ?? []),
-  }),
-}));
+  };
+  const leaseExec: DbExec = {
+    async execute(statement) {
+      const text = typeof statement === "string" ? statement : statement.sql;
+      const args = typeof statement === "string" ? [] : (statement.args ?? []);
+      let position = 0;
+      const numbered = text.replace(/\?/g, () => `$${++position}`);
+      const result = await client.query(numbered, [...args]);
+      return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
+    },
+  };
+  const options = { exec: leaseExec };
+  return {
+    ...core,
+    getDbExec: () => exec,
+    claimLease: (table: string, key: string, ttlMs: number) =>
+      core.claimLease(table, key, ttlMs, options),
+    renewLease: (lease: Parameters<typeof core.renewLease>[0], ttlMs: number) =>
+      core.renewLease(lease, ttlMs, options),
+    releaseLease: (lease: Parameters<typeof core.releaseLease>[0]) =>
+      core.releaseLease(lease, options),
+    isLeaseHeld: (table: string, key: string) =>
+      core.isLeaseHeld(table, key, options),
+  };
+});
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (context: unknown, fn: () => unknown) => {
     mocks.contexts.push(context);

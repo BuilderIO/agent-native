@@ -9,6 +9,13 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import {
+  holdsLease,
+  leaseHeldSql,
+  LeaseLostError,
+  type Lease,
+} from "../db/leases.js";
+import { sql, type SqlFragment } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
@@ -239,12 +246,20 @@ export async function appStateDelete(
   return deleted;
 }
 
+export interface AppStateCompareAndSetOptions extends StoreWriteOptions {
+  /**
+   * Writes only while this lease is still held, and throws `LeaseLostError`
+   * when the write changed nothing because it ran out.
+   */
+  lease?: Lease;
+}
+
 export async function appStateCompareAndSet(
   sessionId: string,
   key: string,
   expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
-  options?: StoreWriteOptions,
+  options?: AppStateCompareAndSetOptions,
 ): Promise<boolean> {
   if (nextValue) {
     await assertNavigateWriteAllowedForSession(sessionId, key, nextValue);
@@ -252,13 +267,18 @@ export async function appStateCompareAndSet(
   if (nextValue !== null) serializeAppStateValue(key, nextValue);
   await ensureTable();
   const client = getDbExec();
+  const lease = options?.lease;
   const changed = await executeAppStateCompareAndSet(
     client,
     sessionId,
     key,
     expectedValue,
     nextValue,
+    lease ? leaseHeldSql(lease) : undefined,
   );
+  if (!changed && lease && !(await holdsLease(lease))) {
+    throw new LeaseLostError(lease);
+  }
   if (changed) {
     if (nextValue === null) {
       emitAppStateDelete(key, options?.requestSource, sessionId);
@@ -284,12 +304,14 @@ async function executeAppStateCompareAndSet(
   key: string,
   expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
+  guard?: SqlFragment,
 ): Promise<boolean> {
   const statement = buildAppStateCompareAndSetStatement(
     sessionId,
     key,
     expectedValue,
     nextValue,
+    guard ?? sql`TRUE`,
   );
   const result = await client.execute(statement);
   return result.rowsAffected > 0;
@@ -300,33 +322,27 @@ function buildAppStateCompareAndSetStatement(
   key: string,
   expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
-): { sql: string; args: unknown[] } {
+  guard: SqlFragment,
+): SqlFragment {
+  const session = sql.value(sessionId);
+  const stateKey = sql.value(key);
   if (expectedValue === null) {
     if (nextValue === null) {
       throw new Error(
         "Application state CAS cannot replace absence with absence.",
       );
     }
-    const next = serializeAppStateValue(key, nextValue);
-    return {
-      sql: `INSERT INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?) ON CONFLICT (session_id, key) DO NOTHING`,
-      args: [sessionId, key, next, Date.now(), sessionId, key],
-    };
+    const next = sql.value(serializeAppStateValue(key, nextValue));
+    return sql`INSERT INTO application_state (session_id, key, value, updated_at) SELECT ${session}, ${stateKey}, ${next}, ${sql.value(Date.now())} WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ${session} AND key = ${stateKey}) AND ${guard} ON CONFLICT (session_id, key) DO NOTHING`;
   }
 
-  const expected = JSON.stringify(expectedValue);
+  const expected = sql.value(JSON.stringify(expectedValue));
   if (nextValue === null) {
-    return {
-      sql: `DELETE FROM application_state WHERE session_id = ? AND key = ? AND value = ?`,
-      args: [sessionId, key, expected],
-    };
+    return sql`DELETE FROM application_state WHERE session_id = ${session} AND key = ${stateKey} AND value = ${expected} AND ${guard}`;
   }
 
-  const next = serializeAppStateValue(key, nextValue);
-  return {
-    sql: `UPDATE application_state SET value = ?, updated_at = ? WHERE session_id = ? AND key = ? AND value = ?`,
-    args: [next, Date.now(), sessionId, key, expected],
-  };
+  const next = sql.value(serializeAppStateValue(key, nextValue));
+  return sql`UPDATE application_state SET value = ${next}, updated_at = ${sql.value(Date.now())} WHERE session_id = ${session} AND key = ${stateKey} AND value = ${expected} AND ${guard}`;
 }
 
 function serializeAppStateValue(

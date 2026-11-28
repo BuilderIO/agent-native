@@ -896,6 +896,8 @@ describe("post-finalize worker", () => {
             orgId: "org-1",
             status: "ready",
             uploadGenerationId: null,
+            thumbnailStatus: "pending",
+            thumbnailFailureReason: null,
           },
         ]),
       };
@@ -917,6 +919,7 @@ describe("post-finalize worker", () => {
     expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
       "rec-1",
       "skipped-media-fetch",
+      { thumbnailStatus: "pending", thumbnailFailureReason: null },
     );
   });
 
@@ -938,6 +941,8 @@ describe("post-finalize worker", () => {
             orgId: "org-1",
             status: "ready",
             uploadGenerationId: null,
+            thumbnailStatus: "pending",
+            thumbnailFailureReason: null,
           },
         ]),
       };
@@ -957,8 +962,51 @@ describe("post-finalize worker", () => {
     expect(mockMarkThumbnailFailed).toHaveBeenCalledWith(
       "rec-1",
       "database unavailable",
+      { thumbnailStatus: "pending", thumbnailFailureReason: null },
     );
   });
+
+  it.each([1, 5])(
+    "leaves a recording another run holds to that run, at retry %i",
+    async (retryAttempt) => {
+      mockReadBody.mockResolvedValue({
+        recordingId: "rec-1",
+        kind: "thumbnail",
+        token: "valid-token",
+        retryAttempt,
+      });
+      mockDb.select.mockImplementationOnce(() => {
+        const builder = {
+          from: vi.fn(() => builder),
+          where: vi.fn(() => builder),
+          limit: vi.fn(async () => [
+            {
+              id: "rec-1",
+              ownerEmail: "owner@example.test",
+              orgId: "org-1",
+              status: "ready",
+              uploadGenerationId: null,
+              thumbnailStatus: null,
+              thumbnailFailureReason: null,
+            },
+          ]),
+        };
+        return builder;
+      });
+      mockEnsureRecordingThumbnail.mockResolvedValue({
+        recordingId: "rec-1",
+        status: "skipped-lease",
+        changed: false,
+      });
+
+      const result = await handler({} as Parameters<typeof handler>[0]);
+
+      expect(result).toMatchObject({ ok: true, kind: "thumbnail" });
+      expect(result).not.toHaveProperty("retryExhausted");
+      expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+      expect(mockMarkThumbnailFailed).not.toHaveBeenCalled();
+    },
+  );
 
   it("retries thumbnail jobs when generation throws", async () => {
     mockReadBody.mockResolvedValue({

@@ -1194,6 +1194,7 @@ async function addHostedClipRetainedBytes(
     recordingId: string;
     userId: string;
     additionalBytes: number;
+    whileCharging?: () => Promise<void>;
   },
   enforceCap: boolean,
 ): Promise<HostedClipAllowanceStorageResult> {
@@ -1244,6 +1245,7 @@ async function addHostedClipRetainedBytes(
         "Hosted recording allowance disappeared during byte accounting.",
       );
     }
+    await input.whileCharging?.();
     const retainedBytesAfter =
       retainedBytes === undefined
         ? undefined
@@ -1274,6 +1276,7 @@ export async function addHostedClipRetainedBytesWithinCap(input: {
   recordingId: string;
   userId: string;
   additionalBytes: number;
+  whileCharging?: () => Promise<void>;
 }): Promise<HostedClipAllowanceStorageResult> {
   return addHostedClipRetainedBytes(input, true);
 }

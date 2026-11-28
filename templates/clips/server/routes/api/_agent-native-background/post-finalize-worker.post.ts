@@ -142,6 +142,8 @@ export default defineEventHandler(async (event: H3Event) => {
       status: schema.recordings.status,
       uploadAttemptId: schema.recordings.uploadAttemptId,
       uploadGenerationId: schema.recordings.uploadGenerationId,
+      thumbnailStatus: schema.recordings.thumbnailStatus,
+      thumbnailFailureReason: schema.recordings.thumbnailFailureReason,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
@@ -261,11 +263,18 @@ export default defineEventHandler(async (event: H3Event) => {
         return { ok: true, kind, result };
       }
       if (kind === "thumbnail") {
+        const seen = {
+          thumbnailStatus: recording.thumbnailStatus,
+          thumbnailFailureReason: recording.thumbnailFailureReason,
+        };
         try {
           const result = await ensureRecordingThumbnail({
             recordingId,
             ownerEmail: recording.ownerEmail,
           });
+          if (result.status === "skipped-lease") {
+            return { ok: true, kind, result };
+          }
           if (isRetryableRecordingThumbnailStatus(result.status)) {
             const nextRetryAttempt = await scheduleThumbnailRetry(
               recordingId,
@@ -285,7 +294,7 @@ export default defineEventHandler(async (event: H3Event) => {
               status: result.status,
               retryAttempt,
             });
-            await markThumbnailFailed(recordingId, result.status);
+            await markThumbnailFailed(recordingId, result.status, seen);
             return {
               ok: true,
               kind,
@@ -319,6 +328,7 @@ export default defineEventHandler(async (event: H3Event) => {
           await markThumbnailFailed(
             recordingId,
             error instanceof Error ? error.message : String(error),
+            seen,
           );
           return {
             ok: true,

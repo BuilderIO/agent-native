@@ -36,6 +36,19 @@ export {
   type DbExecQuery,
   type DbExecStatement,
 } from "./client.js";
+export {
+  claimLease,
+  holdsLease,
+  isLeaseHeld,
+  isLeaseLost,
+  leaseHeld,
+  LeaseLostError,
+  releaseLease,
+  renewLease,
+  writeUnderLease,
+  type Lease,
+  type LeaseOptions,
+} from "./leases.js";
 export { table, text, integer, real, now } from "./schema.js";
 export {
   sql,

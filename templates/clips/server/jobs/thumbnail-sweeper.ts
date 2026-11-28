@@ -28,6 +28,7 @@ import {
   ensureRecordingThumbnail,
   markThumbnailFailed,
   type EnsureRecordingThumbnailResult,
+  type SeenThumbnailState,
 } from "../lib/ensure-recording-thumbnail.js";
 import { claimLease, countAttempt } from "../lib/recording-leases.js";
 
@@ -60,6 +61,7 @@ function countsTowardGivingUp(result: EnsureRecordingThumbnailResult): boolean {
 async function recordFailedAttempt(
   recordingId: string,
   reason: string,
+  seen: SeenThumbnailState,
 ): Promise<void> {
   const attempts = await countAttempt(`${SWEEP_ATTEMPTS_PREFIX}${recordingId}`);
   if (attempts < MAX_SWEEP_ATTEMPTS) return;
@@ -69,6 +71,7 @@ async function recordFailedAttempt(
   await markThumbnailFailed(
     recordingId,
     `thumbnail-sweeper gave up after ${attempts} attempts (${reason})`,
+    seen,
   );
 }
 
@@ -77,11 +80,13 @@ export async function runThumbnailSweepOnce(): Promise<void> {
     const db = getDb();
     const staleBefore = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
 
-    let candidates: Array<{
-      id: string;
-      ownerEmail: string;
-      orgId: string | null;
-    }>;
+    let candidates: Array<
+      {
+        id: string;
+        ownerEmail: string;
+        orgId: string | null;
+      } & SeenThumbnailState
+    >;
     try {
       // guard:allow-unscoped — background recovery scans every owner for
       // recordings whose thumbnail dispatch never landed.
@@ -90,6 +95,8 @@ export async function runThumbnailSweepOnce(): Promise<void> {
           id: schema.recordings.id,
           ownerEmail: schema.recordings.ownerEmail,
           orgId: schema.recordings.orgId,
+          thumbnailStatus: schema.recordings.thumbnailStatus,
+          thumbnailFailureReason: schema.recordings.thumbnailFailureReason,
         })
         .from(schema.recordings)
         .where(
@@ -129,7 +136,10 @@ export async function runThumbnailSweepOnce(): Promise<void> {
               `[thumbnail-sweeper] recovered ${recording.id}: ${result.status}`,
             );
             if (countsTowardGivingUp(result)) {
-              await recordFailedAttempt(recording.id, result.status);
+              await recordFailedAttempt(recording.id, result.status, {
+                thumbnailStatus: recording.thumbnailStatus,
+                thumbnailFailureReason: recording.thumbnailFailureReason,
+              });
             }
           },
         );
