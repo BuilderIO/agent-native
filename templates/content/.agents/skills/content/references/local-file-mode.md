@@ -41,6 +41,16 @@ catch a sync in between, which moves the page to Trash until the next sync
 brings it back. Restoring it from Trash makes it an ordinary page outside the
 folder and never recreates the file.
 
+An open page backed by a linked file takes a change made outside Content in
+place, keeping focus, the cursor and Undo. A Desktop folder reports the change
+as it happens; a folder picked in the browser is read again when the window
+regains focus or the page becomes visible. The page waits while the person is
+composing a word or typing a slash command. When the person has unsaved
+typing, when both sides renamed the page differently, or when the editor can't
+hold the new text, the page keeps its own text and shows a banner offering the
+file's version instead. A title renamed in Content while the change waits is
+kept and saved over the new body.
+
 ## Manifest/CLI bridge
 
 `agent-native content local-files <target>` remains as a compatibility

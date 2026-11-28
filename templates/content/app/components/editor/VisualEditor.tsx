@@ -5134,7 +5134,10 @@ export function VisualEditor({
         }
         return parsedTexts.get(text) ?? null;
       };
-      const next = request.merge(live, (text) => parse(text) !== null);
+      const next = request.merge(
+        hasUserEditIntentRef.current ? live : null,
+        (text) => parse(text) !== null,
+      );
       if (next === null || next === live) return;
       const parsed = parse(next);
       if (!parsed) return;
