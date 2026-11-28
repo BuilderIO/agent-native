@@ -4655,6 +4655,32 @@ function PageEditorSessionBody({
     }
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
+  useEffect(() => {
+    if (!isInitializedRef.current) return;
+    if (!isLinkedLocalSourceDocument || localSourceAccess !== "unavailable")
+      return;
+    if (document.title !== lastSavedTitleRef.current.title) {
+      localTitleRef.current = document.title;
+      setLocalTitle(document.title);
+      lastSavedTitleRef.current = {
+        title: document.title,
+        updatedAt: document.updatedAt,
+      };
+    }
+    if (document.content === lastSavedContentRef.current.content) return;
+    localContentRef.current = document.content;
+    setLocalContent(document.content);
+    setLocalContentUpdatedAt(document.updatedAt);
+    lastSavedContentRef.current = {
+      content: document.content,
+      updatedAt: document.updatedAt,
+      ...(document.revision !== undefined
+        ? { revision: document.revision }
+        : {}),
+    };
+    setLocalFileSyncRevision((revision) => revision + 1);
+  }, [document, isLinkedLocalSourceDocument, localSourceAccess]);
+
   const pendingPersistenceRef = useRef(new Set<Promise<unknown>>());
   const persistenceSequenceRef = useRef(0);
   const persistenceErrorsRef = useRef(
