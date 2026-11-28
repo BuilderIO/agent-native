@@ -513,6 +513,13 @@ describe("slash command menu trigger", () => {
         600,
       ),
     ).toEqual({ top: 284, maxHeight: 300 });
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 10, bottom: 30 },
+        { top: 0, bottom: 40 },
+        40,
+      ),
+    ).toEqual({ top: 34, maxHeight: 0 });
   });
 
   it("keeps native commands when registry commands have the same visible title", () => {

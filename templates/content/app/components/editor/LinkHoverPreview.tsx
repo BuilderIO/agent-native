@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconUnlink, IconExternalLink, IconPencil } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useState, useRef } from "react";
+import { flushSync } from "react-dom";
 
 import {
   Popover,
@@ -27,7 +28,6 @@ export function LinkHoverPreview({
   const [hoveredLink, setHoveredLink] = useState<{
     url: string;
     link: HTMLAnchorElement;
-    pos: number;
   } | null>(null);
   const [editing, setEditing] = useState(false);
   const [editUrl, setEditUrl] = useState("");
@@ -35,32 +35,30 @@ export function LinkHoverPreview({
   const hoverTimer = useRef<NodeJS.Timeout>(undefined);
   const leaveTimer = useRef<NodeJS.Timeout>(undefined);
   const previewRef = useRef<HTMLDivElement>(null);
+  const pointerLink = useRef<HTMLAnchorElement | null>(null);
   const dismissedLink = useRef<HTMLAnchorElement | null>(null);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (editing) return;
       const target = e.target as HTMLElement;
-      const link = target.closest("a.content-link") as HTMLAnchorElement;
+      const found = target.closest<HTMLAnchorElement>("a.content-link");
+      const link = found && editor.view.dom.contains(found) ? found : null;
+      pointerLink.current = link;
+      if (editing) return;
 
-      if (link && editor.view.dom.contains(link)) {
+      if (link) {
         clearTimeout(leaveTimer.current);
         leaveTimer.current = undefined;
-        if (hoveredLink?.link === link || dismissedLink.current === link)
+        if (hoveredLink?.link === link || dismissedLink.current === link) {
+          clearTimeout(hoverTimer.current);
           return;
+        }
         dismissedLink.current = null;
         const url = link.href;
 
-        let pos = -1;
-        try {
-          pos = editor.view.posAtDOM(link, 0);
-        } catch {
-          // ignore
-        }
-
         clearTimeout(hoverTimer.current);
         hoverTimer.current = setTimeout(() => {
-          setHoveredLink({ url, link, pos });
+          setHoveredLink({ url, link });
         }, 300);
       } else {
         const isHoveringPreview = previewRef.current?.contains(target);
@@ -81,6 +79,8 @@ export function LinkHoverPreview({
     };
 
     const handleMouseLeave = () => {
+      pointerLink.current = null;
+      dismissedLink.current = null;
       if (editing) return;
       clearTimeout(hoverTimer.current);
       leaveTimer.current = setTimeout(() => {
@@ -100,16 +100,56 @@ export function LinkHoverPreview({
     };
   }, [editor, hoveredLink, editing]);
 
+  useEffect(() => {
+    if (!hoveredLink) return;
+    const close = () => {
+      setEditing(false);
+      setEditUrl("");
+      setHoveredLink(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        previewRef.current?.contains(document.activeElement)
+      )
+        return;
+      clearTimeout(hoverTimer.current);
+      clearTimeout(leaveTimer.current);
+      leaveTimer.current = undefined;
+      dismissedLink.current = pointerLink.current;
+      flushSync(close);
+    };
+    const closeIfDetached = () => {
+      if (!hoveredLink.link.isConnected) close();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    editor.on("update", closeIfDetached);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      editor.off("update", closeIfDetached);
+    };
+  }, [editor, hoveredLink]);
+
+  const linkPosition = () => {
+    if (!hoveredLink?.link.isConnected) return null;
+    try {
+      return editor.view.posAtDOM(hoveredLink.link, 0);
+    } catch {
+      return null;
+    }
+  };
+
   const handleRemoveLink = () => {
-    if (hoveredLink && hoveredLink.pos >= 0) {
+    const pos = linkPosition();
+    if (pos !== null) {
       editor
         .chain()
-        .setTextSelection(hoveredLink.pos)
+        .setTextSelection(pos)
         .extendMarkRange("link")
         .unsetLink()
         .run();
-      setHoveredLink(null);
     }
+    setHoveredLink(null);
   };
 
   const handleStartEdit = () => {
@@ -125,12 +165,13 @@ export function LinkHoverPreview({
   };
 
   const handleApplyEdit = () => {
-    if (!hoveredLink || hoveredLink.pos < 0) return;
+    const pos = linkPosition();
+    if (pos === null) {
+      handleCancelEdit();
+      return;
+    }
     const next = editUrl.trim();
-    const chain = editor
-      .chain()
-      .setTextSelection(hoveredLink.pos)
-      .extendMarkRange("link");
+    const chain = editor.chain().setTextSelection(pos).extendMarkRange("link");
     if (next) {
       chain.setLink({ href: next }).run();
     } else {
@@ -139,11 +180,6 @@ export function LinkHoverPreview({
     setEditing(false);
     setEditUrl("");
     setHoveredLink(null);
-  };
-
-  const handleDismiss = () => {
-    dismissedLink.current = hoveredLink?.link ?? null;
-    handleCancelEdit();
   };
 
   if (!hoveredLink) return null;
@@ -161,7 +197,7 @@ export function LinkHoverPreview({
       open
       modal={false}
       onOpenChange={(open) => {
-        if (!open) handleDismiss();
+        if (!open) handleCancelEdit();
       }}
     >
       <PopoverAnchor virtualRef={{ current: hoveredLink.link }} />
@@ -173,6 +209,15 @@ export function LinkHoverPreview({
         collisionPadding={8}
         hideWhenDetached
         onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => {
+          if (
+            event.target instanceof Node &&
+            hoveredLink.link.contains(event.target)
+          )
+            event.preventDefault();
+        }}
         onMouseLeave={() => {
           if (editing) return;
           leaveTimer.current = setTimeout(() => {
@@ -184,7 +229,7 @@ export function LinkHoverPreview({
           clearTimeout(leaveTimer.current);
           leaveTimer.current = undefined;
         }}
-        className="overflow-hidden p-0"
+        className="max-w-[calc(100vw-1rem)] overflow-hidden p-0"
       >
         {editing ? (
           <div className="flex items-center gap-1 p-1.5">

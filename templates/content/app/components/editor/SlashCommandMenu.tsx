@@ -111,11 +111,14 @@ export function getSlashMenuVerticalPosition(
   const spaceAbove = anchor.top;
   const opensAbove =
     spaceBelow < SLASH_MENU_PREFERRED_HEIGHT && spaceAbove > spaceBelow;
-  const maxHeight = Math.min(
-    SLASH_MENU_PREFERRED_HEIGHT,
-    (opensAbove ? spaceAbove : spaceBelow) -
-      SLASH_MENU_GAP -
-      SLASH_MENU_VIEWPORT_MARGIN,
+  const maxHeight = Math.max(
+    0,
+    Math.min(
+      SLASH_MENU_PREFERRED_HEIGHT,
+      (opensAbove ? spaceAbove : spaceBelow) -
+        SLASH_MENU_GAP -
+        SLASH_MENU_VIEWPORT_MARGIN,
+    ),
   );
   if (opensAbove) {
     return {
