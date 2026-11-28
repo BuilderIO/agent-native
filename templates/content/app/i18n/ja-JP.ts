@@ -800,6 +800,8 @@ const editor = {
     "このページの一部の詳細は Notion の {{name}} データベースから来ており、ここでは表示のみです。",
   syncedPageSourceUnreadable: "このページの取得元を確認できませんでした。",
   syncedPageCheckAgain: "再試行",
+  localFileMissing:
+    "ファイルは利用できなくなりました。ディスク上で移動または削除されたため、このページは編集できません。",
   textColor: "テキストの色",
   resizeColumns: "列の幅を変更",
   backgroundColor: "背景色",
@@ -2031,6 +2033,9 @@ const overrides = {
     pageMissing: "このページは存在しません",
     pageInTrash: "このページはゴミ箱にあります",
     pageInTrashAskOwner: "所有者に復元を依頼してください。",
+    pageInTrashFileDeleted:
+      "ファイルが削除されたか、フォルダーの外に移動されたため、このページはゴミ箱に移動しました。復元してもファイルは再作成されません。",
+    localFileGone: "ファイルは利用できなくなりました",
     openTrash: "ゴミ箱を開く",
     goToMyPages: "自分のページへ",
     noPageDescription:

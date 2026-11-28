@@ -141,6 +141,38 @@ async function folderSourceState(connection: {
   };
 }
 
+async function connectSourcePrimaryFolder(connectionId: string) {
+  return runWithRequestContext({ userEmail: OWNER }, () =>
+    connectLocalFolder.run({
+      connectionId,
+      label: connectionId,
+      createSourceBackedSpace: true,
+      truthPolicy: "source_primary",
+    }),
+  );
+}
+
+async function syncFolder(
+  sourceId: string,
+  files: Record<string, string>,
+  read: {
+    skippedPaths?: string[];
+    fileIdentities?: Record<string, string>;
+  } = {},
+) {
+  return runWithRequestContext({ userEmail: OWNER }, () =>
+    syncLocalFolder.run({ sourceId, files, ...read }),
+  );
+}
+
+async function pageRow(id: string) {
+  const [page] = await getDb()
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, id));
+  return page;
+}
+
 describe("local-folder Content source", () => {
   it("creates a shareable copy of a synced local-folder file for its owner", async () => {
     const id = "content_local_file_share_qa";
@@ -1492,7 +1524,7 @@ describe("local-folder Content source", () => {
     await expect(openDeletions()).resolves.toEqual([{ id: deletion!.id }]);
   });
 
-  it("tracks stable-id renames and removes source-primary deletions from Files without deleting the cached page", async () => {
+  it("tracks stable-id renames, moves a source-primary deletion to Trash, and brings the page back with its file", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
         connectionId: "desktop-folder-rename",
@@ -1502,16 +1534,17 @@ describe("local-folder Content source", () => {
       }),
     );
     const source = `---\nid: stable-local-page\n---\n# Stable page\n\nBody.`;
+    const kept = { "other.md": "# Other\n\nStays." };
     await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({
         sourceId: connection.sourceId,
-        files: { "old-name.md": source },
+        files: { ...kept, "old-name.md": source },
       }),
     );
     const renamed = await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({
         sourceId: connection.sourceId,
-        files: { "new-name.md": source },
+        files: { ...kept, "new-name.md": source },
       }),
     );
     expect(renamed.created).toHaveLength(0);
@@ -1527,9 +1560,17 @@ describe("local-folder Content source", () => {
     ).resolves.toEqual([
       expect.objectContaining({ sourcePath: "new-name.md" }),
     ]);
+    const searchDocuments = (await import("./search-documents.js")).default;
+    const searchedIds = async () =>
+      (
+        (await runWithRequestContext({ userEmail: OWNER }, () =>
+          searchDocuments.run({ query: "Stable page", mode: "words" }),
+        )) as { documents: Array<{ id: string }> }
+      ).documents.map((document) => document.id);
+    expect(await searchedIds()).toEqual(["stable-local-page"]);
 
     const deletion = await runWithRequestContext({ userEmail: OWNER }, () =>
-      syncLocalFolder.run({ sourceId: connection.sourceId, files: {} }),
+      syncLocalFolder.run({ sourceId: connection.sourceId, files: kept }),
     );
     expect(deletion.conflicts).toHaveLength(0);
     expect(deletion.removed).toEqual([
@@ -1541,14 +1582,14 @@ describe("local-folder Content source", () => {
         .from(schema.documents)
         .where(eq(schema.documents.id, "stable-local-page")),
     ).resolves.toEqual([
-      expect.objectContaining({ sourceMode: null, sourcePath: null }),
+      expect.objectContaining({
+        trashedAt: expect.any(String),
+        trashOrigin: "local-folder",
+        sourceMode: "local-files",
+        sourcePath: "new-name.md",
+        content: "# Stable page\n\nBody.",
+      }),
     ]);
-    await expect(
-      getDb()
-        .select()
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.documentId, "stable-local-page")),
-    ).resolves.toHaveLength(0);
     await expect(
       getDb()
         .select()
@@ -1563,6 +1604,486 @@ describe("local-folder Content source", () => {
           ),
         ),
     ).resolves.toHaveLength(0);
+    expect(await searchedIds()).toEqual([]);
+
+    const again = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: connection.sourceId, files: kept }),
+    );
+    expect(again.removed).toEqual([]);
+
+    const returned = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          ...kept,
+          "nested/new-location.md": `---\nid: stable-local-page\n---\n# Stable page\n\nBody, moved.`,
+        },
+      }),
+    );
+    expect(returned.created).toHaveLength(0);
+    expect(returned.updated).toEqual([
+      expect.objectContaining({
+        id: "stable-local-page",
+        path: "nested/new-location.md",
+      }),
+    ]);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "stable-local-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        trashedAt: null,
+        sourceMode: "local-files",
+        sourcePath: "nested/new-location.md",
+        content: "# Stable page\n\nBody, moved.",
+      }),
+    ]);
+    expect(await searchedIds()).toEqual(["stable-local-page"]);
+  });
+
+  it("moves a deleted path-named file's page to Trash and gives the same path back its page", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-path-delete",
+        label: "Path docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "drafts/second-note.md": "# Second note\n\nDraft.",
+          "drafts/kept.md": "# Kept\n\nStays.",
+        },
+      }),
+    );
+    const pageId = first.idByPath["drafts/second-note.md"];
+    const page = async (id: string) =>
+      (
+        await getDb()
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+      )[0];
+    const keptId = first.idByPath["drafts/kept.md"];
+
+    const deletion = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "drafts/kept.md": "# Kept\n\nStays." },
+      }),
+    );
+    expect(deletion.removed).toEqual([
+      { id: pageId, path: "drafts/second-note.md" },
+    ]);
+    expect(await page(pageId)).toEqual(
+      expect.objectContaining({
+        trashedAt: expect.any(String),
+        trashOrigin: "local-folder",
+      }),
+    );
+    expect((await page(keptId)).trashedAt).toBeNull();
+
+    const restored = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "drafts/second-note.md": "# Second note\n\nDraft.",
+          "drafts/kept.md": "# Kept\n\nStays.",
+        },
+      }),
+    );
+    expect(restored.created).toHaveLength(0);
+    expect(restored.idByPath["drafts/second-note.md"]).toBe(pageId);
+    expect(await page(pageId)).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourcePath: "drafts/second-note.md",
+        content: "# Second note\n\nDraft.",
+      }),
+    );
+    const files = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabase.run({ databaseId: connection.filesDatabaseId }),
+    );
+    expect(files.items.map((item) => item.document.id).sort()).toEqual(
+      [pageId, keptId].sort(),
+    );
+  });
+
+  it("restores a page whose file was deleted as an ordinary page outside the folder", async () => {
+    const restoreDocument = (await import("./restore-document.js")).default;
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-restore-deleted",
+        label: "Restore docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const kept = { "drafts/kept.md": "# Kept\n\nStays." };
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { ...kept, "drafts/gone.md": "# Gone\n\nOnly copy." },
+      }),
+    );
+    const pageId = first.idByPath["drafts/gone.md"];
+    const keptId = first.idByPath["drafts/kept.md"];
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: connection.sourceId, files: kept }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreDocument.run({ id: pageId }),
+    );
+
+    const [restored] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, pageId));
+    expect(restored).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourceMode: null,
+        sourcePath: null,
+        sourceRootPath: null,
+        content: "# Gone\n\nOnly copy.",
+      }),
+    );
+    const files = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabase.run({ databaseId: connection.filesDatabaseId }),
+    );
+    expect(files.items.map((item) => item.document.id)).toEqual([keptId]);
+
+    const later = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: connection.sourceId, files: kept }),
+    );
+    expect(later.removed).toEqual([]);
+    const [afterSync] = await getDb()
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, pageId));
+    expect(afterSync?.trashedAt).toBeNull();
+  });
+
+  it("keeps the page of every file the read lists, even one it can't import, and changes no page on a read that lists no files", async () => {
+    const connection = await connectSourcePrimaryFolder(
+      "desktop-folder-incomplete-read",
+    );
+    const files = {
+      "drafts/a.md": "# A\n\nStays.",
+      "drafts/b.md": "# B\n\nStays too.",
+    };
+    const first = await syncFolder(connection.sourceId, files);
+    const ids = [first.idByPath["drafts/a.md"], first.idByPath["drafts/b.md"]];
+    const expectStillLinked = async () => {
+      for (const id of ids) {
+        expect(await pageRow(id)).toEqual(
+          expect.objectContaining({
+            trashedAt: null,
+            sourceMode: "local-files",
+          }),
+        );
+      }
+      await expect(
+        getDb()
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId),
+          ),
+      ).resolves.toHaveLength(2);
+    };
+
+    const invalid = await syncFolder(connection.sourceId, {
+      ...files,
+      "drafts/b.md": "---\nvisibility: everyone\n---\n# B\n\nStays too.",
+    });
+    expect(invalid.removed).toEqual([]);
+    expect(invalid.skipped).toEqual([
+      expect.objectContaining({ path: "drafts/b.md" }),
+    ]);
+    await expectStillLinked();
+
+    const oversized = await syncFolder(
+      connection.sourceId,
+      { "drafts/a.md": files["drafts/a.md"] },
+      { skippedPaths: ["drafts/b.md"] },
+    );
+    expect(oversized.removed).toEqual([]);
+    expect(oversized.skipped).toEqual([
+      expect.objectContaining({ path: "drafts/b.md" }),
+    ]);
+    await expectStillLinked();
+
+    const empty = await syncFolder(connection.sourceId, {});
+    expect(empty.removed).toEqual([]);
+    expect(empty.skipped.map((entry) => entry.path).sort()).toEqual([
+      "drafts/a.md",
+      "drafts/b.md",
+    ]);
+    await expectStillLinked();
+  });
+
+  it("brings a page back from Trash when its file returns to its old path without the id or identity that named it", async () => {
+    const connection = await connectSourcePrimaryFolder(
+      "desktop-folder-path-comeback",
+    );
+    const kept = { "kept.md": "# Kept\n\nStays." };
+    const named = "---\nid: named-comeback-page\n---\n# Named\n\nBody.";
+    const draft = "# Draft\n\nBody.";
+    const first = await syncFolder(
+      connection.sourceId,
+      { ...kept, "notes/named.md": named, "drafts/draft.md": draft },
+      { fileIdentities: { "drafts/draft.md": "draft-file" } },
+    );
+    const draftId = first.idByPath["drafts/draft.md"];
+    const renamed = await syncFolder(
+      connection.sourceId,
+      { ...kept, "notes/named.md": named, "drafts/final.md": draft },
+      { fileIdentities: { "drafts/final.md": "draft-file" } },
+    );
+    expect(renamed.idByPath["drafts/final.md"]).toBe(draftId);
+    const deletion = await syncFolder(connection.sourceId, kept);
+    expect(deletion.removed.map((entry) => entry.id).sort()).toEqual(
+      [draftId, "named-comeback-page"].sort(),
+    );
+
+    const back = await syncFolder(connection.sourceId, {
+      ...kept,
+      "notes/named.md": "# Named\n\nBody, without its id.",
+      "drafts/final.md": draft,
+    });
+    expect(back.created).toEqual([]);
+    expect(back.idByPath["notes/named.md"]).toBe("named-comeback-page");
+    expect(back.idByPath["drafts/final.md"]).toBe(draftId);
+    expect(await pageRow("named-comeback-page")).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourcePath: "notes/named.md",
+        content: "# Named\n\nBody, without its id.",
+      }),
+    );
+    expect(await pageRow(draftId)).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourcePath: "drafts/final.md",
+      }),
+    );
+  });
+
+  it("moves to Trash only pages whose own files are gone, and makes a page with pages that stay under it an ordinary page", async () => {
+    const connection = await connectSourcePrimaryFolder(
+      "desktop-folder-nested-delete",
+    );
+    const files = {
+      "parent.md": "# Parent\n\nHas a sub-page.",
+      "holder.md": "# Holder\n\nHolds a file that stays.",
+      "kept.md": "# Kept\n\nStays.",
+      "outer.md": "# Outer\n\nHolds inner.",
+      "inner.md": "# Inner\n\nUnder outer.",
+    };
+    const first = await syncFolder(connection.sourceId, files);
+    const id = (path: string) => first.idByPath[path];
+    const createDocument = (await import("./create-document.js")).default;
+    const child = (await runWithRequestContext({ userEmail: OWNER }, () =>
+      createDocument.run({
+        title: "Notes under parent",
+        parentId: id("parent.md"),
+      }),
+    )) as { id: string };
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: id("holder.md") })
+      .where(eq(schema.documents.id, id("kept.md")));
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: id("outer.md") })
+      .where(eq(schema.documents.id, id("inner.md")));
+
+    const deletion = await syncFolder(connection.sourceId, {
+      "kept.md": files["kept.md"],
+    });
+    expect(deletion.removed.map((entry) => entry.path).sort()).toEqual([
+      "holder.md",
+      "inner.md",
+      "outer.md",
+      "parent.md",
+    ]);
+    for (const path of ["parent.md", "holder.md"]) {
+      expect(await pageRow(id(path))).toEqual(
+        expect.objectContaining({
+          trashedAt: null,
+          sourceMode: null,
+          sourcePath: null,
+        }),
+      );
+    }
+    expect(await pageRow(child.id)).toEqual(
+      expect.objectContaining({ trashedAt: null, parentId: id("parent.md") }),
+    );
+    expect(await pageRow(id("kept.md"))).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourceMode: "local-files",
+        parentId: id("holder.md"),
+      }),
+    );
+    for (const path of ["outer.md", "inner.md"]) {
+      expect(await pageRow(id(path))).toEqual(
+        expect.objectContaining({
+          trashedAt: expect.any(String),
+          trashRootId: id(path),
+          trashOrigin: "local-folder",
+        }),
+      );
+    }
+
+    const back = await syncFolder(connection.sourceId, {
+      "kept.md": files["kept.md"],
+      "inner.md": files["inner.md"],
+    });
+    expect(back.created).toEqual([]);
+    expect(await pageRow(id("inner.md"))).toEqual(
+      expect.objectContaining({ trashedAt: null, sourcePath: "inner.md" }),
+    );
+    expect(await pageRow(id("outer.md"))).toEqual(
+      expect.objectContaining({ trashedAt: expect.any(String) }),
+    );
+  });
+
+  it("leaves a page in Trash when the sync that finds its file again fails", async () => {
+    const connection = await connectSourcePrimaryFolder(
+      "desktop-folder-comeback-failure",
+    );
+    const kept = { "kept.md": "# Kept\n\nStays." };
+    const gone = "---\nid: comeback-after-failure-page\n---\n# Gone\n\nBody.";
+    await syncFolder(connection.sourceId, { ...kept, "gone.md": gone });
+    await syncFolder(connection.sourceId, kept);
+    expect(await pageRow("comeback-after-failure-page")).toEqual(
+      expect.objectContaining({ trashedAt: expect.any(String) }),
+    );
+
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let disconnected = false;
+    db.transaction = async function (this: unknown, ...args: unknown[]) {
+      if (!disconnected) {
+        disconnected = true;
+        await db
+          .delete(schema.contentDatabaseSources)
+          .where(eq(schema.contentDatabaseSources.id, connection.sourceId));
+      }
+      return originalTransaction.apply(this, args);
+    };
+    try {
+      await expect(
+        syncFolder(connection.sourceId, { ...kept, "gone.md": gone }),
+      ).rejects.toThrow("was disconnected before sync");
+    } finally {
+      db.transaction = originalTransaction;
+    }
+    expect(disconnected).toBe(true);
+    expect(await pageRow("comeback-after-failure-page")).toEqual(
+      expect.objectContaining({
+        trashedAt: expect.any(String),
+        trashOrigin: "local-folder",
+      }),
+    );
+  });
+
+  it("leaves a page in Trash when its file turns up in a folder other than the one whose sync moved it there", async () => {
+    const first = await connectSourcePrimaryFolder(
+      "desktop-folder-trash-owner-a",
+    );
+    const second = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-trash-owner-b",
+        label: "Trash owner B",
+        spaceId: first.spaceId,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const kept = { "a-kept.md": "# A kept\n\nStays." };
+    const page = "---\nid: trashed-by-first-folder\n---\n# Shared\n\nBody.";
+    await syncFolder(first.sourceId, { ...kept, "shared.md": page });
+    await syncFolder(first.sourceId, kept);
+
+    const elsewhere = await syncFolder(second.sourceId, { "copy.md": page });
+    expect(elsewhere.created).toEqual([]);
+    expect(elsewhere.updated).toEqual([]);
+    expect(elsewhere.skipped).toEqual([
+      expect.objectContaining({ path: "copy.md" }),
+    ]);
+    expect(await pageRow("trashed-by-first-folder")).toEqual(
+      expect.objectContaining({
+        trashedAt: expect.any(String),
+        sourcePath: "shared.md",
+        sourceRootPath: "desktop-folder-trash-owner-a",
+      }),
+    );
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          eq(
+            schema.contentDatabaseSourceRows.documentId,
+            "trashed-by-first-folder",
+          ),
+        ),
+    ).resolves.toHaveLength(0);
+  });
+
+  it("keeps a page restored from Trash following its own folder when another folder shares the space", async () => {
+    const restoreDocument = (await import("./restore-document.js")).default;
+    const first = await connectSourcePrimaryFolder(
+      "desktop-folder-restore-own-a",
+    );
+    const second = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-restore-own-b",
+        label: "Restore own B",
+        spaceId: first.spaceId,
+        truthPolicy: "source_primary",
+      }),
+    );
+    expect(second.filesDatabaseId).toBe(first.filesDatabaseId);
+    const synced = await syncFolder(first.sourceId, {
+      "followed.md": "# Followed\n\nStill in the folder.",
+    });
+    const pageId = synced.idByPath["followed.md"];
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString(), trashRootId: pageId })
+      .where(eq(schema.documents.id, pageId));
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreDocument.run({ id: pageId }),
+    );
+
+    expect(await pageRow(pageId)).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourceMode: "local-files",
+        sourcePath: "followed.md",
+        sourceRootPath: "desktop-folder-restore-own-a",
+      }),
+    );
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.documentId, pageId)),
+    ).resolves.toEqual([expect.objectContaining({ sourceId: first.sourceId })]);
+    const files = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabase.run({ databaseId: first.filesDatabaseId }),
+    );
+    expect(files.items.map((item) => item.document.id)).toContain(pageId);
   });
 
   it("recognizes an unchanged path-only file move without creating a deletion conflict", async () => {

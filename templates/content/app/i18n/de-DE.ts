@@ -822,6 +822,8 @@ const editor = {
   syncedPageSourceUnreadable:
     "Es konnte nicht geprüft werden, woher diese Seite stammt.",
   syncedPageCheckAgain: "Erneut versuchen",
+  localFileMissing:
+    "Datei nicht mehr verfügbar. Sie wurde auf dem Datenträger verschoben oder gelöscht, daher kann diese Seite nicht bearbeitet werden.",
   textColor: "Textfarbe",
   resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",
@@ -2084,6 +2086,9 @@ const overrides = {
     pageMissing: "Diese Seite gibt es nicht",
     pageInTrash: "Diese Seite liegt im Papierkorb",
     pageInTrashAskOwner: "Bitte den Eigentümer, sie wiederherzustellen.",
+    pageInTrashFileDeleted:
+      "Ihre Datei wurde gelöscht oder aus dem Ordner verschoben, daher liegt diese Seite im Papierkorb. Beim Wiederherstellen wird die Datei nicht neu erstellt.",
+    localFileGone: "Datei nicht mehr verfügbar",
     openTrash: "Papierkorb öffnen",
     goToMyPages: "Zu meinen Seiten",
     noPageDescription:

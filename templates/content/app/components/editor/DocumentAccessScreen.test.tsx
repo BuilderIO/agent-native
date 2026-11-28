@@ -349,6 +349,22 @@ describe("DocumentAccessScreen", () => {
     expect(onReload).not.toHaveBeenCalled();
   });
 
+  it("says a page's file is no longer available when the folder sync moved it to Trash", () => {
+    mocks.queries["get-trashed-document:private-doc"] = {
+      data: { trashRootId: null, trashOrigin: "local-folder" },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
+    render({ state: "trashed", role: "owner" });
+
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "empty.localFileGone",
+    );
+    expect(container.textContent).toContain("empty.pageInTrashFileDeleted");
+    expect(button("trash.restore")).toBeDefined();
+  });
+
   it("restores from the page that was deleted when the viewer manages it", async () => {
     trashedPage("parent-doc");
     mocks.rootGates["parent-doc"] = {

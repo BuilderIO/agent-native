@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/client/sharing";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { ResourceAccessScreen } from "@agent-native/toolkit/app/sharing";
+import { LOCAL_FOLDER_TRASH_ORIGIN } from "@shared/content-trash";
 import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -63,7 +64,10 @@ export function DocumentAccessScreen({
   // page that was deleted, so it needs admin access to that page and nothing
   // more, the same rule as Restore in the Trash list.
   const trashed = gate.status?.state === "trashed";
-  const trashedPage = useActionQuery<{ trashRootId?: string | null }>(
+  const trashedPage = useActionQuery<{
+    trashRootId?: string | null;
+    trashOrigin?: string | null;
+  }>(
     "get-trashed-document",
     { id: documentId, trashRootOnly: true },
     { enabled: trashed, retry: false },
@@ -157,12 +161,20 @@ export function DocumentAccessScreen({
         reportWriteFailure(error, { label: t("trash.restoreFailed") });
       }
     };
+    const fileDeleted =
+      trashedPage.data.trashOrigin === LOCAL_FOLDER_TRASH_ORIGIN;
     return (
       <ResourceAccessScreen
         state="trashed"
         header={header}
-        title={t("empty.pageInTrash")}
-        description={canRestore ? undefined : t("empty.pageInTrashAskOwner")}
+        title={fileDeleted ? t("empty.localFileGone") : t("empty.pageInTrash")}
+        description={
+          fileDeleted
+            ? t("empty.pageInTrashFileDeleted")
+            : canRestore
+              ? undefined
+              : t("empty.pageInTrashAskOwner")
+        }
         actions={
           canRestore ? (
             <>

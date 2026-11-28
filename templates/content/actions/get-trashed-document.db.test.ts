@@ -132,7 +132,11 @@ describe("get-trashed-document", () => {
   it("returns only where the restore starts when asked", async () => {
     expect(
       await readAs(MEMBER, { id: "trashed-child", trashRootOnly: true }),
-    ).toEqual({ id: "trashed-child", trashRootId: "trashed-parent" });
+    ).toEqual({
+      id: "trashed-child",
+      trashRootId: "trashed-parent",
+      trashOrigin: null,
+    });
   });
 
   it("refuses someone outside the space as if the page weren't there", async () => {

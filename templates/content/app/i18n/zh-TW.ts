@@ -391,6 +391,9 @@ const overrides = {
     pageMissing: "此頁面不存在",
     pageInTrash: "此頁面在垃圾桶中",
     pageInTrashAskOwner: "請擁有者還原它。",
+    pageInTrashFileDeleted:
+      "它的檔案已被刪除或移出資料夾，因此此頁面已移到垃圾桶。還原它不會重新建立檔案。",
+    localFileGone: "檔案已無法使用",
     openTrash: "開啟垃圾桶",
     goToMyPages: "前往我的頁面",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
@@ -557,6 +560,8 @@ const overrides = {
       "此頁面上的部分詳細資料來自 Notion 中的 {{name}} 資料庫，在這裡僅供檢視。",
     syncedPageSourceUnreadable: "無法確認此頁面的來源。",
     syncedPageCheckAgain: "重試",
+    localFileMissing:
+      "檔案已無法使用。它已在磁碟上被移動或刪除，因此無法編輯此頁面。",
     copyUnsavedText: "複製我未儲存的文字",
     unsavedTextCopied: "已複製未儲存的文字",
     useDiskVersion: "使用磁碟版本",

@@ -707,6 +707,44 @@ Closing words.
     expect(readFiles).toHaveBeenCalledWith({ folderId: "folder-repo" });
   });
 
+  it("says a linked file is missing by the browser's error name, whatever its message", async () => {
+    const lookups = [
+      new DOMException(
+        "A requested file or directory could not be found at the time an operation was processed.",
+        "NotFoundError",
+      ),
+      new DOMException("The file could not be read.", "NotReadableError"),
+    ];
+    const root = {
+      kind: "directory" as const,
+      name: "content",
+      values: vi.fn(),
+      getDirectoryHandle: vi.fn(),
+      getFileHandle: vi.fn(async () => {
+        const failure = lookups.shift();
+        if (!failure) throw new Error("No more lookups were expected.");
+        throw failure;
+      }),
+      queryPermission: vi.fn(async () => "granted" as const),
+      requestPermission: vi.fn(async () => "granted" as const),
+    };
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    rememberLinkedLocalSourceDirectory(root);
+
+    await expect(readDocumentFromLinkedLocalSource(document)).resolves.toEqual({
+      ok: false,
+      missing: true,
+      error: 'Local file "content/getting-started.mdx" was not found.',
+    });
+    await expect(readDocumentFromLinkedLocalSource(document)).resolves.toEqual({
+      ok: false,
+      error: "The file could not be read.",
+    });
+  });
+
   it("reveals a linked desktop source file through the desktop bridge", async () => {
     const folder = {
       id: "folder-repo",

@@ -10065,7 +10065,7 @@ function noFollowOpenFlags(): number {
 
 function readContentMarkdownFileWithoutSymlink(
   filePath: string,
-): string | null {
+): { content: string } | "skipped" | "gone" {
   let fd: number | null = null;
   try {
     const stat = fs.lstatSync(filePath);
@@ -10074,7 +10074,7 @@ function readContentMarkdownFileWithoutSymlink(
       !stat.isFile() ||
       stat.size > CONTENT_SOURCE_FILE_MAX_BYTES
     ) {
-      return null;
+      return "skipped";
     }
 
     fd = fs.openSync(filePath, noFollowOpenFlags());
@@ -10083,14 +10083,13 @@ function readContentMarkdownFileWithoutSymlink(
       !openedStat.isFile() ||
       openedStat.size > CONTENT_SOURCE_FILE_MAX_BYTES
     ) {
-      return null;
+      return "skipped";
     }
-    return fs.readFileSync(fd, "utf-8");
+    return { content: fs.readFileSync(fd, "utf-8") };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
-      return null;
-    }
+    if (code === "ENOENT" || code === "ENOTDIR") return "gone";
+    if (code === "ELOOP") return "skipped";
     throw err;
   } finally {
     if (fd !== null) fs.closeSync(fd);
@@ -10182,6 +10181,7 @@ async function collectContentMarkdownFiles(
   prefix = "",
   identities?: Record<string, string>,
   identitySalt = "",
+  skipped: string[] = [],
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
   let entries: fs.Dirent[];
@@ -10194,8 +10194,11 @@ async function collectContentMarkdownFiles(
   }
 
   for (const entry of entries) {
-    if (entry.isSymbolicLink()) continue;
     const sourcePath = `${prefix}${entry.name}`;
+    if (entry.isSymbolicLink()) {
+      if (isContentSourceMarkdownPath(sourcePath)) skipped.push(sourcePath);
+      continue;
+    }
     const filePath = assertInsideContentFolder(
       folder,
       path.join(folder, entry.name),
@@ -10217,15 +10220,19 @@ async function collectContentMarkdownFiles(
           `${sourcePath}/`,
           identities,
           identitySalt,
+          skipped,
         ),
       );
       continue;
     }
 
-    if (!entry.isFile() || !isContentSourceMarkdownPath(sourcePath)) continue;
-    const content = readContentMarkdownFileWithoutSymlink(filePath);
-    if (content !== null) {
-      files[sourcePath] = content;
+    if (!isContentSourceMarkdownPath(sourcePath)) continue;
+    const read = entry.isFile()
+      ? readContentMarkdownFileWithoutSymlink(filePath)
+      : "skipped";
+    if (read === "skipped") skipped.push(sourcePath);
+    if (typeof read === "object") {
+      files[sourcePath] = read.content;
       if (identities) {
         const stat = await fs.promises.stat(filePath);
         identities[sourcePath] = createHash("sha256")
@@ -10841,11 +10848,13 @@ async function readContentFilesForRequest(
     const root = await contentReadRoot(grant.path);
     await assertUsableContentFolder(root.folder);
     const identities: Record<string, string> = {};
+    const skipped: string[] = [];
     const sources = await collectContentMarkdownFiles(
       root.folder,
       root.prefix,
       identities,
       grant.id,
+      skipped,
     );
     const revisions = Object.fromEntries(
       Object.entries(sources).map(([filePath, content]) => [
@@ -10861,6 +10870,7 @@ async function readContentFilesForRequest(
       sources,
       revisions,
       identities,
+      skipped,
       controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {

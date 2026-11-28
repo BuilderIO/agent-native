@@ -196,6 +196,7 @@ export async function syncLiveLocalFolder(folderId: string) {
       files: read.sources ?? {},
       fileIdentities: read.identities,
       observedRevisions: read.revisions,
+      skippedPaths: read.skipped,
       dryRun: false,
     } as never,
   );
