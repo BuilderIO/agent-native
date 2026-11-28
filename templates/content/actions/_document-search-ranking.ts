@@ -136,8 +136,6 @@ export function documentSearchRanking(
           or(...normalizedSimpleQueries.map(compare))!,
         )!
       : sql`false`;
-  // Tiers match `TITLE_MATCH_TIER` in shared/search-title-ranking.ts. A
-  // completion is the query with its last word finished and nothing after.
   const matchTier = sql<number>`case
     when ${simpleTier((query) => sql`${normalizedTitle} = ${query}`)} then 6
     when ${simpleTier(

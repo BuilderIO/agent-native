@@ -18,13 +18,6 @@
  * words the query has. Reading only the caller's rows keeps the cost to the
  * size of their library, and to that of whatever else narrows the query.
  *
- * Ranking reproduces the tiers the browser lane uses
- * (`TITLE_MATCH_TIER` in Content): exact title 6, title completion 5 (the
- * query with its last word finished, as "task prio" is of "Task Priorities"),
- * title prefix 4, title word prefixes 3, title substrings 2, title or summary
- * 1, then how many query groups the title and summary cover, then whether the
- * body contains the query as a phrase. Callers add their own tie-breaks.
- *
  * A query with a term longer than the index can match as a phrase throws
  * `SearchTermTooLongError`; answer it with the app's fallback search.
  */
@@ -82,7 +75,6 @@ function startsWith(column: SQL, needle: string): SQL {
   return sql`${column} LIKE ${`${escapeLike(needle)}%`} ESCAPE '\\'`;
 }
 
-/** The column is the needle with its last word finished, and nothing after. */
 function completes(column: SQL, needle: string): SQL {
   return sql`${column} ~ ${`^${escapeRegex(needle)}[[:alnum:]_]*$`}`;
 }

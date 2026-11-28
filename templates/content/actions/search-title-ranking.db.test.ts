@@ -14,8 +14,8 @@ import {
 // This test shows that for title-tier fixtures, the order the shared
 // `rankTitlesByQuery` module (the command search picker's instant lane)
 // produces equals the order `search-documents` (the server lane) produces,
-// for the tiers both lanes implement: exact, completion, contiguous-prefix,
-// title word-prefix, and other title substring coverage. The picker's fuzzy tier is
+// for the tiers both lanes implement: exact, contiguous-prefix, title
+// word-prefix, and other title substring coverage. The picker's fuzzy tier is
 // browser-only and has no server counterpart to compare against.
 
 const TEST_DB_PATH = join(

@@ -292,7 +292,6 @@ describe("the search index", () => {
         "zephyr quince",
         "Covers tundra",
       );
-      // The id order would put the longer title first on a tie.
       await insertNote("z-almanac", "Kestrel Almanac");
       await insertNote("a-almanac", "Kestrel Almanac drafts");
       await prepareFully();

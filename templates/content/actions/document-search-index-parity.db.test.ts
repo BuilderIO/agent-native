@@ -93,7 +93,6 @@ const FIXTURES = [
     content: `${"tick tock ".repeat(300)}bell`,
   },
   { id: "long", title: "Word list", description: "", content: LONG_PHRASE },
-  // Newer than p1, which "task prio" completes and this only starts.
   { id: "board", title: "Task Priorities board", description: "", content: "" },
 ];
 

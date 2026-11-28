@@ -108,8 +108,6 @@ function FirstResultPromoter({
     if (first) onPromote(first);
   }, [count, enabled, getFirstValue, navigatedRef, onPromote]);
 
-  // Results can also reorder without changing how many there are, as when
-  // server results replace the instant ones. Move the highlight before paint.
   useEffect(() => {
     const container = containerRef.current;
     if (!enabled || !container) return;
@@ -124,10 +122,6 @@ function FirstResultPromoter({
   return null;
 }
 
-// cmdk scrolls a newly selected row into view before the rows re-render for a
-// controlled value, so it scrolls to the row selected before (often far down
-// the old results) and never to the new one. Scroll once the row is marked, as
-// cmdk would, but leave a row the pointer chose where it is.
 function SelectedRowScroller({
   containerRef,
   hoveredValueRef,
