@@ -136,6 +136,7 @@ import {
 import {
   isComputedStyleMap,
   isElementInfoPayload,
+  isSelectionElementInfoPayload,
   parseRuntimeSnapshotHtml,
 } from "./design-canvas/element-payload";
 import {
@@ -4665,6 +4666,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
+        if (!isSelectionElementInfoPayload(e.data.payload)) return;
         const activePreviewFrame = iframeRef.current;
         const reported = e.data.payload as
           | { selector?: string; sourceId?: string; runtimeSourceId?: string }
@@ -4720,14 +4722,18 @@ export function DesignCanvas({
         e.data.type === "agent-native:layer-marquee-selection" ||
         e.data.type === "element-marquee-select"
       ) {
-        onElementMarqueeSelect?.(
-          Array.isArray(e.data.payload) ? e.data.payload : [],
-          e.data.intent,
-        );
+        if (
+          !Array.isArray(e.data.payload) ||
+          !e.data.payload.every(isSelectionElementInfoPayload)
+        )
+          return;
+        onElementMarqueeSelect?.(e.data.payload, e.data.intent);
         return;
       }
       if (e.data.type === "element-hover") {
-        onElementHover(e.data.payload);
+        if (e.data.payload === null || isElementInfoPayload(e.data.payload)) {
+          onElementHover(e.data.payload);
+        }
       }
       if (e.data.type === "agent-native:editor-drag-state") {
         onEditorDragStateChange?.({
@@ -5547,14 +5553,14 @@ export function DesignCanvas({
       if (e.data.type === "frame-label-rename") {
         if (
           typeof e.data.name === "string" &&
-          e.data.payload &&
-          typeof e.data.payload === "object"
+          isElementInfoPayload(e.data.payload)
         ) {
           onFrameLabelRename?.(e.data.payload, e.data.name);
         }
         return;
       }
       if (e.data.type === "element-dblclick-text") {
+        if (!isSelectionElementInfoPayload(e.data.payload)) return;
         onElementDblClickText?.(e.data.payload);
         return;
       }
@@ -5606,6 +5612,11 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-contextmenu") {
+        if (
+          e.data.payload != null &&
+          !isSelectionElementInfoPayload(e.data.payload)
+        )
+          return;
         const clientX = Number(e.data.clientX);
         const clientY = Number(e.data.clientY);
         if (Number.isFinite(clientX) && Number.isFinite(clientY)) {

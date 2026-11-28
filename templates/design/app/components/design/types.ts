@@ -186,6 +186,7 @@ export interface ElementInfo {
   sourceLayerIdentity?: { screenId: string; nodeId: string };
   classes: string[];
   computedStyles: Record<string, string>;
+  needsLiveMeasurement?: boolean;
   inlineStyles?: Record<string, string>;
   authoredSizeStyles?: Partial<Record<"width" | "height", string>>;
   primitiveKind?: string;

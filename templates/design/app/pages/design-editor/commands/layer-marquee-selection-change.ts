@@ -1,6 +1,7 @@
 import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import { isElementInfoPayload } from "@/components/design/design-canvas/element-payload";
 import type { CanvasLayerMarqueeSelection } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
@@ -8,6 +9,7 @@ import type {
 } from "@/components/design/types";
 import {
   canonicalizeElementInfoFromProjection,
+  elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import {
@@ -122,13 +124,37 @@ export function runLayerMarqueeSelectionChange(
       const projection = getCodeLayerProjectionForScreen(item.screenId);
       if (!projection) return null;
       const node = resolveCodeLayerNodeFromElementInfo(projection, item.info);
+      if (!node) return null;
+      let info = item.info;
+      if (info.needsLiveMeasurement || !isElementInfoPayload(info)) {
+        const sourceInfo = elementInfoFromCodeLayerNode(node);
+        const runtimeSelector =
+          typeof info.runtimeSelector === "string"
+            ? info.runtimeSelector
+            : typeof info.selector === "string"
+              ? info.selector
+              : undefined;
+        const runtimeSourceId =
+          typeof info.runtimeSourceId === "string"
+            ? info.runtimeSourceId
+            : typeof info.sourceId === "string"
+              ? info.sourceId
+              : undefined;
+        info = {
+          ...sourceInfo,
+          boundingRect: info.boundingRect,
+          ...(runtimeSelector === undefined ? {} : { runtimeSelector }),
+          ...(runtimeSourceId === undefined ? {} : { runtimeSourceId }),
+          needsLiveMeasurement: true,
+        };
+      }
       const canonical = canonicalizeElementInfoFromProjection(
         projection,
-        item.info,
+        info,
         item.screenId,
         node,
       );
-      if (!node || isScreenRootElementInfo(canonical)) return null;
+      if (isScreenRootElementInfo(canonical)) return null;
       return {
         screenId: item.screenId,
         node,

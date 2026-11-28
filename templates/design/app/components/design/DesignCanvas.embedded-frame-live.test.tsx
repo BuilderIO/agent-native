@@ -7,6 +7,11 @@ import { describe, expect, it, vi } from "vitest";
 import { localRuntimeUrls } from "./design-canvas/local-runtime";
 import { DesignCanvas } from "./DesignCanvas";
 
+vi.mock("./design-canvas/native-public-worker-preview", () => ({
+  prepareNativePublicWorkerPreviewDocument: () => null,
+  connectNativePublicWorkerPreview: () => () => undefined,
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -16,6 +21,145 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
+  it.each([false, true])(
+    "rejects malformed iframe selection payloads in embedded=%s",
+    async (embedded) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      const onElementSelect = vi.fn();
+      const onElementHover = vi.fn();
+      const onElementDblClickText = vi.fn();
+      const onElementMarqueeSelect = vi.fn();
+      const onIframeContextMenu = vi.fn();
+      const valid = {
+        tagName: "div",
+        selector: "#hero",
+        sourceId: "hero",
+        classes: [],
+        computedStyles: { color: "red" },
+        boundingRect: { x: 0, y: 0, width: 100, height: 30 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      };
+      const { computedStyles: _missing, ...invalid } = valid;
+      try {
+        await act(async () =>
+          root.render(
+            <DesignCanvas
+              content="<html><body></body></html>"
+              contentKey="selection-ingress"
+              screenId="screen-a"
+              zoom={100}
+              deviceFrame="none"
+              interactMode={false}
+              editMode
+              registerRuntimeBridge={false}
+              {...(embedded
+                ? {
+                    embeddedFrame: {
+                      viewportWidth: 800,
+                      viewportHeight: 600,
+                      displayWidth: 800,
+                      displayHeight: 600,
+                      fluid: true,
+                    },
+                  }
+                : {})}
+              onElementSelect={onElementSelect}
+              onElementHover={onElementHover}
+              onElementDblClickText={onElementDblClickText}
+              onElementMarqueeSelect={onElementMarqueeSelect}
+              onIframeContextMenu={onIframeContextMenu}
+              tweakValues={{}}
+            />,
+          ),
+        );
+        const iframe = container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        const frameWindow = iframe?.contentWindow;
+        expect(frameWindow).toBeTruthy();
+        if (!frameWindow) throw new Error("Missing preview iframe window");
+        const send = async (data: unknown) =>
+          act(async () =>
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data,
+                origin: window.location.origin,
+                source: frameWindow,
+              }),
+            ),
+          );
+        await send({
+          type: "element-select",
+          payload: invalid,
+          intent: { source: "pointer" },
+        });
+        await send({ type: "element-dblclick-text", payload: invalid });
+        await send({ type: "element-hover", payload: invalid });
+        await send({
+          type: "element-marquee-select",
+          payload: [valid, invalid],
+        });
+        await send({
+          type: "element-contextmenu",
+          payload: invalid,
+          clientX: 1,
+          clientY: 2,
+        });
+        expect(onElementSelect).not.toHaveBeenCalled();
+        expect(onElementDblClickText).not.toHaveBeenCalled();
+        expect(onElementHover).not.toHaveBeenCalled();
+        expect(onElementMarqueeSelect).not.toHaveBeenCalled();
+        expect(onIframeContextMenu).not.toHaveBeenCalled();
+        for (const malformed of [
+          { ...valid, provenance: { sourceFile: 42 } },
+          { ...valid, portableStyleSnapshot: { version: 1, nodes: null } },
+          {
+            ...valid,
+            portableStyleSnapshot: {
+              version: 1,
+              nodes: [{ path: [], styles: null }],
+            },
+          },
+        ]) {
+          await send({ type: "element-select", payload: malformed });
+          await send({ type: "element-marquee-select", payload: [malformed] });
+        }
+        expect(onElementSelect).not.toHaveBeenCalled();
+        expect(onElementMarqueeSelect).not.toHaveBeenCalled();
+        let snapshotNodeReads = 0;
+        const snapshotNode = {
+          path: [],
+          get styles() {
+            snapshotNodeReads += 1;
+            return { color: "red" };
+          },
+        };
+        const selection = {
+          ...valid,
+          portableStyleSnapshot: { version: 1, nodes: [snapshotNode] },
+        };
+        await send({ type: "element-hover", payload: selection });
+        expect(snapshotNodeReads).toBe(0);
+        await send({
+          type: "element-select",
+          payload: selection,
+          intent: { source: "pointer" },
+        });
+        expect(snapshotNodeReads).toBe(1);
+        await send({ type: "element-marquee-select", payload: [valid] });
+        expect(onElementSelect).toHaveBeenCalledWith(selection, {
+          source: "pointer",
+        });
+        expect(onElementMarqueeSelect).toHaveBeenCalledWith([valid], undefined);
+      } finally {
+        await act(async () => root.unmount());
+        container.remove();
+      }
+    },
+  );
   it.each(["null", "security-error"] as const)(
     "does not steal cross-origin frame focus on canvas pointer entry when contentDocument is %s",
     async (contentDocumentResult) => {
@@ -272,7 +416,16 @@ describe("DesignCanvas live embedded-frame offset", () => {
       const reportSelection = (focusSafe: boolean) =>
         reportMessage({
           type: "element-select",
-          payload: { selector: "#hero", sourceId: "hero" },
+          payload: {
+            tagName: "div",
+            selector: "#hero",
+            sourceId: "hero",
+            classes: [],
+            computedStyles: {},
+            boundingRect: { x: 0, y: 0, width: 100, height: 30 },
+            isFlexChild: false,
+            isFlexContainer: false,
+          },
           intent: { source: "pointer" },
           trustedPointer: true,
           focusSafe,
@@ -428,7 +581,16 @@ describe("DesignCanvas live embedded-frame offset", () => {
 
       await reportMessage({
         type: "element-select",
-        payload: { selector: "#hero", sourceId: "hero" },
+        payload: {
+          tagName: "div",
+          selector: "#hero",
+          sourceId: "hero",
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 100, height: 30 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
         intent: { source: "pointer" },
         trustedPointer: true,
         focusSafe: true,
@@ -517,7 +679,16 @@ describe("DesignCanvas live embedded-frame offset", () => {
       expect(document.activeElement).toBe(iframe);
       await reportMessage({
         type: "element-select",
-        payload: { selector: "#hero", sourceId: "hero" },
+        payload: {
+          tagName: "div",
+          selector: "#hero",
+          sourceId: "hero",
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 100, height: 30 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
         intent: { source: "pointer" },
         trustedPointer: true,
         focusSafe: true,
@@ -605,7 +776,16 @@ describe("DesignCanvas live embedded-frame offset", () => {
           new MessageEvent("message", {
             data: {
               type: "element-select",
-              payload: { selector: "#hero", sourceId: "hero" },
+              payload: {
+                tagName: "div",
+                selector: "#hero",
+                sourceId: "hero",
+                classes: [],
+                computedStyles: {},
+                boundingRect: { x: 0, y: 0, width: 100, height: 30 },
+                isFlexChild: false,
+                isFlexContainer: false,
+              },
               intent: { source: "pointer" },
               trustedPointer: true,
               focusSafe: true,
