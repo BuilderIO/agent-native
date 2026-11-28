@@ -66,6 +66,7 @@ describe("CLI init framework detection and next-step hints", () => {
         path.join(dir, "package.json"),
         JSON.stringify({ name: "fixture", dependencies: deps }, null, 2),
       );
+      fs.writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
 
       const errLogs: string[] = [];
       vi.spyOn(console, "error").mockImplementation((...args) => {
@@ -82,6 +83,55 @@ describe("CLI init framework detection and next-step hints", () => {
       const combined = errLogs.join("\n");
       expect(combined).toContain("pnpm add @agent-native/actions zod");
       expect(combined).toContain(expectedHint);
+    },
+  );
+
+  it.each([
+    {
+      name: "a package-lock.json",
+      files: { "package-lock.json": "{}" },
+      pkg: {},
+      expected: "npm install @agent-native/actions zod",
+    },
+    {
+      name: "a yarn.lock",
+      files: { "yarn.lock": "" },
+      pkg: {},
+      expected: "yarn add @agent-native/actions zod",
+    },
+    {
+      name: "a bun.lock",
+      files: { "bun.lock": "" },
+      pkg: {},
+      expected: "bun add @agent-native/actions zod",
+    },
+    {
+      name: "a packageManager field over a lockfile",
+      files: { "package-lock.json": "{}" },
+      pkg: { packageManager: "yarn@4.5.0" },
+      expected: "yarn add @agent-native/actions zod",
+    },
+  ])(
+    "prints the install hint for the package manager named by $name",
+    async ({ files, pkg, expected }) => {
+      const dir = makeTempDir("an-init-pm-");
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name: "fixture", ...pkg }, null, 2),
+      );
+      for (const [file, content] of Object.entries(files)) {
+        fs.writeFileSync(path.join(dir, file), content);
+      }
+
+      const errLogs: string[] = [];
+      vi.spyOn(console, "error").mockImplementation((...args) => {
+        errLogs.push(args.join(" "));
+      });
+
+      expect(await runActionCli(["init", "--cwd", dir])).toBe(0);
+      expect(errLogs.join("\n")).toContain(
+        `Next step: install dependencies: ${expected}`,
+      );
     },
   );
 });

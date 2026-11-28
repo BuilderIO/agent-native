@@ -117,6 +117,22 @@ function markdownLinesOutsideFences(markdown: string): string[] {
   return lines;
 }
 
+function blankLinesInMultilineTags(body: string): number[] {
+  const blankLines: number[] = [];
+  let inFence = false;
+  let inTag = false;
+  for (const [index, line] of body.split(/\r?\n/).entries()) {
+    if (inTag) {
+      if (/^\/?>\s*$/.test(line)) inTag = false;
+      else if (line.trim() === "") blankLines.push(index + 1);
+      continue;
+    }
+    if (/^\s*(?:```|~~~)/.test(line)) inFence = !inFence;
+    else if (!inFence && /^<[A-Z][\w.]*\s*$/.test(line)) inTag = true;
+  }
+  return blankLines;
+}
+
 describe("docs visual blocks", () => {
   const docs = loadDocs();
   const localizedDocs = loadLocalizedDocs();
@@ -166,6 +182,20 @@ describe("docs visual blocks", () => {
       })
       .filter(Boolean);
 
+    expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
+  }, 30_000);
+
+  it("keeps blank lines out of multi-line MDX block tags", () => {
+    const failures = allDocs.flatMap((doc) => {
+      const blankLines = blankLinesInMultilineTags(doc.body);
+      return blankLines.length > 0
+        ? [
+            `${docLabel(doc)}: blank line inside a block tag at line ${blankLines.join(
+              ", ",
+            )}; end the line before it with \\n instead, or the formatter splits the tag there`,
+          ]
+        : [];
+    });
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
   }, 30_000);
 

@@ -216,6 +216,45 @@ function detectFramework(projectRoot: string): DetectedFramework {
   return "node";
 }
 
+type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
+
+const LOCKFILES: ReadonlyArray<[string, PackageManager]> = [
+  ["pnpm-lock.yaml", "pnpm"],
+  ["yarn.lock", "yarn"],
+  ["bun.lock", "bun"],
+  ["bun.lockb", "bun"],
+  ["package-lock.json", "npm"],
+];
+
+const ADD_COMMAND: Record<PackageManager, string> = {
+  npm: "npm install",
+  pnpm: "pnpm add",
+  yarn: "yarn add",
+  bun: "bun add",
+};
+
+function isPackageManager(value: string | undefined): value is PackageManager {
+  return (
+    value === "npm" || value === "pnpm" || value === "yarn" || value === "bun"
+  );
+}
+
+function detectPackageManager(
+  projectRoot: string,
+  declared: string | undefined,
+): PackageManager {
+  const fromField = declared?.split("@")[0];
+  if (isPackageManager(fromField)) return fromField;
+  for (let dir = projectRoot; ; dir = path.dirname(dir)) {
+    for (const [lockfile, manager] of LOCKFILES) {
+      if (fs.existsSync(path.join(dir, lockfile))) return manager;
+    }
+    if (path.dirname(dir) === dir) break;
+  }
+  const fromAgent = process.env["npm_config_user_agent"]?.split("/")[0];
+  return isPackageManager(fromAgent) ? fromAgent : "pnpm";
+}
+
 function runInit(
   projectRoot: string,
   options: { dryRun: boolean; framework?: DetectedFramework },
@@ -330,13 +369,16 @@ function runInit(
   }
 
   let missingDeps: string[] = [];
+  let packageManager: PackageManager = "pnpm";
   const pkgPath = path.join(projectRoot, "package.json");
   if (fs.existsSync(pkgPath)) {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+      packageManager?: string;
       scripts?: Record<string, string>;
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
+    packageManager = detectPackageManager(projectRoot, pkg.packageManager);
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
     if (!("@agent-native/actions" in allDeps)) {
       missingDeps.push("@agent-native/actions");
@@ -383,7 +425,9 @@ function runInit(
 
   const nextSteps: string[] = [];
   if (missingDeps.length > 0) {
-    nextSteps.push(`install dependencies: pnpm add ${missingDeps.join(" ")}`);
+    nextSteps.push(
+      `install dependencies: ${ADD_COMMAND[packageManager]} ${missingDeps.join(" ")}`,
+    );
   }
   if (framework === "next") {
     nextSteps.push(
