@@ -3,6 +3,7 @@
 import type {
   DocumentHistoryCheckpointPage,
   DocumentHistoryPage,
+  DocumentVersionComparison,
 } from "@shared/document-history";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -15,6 +16,7 @@ const { mocks } = vi.hoisted(() => ({
     restore: vi.fn(async () => ({})),
     onOpenChange: vi.fn(),
     onRestored: vi.fn(),
+    nameVersion: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
     historyPages: new Map(),
@@ -54,6 +56,9 @@ const { mocks } = vi.hoisted(() => ({
             title: "Draft",
             checkpointKind: "after",
             createdAt: "2026-09-08T10:05:00.000Z",
+            name: null,
+            namedBy: null,
+            namedAt: null,
           },
         ],
         nextCursor: null,
@@ -65,6 +70,19 @@ const { mocks } = vi.hoisted(() => ({
       isPlaceholderData: false,
       refetch: vi.fn(),
     },
+    namedVersions: {
+      data: { versions: [] as unknown[] },
+      error: null,
+      refetch: vi.fn(),
+    },
+    comparison: {
+      data: undefined as DocumentVersionComparison | undefined,
+      error: null,
+      isLoading: false,
+      refetch: vi.fn(),
+    },
+    comparedVersionIds: [] as Array<string | null>,
+    detailName: null as string | null,
   },
 }));
 
@@ -91,11 +109,29 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "editor.historyCheckpointAfter": "After",
       "editor.historyLoadMore": "Load more",
       "editor.historyLoadingMore": "Loading more",
+      "editor.historyNameCurrentVersion": "Name current version",
+      "editor.historyNameVersion": "Name this version",
+      "editor.historyNamedVersions": "Named versions",
+      "editor.historyAllChanges": "All changes",
+      "editor.historyRenameVersion": "Rename",
+      "editor.historyRemoveVersionName": "Remove name",
+      "editor.historySaveVersionName": "Save name",
+      "editor.historyVersionNameLabel": "Version name",
+      "editor.historyPreview": "Preview",
+      "editor.historyCompareWithCurrent": "Compare with current",
+      "editor.historyCompareIdentical":
+        "This version matches the current page.",
     })[key] ?? key,
 }));
 
 vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, error: mocks.toastError },
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => children,
+  TooltipContent: () => null,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("@/components/ui/scroll-area", () => ({
@@ -131,6 +167,9 @@ vi.mock("@/hooks/use-document-versions", () => ({
             title: "Draft",
             checkpointKind: "after",
             createdAt: "2026-09-08T10:05:00.000Z",
+            name: mocks.detailName,
+            namedBy: null,
+            namedAt: null,
             content: "Earlier content",
           },
         }
@@ -138,6 +177,26 @@ vi.mock("@/hooks/use-document-versions", () => ({
     error: null,
     isLoading: false,
     refetch: vi.fn(),
+  }),
+  useNamedDocumentVersions: () => mocks.namedVersions,
+  useDocumentVersionComparison: (
+    documentId: string | null,
+    versionId: string | null,
+  ) => {
+    if (!documentId) {
+      return {
+        data: undefined,
+        error: null,
+        isLoading: false,
+        refetch: vi.fn(),
+      };
+    }
+    mocks.comparedVersionIds.push(versionId);
+    return mocks.comparison;
+  },
+  useNameDocumentVersion: () => ({
+    mutateAsync: mocks.nameVersion,
+    isPending: false,
   }),
   useRestoreDocumentVersion: () => ({
     mutateAsync: mocks.restore,
@@ -165,9 +224,11 @@ async function clickButton(label: string, exact = true) {
 function ControlledPanel({
   documentId = "document-1",
   restoreReady = true,
+  canRestore = true,
 }: {
   documentId?: string;
   restoreReady?: boolean;
+  canRestore?: boolean;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -178,6 +239,7 @@ function ControlledPanel({
         mocks.onOpenChange(next);
         setOpen(next);
       }}
+      canRestore={canRestore}
       restoreReady={restoreReady}
       prepareRestore={mocks.prepareRestore}
       onRestored={mocks.onRestored}
@@ -276,6 +338,9 @@ describe("VersionHistoryPanel restore flow", () => {
           title: "Draft",
           checkpointKind: "after",
           createdAt: "2026-09-08T10:05:00.000Z",
+          name: null,
+          namedBy: null,
+          namedAt: null,
         },
       ],
       nextCursor: "older-checkpoints",
@@ -291,6 +356,9 @@ describe("VersionHistoryPanel restore flow", () => {
             title: "Older",
             checkpointKind: "after",
             createdAt: "2026-09-08T10:00:00.000Z",
+            name: null,
+            namedBy: null,
+            namedAt: null,
           },
         ],
         nextCursor: null,
@@ -318,6 +386,9 @@ describe("VersionHistoryPanel restore flow", () => {
           title: "Newest",
           checkpointKind: "after",
           createdAt: "2026-09-08T10:10:00.000Z",
+          name: null,
+          namedBy: null,
+          namedAt: null,
         },
         {
           id: "version-1",
@@ -326,6 +397,9 @@ describe("VersionHistoryPanel restore flow", () => {
           title: "Draft",
           checkpointKind: "after",
           createdAt: "2026-09-08T10:05:00.000Z",
+          name: null,
+          namedBy: null,
+          namedAt: null,
         },
       ],
       nextCursor: "refreshed-older-checkpoints",
@@ -558,5 +632,278 @@ describe("VersionHistoryPanel group titles", () => {
       container.remove();
       mocks.historyPage.data = original;
     }
+  });
+});
+
+describe("VersionHistoryPanel named versions", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const namedVersion = {
+    id: "version-1",
+    title: "Draft",
+    createdAt: "2026-09-08T10:05:00.000Z",
+    name: "Week of Sep 7",
+    namedBy: "alice@example.com",
+    namedAt: "2026-09-08T11:00:00.000Z",
+  };
+
+  function nameResult(id: string, name: string | null) {
+    return {
+      checkpoint: {
+        id,
+        documentId: "document-1",
+        groupId: "group-1",
+        title: "Draft",
+        checkpointKind: "after",
+        createdAt: "2026-09-08T10:05:00.000Z",
+        name,
+        namedBy: name ? "alice@example.com" : null,
+        namedAt: name ? "2026-09-08T11:00:00.000Z" : null,
+      },
+      created: id !== "version-1",
+    };
+  }
+
+  async function render(props: { canRestore?: boolean } = {}) {
+    await act(async () => {
+      root.render(<ControlledPanel {...props} />);
+      await Promise.resolve();
+    });
+  }
+
+  function nameInput() {
+    return document.querySelector(
+      'input[aria-label="Version name"]',
+    ) as HTMLInputElement | null;
+  }
+
+  async function typeName(value: string) {
+    const input = nameInput();
+    expect(input, document.body.innerHTML).toBeTruthy();
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setValue.call(input, value);
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  async function pressEscape(target: Element) {
+    await act(async () => {
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  beforeEach(() => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    mocks.nameVersion.mockReset();
+    mocks.onOpenChange.mockClear();
+    mocks.toastSuccess.mockClear();
+    mocks.setClientAppState.mockClear();
+    mocks.namedVersions.data = { versions: [] };
+    mocks.comparison.data = undefined;
+    mocks.comparedVersionIds.length = 0;
+    mocks.detailName = null;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.replaceChildren();
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  it("lists named versions above all changes and opens one in place", async () => {
+    mocks.namedVersions.data = { versions: [namedVersion] };
+    mocks.detailName = namedVersion.name;
+    await render();
+    const text = document.body.textContent ?? "";
+    expect(text.indexOf("Named versions")).toBeGreaterThan(-1);
+    expect(text.indexOf("Named versions")).toBeLessThan(
+      text.indexOf("All changes"),
+    );
+    expect(text.indexOf("All changes")).toBeLessThan(
+      text.indexOf("Editing session"),
+    );
+
+    await clickButton("Week of Sep 7", false);
+    expect(
+      document.querySelector("[data-testid=history-preview]")?.textContent,
+    ).toBe("Earlier content");
+    expect(document.body.textContent).toContain("Week of Sep 7");
+    expect(document.body.textContent).toContain("Rename");
+  });
+
+  it("names the page as it is now and returns focus to the button", async () => {
+    mocks.nameVersion.mockResolvedValueOnce(
+      nameResult("version-2", "Launch draft"),
+    );
+    await render();
+    await clickButton("Name current version");
+    expect(document.activeElement).toBe(nameInput());
+    await typeName("  Launch draft ");
+    await clickButton("Save name");
+
+    expect(mocks.nameVersion).toHaveBeenCalledWith({
+      documentId: "document-1",
+      name: "Launch draft",
+    });
+    expect(nameInput()).toBeNull();
+    expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
+    expect(document.activeElement?.textContent?.trim()).toBe(
+      "Name current version",
+    );
+  });
+
+  it("keeps the form open with the error when naming fails", async () => {
+    mocks.nameVersion.mockRejectedValueOnce(new Error("taken"));
+    await render();
+    await clickButton("Name current version");
+    await typeName("Launch draft");
+    await clickButton("Save name");
+
+    expect(nameInput()?.value).toBe("Launch draft");
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      "editor.historyVersionNameFailed",
+    );
+    expect(nameInput()?.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("Escape cancels the name form without closing the panel", async () => {
+    await render();
+    await clickButton("Name current version");
+    await pressEscape(nameInput()!);
+
+    expect(nameInput()).toBeNull();
+    expect(mocks.onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(mocks.nameVersion).not.toHaveBeenCalled();
+    expect(document.activeElement?.textContent?.trim()).toBe(
+      "Name current version",
+    );
+  });
+
+  it("names, then removes the name of, the selected version", async () => {
+    await render();
+    await clickButton("Editing session", false);
+    await clickButton("DraftAfter");
+
+    mocks.nameVersion.mockResolvedValueOnce(
+      nameResult("version-1", "Week of Sep 7"),
+    );
+    await clickButton("Name this version");
+    await typeName("Week of Sep 7");
+    await clickButton("Save name");
+    expect(mocks.nameVersion).toHaveBeenLastCalledWith({
+      documentId: "document-1",
+      versionId: "version-1",
+      name: "Week of Sep 7",
+    });
+    expect(document.body.textContent).toContain("Week of Sep 7");
+    expect(document.activeElement?.textContent?.trim()).toBe("Rename");
+
+    mocks.nameVersion.mockResolvedValueOnce(nameResult("version-1", null));
+    const remove = document.querySelector(
+      'button[aria-label="Remove name"]',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      remove.click();
+      await Promise.resolve();
+    });
+    expect(mocks.nameVersion).toHaveBeenLastCalledWith({
+      documentId: "document-1",
+      versionId: "version-1",
+      name: "",
+    });
+    expect(document.querySelector('button[aria-label="Remove name"]')).toBe(
+      null,
+    );
+    expect(document.activeElement?.textContent?.trim()).toBe(
+      "Name this version",
+    );
+  });
+
+  it("compares the selected version with the current page", async () => {
+    mocks.comparison.data = {
+      from: {
+        kind: "checkpoint",
+        id: "version-1",
+        name: null,
+        title: "Draft",
+        at: "2026-09-08T10:05:00.000Z",
+      },
+      to: {
+        kind: "current",
+        id: null,
+        name: null,
+        title: "Final",
+        at: "2026-09-09T10:05:00.000Z",
+      },
+      identical: false,
+      title: { before: "Draft", after: "Final" },
+      body: {
+        hunks: [
+          {
+            lines: [
+              { kind: "removed", text: "Earlier content" },
+              { kind: "added", text: "Current content" },
+            ],
+            omittedLineCount: 0,
+          },
+        ],
+        omittedHunkCount: 0,
+        addedLineCount: 1,
+        removedLineCount: 1,
+      },
+    };
+    await render();
+    await clickButton("Editing session", false);
+    await clickButton("DraftAfter");
+    expect(mocks.comparedVersionIds).toEqual([]);
+
+    const compare = await clickButton("Compare with current");
+    expect(compare.getAttribute("aria-pressed")).toBe("true");
+    expect(mocks.comparedVersionIds.at(-1)).toBe("version-1");
+    expect(document.querySelector("[data-testid=history-preview]")).toBeNull();
+    expect(document.body.textContent).toContain("Current content");
+    expect(document.body.textContent).toContain("Final");
+    expect(mocks.setClientAppState).toHaveBeenLastCalledWith(
+      "content-history:document-1",
+      expect.objectContaining({
+        selectedCheckpointId: "version-1",
+        selectedCheckpointView: "compare",
+      }),
+      expect.anything(),
+    );
+
+    mocks.comparison.data = { ...mocks.comparison.data!, identical: true };
+    await render();
+    expect(document.body.textContent).toContain(
+      "This version matches the current page.",
+    );
+  });
+
+  it("hides naming from people who cannot edit", async () => {
+    mocks.namedVersions.data = { versions: [namedVersion] };
+    mocks.detailName = namedVersion.name;
+    await render({ canRestore: false });
+    expect(document.body.textContent).toContain("Week of Sep 7");
+    expect(document.body.textContent).not.toContain("Name current version");
+    await clickButton("Week of Sep 7", false);
+    expect(document.body.textContent).not.toContain("Rename");
   });
 });

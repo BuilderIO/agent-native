@@ -4,10 +4,8 @@ import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import type {
-  DocumentHistoryCheckpointKind,
-  DocumentHistoryCheckpointPage,
-} from "../shared/document-history.js";
+import { documentHistoryCheckpoint } from "../server/lib/document-version-names.js";
+import type { DocumentHistoryCheckpointPage } from "../shared/document-history.js";
 
 interface CheckpointCursor {
   createdAt: string;
@@ -75,6 +73,9 @@ export default defineAction({
         checkpointKind: schema.documentVersions.checkpointKind,
         checkpointRank,
         createdAt: schema.documentVersions.createdAt,
+        name: schema.documentVersions.name,
+        namedBy: schema.documentVersions.namedBy,
+        namedAt: schema.documentVersions.namedAt,
       })
       .from(schema.documentVersions)
       .where(
@@ -115,15 +116,7 @@ export default defineAction({
     const pageRows = rows.slice(0, args.limit);
     const last = pageRows[pageRows.length - 1];
     return {
-      checkpoints: pageRows.map((row) => ({
-        id: row.id,
-        documentId: row.documentId,
-        groupId: row.groupId ?? row.id,
-        title: row.title,
-        checkpointKind: (row.checkpointKind ??
-          "legacy") as DocumentHistoryCheckpointKind,
-        createdAt: row.createdAt,
-      })),
+      checkpoints: pageRows.map(documentHistoryCheckpoint),
       hasMore,
       nextCursor:
         hasMore && last

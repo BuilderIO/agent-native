@@ -185,6 +185,9 @@ export const documentVersions = table(
     groupId: text("group_id"),
     operation: text("operation"),
     checkpointKind: text("checkpoint_kind"),
+    name: text("name"),
+    namedBy: text("named_by"),
+    namedAt: text("named_at"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at"),
   },
@@ -207,6 +210,9 @@ export const documentVersions = table(
       version.documentId,
       version.bodyRevision,
     ),
+    uniqueIndex("document_versions_owner_document_name_unique")
+      .on(version.ownerEmail, version.documentId, sql`lower(${version.name})`)
+      .where(sql`${version.name} IS NOT NULL`),
   ],
 );
 

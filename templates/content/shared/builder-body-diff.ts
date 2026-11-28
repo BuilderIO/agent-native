@@ -175,7 +175,10 @@ function markedRun(changed: FlatLine[]): BuilderBodyDiffLine[] {
 export function builderBodyLineDiff(
   current: string | null | undefined,
   proposed: string | null | undefined,
+  limits: { maxHunks?: number; maxHunkLines?: number } = {},
 ): BuilderBodyDiff | null {
+  const maxHunks = limits.maxHunks ?? MAX_HUNKS;
+  const maxHunkLines = limits.maxHunkLines ?? MAX_HUNK_LINES;
   const before = normalizeBody(current);
   const after = normalizeBody(proposed);
   if (before === after) return null;
@@ -200,7 +203,7 @@ export function builderBodyLineDiff(
   }
 
   const hunks: BuilderBodyDiffHunk[] = merged
-    .slice(0, MAX_HUNKS)
+    .slice(0, maxHunks)
     .map((range) => {
       const from = contextEdge(lines, range.start, -1, CONTEXT_LINES);
       const to = contextEdge(lines, range.end, 1, CONTEXT_LINES);
@@ -221,14 +224,14 @@ export function builderBodyLineDiff(
       }
       if (run.length > 0) hunkLines.push(...markedRun(run));
       return {
-        lines: hunkLines.slice(0, MAX_HUNK_LINES),
-        omittedLineCount: Math.max(0, hunkLines.length - MAX_HUNK_LINES),
+        lines: hunkLines.slice(0, maxHunkLines),
+        omittedLineCount: Math.max(0, hunkLines.length - maxHunkLines),
       };
     });
 
   return {
     hunks,
-    omittedHunkCount: Math.max(0, merged.length - MAX_HUNKS),
+    omittedHunkCount: Math.max(0, merged.length - maxHunks),
     addedLineCount: lines.filter(
       (line) => line.kind === "added" && line.text.trim(),
     ).length,
