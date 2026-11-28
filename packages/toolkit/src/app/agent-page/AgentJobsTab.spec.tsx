@@ -12,6 +12,7 @@ const jobMocks = vi.hoisted(() => ({
   },
   useRunAutomationNow: vi.fn(),
   useAutomations: vi.fn(),
+  useAutomationRuns: vi.fn(),
   useAutomationAccountSearch: vi.fn(),
   useAutomationEvents: vi.fn(),
   useManageAutomation: vi.fn(),
@@ -22,6 +23,7 @@ const jobMocks = vi.hoisted(() => ({
 
 vi.mock("./use-jobs.js", () => ({
   useAutomations: jobMocks.useAutomations,
+  useAutomationRuns: jobMocks.useAutomationRuns,
   useManageAutomation: jobMocks.useManageAutomation,
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
@@ -144,6 +146,7 @@ describe("AgentJobsTab organization automations", () => {
               {
                 id: "event-automation",
                 resourceId: "event-automation",
+                mcpTools: [],
                 classification: "automation",
                 name: "new-lead-alert",
                 path: "jobs/new-lead-alert.md",
@@ -179,6 +182,7 @@ describe("AgentJobsTab organization automations", () => {
           : [],
       ),
     );
+    jobMocks.useAutomationRuns.mockReturnValue(queryResult([]));
     jobMocks.useManageRecurringJob.mockReturnValue(mutationResult());
     jobMocks.useRunAutomationNow.mockReturnValue(mutationResult());
     jobMocks.useAutomationAccountSearch.mockReturnValue({
@@ -198,8 +202,226 @@ describe("AgentJobsTab organization automations", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    window.history.replaceState(null, "", "/");
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("opens the accessible automation named by a settings link", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? { ...result, data: [{ ...result.data[0], id: "row-id" }] }
+        : result;
+    });
+    window.history.replaceState(
+      null,
+      "",
+      "/workspace/settings/automations?filter=all&automationId=event-automation#details",
+    );
+    await act(async () => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("new lead alert");
+    expect(dialog?.textContent).toContain("Alert the sales team.");
+    expect(jobMocks.useAutomationRuns).toHaveBeenCalledWith(
+      { resourceId: "event-automation" },
+      true,
+    );
+    const close = [...(dialog?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent.includes("Close"),
+    );
+    expect(close).toBeDefined();
+    await act(async () => close?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(window.location.pathname).toBe("/workspace/settings/automations");
+    expect(window.location.search).toBe("?filter=all");
+    expect(window.location.hash).toBe("#details");
+  });
+
+  it("tracks browser history changes between linked automations", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? {
+            ...result,
+            data: [
+              ...result.data,
+              {
+                ...result.data[0],
+                id: "second",
+                resourceId: "second",
+                name: "second-automation",
+                body: "Second automation body.",
+              },
+            ],
+          }
+        : result;
+    });
+    await act(async () => root.render(<AgentJobsTab />));
+    const navigate = async (id: string) => {
+      await act(async () => {
+        window.history.pushState(null, "", `?automationId=${id}`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+    };
+    await navigate("event-automation");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "new lead alert",
+    );
+    await navigate("second");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "second automation",
+    );
+    await navigate("private-or-deleted");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain(
+      "agentChat.settingsShell.integrationDetail.notFoundTitle",
+    );
+    await navigate("event-automation");
+    const close = [...document.querySelectorAll('[role="dialog"] button')].find(
+      (button) => button.textContent.includes("Close"),
+    ) as HTMLButtonElement | undefined;
+    await act(async () => close?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await navigate("event-automation");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "new lead alert",
+    );
+  });
+
+  it("opens a linked recurring automation by resource ID even when its list row is deduplicated", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? {
+            ...result,
+            data: [
+              {
+                ...result.data[0],
+                id: "legacy-scheduled",
+                resourceId: "legacy-scheduled",
+                name: "weekly-report",
+                classification: "recurring-job",
+                triggerType: "schedule",
+                body: "Send the weekly report.",
+              },
+            ],
+          }
+        : result;
+    });
+    window.history.replaceState(null, "", "?automationId=legacy-scheduled");
+    await act(async () => root.render(<AgentJobsTab />));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Send the weekly report.",
+    );
+    expect(jobMocks.useAutomationRuns).toHaveBeenCalledWith(
+      { resourceId: "legacy-scheduled" },
+      true,
+    );
+  });
+
+  it("opens and closes ordinary details without changing the URL", async () => {
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = original(scope);
+      return scope === "org"
+        ? {
+            ...result,
+            data: [{ ...result.data[0], lastError: "Run failed" }],
+          }
+        : result;
+    });
+    window.history.replaceState(
+      null,
+      "",
+      "/settings/automations?filter=all#jobs",
+    );
+    await act(async () => root.render(<AgentJobsTab />));
+    const details = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "View details",
+    );
+    expect(details).toBeDefined();
+    await act(async () => details?.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Alert the sales team.",
+    );
+    const close = [...document.querySelectorAll('[role="dialog"] button')].find(
+      (button) => button.textContent.includes("Close"),
+    ) as HTMLButtonElement | undefined;
+    expect(close).toBeDefined();
+    await act(async () => close?.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(window.location.search).toBe("?filter=all");
+    expect(window.location.hash).toBe("#jobs");
+  });
+
+  it("waits for the access-scoped list before opening a linked automation", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/settings/automations?automationId=event-automation",
+    );
+    const original = jobMocks.useAutomations.getMockImplementation();
+    if (!original) throw new Error("Missing automation query fixture");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") =>
+      scope === "org"
+        ? { ...queryResult(undefined), isLoading: true }
+        : original(scope),
+    );
+    await act(async () => root.render(<AgentJobsTab />));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).not.toContain(
+      "agentChat.settingsShell.integrationDetail.notFoundTitle",
+    );
+
+    jobMocks.useAutomations.mockImplementation(original);
+    await act(async () => root.render(<AgentJobsTab />));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      "new lead alert",
+    );
+  });
+
+  it("shows not found without opening a different record when access is missing", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/settings/automations?automationId=private-or-deleted",
+    );
+    await act(async () => root.render(<AgentJobsTab />));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain(
+      "agentChat.settingsShell.integrationDetail.notFoundTitle",
+    );
+    expect(jobMocks.useAutomationRuns).not.toHaveBeenCalled();
+  });
+
+  it("reports list failures instead of treating them as a missing record", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/settings/automations?automationId=private-or-deleted",
+    );
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") =>
+      scope === "org"
+        ? { ...queryResult(undefined), error: new Error("offline") }
+        : queryResult([]),
+    );
+    await act(async () => root.render(<AgentJobsTab />));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain("Could not load all automations.");
+    expect(container.textContent).not.toContain(
+      "agentChat.settingsShell.integrationDetail.notFoundTitle",
+    );
   });
 
   it("shows scheduled and event-triggered organization automations", () => {

@@ -327,6 +327,8 @@ async function handleDefine(
     },
   );
   await refreshEventSubscriptions();
+  const query = new URLSearchParams({ automationId: definition.resourceId });
+  const appLocalPath = `/settings/automations?${query}`;
   return JSON.stringify({
     created: true,
     resourceId: definition.resourceId,
@@ -335,6 +337,7 @@ async function handleDefine(
       verb: "created",
       kind: "automation",
       title: definition.name.slice(0, 180),
+      url: appLocalPath,
     },
     scope: definition.scope,
     triggerType: definition.meta.triggerType,

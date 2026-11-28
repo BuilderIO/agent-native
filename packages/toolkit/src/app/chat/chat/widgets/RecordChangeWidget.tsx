@@ -2,6 +2,7 @@ import {
   normalizeActionChangeResult,
   type ActionChange,
 } from "@agent-native/core/action-ui";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   compareAndSetClientAppState,
   readClientAppState,
@@ -170,7 +171,12 @@ function ActionChangeCard({
         : change.kind === "email-draft" && change.verb === "created"
           ? t("agentChat.widget.actionStatus.draftReview")
           : t(`agentChat.widget.actionStatus.${change.verb}`);
-  const href = safeActionUrl(change.url);
+  const safeUrl = safeActionUrl(change.url);
+  const href =
+    change.kind === "automation" &&
+    safeUrl?.startsWith("/settings/automations?")
+      ? `${appBasePath()}${safeUrl}`
+      : safeUrl;
   const preferenceTitle =
     change.kind === "preference"
       ? change.title
