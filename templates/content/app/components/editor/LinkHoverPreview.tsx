@@ -120,7 +120,7 @@ export function LinkHoverPreview({
       flushSync(close);
     };
     const closeIfDetached = () => {
-      if (!hoveredLink.link.isConnected) close();
+      if (!editor.view.dom.contains(hoveredLink.link)) close();
     };
     window.addEventListener("keydown", handleKeyDown, true);
     editor.on("update", closeIfDetached);
@@ -131,12 +131,9 @@ export function LinkHoverPreview({
   }, [editor, hoveredLink]);
 
   const linkPosition = () => {
-    if (!hoveredLink?.link.isConnected) return null;
-    try {
-      return editor.view.posAtDOM(hoveredLink.link, 0);
-    } catch {
-      return null;
-    }
+    const link = hoveredLink?.link;
+    if (!link || !editor.view.dom.contains(link)) return null;
+    return editor.view.posAtDOM(link, 0);
   };
 
   const handleRemoveLink = () => {
