@@ -3524,11 +3524,11 @@ async function runCommand(
     const silent = options.stdio === "silent";
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    const [spawnCmd, spawnArgs, shell] = shimSpawnTarget(cmd, args);
+    const [spawnCmd, spawnArgs, shell, shimEnv] = shimSpawnTarget(cmd, args);
     const child = spawn(spawnCmd, spawnArgs, {
       stdio: pipeToStderr || silent ? ["inherit", "pipe", "pipe"] : "inherit",
       shell,
-      env: process.env,
+      env: { ...process.env, ...shimEnv },
     });
     if (pipeToStderr) {
       child.stdout?.on("data", (chunk) => process.stderr.write(chunk));

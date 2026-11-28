@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os, { constants as osConstants } from "node:os";
@@ -92,10 +93,88 @@ describe("cli process launch options", () => {
   });
 
   it("names the command when a Windows argument can't be quoted", () => {
-    expect(() => shimSpawnTarget("npm", ["C:\\%TEMP%"], "win32")).toThrow(
+    expect(() => shimSpawnTarget("npm", ['C:\\x"y'], "win32")).toThrow(
       /Cannot run npm on Windows: path contains/,
     );
   });
+
+  it("passes a Windows argument with %NAME% through an environment variable", () => {
+    const dir = "C:\\Users\\%USERNAME%\\my app";
+    expect(
+      shimSpawnTarget("npm", ["--prefix", dir, "install"], "win32"),
+    ).toEqual([
+      'npm --prefix "%AGENT_NATIVE_SHIM_ARG_1%" install',
+      [],
+      true,
+      { AGENT_NATIVE_SHIM_ARG_1: dir },
+    ]);
+  });
+
+  it("keeps a trailing backslash from escaping the quote around an env variable", () => {
+    const [command, , , shimEnv] = shimSpawnTarget(
+      "npm",
+      ["C:\\%TEMP%\\"],
+      "win32",
+    );
+    expect(command).toBe('npm "%AGENT_NATIVE_SHIM_ARG_0%"');
+    expect(shimEnv).toEqual({ AGENT_NATIVE_SHIM_ARG_0: "C:\\%TEMP%\\\\" });
+  });
+
+  it("adds no environment variables when no argument has a %", () => {
+    expect(shimSpawnTarget("npm", ["a b"], "win32")).toHaveLength(3);
+  });
+
+  // oracle-change: runs only on Windows, where cmd.exe and a .cmd shim exist
+  it.skipIf(process.platform !== "win32")(
+    "delivers arguments to a real .cmd shim unchanged, including %NAME%",
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shim-target-"));
+      const out = path.join(dir, "argv.json");
+      const manager = "npm";
+      fs.writeFileSync(
+        path.join(dir, "record-argv.cjs"),
+        "require('fs').writeFileSync(process.env.SHIM_TEST_OUT, JSON.stringify(process.argv.slice(2)))",
+      );
+      fs.writeFileSync(
+        path.join(dir, `${manager}.cmd`),
+        '@echo off\r\n"%SHIM_TEST_NODE%" "%~dp0record-argv.cjs" %*\r\n',
+      );
+      const args = [
+        "--prefix",
+        "C:\\Users\\Jo Doe\\%SHIM_TEST_VAR%\\app\\",
+        "install",
+      ];
+      try {
+        const [command, commandArgs, shell, shimEnv] = shimSpawnTarget(
+          manager,
+          args,
+          "win32",
+        );
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(command, commandArgs, {
+            shell,
+            stdio: "ignore",
+            cwd: os.tmpdir(),
+            env: {
+              ...process.env,
+              PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+              SHIM_TEST_NODE: process.execPath,
+              SHIM_TEST_OUT: out,
+              SHIM_TEST_VAR: "EXPANDED",
+              ...shimEnv,
+            },
+          });
+          child.on("error", reject);
+          child.on("exit", (code) =>
+            code === 0 ? resolve() : reject(new Error(`exit ${code}`)),
+          );
+        });
+        expect(JSON.parse(fs.readFileSync(out, "utf8"))).toEqual(args);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("restarts only after the recovery exit code and keeps signal listeners bounded", async () => {
     const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;

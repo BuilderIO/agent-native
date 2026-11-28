@@ -36,14 +36,18 @@ import {
   escapeHtml,
 } from "./gateway-helpers.js";
 import { openUrlInBrowser } from "./open-url.js";
-import { DEV_SERVER_SUPERVISOR_ENV, shimSpawnTarget } from "./process.js";
+import {
+  DEV_SERVER_SUPERVISOR_ENV,
+  shimSpawnTarget,
+  type ShimSpawnTarget,
+} from "./process.js";
 import { captureSentryException } from "./sentry-telemetry.js";
 
 // App directories may contain spaces, so Windows gets a quoted command line.
 export function pnpmSpawnTarget(
   args: string[],
   platform: NodeJS.Platform = process.platform,
-): [string, string[], boolean] {
+): ShimSpawnTarget {
   return shimSpawnTarget("pnpm", args, platform);
 }
 
@@ -993,7 +997,7 @@ export async function runWorkspaceDev(
       });
       return;
     }
-    const [pnpmCommand, pnpmArgs, pnpmShell] = pnpmTarget;
+    const [pnpmCommand, pnpmArgs, pnpmShell, pnpmShimEnv] = pnpmTarget;
     const child = spawnProcess(pnpmCommand, pnpmArgs, {
       ...(pnpmShell ? { shell: true } : {}),
       cwd: root,
@@ -1035,6 +1039,7 @@ export async function runWorkspaceDev(
             : {}),
           PORT: String(app.port),
           WORKSPACE_GATEWAY_URL: gatewayUrl,
+          ...pnpmShimEnv,
         },
         pollingMode,
       ),
