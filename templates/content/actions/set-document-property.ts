@@ -62,6 +62,7 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
+import { assertLocalFolderAllowsPageEdit } from "./_document-source.js";
 import {
   NFM_CONTAINER_SYNTAX,
   NFM_INTERACTIVE_HTML_SYNTAX,
@@ -453,6 +454,9 @@ export default defineAction({
           },
         );
       }
+      if (target === "document_body") {
+        await assertLocalFolderAllowsPageEdit(document);
+      }
       const fieldRevision =
         baseRevision === undefined ? expectedBlocksFieldRevision : undefined;
       await assertAccess("document", documentId, "editor");
@@ -508,6 +512,8 @@ export default defineAction({
           .select({
             trashedAt: schema.documents.trashedAt,
             agentTextLocked: schema.documents.agentTextLocked,
+            sourceMode: schema.documents.sourceMode,
+            sourceKind: schema.documents.sourceKind,
           })
           .from(schema.documents)
           .where(eq(schema.documents.id, documentId));
@@ -576,6 +582,11 @@ export default defineAction({
           );
           return;
         }
+        await assertLocalFolderAllowsPageEdit(
+          { id: documentId, ...lockedPage },
+          "edit",
+          tx as unknown as ReturnType<typeof getDb>,
+        );
         const legacy = await lockLegacyBodyWrites(tx, [documentId], {
           operation: "set-document-property",
           content,

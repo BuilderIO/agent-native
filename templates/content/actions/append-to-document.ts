@@ -19,7 +19,10 @@ import {
   serverSaveContext,
 } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
 import updateDocument from "./update-document.js";
 
 function isRevisionConflict(error: unknown) {
@@ -77,6 +80,7 @@ export default defineAction({
       assertEditableDocument(page);
       await refuseCollection(documentId);
       assertSourceAllowsPageEdit(page);
+      await assertLocalFolderAllowsPageEdit(page);
       assertAgentsMayEditPageText(page, ctx);
       const existing = (page.content as string | null) ?? "";
       const next = appendNfmBlocks(existing, blocks);

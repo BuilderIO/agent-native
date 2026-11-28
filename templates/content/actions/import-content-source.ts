@@ -41,6 +41,10 @@ import {
 } from "./_content-spaces.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { isAgentCall } from "./_document-agent-lock.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  isSourceReadOnlyRefusal,
+} from "./_document-source.js";
 import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
@@ -306,8 +310,7 @@ export default defineAction({
     const currentParentById = new Map<string, string | null>();
     const currentPositionById = new Map<string, number>();
 
-    for (let index = 0; index < parsed.length; index += 1) {
-      const file = parsed[index];
+    for (const [index, file] of parsed.entries()) {
       if (file.errors && file.errors.length > 0) {
         errors.push({
           path: file.path,
@@ -427,20 +430,27 @@ export default defineAction({
         // committed; none of this one lands, and the rest of the import still
         // does.
         const refuseFile = (error: unknown) => {
-          if (
-            !isLocalFileLinkRefused(error) &&
-            !(
-              error instanceof ActionContractError &&
-              error.errorCode === "DATABASE_MEMBERSHIPS_CHANGED"
-            )
+          if (isSourceReadOnlyRefusal(error)) {
+            skipped.push({ path: file.path, reason: error.message });
+          } else if (
+            isLocalFileLinkRefused(error) ||
+            (error instanceof ActionContractError &&
+              error.errorCode === "DATABASE_MEMBERSHIPS_CHANGED")
           ) {
+            errors.push({ path: file.path, reason: error.message });
+          } else {
             throw error;
           }
-          errors.push({ path: file.path, reason: error.message });
           desiredParentById.delete(id);
           desiredPositionById.delete(id);
           return null;
         };
+        try {
+          await assertLocalFolderAllowsPageEdit(existing);
+        } catch (error) {
+          refuseFile(error);
+          continue;
+        }
         if (sourceChanged) {
           try {
             await assertLocalFileLinkable(id);
@@ -494,6 +504,11 @@ export default defineAction({
             };
           }
           await assertLocalFileLinkable(id, { transaction: tx });
+          await assertLocalFolderAllowsPageEdit(
+            locked,
+            "edit",
+            tx as unknown as ReturnType<typeof getDb>,
+          );
 
           const lockedTitleChanged = file.title !== locked.title;
           const lockedContentChanged = file.content !== locked.content;
@@ -835,11 +850,19 @@ export default defineAction({
               spaceId: schema.documents.spaceId,
               trashedAt: schema.documents.trashedAt,
               parentId: schema.documents.parentId,
+              sourceMode: schema.documents.sourceMode,
+              sourceKind: schema.documents.sourceKind,
             })
             .from(schema.documents)
             .where(eq(schema.documents.id, id));
           if (!page || page.trashedAt) {
             return "Skipped layout update: the page was deleted or moved to Trash.";
+          }
+          try {
+            await assertLocalFolderAllowsPageEdit({ id, ...page }, "move", tx);
+          } catch (error) {
+            if (isSourceReadOnlyRefusal(error)) return error.message;
+            throw error;
           }
           if (
             page.ownerEmail !== ownerEmail ||

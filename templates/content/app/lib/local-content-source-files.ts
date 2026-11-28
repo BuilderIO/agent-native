@@ -241,9 +241,31 @@ function resolveSourcePathForFolders<T extends { sourcePrefix?: string }>(
   return null;
 }
 
-async function resolveBrowserSourceForPath(filePath: string) {
+function resolveSourcePathForRoot<
+  T extends { id?: string; sourcePrefix?: string },
+>(
+  filePath: string,
+  rootPath: string,
+  folders: T[],
+): { folder: T; path: string } | null {
+  const folder = folders.find((candidate) => candidate.id === rootPath);
+  if (folder) return { folder, path: filePath };
+  const [prefix, ...rest] = filePath.split("/").filter(Boolean);
+  const prefixed =
+    prefix === rootPath && rest.length > 0
+      ? folders.find((candidate) => candidate.sourcePrefix === rootPath)
+      : undefined;
+  return prefixed ? { folder: prefixed, path: rest.join("/") } : null;
+}
+
+async function resolveBrowserSourceForPath(
+  filePath: string,
+  source: DocumentSourceInfo | undefined,
+) {
   const directories = await readPersistedSourceDirectories();
-  const resolved = resolveSourcePathForFolders(filePath, directories);
+  const resolved = source?.rootPath
+    ? resolveSourcePathForRoot(filePath, source.rootPath, directories)
+    : resolveSourcePathForFolders(filePath, directories);
   if (!resolved) return null;
   return {
     handle: resolved.folder.handle,
@@ -263,16 +285,17 @@ async function resolveDesktopSourceForPath(
     result.folders && result.folders.length > 0
       ? result.folders
       : [result.folder];
-  const sourceFolder = source?.rootPath
-    ? folders.find(
+  const rootPath = source?.rootPath;
+  if (rootPath) {
+    const sourceFolder =
+      folders.find((folder) => folder.id === rootPath) ??
+      folders.find(
         (folder) =>
-          folder.id === source.rootPath ||
-          folder.sourcePrefix === source.rootPath ||
-          folder.name === source.rootPath,
-      )
-    : undefined;
-  if (sourceFolder) {
-    return { api: desktopFiles, folder: sourceFolder, path: filePath };
+          folder.sourcePrefix === rootPath || folder.name === rootPath,
+      );
+    return sourceFolder
+      ? { api: desktopFiles, folder: sourceFolder, path: filePath }
+      : null;
   }
   const resolved = resolveSourcePathForFolders(filePath, folders);
   if (!resolved && folders.length > 1) {
@@ -376,14 +399,18 @@ async function writeBrowserFile(
   };
 }
 
-async function browserFileRevision(content: string) {
+async function sha256Hex(content: string) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(content),
   );
-  return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+  return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
-  ).join("")}`;
+  ).join("");
+}
+
+async function browserFileRevision(content: string) {
+  return `sha256:${await sha256Hex(content)}`;
 }
 
 async function readBrowserFile(root: LocalDirectoryHandle, filePath: string) {
@@ -561,11 +588,12 @@ export async function writeDocumentToLinkedLocalSource(
       ok: true,
       path: filePath,
       runtime: "desktop",
-      revision: result.revisions?.[desktopSource.path],
+      revision:
+        result.revisions?.[desktopSource.path] ?? (await sha256Hex(content)),
     };
   }
 
-  const browserSource = await resolveBrowserSourceForPath(filePath);
+  const browserSource = await resolveBrowserSourceForPath(filePath, source);
   if (!browserSource) {
     return {
       ok: false,
@@ -732,7 +760,7 @@ export async function readDocumentFromLinkedLocalSource(
       : read;
   }
 
-  const browserSource = await resolveBrowserSourceForPath(filePath);
+  const browserSource = await resolveBrowserSourceForPath(filePath, source);
   if (!browserSource) {
     return {
       ok: false,

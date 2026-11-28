@@ -22,7 +22,10 @@ import {
 } from "../shared/table-edits.js";
 import { recordContentSaveOutcome } from "./_content-save-outcomes.js";
 import { mutateDocumentBody } from "./_document-edit-mutation.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
 
 const number = z.number().int().min(1);
 const row = number.describe("Row number, from 1 at the top");
@@ -288,6 +291,7 @@ export default defineAction({
     const access = await assertAccess("document", args.id, "editor");
     const existing = access.resource;
     assertSourceAllowsPageEdit(existing);
+    await assertLocalFolderAllowsPageEdit(existing);
     if (
       existing.sourceMode === "local-files" &&
       existing.sourceKind !== "folder" &&

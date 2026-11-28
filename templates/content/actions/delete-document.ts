@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { deleteDocumentImports } from "../server/lib/document-imports.js";
+import { LOCAL_FOLDER_TRASH_ORIGIN } from "../shared/content-trash.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
@@ -46,6 +47,8 @@ import {
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
+  assertLocalFolderAllowsPageEdit,
+  assertLocalFolderAllowsPagesEdit,
   assertSourceAllowsPageEdit,
   releaseRestoredPagesFromGitHubCollections,
 } from "./_document-source.js";
@@ -731,6 +734,11 @@ export async function trashDocumentSubtree(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, [id], ownerEmail);
+  if (origin !== LOCAL_FOLDER_TRASH_ORIGIN) {
+    await assertLocalFolderAllowsPagesEdit(db, documentIds, "trash", {
+      rootId: id,
+    });
+  }
   const memberships = await selectMembershipsForDocuments(db, documentIds);
   if (
     [
@@ -1501,6 +1509,7 @@ async function trashDocumentWithReceipt(
   const origin = ctx?.caller;
   const access = await assertDocumentMutationAccess(input.id, "admin", "id");
   assertSourceAllowsPageEdit(access.resource, "trash");
+  await assertLocalFolderAllowsPageEdit(access.resource, "trash");
   assertAgentsMayEditPageText(access.resource, ctx);
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
@@ -1629,6 +1638,7 @@ export default defineAction({
     const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
     assertSourceAllowsPageEdit(existing, "trash");
+    await assertLocalFolderAllowsPageEdit(existing, "trash");
     assertAgentsMayEditPageText(existing, ctx);
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })

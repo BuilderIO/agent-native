@@ -10739,6 +10739,11 @@ async function writeContentFileForRequest(
       folder: contentFilesFolderInfo(updatedGrant),
       folders: contentFilesFoldersInfo(grants),
       files: [written],
+      revisions: {
+        [written]: createHash("sha256")
+          .update(file.content, "utf-8")
+          .digest("hex"),
+      },
       controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {

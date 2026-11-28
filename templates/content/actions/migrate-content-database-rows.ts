@@ -34,6 +34,7 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
+import { assertLocalFolderAllowsPagesEdit } from "./_document-source.js";
 
 const validateSchema = z.object({
   phase: z.literal("validate"),
@@ -746,6 +747,10 @@ export async function runMigration(
           tx as unknown as ReturnType<typeof getDb>,
           priors.map((prior) => prior.documentId),
           ctx,
+        );
+        await assertLocalFolderAllowsPagesEdit(
+          tx as unknown as ReturnType<typeof getDb>,
+          priors.map((prior) => prior.documentId),
         );
         for (const prior of priors) {
           const version = versions.get(prior.versionId)!;
