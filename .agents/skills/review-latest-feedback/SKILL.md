@@ -63,11 +63,15 @@ the merged `✅` close-out after an in-review reply, which gets no second reply.
   human owner:", "Open - no question:"), and any mention of this workflow.
   Never report your own progress ("unreproduced", "not traced yet",
   "remains open"); say what happens next instead.
-- **Clear on what happens next:** "I'll ..." when this workflow acts. When it
-  needs a person, never name one and never say "the team", "product", "the
+- **Clear on what happens next:** "I'll ..." when this workflow acts. On
+  GitHub issues and PRs, **never** post a holding comment saying "a
+  maintainer will weigh in", "logged for a product decision", or "someone
+  else will decide" — if a human decision is the next step, post nothing on
+  GitHub and route it to `needs-person` so a maintainer decides directly. In
+  Slack, never name a person and never say "the team", "product", "the
   framework team", "the owner", or "someone": say only what's known ("I
-  couldn't reproduce this yet", "logged for a product decision"), add 🎫, and
-  record it as needing a person with the reason. Never @-mention anyone.
+  couldn't reproduce this yet", "logged for a product decision"), add 🎫,
+  and record it as needing a person with the reason. Never @-mention anyone.
 - **Not a to-do list for them:** look things up yourself first (the
   message's time and author, their account and recent activity, logs, the
   linked page or screenshot). Ask only when nothing else can unblock it, and
