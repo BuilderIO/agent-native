@@ -177,6 +177,24 @@ type DashboardPanelQueryResponse = SqlQueryResult & {
 
 type SqlQueryTimingStatus = "success" | "error" | "cancelled" | "timeout";
 
+function dataProgramFailure(error: unknown): SqlQueryRefusalError | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const { errorCode, details } = error as Error & {
+    errorCode?: unknown;
+    details?: { panelMessage?: unknown };
+  };
+  const panelMessage = details?.panelMessage;
+  if (
+    typeof errorCode !== "string" ||
+    !errorCode.startsWith("data_program_") ||
+    typeof panelMessage !== "string" ||
+    !panelMessage
+  ) {
+    return undefined;
+  }
+  return new SqlQueryRefusalError({ error: errorCode, message: panelMessage });
+}
+
 /** Sources whose queries scan BigQuery, so a lost request may still bill. */
 function scansBigQuery(source: DataSourceType): boolean {
   return source === "bigquery" || source === "first-party";
@@ -315,7 +333,7 @@ export async function executeSqlQuery(
       requestMs,
       totalMs: now - startedAt,
     });
-    throw error;
+    throw dataProgramFailure(error) ?? error;
   } finally {
     release?.();
     deadline.cleanup();
