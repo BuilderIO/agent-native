@@ -35,7 +35,10 @@ async function clickBeside(page: Page, block: ReturnType<Page["locator"]>) {
   await expect
     .poll(() =>
       page.evaluate(
-        ([x, y]) => !document.elementFromPoint(x, y)?.closest(".ProseMirror"),
+        ([x, y]) => {
+          const hit = document.elementFromPoint(x, y);
+          return !!hit && !hit.closest(".ProseMirror, button, [role='button']");
+        },
         [x, box.y + 20],
       ),
     )
@@ -84,6 +87,7 @@ test.describe("interactive HTML source", () => {
 
     await clickBeside(page, block);
     await expect(block.locator("pre")).toBeHidden();
+    await expect(page.locator(".ProseMirror-selectednode")).toHaveCount(0);
     await expect(
       block.getByRole("button", { name: "Show source" }),
     ).toHaveCount(1);
@@ -103,5 +107,9 @@ test.describe("interactive HTML source", () => {
     await page.keyboard.press("Escape");
     await expect(block).not.toHaveAttribute("open");
     await expect(block.locator("pre")).toBeHidden();
+
+    await clickBeside(page, block);
+    await expect(block.locator("pre")).toBeHidden();
+    await expect(block).not.toHaveAttribute("open");
   });
 });

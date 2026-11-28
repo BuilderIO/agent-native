@@ -495,6 +495,19 @@ const showsPosition = (view: EditorView, pos: number) => {
   return element.checkVisibility();
 };
 
+const visibleCaret = (view: EditorView, $start: ResolvedPos, dir: 1 | -1) => {
+  let caret = Selection.findFrom($start, dir, true);
+  while (caret && !showsPosition(view, caret.from)) {
+    const { $from } = caret;
+    caret = Selection.findFrom(
+      view.state.doc.resolve(dir > 0 ? $from.after() : $from.before()),
+      dir,
+      true,
+    );
+  }
+  return caret;
+};
+
 const editorArea = (registration: DragHandleRegistration) => {
   const rect = registration.view.dom.getBoundingClientRect();
   return rect.width * rect.height;
@@ -1933,14 +1946,9 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             ) {
               return;
             }
-            const caret = [
-              Selection.findFrom(selection.$from, 1, true),
-              Selection.findFrom(selection.$to, 1, true),
-              Selection.findFrom(selection.$from, -1, true),
-            ].find(
-              (candidate) =>
-                candidate && showsPosition(editorView, candidate.from),
-            );
+            const caret =
+              visibleCaret(editorView, selection.$from, 1) ??
+              visibleCaret(editorView, selection.$from, -1);
             if (caret)
               editorView.dispatch(editorView.state.tr.setSelection(caret));
           };

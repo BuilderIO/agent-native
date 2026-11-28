@@ -1708,7 +1708,15 @@ describe("DragHandle block selection", () => {
     },
   );
 
-  it("lets go of a block whose text is hidden by moving past it", () => {
+  it.each([
+    ["a block whose text is hidden", "<p>First</p><aside>Folded</aside>", 7],
+    [
+      "one hidden block before another",
+      "<aside>One</aside><aside>Two</aside>",
+      0,
+    ],
+    ["a divider before a hidden block", "<hr><aside>Folded</aside>", 0],
+  ])("lets go of %s by moving past the hidden text", (_name, content, pos) => {
     const Folded = Node.create({
       name: "folded",
       group: "block",
@@ -1717,7 +1725,7 @@ describe("DragHandle block selection", () => {
       renderHTML: () => ["aside", ["div", { style: "display: none" }, 0]],
     });
     const { editor } = mountEditor(
-      "<p>First</p><aside>Folded</aside><p>Second</p>",
+      `${content}<p>Second</p>`,
       {},
       undefined,
       undefined,
@@ -1728,7 +1736,7 @@ describe("DragHandle block selection", () => {
     document.body.appendChild(page);
 
     try {
-      editor.commands.setNodeSelection(7);
+      editor.commands.setNodeSelection(pos);
       pointerDown(page);
 
       expect(editor.state.selection.empty).toBe(true);
