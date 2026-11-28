@@ -1610,7 +1610,7 @@ function DatabaseSidebarRow({
                     : undefined
                 }
                 onMoveToTrash={
-                  canManage && onDeleteItem
+                  canManage && onDeleteItem && !isLocalFile
                     ? () => onDeleteItem(item)
                     : undefined
                 }

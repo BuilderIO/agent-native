@@ -360,6 +360,7 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   editorSnapshotTitle?: string;
   editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
+  localSourceRevision?: string;
 };
 
 export type DocumentUpdateResult =

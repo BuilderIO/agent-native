@@ -232,6 +232,19 @@ edit commits. Restore it before editing. A local-folder sync
 (`import-content-source`) leaves a page in Trash unchanged and lists it in
 `skipped`.
 
+A page a local folder owns (linked with `truthPolicy: "source_primary"`)
+refuses title, body and description edits, moves and Trash with
+`SOURCE_READ_ONLY` (409), naming the folder. So do batch row titles, Notion
+link and pull, deleting a collection's last Blocks field, row migrations, and
+Trash of a page that holds one; `import-content-source` lists its file in
+`skipped`, as it does a new place for one in its front matter. A page is the
+folder's only while the folder's link to it remains and stores that policy; a
+one-time Markdown import or a folder with no stored policy stays editable in
+Content. Don't retry another writer: the file on the device that holds the
+folder is the only place to change it. Without a revision, `edit-document`
+asks an open Content tab on that device to write the file. When none can, it
+refuses the same way.
+
 ### edit-table
 
 Change one table on a page without rewriting it: everything the table's row,

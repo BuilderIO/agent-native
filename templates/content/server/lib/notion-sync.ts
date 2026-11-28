@@ -18,6 +18,11 @@ import {
   type CallProvenance,
   isAgentTextLockRefusal,
 } from "../../actions/_document-agent-lock.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  assertLocalFolderAllowsPagesEdit,
+  isSourceReadOnlyRefusal,
+} from "../../actions/_document-source.js";
 import { interactiveHtmlUrls } from "../../actions/_interactive-html-blocks.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 import { keepVideoBlockIds } from "../../shared/comment-block-anchor.js";
@@ -109,6 +114,10 @@ async function replaceDocumentFromExternal(args: {
       tx as unknown as ReturnType<typeof getDb>,
       [args.document.id],
       args.ctx,
+    );
+    await assertLocalFolderAllowsPagesEdit(
+      tx as unknown as ReturnType<typeof getDb>,
+      [args.document.id],
     );
     const applied = await tx
       .update(schema.documents)
@@ -930,7 +939,7 @@ export async function linkDocumentToNotionPage(
     owner,
     "linking a page",
   );
-  await getDocument(documentId, owner);
+  await assertLocalFolderAllowsPageEdit(await getDocument(documentId, owner));
   // Linking ends in a pull that writes Notion's body to the page.
   await assertLegacyBodyWriter(documentId, { operation: "Notion link" });
   const pageId = normalizeNotionPageId(pageIdOrUrl);
@@ -951,7 +960,11 @@ export async function linkDocumentToNotionPage(
     // The page took its live copy, or a person locked it, after the checks
     // above. Linking changed nothing at Notion, so the page keeps the link it
     // had, if any.
-    if (isUnsupportedBodyWriter(error) || isAgentTextLockRefusal(error)) {
+    if (
+      isUnsupportedBodyWriter(error) ||
+      isAgentTextLockRefusal(error) ||
+      isSourceReadOnlyRefusal(error)
+    ) {
       await restoreSyncLink(previousLink, installed);
     }
     throw error;
@@ -1431,7 +1444,11 @@ async function pushDocumentToNotionInner(
       updatedAt: pushedAt,
       ctx,
     }).catch((error: unknown) => {
-      if (!isUnsupportedBodyWriter(error) && !isAgentTextLockRefusal(error)) {
+      if (
+        !isUnsupportedBodyWriter(error) &&
+        !isAgentTextLockRefusal(error) &&
+        !isSourceReadOnlyRefusal(error)
+      ) {
         throw error;
       }
       // The page took its live copy, or is locked against the agent pushing it,

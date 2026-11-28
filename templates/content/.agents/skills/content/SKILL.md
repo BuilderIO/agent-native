@@ -50,6 +50,13 @@ actions, and local folders that sync into the same collection model.
 - Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.
+  When a folder is linked with `truthPolicy: "source_primary"`, the folder
+  owns each page's title, body and description, and where the page sits:
+  `update-document`, `append-to-document`, revisioned `edit-document`, row
+  title edits, Notion link and pull, moves and Trash refuse with
+  `SOURCE_READ_ONLY` (409), and `import-content-source` skips them. Comments,
+  favorites, icons, sharing and search still work. Tell the user to edit the
+  file on the device that holds the folder.
   One-off Markdown files are not a source: import them with `import-content`
   (see `document-editing`).
 - If Content tools are not visible and no local Content app or Desktop bridge is

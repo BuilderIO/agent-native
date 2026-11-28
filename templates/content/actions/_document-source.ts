@@ -11,6 +11,10 @@ import {
 } from "../shared/github-source.js";
 import { chunks } from "./_batch-utils.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import {
+  LOCAL_FOLDER_SOURCE_TYPE,
+  localFolderTruthPolicy,
+} from "./_local-folder-source.js";
 
 interface DocumentSourceColumns {
   sourceMode?: string | null;
@@ -110,6 +114,162 @@ export function assertSourceAllowsPageEdit(
         ? `This page follows a file${file}, so it stays in its collection.`
         : `This page follows a file in GitHub and is view only here. Edit the file${file}; Content updates after each push.`,
     { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
+  );
+}
+
+type LocalFolderChange = "edit" | "trash" | "move";
+
+export async function assertLocalFolderAllowsPageEdit(
+  document: DocumentSourceColumns & { id: string },
+  change: LocalFolderChange = "edit",
+  db: ReturnType<typeof getDb> = getDb(),
+) {
+  if (document.sourceMode !== "local-files" || document.sourceKind !== "file")
+    return;
+  const label = (await localFolderOwners(db, [document.id])).get(document.id);
+  if (label !== undefined) throw localFolderOwnsPage(label, change);
+}
+
+export async function assertLocalFolderAllowsPagesEdit(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  change: "edit" | "trash" = "edit",
+  { rootId }: { rootId?: string } = {},
+) {
+  const owners = await localFolderOwners(db, documentIds);
+  const first = owners.values().next();
+  if (first.done) return;
+  const rootLabel = rootId === undefined ? undefined : owners.get(rootId);
+  throw localFolderOwnsPage(
+    rootLabel === undefined ? first.value : rootLabel,
+    change,
+    {
+      nested: rootId !== undefined && rootLabel === undefined,
+      documentIds: [...owners.keys()],
+    },
+  );
+}
+
+async function localFolderOwners(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+) {
+  const documents = schema.documents;
+  const owners = new Map<string, string | null>();
+  for (const batch of chunks([...new Set(documentIds)], 500)) {
+    // guard:allow-unscoped — callers have checked access to these pages; this reads only which folder links own them.
+    const pages = await db
+      .select({
+        id: documents.id,
+        sourceMode: documents.sourceMode,
+        sourceKind: documents.sourceKind,
+      })
+      .from(documents)
+      .where(
+        and(
+          inArray(documents.id, batch),
+          eq(documents.sourceMode, "local-files"),
+          eq(documents.sourceKind, "file"),
+        ),
+      );
+    const files = pages
+      .filter(
+        (page) =>
+          page.sourceMode === "local-files" && page.sourceKind === "file",
+      )
+      .map((page) => page.id);
+    if (files.length === 0) continue;
+    const sources = schema.contentDatabaseSources;
+    const sourceRows = schema.contentDatabaseSourceRows;
+    // guard:allow-unscoped — callers have checked access to these pages; this reads only which folder links own them.
+    const links = await db
+      .select({
+        documentId: documents.id,
+        metadataJson: sources.metadataJson,
+      })
+      .from(documents)
+      .innerJoin(sourceRows, eq(sourceRows.documentId, documents.id))
+      .innerJoin(
+        sources,
+        and(
+          eq(sources.id, sourceRows.sourceId),
+          eq(sources.sourceType, LOCAL_FOLDER_SOURCE_TYPE),
+        ),
+      )
+      .innerJoin(
+        schema.contentDatabases,
+        and(
+          eq(schema.contentDatabases.id, sources.databaseId),
+          eq(schema.contentDatabases.spaceId, documents.spaceId),
+        ),
+      )
+      .where(
+        and(
+          inArray(documents.id, files),
+          eq(documents.sourceMode, "local-files"),
+          eq(documents.sourceKind, "file"),
+        ),
+      );
+    for (const link of links) {
+      const settings = localFolderSettings(link.metadataJson);
+      if (
+        settings.truthPolicy === "source_primary" &&
+        !owners.has(link.documentId)
+      )
+        owners.set(link.documentId, settings.label);
+    }
+  }
+  return owners;
+}
+
+function localFolderSettings(metadataJson: string) {
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(metadataJson);
+  } catch {
+    throw new ActionContractError(
+      "This page's local folder link can't be read, so Content can't tell whether the folder owns it.",
+      { errorCode: "SOURCE_METADATA_UNREADABLE", statusCode: 500 },
+    );
+  }
+  const { truthPolicy, connectionLabel } =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>)
+      : {};
+  return {
+    truthPolicy: localFolderTruthPolicy(truthPolicy),
+    label: typeof connectionLabel === "string" ? connectionLabel : null,
+  };
+}
+
+function localFolderOwnsPage(
+  label: string | null,
+  change: LocalFolderChange,
+  details?: { nested: boolean; documentIds: string[] },
+) {
+  const folder = label ? `the folder "${label}"` : "a folder";
+  return new ActionContractError(
+    details?.nested
+      ? `Pages inside this one are owned by ${folder} on a device. Delete their files in that folder on that device first; Content removes them after it syncs.`
+      : change === "trash"
+        ? `This page is owned by ${folder} on a device. Delete its file in that folder on that device, and Content moves the page out of the folder after it syncs.`
+        : change === "move"
+          ? `This page is owned by ${folder} on a device, so it stays where its file is. Move the file in that folder on that device.`
+          : `This page is owned by ${folder} on a device and must be edited there. Open the folder in Content on that device; this copy updates after it syncs.`,
+    {
+      errorCode: "SOURCE_READ_ONLY",
+      statusCode: 409,
+      ...(details ? { details: { documentIds: details.documentIds } } : {}),
+    },
+  );
+}
+
+export function isSourceReadOnlyRefusal(
+  error: unknown,
+): error is ActionContractError {
+  return (
+    error instanceof ActionContractError &&
+    error.errorCode === "SOURCE_READ_ONLY"
   );
 }
 

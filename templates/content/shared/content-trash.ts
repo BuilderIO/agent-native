@@ -1,3 +1,5 @@
+export const LOCAL_FOLDER_TRASH_ORIGIN = "local-folder";
+
 export interface ContentTrashItem {
   documentId: string;
   databaseId: string | null;

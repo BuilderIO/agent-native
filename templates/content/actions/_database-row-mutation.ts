@@ -59,6 +59,8 @@ import {
 import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertCollectionAcceptsNewRows,
+  assertLocalFolderAllowsPageEdit,
+  assertLocalFolderAllowsPagesEdit,
   assertSourceAllowsPageEdit,
 } from "./_document-source.js";
 import {
@@ -1473,6 +1475,7 @@ async function writeRowTitle(
   args: { title: string; expectedRowRevision: string },
 ) {
   assertSourceAllowsPageEdit(before.document);
+  await assertLocalFolderAllowsPageEdit(before.document, "edit", tx);
   const [updatedDocument] = await tx
     .update(schema.documents)
     .set({
@@ -2722,7 +2725,10 @@ async function patchRowsInsideTransaction(
     }
     const titleChanged =
       row.title !== undefined && row.title.trim() !== snapshot.document.title;
-    if (titleChanged) assertAgentsMayEditPageText(snapshot.document, ctx);
+    if (titleChanged) {
+      assertSourceAllowsPageEdit(snapshot.document);
+      assertAgentsMayEditPageText(snapshot.document, ctx);
+    }
     return {
       documentId: row.documentId,
       snapshot,
@@ -2737,6 +2743,10 @@ async function patchRowsInsideTransaction(
     plan.titleChanged
       ? [{ index, snapshot: plan.snapshot, title: rows[index].title!.trim() }]
       : [],
+  );
+  await assertLocalFolderAllowsPagesEdit(
+    tx,
+    titleWrites.map((write) => write.snapshot.document.id),
   );
   const staleTitles: RowPatchIssue[] = [];
   for (const chunk of chunked(titleWrites, ROW_PATCH_WRITE_CHUNK)) {
