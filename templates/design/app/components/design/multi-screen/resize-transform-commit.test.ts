@@ -29,7 +29,10 @@ function frameGeometryWithOverrides(
   return next;
 }
 
-function get(map: FrameGeometryById, key: string): FrameGeometry {
+function get(
+  map: Partial<Record<string, FrameGeometry>>,
+  key: string,
+): FrameGeometry {
   const value = map[key];
   if (!value) throw new Error(`Missing geometry for ${key}`);
   return value;

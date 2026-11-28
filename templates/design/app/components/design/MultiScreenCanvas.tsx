@@ -2313,6 +2313,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
 
+  const updateFrameGeometryPreview = useCallback(
+    (updater: (current: FrameGeometryById) => FrameGeometryById) => {
+      const next = updater(frameGeometryRef.current);
+      frameGeometryRef.current = next;
+      setFrameGeometry(next);
+    },
+    [],
+  );
+
   const updateFrameGeometryRefOnly = useCallback(
     (updater: (current: FrameGeometryById) => FrameGeometryById) => {
       frameGeometryRef.current = updater(frameGeometryRef.current);
@@ -2653,19 +2662,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     });
   }, [getResolvedMetadata, previewDeviceFrame, screens, updateFrameGeometry]);
 
-  const [prevPropSelection, setPrevPropSelection] = useState({
-    ids: selectedScreenIds,
-    screens: selectableScreens,
-  });
-  if (
-    selectedScreenIds &&
-    (selectedScreenIds !== prevPropSelection.ids ||
-      selectableScreens !== prevPropSelection.screens)
-  ) {
-    setPrevPropSelection({
-      ids: selectedScreenIds,
-      screens: selectableScreens,
-    });
+  useEffect(() => {
+    if (!selectedScreenIds) return;
     const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     const nextSelection = selectedScreenIds.filter((id) =>
       selectableIds.has(id),
@@ -2675,7 +2673,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       selectedIdsRef.current = nextSelection;
       setSelectedIds(nextSelection);
     }
-  }
+  }, [selectableScreens, selectedScreenIds]);
 
   useEffect(() => {
     if (
@@ -9057,17 +9055,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           : getResizeCursor(handle),
       );
 
+      const useDomResizePreview =
+        renderedScreens.length > OVERVIEW_LIVE_SCREEN_BUDGET;
       const resizeFrameEls = new Map<string, HTMLElement>();
-      originEntries.forEach((entry) => {
-        const el = surfaceRef.current?.querySelector<HTMLElement>(
-          `[data-frame-id="${CSS.escape(entry.id)}"]`,
-        );
-        if (el) resizeFrameEls.set(entry.id, el);
-      });
-      const resizeSelectionBoxEl =
-        surfaceRef.current?.querySelector<HTMLElement>(
-          "[data-frame-selection-box]",
-        );
+      const resizeCardEls = new Map<string, HTMLElement>();
+      if (useDomResizePreview) {
+        originEntries.forEach((entry) => {
+          const el = surfaceRef.current?.querySelector<HTMLElement>(
+            `[data-frame-id="${CSS.escape(entry.id)}"]`,
+          );
+          if (el) {
+            resizeFrameEls.set(entry.id, el);
+            const card = el.querySelector<HTMLElement>("[data-screen-card]");
+            if (card) resizeCardEls.set(entry.id, card);
+          }
+        });
+      }
+      const resizeSelectionBoxEl = useDomResizePreview
+        ? surfaceRef.current?.querySelector<HTMLElement>(
+            "[data-frame-selection-box]",
+          )
+        : null;
       const resizeLabelHeight =
         FRAME_LABEL_HEIGHT * chromeScaleFromZoom(zoomRef.current);
 
@@ -9142,28 +9150,43 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 ...frameSizeBoundsById[singleRotatedFrame.id],
               },
             );
-          updateFrameGeometryRefOnly((current) => ({
-            ...current,
-            [singleRotatedFrame.id]: {
+          if (useDomResizePreview) {
+            updateFrameGeometryRefOnly((current) => ({
+              ...current,
+              [singleRotatedFrame.id]: {
+                ...state.originFrames[singleRotatedFrame.id],
+                ...resizedGeometry,
+              },
+            }));
+            const mergedGeom = {
               ...state.originFrames[singleRotatedFrame.id],
               ...resizedGeometry,
-            },
-          }));
-          const mergedGeom = {
-            ...state.originFrames[singleRotatedFrame.id],
-            ...resizedGeometry,
-          };
-          const frameEl = resizeFrameEls.get(singleRotatedFrame.id);
-          if (frameEl) {
-            frameEl.style.left = `${SURFACE_PADDING + mergedGeom.x}px`;
-            frameEl.style.top = `${SURFACE_PADDING + mergedGeom.y - resizeLabelHeight}px`;
-            frameEl.style.width = `${mergedGeom.width}px`;
-          }
-          if (resizeSelectionBoxEl) {
-            resizeSelectionBoxEl.style.left = `${SURFACE_PADDING + mergedGeom.x}px`;
-            resizeSelectionBoxEl.style.top = `${SURFACE_PADDING + mergedGeom.y}px`;
-            resizeSelectionBoxEl.style.width = `${mergedGeom.width}px`;
-            resizeSelectionBoxEl.style.height = `${mergedGeom.height}px`;
+            };
+            const frameEl = resizeFrameEls.get(singleRotatedFrame.id);
+            if (frameEl) {
+              frameEl.style.left = `${SURFACE_PADDING + mergedGeom.x}px`;
+              frameEl.style.top = `${SURFACE_PADDING + mergedGeom.y - resizeLabelHeight}px`;
+              frameEl.style.width = `${mergedGeom.width}px`;
+            }
+            const cardEl = resizeCardEls.get(singleRotatedFrame.id);
+            if (cardEl) {
+              cardEl.style.width = `${mergedGeom.width}px`;
+              cardEl.style.height = `${mergedGeom.height}px`;
+            }
+            if (resizeSelectionBoxEl) {
+              resizeSelectionBoxEl.style.left = `${SURFACE_PADDING + mergedGeom.x}px`;
+              resizeSelectionBoxEl.style.top = `${SURFACE_PADDING + mergedGeom.y}px`;
+              resizeSelectionBoxEl.style.width = `${mergedGeom.width}px`;
+              resizeSelectionBoxEl.style.height = `${mergedGeom.height}px`;
+            }
+          } else {
+            updateFrameGeometryPreview((current) => ({
+              ...current,
+              [singleRotatedFrame.id]: {
+                ...state.originFrames[singleRotatedFrame.id],
+                ...resizedGeometry,
+              },
+            }));
           }
           if (state.scaleContents) {
             scaleScreenContents(
@@ -9229,29 +9252,34 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             );
           });
         }
-        updateFrameGeometryRefOnly((current) => {
-          const next = { ...current };
+        if (useDomResizePreview) {
+          updateFrameGeometryRefOnly((current) => {
+            const next = { ...current };
+            resizedEntries.forEach((entry) => {
+              next[entry.id] = {
+                ...state.originFrames[entry.id],
+                ...entry.geometry,
+              };
+            });
+            return next;
+          });
           resizedEntries.forEach((entry) => {
-            next[entry.id] = {
+            const geom = {
               ...state.originFrames[entry.id],
               ...entry.geometry,
             };
+            const frameEl = resizeFrameEls.get(entry.id);
+            if (frameEl) {
+              frameEl.style.left = `${SURFACE_PADDING + geom.x}px`;
+              frameEl.style.top = `${SURFACE_PADDING + geom.y - resizeLabelHeight}px`;
+              frameEl.style.width = `${geom.width}px`;
+            }
+            const cardEl = resizeCardEls.get(entry.id);
+            if (cardEl) {
+              cardEl.style.width = `${geom.width}px`;
+              cardEl.style.height = `${geom.height}px`;
+            }
           });
-          return next;
-        });
-        resizedEntries.forEach((entry) => {
-          const geom = {
-            ...state.originFrames[entry.id],
-            ...entry.geometry,
-          };
-          const frameEl = resizeFrameEls.get(entry.id);
-          if (frameEl) {
-            frameEl.style.left = `${SURFACE_PADDING + geom.x}px`;
-            frameEl.style.top = `${SURFACE_PADDING + geom.y - resizeLabelHeight}px`;
-            frameEl.style.width = `${geom.width}px`;
-          }
-        });
-        {
           const entry = resizedEntries.length === 1 ? resizedEntries[0] : null;
           if (entry && resizeSelectionBoxEl) {
             const geom = { ...state.originFrames[entry.id], ...entry.geometry };
@@ -9260,6 +9288,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             resizeSelectionBoxEl.style.width = `${geom.width}px`;
             resizeSelectionBoxEl.style.height = `${geom.height}px`;
           }
+        } else {
+          updateFrameGeometryPreview((current) => {
+            const next = { ...current };
+            resizedEntries.forEach((entry) => {
+              next[entry.id] = {
+                ...state.originFrames[entry.id],
+                ...entry.geometry,
+              };
+            });
+            return next;
+          });
         }
         setAlignmentGuides(snap.guides);
         showTransformFeedback(
@@ -9367,6 +9406,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       onSelectForGesture,
       showTransformFeedback,
       updateFrameGeometry,
+      updateFrameGeometryPreview,
       updateFrameGeometryRefOnly,
       updateSelectedIds,
       frameGeometryCenter,
