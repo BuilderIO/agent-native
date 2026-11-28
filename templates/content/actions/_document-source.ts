@@ -201,7 +201,9 @@ export async function releaseRestoredPagesFromSourceCollections(
         databaseDocumentId: schema.contentDatabases.documentId,
         sourceId: schema.contentDatabaseSources.id,
         sourceType: schema.contentDatabaseSources.sourceType,
+        sourceTable: schema.contentDatabaseSources.sourceTable,
         pageSourceMode: schema.documents.sourceMode,
+        pageSourceRootPath: schema.documents.sourceRootPath,
       })
       .from(schema.contentDatabaseItems)
       .innerJoin(
@@ -235,7 +237,13 @@ export async function releaseRestoredPagesFromSourceCollections(
     for (const membership of memberships) {
       if (restored.has(membership.databaseDocumentId)) continue;
       const localFolder = membership.sourceType === LOCAL_FOLDER_SOURCE_TYPE;
-      if (localFolder && membership.pageSourceMode !== "local-files") continue;
+      if (
+        localFolder &&
+        (membership.pageSourceMode !== "local-files" ||
+          membership.sourceTable !== membership.pageSourceRootPath)
+      ) {
+        continue;
+      }
       if (!locked.has(membership.databaseId)) {
         await lockContentDatabaseMutation(db, membership.databaseId);
         locked.add(membership.databaseId);

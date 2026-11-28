@@ -4,7 +4,7 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -26,6 +26,7 @@ import {
   sameSourceMarkdown,
   sourceMarkdownForm,
 } from "../shared/source-markdown.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -46,6 +47,7 @@ import { lockDocumentRows } from "./_row-lock-order.js";
 import {
   lockLifecycleGroup,
   restoreDocumentSubtree,
+  retryRestoreOnMembershipChange,
   trashDocumentSubtree,
 } from "./delete-document.js";
 
@@ -180,52 +182,135 @@ function metadataChanges(
 }
 
 type Db = ReturnType<typeof getDb>;
-type PageRow = typeof schema.documents.$inferSelect;
 type LinkedFileRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
 
-function returnedToFolder(page: PageRow | undefined): page is PageRow {
-  return (
-    !!page?.trashedAt &&
-    page.trashOrigin === LOCAL_FOLDER_TRASH_ORIGIN &&
-    page.trashRootId === page.id
-  );
-}
+type RemovedFile = {
+  row: LinkedFileRow;
+  filesDatabaseId: string;
+  spaceId: string;
+  sourceRootPath: string;
+  now: string;
+  ctx: ActionRunContext | undefined;
+  stillMissing: ReadonlySet<string>;
+};
+type RemovedFileOutcome = "trashed" | "unlinked" | "waiting" | "unchanged";
 
-async function restorePageOfReturnedFile(db: Db, page: PageRow) {
-  await db.transaction(async (tx: Db) => {
-    const locks = await lockLifecycleGroup(tx, {
-      operation: "restore",
-      roots: [{ id: page.id, ownerEmail: page.ownerEmail }],
-    });
-    const [current]: Array<PageRow | undefined> = await tx
-      .select()
+async function activePagesUnder(db: Db, pageId: string) {
+  const seen = new Set([pageId]);
+  const active: string[] = [];
+  let frontier = [pageId];
+  while (frontier.length > 0) {
+    // guard:allow-unscoped — reads only the ids and Trash state of every owner's pages under a page the caller edits, to keep its Trash from taking or stranding them.
+    const children = await db
+      .select({
+        id: schema.documents.id,
+        trashedAt: schema.documents.trashedAt,
+      })
       .from(schema.documents)
-      .where(eq(schema.documents.id, page.id));
-    if (!returnedToFolder(current)) return;
-    await restoreDocumentSubtree(tx, page.id, page.ownerEmail, locks, {
-      keepLocalFolderPages: true,
-    });
-  });
+      .where(inArray(schema.documents.parentId, frontier));
+    const rows = await db
+      .select({
+        id: schema.documents.id,
+        trashedAt: schema.documents.trashedAt,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.contentDatabases,
+        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+      )
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(inArray(schema.contentDatabases.documentId, frontier));
+    frontier = [];
+    for (const page of [...children, ...rows]) {
+      if (seen.has(page.id)) continue;
+      seen.add(page.id);
+      frontier.push(page.id);
+      if (!page.trashedAt) active.push(page.id);
+    }
+  }
+  return active;
 }
 
-async function trashPageOfRemovedFile(
-  db: Db,
-  args: {
-    row: LinkedFileRow;
-    filesDatabaseId: string;
-    spaceId: string;
-    sourceRootPath: string;
-    now: string;
-    ctx: ActionRunContext | undefined;
-  },
-) {
+async function linkedRowUnchanged(tx: Db, row: LinkedFileRow) {
+  const unchanged = await tx
+    .select({ id: schema.contentDatabaseSourceRows.id })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.id, row.id),
+        eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+        eq(schema.contentDatabaseSourceRows.updatedAt, row.updatedAt),
+      ),
+    );
+  return unchanged.length > 0;
+}
+
+async function dropLinkedRow(tx: Db, row: LinkedFileRow) {
+  await tx
+    .delete(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+  const otherLinks = await tx
+    .select({ id: schema.contentDatabaseSourceRows.id })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
+    )
+    .limit(1);
+  return otherLinks.length === 0;
+}
+
+async function unlinkPageOfRemovedFile(
+  tx: Db,
+  args: RemovedFile,
+): Promise<RemovedFileOutcome> {
   const { row } = args;
-  await db.transaction(async (tx: Db) => {
+  await lockContentDatabaseMutation(tx, args.filesDatabaseId);
+  await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
+  await lockDocumentRows(tx, [row.documentId]);
+  if (!(await linkedRowUnchanged(tx, row))) return "unchanged";
+  if (!(await dropLinkedRow(tx, row))) return "unlinked";
+  await tx
+    .delete(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+  await tx
+    .update(schema.documents)
+    .set({
+      sourceMode: null,
+      sourceKind: null,
+      sourcePath: null,
+      sourceRootPath: null,
+      sourceUpdatedAt: args.now,
+      updatedAt: args.now,
+    })
+    .where(
+      and(
+        eq(schema.documents.id, row.documentId),
+        eq(schema.documents.spaceId, args.spaceId),
+        eq(schema.documents.sourceRootPath, args.sourceRootPath),
+      ),
+    );
+  return "unlinked";
+}
+
+async function settleRemovedFile(
+  db: Db,
+  args: RemovedFile,
+): Promise<RemovedFileOutcome> {
+  const { row } = args;
+  return db.transaction(async (tx: Db) => {
     const owners = await tx
       .select({ ownerEmail: schema.documents.ownerEmail })
       .from(schema.documents)
       .where(eq(schema.documents.id, row.documentId));
     const owner = owners.length > 0 ? owners[0] : null;
+    const under = owner ? await activePagesUnder(tx, row.documentId) : [];
+    if (under.some((id) => !args.stillMissing.has(id))) {
+      return unlinkPageOfRemovedFile(tx, args);
+    }
+    if (under.length > 0) return "waiting";
     const locks = owner
       ? await lockLifecycleGroup(tx, {
           operation: "trash",
@@ -233,28 +318,11 @@ async function trashPageOfRemovedFile(
           alsoLockDatabaseIds: [args.filesDatabaseId],
         })
       : null;
-    const unchanged = await tx
-      .select({ id: schema.contentDatabaseSourceRows.id })
-      .from(schema.contentDatabaseSourceRows)
-      .where(
-        and(
-          eq(schema.contentDatabaseSourceRows.id, row.id),
-          eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
-          eq(schema.contentDatabaseSourceRows.updatedAt, row.updatedAt),
-        ),
-      );
-    if (unchanged.length === 0) return;
-    await tx
-      .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-    const otherLinks = await tx
-      .select({ id: schema.contentDatabaseSourceRows.id })
-      .from(schema.contentDatabaseSourceRows)
-      .where(
-        eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
-      )
-      .limit(1);
-    if (otherLinks.length > 0 || !owner || !locks) return;
+    if (!(await linkedRowUnchanged(tx, row))) return "unchanged";
+    if (locks && (await activePagesUnder(tx, row.documentId)).length > 0) {
+      return "unchanged";
+    }
+    if (!(await dropLinkedRow(tx, row)) || !owner || !locks) return "unlinked";
     const pages = await tx
       .select()
       .from(schema.documents)
@@ -267,7 +335,7 @@ async function trashPageOfRemovedFile(
       page.sourceMode !== "local-files" ||
       page.sourceRootPath !== args.sourceRootPath
     ) {
-      return;
+      return "unlinked";
     }
     await trashDocumentSubtree(
       tx,
@@ -278,12 +346,42 @@ async function trashPageOfRemovedFile(
       LOCAL_FOLDER_TRASH_ORIGIN,
       args.ctx,
     );
+    return "trashed";
   });
+}
+
+async function settleRemovedFiles(
+  db: Db,
+  rows: LinkedFileRow[],
+  args: Omit<RemovedFile, "row" | "stillMissing">,
+) {
+  const stillMissing = new Set(rows.map((row) => row.documentId));
+  const settled: LinkedFileRow[] = [];
+  let waiting = rows;
+  while (waiting.length > 0) {
+    const next: LinkedFileRow[] = [];
+    for (const row of waiting) {
+      const outcome = await settleRemovedFile(db, {
+        ...args,
+        row,
+        stillMissing,
+      });
+      if (outcome === "waiting") {
+        next.push(row);
+        continue;
+      }
+      if (outcome !== "trashed") stillMissing.delete(row.documentId);
+      if (outcome !== "unchanged") settled.push(row);
+    }
+    if (next.length === waiting.length) break;
+    waiting = next;
+  }
+  return settled;
 }
 
 export default defineAction({
   description:
-    "Refresh a connected local-folder source through the trusted browser/Desktop bridge, materializing Markdown/MDX as normal SQL-backed Content pages and recording safe source identity and conflicts. When the folder is the source of truth, a page whose file left it moves to Trash, and comes back if a file with its id returns.",
+    "Refresh a connected local-folder source through the trusted browser/Desktop bridge, materializing Markdown/MDX as normal SQL-backed Content pages and recording safe source identity and conflicts. When the folder is the source of truth, a page whose file left it moves to Trash (or, when pages that stay sit under it, becomes an ordinary page), and comes back if a file with its id, or one at its old path, returns. A read that lists no files changes no page.",
   schema: z.object({
     sourceId: z.string().min(1),
     files: z
@@ -295,10 +393,24 @@ export default defineAction({
     observedRevisions: z
       .record(z.string(), z.string().regex(/^[a-f0-9]{64}$/i))
       .optional(),
+    skippedPaths: z
+      .array(z.string().min(1).max(1024))
+      .max(MAX_SOURCE_FILES)
+      .optional()
+      .describe(
+        "Markdown files the reader found but didn't send, such as files over 2 MiB. Their pages stay as they are.",
+      ),
     dryRun: z.boolean().optional().default(false),
   }),
   run: async (
-    { sourceId, files, fileIdentities = {}, observedRevisions, dryRun },
+    {
+      sourceId,
+      files,
+      fileIdentities = {},
+      observedRevisions,
+      skippedPaths = [],
+      dryRun,
+    },
     ctx,
   ) => {
     const userEmail = getRequestUserEmail();
@@ -310,6 +422,8 @@ export default defineAction({
       );
     }
     const entries = normalizedEntries(files);
+    const readPaths = new Set([...Object.keys(files), ...skippedPaths]);
+    const folderListsFiles = readPaths.size > 0;
     if (observedRevisions) {
       for (const [filePath, content] of entries) {
         if (observedRevisions[filePath] !== contentHash(content)) {
@@ -418,10 +532,50 @@ export default defineAction({
               .where(inArray(schema.documents.id, candidateIds))
           : []
       ) as Document[];
+      const trashedHere = (
+        valid.length
+          ? await queryDb
+              .select()
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.spaceId, targetSpaceId),
+                  eq(schema.documents.sourceMode, "local-files"),
+                  eq(
+                    schema.documents.sourceRootPath,
+                    target.source.sourceTable,
+                  ),
+                  eq(schema.documents.trashOrigin, LOCAL_FOLDER_TRASH_ORIGIN),
+                  isNotNull(schema.documents.trashedAt),
+                  inArray(
+                    schema.documents.sourcePath,
+                    valid.map((file) => file.path),
+                  ),
+                ),
+              )
+          : []
+      ) as Document[];
       const documentById = new Map(
-        existingDocuments.map((document) => [document.id, document]),
+        [...existingDocuments, ...trashedHere].map((document) => [
+          document.id,
+          document,
+        ]),
       );
-      return { storedRows, rowByPath, rowByDocumentId, documentById };
+      const trashedByPath = new Map<string, Document>();
+      for (const page of trashedHere.sort((left, right) =>
+        (right.trashedAt ?? "").localeCompare(left.trashedAt ?? ""),
+      )) {
+        if (page.sourcePath && !trashedByPath.has(page.sourcePath)) {
+          trashedByPath.set(page.sourcePath, page);
+        }
+      }
+      return {
+        storedRows,
+        rowByPath,
+        rowByDocumentId,
+        documentById,
+        trashedByPath,
+      };
     };
 
     const initialSnapshot = await loadSnapshot(db);
@@ -429,20 +583,13 @@ export default defineAction({
     const validateDocumentIds = async (
       snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
     ) => {
-      const documentIds = new Set([
-        ...explicitIds,
-        ...pathIds,
-        ...snapshot.storedRows.map((row) => row.documentId),
-      ]);
-      for (const id of documentIds) {
-        const existing = snapshot.documentById.get(id);
-        if (!existing) continue;
+      for (const existing of snapshot.documentById.values()) {
         if (existing.spaceId !== targetSpaceId) {
           throw new Error(
-            `Document "${id}" belongs to another Content space and cannot be imported here`,
+            `Document "${existing.id}" belongs to another Content space and cannot be imported here`,
           );
         }
-        await assertAccess("document", id, "editor");
+        await assertAccess("document", existing.id, "editor");
       }
     };
 
@@ -486,11 +633,10 @@ export default defineAction({
         moves.set(form, move);
         return move;
       };
-      const presentPaths = new Set(entries.map(([path]) => path));
       const gone = snapshot.storedRows.filter(
         (row) =>
           !placedDocumentIds.has(row.documentId) &&
-          !presentPaths.has(deletedFilePath(row)),
+          !readPaths.has(deletedFilePath(row)),
       );
       if (gone.length === 0)
         return new Map<(typeof valid)[number], SourceRow>();
@@ -558,13 +704,28 @@ export default defineAction({
           valid.map((file) => explicitIdOf(file) ?? knownRow(file)?.documentId),
         ),
       );
+      const claimedIds = new Set(
+        valid.map(
+          (file) =>
+            explicitIdOf(file) ??
+            (knownRow(file) ?? movedRows.get(file))?.documentId,
+        ),
+      );
+      const trashedPageAt = (path: string) => {
+        const page = snapshot.trashedByPath.get(path);
+        return page && !claimedIds.has(page.id) ? page.id : undefined;
+      };
 
       return valid.map((file, index) => {
         const incomingBridgeFileIdentity = fileIdentities[file.path];
         const incomingHash = contentHash(file.content);
         const pathRow = knownRow(file) ?? movedRows.get(file);
         const explicitId = explicitIdOf(file);
-        const id = explicitId ?? pathRow?.documentId ?? pathId(file.path);
+        const id =
+          explicitId ??
+          pathRow?.documentId ??
+          trashedPageAt(file.path) ??
+          pathId(file.path);
         const existing = snapshot.documentById.get(id);
         const previousRow = snapshot.rowByDocumentId.get(id) ?? pathRow;
         const previousValues = parseJson(previousRow?.sourceValuesJson);
@@ -644,11 +805,38 @@ export default defineAction({
       });
     };
 
-    let plans = buildPlans(initialSnapshot);
-    const initialDocumentIds = new Set(plans.map((plan) => plan.id));
-    let missingRows = initialSnapshot.storedRows.filter(
-      (row) => !initialDocumentIds.has(row.documentId),
-    );
+    const comesBackHere = (page: Document | undefined): page is Document =>
+      !!page?.trashedAt &&
+      page.trashOrigin === LOCAL_FOLDER_TRASH_ORIGIN &&
+      page.trashRootId === page.id &&
+      page.spaceId === targetSpaceId &&
+      page.sourceMode === "local-files" &&
+      page.sourceRootPath === target.source.sourceTable;
+    const heldInTrash = (page: Document | undefined) =>
+      !!page?.trashedAt &&
+      page.trashOrigin === LOCAL_FOLDER_TRASH_ORIGIN &&
+      !comesBackHere(page);
+    let heldPlans: ReturnType<typeof buildPlans> = [];
+    const planFiles = (snapshot: Awaited<ReturnType<typeof loadSnapshot>>) => {
+      const all = buildPlans(snapshot);
+      heldPlans = all.filter((plan) => heldInTrash(plan.existing));
+      return all.filter((plan) => !heldInTrash(plan.existing));
+    };
+    const missingRowsOf = (
+      snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
+    ) => {
+      const plannedIds = new Set(
+        [...plans, ...heldPlans].map((plan) => plan.id),
+      );
+      return snapshot.storedRows.filter(
+        (row) =>
+          !plannedIds.has(row.documentId) &&
+          !readPaths.has(deletedFilePath(row)),
+      );
+    };
+
+    let plans = planFiles(initialSnapshot);
+    let missingRows = missingRowsOf(initialSnapshot);
     const classifyPlans = (
       snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
     ) => {
@@ -730,6 +918,7 @@ export default defineAction({
       }
     };
 
+    let removedRows: SourceRow[] = [];
     if (dryRun) {
       // The sync refuses as a whole when it would link a page switched to its
       // live copy, so its preview does too.
@@ -737,13 +926,11 @@ export default defineAction({
         assertAgentMayApply(plan);
         if (rebindsExistingPage(plan)) await assertLocalFileLinkable(plan.id);
       }
-    } else {
-      for (const plan of plans) {
-        if (returnedToFolder(plan.existing)) {
-          await restorePageOfReturnedFile(db, plan.existing);
-        }
+      if (policy === "source_primary" && folderListsFiles) {
+        removedRows = missingRows;
       }
-      await db.transaction(async (tx: any) => {
+    } else {
+      const applySync = async (tx: Db) => {
         const claimedSources = await tx
           .update(schema.contentDatabaseSources)
           .set({ updatedAt: now })
@@ -772,11 +959,8 @@ export default defineAction({
         ({ policy, localIdentity } = sourceSettings(claimedSources[0]));
         const transactionSnapshot = await loadSnapshot(tx);
         await validateDocumentIds(transactionSnapshot);
-        plans = buildPlans(transactionSnapshot);
-        const currentDocumentIds = new Set(plans.map((plan) => plan.id));
-        missingRows = transactionSnapshot.storedRows.filter(
-          (row) => !currentDocumentIds.has(row.documentId),
-        );
+        plans = planFiles(transactionSnapshot);
+        missingRows = missingRowsOf(transactionSnapshot);
         classifyPlans(transactionSnapshot);
         // The pages' Files memberships, then the pages, each by id, as a save
         // takes them: the writes below update pages before the memberships.
@@ -793,6 +977,20 @@ export default defineAction({
         // it, a concurrent insert waits on this one; if it were added after
         // the pages, the later membership lock would wait on its writer.
         await ensureDocumentsFilesMembership(tx, existingPageIds, now);
+        const returning = plans.flatMap((plan) =>
+          comesBackHere(plan.existing) ? [plan.existing] : [],
+        );
+        const comebackLocks = returning.length
+          ? await lockLifecycleGroup(tx, {
+              operation: "restore",
+              roots: returning.map((page) => ({
+                id: page.id,
+                ownerEmail: page.ownerEmail,
+              })),
+              alsoLockDatabaseIds: [target.database.id],
+              alsoLockDocumentIds: lockedPageIds,
+            })
+          : null;
         if (lockedPageIds.length > 0) {
           const memberships = await tx
             .select({ id: schema.contentDatabaseItems.id })
@@ -809,6 +1007,23 @@ export default defineAction({
           ]);
           await lockDocumentRows(tx, lockedPageIds);
         }
+        if (comebackLocks) {
+          for (const page of returning) {
+            const current: Document[] = await tx
+              .select()
+              .from(schema.documents)
+              .where(eq(schema.documents.id, page.id));
+            if (current.length > 0 && comesBackHere(current[0])) {
+              await restoreDocumentSubtree(
+                tx,
+                page.id,
+                page.ownerEmail,
+                comebackLocks,
+                { keepLocalFolderPages: true },
+              );
+            }
+          }
+        }
         // The snapshot read these pages before their locks. A save that
         // committed in between would be written over without a conflict, or
         // leave a conflict proposal for Content as it was before the save,
@@ -824,7 +1039,7 @@ export default defineAction({
           for (const page of lockedPages) {
             transactionSnapshot.documentById.set(page.id, page);
           }
-          plans = buildPlans(transactionSnapshot);
+          plans = planFiles(transactionSnapshot);
           classifyPlans(transactionSnapshot);
         }
         plans.forEach(assertAgentMayApply);
@@ -1203,21 +1418,39 @@ export default defineAction({
             `Local folder source "${sourceId}" was disconnected during sync`,
           );
         }
-      });
-      if (policy === "source_primary") {
-        for (const row of missingRows) {
-          await trashPageOfRemovedFile(db, {
-            row,
-            filesDatabaseId: target.database.id,
-            spaceId: targetSpaceId,
-            sourceRootPath: target.source.sourceTable,
-            now,
-            ctx,
-          });
-        }
+      };
+      await retryRestoreOnMembershipChange(() => db.transaction(applySync));
+      if (policy === "source_primary" && folderListsFiles) {
+        removedRows = await settleRemovedFiles(db, missingRows, {
+          filesDatabaseId: target.database.id,
+          spaceId: targetSpaceId,
+          sourceRootPath: target.source.sourceTable,
+          now,
+          ctx,
+        });
       }
       await writeAppState("refresh-signal", { ts: Date.now() });
     }
+
+    skipped.push(
+      ...skippedPaths.map((path) => ({
+        path,
+        reason:
+          "The folder reader didn't send this file (it's over 2 MiB or isn't a regular file), so its page stays as it was.",
+      })),
+      ...heldPlans.map((plan) => ({
+        path: plan.file.path,
+        reason:
+          "Its page is in Trash, moved there by another folder's sync. Restore the page, and the next sync links it to this file.",
+      })),
+      ...(policy === "source_primary" && !folderListsFiles
+        ? missingRows.map((row) => ({
+            path: deletedFilePath(row),
+            reason:
+              "The folder listed no files, so this sync left the page as it was.",
+          }))
+        : []),
+    );
 
     return {
       sourceId,
@@ -1231,13 +1464,10 @@ export default defineAction({
       unchanged,
       conflicts,
       outbound,
-      removed:
-        policy === "source_primary"
-          ? missingRows.map((row) => ({
-              id: row.documentId,
-              path: deletedFilePath(row),
-            }))
-          : [],
+      removed: removedRows.map((row) => ({
+        id: row.documentId,
+        path: deletedFilePath(row),
+      })),
       skipped,
       errors: parseErrors,
       idByPath: Object.fromEntries(
