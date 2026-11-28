@@ -199,7 +199,7 @@ export default defineAction({
           "false only for legacy writes or deliberate new-file creation.",
       ),
   }),
-  mcpTool: false,
+  mcpTool: "search",
   run: async (
     {
       designId,

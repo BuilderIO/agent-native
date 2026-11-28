@@ -36,7 +36,7 @@ export default defineAction({
       ),
   }),
   capabilityScopes: ["visual-edit"],
-  mcpTool: false,
+  mcpTool: "search",
   run: async ({ designId, connectionId, files, resumeAfterSignIn }) => {
     await assertAccess("design", designId, "editor");
     await assertVisualEditCapabilityConnections([connectionId]);

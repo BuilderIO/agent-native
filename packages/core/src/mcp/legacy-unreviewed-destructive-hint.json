@@ -419,11 +419,13 @@
     "insert-asset",
     "insert-design-native-asset",
     "insert-figma-library-asset",
+    "migrate-board-objects-to-file",
     "navigate",
     "open-visual-edit",
     "remove-breakpoint",
     "rename-component",
     "rename-screen",
+    "request-localhost-write-consent",
     "restore-design-version",
     "save-design-as-template",
     "set-layout-grid",
@@ -432,7 +434,8 @@
     "update-design",
     "update-file",
     "update-screen-source",
-    "update-visual-edit-collaboration"
+    "update-visual-edit-collaboration",
+    "write-local-file"
   ],
   "dispatch": [],
   "factory": [
