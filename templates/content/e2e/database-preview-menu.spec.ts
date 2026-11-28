@@ -437,15 +437,17 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     const dirtyTitle = `${rowA.title} dirty handoff`;
     const dirtyBody = `${rowA.body}\n\nImmediate preview edit`;
     await preview.getByLabel("Document title").fill(dirtyTitle);
-    await preview.locator(".ProseMirror").fill(dirtyBody);
+    await preview.locator(".content-editor.ProseMirror").fill(dirtyBody);
     await preview.getByRole("button", { name: "Next collection page" }).click();
 
     preview = previewDialog(page);
     await expect(preview.getByLabel("Document title")).toHaveValue(rowB.title);
-    await expect(preview.locator(".ProseMirror")).toContainText(rowB.body);
-    await expect(preview.locator(".ProseMirror")).not.toContainText(
-      "Immediate preview edit",
+    await expect(preview.locator(".content-editor.ProseMirror")).toContainText(
+      rowB.body,
     );
+    await expect(
+      preview.locator(".content-editor.ProseMirror"),
+    ).not.toContainText("Immediate preview edit");
     await expect(
       preview.getByRole("button", { name: "Next collection page" }),
     ).toBeDisabled();
@@ -453,20 +455,19 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
       .getByRole("button", { name: "Previous collection page" })
       .click();
     await expect(preview.getByLabel("Document title")).toHaveValue(dirtyTitle);
-    await expect(preview.locator(".ProseMirror")).toContainText(
+    await expect(preview.locator(".content-editor.ProseMirror")).toContainText(
       "Immediate preview edit",
     );
-    await expect(preview.locator(".ProseMirror")).toHaveAttribute(
-      "contenteditable",
-      "true",
-    );
+    await expect(
+      preview.locator(".content-editor.ProseMirror"),
+    ).toHaveAttribute("contenteditable", "true");
 
     const dirtyCloseMarker = `Dirty close ${Date.now()}`;
     const rowATrigger = page.getByRole("button", {
       name: `Open ${dirtyTitle} preview`,
     });
     await preview
-      .locator(".ProseMirror")
+      .locator(".content-editor.ProseMirror")
       .fill(`${dirtyBody}\n\n${dirtyCloseMarker}`);
     await preview.getByRole("button", { name: "Close", exact: true }).click();
     await expect(preview).toBeHidden();
@@ -482,7 +483,7 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
       })
       .toBe(true);
     preview = await openPreview(page, dirtyTitle);
-    await expect(preview.locator(".ProseMirror")).toContainText(
+    await expect(preview.locator(".content-editor.ProseMirror")).toContainText(
       dirtyCloseMarker,
     );
 
@@ -501,7 +502,9 @@ test("database Page preview preserves controls, row identity, and dirty handoff"
     });
     await expect(preview).toBeHidden();
     await expect(page.getByLabel("Document title")).toHaveValue(fullPageTitle);
-    await expect(page.locator(".ProseMirror")).toContainText(dirtyCloseMarker);
+    await expect(page.locator(".content-editor.ProseMirror")).toContainText(
+      dirtyCloseMarker,
+    );
 
     await expect
       .poll(async () => {
