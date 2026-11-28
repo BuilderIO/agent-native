@@ -124,23 +124,33 @@ function placementOf(browser: Y.Doc, words: string, occurrence = 0) {
   );
 }
 
-function emptyTextblocks(doc: PMNode) {
+const entry = <T>(values: readonly T[], index: number): T | undefined =>
+  values[index];
+
+function twoBrowsers(stored: string) {
+  const { server, browsers } = session(stored, 2);
+  const browser = entry(browsers, 0);
+  const other = entry(browsers, 1);
+  if (!browser || !other) throw new Error("No browser copies");
+  return { server, browser, other };
+}
+
+function emptyTextblockAt(doc: PMNode, occurrence: number) {
   const found: number[] = [];
   doc.descendants((node, position) => {
     if (!node.isTextblock) return true;
     if (node.content.size === 0) found.push(position + 1);
     return false;
   });
-  return found;
+  const at = entry(found, occurrence);
+  if (at === undefined) throw new Error(`No empty textblock #${occurrence}`);
+  return at;
 }
 
 function placementOfEmpty(browser: Y.Doc, occurrence: number) {
   const fragment = browser.getXmlFragment("default");
   const { doc, mapping } = initProseMirrorDoc(fragment, schema);
-  const empties = emptyTextblocks(doc);
-  if (occurrence >= empties.length)
-    throw new Error(`No empty textblock #${occurrence}`);
-  const at = empties[occurrence];
+  const at = emptyTextblockAt(doc, occurrence);
   return suggestionPlacementForRange(
     { doc: browser, type: fragment, mapping },
     { from: at, to: at },
@@ -168,7 +178,7 @@ const withTrailingParagraph = (current: PMNode) =>
   current.replace(
     current.content.size,
     current.content.size,
-    new Slice(Fragment.from(schema.nodes.paragraph.create()), 0, 0),
+    new Slice(Fragment.from(schema.node("paragraph")), 0, 0),
   );
 
 const liveCopy = (doc: Y.Doc) =>
@@ -622,10 +632,7 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
 
   it("fills the empty table cell the reviewer saw while the Page is typed in", () => {
     const stored = table(["", ""]);
-    const {
-      server,
-      browsers: [browser],
-    } = session(stored);
+    const { server, browser } = pair(stored);
     const placement = placementOfEmpty(browser, 1);
     expect(placement).not.toBeNull();
     Y.applyUpdate(server, edit(browser, typeAt(" typed", endOf("Intro"))));
@@ -639,17 +646,13 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
 
   it("fills an empty paragraph the reviewer saw, not its twin", () => {
     const stored = "Intro\n\n<empty-block/>\n\nMiddle\n\n<empty-block/>";
-    const {
-      server,
-      browsers: [browser],
-    } = session(stored);
-    const empties = emptyTextblocks(page(stored));
-    expect(empties).toHaveLength(2);
+    const { server, browser } = pair(stored);
     const placement = placementOfEmpty(browser, 1);
     Y.applyUpdate(server, edit(browser, typeAt(" typed", endOf("Intro"))));
+    const end = emptyTextblockAt(page(stored), 1);
     const next = page(stored).replace(
-      empties[1],
-      empties[1],
+      end,
+      end,
       new Slice(Fragment.from(schema.text("End")), 0, 0),
     );
     expect(
@@ -673,10 +676,7 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
 
   it("fills an empty cell in a table whose columns were resized", () => {
     const stored = table(["", ""]);
-    const {
-      server,
-      browsers: [browser],
-    } = session(stored);
+    const { server, browser } = pair(stored);
     Y.applyUpdate(server, edit(browser, withColumnWidths));
     const placement = placementOfEmpty(browser, 1);
     accept(server, stored, table(["", "done"]), placement);
@@ -686,15 +686,12 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
 
   it("refuses an empty table cell someone typed into after the reviewer saw it", () => {
     const stored = table(["", ""]);
-    const {
-      server,
-      browsers: [browser, other],
-    } = session(stored, 2);
+    const { server, browser, other } = twoBrowsers(stored);
     const placement = placementOfEmpty(browser, 1);
     Y.applyUpdate(
       server,
       edit(other, (current) => {
-        const at = emptyTextblocks(current)[1];
+        const at = emptyTextblockAt(current, 1);
         return current.replace(
           at,
           at,
@@ -889,7 +886,7 @@ describe("writeAcceptedSuggestion without a placement, in a table whose columns 
     Y.applyUpdate(
       server,
       edit(browser, (current) => {
-        const at = emptyTextblocks(current)[1] - 1;
+        const at = emptyTextblockAt(current, 1) - 1;
         return new Transform(current).setNodeMarkup(at, undefined, {
           ...current.nodeAt(at)?.attrs,
           color: "red_bg",
