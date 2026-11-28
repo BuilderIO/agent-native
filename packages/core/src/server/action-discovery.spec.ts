@@ -2,10 +2,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  ActionError,
+  defineAction as definePortableAction,
+  fail as portableFail,
+  isActionError,
+} from "@agent-native/actions/contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { workspaceRoot } from "../../vitest.workspace-root.js";
-import { isActionDefinitionError } from "../action.js";
+import {
+  ActionContractError,
+  isActionContractError,
+  isActionDefinitionError,
+} from "../action.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -1170,5 +1181,51 @@ describe("listDevActionFiles", () => {
     fs.writeFileSync(path.join(cwd, "scripts", "takedown.ts"), "export {};\n");
 
     expect(await listDevActionFiles(cwd)).toEqual([]);
+  });
+});
+
+describe("@agent-native/actions contract interop", () => {
+  it("discovers and runs portable @agent-native/actions definitions with shared error identity", async () => {
+    const portableGet = definePortableAction({
+      description: "Fetch a portable item",
+      schema: z.object({ id: z.string() }),
+      http: { method: "GET" },
+      readOnly: true,
+      run: async ({ id }) => {
+        if (id === "missing") {
+          portableFail("Item not found", {
+            statusCode: 404,
+            errorCode: "not_found",
+          });
+        }
+        return { id, ok: true };
+      },
+    });
+
+    const registry = loadActionsFromStaticRegistry({
+      "get-item": { default: portableGet },
+    });
+
+    const entry = registry["get-item"];
+    expect(entry).toBeDefined();
+    expect(entry.readOnly).toBe(true);
+    expect(entry.http).toEqual({ method: "GET" });
+
+    const okResult = await entry.run({ id: "abc" }, { caller: "tool" });
+    expect(okResult).toEqual({ id: "abc", ok: true });
+
+    const caught = await entry.run({ id: "missing" }, { caller: "tool" }).then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(isActionContractError(caught)).toBe(true);
+    expect(isActionError(caught)).toBe(true);
+
+    const coreErr = new ActionContractError("Conflict", {
+      errorCode: "conflict",
+      statusCode: 409,
+    });
+    expect(coreErr).toBeInstanceOf(ActionError);
+    expect(isActionError(coreErr)).toBe(true);
   });
 });

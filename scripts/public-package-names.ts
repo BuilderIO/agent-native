@@ -1,4 +1,5 @@
 export const NPM_PUBLISH_PACKAGE_NAMES = [
+  "@agent-native/actions",
   "@agent-native/agentkit",
   "@agent-native/core",
   "@agent-native/core-corpus",

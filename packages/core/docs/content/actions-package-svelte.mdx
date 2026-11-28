@@ -1,0 +1,133 @@
+---
+title: "Svelte & SvelteKit"
+description: "Integrate @agent-native/actions with Svelte 5 and SvelteKit using createActionQuery, createActionMutation, a single +server.ts catch-all handler, and callSvelteKitAction."
+---
+
+# Svelte & SvelteKit
+
+`@agent-native/actions/svelte` provides reactive client helpers (`createActionQuery`, `createActionMutation`, `callAction`), paired with `@agent-native/actions/svelte/server` (`createSvelteKitHandler`, `callSvelteKitAction`) for SvelteKit.
+
+## Setup {#setup}
+
+<TabsBlock
+  id="svelte-setup-tabs"
+  tabs={[
+    {
+      id: "cli",
+      label: "CLI",
+      blocks: [
+        {
+          type: "code",
+          id: "svelte-setup-cli",
+          data: {
+            language: "bash",
+            code: `pnpm add @agent-native/actions zod
+npx @agent-native/actions init`,
+          },
+        },
+      ],
+    },
+    {
+      id: "agent",
+      label: "AI Coding Agent",
+      blocks: [
+        {
+          type: "code",
+          id: "svelte-setup-agent",
+          data: {
+            language: "text",
+            code: `Set up @agent-native/actions in this Svelte / SvelteKit app following https://agent-native.com/docs/actions-package-svelte.md.
+Run \`npx @agent-native/actions init\`, add agentNativeActionsPlugin({ devMiddleware: false }) to vite.config.ts (so SvelteKit owns server routing), add src/routes/api/agent-native/[...path]/+server.ts, and verify with \`pnpm action --list\`.`,
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+### SvelteKit {#sveltekit-setup}
+
+1. Add `agentNativeActionsPlugin({ devMiddleware: false })` to `vite.config.ts` so SvelteKit's `hooks.server.ts` and `+server.ts` route own every request in both dev and production:
+
+```ts
+// vite.config.ts
+import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
+import { agentNativeActionsPlugin } from "@agent-native/actions/vite";
+
+export default defineConfig({
+  plugins: [sveltekit(), agentNativeActionsPlugin({ devMiddleware: false })],
+});
+```
+
+2. Mount the single catch-all server route:
+
+```ts
+// src/routes/api/agent-native/[...path]/+server.ts
+import { createSvelteKitHandler } from "@agent-native/actions/svelte/server";
+import { actions } from "../../../../../.generated/actions";
+
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } =
+  createSvelteKitHandler(actions);
+```
+
+### Svelte 5 + Vite (Without SvelteKit) {#vite-svelte}
+
+For a client-side Svelte 5 app on Vite without SvelteKit, omit `devMiddleware: false` so `agentNativeActionsPlugin()` serves `/api/agent-native/*` during development, and mount `.generated/actions.ts` on your production server (see [Vite → Production](/docs/actions-package-vite#production)).
+
+## Usage {#usage}
+
+### Components
+
+```svelte
+<script lang="ts">
+  import {
+    createActionQuery,
+    createActionMutation,
+  } from "@agent-native/actions/svelte";
+
+  let done = $state(false);
+  const todos = createActionQuery("list-todos", () => ({ done }));
+  const createTodo = createActionMutation("create-todo", {
+    invalidate: ["list-todos"],
+  });
+</script>
+
+<button onclick={() => createTodo.mutate({ title: "Ship docs" })}>
+  Add todo
+</button>
+
+{#if todos.isLoading}
+  <p>Loading...</p>
+{:else}
+  {#each todos.data ?? [] as todo (todo.id)}
+    <p>{todo.title}</p>
+  {/each}
+{/if}
+```
+
+### Server Load (`+page.server.ts`)
+
+Call actions directly from SvelteKit server loaders with zero HTTP hop using `callSvelteKitAction()`:
+
+```ts
+// src/routes/todos/+page.server.ts
+import { callSvelteKitAction } from "@agent-native/actions/svelte/server";
+import { actions } from "../../../../.generated/actions";
+import type { PageServerLoad } from "./$types";
+
+export const load: PageServerLoad = async (event) => {
+  const todos = await callSvelteKitAction(
+    actions,
+    "list-todos",
+    { done: false },
+    event,
+  );
+  return { todos };
+};
+```
+
+## Next Steps
+
+- [**Auth & Migration**](/docs/actions-package-auth-migration) — configure `actions/context.ts` and structured errors
+- [**CLI, MCP & AI SDKs**](/docs/actions-package-surfaces) — terminal CLI, MCP server, and AI SDK exporters

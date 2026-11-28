@@ -1,0 +1,81 @@
+import { defineConfig } from "tsup";
+
+const SHARED_EXTERNALS = [
+  "react",
+  "react-dom",
+  "@tanstack/react-query",
+  "solid-js",
+  "vue",
+  "svelte",
+  "next",
+  "next/cache",
+  "next/headers",
+  "vite",
+  "zod",
+  "@modelcontextprotocol/server",
+  "@modelcontextprotocol/server/stdio",
+  "@standard-schema/spec",
+  "jiti",
+];
+
+export default defineConfig([
+  {
+    entry: {
+      index: "src/index.ts",
+      client: "src/client.ts",
+      "vue-server": "src/vue-server.ts",
+      nuxt: "src/nuxt.ts",
+      "svelte-server": "src/svelte-server.ts",
+      next: "src/next.ts",
+      "next-server": "src/next-server.ts",
+      "next-config": "src/next-config.ts",
+      "next-pages": "src/next-pages.ts",
+      vite: "src/vite.ts",
+      webmcp: "src/webmcp.ts",
+    },
+    format: ["esm"],
+    dts: true,
+    sourcemap: true,
+    clean: false,
+    splitting: true,
+    external: SHARED_EXTERNALS,
+  },
+  {
+    entry: {
+      react: "src/react.ts",
+      solid: "src/solid.ts",
+      vue: "src/vue.ts",
+      svelte: "src/svelte.ts",
+    },
+    format: ["esm"],
+    dts: true,
+    sourcemap: true,
+    clean: false,
+    splitting: false,
+    external: SHARED_EXTERNALS,
+    banner: { js: '"use client";' },
+  },
+  {
+    entry: {
+      contract: "src/contract.ts",
+    },
+    format: ["esm"],
+    dts: true,
+    sourcemap: true,
+    clean: false,
+    splitting: false,
+    external: SHARED_EXTERNALS,
+  },
+  {
+    entry: {
+      cli: "src/cli.ts",
+    },
+    format: ["esm"],
+    dts: false,
+    sourcemap: true,
+    clean: false,
+    splitting: false,
+    external: SHARED_EXTERNALS,
+    banner: { js: "#!/usr/bin/env node" },
+  },
+]);

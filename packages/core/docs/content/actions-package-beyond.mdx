@@ -1,0 +1,47 @@
+---
+title: "Beyond Actions"
+description: "Boundary between standalone @agent-native/actions and the full Agent-Native framework (@agent-native/core and @agent-native/toolkit), plus how actions interoperate."
+---
+
+# Beyond Actions
+
+The relationship between `@agent-native/actions` and the full Agent-Native framework is similar to **React → Next.js**:
+
+- **`@agent-native/actions`** is the portable operations layer — one typed contract for UI hooks, HTTP endpoints, CLI commands, MCP tools, and AI SDK tool exporters in any existing app.
+- **The full Agent-Native framework** (`@agent-native/core` + `@agent-native/toolkit`) adds the in-app agent runtime, live UI sync, collaborative editing, auth/orgs/sharing, secrets vault, automations, and multi-app A2A architecture on top of the same `@agent-native/actions/contract` package.
+
+## Scope Comparison {#comparison}
+
+| Layer                                                                                 | `@agent-native/actions`     | Full Agent-Native Framework                                                                   |
+| ------------------------------------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------- |
+| Operations contract (`defineAction`, schemas, `authorize`, `needsApproval`, `fail()`) | Included                    | Shared via `@agent-native/actions/contract`                                                   |
+| UI hooks, HTTP handler, CLI, MCP, AI SDK exporters                                    | Included                    | Included                                                                                      |
+| Auth, database, and UI components                                                     | Bring your own              | Built-in Better Auth, Drizzle/PostgreSQL, `@agent-native/toolkit`                             |
+| In-app Agent Sidebar & Chat UI                                                        | Build with `toAiSdkTools()` | Built-in [`AgentKit`](/docs/native-chat-ui)                                                   |
+| Live UI ↔ Agent state sync & SSE updates                                              | Manual                      | Built-in [`application_state` + `useDbSync`](/docs/context-awareness)                         |
+| Approvals UI, audit logs, org sharing, secrets vault                                  | Manual                      | Built in ([Auth & Sharing](/docs/authentication), [Connections](/docs/workspace-connections)) |
+| Durable automations & multi-app A2A workspaces                                        | Manual                      | Built in ([Automations](/docs/automations), [Multi-App](/docs/multi-app-workspace))           |
+
+## What the Full Framework Adds {#full-framework}
+
+- [**In-App Agent Sidebar & AgentKit**](/docs/native-chat-ui) — chat-first workspace or sidebar with streaming tool cards, inline generative UI, `@`-mentions, voice dictation, and multi-provider routing.
+- [**Context Awareness & Real-Time UI Sync**](/docs/context-awareness) — shared SQL `application_state` so the agent knows what page or record is active, plus SSE sync when an agent mutates data.
+- [**Auth, Orgs, Sharing & Audit Logs**](/docs/authentication) — Better Auth, organization switching, row-level `ownableColumns()` with a Share dialog, and an append-only audit log for human and agent writes.
+- [**Secrets Vault, OAuth & Provider APIs**](/docs/workspace-connections) — per-org encrypted credential storage, OAuth connect flows, onboarding checklists, and the `provider-api-request` substrate.
+- [**Automations & Durable Background Runs**](/docs/automations) — event, webhook, and schedule triggers backed by execution leases that survive serverless timeouts and restarts.
+- [**Multi-App Workspaces & A2A**](/docs/multi-app-workspace) — compose multiple focused apps into one workspace with unified SSO and agent-to-agent delegation.
+- [**Shared UI & Collaboration Kits (`@agent-native/toolkit`)**](/docs/agent-native-toolkit) — Yjs CRDT collaborative editing with live presence, inline comments, version snapshots, settings shells, and command palettes.
+
+## Moving Actions to `@agent-native/core` {#upgrading}
+
+`@agent-native/core` depends directly on `@agent-native/actions/contract` and natively discovers `@agent-native/actions` files placed in `actions/`:
+
+- `description`, `schema`, `outputSchema`, `http`, `readOnly`, `retrySafe`, `mcpTool`, `agentTool`, `mcpOutputSchema`, `authorize(input, ctx)`, `needsApproval(input, ctx)`, `fail()`, and `defineActionErrors()` share the same runtime contract and error brand.
+- Drop an existing `@agent-native/actions` file into a `@agent-native/core` app's `actions/` folder and Core's discovery pipeline runs it through HTTP, MCP, CLI, audit logging, and write observation with no rewrite required.
+- Switch an individual file's import to `@agent-native/core/action` only when you want Core-specific fields such as `audit`, `access`, `chatUI`, `mcpApp`, or `publicAgent`.
+
+## Next Steps
+
+- [**Getting Started with the Full Framework →**](/docs/getting-started)
+- [**Agent-Native Toolkit →**](/docs/agent-native-toolkit)
+- [**First-Party Templates →**](/docs/cloneable-saas)

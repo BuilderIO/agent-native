@@ -174,6 +174,25 @@ describe("checkProviderKey: model lists per provider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("allowlists a CGNAT gateway origin only in a trusted self-hosted runtime", async () => {
+    mockIsTrustedSelfHostedRuntime.mockReturnValue(true);
+    mockSsrfSafeFetch.mockResolvedValueOnce(json({ data: [{ id: "m1" }] }));
+
+    await asUser(() =>
+      checkProviderKey({
+        provider: "openai",
+        key: "virtual-gateway-key",
+        baseUrl: "https://gateway.example/v1",
+      }),
+    );
+
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://gateway.example/v1/models",
+      expect.anything(),
+      { allowedPrivateOrigins: ["https://gateway.example"] },
+    );
+  });
+
   it("uses the saved OpenAI endpoint when none is passed", async () => {
     mockResolveSecretDetailed.mockImplementation(async (key: string) =>
       key === "OPENAI_BASE_URL"
