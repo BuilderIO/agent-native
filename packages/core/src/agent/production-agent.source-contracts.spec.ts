@@ -20,7 +20,9 @@ describe("run preparation source contract", () => {
 
     expect(preparation).toContain("await options.onRunPrepared");
     expect(preparation).toContain("if (runRowState.foregroundInserted)");
-    expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
+    expect(preparation).toMatch(
+      /updateRunStatusIfRunning\(\s*runId,\s*"errored",?\s*\)/,
+    );
     expect(preparation).toContain(
       'setRunTerminalReason(runId, "run_preparation_failed")',
     );

@@ -25,6 +25,8 @@ describe("isRunFailureRetryable", () => {
     "error:request_too_large",
     "error:gateway_not_enabled",
     "error:aborted_user",
+    "error:queued_message_id_conflict",
+    "error:queued_message_id_terminal",
   ])("does not retry %s, which fails the same way again", (reason) => {
     expect(isRunFailureRetryable(reason)).toBe(false);
   });

@@ -13054,6 +13054,48 @@ describe("createProductionAgentHandler", () => {
     );
   });
 
+  it("returns a nonretryable conflict when run preparation rejects a terminal message ID", async () => {
+    const messageId = "queued-terminal";
+    const onRunPrepared = vi.fn(async () => {
+      throw new chatThreadStore.QueuedSubmissionAdmissionError(
+        "queued_message_id_terminal",
+        messageId,
+      );
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run the queued prompt",
+          queuedMessageId: messageId,
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(onRunPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({ queuedMessageId: messageId }),
+    );
+    expect(result).toEqual({
+      error: "This message ID is no longer available for submission",
+      code: "queued_message_id_terminal",
+      retryable: false,
+    });
+    expect(event.res.status).toBe(409);
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
   it("replays the accepted run when onRunPrepared finds an existing submission receipt", async () => {
     const onRunPrepared = vi.fn(async () => ({
       duplicateRunId: "run-already-submitted",

@@ -62,6 +62,13 @@ const inboxHarness = vi.hoisted(() => ({
   claimBusyCount: 0,
   claimBusyResponse: false,
   failActiveRunCheckThreadId: null as string | null,
+  useProductionHandler: false,
+  productionEngine: null as
+    | import("../agent/engine/types.js").AgentEngine
+    | null,
+  afterRunSlotClaim: null as ((runId: string) => Promise<void>) | null,
+  afterTerminalWrite: null as ((runId: string) => Promise<void>) | null,
+  useRealActiveRunLookup: false,
 }));
 
 vi.mock("./framework-request-handler.js", async (importOriginal) => {
@@ -121,6 +128,31 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
   return {
     ...actual,
     getRunById: vi.fn(async () => null),
+    tryClaimRunSlot: async (
+      ...args: Parameters<typeof actual.tryClaimRunSlot>
+    ) => {
+      const result = await actual.tryClaimRunSlot(...args);
+      if (result.claimed && inboxHarness.afterRunSlotClaim) {
+        const barrier = inboxHarness.afterRunSlotClaim;
+        inboxHarness.afterRunSlotClaim = null;
+        await barrier(args[1]);
+      }
+      return result;
+    },
+    updateRunStatusIfRunning: async (
+      ...args: Parameters<typeof actual.updateRunStatusIfRunning>
+    ) => {
+      const updated = await actual.updateRunStatusIfRunning(...args);
+      if (updated) await inboxHarness.afterTerminalWrite?.(args[0]);
+      return updated;
+    },
+    updateRunTerminalStateIfRunning: async (
+      ...args: Parameters<typeof actual.updateRunTerminalStateIfRunning>
+    ) => {
+      const updated = await actual.updateRunTerminalStateIfRunning(...args);
+      if (updated) await inboxHarness.afterTerminalWrite?.(args[0]);
+      return updated;
+    },
     retryRunThreadProjection: vi.fn(async () => ({ state: "projected" })),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
     cleanupOldRuns: vi.fn(async () => {}),
@@ -217,6 +249,12 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
   return {
     ...actual,
     createProductionAgentHandler: (handlerOptions: Record<string, any>) => {
+      if (inboxHarness.useProductionHandler) {
+        return actual.createProductionAgentHandler({
+          ...handlerOptions,
+          engine: inboxHarness.productionEngine ?? undefined,
+        } as never);
+      }
       if (typeof handlerOptions.onRunComplete === "function") {
         inboxHarness.completeRun = handlerOptions.onRunComplete;
       }
@@ -256,6 +294,9 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       };
     },
     getActiveRunForThreadAsync: vi.fn(async (threadId: string) => {
+      if (inboxHarness.useRealActiveRunLookup) {
+        return actual.getActiveRunForThreadAsync(threadId);
+      }
       if (inboxHarness.failActiveRunCheckThreadId === threadId) {
         inboxHarness.failActiveRunCheckThreadId = null;
         throw new Error("active run status unavailable after claiming head");
@@ -417,6 +458,7 @@ import {
   updateRunStatus,
   updateRunStatusIfRunning,
 } from "../agent/run-store.js";
+import { claimSetupResume } from "../agent/setup-resume-claim.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -476,7 +518,7 @@ async function createSweepHandler(options: AgentChatPluginOptions | null = {}) {
 
 const QUEUED_TEST_APP_ID = "queued-submission-fixture";
 
-async function mountAgentChatRoutes() {
+async function mountAgentChatRoutes(options: AgentChatPluginOptions = {}) {
   const h3App = createApp();
   createAgentChatPlugin({
     appId: QUEUED_TEST_APP_ID,
@@ -485,6 +527,7 @@ async function mountAgentChatRoutes() {
     frameworkTools: "minimal",
     leanPrompt: true,
     mcp: { enabled: false },
+    ...options,
   })({
     h3App,
     hooks: {
@@ -504,6 +547,7 @@ describe("queued submission inbox recurring sweep", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("AGENT_MODE", "production");
+    vi.stubEnv("AUTH_DISABLED", undefined);
     vi.stubEnv("DATABASE_URL", "pglite:memory://");
     vi.stubEnv("CRON_SECRET", "sweep-test-secret");
     sweepHarness.initPromises.length = 0;
@@ -539,6 +583,11 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.claimBusyCount = 0;
     inboxHarness.claimBusyResponse = false;
     inboxHarness.failActiveRunCheckThreadId = null;
+    inboxHarness.useProductionHandler = false;
+    inboxHarness.productionEngine = null;
+    inboxHarness.afterRunSlotClaim = null;
+    inboxHarness.afterTerminalWrite = null;
+    inboxHarness.useRealActiveRunLookup = false;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(retryRunThreadProjection).mockReset();
@@ -2081,6 +2130,303 @@ describe("queued submission inbox recurring sweep", () => {
       await getRun(String(fresh.rows[0].id))?.finalized;
     },
   );
+
+  it.each([
+    {
+      scenario: "conflicting payload",
+      secondText: "Conflicting submission",
+      cancel: false,
+      code: "queued_message_id_conflict",
+      error: "This message ID was already used for a different submission",
+      state: "queued",
+    },
+    {
+      scenario: "cancelled matching payload",
+      secondText: "First submission",
+      cancel: true,
+      code: "queued_message_id_terminal",
+      error: "This message ID is no longer available for submission",
+      state: "removed",
+    },
+  ])(
+    "rejects a late $scenario after the run slot is claimed",
+    async ({ secondText, cancel, code, error, state }) => {
+      inboxHarness.useProductionHandler = true;
+      const threadId = `thread-${randomUUID()}`;
+      const turnId = `turn-${randomUUID()}`;
+      const messageId = `message-${randomUUID()}`;
+      const ownerEmail = "user@example.com";
+      const refusedRunId = `refused-${randomUUID()}`;
+      await createThread(ownerEmail, {
+        id: threadId,
+        source: { appId: QUEUED_TEST_APP_ID },
+      });
+      let release!: () => void;
+      let reportClaim!: (runId: string) => void;
+      const claimed = new Promise<string>((resolve) => (reportClaim = resolve));
+      const barrier = new Promise<void>((resolve) => (release = resolve));
+      inboxHarness.afterRunSlotClaim = async (runId) => {
+        reportClaim(runId);
+        await barrier;
+      };
+      inboxHarness.productionEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream: async function* () {
+          yield { type: "stop" as const, reason: "end_turn" as const };
+        },
+      };
+      const app = await mountAgentChatRoutes({ durableBackgroundRuns: false });
+      const post = (text: string, submittedTurnId: string, resume = false) =>
+        runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
+          app.fetch(
+            new Request("http://example.test/_agent-native/agent-chat", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                message: text,
+                threadId,
+                turnId: submittedTurnId,
+                agentKitMessageId: messageId,
+                submissionPayload: { id: messageId, threadId, text },
+                ...(resume
+                  ? {
+                      metadata: {
+                        custom: {
+                          agentNativeResumeAfterSetup: true,
+                          agentNativeRecoveryOfRunId: refusedRunId,
+                        },
+                      },
+                    }
+                  : {}),
+              }),
+            }),
+          ),
+        );
+      const first = post("First submission", turnId, true);
+      const runId = await Promise.race([
+        claimed,
+        first.then(async (response) => {
+          throw new Error(
+            `First POST returned ${response.status}: ${await response.clone().text()}`,
+          );
+        }),
+      ]);
+      let second: Response;
+      let queuedThread: Awaited<ReturnType<typeof getThread>>;
+      let queuedReceipt: Awaited<ReturnType<typeof getQueuedSubmissionReceipt>>;
+      let terminalSnapshot: { status: number; body: unknown } | undefined;
+      let cancelReceiptUpdated: boolean | undefined;
+      const readActiveRun = () =>
+        runWithRequestContext({ userEmail: ownerEmail, run: {} }, () =>
+          app.fetch(
+            new Request(
+              `http://example.test/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+            ),
+          ),
+        );
+      try {
+        expect(
+          await claimSetupResume({
+            ownerEmail,
+            threadId,
+            refusedRunId,
+            turnId: "another-turn",
+          }),
+        ).toBeNull();
+        second = await post(secondText, `turn-${randomUUID()}`);
+        if (cancel) {
+          const result = await mutateThreadQueuedMessages(threadId, {
+            type: "cancel",
+            messageId,
+          });
+          cancelReceiptUpdated = result?.receiptUpdated;
+        }
+        queuedThread = await getThread(threadId);
+        queuedReceipt = await getQueuedSubmissionReceipt(threadId, messageId);
+        inboxHarness.useRealActiveRunLookup = true;
+        inboxHarness.afterTerminalWrite = async (writtenRunId) => {
+          if (writtenRunId !== runId) return;
+          const response = await readActiveRun();
+          terminalSnapshot = {
+            status: response.status,
+            body: await response.json(),
+          };
+        };
+      } finally {
+        release();
+      }
+      const firstResponse = await first;
+      expect(cancelReceiptUpdated).toBe(cancel ? true : undefined);
+      expect.soft(firstResponse.status).toBe(409);
+      expect.soft(await firstResponse.json()).toEqual({
+        error,
+        code,
+        retryable: false,
+      });
+      expect(second.status).toBe(202);
+      expect(queuedReceipt).toMatchObject({
+        state,
+        actor: { email: ownerEmail, anonymous: false },
+        message: { text: secondText },
+      });
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toEqual(queuedReceipt);
+      const rows = await getDbExec().execute({
+        sql: `SELECT status, terminal_reason, error_code FROM agent_runs WHERE id = ?`,
+        args: [runId],
+      });
+      expect(rows.rows).toHaveLength(1);
+      expect.soft(rows.rows[0]).toMatchObject({
+        status: "errored",
+        terminal_reason: `error:${code}`,
+        error_code: code,
+      });
+      expect.soft(terminalSnapshot).toMatchObject({
+        status: 200,
+        body: {
+          runId,
+          status: "errored",
+          terminalReason: `error:${code}`,
+          retryable: false,
+        },
+      });
+      const activeResponse = await readActiveRun();
+      expect(activeResponse.status).toBe(200);
+      await expect(activeResponse.json()).resolves.toMatchObject({
+        runId,
+        status: "errored",
+        terminalReason: `error:${code}`,
+        retryable: false,
+      });
+      expect((await getThread(threadId))?.threadData).toEqual(
+        queuedThread?.threadData,
+      );
+      const retryClaim = await claimSetupResume({
+        ownerEmail,
+        threadId,
+        refusedRunId,
+        turnId: "another-turn",
+      });
+      expect(retryClaim).not.toBeNull();
+      await retryClaim?.release();
+    },
+  );
+
+  it("reports an unrelated preparation failure as retryable through the active-run route", async () => {
+    inboxHarness.useProductionHandler = true;
+    const threadId = `thread-${randomUUID()}`;
+    const turnId = `turn-${randomUUID()}`;
+    const messageId = `message-${randomUUID()}`;
+    const ownerEmail = "user@example.com";
+    await createThread(ownerEmail, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
+    let release!: () => void;
+    let reportClaim!: (runId: string) => void;
+    const claimed = new Promise<string>((resolve) => (reportClaim = resolve));
+    const barrier = new Promise<void>((resolve) => (release = resolve));
+    inboxHarness.afterRunSlotClaim = async (runId) => {
+      reportClaim(runId);
+      await barrier;
+    };
+    inboxHarness.productionEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: async function* () {
+        yield { type: "stop" as const, reason: "end_turn" as const };
+      },
+    };
+    const app = await mountAgentChatRoutes({ durableBackgroundRuns: false });
+    const first = runWithRequestContext(
+      { userEmail: ownerEmail, run: {} },
+      () =>
+        app.fetch(
+          new Request("http://example.test/_agent-native/agent-chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              message: "First submission",
+              threadId,
+              turnId,
+              agentKitMessageId: messageId,
+              submissionPayload: {
+                id: messageId,
+                threadId,
+                text: "First submission",
+              },
+            }),
+          }),
+        ),
+    );
+    const runId = await Promise.race([
+      claimed,
+      first.then(async (response) => {
+        throw new Error(
+          `First POST returned ${response.status}: ${await response.clone().text()}`,
+        );
+      }),
+    ]);
+    try {
+      await getDbExec().execute({
+        sql: `UPDATE chat_threads SET thread_data = ? WHERE id = ?`,
+        args: ["[]", threadId],
+      });
+    } finally {
+      release();
+    }
+    const response = await first;
+    expect(response.status).toBe(500);
+    const rows = await getDbExec().execute({
+      sql: `SELECT status, terminal_reason, error_code, error_detail FROM agent_runs WHERE id = ?`,
+      args: [runId],
+    });
+    expect(rows.rows).toEqual([
+      {
+        status: "errored",
+        terminal_reason: "run_preparation_failed",
+        error_code: "run_preparation_failed",
+        error_detail: "Agent chat thread data is not valid JSON.",
+      },
+    ]);
+    inboxHarness.useRealActiveRunLookup = true;
+    const activeResponse = await runWithRequestContext(
+      { userEmail: ownerEmail, run: {} },
+      () =>
+        app.fetch(
+          new Request(
+            `http://example.test/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+          ),
+        ),
+    );
+    expect(activeResponse.status).toBe(200);
+    await expect(activeResponse.json()).resolves.toMatchObject({
+      runId,
+      status: "errored",
+      terminalReason: "run_preparation_failed",
+      retryable: true,
+    });
+  });
 
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
     const threadId = `thread-${randomUUID()}`;

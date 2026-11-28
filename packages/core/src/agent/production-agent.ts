@@ -18163,16 +18163,50 @@ export function createProductionAgentHandler(
           return { earlyResponse: stream };
         }
       } catch (error) {
+        const { QueuedSubmissionAdmissionError } =
+          await import("../chat-threads/store.js");
+        const admissionError =
+          error instanceof QueuedSubmissionAdmissionError &&
+          (error.code === "queued_message_id_conflict" ||
+            error.code === "queued_message_id_terminal")
+            ? error
+            : null;
         if (runRowState.foregroundInserted) {
-          const terminalized = await updateRunStatusIfRunning(runId, "errored");
-          if (terminalized) {
-            await setRunTerminalReason(runId, "run_preparation_failed");
-            await setRunError(
+          if (admissionError) {
+            await updateRunTerminalStateIfRunning(runId, {
+              status: "errored",
+              terminalReason: `error:${admissionError.code}`,
+              errorCode: admissionError.code,
+              errorDetail: admissionError.message,
+            });
+          } else {
+            const terminalized = await updateRunStatusIfRunning(
               runId,
-              "run_preparation_failed",
-              error instanceof Error ? error.message : String(error),
+              "errored",
             );
+            if (terminalized) {
+              await setRunTerminalReason(runId, "run_preparation_failed");
+              await setRunError(
+                runId,
+                "run_preparation_failed",
+                error instanceof Error ? error.message : String(error),
+              );
+            }
           }
+        }
+        await setupResumeClaim?.release();
+        if (admissionError) {
+          setResponseStatus(event, 409);
+          return {
+            earlyResponse: {
+              error:
+                admissionError.code === "queued_message_id_conflict"
+                  ? "This message ID was already used for a different submission"
+                  : "This message ID is no longer available for submission",
+              code: admissionError.code,
+              retryable: false,
+            },
+          };
         }
         throw error;
       }
