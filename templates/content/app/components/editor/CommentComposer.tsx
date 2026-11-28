@@ -993,6 +993,7 @@ export const CommentComposer = forwardRef<
       suggestOnly={aiSuggestOnly}
       onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
       onSubmit={submitAi}
+      returnFocus={() => composerRef.current?.focus()}
     />
   ) : (
     <Tooltip>

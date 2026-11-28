@@ -1457,7 +1457,7 @@ describe("comment review interactions", () => {
       expect(document.activeElement).toBe(next);
     });
 
-    describe("Arrivals in an open card", () => {
+    describe("Scrolling a capped card", () => {
       const entry = (id: string) => {
         const root = thread("one").comments.find(
           (comment) => comment.id === "one-root",
@@ -1472,6 +1472,7 @@ describe("comment review interactions", () => {
         },
       ];
       const entryTops: Record<string, number> = { "one-root": 0 };
+      const entryHeights: Record<string, number> = {};
       const GROUP = { top: 500, bottom: 800 };
       const BODY_HEIGHT = 384;
       const DECISION_HEIGHT = 48;
@@ -1494,7 +1495,10 @@ describe("comment review interactions", () => {
             if (this.hasAttribute("data-comment-thread-body"))
               return at(0, BODY_HEIGHT);
             const entryId = this.getAttribute("data-comment-entry");
-            if (entryId) return at((entryTops[entryId] ?? 0) - scrolled);
+            if (entryId) {
+              const top = (entryTops[entryId] ?? 0) - scrolled;
+              return at(top, top + (entryHeights[entryId] ?? 0));
+            }
             if (this.hasAttribute("data-suggestion-proposal"))
               return at(GROUP.top - scrolled, GROUP.bottom - scrolled);
             if (this.hasAttribute("data-suggestion-group-decision")) {
@@ -1545,6 +1549,83 @@ describe("comment review interactions", () => {
         expect(scroller.scrollTop).toBe(
           GROUP.bottom - (BODY_HEIGHT - DECISION_HEIGHT),
         );
+      });
+
+      it("shows the newest entry whole above the reply box when the thread opens", () => {
+        entryTops.answer = 40;
+        entryTops.mention = 330;
+        entryHeights.mention = 90;
+        render(null, withEntries("answer", "mention"));
+        const newest = body().querySelector('[data-comment-entry="mention"]');
+        if (!newest) throw new Error("Thread one has no newest entry");
+        expect(newest.getBoundingClientRect().bottom).toBeGreaterThan(
+          BODY_HEIGHT,
+        );
+
+        render("one", withEntries("answer", "mention"));
+
+        expect(
+          container.querySelector('[data-thread-card="one"] .ProseMirror'),
+        ).not.toBeNull();
+        const shown = newest.getBoundingClientRect();
+        expect(shown.top).toBeGreaterThanOrEqual(0);
+        expect(shown.bottom).toBeLessThanOrEqual(BODY_HEIGHT);
+      });
+
+      it("keeps the newest entry whole as an opened card reflows, until the reader scrolls", () => {
+        const observed: Array<{
+          callback: ResizeObserverCallback;
+          targets: Element[];
+        }> = [];
+        const RealResizeObserver = globalThis.ResizeObserver;
+        globalThis.ResizeObserver = class {
+          private readonly record: (typeof observed)[number];
+          constructor(callback: ResizeObserverCallback) {
+            this.record = { callback, targets: [] };
+            observed.push(this.record);
+          }
+          observe(target: Element) {
+            this.record.targets.push(target);
+          }
+          unobserve() {}
+          disconnect() {
+            this.record.targets = [];
+          }
+        } as unknown as typeof ResizeObserver;
+        try {
+          entryTops.answer = 40;
+          entryTops.mention = 200;
+          entryHeights.mention = 90;
+          render(null, withEntries("answer", "mention"));
+          const scroller = body();
+          render("one", withEntries("answer", "mention"));
+          expect(scroller.scrollTop).toBe(0);
+          const newest = scroller.querySelector(
+            '[data-comment-entry="mention"]',
+          );
+          if (!newest) throw new Error("Thread one has no newest entry");
+          const reflow = (mentionTop: number) => {
+            entryTops.mention = mentionTop;
+            act(() => {
+              for (const { callback, targets } of observed) {
+                if (targets.includes(scroller))
+                  callback([], {} as ResizeObserver);
+              }
+            });
+          };
+
+          reflow(500);
+          const shown = newest.getBoundingClientRect();
+          expect(shown.top).toBeGreaterThanOrEqual(0);
+          expect(shown.bottom).toBeLessThanOrEqual(BODY_HEIGHT);
+
+          scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+          scroller.scrollTop = 50;
+          reflow(700);
+          expect(scroller.scrollTop).toBe(50);
+        } finally {
+          globalThis.ResizeObserver = RealResizeObserver;
+        }
       });
 
       it("leaves a reader who scrolled alone until something new arrives", () => {
