@@ -1635,6 +1635,18 @@ export function loadedUpdatedAtForSave(
   return contentBase?.updatedAt ?? documentUpdatedAt ?? undefined;
 }
 
+function readOnPageReturn(read: () => void) {
+  const readIfShown = () => {
+    if (window.document.visibilityState === "visible") read();
+  };
+  window.addEventListener("focus", read);
+  window.document.addEventListener("visibilitychange", readIfShown);
+  return () => {
+    window.removeEventListener("focus", read);
+    window.document.removeEventListener("visibilitychange", readIfShown);
+  };
+}
+
 function adoptConfirmedSaveWatermarks({
   saved,
   savedAt,
@@ -2529,6 +2541,7 @@ type DocumentSaveOptions = {
   allowQueuedSave?: boolean;
   requireActiveEditorSession?: boolean;
   expectedLocalSourceRevision?: string | null;
+  writtenLocalSourceRevision?: DesktopContentFileRevision | undefined;
   contentBase?: DocumentContentBase;
   titleBase?: string;
   contentEditVersion?: number;
@@ -3753,6 +3766,8 @@ function PageEditorSessionBody({
     useState<VisualEditorExternalContent | null>(null);
   const pendingLocalSourceRef = useRef<PendingLocalSourceVersion | null>(null);
   const localSourceRequestCountRef = useRef(0);
+  const localSourceReadCountRef = useRef(0);
+  const queueTitleSaveRef = useRef<(title: string) => void>(() => {});
   const editorHistoryControllerDocumentIdRef = useRef<string | null>(null);
   const [editorHistoryControllerReady, setEditorHistoryControllerReady] =
     useState(false);
@@ -4779,6 +4794,7 @@ function PageEditorSessionBody({
           throw new Error(result.error);
         }
         localSourceRevisionRef.current = result.revision;
+        options.writtenLocalSourceRevision = result.revision;
         lastSavedTitleRef.current = {
           ...lastSavedTitleRef.current,
           title: fileFirstDocument.title,
@@ -5035,24 +5051,35 @@ function PageEditorSessionBody({
           if (pending?.request !== request) return null;
           pendingLocalSourceRef.current = null;
           const held = live ?? localContentRef.current;
+          const savedTitle = lastSavedTitleRef.current.title;
+          const diskTitle = pending.document.title;
+          const ownTitle =
+            localTitleRef.current === savedTitle ? null : localTitleRef.current;
           if (
             !sameSourceMarkdown(held, base) ||
-            !sameSourceMarkdown(localContentRef.current, base)
+            !sameSourceMarkdown(localContentRef.current, base) ||
+            (ownTitle !== null &&
+              diskTitle !== savedTitle &&
+              diskTitle !== ownTitle) ||
+            !canHold(pending.document.content)
           ) {
             setLocalSourceConflict({
               diskDocument: pending.document,
-              diskRevision: pending.revision,
+              ...(pending.revision !== undefined
+                ? { diskRevision: pending.revision }
+                : {}),
               unsavedText: held,
             });
             return null;
           }
           localSourceRevisionRef.current = pending.revision;
           adopt();
-          if (canHold(pending.document.content)) {
-            return pending.document.content;
+          if (ownTitle !== null && ownTitle !== diskTitle) {
+            localTitleRef.current = ownTitle;
+            setLocalTitle(ownTitle);
+            queueTitleSaveRef.current(ownTitle);
           }
-          setLocalFileSyncRevision((revision) => revision + 1);
-          return null;
+          return pending.document.content;
         },
       };
       pendingLocalSourceRef.current = {
@@ -5068,13 +5095,13 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!isLinkedLocalSourceDocument) return;
     let active = true;
-    let latestRead = 0;
 
     const adoptDisk = async () => {
-      const read = ++latestRead;
+      const read = ++localSourceReadCountRef.current;
       const result = await readDocumentFromLinkedLocalSource(document);
-      if (!active || read !== latestRead) return;
+      if (!active || read !== localSourceReadCountRef.current) return;
       if (!result.ok) {
+        pendingLocalSourceRef.current = null;
         setLocalSourceAccess("unavailable");
         if (result.error.includes("was not found")) {
           if (saveTimeoutRef.current) {
@@ -5155,7 +5182,9 @@ function PageEditorSessionBody({
           if (result.ok) result.unsubscribe();
           return;
         }
-        if (result.ok) stop = () => result.unsubscribe();
+        stop = result.ok
+          ? () => result.unsubscribe()
+          : readOnPageReturn(() => void adoptDisk());
       },
     );
     return () => {
@@ -5171,6 +5200,7 @@ function PageEditorSessionBody({
 
   const handleLinkedLocalAgentPersistence = useCallback(
     (persisted: Document, revision?: DesktopContentFileRevision) => {
+      localSourceReadCountRef.current += 1;
       showLocalSourceVersion(persisted, revision, () => {
         localTitleRef.current = persisted.title;
         localContentRef.current = persisted.content;
@@ -5638,15 +5668,20 @@ function PageEditorSessionBody({
         Object.keys(updates) as (keyof DocumentUpdates)[],
         options,
       );
-      adoptConfirmedSaveWatermarks({
-        saved,
-        savedAt,
-        title,
-        content,
-        updates,
-        lastSavedTitleRef,
-        lastSavedContentRef,
-      });
+      if (
+        !isLinkedLocalSourceDocument ||
+        options.writtenLocalSourceRevision === localSourceRevisionRef.current
+      ) {
+        adoptConfirmedSaveWatermarks({
+          saved,
+          savedAt,
+          title,
+          content,
+          updates,
+          lastSavedTitleRef,
+          lastSavedContentRef,
+        });
+      }
       if (
         updates.content !== undefined &&
         saved.revision &&
@@ -6668,6 +6703,14 @@ function PageEditorSessionBody({
       queueDocumentSave,
     ],
   );
+  queueTitleSaveRef.current = (title) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    pendingDocumentSaveRef.current = null;
+    debouncedSave(title, localContentRef.current);
+  };
 
   useEffect(() => {
     return () => {
