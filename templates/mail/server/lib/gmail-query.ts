@@ -72,23 +72,22 @@ export function buildGmailEmailSearchQuery({
   label?: string | undefined;
   inboxFilter?: string | undefined;
 }): string {
-  const filterClause = inboxFilter ? inboxFilterGmailClause(inboxFilter) : "";
   const normalizedSearch = gmailSearchClause(q);
+  const scope = label
+    ? [
+        viewSearchClauseForLabelTab(view, label),
+        gmailAppLabelSearchClause(label),
+      ]
+    : [VIEW_QUERIES[view] ?? `label:${view}`];
+  const standalone = !normalizedSearch && scope.every((clause) => !clause);
+  const filterClause = inboxFilter
+    ? inboxFilterGmailClause(inboxFilter, { standalone })
+    : "";
   const searchClause =
     filterClause && normalizedSearch
       ? `(${normalizedSearch})`
       : normalizedSearch;
-
-  if (label) {
-    const labelClause = gmailAppLabelSearchClause(label);
-    const viewClause = viewSearchClauseForLabelTab(view, label);
-    return [viewClause, labelClause, searchClause, filterClause]
-      .filter(Boolean)
-      .join(" ");
-  }
-
-  const viewQuery = VIEW_QUERIES[view] ?? `label:${view}`;
-  return [viewQuery, searchClause, filterClause].filter(Boolean).join(" ");
+  return [...scope, searchClause, filterClause].filter(Boolean).join(" ");
 }
 
 export function filterLabelMessages(

@@ -27,6 +27,7 @@ import {
 import {
   inboxFilterAccepts,
   inboxFilterIsReadable,
+  keepAcceptedConversations,
 } from "@shared/inbox-filters.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import {
@@ -756,7 +757,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  let emails = await readEmails(email);
+  const mailbox = await readEmails(email);
+  let emails = mailbox;
 
   if (label && (view === "inbox" || view === "unread")) {
     emails = filterInboxScopedThreadMessages(
@@ -816,9 +818,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     emails = emails.filter((e) => emailMessageMatchesSearch(e, q));
   }
   if (filterAccepts) {
-    emails = emails.filter((e) =>
-      filterAccepts({ unread: !e.isRead, starred: e.isStarred }),
-    );
+    emails = keepAcceptedConversations(emails, filterAccepts, mailbox);
   }
 
   if (!q && (view === "inbox" || view === "unread")) {

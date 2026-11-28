@@ -8,6 +8,7 @@ import {
   isInboxSyncing,
   labelTreeRows,
   pinPickerLabels,
+  preSearchPath,
   reorderById,
   sidebarLabelTabs,
 } from "./AppLayout";
@@ -26,6 +27,40 @@ function commandPaletteFocusSource(): string {
 function mailGlobalCss(): string {
   return readFileSync(new URL("../../global.css", import.meta.url), "utf8");
 }
+
+describe("leaving a search", () => {
+  it("returns to the filtered list the search started from", () => {
+    expect(
+      preSearchPath({
+        view: "all",
+        label: null,
+        tab: null,
+        filter: null,
+        inboxFilter: "r=starred:is_checked",
+      }),
+    ).toBe("/all?r=starred:is_checked");
+    expect(
+      preSearchPath({
+        view: "inbox",
+        label: null,
+        tab: "important",
+        filter: null,
+        inboxFilter: "match=any&r=unread:is_checked&r=starred:is_checked",
+      }),
+    ).toBe(
+      "/inbox?tab=important&match=any&r=unread:is_checked&r=starred:is_checked",
+    );
+    expect(
+      preSearchPath({
+        view: "all",
+        label: "work",
+        tab: null,
+        filter: null,
+        inboxFilter: "",
+      }),
+    ).toBe("/all?label=work");
+  });
+});
 
 describe("AppLayout inbox tab bar", () => {
   it("lists only labels and saved filters under the sidebar's Labels, not inbox tabs", () => {

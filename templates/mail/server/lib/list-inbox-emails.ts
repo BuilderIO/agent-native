@@ -1,3 +1,7 @@
+import {
+  inboxFilterAccepts,
+  keepAcceptedConversations,
+} from "@shared/inbox-filters.js";
 import type { EmailMessage } from "@shared/types.js";
 
 import {
@@ -149,6 +153,8 @@ export async function listInboxEmails(
   let emails = messages.map((m: any) =>
     gmailToEmailMessage(m, m._accountEmail, labelMap),
   ) as EmailMessage[];
+  const filterAccepts = inboxFilter ? inboxFilterAccepts(inboxFilter) : null;
+  if (filterAccepts) emails = keepAcceptedConversations(emails, filterAccepts);
   emails = filterInboxScopedThreadMessages(
     emails,
     view,

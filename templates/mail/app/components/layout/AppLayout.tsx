@@ -258,6 +258,29 @@ function shortLabelName(name: string): string {
   return name;
 }
 
+export interface PreSearchView {
+  view: string;
+  label: string | null;
+  tab: string | null;
+  filter: string | null;
+  inboxFilter: string;
+}
+
+export function preSearchPath({
+  view,
+  label,
+  tab,
+  filter,
+  inboxFilter,
+}: PreSearchView): string {
+  const params = new URLSearchParams();
+  if (label) params.set("label", label);
+  if (tab) params.set("tab", tab);
+  if (filter) params.set("filter", filter);
+  const search = params.toString();
+  return withInboxFilter(`/${view}${search ? `?${search}` : ""}`, inboxFilter);
+}
+
 export function buildLabelDisplayNames(
   labels: readonly Label[],
 ): Map<string, string> {
@@ -566,16 +589,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { replace: true },
     );
   }, [location.pathname, navigate, searchParams]);
-  const preSearchViewRef = useRef<{
-    view: string;
-    label: string | null;
-    tab: string | null;
-    filter: string | null;
-  }>({
+  const preSearchViewRef = useRef<PreSearchView>({
     view,
     label: activeLabel,
     tab: activeInboxTab,
     filter: activeFilterId,
+    inboxFilter: viewFilter,
   });
   useEffect(() => {
     if (!activeSearchQuery) {
@@ -584,18 +603,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label: activeLabel,
         tab: activeInboxTab,
         filter: activeFilterId,
+        inboxFilter: viewFilter,
       };
     }
-  }, [view, activeLabel, activeInboxTab, activeFilterId, activeSearchQuery]);
-  const restorePreSearchPath = useCallback(() => {
-    const { view: v, label: l, tab, filter } = preSearchViewRef.current;
-    const params = new URLSearchParams();
-    if (l) params.set("label", l);
-    if (tab) params.set("tab", tab);
-    if (filter) params.set("filter", filter);
-    const search = params.toString();
-    return `/${v}${search ? `?${search}` : ""}`;
-  }, []);
+  }, [
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeFilterId,
+    viewFilter,
+    activeSearchQuery,
+  ]);
+  const restorePreSearchPath = useCallback(
+    () => preSearchPath(preSearchViewRef.current),
+    [],
+  );
   const prevSearchQueryRef = useRef(activeSearchQuery);
   useEffect(() => {
     if (prevSearchQueryRef.current && !activeSearchQuery) {

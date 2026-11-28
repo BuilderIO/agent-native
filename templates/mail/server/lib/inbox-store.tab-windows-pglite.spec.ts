@@ -38,7 +38,7 @@ function syntheticRows(count: number) {
   ];
   const base = Date.UTC(2026, 0, 1);
   return Array.from({ length: count }, (_, i) => {
-    const account = ACCOUNTS[i % ACCOUNTS.length];
+    const account = ACCOUNTS[i % ACCOUNTS.length] ?? OWNER;
     const labels = labelChoices[Math.floor(next() * labelChoices.length)];
     const unread = next() < 0.4 ? 1 + Math.floor(next() * 2) : 0;
     return {
@@ -362,5 +362,55 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
       }),
     ).resolves.toMatchObject({ page: [] });
     exec.execute = originalExecute as typeof exec.execute;
+  }, 60_000);
+
+  it("splits the window's groups by Starred only when the page filter reads Starred", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const [{ default: initializeMailDb }, { getDb, schema }, store, core] =
+      await Promise.all([
+        import("../plugins/db.js"),
+        import("../db/index.js"),
+        import("./inbox-store.js"),
+        import("@agent-native/core/db"),
+      ]);
+    await initializeMailDb({});
+    await getDb().insert(schema.mailInboxThreads).values(syntheticRows(60));
+
+    const exec = core.getDbExec();
+    const originalExecute = exec.execute.bind(exec);
+    const executed: string[] = [];
+    exec.execute = (async (query: { sql: string; args: unknown[] }) => {
+      executed.push(query.sql);
+      return originalExecute(query);
+    }) as typeof exec.execute;
+
+    const readsStarred = async (pageFilter: string) => {
+      executed.length = 0;
+      await store.readInboxTabWindows({
+        ownerEmail: OWNER,
+        accountEmails: ACCOUNTS,
+        tabs: [{ id: "__inbox_all__", kind: "all" }],
+        pageTabId: "__inbox_all__",
+        pageOffset: 0,
+        pageLimit: 20,
+        pageAccepts: inboxFilterAccepts(pageFilter) ?? undefined,
+        previewLimit: 20,
+      });
+      expect(executed).toHaveLength(1);
+      return executed.some((sql) => sql.includes("is_starred"));
+    };
+
+    try {
+      expect(await readsStarred("")).toBe(false);
+      expect(await readsStarred("r=unread:is_checked")).toBe(false);
+      expect(await readsStarred("r=starred:is_checked")).toBe(true);
+      expect(
+        await readsStarred(
+          "match=any&r=unread:is_checked&r=starred:is_unchecked",
+        ),
+      ).toBe(true);
+    } finally {
+      exec.execute = originalExecute as typeof exec.execute;
+    }
   }, 60_000);
 });

@@ -1,9 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { mailLabelMatches } from "@shared/gmail-labels.js";
 import {
+  conversationFilterFlags,
   inboxFilterAccepts,
   inboxFilterRequest,
+  keepAcceptedConversations,
   viewTakesInboxFilter,
 } from "@shared/inbox-filters.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
@@ -14,7 +17,10 @@ import {
   resolvePinnedLabels,
   inboxThreadKey,
 } from "../app/lib/inbox-tabs.js";
-import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
+import {
+  buildGmailEmailSearchQuery,
+  filterLabelMessages,
+} from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import {
   isConnected,
@@ -36,6 +42,7 @@ import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 import listInboxThreads from "./list-inbox-threads.js";
 
 const SCREEN_EMAIL_LIMIT = 10;
+const SCREEN_THREAD_CANDIDATE_LIMIT = 40;
 // ponytail: stop after three pages; use list-emails for exhaustive filtered inventory.
 const SCREEN_EMAIL_MAX_PAGES = 3;
 
@@ -80,21 +87,36 @@ function boundEmailPreview(
   };
 }
 
-function latestPerThread(emails: any[]): any[] {
-  const byThread = new Map<string, any>();
-  for (const email of emails) {
+function conversationRows(
+  emails: EmailMessage[],
+  accepts: ReturnType<typeof inboxFilterAccepts>,
+  members: readonly EmailMessage[] = emails,
+): EmailMessage[] {
+  const kept = accepts
+    ? keepAcceptedConversations(emails, accepts, members)
+    : emails;
+  const conversations = new Map<string, EmailMessage[]>();
+  for (const email of members) {
     const key = inboxThreadKey(email);
-    const existing = byThread.get(key);
+    const conversation = conversations.get(key);
+    if (conversation) conversation.push(email);
+    else conversations.set(key, [email]);
+  }
+  const latestByThread = new Map<string, EmailMessage>();
+  for (const email of kept) {
+    const key = inboxThreadKey(email);
+    const existing = latestByThread.get(key);
     if (
       !existing ||
       new Date(email.date).getTime() > new Date(existing.date).getTime()
     ) {
-      byThread.set(key, email);
+      latestByThread.set(key, email);
     }
   }
-  return Array.from(byThread.values()).sort(
-    (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
+  return Array.from(latestByThread, ([key, latest]) => {
+    const flags = conversationFilterFlags(conversations.get(key) ?? [latest]);
+    return { ...latest, isRead: !flags.unread, isStarred: flags.starred };
+  }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 async function fetchInboxPreview(
@@ -155,13 +177,21 @@ async function fetchInboxPreview(
   }
 }
 
-async function fetchEmailList(
-  view: string,
-  search?: string,
-  activeAccounts?: string[],
-  filterId?: string,
+async function fetchEmailList({
+  view,
+  search,
+  activeAccounts,
+  filterId,
+  label,
   inboxFilter = "",
-): Promise<EmailPreviewResult> {
+}: {
+  view: string;
+  search?: string | undefined;
+  activeAccounts?: unknown;
+  filterId?: string | undefined;
+  label?: string | undefined;
+  inboxFilter?: string;
+}): Promise<EmailPreviewResult> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -235,6 +265,8 @@ async function fetchEmailList(
       return boundEmailPreview(filterSelectedAccounts(emails));
     }
     const viewFilter = viewTakesInboxFilter(effectiveView) ? inboxFilter : "";
+    const filterAccepts = viewFilter ? inboxFilterAccepts(viewFilter) : null;
+    const scopeLabel = savedFilter ? undefined : label?.trim() || undefined;
     if (googleConnected) {
       const labelMap = new Map<string, string>();
       const failedAccounts = new Set([
@@ -245,13 +277,17 @@ async function fetchEmailList(
         buildGmailEmailSearchQuery({
           view: effectiveView,
           q: effectiveSearch,
+          label: scopeLabel,
           inboxFilter: viewFilter,
         }) || (effectiveView === "all" ? "" : "in:inbox");
       const listOptions: NonNullable<Parameters<typeof listGmailMessages>[4]> =
         {
           mode: "threads" as const,
           threadFormat: "metadata",
-          threadCandidateLimit: effectiveSearch || viewFilter ? 500 : undefined,
+          threadCandidateLimit:
+            effectiveSearch || viewFilter
+              ? SCREEN_THREAD_CANDIDATE_LIMIT
+              : undefined,
         };
       let pageTokens: Record<string, string> | undefined;
       let pageAccountEmails =
@@ -280,7 +316,10 @@ async function fetchEmailList(
         const preparedMessages = messages.map((m: any) =>
           gmailToEmailMessage(m, m._accountEmail, labelMap),
         );
-        filteredMessages = latestPerThread(prepareEmails(preparedMessages));
+        filteredMessages = conversationRows(
+          prepareEmails(preparedMessages),
+          filterAccepts,
+        );
         pageTokens = page.nextPageTokens;
         hasMore = Boolean(pageTokens && Object.keys(pageTokens).length > 0);
         if (
@@ -301,11 +340,37 @@ async function fetchEmailList(
       };
     }
 
-    let emails = await readLocalEmails(ownerEmail);
+    const mailbox = await readLocalEmails(ownerEmail);
+    if (effectiveView === "inbox") {
+      let items = buildLocalInboxItems(mailbox, ownerEmail);
+      if (scopeLabel) {
+        items = items.filter((item) =>
+          item.labelIds.some((labelId) =>
+            mailLabelMatches(labelId, scopeLabel),
+          ),
+        );
+      }
+      if (effectiveSearch) {
+        items = items.filter((item) =>
+          emailMessageMatchesSearch(item, effectiveSearch),
+        );
+      }
+      if (filterAccepts) {
+        items = items.filter((item) =>
+          filterAccepts({
+            unread: item.unreadCount > 0,
+            starred: item.isStarred,
+          }),
+        );
+      }
+      return boundEmailPreview(
+        prepareEmails(
+          items.map((item) => ({ ...item, isRead: item.unreadCount === 0 })),
+        ),
+      );
+    }
+    let emails = mailbox;
     switch (effectiveView) {
-      case "inbox":
-        emails = buildLocalInboxItems(emails, ownerEmail);
-        break;
       case "unread":
         emails = emails.filter(
           (e: any) =>
@@ -331,23 +396,18 @@ async function fetchEmailList(
       case "trash":
         emails = emails.filter((e: any) => e.isTrashed);
         break;
+      case "all":
+        if (scopeLabel) emails = filterLabelMessages(emails, scopeLabel);
+        break;
     }
     if (effectiveSearch) {
       emails = emails.filter((e: any) =>
         emailMessageMatchesSearch(e, effectiveSearch),
       );
     }
-    const filterAccepts = viewFilter ? inboxFilterAccepts(viewFilter) : null;
-    if (filterAccepts) {
-      emails = emails.filter((e: EmailMessage & { unreadCount?: unknown }) =>
-        filterAccepts({
-          unread:
-            typeof e.unreadCount === "number" ? e.unreadCount > 0 : !e.isRead,
-          starred: e.isStarred,
-        }),
-      );
-    }
-    return boundEmailPreview(prepareEmails(emails));
+    return boundEmailPreview(
+      prepareEmails(conversationRows(emails, filterAccepts, mailbox)),
+    );
   } catch (error) {
     return {
       ...boundEmailPreview([]),
@@ -481,13 +541,14 @@ export default defineAction({
               nav.activeAccounts,
               inboxFilter,
             )
-          : await fetchEmailList(
-              nav.view,
-              nav.search,
-              nav.activeAccounts,
-              nav.filter,
+          : await fetchEmailList({
+              view: nav.view,
+              search: nav.search,
+              activeAccounts: nav.activeAccounts,
+              filterId: nav.filter,
+              label: typeof nav.label === "string" ? nav.label : undefined,
               inboxFilter,
-            );
+            });
       const {
         emails,
         truncated,
@@ -542,11 +603,11 @@ export default defineAction({
           : {}),
       };
       if (nav.view === "drafts") {
-        const scheduled = await fetchEmailList(
-          "scheduled",
-          nav.search,
-          nav.activeAccounts,
-        );
+        const scheduled = await fetchEmailList({
+          view: "scheduled",
+          search: nav.search,
+          activeAccounts: nav.activeAccounts,
+        });
         const emailList = screen.emailList as Record<string, unknown>;
         emailList.scheduled = scheduled.emails
           .slice(0, SCREEN_EMAIL_LIMIT)

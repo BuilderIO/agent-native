@@ -22,6 +22,7 @@ import {
   INBOX_SYNC_POLL_MS,
 } from "@shared/inbox-threads";
 import {
+  hashKey,
   skipToken,
   useQuery,
   useQueries,
@@ -736,18 +737,21 @@ type InboxMutation =
     }
   | {
       id: string;
+      heldBy: Record<string, string[]>;
       kind: "read";
       providerSnapshotFence: number;
       states: InboxThreadState[];
     }
   | {
       id: string;
+      heldBy: Record<string, string[]>;
       kind: "unread-count";
       providerSnapshotFence: number;
       state: InboxThreadState;
     }
   | {
       id: string;
+      heldBy: Record<string, string[]>;
       isStarred: boolean;
       kind: "star";
       providerSnapshotFence: number;
@@ -768,15 +772,15 @@ type InboxMutationInput =
     >
   | Omit<
       Extract<InboxMutation, { kind: "read" }>,
-      "id" | "providerSnapshotFence"
+      "id" | "heldBy" | "providerSnapshotFence"
     >
   | Omit<
       Extract<InboxMutation, { kind: "unread-count" }>,
-      "id" | "providerSnapshotFence"
+      "id" | "heldBy" | "providerSnapshotFence"
     >
   | Omit<
       Extract<InboxMutation, { kind: "star" }>,
-      "id" | "providerSnapshotFence"
+      "id" | "heldBy" | "providerSnapshotFence"
     >;
 
 const inboxMutationJournals = new WeakMap<
@@ -922,6 +926,22 @@ function currentInboxItem(
   return item;
 }
 
+function inboxQueriesHolding(
+  qc: QueryClient,
+  threadIds: readonly string[],
+): Record<string, string[]> {
+  const heldBy: Record<string, string[]> = {};
+  for (const [key, data] of snapshotInboxThreads(qc)) {
+    for (const item of data?.items ?? []) {
+      const threadId = threadKeyOf(item);
+      if (threadIds.includes(threadId)) {
+        (heldBy[threadId] ??= []).push(hashKey(key));
+      }
+    }
+  }
+  return heldBy;
+}
+
 function recordInboxMutation(
   qc: QueryClient,
   mutation: InboxMutationInput,
@@ -931,6 +951,9 @@ function recordInboxMutation(
     ...mutation,
     id,
     providerSnapshotFence: nextInboxSnapshotId,
+    ...(mutation.kind === "remove"
+      ? {}
+      : { heldBy: inboxQueriesHolding(qc, inboxMutationThreadIds(mutation)) }),
   } as InboxMutation;
   inboxMutationJournal(qc).set(id, recorded);
   return recorded;
@@ -1095,16 +1118,18 @@ export function settleInboxMutationIfObserved(
 
 function freshFilterLeavesOut(
   snapshots: ReadonlyArray<[QueryKey, InboxQueryResult | undefined]>,
-  mutation: InboxMutation,
+  mutation: Exclude<InboxMutation, { kind: "remove" }>,
   threadId: string,
   known: Partial<InboxFilterFlags>,
 ): boolean {
+  const heldBy = mutation.heldBy[threadId] ?? [];
   return snapshots.some(([key, data]) => {
     const accepts = inboxQueryFilterAccepts(key);
     if (
       !accepts ||
       !data ||
       data.clientSnapshotId <= mutation.providerSnapshotFence ||
+      !heldBy.includes(hashKey(key)) ||
       data.items.some((item) => threadKeyOf(item) === threadId)
     ) {
       return false;
@@ -1121,7 +1146,7 @@ function freshFilterLeavesOut(
   });
 }
 
-function inboxMutationThreadIds(mutation: InboxMutation): string[] {
+function inboxMutationThreadIds(mutation: InboxMutationInput): string[] {
   if (mutation.kind === "read") {
     return mutation.states.map((state) => state.threadId);
   }

@@ -714,6 +714,7 @@ export function EmailList({
   const listIsPlaceholder =
     isPlaceholderDataProp ??
     (emailsProp === undefined && fetchedEmailsPlaceholder);
+  const rowShortcutsEnabled = keyboardEnabled && !listIsPlaceholder;
   const emailsError = emailsErrorProp ?? fetchedEmailsError;
   const accountErrors = accountErrorsProp ?? fetchedAccountErrors;
   const read = readProp ?? fetchedRead;
@@ -2177,7 +2178,7 @@ export function EmailList({
       { key: "a", handler: replyAllFocused },
       { key: "Escape", handler: clearSelection },
     ],
-    keyboardEnabled,
+    rowShortcutsEnabled,
   );
 
   const focusedThreadKeyRef = useRef<string | null>(null);
@@ -2383,7 +2384,7 @@ export function EmailList({
       { key: " ", shift: true, handler: () => pageFocus(-1) },
       { key: "Home", handler: () => goToRow(0) },
     ],
-    keyboardEnabled,
+    rowShortcutsEnabled,
   );
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -3281,6 +3282,8 @@ export function EmailList({
           onPick={(choice, action) => labelFocused(action, choice)}
         />
         <div
+          inert={listIsPlaceholder}
+          aria-busy={listIsPlaceholder || undefined}
           style={{
             height: rowVirtualizer.getTotalSize(),
             position: "relative",

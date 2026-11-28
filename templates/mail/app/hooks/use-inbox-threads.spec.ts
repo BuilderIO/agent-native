@@ -829,6 +829,55 @@ describe("filtered inbox membership", () => {
     expect(filteredRows(qc, STARRED_KEY)).toEqual(["t1"]);
   });
 
+  it("settles only on a fresh read of a page that held the row", () => {
+    const qc = new QueryClient();
+    const otherTabKey = [
+      "action",
+      "list-inbox-threads",
+      { tab: "other", inboxFilter: "r=starred:is_checked" },
+    ];
+    const nextPageKey = [
+      "action",
+      "list-inbox-threads",
+      { tab: "important", inboxFilter: "r=starred:is_checked", offset: 50 },
+    ];
+    const starredRow = {
+      id: "m1",
+      threadId: "t1",
+      unreadCount: 0,
+      isRead: true,
+      isStarred: true,
+    };
+    qc.setQueryData(STARRED_KEY, seedResult({ items: [starredRow] }));
+
+    const starId = toggleInboxThreadsStarOptimistic(qc, new Set(["t1"]), false);
+    qc.setQueryData(
+      otherTabKey,
+      seedResult({ items: [], clientSnapshotId: 10 }),
+    );
+    qc.setQueryData(
+      nextPageKey,
+      seedResult({ items: [], clientSnapshotId: 10 }),
+    );
+    settleInboxMutationIfObserved(qc, starId);
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({ items: [starredRow], clientSnapshotId: 11 }),
+    );
+    expect(filteredRows(qc, STARRED_KEY)).toEqual([]);
+
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({ items: [], clientSnapshotId: 12 }),
+    );
+    settleInboxMutationIfObserved(qc, starId);
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({ items: [starredRow], clientSnapshotId: 13 }),
+    );
+    expect(filteredRows(qc, STARRED_KEY)).toEqual(["t1"]);
+  });
+
   it("keeps rows the mutation leaves inside the filter", () => {
     const qc = new QueryClient();
     qc.setQueryData(

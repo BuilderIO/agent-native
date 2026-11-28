@@ -14,7 +14,8 @@ import {
 } from "@shared/gmail-freshness";
 import {
   inboxFilterAccepts,
-  type InboxFilterFlags,
+  keepAcceptedConversations,
+  type InboxFilterAccepts,
 } from "@shared/inbox-filters";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
@@ -1101,23 +1102,24 @@ export function reconcileOptimisticOverrides(
 
 function keepFilteredThreads(
   emails: EmailMessage[],
-  accepts: (flags: InboxFilterFlags) => boolean,
+  accepts: InboxFilterAccepts,
 ): EmailMessage[] {
   if (optimisticOverrides.size === 0) return emails;
-  const touched = new Set<string>();
-  const matching = new Set<string>();
-  for (const email of emails) {
-    const key = messageThreadKey(email);
-    if (optimisticOverrides.has(email.id)) touched.add(key);
-    if (accepts({ unread: !email.isRead, starred: email.isStarred })) {
-      matching.add(key);
-    }
-  }
+  const touched = new Set(
+    emails
+      .filter((email) => optimisticOverrides.has(email.id))
+      .map(messageThreadKey),
+  );
   if (touched.size === 0) return emails;
-  return emails.filter((email) => {
-    const key = messageThreadKey(email);
-    return !touched.has(key) || matching.has(key);
-  });
+  const kept = new Set(
+    keepAcceptedConversations(
+      emails.filter((email) => touched.has(messageThreadKey(email))),
+      accepts,
+    ),
+  );
+  return emails.filter(
+    (email) => !touched.has(messageThreadKey(email)) || kept.has(email),
+  );
 }
 
 function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
@@ -2044,11 +2046,13 @@ export function useUnstarThread() {
       threadId: string;
       accountEmail?: string | undefined;
     }) =>
-      callAction("star-email", {
+      gmailMutationQueue.enqueue("star", {
+        id: threadId,
         threadId,
-        unstar: true,
-        ...(accountEmail ? { accountEmail } : {}),
-      }).then(assertActionSuccess),
+        accountEmail,
+        flag: false,
+        wholeThread: true,
+      }),
     onMutate: async ({ threadId, accountEmail }) => {
       const cached = qc
         .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })

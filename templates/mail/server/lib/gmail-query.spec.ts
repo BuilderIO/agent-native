@@ -22,17 +22,33 @@ describe("buildGmailEmailSearchQuery", () => {
   });
 
   it("asks Gmail the old Starred page's question for All Mail filtered by Starred", () => {
-    const starred = "r=starred:is_checked";
-    expect(
-      buildGmailEmailSearchQuery({ view: "all", inboxFilter: starred }),
-    ).toBe(buildGmailEmailSearchQuery({ view: "starred" }));
     expect(
       buildGmailEmailSearchQuery({
         view: "all",
-        q: "receipt",
+        inboxFilter: "r=starred:is_checked",
+      }),
+    ).toBe(buildGmailEmailSearchQuery({ view: "starred" }));
+  });
+
+  it("keeps Starred out of a search or label query, where another message may be the starred one", () => {
+    const starred = "r=starred:is_checked";
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        q: "subject:x",
         inboxFilter: starred,
       }),
-    ).toBe("(receipt) is:starred");
+    ).toBe("subject:x");
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        label: "work",
+        inboxFilter: starred,
+      }),
+    ).toBe("label:work");
+    expect(
+      buildGmailEmailSearchQuery({ view: "inbox", inboxFilter: starred }),
+    ).toBe("in:inbox");
   });
 
   it("adds the filter after the whole search, so an OR search stays one group", () => {
@@ -40,9 +56,9 @@ describe("buildGmailEmailSearchQuery", () => {
       buildGmailEmailSearchQuery({
         view: "all",
         q: "subject:invoice OR subject:receipt",
-        inboxFilter: "r=unread:is_checked",
+        inboxFilter: "r=unread:is_unchecked",
       }),
-    ).toBe("(subject:invoice OR subject:receipt) is:unread");
+    ).toBe("(subject:invoice OR subject:receipt) -is:unread");
   });
 
   it("still expands a bare address when a filter is on", () => {
@@ -50,10 +66,10 @@ describe("buildGmailEmailSearchQuery", () => {
       buildGmailEmailSearchQuery({
         view: "all",
         q: "ada@example.com",
-        inboxFilter: "r=unread:is_checked",
+        inboxFilter: "r=starred:is_unchecked",
       }),
     ).toBe(
-      "({from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}) is:unread",
+      "({from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}) -is:starred",
     );
   });
 
@@ -64,7 +80,7 @@ describe("buildGmailEmailSearchQuery", () => {
         inboxFilter:
           "match=any&g=1:all&r=1/unread:is_checked&r=1/starred:is_checked&g=2:all&r=2/unread:is_unchecked&r=2/starred:is_unchecked",
       }),
-    ).toBe("{(is:unread is:starred) (-is:unread -is:starred)}");
+    ).toBe("{is:unread (-is:unread -is:starred)}");
   });
 
   it("expands bare email-address searches across address fields", () => {

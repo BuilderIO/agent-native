@@ -163,14 +163,64 @@ describe("listEmails with an inbox filter, on local mail", () => {
   });
 
   it("rejects a filter it can only partly read instead of listing more mail", async () => {
-    const body = await listIds({
-      view: "all",
-      inboxFilter: "r=unread:is_checked&r=unknown:is_checked",
+    for (const inboxFilter of [
+      "r=unread:is_checked&r=unknown:is_checked",
+      "match=all&match=any&r=unread:is_checked&r=starred:is_checked",
+    ]) {
+      mocks.setResponseStatus.mockClear();
+      const body = await listIds({ view: "all", inboxFilter });
+
+      expect(body.errorCode).toBe("invalid_inbox_filter");
+      expect(body.emails).toBeUndefined();
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 400);
+    }
+  });
+
+  describe("on a conversation with mixed star and read state", () => {
+    beforeEach(() => {
+      mocks.readLocalEmails.mockResolvedValue([
+        {
+          ...message("older", "Plan", { isRead: true, isStarred: true }),
+          threadId: "thread-mixed",
+          date: "2026-11-01T00:00:00.000Z",
+        },
+        {
+          ...message("reply", "Re: Plan", { isRead: false, isStarred: false }),
+          threadId: "thread-mixed",
+          date: "2026-11-02T00:00:00.000Z",
+        },
+        message("plain", "Notes", { isRead: true, isStarred: false }),
+      ]);
     });
 
-    expect(body.errorCode).toBe("invalid_inbox_filter");
-    expect(body.emails).toBeUndefined();
-    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 400);
+    it("leaves the conversation out of Starred No and Unread No", async () => {
+      for (const inboxFilter of [
+        "r=starred:is_unchecked",
+        "r=unread:is_unchecked",
+      ]) {
+        const body = await listIds({ view: "all", inboxFilter });
+        expect(body.emails?.map((email) => email.id)).toEqual(["plain"]);
+      }
+    });
+
+    it("keeps every message of the conversation under Starred Yes", async () => {
+      const body = await listIds({
+        view: "all",
+        inboxFilter: "r=starred:is_checked",
+      });
+
+      expect(body.emails?.map((email) => email.id)).toEqual(["reply", "older"]);
+    });
+
+    it("judges a search hit by its whole conversation", async () => {
+      const body = await listIds({
+        view: "all",
+        q: "subject:re",
+        inboxFilter: "r=starred:is_checked",
+      });
+
+      expect(body.emails?.map((email) => email.id)).toEqual(["reply"]);
+    });
   });
 });
 

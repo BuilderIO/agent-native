@@ -30,10 +30,11 @@ have the Filter menu. The UI keeps its rules in the URL, and
 `navigation.inboxFilter` holds them (`r=unread:is_checked`,
 `r=starred:is_checked`, `match=any` for "either"). On the inbox, pass that
 value as `list-inbox-threads` `inboxFilter` to read the rows the person sees.
-On All Mail the filter adds its Gmail clause (`is:starred`, `is:unread`)
-after All Mail's search: read those rows with `list-emails` `view: "all"` and
-`q` set to the search in parentheses followed by the clause, such as
-`(subject:invoice OR subject:receipt) is:unread`.
+Filters judge whole conversations: Starred keeps a conversation with any
+starred message and Starred No one with none; Unread works the same way.
+Gmail's `is:starred` and `is:unread` test single messages, so `list-emails`
+`q` cannot reproduce a filtered All Mail on its own: list `view: "all"` with
+the search as `q`, then keep each conversation by all of its messages' flags.
 
 Starred opens All Mail filtered by Starred (`/all?r=starred:is_checked`),
 because starred mail stays starred after it is archived. Unread opens the inbox
@@ -42,9 +43,9 @@ with no `view`, `tab` or `sort` opens All Mail the same way; other
 `unread`/`starred` values filter the inbox unless `view` is `all`. A
 `threadId` opens that conversation inside the filtered list.
 
-A conversation stays starred while any of its messages is. To unstar the
-whole conversation, call `star-email` with `threadId` and `unstar: true`
-rather than unstarring its latest message.
+A conversation stays starred while any of its messages is. To unstar whole
+conversations, call `star-email` with `threadId` (comma-separated for several)
+and `unstar: true` rather than unstarring their latest messages.
 
 Membership is independent of Gmail's IMPORTANT label: a thread belongs to its
 first matching pinned-label or saved-filter tab. Unmatched personal mail goes to

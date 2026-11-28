@@ -235,7 +235,7 @@ describe("view-screen inbox preview", () => {
     mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",
       search: "receipt",
-      inboxFilter: "r=unread:is_checked",
+      inboxFilter: "r=unread:is_unchecked",
     });
     mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
 
@@ -243,7 +243,7 @@ describe("view-screen inbox preview", () => {
 
     expect(mocks.listInboxThreads).not.toHaveBeenCalled();
     expect(mocks.listGmailMessages.mock.calls[0][0]).toBe(
-      "in:inbox (receipt) is:unread",
+      "in:inbox (receipt) -is:unread",
     );
   });
 });
@@ -279,7 +279,13 @@ describe("view-screen Mail preview", () => {
       inboxFilter: "r=starred:is_checked",
     });
     mocks.listGmailMessages.mockResolvedValue({
-      messages: [{ ...email("archived-starred"), labelIds: ["STARRED"] }],
+      messages: [
+        {
+          ...email("archived-starred"),
+          isStarred: true,
+          labelIds: ["STARRED"],
+        },
+      ],
       errors: [],
     });
 
@@ -309,6 +315,109 @@ describe("view-screen Mail preview", () => {
     expect(
       result.emailList.emails.map((item: { id: string }) => item.id).sort(),
     ).toEqual(["archived-starred", "inbox-starred"]);
+  });
+
+  describe("on a conversation with mixed star and read state", () => {
+    const mixed = [
+      {
+        ...email("older"),
+        threadId: "thread-mixed",
+        date: "2026-09-01T00:00:00.000Z",
+        isRead: true,
+        isStarred: true,
+        labelIds: ["Label_work"],
+      },
+      {
+        ...email("reply"),
+        threadId: "thread-mixed",
+        date: "2026-09-02T00:00:00.000Z",
+        isRead: false,
+        isStarred: false,
+      },
+      {
+        ...email("plain"),
+        date: "2026-08-01T00:00:00.000Z",
+        labelIds: ["Label_work"],
+      },
+    ];
+
+    it("reports the conversation's flags, not its latest message's", async () => {
+      mocks.listGmailMessages.mockResolvedValue({
+        messages: mixed,
+        errors: [],
+      });
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.emailList.emails[0]).toMatchObject({
+        id: "reply",
+        isRead: false,
+        isStarred: true,
+      });
+    });
+
+    it("leaves the conversation out of Starred No on Gmail and on local mail", async () => {
+      mocks.readAppStateForCurrentTab.mockResolvedValue({
+        view: "all",
+        inboxFilter: "r=starred:is_unchecked",
+      });
+      mocks.listGmailMessages.mockResolvedValue({
+        messages: mixed,
+        errors: [],
+      });
+
+      const gmail = JSON.parse(await action.run({}));
+      mocks.isConnected.mockResolvedValue(false);
+      mocks.readLocalEmails.mockResolvedValue(mixed);
+      const local = JSON.parse(await action.run({}));
+
+      for (const result of [gmail, local]) {
+        expect(
+          result.emailList.emails.map((item: { id: string }) => item.id),
+        ).toEqual(["plain"]);
+      }
+    });
+
+    it("keeps the label the list shows and sizes Gmail's window to the preview", async () => {
+      mocks.readAppStateForCurrentTab.mockResolvedValue({
+        view: "all",
+        label: "work",
+        inboxFilter: "r=starred:is_checked",
+      });
+      mocks.listGmailMessages.mockResolvedValue({
+        messages: mixed,
+        errors: [],
+      });
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(mocks.listGmailMessages).toHaveBeenCalledWith(
+        "label:work",
+        11,
+        OWNER,
+        undefined,
+        expect.objectContaining({ threadCandidateLimit: 40 }),
+      );
+      expect(result.emailList.label).toBe("work");
+      expect(
+        result.emailList.emails.map((item: { id: string }) => item.id),
+      ).toEqual(["reply"]);
+    });
+
+    it("keeps the label on local mail too", async () => {
+      mocks.readAppStateForCurrentTab.mockResolvedValue({
+        view: "all",
+        label: "Label_work",
+      });
+      mocks.isConnected.mockResolvedValue(false);
+      mocks.readLocalEmails.mockResolvedValue(mixed);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(
+        result.emailList.emails.map((item: { id: string }) => item.id),
+      ).toEqual(["older", "plain"]);
+    });
   });
 
   it("ignores a filter left on a view without the Filter menu", async () => {

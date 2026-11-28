@@ -59,7 +59,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  for (const id of ["older", "latest", "other"]) clearOptimisticOverride(id);
+  for (const id of ["older", "latest", "other", "first"]) {
+    clearOptimisticOverride(id);
+  }
   vi.unstubAllGlobals();
 });
 
@@ -115,5 +117,36 @@ describe("useEmails list reads", () => {
       "latest",
       "other",
     ]);
+  });
+
+  it("drops a whole conversation from Starred No once any of its messages is starred", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              emails: [
+                message("first", "t3", false),
+                message("latest", "t3", false),
+                message("other", "t4", false),
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+    const qc = new QueryClient();
+    const { result } = renderHook(
+      () =>
+        useEmails("all", undefined, undefined, {
+          inboxFilter: "r=starred:is_unchecked",
+        }),
+      { wrapper: wrapperFor(qc) },
+    );
+    await waitFor(() => expect(result.current.data).toHaveLength(3));
+
+    act(() => setOptimisticOverride("first", { isStarred: true }));
+    expect(result.current.data?.map((email) => email.id)).toEqual(["other"]);
   });
 });

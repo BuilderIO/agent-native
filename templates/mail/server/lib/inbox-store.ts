@@ -1,6 +1,10 @@
 import { getDbExec } from "@agent-native/core/db";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
-import type { InboxFilterFlags } from "@shared/inbox-filters.js";
+import {
+  inboxFilterReadsFlag,
+  type InboxFilterAccepts,
+  type InboxFilterFlags,
+} from "@shared/inbox-filters.js";
 import {
   INBOX_MAX_PAGE_OFFSET,
   isReadableInboxPageOffset,
@@ -440,7 +444,7 @@ export async function readInboxTabWindows(params: {
   pageTabId: string;
   pageOffset: number;
   pageLimit: number;
-  pageAccepts?: ((flags: InboxFilterFlags) => boolean) | undefined;
+  pageAccepts?: InboxFilterAccepts | undefined;
   previewLimit: number;
 }): Promise<InboxTabWindows> {
   const accounts = params.accountEmails.map((e) => e.toLowerCase());
@@ -467,13 +471,16 @@ export async function readInboxTabWindows(params: {
     params.pageOffset + params.pageLimit,
   );
   const rankLimitParam = bind(rankLimit);
+  const starredGroups =
+    params.pageAccepts !== undefined &&
+    inboxFilterReadsFlag(params.pageAccepts, "starred");
 
   // raw-sql-ok: Account values and window limits use bound parameters; interpolated bits are constants.
   const { rows } = await getDbExec().execute({
-    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 32 × rankLimit) return to JS
+    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 16 × rankLimit, 32 × when the page filter reads Starred) return to JS
     sql: `
       WITH keys AS (
-        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count, t.is_starred
+        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count${starredGroups ? ", t.is_starred" : ""}
         FROM mail_inbox_threads t
         WHERE t.owner_email = ${ownerParam} AND t.in_inbox = 1
           AND t.account_email IN (${accountParams.join(", ")})
@@ -482,8 +489,12 @@ export async function readInboxTabWindows(params: {
         SELECT k.id,
           row_number() OVER (ORDER BY k.latest_date DESC, k.latest_message_id DESC, k.id DESC) AS r,
           (CASE WHEN k.is_automated = 1 THEN ${AUTOMATED_GROUP_BIT} WHEN k.is_automated = 2 THEN 0 WHEN k.is_automated = 0 THEN ${UNCLASSIFIED_GROUP_BIT + LEGACY_GROUP_BIT} ELSE ${UNCLASSIFIED_GROUP_BIT} END
-            + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END
-            + CASE WHEN coalesce(k.is_starred, 0) = 1 THEN ${STARRED_GROUP_BIT} ELSE 0 END) AS grp
+            + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END${
+              starredGroups
+                ? `
+            + CASE WHEN coalesce(k.is_starred, 0) = 1 THEN ${STARRED_GROUP_BIT} ELSE 0 END`
+                : ""
+            }) AS grp
         FROM keys k
       ),
       grouped AS (

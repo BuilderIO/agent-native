@@ -64,6 +64,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { useReadingPane } from "@/hooks/use-reading-pane";
+import { useScopedPageCount } from "@/hooks/use-scoped-page-count";
 import {
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
@@ -667,25 +668,20 @@ export function InboxPage() {
       setLoadingOlder(false);
     }
   }, [inboxAccountEmails, loadOlderMutation, queryClient, t]);
-  const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
-  useEffect(() => {
-    const priorityExtraPages = Math.max(
-      0,
-      Math.ceil(AI_PRIORITY_MAX_EMAILS / INBOX_PAGE_SIZE) - 1,
-    );
-    setInboxExtraPageCount(
-      showPrioritySort && isInboxView && sortMode === "priority"
-        ? priorityExtraPages
-        : 0,
-    );
-  }, [
-    activeAccounts,
-    inboxFilter,
-    isInboxView,
-    showPrioritySort,
-    resolvedInboxTab,
-    sortMode,
-  ]);
+  const prioritySortsInbox =
+    showPrioritySort && isInboxView && sortMode === "priority";
+  const [inboxExtraPageCount, addInboxExtraPage] = useScopedPageCount(
+    JSON.stringify([
+      inboxAccountEmails ?? null,
+      inboxFilter,
+      isInboxView,
+      resolvedInboxTab,
+      prioritySortsInbox,
+    ]),
+    prioritySortsInbox
+      ? Math.max(0, Math.ceil(AI_PRIORITY_MAX_EMAILS / INBOX_PAGE_SIZE) - 1)
+      : 0,
+  );
   const inboxExtraOffsets = useMemo(
     () =>
       Array.from(
@@ -750,9 +746,14 @@ export function InboxPage() {
     if (lastPage?.isError) {
       return lastPage.refetch().then(() => undefined);
     }
-    setInboxExtraPageCount((count) => count + 1);
+    addInboxExtraPage();
     return Promise.resolve();
-  }, [inboxHasNextPage, inboxIsFetchingNextPage, inboxExtraPages]);
+  }, [
+    addInboxExtraPage,
+    inboxHasNextPage,
+    inboxIsFetchingNextPage,
+    inboxExtraPages,
+  ]);
   const inboxAccountErrors = useMemo(() => {
     if (inboxThreads.isPlaceholderData) return undefined;
     const errored = inboxMetadata?.accounts.filter(

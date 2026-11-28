@@ -473,6 +473,14 @@ describe("list-inbox-threads action", () => {
         offset: 0,
       }),
     ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
+    await expect(
+      action.run({
+        inboxFilter:
+          "match=all&match=any&r=unread:is_checked&r=starred:is_checked",
+        limit: 50,
+        offset: 0,
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
   });
 
   it.each([

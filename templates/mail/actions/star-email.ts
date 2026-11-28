@@ -18,14 +18,14 @@ import { invalidateThreadCache } from "../server/lib/thread-cache.js";
 
 export default defineAction({
   description:
-    "Star or unstar one or more emails, or unstar a whole conversation with threadId.",
+    "Star or unstar one or more emails, or unstar whole conversations with threadId.",
   schema: z.object({
     id: z.string().optional().describe("Email ID(s), comma-separated"),
     threadId: z
       .string()
       .optional()
       .describe(
-        "With unstar, remove the star from every message of this conversation instead of --id",
+        "With unstar, remove the star from every message of these conversations instead of --id; thread ID(s), comma-separated",
       ),
     unstar: z.coerce
       .boolean()
@@ -39,7 +39,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Per-id account emails, comma-separated and positionally matched to --id (bulk UI calls only)",
+        "Per-target account emails, comma-separated and positionally matched to --id, or to --threadId when unstarring conversations (bulk UI calls only)",
       ),
     threadIds: z
       .string()
@@ -68,20 +68,58 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    if (args.threadId) {
-      await unstarThread({
-        threadId: args.threadId,
-        ownerEmail,
-        accountEmail: args.accountEmail,
-      });
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return `Unstarred thread ${args.threadId}`;
-    }
-
-    const threadIdList = args.threadIds?.split(",").map((s) => s.trim());
     const accountEmailList = args.accountEmails
       ?.split(",")
       .map((s) => s.trim());
+
+    if (args.threadId) {
+      const threadIds = args.threadId
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const succeeded: string[] = [];
+      const failed: Array<{ id: string; error: string }> = [];
+      let remaining: string[] = [];
+      let retryAfterSeconds: number | undefined;
+      for (const [i, threadId] of threadIds.entries()) {
+        try {
+          await unstarThread({
+            threadId,
+            ownerEmail,
+            accountEmail: accountEmailList?.[i] || args.accountEmail,
+          });
+          succeeded.push(threadId);
+        } catch (err) {
+          if (err instanceof GmailQuotaCooldownError) {
+            remaining = threadIds.slice(i);
+            retryAfterSeconds = err.details.retryAfterSeconds;
+            break;
+          }
+          if (threadIds.length === 1) throw err;
+          failed.push({
+            id: threadId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      if (succeeded.length > 0) {
+        await writeAppState("refresh-signal", { ts: Date.now() });
+      }
+      if (failed.length === 0 && remaining.length === 0) {
+        return threadIds.length === 1
+          ? `Unstarred thread ${threadIds[0]}`
+          : `Unstarred ${threadIds.length} threads`;
+      }
+      return {
+        requested: threadIds,
+        succeeded,
+        failed,
+        remaining,
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      };
+    }
+
+    const threadIdList = args.threadIds?.split(",").map((s) => s.trim());
 
     const results: { id: string; success: boolean; error?: string }[] = [];
     let batchMutationResult:

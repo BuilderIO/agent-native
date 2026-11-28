@@ -315,6 +315,7 @@ function Harness({
   readingPane,
   keyboardEnabled,
   onThreadOrderChange,
+  fetchNextPage,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
@@ -339,6 +340,7 @@ function Harness({
   readingPane?: boolean;
   keyboardEnabled?: boolean;
   onThreadOrderChange?: (threadIds: string[]) => void;
+  fetchNextPage?: () => Promise<unknown>;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>(initialFocusedId);
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -373,6 +375,7 @@ function Harness({
         readingPane={readingPane}
         keyboardEnabled={keyboardEnabled}
         onThreadOrderChange={onThreadOrderChange}
+        fetchNextPage={fetchNextPage}
       />
     </>
   );
@@ -2140,6 +2143,63 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(screen.getByLabelText("Focused id").textContent).toBe("first");
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("leaves rows from the previous filter alone until the new filter's rows arrive", () => {
+    const { rerender } = render(<Harness isPlaceholderData />);
+    press("d");
+    press("j");
+    press("x");
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    expect(rows()[0]?.closest("[inert]")).not.toBeNull();
+
+    rerender(<Harness isPlaceholderData={false} />);
+    expect(rows()[0]?.closest("[inert]")).toBeNull();
+    press("d");
+    expect(mocks.trash).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps reading pages while a filtered page comes back empty", async () => {
+    const observers: Array<
+      (entries: Array<{ isIntersecting: boolean }>) => void
+    > = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          callback: (entries: Array<{ isIntersecting: boolean }>) => void,
+        ) {
+          observers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const fetchNextPage = vi.fn(() => Promise.resolve());
+    const { rerender } = render(
+      <Harness emails={[]} hasNextPage fetchNextPage={fetchNextPage} />,
+    );
+    await act(async () =>
+      observers[observers.length - 1]?.([{ isIntersecting: true }]),
+    );
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <Harness
+        emails={[]}
+        hasNextPage
+        isFetchingNextPage
+        fetchNextPage={fetchNextPage}
+      />,
+    );
+    rerender(<Harness emails={[]} hasNextPage fetchNextPage={fetchNextPage} />);
+    await act(async () =>
+      observers[observers.length - 1]?.([{ isIntersecting: true }]),
+    );
+    expect(fetchNextPage).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
   });
 
   it.each([

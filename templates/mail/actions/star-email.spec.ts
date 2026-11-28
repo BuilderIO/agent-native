@@ -39,6 +39,7 @@ vi.mock("../server/lib/thread-cache.js", () => ({
   invalidateThreadCache: mocks.invalidateThreadCache,
 }));
 
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import action from "./star-email";
 
 const OWNER = "owner@example.com";
@@ -81,6 +82,36 @@ describe("star-email action", () => {
       ts: expect.any(Number),
     });
     expect(result).toBe("Unstarred thread thread-1");
+  });
+
+  it("unstars several conversations and hands quota-deferred ones back for the queue", async () => {
+    mocks.unstarThread
+      .mockResolvedValueOnce({ threadId: "thread-1", isStarred: false })
+      .mockRejectedValueOnce(new GmailQuotaCooldownError(4_000));
+
+    const result = await action.run({
+      threadId: "thread-1,thread-2,thread-3",
+      accountEmails: `${ACCOUNT},other@example.com,${ACCOUNT}`,
+      unstar: true,
+    });
+
+    expect(mocks.unstarThread.mock.calls).toEqual([
+      [{ threadId: "thread-1", ownerEmail: OWNER, accountEmail: ACCOUNT }],
+      [
+        {
+          threadId: "thread-2",
+          ownerEmail: OWNER,
+          accountEmail: "other@example.com",
+        },
+      ],
+    ]);
+    expect(result).toEqual({
+      requested: ["thread-1", "thread-2", "thread-3"],
+      succeeded: ["thread-1"],
+      failed: [],
+      remaining: ["thread-2", "thread-3"],
+      retryAfterSeconds: 4,
+    });
   });
 
   it("rejects starring a whole conversation, or a thread id mixed with message ids", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  conversationFilterFlags,
   inboxFilterAccepts,
   inboxFilterGmailClause,
   inboxFilterIsReadable,
@@ -8,6 +9,7 @@ import {
   inboxFilterParamFor,
   inboxFilterParamForView,
   inboxFilterRequest,
+  keepAcceptedConversations,
   readInboxFilter,
   viewTakesInboxFilter,
   withInboxFilter,
@@ -100,26 +102,106 @@ describe("inbox filter rules", () => {
 });
 
 describe("inbox filter Gmail clause", () => {
+  const standalone = { standalone: true };
+  const besideSearch = { standalone: false };
+
   it("asks Gmail for the same mail the Unread and Starred pages did", () => {
-    expect(inboxFilterGmailClause(UNREAD)).toBe("is:unread");
-    expect(inboxFilterGmailClause(STARRED)).toBe("is:starred");
-    expect(inboxFilterGmailClause("r=unread:is_unchecked")).toBe("-is:unread");
+    expect(inboxFilterGmailClause(UNREAD, standalone)).toBe("is:unread");
+    expect(inboxFilterGmailClause(STARRED, standalone)).toBe("is:starred");
+    expect(inboxFilterGmailClause("r=unread:is_unchecked", standalone)).toBe(
+      "-is:unread",
+    );
   });
 
-  it("joins rules the way the filter does", () => {
-    expect(inboxFilterGmailClause(`${UNREAD}&${STARRED}`)).toBe(
-      "is:unread is:starred",
+  it("asks only for mail every matching conversation has", () => {
+    expect(inboxFilterGmailClause(`${UNREAD}&${STARRED}`, standalone)).toBe(
+      "is:unread",
     );
-    expect(inboxFilterGmailClause(EITHER)).toBe(
-      "{(is:unread is:starred) (is:unread -is:starred) (-is:unread is:starred)}",
+    expect(inboxFilterGmailClause(EITHER, standalone)).toBe(
+      "{is:unread (is:unread -is:starred) (-is:unread is:starred)}",
     );
-    expect(inboxFilterGmailClause("")).toBe("");
+    expect(inboxFilterGmailClause("", standalone)).toBe("");
+  });
+
+  it("leaves a Yes rule to the conversation check when other terms share the query", () => {
+    expect(inboxFilterGmailClause(STARRED, besideSearch)).toBe("");
+    expect(inboxFilterGmailClause(UNREAD, besideSearch)).toBe("");
+    expect(inboxFilterGmailClause(EITHER, besideSearch)).toBe("");
+    expect(inboxFilterGmailClause("r=starred:is_unchecked", besideSearch)).toBe(
+      "-is:starred",
+    );
+    expect(
+      inboxFilterGmailClause(`${UNREAD}&r=starred:is_unchecked`, besideSearch),
+    ).toBe("-is:starred");
   });
 
   it("matches nothing when the rules contradict each other", () => {
     expect(
-      inboxFilterGmailClause("r=unread:is_checked&r=unread:is_unchecked"),
+      inboxFilterGmailClause(
+        "r=unread:is_checked&r=unread:is_unchecked",
+        besideSearch,
+      ),
     ).toBe("is:unread -is:unread");
+  });
+});
+
+describe("conversation-level filtering", () => {
+  const reply = {
+    id: "reply",
+    threadId: "t-mixed",
+    accountEmail: "a@example.com",
+    isRead: false,
+    isStarred: false,
+  };
+  const mixed = [
+    {
+      id: "older",
+      threadId: "t-mixed",
+      accountEmail: "a@example.com",
+      isRead: true,
+      isStarred: true,
+    },
+    reply,
+  ];
+  const plain = {
+    id: "plain",
+    threadId: "t-plain",
+    accountEmail: "a@example.com",
+    isRead: true,
+    isStarred: false,
+  };
+
+  function keptIds(param: string, rows = [...mixed, plain]) {
+    const accepts = inboxFilterAccepts(param);
+    if (!accepts) throw new Error(`no rules in ${param}`);
+    return keepAcceptedConversations(rows, accepts).map((row) => row.id);
+  }
+
+  it("reads a conversation as starred or unread when any message is", () => {
+    expect(conversationFilterFlags(mixed)).toEqual({
+      unread: true,
+      starred: true,
+    });
+    expect(
+      conversationFilterFlags([
+        { isRead: true, isStarred: false },
+        { isRead: false, isStarred: true, isDraft: true },
+      ]),
+    ).toEqual({ unread: false, starred: false });
+  });
+
+  it("keeps or drops every message of a mixed conversation together", () => {
+    expect(keptIds(STARRED)).toEqual(["older", "reply"]);
+    expect(keptIds("r=starred:is_unchecked")).toEqual(["plain"]);
+    expect(keptIds("r=unread:is_unchecked")).toEqual(["plain"]);
+  });
+
+  it("judges shown rows by their whole conversation", () => {
+    const accepts = inboxFilterAccepts("r=starred:is_unchecked");
+    if (!accepts) throw new Error("no rules");
+    expect(
+      keepAcceptedConversations([reply], accepts, mixed).map((row) => row.id),
+    ).toEqual([]);
   });
 });
 
@@ -200,6 +282,7 @@ describe("reading an inbox filter strictly", () => {
       "g=1:all",
       "match=some&r=unread:is_checked",
       "r=unread:is_checked&tab=important",
+      "match=all&match=any&r=unread:is_checked&r=starred:is_checked",
     ]) {
       expect(inboxFilterIsReadable(param)).toBe(false);
     }

@@ -305,4 +305,71 @@ describe("listInboxEmails", () => {
       { email: "failed@example.com", error: "provider unavailable" },
     ]);
   });
+
+  describe("with an inbox filter on All Mail", () => {
+    const mixedThread = {
+      older: { isRead: true, isStarred: true, date: "2024-01-01T00:00:00Z" },
+      reply: { isRead: false, isStarred: false, date: "2024-02-01T00:00:00Z" },
+      plain: { isRead: true, isStarred: false, date: "2024-03-01T00:00:00Z" },
+    } as const;
+
+    function listFiltered(inboxFilter: string) {
+      vi.mocked(listGmailMessages).mockResolvedValue({
+        messages: [
+          rawMessage("older", "t-mixed"),
+          rawMessage("reply", "t-mixed"),
+          rawMessage("plain", "t-plain"),
+        ],
+        errors: [],
+        nextPageTokens: { [OWNER]: "next-page" },
+      });
+      vi.mocked(gmailToEmailMessage).mockImplementation(
+        (raw: { id: keyof typeof mixedThread }) =>
+          emailFor(raw, mixedThread[raw.id]),
+      );
+      return listInboxEmails({
+        ownerEmail: OWNER,
+        view: "all",
+        inboxFilter,
+        limit: 50,
+        accountTokens: accountTokens(),
+        labelMap: new Map(),
+      });
+    }
+
+    it("leaves out a conversation with any starred message under Starred No", async () => {
+      const result = await listFiltered("r=starred:is_unchecked");
+
+      if (!result.ok) throw new Error("expected ok result");
+      expect(result.emails.map((e) => e.id)).toEqual(["plain"]);
+      expect(result.nextPageTokens).toEqual({ [OWNER]: "next-page" });
+      expect(vi.mocked(listGmailMessages).mock.calls[0]?.[0]).toBe(
+        "-is:starred",
+      );
+    });
+
+    it("leaves out a conversation with any unread message under Unread No", async () => {
+      const result = await listFiltered("r=unread:is_unchecked");
+
+      if (!result.ok) throw new Error("expected ok result");
+      expect(result.emails.map((e) => e.id)).toEqual(["plain"]);
+    });
+
+    it("keeps the whole mixed conversation under Starred Yes", async () => {
+      const result = await listFiltered("r=starred:is_checked");
+
+      if (!result.ok) throw new Error("expected ok result");
+      expect(result.emails.map((e) => e.id)).toEqual(["reply", "older"]);
+    });
+
+    it("keeps an empty filtered page's next-page token so the list can read on", async () => {
+      const result = await listFiltered(
+        "r=starred:is_unchecked&r=unread:is_checked",
+      );
+
+      if (!result.ok) throw new Error("expected ok result");
+      expect(result.emails).toEqual([]);
+      expect(result.nextPageTokens).toEqual({ [OWNER]: "next-page" });
+    });
+  });
 });
