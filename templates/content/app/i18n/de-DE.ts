@@ -2127,7 +2127,9 @@ const overrides = {
     pageMissing: "Diese Seite gibt es nicht",
     pageInTrash: "Diese Seite liegt im Papierkorb",
     pageInTrashAskOwner: "Bitte den Eigentümer, sie wiederherzustellen.",
-    pageInTrashFileDeleted: "Ihre Datei wurde auf dem Datenträger gelöscht.",
+    pageInTrashFileDeleted:
+      "Ihre Datei wurde gelöscht oder aus dem Ordner verschoben, daher liegt diese Seite im Papierkorb. Beim Wiederherstellen wird die Datei nicht neu erstellt.",
+    localFileGone: "Datei nicht mehr verfügbar",
     openTrash: "Papierkorb öffnen",
     goToMyPages: "Zu meinen Seiten",
     noPageDescription:

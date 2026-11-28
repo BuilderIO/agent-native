@@ -2360,7 +2360,9 @@ const overrides = {
     pageMissing: "Esta página no existe",
     pageInTrash: "Esta página está en la papelera",
     pageInTrashAskOwner: "Pide al propietario que la restaure.",
-    pageInTrashFileDeleted: "Su archivo se eliminó del disco.",
+    pageInTrashFileDeleted:
+      "Su archivo se eliminó o se movió fuera de la carpeta, así que esta página se movió a la papelera. Restaurarla no volverá a crear el archivo.",
+    localFileGone: "El archivo ya no está disponible",
     openTrash: "Abrir la papelera",
     goToMyPages: "Ir a mis páginas",
     noPageDescription:

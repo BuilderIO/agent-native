@@ -11,6 +11,7 @@ import {
 } from "../shared/github-source.js";
 import { chunks } from "./_batch-utils.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
 interface DocumentSourceColumns {
   sourceMode?: string | null;
@@ -181,11 +182,12 @@ export async function assertCollectionAcceptsNewRows(
  * the same way, so the collection never holds a copy that no longer follows
  * GitHub beside the row the pull request gets if it returns.
  */
-export async function releaseRestoredPagesFromGitHubCollections(
+export async function releaseRestoredPagesFromSourceCollections(
   db: ReturnType<typeof getDb>,
   documentIds: string[],
   ownerEmail: string,
   now: string,
+  { keepLocalFolderPages = false }: { keepLocalFolderPages?: boolean } = {},
 ): Promise<string[]> {
   const restored = new Set(documentIds);
   const releasedFrom = new Set<string>();
@@ -199,11 +201,16 @@ export async function releaseRestoredPagesFromGitHubCollections(
         databaseDocumentId: schema.contentDatabases.documentId,
         sourceId: schema.contentDatabaseSources.id,
         sourceType: schema.contentDatabaseSources.sourceType,
+        pageSourceMode: schema.documents.sourceMode,
       })
       .from(schema.contentDatabaseItems)
       .innerJoin(
         schema.contentDatabases,
         eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+      )
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
       )
       .innerJoin(
         schema.contentDatabaseSources,
@@ -212,21 +219,30 @@ export async function releaseRestoredPagesFromGitHubCollections(
             schema.contentDatabaseSources.databaseId,
             schema.contentDatabaseItems.databaseId,
           ),
-          inArray(schema.contentDatabaseSources.sourceType, [
-            "github",
-            GITHUB_PULL_REQUESTS_SOURCE_TYPE,
-          ]),
+          inArray(
+            schema.contentDatabaseSources.sourceType,
+            keepLocalFolderPages
+              ? ["github", GITHUB_PULL_REQUESTS_SOURCE_TYPE]
+              : [
+                  "github",
+                  GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+                  LOCAL_FOLDER_SOURCE_TYPE,
+                ],
+          ),
         ),
       )
       .where(inArray(schema.contentDatabaseItems.documentId, batch));
     for (const membership of memberships) {
       if (restored.has(membership.databaseDocumentId)) continue;
+      const localFolder = membership.sourceType === LOCAL_FOLDER_SOURCE_TYPE;
+      if (localFolder && membership.pageSourceMode !== "local-files") continue;
       if (!locked.has(membership.databaseId)) {
         await lockContentDatabaseMutation(db, membership.databaseId);
         locked.add(membership.databaseId);
       }
       if (
-        membership.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE &&
+        (localFolder ||
+          membership.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE) &&
         (await stillFollowsSource(db, membership))
       ) {
         continue;
@@ -262,7 +278,7 @@ export async function releaseRestoredPagesFromGitHubCollections(
           and(
             eq(schema.documents.id, membership.documentId),
             eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.sourceMode, "github"),
+            inArray(schema.documents.sourceMode, ["github", "local-files"]),
           ),
         );
     }

@@ -1672,6 +1672,68 @@ describe("local-folder Content source", () => {
         content: "# Second note\n\nDraft.",
       }),
     );
+    const files = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabase.run({ databaseId: connection.filesDatabaseId }),
+    );
+    expect(files.items.map((item) => item.document.id).sort()).toEqual(
+      [pageId, keptId].sort(),
+    );
+  });
+
+  it("restores a page whose file was deleted as an ordinary page outside the folder", async () => {
+    const restoreDocument = (await import("./restore-document.js")).default;
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-restore-deleted",
+        label: "Restore docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const kept = { "drafts/kept.md": "# Kept\n\nStays." };
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { ...kept, "drafts/gone.md": "# Gone\n\nOnly copy." },
+      }),
+    );
+    const pageId = first.idByPath["drafts/gone.md"];
+    const keptId = first.idByPath["drafts/kept.md"];
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: connection.sourceId, files: kept }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreDocument.run({ id: pageId }),
+    );
+
+    const [restored] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, pageId));
+    expect(restored).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourceMode: null,
+        sourcePath: null,
+        sourceRootPath: null,
+        content: "# Gone\n\nOnly copy.",
+      }),
+    );
+    const files = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabase.run({ databaseId: connection.filesDatabaseId }),
+    );
+    expect(files.items.map((item) => item.document.id)).toEqual([keptId]);
+
+    const later = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: connection.sourceId, files: kept }),
+    );
+    expect(later.removed).toEqual([]);
+    const [afterSync] = await getDb()
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, pageId));
+    expect(afterSync?.trashedAt).toBeNull();
   });
 
   it("recognizes an unchanged path-only file move without creating a deletion conflict", async () => {

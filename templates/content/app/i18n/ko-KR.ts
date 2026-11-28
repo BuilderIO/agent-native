@@ -2054,7 +2054,9 @@ const overrides = {
     pageMissing: "이 페이지는 존재하지 않습니다",
     pageInTrash: "이 페이지는 휴지통에 있습니다",
     pageInTrashAskOwner: "소유자에게 복원을 요청하세요.",
-    pageInTrashFileDeleted: "파일이 디스크에서 삭제되었습니다.",
+    pageInTrashFileDeleted:
+      "파일이 삭제되었거나 폴더 밖으로 이동되어 이 페이지가 휴지통으로 이동했습니다. 복원해도 파일은 다시 만들어지지 않습니다.",
+    localFileGone: "파일을 더 이상 사용할 수 없습니다",
     openTrash: "휴지통 열기",
     goToMyPages: "내 페이지로 이동",
     noPageDescription: "사이드바에서 페이지를 선택하거나 새로 만드세요.",

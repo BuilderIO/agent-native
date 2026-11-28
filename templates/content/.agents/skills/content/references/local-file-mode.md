@@ -20,6 +20,13 @@ silently deleting or overwriting a page. SQL stores only opaque connection
 identity, relative paths, and hashes. Disconnecting a folder keeps both the
 Content pages and disk files.
 
+When the file behind a `truthPolicy: "source_primary"` folder's page is
+deleted or moved out of the folder, the sync moves the page to Trash with
+`trashOrigin: "local-folder"`, which takes it out of Files and search. The
+page comes back from Trash when a file with its frontmatter `id`, or one at its
+old path, returns. Restoring it from Trash makes it an ordinary page outside
+the folder and never recreates the file.
+
 ## Manifest/CLI bridge
 
 `agent-native content local-files <target>` remains as a compatibility

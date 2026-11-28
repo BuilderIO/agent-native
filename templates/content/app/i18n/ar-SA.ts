@@ -2039,7 +2039,9 @@ const overrides = {
     pageMissing: "هذه الصفحة غير موجودة",
     pageInTrash: "هذه الصفحة في المهملات",
     pageInTrashAskOwner: "اطلب من المالك استعادتها.",
-    pageInTrashFileDeleted: "حُذف ملفها من القرص.",
+    pageInTrashFileDeleted:
+      "حُذف ملفها أو نُقل خارج المجلد، لذلك نُقلت هذه الصفحة إلى المهملات. استعادتها لن تعيد إنشاء الملف.",
+    localFileGone: "لم يعد الملف متاحًا",
     openTrash: "فتح المهملات",
     goToMyPages: "الانتقال إلى صفحاتي",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",

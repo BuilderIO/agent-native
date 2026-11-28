@@ -47,7 +47,7 @@ import {
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   assertSourceAllowsPageEdit,
-  releaseRestoredPagesFromGitHubCollections,
+  releaseRestoredPagesFromSourceCollections,
 } from "./_document-source.js";
 import { lockDocumentRows, sortRowIds } from "./_row-lock-order.js";
 
@@ -891,6 +891,7 @@ export async function restoreDocumentSubtree(
   rootId: string,
   ownerEmail: string,
   lockedGroup?: LifecycleGroupLocks,
+  release: { keepLocalFolderPages?: boolean } = {},
 ): Promise<string[]> {
   const locks =
     lockedGroup ??
@@ -916,11 +917,12 @@ export async function restoreDocumentSubtree(
   const now = new Date().toISOString();
   // First, so the restore takes a GitHub collection's lock before it writes
   // any page, in the same order a sync does.
-  const releasedFrom = await releaseRestoredPagesFromGitHubCollections(
+  const releasedFrom = await releaseRestoredPagesFromSourceCollections(
     db,
     documentIds,
     ownerEmail,
     now,
+    release,
   );
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db

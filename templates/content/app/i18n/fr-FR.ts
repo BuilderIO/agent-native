@@ -2130,7 +2130,9 @@ const overrides = {
     pageMissing: "Cette page n’existe pas",
     pageInTrash: "Cette page est dans la corbeille",
     pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
-    pageInTrashFileDeleted: "Son fichier a été supprimé du disque.",
+    pageInTrashFileDeleted:
+      "Son fichier a été supprimé ou déplacé hors du dossier, cette page a donc été placée dans la corbeille. La restaurer ne recréera pas le fichier.",
+    localFileGone: "Fichier plus disponible",
     openTrash: "Ouvrir la corbeille",
     goToMyPages: "Aller à mes pages",
     noPageDescription:

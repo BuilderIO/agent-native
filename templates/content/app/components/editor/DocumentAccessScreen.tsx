@@ -161,13 +161,15 @@ export function DocumentAccessScreen({
         reportWriteFailure(error, { label: t("trash.restoreFailed") });
       }
     };
+    const fileDeleted =
+      trashedPage.data.trashOrigin === LOCAL_FOLDER_TRASH_ORIGIN;
     return (
       <ResourceAccessScreen
         state="trashed"
         header={header}
-        title={t("empty.pageInTrash")}
+        title={fileDeleted ? t("empty.localFileGone") : t("empty.pageInTrash")}
         description={
-          trashedPage.data.trashOrigin === LOCAL_FOLDER_TRASH_ORIGIN
+          fileDeleted
             ? t("empty.pageInTrashFileDeleted")
             : canRestore
               ? undefined

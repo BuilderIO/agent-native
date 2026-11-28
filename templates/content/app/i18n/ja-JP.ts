@@ -2073,7 +2073,9 @@ const overrides = {
     pageMissing: "このページは存在しません",
     pageInTrash: "このページはゴミ箱にあります",
     pageInTrashAskOwner: "所有者に復元を依頼してください。",
-    pageInTrashFileDeleted: "ファイルはディスク上で削除されました。",
+    pageInTrashFileDeleted:
+      "ファイルが削除されたか、フォルダーの外に移動されたため、このページはゴミ箱に移動しました。復元してもファイルは再作成されません。",
+    localFileGone: "ファイルは利用できなくなりました",
     openTrash: "ゴミ箱を開く",
     goToMyPages: "自分のページへ",
     noPageDescription:

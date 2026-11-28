@@ -35,8 +35,6 @@ const fixture = vi.hoisted(() => ({
   threads: [] as CommentThread[],
   suggestions: [] as ResourceSuggestion[],
   readLocal: null as LocalSourceDocumentReadResult | null,
-  watchesLocal: false,
-  localChange: null as (() => void) | null,
   toolbars: [] as ToolbarProps[],
   sidebars: [] as SidebarProps[],
   properties: [] as { documentId: string; databaseId?: string | null }[],
@@ -150,11 +148,7 @@ vi.mock("@/lib/local-content-source-files", async (original) => ({
   canWriteLinkedLocalSource: (_id: string, source: Document["source"]) =>
     source?.mode === "local-files",
   readDocumentFromLinkedLocalSource: async () => fixture.readLocal,
-  watchLinkedLocalSource: async (_source: unknown, onChange: () => void) => {
-    if (!fixture.watchesLocal) return { ok: false, error: "unwatched" };
-    fixture.localChange = onChange;
-    return { ok: true, unsubscribe: () => {} };
-  },
+  watchLinkedLocalSource: async () => ({ ok: false, error: "unwatched" }),
   writeDocumentToLinkedLocalSource: async () => ({
     ok: true,
     revision: "disk-2",
@@ -279,8 +273,6 @@ beforeEach(() => {
   fixture.threads = [thread("t-text", "body"), thread("t-page", null)];
   fixture.suggestions = [];
   fixture.readLocal = null;
-  fixture.watchesLocal = false;
-  fixture.localChange = null;
   fixture.toolbars = [];
   fixture.sidebars = [];
   fixture.properties = [];
@@ -469,7 +461,6 @@ describe("a page read from a local file", () => {
   });
 
   it("says the open page's file is gone when it's deleted, and edits again once the sync finds where it moved", async () => {
-    fixture.watchesLocal = true;
     const onDisk = present(fixture.pages.page);
     const readable = {
       ok: true,
@@ -485,7 +476,10 @@ describe("a page read from a local file", () => {
       ok: false,
       error: 'Local file "notes/page.md" was not found.',
     } as LocalSourceDocumentReadResult;
-    await act(async () => present(fixture.localChange)());
+    page("page", {
+      source: { mode: "local-files", path: "notes/page.md" },
+    } as Partial<Document>);
+    await render(surface("page", "page"));
 
     expect(
       container.querySelector("[data-local-source-missing]")?.textContent,

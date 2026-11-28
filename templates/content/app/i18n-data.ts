@@ -1737,7 +1737,9 @@ const enUS = {
     pageMissing: "This page doesn't exist",
     pageInTrash: "This page is in the trash",
     pageInTrashAskOwner: "Ask the owner to restore it.",
-    pageInTrashFileDeleted: "Its file was deleted on disk.",
+    pageInTrashFileDeleted:
+      "Its file was deleted or moved out of the folder, so this page moved to Trash. Restoring it won't recreate the file.",
+    localFileGone: "File no longer available",
     openTrash: "Open Trash",
     goToMyPages: "Go to my pages",
     documentNotFound: "Document not found",

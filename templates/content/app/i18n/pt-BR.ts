@@ -2111,7 +2111,9 @@ const overrides = {
     pageMissing: "Esta página não existe",
     pageInTrash: "Esta página está na lixeira",
     pageInTrashAskOwner: "Peça ao proprietário para restaurá-la.",
-    pageInTrashFileDeleted: "O arquivo dela foi excluído do disco.",
+    pageInTrashFileDeleted:
+      "O arquivo dela foi excluído ou movido para fora da pasta, então esta página foi para a lixeira. Restaurá-la não recria o arquivo.",
+    localFileGone: "O arquivo não está mais disponível",
     openTrash: "Abrir a lixeira",
     goToMyPages: "Ir para minhas páginas",
     noPageDescription:

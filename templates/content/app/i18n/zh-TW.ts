@@ -391,7 +391,9 @@ const overrides = {
     pageMissing: "此頁面不存在",
     pageInTrash: "此頁面在垃圾桶中",
     pageInTrashAskOwner: "請擁有者還原它。",
-    pageInTrashFileDeleted: "它的檔案已在磁碟上被刪除。",
+    pageInTrashFileDeleted:
+      "它的檔案已被刪除或移出資料夾，因此此頁面已移到垃圾桶。還原它不會重新建立檔案。",
+    localFileGone: "檔案已無法使用",
     openTrash: "開啟垃圾桶",
     goToMyPages: "前往我的頁面",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",

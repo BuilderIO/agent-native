@@ -202,7 +202,9 @@ async function restorePageOfReturnedFile(db: Db, page: PageRow) {
       .from(schema.documents)
       .where(eq(schema.documents.id, page.id));
     if (!returnedToFolder(current)) return;
-    await restoreDocumentSubtree(tx, page.id, page.ownerEmail, locks);
+    await restoreDocumentSubtree(tx, page.id, page.ownerEmail, locks, {
+      keepLocalFolderPages: true,
+    });
   });
 }
 
@@ -219,10 +221,12 @@ async function trashPageOfRemovedFile(
 ) {
   const { row } = args;
   await db.transaction(async (tx: Db) => {
-    const [owner]: Array<{ ownerEmail: string } | undefined> = await tx
-      .select({ ownerEmail: schema.documents.ownerEmail })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, row.documentId));
+    const owner = (
+      await tx
+        .select({ ownerEmail: schema.documents.ownerEmail })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, row.documentId))
+    ).at(0);
     const locks = owner
       ? await lockLifecycleGroup(tx, {
           operation: "trash",
@@ -230,7 +234,7 @@ async function trashPageOfRemovedFile(
           alsoLockDatabaseIds: [args.filesDatabaseId],
         })
       : null;
-    const [unchanged]: Array<{ id: string } | undefined> = await tx
+    const unchanged = await tx
       .select({ id: schema.contentDatabaseSourceRows.id })
       .from(schema.contentDatabaseSourceRows)
       .where(
@@ -240,22 +244,24 @@ async function trashPageOfRemovedFile(
           eq(schema.contentDatabaseSourceRows.updatedAt, row.updatedAt),
         ),
       );
-    if (!unchanged) return;
+    if (unchanged.length === 0) return;
     await tx
       .delete(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-    const [otherLink]: Array<{ id: string } | undefined> = await tx
+    const otherLinks = await tx
       .select({ id: schema.contentDatabaseSourceRows.id })
       .from(schema.contentDatabaseSourceRows)
       .where(
         eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
       )
       .limit(1);
-    if (otherLink || !owner || !locks) return;
-    const [page]: Array<PageRow | undefined> = await tx
-      .select()
-      .from(schema.documents)
-      .where(eq(schema.documents.id, row.documentId));
+    if (otherLinks.length > 0 || !owner || !locks) return;
+    const page = (
+      await tx
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, row.documentId))
+    ).at(0);
     if (
       !page ||
       page.trashedAt ||

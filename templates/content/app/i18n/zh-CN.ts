@@ -2068,7 +2068,9 @@ const overrides = {
     pageMissing: "此页面不存在",
     pageInTrash: "此页面在回收站中",
     pageInTrashAskOwner: "请让所有者恢复它。",
-    pageInTrashFileDeleted: "它的文件已在磁盘上被删除。",
+    pageInTrashFileDeleted:
+      "它的文件已被删除或移出文件夹，因此此页面已移到回收站。恢复它不会重新创建文件。",
+    localFileGone: "文件已不可用",
     openTrash: "打开回收站",
     goToMyPages: "前往我的页面",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",

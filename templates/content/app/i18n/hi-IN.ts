@@ -2014,7 +2014,9 @@ const overrides = {
     pageMissing: "यह पेज मौजूद नहीं है",
     pageInTrash: "यह पेज ट्रैश में है",
     pageInTrashAskOwner: "मालिक से इसे रीस्टोर करने के लिए कहें।",
-    pageInTrashFileDeleted: "इसकी फ़ाइल डिस्क से हटा दी गई है।",
+    pageInTrashFileDeleted:
+      "इसकी फ़ाइल हटा दी गई है या फ़ोल्डर से बाहर ले जाई गई है, इसलिए यह पेज ट्रैश में चला गया है। इसे पुनर्स्थापित करने से फ़ाइल दोबारा नहीं बनेगी।",
+    localFileGone: "फ़ाइल अब उपलब्ध नहीं है",
     openTrash: "ट्रैश खोलें",
     goToMyPages: "मेरे पेज पर जाएं",
     noPageDescription: "sidebar से page चुनें या नया बनाएं।",
