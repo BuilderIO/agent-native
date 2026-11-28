@@ -41,6 +41,10 @@ import {
 } from "./_content-spaces.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { isAgentCall } from "./_document-agent-lock.js";
+import {
+  assertLocalFolderAllowsPageEdit,
+  isSourceReadOnlyRefusal,
+} from "./_document-source.js";
 import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
@@ -427,20 +431,27 @@ export default defineAction({
         // committed; none of this one lands, and the rest of the import still
         // does.
         const refuseFile = (error: unknown) => {
-          if (
-            !isLocalFileLinkRefused(error) &&
-            !(
-              error instanceof ActionContractError &&
-              error.errorCode === "DATABASE_MEMBERSHIPS_CHANGED"
-            )
+          if (isSourceReadOnlyRefusal(error)) {
+            skipped.push({ path: file.path, reason: error.message });
+          } else if (
+            isLocalFileLinkRefused(error) ||
+            (error instanceof ActionContractError &&
+              error.errorCode === "DATABASE_MEMBERSHIPS_CHANGED")
           ) {
+            errors.push({ path: file.path, reason: error.message });
+          } else {
             throw error;
           }
-          errors.push({ path: file.path, reason: error.message });
           desiredParentById.delete(id);
           desiredPositionById.delete(id);
           return null;
         };
+        try {
+          await assertLocalFolderAllowsPageEdit(existing);
+        } catch (error) {
+          refuseFile(error);
+          continue;
+        }
         if (sourceChanged) {
           try {
             await assertLocalFileLinkable(id);
@@ -494,6 +505,11 @@ export default defineAction({
             };
           }
           await assertLocalFileLinkable(id, { transaction: tx });
+          await assertLocalFolderAllowsPageEdit(
+            locked,
+            "edit",
+            tx as unknown as ReturnType<typeof getDb>,
+          );
 
           const lockedTitleChanged = file.title !== locked.title;
           const lockedContentChanged = file.content !== locked.content;

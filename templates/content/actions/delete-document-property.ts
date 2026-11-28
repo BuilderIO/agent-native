@@ -25,6 +25,7 @@ import {
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
+import { assertLocalFolderAllowsPagesEdit } from "./_document-source.js";
 import {
   listPropertiesForDocument,
   parseDatabaseViewConfig,
@@ -225,6 +226,10 @@ export default defineAction({
             )
             .map((item) => item.documentId);
           if (documentsWithoutSurvivingPrimary.length > 0) {
+            await assertLocalFolderAllowsPagesEdit(
+              tx as unknown as ReturnType<typeof getDb>,
+              documentsWithoutSurvivingPrimary,
+            );
             const legacy = await lockLegacyBodyWrites(
               tx,
               documentsWithoutSurvivingPrimary,

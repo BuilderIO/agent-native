@@ -202,6 +202,16 @@ export function localFolderSourceCapabilities(input?: {
   };
 }
 
+export function localFolderTruthPolicy(
+  value: unknown,
+): ContentDatabaseSourceTruthPolicy | null {
+  return value === "source_primary" ||
+    value === "reviewed_bidirectional" ||
+    value === "database_primary"
+    ? value
+    : null;
+}
+
 export function localFolderSourceMetadata(input: {
   connectionId: string;
   label: string;

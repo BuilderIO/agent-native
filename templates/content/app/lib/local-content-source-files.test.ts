@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Document } from "@shared/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -190,6 +192,9 @@ Closing words.
       ok: true,
       path: "content/getting-started.mdx",
       runtime: "desktop",
+      revision: createHash("sha256")
+        .update('---\ntags: "keep-me"\n---\n\nHello from the editor.')
+        .digest("hex"),
     });
     expect(writeFile).toHaveBeenCalledWith({
       folderId: "folder-repo",
@@ -215,6 +220,7 @@ Closing words.
       ok: true,
       folder: selectedFolder,
       files: ["notes/roundtrip.md"],
+      revisions: { "notes/roundtrip.md": "c".repeat(64) },
     });
     Object.defineProperty(globalThis, "window", {
       configurable: true,
@@ -256,7 +262,11 @@ Closing words.
 
     await expect(
       writeDocumentToLinkedLocalSource(selectedDocument),
-    ).resolves.toMatchObject({ ok: true, runtime: "desktop" });
+    ).resolves.toMatchObject({
+      ok: true,
+      runtime: "desktop",
+      revision: "c".repeat(64),
+    });
     expect(writeFile).toHaveBeenCalledWith(
       expect.objectContaining({
         folderId: "folder-selected",

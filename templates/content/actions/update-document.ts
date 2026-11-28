@@ -1178,13 +1178,19 @@ const updateDocumentAction = defineAction({
         args.description !== undefined &&
         args.description.trim() !== existing.description;
       const textChanged = titleChanged || contentChanged || descriptionChanged;
+      const wroteLocalFile =
+        args.localSourceRevision !== undefined &&
+        ctx?.caller === "frontend" &&
+        !isAgentCall(ctx);
+      const assertFolderAllowsTextWrite = async (
+        db?: ReturnType<typeof getDb>,
+      ) => {
+        if (!wroteLocalFile)
+          await assertLocalFolderAllowsPageEdit(existing, "edit", db);
+      };
       if (textChanged) {
         assertSourceAllowsPageEdit(existing);
-        const wroteLocalFile =
-          args.localSourceRevision !== undefined &&
-          ctx?.caller === "frontend" &&
-          !isAgentCall(ctx);
-        if (!wroteLocalFile) await assertLocalFolderAllowsPageEdit(existing);
+        await assertFolderAllowsTextWrite();
       }
       // The page's level keeps its icon out of agents' reach with its text.
       if (textChanged || iconChanged)
@@ -1500,6 +1506,7 @@ const updateDocumentAction = defineAction({
             candidateContent: string,
             reason: "structure" | "provenance",
           ) => {
+            await assertFolderAllowsTextWrite(tx);
             const checkpointId = await preserveDocumentBodyIntent({
               db: tx as ReturnType<typeof getDb>,
               ownerEmail,
@@ -1645,6 +1652,13 @@ const updateDocumentAction = defineAction({
             lockedContentChanged ||
             lockedDescriptionChanged ||
             lockedIconChanged;
+          if (
+            lockedTitleChanged ||
+            lockedContentChanged ||
+            lockedDescriptionChanged
+          ) {
+            await assertFolderAllowsTextWrite(tx);
+          }
           if (
             lockedContentChanged &&
             args.baseRevision &&

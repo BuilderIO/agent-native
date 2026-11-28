@@ -376,14 +376,18 @@ async function writeBrowserFile(
   };
 }
 
-async function browserFileRevision(content: string) {
+async function sha256Hex(content: string) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(content),
   );
-  return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+  return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
-  ).join("")}`;
+  ).join("");
+}
+
+async function browserFileRevision(content: string) {
+  return `sha256:${await sha256Hex(content)}`;
 }
 
 async function readBrowserFile(root: LocalDirectoryHandle, filePath: string) {
@@ -561,7 +565,8 @@ export async function writeDocumentToLinkedLocalSource(
       ok: true,
       path: filePath,
       runtime: "desktop",
-      revision: result.revisions?.[desktopSource.path],
+      revision:
+        result.revisions?.[desktopSource.path] ?? (await sha256Hex(content)),
     };
   }
 

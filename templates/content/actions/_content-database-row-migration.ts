@@ -26,6 +26,7 @@ import {
   assertAgentsMayEditPagesText,
   type CallProvenance,
 } from "./_document-agent-lock.js";
+import { assertLocalFolderAllowsPagesEdit } from "./_document-source.js";
 
 const propertyType = z.enum(["text", "url", "date", "multi_select"]);
 export const MAX_MIGRATION_ROWS = 250;
@@ -575,6 +576,10 @@ export async function applyMigration(
     tx,
     plan.rows.map((row) => row.documentId),
     ctx,
+  );
+  await assertLocalFolderAllowsPagesEdit(
+    tx,
+    plan.rows.map((row) => row.documentId),
   );
   for (const row of plan.rows) {
     const updated = await tx

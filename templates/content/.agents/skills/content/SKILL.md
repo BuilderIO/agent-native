@@ -53,7 +53,8 @@ actions, and local folders that sync into the same collection model.
   When a folder is linked with `truthPolicy: "source_primary"`, the folder
   owns each page's title, body and description, and where the page sits:
   `update-document`, `append-to-document`, revisioned `edit-document`, row
-  title edits, moves and Trash refuse with `SOURCE_READ_ONLY` (409). Comments,
+  title edits, Notion link and pull, moves and Trash refuse with
+  `SOURCE_READ_ONLY` (409), and `import-content-source` skips them. Comments,
   favorites, icons, sharing and search still work. Tell the user to edit the
   file on the device that holds the folder.
   One-off Markdown files are not a source: import them with `import-content`

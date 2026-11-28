@@ -234,10 +234,14 @@ edit commits. Restore it before editing. A local-folder sync
 
 A page a local folder owns (linked with `truthPolicy: "source_primary"`)
 refuses title, body and description edits, moves and Trash with
-`SOURCE_READ_ONLY` (409), naming the folder. Don't retry another writer: the
-file on the device that holds the folder is the only place to change it.
-Without a revision, `edit-document` asks an open Content tab on that device to
-write the file. When none can, it refuses the same way.
+`SOURCE_READ_ONLY` (409), naming the folder. So do batch row titles, Notion
+link and pull, deleting a collection's last Blocks field, row migrations, and
+Trash of a page that holds one; `import-content-source` lists its file in
+`skipped`. A page that keeps a folder's file markers when its folder can't be
+read counts as the folder's. Don't retry another writer: the file on the
+device that holds the folder is the only place to change it. Without a
+revision, `edit-document` asks an open Content tab on that device to write the
+file. When none can, it refuses the same way.
 
 ### edit-table
 

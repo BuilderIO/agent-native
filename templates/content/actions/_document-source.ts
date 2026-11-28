@@ -11,7 +11,10 @@ import {
 } from "../shared/github-source.js";
 import { chunks } from "./_batch-utils.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
-import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
+import {
+  LOCAL_FOLDER_SOURCE_TYPE,
+  localFolderTruthPolicy,
+} from "./_local-folder-source.js";
 
 interface DocumentSourceColumns {
   sourceMode?: string | null;
@@ -114,51 +117,150 @@ export function assertSourceAllowsPageEdit(
   );
 }
 
+type LocalFolderPage = DocumentSourceColumns & {
+  id: string;
+  spaceId?: string | null;
+};
+type LocalFolderChange = "edit" | "trash" | "move";
+
 export async function assertLocalFolderAllowsPageEdit(
-  document: DocumentSourceColumns & { id: string },
-  change: "edit" | "trash" | "move" = "edit",
+  document: LocalFolderPage,
+  change: LocalFolderChange = "edit",
   db: ReturnType<typeof getDb> = getDb(),
 ) {
-  if (
-    document.sourceMode !== "local-files" ||
-    document.sourceKind !== "file" ||
-    !document.sourceRootPath
-  ) {
-    return;
-  }
-  const links = await db
-    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-    .from(schema.contentDatabaseSourceRows)
-    .innerJoin(
-      schema.contentDatabaseSources,
-      eq(
-        schema.contentDatabaseSources.id,
-        schema.contentDatabaseSourceRows.sourceId,
-      ),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseSourceRows.documentId, document.id),
-        eq(schema.contentDatabaseSources.sourceType, LOCAL_FOLDER_SOURCE_TYPE),
-        eq(schema.contentDatabaseSources.sourceTable, document.sourceRootPath),
-      ),
-    );
-  const owner = links
-    .map((link) => localFolderOwner(link.metadataJson))
-    .find((metadata) => metadata !== null);
-  if (owner === undefined) return;
-  const folder = owner.label ? `the folder "${owner.label}"` : "a folder";
-  throw new ActionContractError(
-    change === "trash"
-      ? `This page is owned by ${folder} on a device. Delete its file in that folder on that device, and Content moves the page out of the folder after it syncs.`
-      : change === "move"
-        ? `This page is owned by ${folder} on a device, so it stays where its file is. Move the file in that folder on that device.`
-        : `This page is owned by ${folder} on a device and must be edited there. Open the folder in Content on that device; this copy updates after it syncs.`,
-    { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
-  );
+  const owned = (await localFolderOwnedPages(db, [document])).at(0);
+  if (owned) throw localFolderOwnsPage(owned.label, change);
 }
 
-function localFolderOwner(metadataJson: string) {
+export async function assertLocalFolderAllowsPagesEdit(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  change: "edit" | "trash" = "edit",
+  { rootId }: { rootId?: string } = {},
+) {
+  const pages: LocalFolderPage[] = [];
+  for (const batch of chunks([...new Set(documentIds)], 500)) {
+    pages.push(
+      ...(await db
+        .select({
+          id: schema.documents.id,
+          spaceId: schema.documents.spaceId,
+          sourceMode: schema.documents.sourceMode,
+          sourceKind: schema.documents.sourceKind,
+          sourceRootPath: schema.documents.sourceRootPath,
+        })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, batch),
+            eq(schema.documents.sourceMode, "local-files"),
+            eq(schema.documents.sourceKind, "file"),
+          ),
+        )),
+    );
+  }
+  const owned = await localFolderOwnedPages(db, pages);
+  if (!owned.length) return;
+  const root = owned.find((page) => page.id === rootId);
+  throw localFolderOwnsPage((root ?? owned[0]).label, change, {
+    nested: rootId !== undefined && !root,
+    documentIds: owned.map((page) => page.id),
+  });
+}
+
+async function localFolderOwnedPages(
+  db: ReturnType<typeof getDb>,
+  pages: LocalFolderPage[],
+) {
+  const marked = pages.filter(
+    (page): page is LocalFolderPage & { sourceRootPath: string } =>
+      page.sourceMode === "local-files" &&
+      page.sourceKind === "file" &&
+      !!page.sourceRootPath,
+  );
+  if (!marked.length) return [];
+  const sources = schema.contentDatabaseSources;
+  const sourceRows = schema.contentDatabaseSourceRows;
+  const folderLinks = new Map<string, Set<string>>();
+  for (const batch of chunks(
+    marked.map((page) => page.id),
+    500,
+  )) {
+    for (const link of await db
+      .select({
+        documentId: sourceRows.documentId,
+        sourceId: sourceRows.sourceId,
+        sourceType: sources.sourceType,
+      })
+      .from(sourceRows)
+      .leftJoin(sources, eq(sources.id, sourceRows.sourceId))
+      .where(inArray(sourceRows.documentId, batch))) {
+      if (
+        link.sourceType !== null &&
+        link.sourceType !== LOCAL_FOLDER_SOURCE_TYPE
+      )
+        continue;
+      const linked = folderLinks.get(link.documentId) ?? new Set<string>();
+      linked.add(link.sourceId);
+      folderLinks.set(link.documentId, linked);
+    }
+  }
+  const folders: Array<{
+    id: string;
+    sourceTable: string;
+    metadataJson: string;
+    spaceId: string | null;
+  }> = [];
+  for (const batch of chunks(
+    [...new Set(marked.map((page) => page.sourceRootPath))],
+    500,
+  )) {
+    folders.push(
+      ...(await db
+        .select({
+          id: sources.id,
+          sourceTable: sources.sourceTable,
+          metadataJson: sources.metadataJson,
+          spaceId: schema.contentDatabases.spaceId,
+        })
+        .from(sources)
+        .innerJoin(
+          schema.contentDatabases,
+          eq(schema.contentDatabases.id, sources.databaseId),
+        )
+        .where(
+          and(
+            eq(sources.sourceType, LOCAL_FOLDER_SOURCE_TYPE),
+            inArray(sources.sourceTable, batch),
+          ),
+        )),
+    );
+  }
+  return marked.flatMap((page) => {
+    const linked = folderLinks.get(page.id);
+    const pageFolders = folders.filter(
+      (folder) =>
+        folder.sourceTable === page.sourceRootPath &&
+        (linked?.has(folder.id) ||
+          !page.spaceId ||
+          folder.spaceId === page.spaceId),
+    );
+    if (!pageFolders.length) {
+      return linked ? [{ id: page.id, label: null }] : [];
+    }
+    for (const folder of pageFolders) {
+      const settings = localFolderSettings(folder.metadataJson);
+      if (
+        settings.truthPolicy === null ||
+        settings.truthPolicy === "source_primary"
+      )
+        return [{ id: page.id, label: settings.label }];
+    }
+    return [];
+  });
+}
+
+function localFolderSettings(metadataJson: string) {
   let metadata: unknown;
   try {
     metadata = JSON.parse(metadataJson);
@@ -168,12 +270,45 @@ function localFolderOwner(metadataJson: string) {
       { errorCode: "SOURCE_METADATA_UNREADABLE", statusCode: 500 },
     );
   }
-  if (!metadata || typeof metadata !== "object") return null;
-  const { truthPolicy, connectionLabel } = metadata as Record<string, unknown>;
-  if (truthPolicy !== "source_primary") return null;
+  const { truthPolicy, connectionLabel } =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>)
+      : {};
   return {
+    truthPolicy: localFolderTruthPolicy(truthPolicy),
     label: typeof connectionLabel === "string" ? connectionLabel : null,
   };
+}
+
+function localFolderOwnsPage(
+  label: string | null,
+  change: LocalFolderChange,
+  details?: { nested: boolean; documentIds: string[] },
+) {
+  const folder = label ? `the folder "${label}"` : "a folder";
+  return new ActionContractError(
+    details?.nested
+      ? `Pages inside this one are owned by ${folder} on a device. Delete their files in that folder on that device first; Content removes them after it syncs.`
+      : change === "trash"
+        ? `This page is owned by ${folder} on a device. Delete its file in that folder on that device, and Content moves the page out of the folder after it syncs.`
+        : change === "move"
+          ? `This page is owned by ${folder} on a device, so it stays where its file is. Move the file in that folder on that device.`
+          : `This page is owned by ${folder} on a device and must be edited there. Open the folder in Content on that device; this copy updates after it syncs.`,
+    {
+      errorCode: "SOURCE_READ_ONLY",
+      statusCode: 409,
+      ...(details ? { details: { documentIds: details.documentIds } } : {}),
+    },
+  );
+}
+
+export function isSourceReadOnlyRefusal(
+  error: unknown,
+): error is ActionContractError {
+  return (
+    error instanceof ActionContractError &&
+    error.errorCode === "SOURCE_READ_ONLY"
+  );
 }
 
 /**

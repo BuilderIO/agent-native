@@ -47,6 +47,7 @@ import {
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   assertLocalFolderAllowsPageEdit,
+  assertLocalFolderAllowsPagesEdit,
   assertSourceAllowsPageEdit,
   releaseRestoredPagesFromGitHubCollections,
 } from "./_document-source.js";
@@ -732,6 +733,9 @@ export async function trashDocumentSubtree(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, [id], ownerEmail);
+  await assertLocalFolderAllowsPagesEdit(db, documentIds, "trash", {
+    rootId: id,
+  });
   const memberships = await selectMembershipsForDocuments(db, documentIds);
   if (
     [

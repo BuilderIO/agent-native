@@ -1153,4 +1153,91 @@ describe("DatabaseSidebarView", () => {
     expect(onDeleteItem.mock.calls).toEqual([[collection]]);
     expect(document.querySelector("[role=alertdialog]")).toBeNull();
   });
+
+  it("offers no Move to Trash for a page a folder's file holds", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    onTestFinished(() => {
+      act(() => root.unmount());
+      container.remove();
+      document.querySelectorAll("[role=menu]").forEach((layer) => {
+        layer.remove();
+      });
+    });
+    const notes = item("notes", "Field notes");
+    const filePage: ContentDatabaseItem = {
+      ...notes,
+      document: {
+        ...notes.document,
+        accessRole: "owner",
+        canManage: true,
+        source: {
+          mode: "local-files",
+          kind: "file",
+          path: "notes.md",
+          rootPath: "folder-connection",
+        },
+      },
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items: [filePage],
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+                onDeleteItem={vi.fn()}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+    const trigger = container.querySelector(
+      'button[aria-label="More actions for Field notes"]',
+    );
+    if (!trigger) throw new Error("The file row has no menu.");
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const menuItems = Array.from(
+      document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    );
+    expect(menuItems.length).toBeGreaterThan(0);
+    expect(
+      menuItems.filter((menuItem) => /trash/i.test(menuItem.textContent)),
+    ).toEqual([]);
+  });
 });

@@ -15,7 +15,6 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
-import type { ContentDatabaseSourceTruthPolicy } from "../shared/api.js";
 import {
   isBuilderMdxSourcePath,
   isContentSourcePath,
@@ -39,6 +38,7 @@ import {
   localFolderObservedRevision,
   localFolderSourceFileIdentity,
   localFolderSourceIdentityFromMetadata,
+  localFolderTruthPolicy,
   normalizeLocalFolderSourceIdentity,
 } from "./_local-folder-source.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
@@ -78,12 +78,6 @@ function parseJson(value: string | null | undefined) {
   } catch {
     return {};
   }
-}
-
-function truthPolicy(value: unknown): ContentDatabaseSourceTruthPolicy {
-  return value === "source_primary" || value === "reviewed_bidirectional"
-    ? value
-    : "database_primary";
 }
 
 function normalizedEntries(files: Record<string, string>) {
@@ -340,7 +334,8 @@ export default defineAction({
     }) => {
       const metadata = parseJson(source.metadataJson);
       return {
-        policy: truthPolicy(metadata.truthPolicy),
+        policy:
+          localFolderTruthPolicy(metadata.truthPolicy) ?? "database_primary",
         localIdentity:
           localFolderSourceIdentityFromMetadata(metadata.localIdentity) ??
           normalizeLocalFolderSourceIdentity({

@@ -37,6 +37,9 @@ Link a local document to a Notion page for syncing.
 pnpm action link-notion-page --documentId abc123 --pageId <notion-page-id-or-url>
 ```
 
+A page a local folder owns refuses linking and pulling with `SOURCE_READ_ONLY`;
+its file on that device is where its text changes.
+
 `--pageIdOrUrl` and `--url` are accepted aliases for `--pageId`. There is no
 `--notionPageId` flag — passing it is silently dropped by the action's schema
 and the action fails with "documentId and pageId are required".
