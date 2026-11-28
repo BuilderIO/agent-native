@@ -179,6 +179,11 @@ export function desktopIdentityOwnerKey(
   return email ? `account:${email}` : null;
 }
 
+type DesktopIdentityAvailabilityProbe =
+  | "available"
+  | "unavailable"
+  | "unreadable";
+
 export interface DesktopIdentityEnsureAppSessionOptions {
   preserveExistingSession?: boolean;
 }
@@ -422,17 +427,16 @@ export async function fetchDesktopIdentityAvailability(
         ...(cookieHeader ? { headers: { Cookie: cookieHeader } } : {}),
       },
     );
-    if (!response.ok) return false;
-    const body = (await response.json().catch((error) => {
-      void error;
-      return null;
-    })) as {
-      available?: unknown;
-    } | null;
-    return body?.available === true;
-  } catch (error) {
-    void error;
-    return false;
+    if (!response.ok) {
+      throw new Error(
+        `Workspace sign-in availability returned ${response.status}`,
+      );
+    }
+    const body = (await response.json()) as { available?: unknown } | null;
+    if (typeof body?.available !== "boolean") {
+      throw new Error("Workspace sign-in availability response was malformed");
+    }
+    return body.available;
   } finally {
     clearTimeout(timer);
   }
@@ -588,6 +592,34 @@ export class DesktopIdentityBroker {
     return this.availability === "available";
   }
 
+  private async probeAvailability(
+    authority: DesktopIdentityApp,
+  ): Promise<DesktopIdentityAvailabilityProbe> {
+    if (!this.options.isAvailable) return "available";
+    try {
+      const available = await this.options.isAvailable(
+        authority,
+        this.options.identitySession,
+      );
+      return available ? "available" : "unavailable";
+    } catch (error) {
+      console.warn("[desktop identity] availability probe failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return "unreadable";
+    }
+  }
+
+  private settleUnavailableSignIn(
+    availability: Exclude<DesktopIdentityAvailabilityProbe, "available">,
+  ): boolean {
+    this.availability = "unavailable";
+    if (!this.signOutOperation) {
+      this.setStatus(availability === "unavailable" ? "idle" : "failed");
+    }
+    return availability === "unavailable";
+  }
+
   isInternalRevocationRequest(requestUrl: string): boolean {
     try {
       return (
@@ -626,19 +658,20 @@ export class DesktopIdentityBroker {
           reason: error instanceof Error ? error.message : "unknown error",
         });
       }
-      if (
+      const stillCurrent = () =>
         this.status === observedStatus &&
         this.ceremonyGeneration === observedGeneration &&
-        !this.signOutOperation &&
-        verifiedEmail
-      ) {
-        this.ceremonyGeneration += 1;
-        this.completedModernAppSessions.clear();
-        this.reloadedModernAppSessions.clear();
-        this.synchronizedAlternateSessionCookies.clear();
-        this.availability = "available";
-        this.setStatus("signed-in");
-      }
+        !this.signOutOperation;
+      if (!stillCurrent() || !verifiedEmail) return;
+      const availability = await this.probeAvailability(authorityApp);
+      if (!stillCurrent()) return;
+      this.ceremonyGeneration += 1;
+      this.completedModernAppSessions.clear();
+      this.reloadedModernAppSessions.clear();
+      this.synchronizedAlternateSessionCookies.clear();
+      this.availability =
+        availability === "available" ? "available" : "unavailable";
+      this.setStatus(availability === "unavailable" ? "idle" : "signed-in");
       return;
     }
     if (
@@ -653,10 +686,9 @@ export class DesktopIdentityBroker {
       this.setStatus("idle");
       return;
     }
+    let availability: DesktopIdentityAvailabilityProbe = "available";
     if (this.options.isAvailable) {
-      const available = await this.options
-        .isAvailable(authorityApp, this.options.identitySession)
-        .catch(() => false);
+      availability = await this.probeAvailability(authorityApp);
       if (
         this.status !== observedStatus ||
         this.ceremonyGeneration !== observedGeneration ||
@@ -664,14 +696,14 @@ export class DesktopIdentityBroker {
       ) {
         return;
       }
-      if (!available) {
+      if (availability !== "available") {
         this.availability = "unavailable";
         // The native setting owns whether the parent sign-in surface is
         // shown. Availability is still recorded so background fan-out stays
         // fail-closed, but an anonymous user must be able to start the
         // hosted parent login even when the server flag is user-scoped.
       }
-      if (available) this.availability = "available";
+      if (availability === "available") this.availability = "available";
     }
     let verifiedEmail: string | null;
     try {
@@ -699,7 +731,8 @@ export class DesktopIdentityBroker {
     ) {
       return;
     }
-    this.setStatus(verifiedEmail ? "signed-in" : "sign-in-required");
+    if (!verifiedEmail) this.setStatus("sign-in-required");
+    else this.setStatus(availability === "unavailable" ? "idle" : "signed-in");
   }
 
   hasPendingAppSessionWork(): boolean {
@@ -1415,26 +1448,13 @@ export class DesktopIdentityBroker {
     };
 
     if (this.options.isAvailable) {
-      let available = false;
-      try {
-        available = await this.options.isAvailable(
-          authority,
-          this.options.identitySession,
-        );
-      } catch (error) {
-        console.warn("[desktop identity] availability probe failed", {
-          reason: error instanceof Error ? error.message : "unknown error",
-        });
-      }
+      const availability = await this.probeAvailability(authority);
       if (!this.isCeremonyCurrent(generation)) {
         this.availability = "unavailable";
         return fail("Sign-in was cancelled. Please try again.");
       }
-      if (available) {
-        this.availability = "available";
-      } else {
-        this.availability = "unavailable";
-      }
+      this.availability =
+        availability === "available" ? "available" : "unavailable";
     }
 
     await this.waitForActiveSessionCopies();
@@ -1630,22 +1650,10 @@ export class DesktopIdentityBroker {
     }
 
     if (this.options.isAvailable) {
-      let available = false;
-      try {
-        available = await this.options.isAvailable(
-          authority,
-          this.options.identitySession,
-        );
-      } catch (error) {
-        console.warn("[desktop identity] availability probe failed", {
-          reason: error instanceof Error ? error.message : "unknown error",
-        });
-      }
+      const availability = await this.probeAvailability(authority);
       if (!this.isCeremonyCurrent(generation)) return false;
-      if (!available) {
-        this.availability = "unavailable";
-        this.setStatus("failed");
-        return false;
+      if (availability !== "available") {
+        return this.settleUnavailableSignIn(availability);
       }
       this.availability = "available";
     }
@@ -2059,25 +2067,10 @@ export class DesktopIdentityBroker {
     }
 
     if (this.options.isAvailable) {
-      let availableForSession = false;
-      try {
-        availableForSession = await this.options.isAvailable(
-          firstApp,
-          this.options.identitySession,
-        );
-      } catch (error) {
-        console.warn(
-          "[desktop identity] authenticated availability probe failed",
-          {
-            reason: error instanceof Error ? error.message : "unknown error",
-          },
-        );
-      }
+      const availability = await this.probeAvailability(firstApp);
       if (!this.isCeremonyCurrent(generation)) return false;
-      if (!availableForSession) {
-        this.availability = "unavailable";
-        if (!this.signOutOperation) this.setStatus("failed");
-        return false;
+      if (availability !== "available") {
+        return this.settleUnavailableSignIn(availability);
       }
       this.availability = "available";
     }
@@ -2150,16 +2143,8 @@ export class DesktopIdentityBroker {
     if (!authority) return false;
 
     if (this.options.isAvailable) {
-      let available = false;
-      try {
-        available = await this.options.isAvailable(
-          authority,
-          this.options.identitySession,
-        );
-      } catch (error) {
-        void error;
-      }
-      if (!this.isCeremonyCurrent(generation) || !available) {
+      const availability = await this.probeAvailability(authority);
+      if (!this.isCeremonyCurrent(generation) || availability !== "available") {
         this.availability = "unavailable";
         return false;
       }
@@ -2602,12 +2587,10 @@ export class DesktopIdentityBroker {
   ): Promise<boolean> {
     if (this.options.isAvailable) {
       const authorityApp = this.options.resolveApp("dispatch");
-      const available = authorityApp
-        ? await this.options
-            .isAvailable(authorityApp, this.options.identitySession)
-            .catch(() => false)
-        : false;
-      if (!available) {
+      const availability = authorityApp
+        ? await this.probeAvailability(authorityApp)
+        : "unavailable";
+      if (availability !== "available") {
         this.availability = "unavailable";
         this.setStatus("idle");
         return false;
@@ -3207,20 +3190,9 @@ export class DesktopIdentityBroker {
         this.reloadAppSafely(app);
         return false;
       }
-      let available = false;
-      if (options.skipAvailabilityProbe) {
-        available = this.availability === "available";
-      } else {
-        try {
-          available = await this.options.isAvailable(
-            authorityApp,
-            this.options.identitySession,
-          );
-        } catch (error) {
-          void error;
-          available = false;
-        }
-      }
+      const available = options.skipAvailabilityProbe
+        ? this.availability === "available"
+        : (await this.probeAvailability(authorityApp)) === "available";
       if (!this.isCeremonyCurrent(generation)) return false;
       if (!available) {
         this.availability = "unavailable";

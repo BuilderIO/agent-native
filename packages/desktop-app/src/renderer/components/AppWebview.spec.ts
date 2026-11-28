@@ -2302,3 +2302,128 @@ describe("AppWebview soft client-side navigation", () => {
     }
   });
 });
+
+describe("Workspace sign-in outcomes for an eligible app", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    Object.defineProperty(HTMLElement.prototype, "executeJavaScript", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    act(() => root.unmount());
+    container.remove();
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    invalidateRememberedDesktopIdentityStatus();
+  });
+
+  async function renderMail(identity: {
+    status: "idle" | "signed-in";
+    synchronized: boolean;
+  }) {
+    const ensureAppSession = vi.fn(async () => identity.synchronized);
+    const reported: string[] = [];
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => identity.status),
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        React.createElement(AppWebview, {
+          app: {
+            id: "mail",
+            name: "Mail",
+            icon: "mail",
+            description: "",
+            devPort: 3000,
+          },
+          appConfig: {
+            id: "mail",
+            name: "Mail",
+            icon: "mail",
+            description: "",
+            url: "https://mail.agent-native.com",
+            devPort: 3000,
+            isBuiltIn: true,
+            enabled: true,
+            mode: "prod",
+          },
+          isActive: true,
+          theme: "dark" as const,
+          onDesktopIdentityStatusChange: (status) => reported.push(status),
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    return {
+      ensureAppSession,
+      reported,
+      src: container.querySelector("webview")?.getAttribute("src") ?? "",
+      gate: container.querySelector(".desktop-identity-gate"),
+    };
+  }
+
+  it("lets the app sign in on its own when workspace sign-in does not apply to the account", async () => {
+    const result = await renderMail({ status: "idle", synchronized: false });
+
+    expect(result.src).toContain("https://mail.agent-native.com");
+    expect(result.gate).toBeNull();
+    expect(result.reported).not.toContain("failed");
+    expect(result.ensureAppSession).not.toHaveBeenCalled();
+  });
+
+  it("still gates the app when a rollout account's session cannot be synchronized", async () => {
+    const result = await renderMail({
+      status: "signed-in",
+      synchronized: false,
+    });
+
+    expect(result.ensureAppSession).toHaveBeenCalledWith("mail");
+    expect(result.reported.at(-1)).toBe("failed");
+    expect(result.gate).not.toBeNull();
+  });
+
+  it("loads a synchronized rollout account without the gate", async () => {
+    const result = await renderMail({
+      status: "signed-in",
+      synchronized: true,
+    });
+
+    expect(result.ensureAppSession).toHaveBeenCalledWith("mail");
+    expect(result.src).toContain("https://mail.agent-native.com");
+    expect(result.reported.at(-1)).toBe("signed-in");
+    expect(result.gate).toBeNull();
+  });
+});

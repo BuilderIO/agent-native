@@ -1744,6 +1744,77 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("sign-in-required");
   });
 
+  it.each([
+    {
+      name: "leaves workspace sign-in off for a signed-in account outside the rollout",
+      probe: async () => false,
+      status: "idle",
+    },
+    {
+      name: "keeps a signed-in account fail-closed when the rollout probe cannot be read",
+      probe: async (): Promise<boolean> => {
+        throw new Error("availability unreachable");
+      },
+      status: "signed-in",
+    },
+  ])("$name", async ({ probe, status }) => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    const identityFetch = vi.fn(async () => sessionResponse());
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(probe),
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      openExternal: vi.fn(async () => {}),
+      createWindow: vi.fn() as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    await broker.refreshStatus(authority);
+
+    expect(broker.getStatus()).toBe(status);
+    expect(broker.isAvailable()).toBe(false);
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(false);
+    expect(identityFetch).toHaveBeenCalledTimes(1);
+    expect(reloadApp).not.toHaveBeenCalled();
+  });
+
+  it("checks the rollout before settling a stale sign-in", async () => {
+    const authority = authorityFixture();
+    const isAvailable = vi.fn(async () => false);
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: vi.fn(async () => sessionResponse()),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    broker.setStatusForSetting("signing-in");
+
+    await broker.refreshStatus(authority);
+
+    expect(isAvailable).toHaveBeenCalledOnce();
+    expect(broker.getStatus()).toBe("idle");
+    expect(broker.isAvailable()).toBe(false);
+  });
+
   it("announces a status only when it actually changes", async () => {
     const authority = authorityFixture();
     const onStatus = vi.fn();
@@ -2088,11 +2159,41 @@ describe("DesktopIdentityBroker", () => {
       identitySession,
       100,
     );
+    const settled = availability.catch((error: unknown) => error);
     await vi.advanceTimersByTimeAsync(100);
-
-    await expect(availability).resolves.toBe(false);
-    expect(observedSignal?.aborted).toBe(true);
     vi.useRealTimers();
+
+    await expect(settled).resolves.toBeInstanceOf(Error);
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
+  it("tells a rollout answer apart from an unreadable availability response", async () => {
+    const authority = authorityFixture();
+    const probe = (respond: () => Promise<Response>) =>
+      fetchDesktopIdentityAvailability(authority, {
+        fetch: vi.fn(respond),
+      } as unknown as Electron.Session);
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status });
+
+    await expect(probe(async () => json({ available: true }))).resolves.toBe(
+      true,
+    );
+    await expect(probe(async () => json({ available: false }))).resolves.toBe(
+      false,
+    );
+    await expect(
+      probe(async () => json({ error: "identity_unavailable" }, 503)),
+    ).rejects.toThrow("503");
+    await expect(probe(async () => json({}))).rejects.toThrow("malformed");
+    await expect(
+      probe(async () => new Response("<html></html>", { status: 200 })),
+    ).rejects.toThrow();
+    await expect(
+      probe(async () => {
+        throw new Error("network down");
+      }),
+    ).rejects.toThrow("network down");
   });
 
   it("passes the isolated authority cookie to the authenticated availability probe", async () => {
@@ -4090,7 +4191,20 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("failed");
   });
 
-  it("does not fan out when the authenticated parent is outside the rollout", async () => {
+  it.each([
+    {
+      name: "settles to no workspace sign-in when the authenticated parent is outside the rollout",
+      secondProbe: false as const,
+      signedIn: true,
+      status: "idle",
+    },
+    {
+      name: "fails when the authenticated rollout probe cannot be read",
+      secondProbe: new Error("availability unreachable"),
+      signedIn: false,
+      status: "failed",
+    },
+  ])("$name", async ({ secondProbe, signedIn, status }) => {
     const authority = authorityFixture();
     const mail = appFixture();
     const identityCookies = cookieStore([
@@ -4133,8 +4247,10 @@ describe("DesktopIdentityBroker", () => {
     });
     const isAvailable = vi
       .fn<() => Promise<boolean>>()
-      .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(false);
+    if (secondProbe instanceof Error) {
+      isAvailable.mockRejectedValueOnce(secondProbe);
+    } else isAvailable.mockResolvedValueOnce(secondProbe);
     const broker = new DesktopIdentityBroker({
       identitySession: {
         cookies: identityCookies,
@@ -4162,10 +4278,91 @@ describe("DesktopIdentityBroker", () => {
     )?.[1] as (event: unknown, url: string, statusCode: number) => void;
     navigationHandler({}, completion, 200);
 
-    await expect(signIn).resolves.toBe(false);
+    await expect(signIn).resolves.toBe(signedIn);
     expect(isAvailable).toHaveBeenCalledTimes(2);
     expect(mail.session.cookies.set).not.toHaveBeenCalled();
-    expect(broker.getStatus()).toBe("failed");
+    expect(broker.getStatus()).toBe(status);
+  });
+
+  it.each([
+    {
+      name: "finishes a password sign-in without fan-out when the account is outside the rollout",
+      secondProbe: false as const,
+      result: { ok: true, email: "steve@example.com" },
+      status: "idle",
+    },
+    {
+      name: "fails a password sign-in when the authenticated rollout probe cannot be read",
+      secondProbe: new Error("availability unreachable"),
+      result: {
+        ok: false,
+        error:
+          "You are signed in, but one or more workspace apps could not be opened yet. Try again.",
+      },
+      status: "failed",
+    },
+  ])("$name", async ({ secondProbe, result, status }) => {
+    const authority = authorityFixture();
+    authority.session = {
+      cookies: cookieStore(),
+      fetch: vi.fn(async () => sessionResponse()),
+    } as unknown as Electron.Session;
+    const mail = appFixture();
+    const identityCookies = cookieStore();
+    const identityFetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/_agent-native/auth/login")) {
+        await identityCookies.set({
+          url: authority.origin,
+          name: "an_session_dispatch",
+          value: "new-session",
+        });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return sessionResponse();
+    });
+    const isAvailable = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true);
+    if (secondProbe instanceof Error) {
+      isAvailable.mockRejectedValueOnce(secondProbe);
+    } else isAvailable.mockResolvedValueOnce(secondProbe);
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      openExternal: vi.fn(async () => {}),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(
+      broker.authenticateWithPassword({
+        mode: "sign-in",
+        email: "steve@example.com",
+        password: "not-logged-or-stored",
+      }),
+    ).resolves.toEqual(result);
+
+    expect(isAvailable).toHaveBeenCalledTimes(2);
+    expect(mail.session.cookies.set).not.toHaveBeenCalled();
+    expect(
+      identityFetch.mock.calls.some(
+        ([input]) =>
+          new URL(String(input)).pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session",
+      ),
+    ).toBe(false);
+    expect(broker.getStatus()).toBe(status);
   });
 
   it("keeps the requested app signed in when another app is unavailable", async () => {
