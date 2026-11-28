@@ -486,6 +486,7 @@ export type DesktopContentFilesResult =
       sources?: Record<string, string>;
       revisions?: Record<string, string>;
       identities?: Record<string, string>;
+      skipped?: string[];
       controlResources?: Record<string, string>;
     }
   | {

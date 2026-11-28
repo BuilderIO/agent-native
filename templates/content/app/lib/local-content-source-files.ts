@@ -91,7 +91,7 @@ export type LocalSourceDocumentReadResult =
       runtime: "browser" | "desktop";
       revision?: DesktopContentFileRevision;
     }
-  | { ok: false; error: string; unavailable?: boolean };
+  | { ok: false; error: string; unavailable?: boolean; missing?: boolean };
 
 export type LinkedLocalSourceChange = DesktopContentFilesChange & {
   sourcePath: string;
@@ -713,7 +713,11 @@ export async function readDocumentFromLinkedLocalSource(
     if (!result.ok) return { ok: false, error: result.error };
     const content = result.sources?.[desktopSource.path];
     if (content === undefined) {
-      return { ok: false, error: `Local file "${filePath}" was not found.` };
+      return {
+        ok: false,
+        missing: true,
+        error: `Local file "${filePath}" was not found.`,
+      };
     }
     const updatedAt = result.folder.updatedAt ?? new Date().toISOString();
     const read = documentFromSourceContent({
@@ -763,6 +767,13 @@ export async function readDocumentFromLinkedLocalSource(
     });
     return read.ok ? { ...read, revision: file.revision } : read;
   } catch (error) {
+    if (error instanceof Error && error.name === "NotFoundError") {
+      return {
+        ok: false,
+        missing: true,
+        error: `Local file "${filePath}" was not found.`,
+      };
+    }
     return {
       ok: false,
       error:

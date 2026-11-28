@@ -20,6 +20,22 @@ silently deleting or overwriting a page. SQL stores only opaque connection
 identity, relative paths, and hashes. Disconnecting a folder keeps both the
 Content pages and disk files.
 
+When the file behind a `truthPolicy: "source_primary"` folder's page is
+deleted or moved out of the folder, the sync moves the page to Trash with
+`trashOrigin: "local-folder"`, which takes it out of Files and search. Only
+that page moves: when pages that stay sit under it (sub-pages made in Content,
+or pages whose files are still there), it becomes an ordinary page outside the
+folder instead. A file the read lists but can't import, such as one with
+invalid frontmatter or one over 2 MiB that the reader reports in
+`skippedPaths`, keeps its page as it was, and a read that lists no files
+changes no page. The page comes back from Trash when a file with its
+frontmatter `id`, or one at its old path, returns to the folder whose sync
+moved it there; a file naming it in another folder is reported as skipped and
+leaves it in Trash. An editor that saves by deleting and recreating a file can
+catch a sync in between, which moves the page to Trash until the next sync
+brings it back. Restoring it from Trash makes it an ordinary page outside the
+folder and never recreates the file.
+
 ## Manifest/CLI bridge
 
 `agent-native content local-files <target>` remains as a compatibility

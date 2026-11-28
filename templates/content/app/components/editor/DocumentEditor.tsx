@@ -5020,7 +5020,7 @@ function PageEditorSessionBody({
       if (!active) return;
       if (!result.ok) {
         setLocalSourceAccess("unavailable");
-        if (result.error.includes("was not found")) {
+        if (result.missing) {
           if (saveTimeoutRef.current) {
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
@@ -12152,7 +12152,7 @@ function PageEditorSessionBody({
               role="alert"
               data-local-source-missing
             >
-              {t("empty.documentNotFound")}
+              {t("editor.localFileMissing")}
             </div>
           ) : null}
 

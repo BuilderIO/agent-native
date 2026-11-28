@@ -450,20 +450,60 @@ describe("a page read from a local file", () => {
   it("says when the file was deleted and stops editing", async () => {
     fixture.readLocal = {
       ok: false,
-      error: "notes/page.md was not found",
+      missing: true,
+      error:
+        "A requested file or directory could not be found at the time an operation was processed.",
     } as LocalSourceDocumentReadResult;
     await render(surface("page", "page"));
 
     expect(
       container.querySelector("[data-local-source-missing]")?.textContent,
-    ).toBe("empty.documentNotFound");
+    ).toBe("editor.localFileMissing");
     expect(toolbar().canEdit).toBe(false);
+  });
+
+  it("says the open page's file is gone when it's deleted, and edits again once the sync finds where it moved", async () => {
+    const onDisk = present(fixture.pages.page);
+    const readable = {
+      ok: true,
+      document: onDisk,
+      revision: "disk-1",
+      updatedAt: onDisk.updatedAt,
+    } as LocalSourceDocumentReadResult;
+    fixture.readLocal = readable;
+    await render(surface("page", "page"));
+    expect(toolbar().canEdit).toBe(true);
+
+    fixture.readLocal = {
+      ok: false,
+      missing: true,
+      error: 'Local file "notes/page.md" was not found.',
+    } as LocalSourceDocumentReadResult;
+    page("page", {
+      source: { mode: "local-files", path: "notes/page.md" },
+    } as Partial<Document>);
+    await render(surface("page", "page"));
+
+    expect(
+      container.querySelector("[data-local-source-missing]")?.textContent,
+    ).toBe("editor.localFileMissing");
+    expect(toolbar().canEdit).toBe(false);
+
+    page("page", {
+      source: { mode: "local-files", path: "nested/page.md" },
+    } as Partial<Document>);
+    fixture.readLocal = readable;
+    await render(surface("page", "page"));
+
+    expect(container.querySelector("[data-local-source-missing]")).toBeNull();
+    expect(toolbar().canEdit).toBe(true);
   });
 
   it("stays read-only, without saying it's deleted, when this client can't reach the file", async () => {
     fixture.readLocal = {
       ok: false,
-      error: "The desktop bridge is not available",
+      error:
+        'The desktop bridge is not available, so "notes/page.md" was not found',
     } as LocalSourceDocumentReadResult;
     await render(surface("page", "page"));
 

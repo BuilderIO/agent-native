@@ -816,6 +816,8 @@ const editor = {
   syncedPageSourceUnreadable:
     "Não foi possível verificar de onde vem esta página.",
   syncedPageCheckAgain: "Tentar novamente",
+  localFileMissing:
+    "O arquivo não está mais disponível. Ele foi movido ou excluído no disco, então esta página não pode ser editada.",
   textColor: "Cor do texto",
   resizeColumns: "Redimensionar colunas",
   backgroundColor: "Cor de fundo",
@@ -2068,6 +2070,9 @@ const overrides = {
     pageMissing: "Esta página não existe",
     pageInTrash: "Esta página está na lixeira",
     pageInTrashAskOwner: "Peça ao proprietário para restaurá-la.",
+    pageInTrashFileDeleted:
+      "O arquivo dela foi excluído ou movido para fora da pasta, então esta página foi para a lixeira. Restaurá-la não recria o arquivo.",
+    localFileGone: "O arquivo não está mais disponível",
     openTrash: "Abrir a lixeira",
     goToMyPages: "Ir para minhas páginas",
     noPageDescription:
