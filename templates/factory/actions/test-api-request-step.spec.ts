@@ -14,7 +14,7 @@ const storeCalls = vi.hoisted(
 );
 const tripwireWrites = vi.hoisted(() => [] as unknown[]);
 
-vi.mock("../../../packages/core/dist/audit/store.js", async (original) => ({
+vi.mock("@factory-test/audit-store", async (original) => ({
   ...(await original<object>()),
   insertAuditEvent: async (event: Record<string, any>) => {
     auditRows.push(event);

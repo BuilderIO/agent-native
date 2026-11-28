@@ -30,7 +30,7 @@ const world = vi.hoisted(() => ({
 const fetchMock = vi.hoisted(() => vi.fn());
 const secretMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../../../packages/core/dist/audit/store.js", async (original) => ({
+vi.mock("@factory-test/audit-store", async (original) => ({
   ...(await original<object>()),
   insertAuditEvent: async () => {},
 }));
