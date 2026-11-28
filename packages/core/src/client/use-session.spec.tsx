@@ -311,6 +311,35 @@ describe("useSession", () => {
     expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
   });
 
+  it("reports unavailable despite repeated focus and visibility events during startup failures", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("loading");
+
+    for (let elapsed = 0; elapsed < 32_000; elapsed += 4_000) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000);
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(container.textContent).toBe("unavailable");
+    expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
+  });
+
   it("reports unavailable at the budget boundary, not after the request's own timeout", async () => {
     vi.useFakeTimers();
     let callCount = 0;
@@ -460,6 +489,79 @@ describe("useSession", () => {
     expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
       "authenticated",
     );
+  });
+
+  it("recovers on focus after startup has become unavailable", async () => {
+    vi.useFakeTimers();
+    let recovered = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        recovered
+          ? jsonResponse({
+              userId: "user-returned",
+              email: "returned@example.com",
+            })
+          : new Response(null, { status: 503 }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(33_000);
+    });
+    expect(container.textContent).toBe("unavailable");
+
+    recovered = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(container.textContent).toBe("authenticated");
+  });
+
+  it("explicitly invalidates an unresolved session despite routine rechecks", async () => {
+    vi.useFakeTimers();
+    let respond: ((response: Response) => void) | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            respond = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ userId: "new-user", email: "new@example.com" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<SessionConsumers labels={["first"]} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await notifySessionInvalidated();
+    });
+    expect(container.textContent).toBe("new@example.com");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const respondToFirst = respond;
+    if (!respondToFirst) throw new Error("First session request did not start");
+    await act(async () => {
+      respondToFirst(
+        jsonResponse({ userId: "old-user", email: "old@example.com" }),
+      );
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("new@example.com");
   });
 
   it("caches a definitive unauthenticated response", async () => {

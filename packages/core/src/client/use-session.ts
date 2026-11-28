@@ -463,6 +463,8 @@ function invalidateSessionCache(trigger: SessionStatusTrigger): Promise<void> {
 // accepted stays shown while it is out (see "Whom a request was answered
 // for").
 function rereadSession(trigger: SessionStatusTrigger): void {
+  // Restarting during retry backoff would keep extending the resolution budget.
+  if (activeResolveGeneration !== 0) return;
   noteSessionReadCause(snapshotListeners.size > 0 ? trigger : "expired", false);
   cachedSessionAt = 0;
   clearTimeout(staleSessionRecheck);
