@@ -709,6 +709,7 @@ const overrides = {
     historyVersionNameFailed: "無法為此版本命名。",
     historyVersionNameLabel: "版本名稱",
     historyVersionNameRemoved: "已移除名稱。",
+    historyVersionNameTaken: "此頁面的另一個版本已命名為「{{name}}」。",
     historyVersionNamed: "已儲存為「{{name}}」。",
     historyViewMode: "顯示",
     historyLoadError: "無法載入版本歷史紀錄。",

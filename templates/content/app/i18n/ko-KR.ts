@@ -1814,6 +1814,8 @@ const history = {
   historyVersionNameFailed: "이 버전에 이름을 지정할 수 없습니다.",
   historyVersionNameLabel: "버전 이름",
   historyVersionNameRemoved: "이름을 제거했습니다.",
+  historyVersionNameTaken:
+    "이 페이지의 다른 버전에 이미 “{{name}}” 이름이 붙어 있습니다.",
   historyVersionNamed: "“{{name}}”(으)로 저장했습니다.",
   historyViewMode: "보기",
   historyLoadError: "버전 기록을 불러오지 못했습니다.",

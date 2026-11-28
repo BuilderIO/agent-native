@@ -1801,6 +1801,7 @@ const history = {
   historyVersionNameFailed: "تعذّرت تسمية هذا الإصدار.",
   historyVersionNameLabel: "اسم الإصدار",
   historyVersionNameRemoved: "تمت إزالة الاسم.",
+  historyVersionNameTaken: "توجد نسخة أخرى من هذه الصفحة باسم «{{name}}».",
   historyVersionNamed: "حُفظ باسم «{{name}}».",
   historyViewMode: "عرض",
   historyLoadError: "تعذر تحميل سجل الإصدارات.",

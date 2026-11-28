@@ -5,6 +5,7 @@ import type { Document } from "@shared/api";
 import { builderBodyLineDiff } from "@shared/builder-body-diff";
 import {
   DOCUMENT_VERSION_NAME_MAX_LENGTH,
+  DOCUMENT_VERSION_NAME_TAKEN,
   type DocumentHistoryCheckpoint,
   type DocumentHistoryCheckpointDetail,
   type DocumentHistoryGroup,
@@ -367,7 +368,10 @@ export function VersionHistoryPanel({
     } catch (error) {
       if (operationContextRef.current.generation !== generation) return;
       setNameError(
-        actionErrorMessage(error) ?? t("editor.historyVersionNameFailed"),
+        (error as { errorCode?: unknown } | null)?.errorCode ===
+          DOCUMENT_VERSION_NAME_TAKEN
+          ? t("editor.historyVersionNameTaken", { name: name.trim() })
+          : (actionErrorMessage(error) ?? t("editor.historyVersionNameFailed")),
       );
       return;
     }

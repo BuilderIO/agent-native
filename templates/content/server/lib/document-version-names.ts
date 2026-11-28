@@ -6,6 +6,7 @@ import {
   type DocumentHistoryCheckpoint,
   type DocumentHistoryCheckpointDetail,
   type DocumentHistoryCheckpointKind,
+  DOCUMENT_VERSION_NAME_TAKEN,
   NAME_DOCUMENT_VERSION_OPERATION,
   type NamedDocumentVersionResult,
 } from "../../shared/document-history.js";
@@ -66,7 +67,7 @@ function checkpointNotFound(reference: string): never {
 
 function nameTaken(name: string, versionId?: string): never {
   fail(`Another version of this page is already named "${name}".`, {
-    errorCode: "DOCUMENT_VERSION_NAME_TAKEN",
+    errorCode: DOCUMENT_VERSION_NAME_TAKEN,
     statusCode: 409,
     details: versionId ? { name, versionId } : { name },
   });

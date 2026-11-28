@@ -1779,6 +1779,7 @@ const history = {
   historyVersionNameFailed: "इस संस्करण को नाम नहीं दिया जा सका।",
   historyVersionNameLabel: "संस्करण का नाम",
   historyVersionNameRemoved: "नाम हटाया गया।",
+  historyVersionNameTaken: "इस पेज के किसी दूसरे संस्करण का नाम पहले से “{{name}}” है।",
   historyVersionNamed: "“{{name}}” के रूप में सहेजा गया।",
   historyViewMode: "दिखाएँ",
   historyLoadError: "संस्करण इतिहास लोड नहीं किया जा सका।",

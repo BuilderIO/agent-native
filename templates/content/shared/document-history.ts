@@ -44,6 +44,7 @@ export interface DocumentHistoryPage {
 export const DOCUMENT_VERSION_NAME_MAX_LENGTH = 80;
 
 export const NAME_DOCUMENT_VERSION_OPERATION = "name-document-version";
+export const DOCUMENT_VERSION_NAME_TAKEN = "DOCUMENT_VERSION_NAME_TAKEN";
 
 export interface DocumentHistoryCheckpoint {
   id: string;

@@ -2110,6 +2110,8 @@ const history = {
   historyVersionNameFailed: "No se pudo poner nombre a esta versión.",
   historyVersionNameLabel: "Nombre de la versión",
   historyVersionNameRemoved: "Nombre quitado.",
+  historyVersionNameTaken:
+    "Otra versión de esta página ya se llama «{{name}}».",
   historyVersionNamed: "Guardada como «{{name}}».",
   historyViewMode: "Mostrar",
   historyLoadError: "No se pudo cargar el historial de versiones.",

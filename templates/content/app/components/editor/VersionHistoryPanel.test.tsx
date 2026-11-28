@@ -789,6 +789,23 @@ describe("VersionHistoryPanel named versions", () => {
     expect(nameInput()?.getAttribute("aria-invalid")).toBe("true");
   });
 
+  it("says when another version already has the name", async () => {
+    mocks.nameVersion.mockRejectedValueOnce(
+      Object.assign(new Error("taken"), {
+        errorCode: "DOCUMENT_VERSION_NAME_TAKEN",
+      }),
+    );
+    await render();
+    await clickButton("Name current version");
+    await typeName("Launch draft");
+    await clickButton("Save name");
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      "editor.historyVersionNameTaken",
+    );
+    expect(nameInput()?.value).toBe("Launch draft");
+  });
+
   it("Escape cancels the name form without closing the panel", async () => {
     await render();
     await clickButton("Name current version");

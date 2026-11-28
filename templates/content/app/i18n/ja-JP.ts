@@ -1828,6 +1828,8 @@ const history = {
   historyVersionNameFailed: "このバージョンに名前を付けられませんでした。",
   historyVersionNameLabel: "バージョン名",
   historyVersionNameRemoved: "名前を削除しました。",
+  historyVersionNameTaken:
+    "このページの別のバージョンにすでに「{{name}}」という名前が付いています。",
   historyVersionNamed: "「{{name}}」として保存しました。",
   historyViewMode: "表示",
   historyLoadError: "バージョン履歴を読み込めませんでした。",

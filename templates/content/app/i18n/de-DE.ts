@@ -1874,6 +1874,8 @@ const history = {
   historyVersionNameFailed: "Diese Version konnte nicht benannt werden.",
   historyVersionNameLabel: "Versionsname",
   historyVersionNameRemoved: "Name entfernt.",
+  historyVersionNameTaken:
+    "Eine andere Version dieser Seite heißt bereits „{{name}}“.",
   historyVersionNamed: "Als „{{name}}“ gespeichert.",
   historyViewMode: "Anzeigen",
   historyLoadError: "Versionsverlauf konnte nicht geladen werden.",

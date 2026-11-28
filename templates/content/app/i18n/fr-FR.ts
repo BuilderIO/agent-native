@@ -1876,6 +1876,8 @@ const history = {
   historyVersionNameFailed: "Impossible de nommer cette version.",
   historyVersionNameLabel: "Nom de la version",
   historyVersionNameRemoved: "Nom retiré.",
+  historyVersionNameTaken:
+    "Une autre version de cette page s’appelle déjà « {{name}} ».",
   historyVersionNamed: "Enregistrée sous « {{name}} ».",
   historyViewMode: "Afficher",
   historyLoadError: "Impossible de charger l’historique des versions.",

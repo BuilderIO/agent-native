@@ -1843,6 +1843,7 @@ const history = {
   historyVersionNameFailed: "无法命名此版本。",
   historyVersionNameLabel: "版本名称",
   historyVersionNameRemoved: "已移除名称。",
+  historyVersionNameTaken: "此页面的另一个版本已命名为“{{name}}”。",
   historyVersionNamed: "已保存为“{{name}}”。",
   historyViewMode: "显示",
   historyLoadError: "无法加载版本历史。",

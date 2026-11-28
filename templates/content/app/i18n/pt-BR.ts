@@ -1858,6 +1858,7 @@ const history = {
   historyVersionNameFailed: "Não foi possível nomear esta versão.",
   historyVersionNameLabel: "Nome da versão",
   historyVersionNameRemoved: "Nome removido.",
+  historyVersionNameTaken: "Outra versão desta página já se chama “{{name}}”.",
   historyVersionNamed: "Salva como “{{name}}”.",
   historyViewMode: "Mostrar",
   historyLoadError: "Não foi possível carregar o histórico de versões.",

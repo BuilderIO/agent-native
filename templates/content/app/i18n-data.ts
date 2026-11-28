@@ -2044,6 +2044,8 @@ const enUS = {
     historyVersionNameFailed: "Could not name this version.",
     historyVersionNameLabel: "Version name",
     historyVersionNameRemoved: "Name removed.",
+    historyVersionNameTaken:
+      "Another version of this page is already named “{{name}}”.",
     historyVersionNamed: "Saved as “{{name}}”.",
     historyViewMode: "Show",
     historyLoadError: "Could not load version history.",
