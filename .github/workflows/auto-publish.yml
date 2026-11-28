@@ -250,14 +250,14 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
       - name: Generate Builder downstream app token
         id: builder-downstream-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
@@ -270,7 +270,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       # Node 24 ships with npm 11.6+, which is required for Trusted Publishing
       # OIDC. Node 22's npm cannot complete the nightly publish handshake.
@@ -370,7 +370,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       # Node 24 ships with npm 11.6+, required for Trusted Publishing OIDC.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -464,7 +464,7 @@ jobs:
       - name: Generate Builder Workspace Beta workflow token
         id: workspace_beta_token
         if: ${{ inputs.betaTag != '' }}
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
@@ -554,7 +554,7 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
@@ -569,7 +569,7 @@ jobs:
           # its own below.
           persist-credentials: ${{ github.event_name != 'push' }}
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       # Node 24 ships with npm 11.6+ — required for Trusted Publishing OIDC
       # (>= 11.5.1). Node 22 ships npm 10.x; the in-place self-upgrade
@@ -688,7 +688,7 @@ jobs:
       - name: Generate fresh app token for the post-publish push
         id: app-token-post-publish
         if: ${{ github.event_name == 'push' && steps.changesets.outcome == 'success' }}
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
@@ -795,13 +795,13 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
       - name: Generate Builder downstream app token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: builder-downstream-token
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}

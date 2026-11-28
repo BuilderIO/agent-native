@@ -4385,7 +4385,7 @@ describe("production Netlify site concurrency guard", () => {
     const postWith = post!.with as Workflow;
     assert.equal(
       post!.uses,
-      "slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d",
+      "slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa",
     );
     assert.equal(post!.if, "${{ steps.change.outputs.text != '' }}");
     assert.equal(postWith.token, "${{ secrets.QA_SLACK_BOT_TOKEN }}");
