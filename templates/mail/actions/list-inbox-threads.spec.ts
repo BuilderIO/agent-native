@@ -920,6 +920,43 @@ describe("list-inbox-threads action", () => {
     expect(result.items.map((item) => item.threadId)).toEqual(["plain"]);
     expect(result.items[0]?.isAutomated).toBe(false);
   });
+
+  it("keeps threads a pinned label or saved filter claims out of Important and Other", async () => {
+    mocks.readSettings.mockResolvedValue({
+      combineInbox: false,
+      pinnedLabels: ["important", "work"],
+      savedFilters: [{ id: "pitches", name: "Pitches", query: "label:pitch" }],
+      labelAliases: {},
+    });
+    mocks.readInboxThreads.mockResolvedValue([
+      row({ threadId: "work", latestDate: 5, labelIds: ["work"] }),
+      row({ threadId: "pitch", latestDate: 4, labelIds: ["pitch"] }),
+      row({
+        threadId: "automated-pitch",
+        latestDate: 3,
+        labelIds: ["pitch"],
+        isAutomated: true,
+      }),
+      row({ threadId: "plain", latestDate: 2 }),
+      row({ threadId: "automated", latestDate: 1, isAutomated: true }),
+    ]);
+    const read = async (tab?: string) =>
+      (
+        await action.run({ ...(tab ? { tab } : {}), limit: 50, offset: 0 })
+      ).items.map((item) => item.threadId);
+
+    expect(await read("important")).toEqual(["plain"]);
+    expect(await read("other")).toEqual(["automated"]);
+    expect(await read("work")).toEqual(["work"]);
+    expect(await read("pitches")).toEqual(["pitch", "automated-pitch"]);
+    expect(await read()).toEqual([
+      "work",
+      "pitch",
+      "automated-pitch",
+      "plain",
+      "automated",
+    ]);
+  });
 });
 
 describe("list-inbox-threads action — local mode (no connected Google account)", () => {

@@ -159,6 +159,27 @@ describe("view-screen inbox preview", () => {
     });
   });
 
+  it.each([
+    ["pinned label", { label: "work" }, "work"],
+    ["saved filter", { filter: "pitches" }, "pitches"],
+  ])(
+    "reads the %s's inbox tab when no tab is active",
+    async (_kind, navigation, tab) => {
+      mocks.readAppStateForCurrentTab.mockResolvedValue({
+        view: "inbox",
+        ...navigation,
+      });
+
+      await action.run({});
+
+      expect(mocks.listInboxThreads).toHaveBeenCalledWith({
+        tab,
+        limit: 10,
+        offset: 0,
+      });
+    },
+  );
+
   it("passes the Filter menu's rules and reports them", async () => {
     mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",

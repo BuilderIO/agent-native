@@ -439,6 +439,42 @@ describe("syncInboxAccount — full sync", () => {
       expect.anything(),
     );
   });
+  it("builds the conversation row from every message, not only the latest", async () => {
+    currentRow = baseRow();
+    const conversation = thread("pitch", {
+      from: "sender@example.test",
+      labelIds: ["INBOX", "Label_pitch", "STARRED"],
+      internalDate: "100",
+    });
+    const reply = thread("reply", {
+      from: "sender@example.test",
+      labelIds: ["INBOX", "UNREAD"],
+      internalDate: "200",
+    });
+    conversation.messages.push(...reply.messages);
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "9000" });
+    mocks.gmailListThreads.mockResolvedValue({ threads: [{ id: "pitch" }] });
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      { id: "pitch", data: conversation },
+    ]);
+    await syncInboxAccount(OWNER, ACCOUNT, {
+      budgetMs: 5_000,
+      connectedAccountEmails: [ACCOUNT],
+    });
+    const rows = mocks.upsertInboxThreadRows.mock.calls.flatMap(
+      ([upserted]) => upserted,
+    );
+    expect(rows).toEqual([
+      expect.objectContaining({
+        threadId: "pitch",
+        latestMessageId: "reply-m1",
+        labelIds: expect.arrayContaining(["Label_pitch", "STARRED", "UNREAD"]),
+        isStarred: true,
+        isUnread: true,
+        messageCount: 2,
+      }),
+    ]);
+  });
   it("classifies a self-addressed inbox conversation as personal", async () => {
     currentRow = baseRow();
     const message = thread("self", { from: ACCOUNT, labelIds: ["INBOX"] });

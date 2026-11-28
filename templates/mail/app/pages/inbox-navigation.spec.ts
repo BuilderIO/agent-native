@@ -99,52 +99,7 @@ describe("Inbox navigation commands", () => {
     expect(navigateActionSource()).toContain('enum(["newest", "priority"])');
   });
 
-  it("filters the view-screen snapshot using the resolved inbox tab", () => {
-    const source = viewScreenSource();
-
-    expect(source).toContain("activeInboxTab?: string");
-    expect(source).toContain("activeAccounts?: string[]");
-    expect(source).toContain('activeTab?.kind === "other"');
-    expect(source).toContain("resolveActiveTabId(activeInboxTab, inboxTabs)");
-    expect(source).toContain("augmentSelfSentLabels");
-    expect(source).toContain("selectedAccountSet");
-    expect(source).toContain("accountEmails:");
-    expect(source).toContain("filterInboxTabEmails");
-    expect(source).toContain("activeTriageTab");
-    expect(source).toContain("triageLabels.includes(label)");
-    expect(source).toContain("nav.activeInboxTab");
-    expect(source).toContain("nav.activeAccounts");
-  });
-
-  it("keeps saved-filter threads out of the agent plain Inbox snapshot", () => {
-    const source = viewScreenSource();
-
-    expect(source).toContain(
-      'effectiveView !== "inbox" || effectiveSearch || label',
-    );
-    expect(source).toContain(
-      "const savedFilterThreads = savedFilterThreadIds(",
-    );
-    expect(source).toContain("!savedFilterThreads.has(inboxThreadKey(email))");
-  });
-
-  it("filters full Gmail threads before collapsing the agent snapshot", () => {
-    const source = viewScreenSource();
-
-    expect(source).toContain(
-      "const preparedMessages = messages.map((m: any) =>",
-    );
-    const normalizedSource = source
-      .replace(/\s+/g, " ")
-      .replace(/\s*([(),])\s*/g, "$1")
-      .replace(/,([)\]])/g, "$1");
-    expect(normalizedSource).toContain(
-      "latestPerThread(applyActiveInboxTab(preparedMessages))",
-    );
-    expect(source).toContain(
-      'threadFormat: needsSavedFilterParts ? "full" : "metadata"',
-    );
-  });
+  // oracle-change: view-screen reads the inbox through list-inbox-threads now, so behavior tests in view-screen.spec.ts, list-inbox-threads.spec.ts and inbox-sync.spec.ts check its tab, accounts, saved-filter claims and whole-conversation rows; the full-format read for has:/filename: saved filters went with the old Gmail read.
 
   it("treats a needs_reauth account as incomplete coverage, not just error", () => {
     const source = inboxSource();
