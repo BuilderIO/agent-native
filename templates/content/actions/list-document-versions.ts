@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, like } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,8 +8,14 @@ import { documentChatStartVersionId } from "../server/lib/document-history.js";
 import { parseDocumentVersionChatContext } from "../server/lib/document-version-context.js";
 
 export default defineAction({
-  searchHints: ["page history", "old versions", "version history"],
-  description: "List saved versions for a document.",
+  searchHints: [
+    "page history",
+    "old versions",
+    "version history",
+    "named versions",
+  ],
+  description:
+    "List a page's saved versions, newest first, with the name of each named one. Pass namedOnly to list just the named versions. Read one with get-document-history-checkpoint and compare two with compare-document-versions.",
   schema: z.object({
     documentId: z.string().optional().describe("Document ID"),
     includeContent: z
@@ -18,10 +24,21 @@ export default defineAction({
       .default(true)
       .describe("Include full version content in the response"),
     limit: z.coerce.number().int().min(1).max(100).default(100),
+    namedOnly: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("List only versions someone has named"),
     threadId: z.string().min(1).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     if (!args.documentId) throw new Error("--documentId is required");
 
@@ -31,6 +48,7 @@ export default defineAction({
     const where = and(
       eq(schema.documentVersions.documentId, args.documentId),
       eq(schema.documentVersions.ownerEmail, ownerEmail),
+      args.namedOnly ? isNotNull(schema.documentVersions.name) : undefined,
     );
     const versions = args.includeContent
       ? await db
@@ -46,6 +64,9 @@ export default defineAction({
             title: schema.documentVersions.title,
             createdAt: schema.documentVersions.createdAt,
             chatContext: schema.documentVersions.chatContext,
+            name: schema.documentVersions.name,
+            namedBy: schema.documentVersions.namedBy,
+            namedAt: schema.documentVersions.namedAt,
           })
           .from(schema.documentVersions)
           .where(where)
@@ -78,6 +99,9 @@ export default defineAction({
               title: schema.documentVersions.title,
               createdAt: schema.documentVersions.createdAt,
               chatContext: schema.documentVersions.chatContext,
+              name: schema.documentVersions.name,
+              namedBy: schema.documentVersions.namedBy,
+              namedAt: schema.documentVersions.namedAt,
             })
             .from(schema.documentVersions)
             .where(
@@ -114,6 +138,9 @@ export default defineAction({
               title: schema.documentVersions.title,
               createdAt: schema.documentVersions.createdAt,
               chatContext: schema.documentVersions.chatContext,
+              name: schema.documentVersions.name,
+              namedBy: schema.documentVersions.namedBy,
+              namedAt: schema.documentVersions.namedAt,
             })
             .from(schema.documentVersions)
             .where(
@@ -166,6 +193,9 @@ export default defineAction({
             ? { content: version.content }
             : {}),
           createdAt: version.createdAt,
+          name: version.name,
+          namedBy: version.namedBy,
+          namedAt: version.namedAt,
           editable: Boolean(chatContext),
           ...(chatContext ? { chatContext } : {}),
         };

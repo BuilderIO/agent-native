@@ -27,7 +27,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-11-08"
+last_reviewed: "2026-11-27"
 ---
 
 # Blocks-field revision history
@@ -98,6 +98,8 @@ Current whole-document snapshots and restore behavior demonstrate useful recover
 No surface shows authorship per Block yet. The authorship view follows the rule `content.comment.page-owned` sets for AI comment authors: show the model and requester, open the recorded conversation only for people allowed to read it, and say "not recorded" rather than guess.
 
 Page title/body recovery groups saved checkpoints by editor session, agent run, or operation, with restores forming distinct operations. These groups organize whole-Page checkpoints; they are not independently addressable field Revisions. Restoring a checkpoint replaces both the Page title and primary body, preserves the displaced state, and rejects a stale expected document revision. Additional Blocks Properties and selective recovery remain outside this implementation.
+
+A whole-Page checkpoint can carry a name, such as "Week of Nov 17". In Version history an editor names the Page as it is now or any earlier checkpoint, renames it or removes the name; named checkpoints list first, and any checkpoint compares in place with the Page as last saved. Agents do the same through `name-document-version`, `get-document-history-checkpoint` (by ID or name), `compare-document-versions`, and `list-document-versions` with `namedOnly`. Names are unique on a Page, ignoring case, and naming never changes the Page. A name labels one moment in the Page's history; it is not a named Page Version as `content.version.branching` defines one, which holds its own body. The comparison is a line diff of the stored title and primary body, not the typed in-editor comparison this Capability asks for, and these checkpoints still keep neither Properties, such as Status, nor additional Blocks fields.
 
 ## Proof plan
 

@@ -2022,6 +2022,16 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS t3_agent_requests_document_owner_idx
         ON t3_agent_requests (document_id, owner_email)`,
     },
+    {
+      version: 150,
+      name: "content-document-version-names",
+      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS name TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS named_by TEXT;
+      ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS named_at TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS document_versions_owner_document_name_unique
+        ON document_versions (owner_email, document_id, lower(name))
+        WHERE name IS NOT NULL`,
+    },
   ],
   { table: "content_migrations" },
 );

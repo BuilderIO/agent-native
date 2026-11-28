@@ -32,8 +32,14 @@ const DIFF_TIMEOUT_SECONDS = 0.25;
 
 type FlatLine = { kind: BuilderBodyDiffLine["kind"]; text: string };
 
-function normalizeBody(value: string | null | undefined) {
-  return (value ?? "").replace(/\r\n/g, "\n").trim();
+function normalizeBody(
+  value: string | null | undefined,
+  preserveIndentation: boolean,
+) {
+  const body = (value ?? "").replace(/\r\n/g, "\n");
+  return preserveIndentation
+    ? body.replace(/^(?:[ \t]*\n)+/, "").trimEnd()
+    : body.trim();
 }
 
 function flatLines(before: string, after: string): FlatLine[] {
@@ -175,9 +181,17 @@ function markedRun(changed: FlatLine[]): BuilderBodyDiffLine[] {
 export function builderBodyLineDiff(
   current: string | null | undefined,
   proposed: string | null | undefined,
+  options: {
+    maxHunks?: number;
+    maxHunkLines?: number;
+    preserveIndentation?: boolean;
+  } = {},
 ): BuilderBodyDiff | null {
-  const before = normalizeBody(current);
-  const after = normalizeBody(proposed);
+  const maxHunks = options.maxHunks ?? MAX_HUNKS;
+  const maxHunkLines = options.maxHunkLines ?? MAX_HUNK_LINES;
+  const preserveIndentation = options.preserveIndentation ?? false;
+  const before = normalizeBody(current, preserveIndentation);
+  const after = normalizeBody(proposed, preserveIndentation);
   if (before === after) return null;
 
   const lines = flatLines(before, after);
@@ -200,7 +214,7 @@ export function builderBodyLineDiff(
   }
 
   const hunks: BuilderBodyDiffHunk[] = merged
-    .slice(0, MAX_HUNKS)
+    .slice(0, maxHunks)
     .map((range) => {
       const from = contextEdge(lines, range.start, -1, CONTEXT_LINES);
       const to = contextEdge(lines, range.end, 1, CONTEXT_LINES);
@@ -221,14 +235,14 @@ export function builderBodyLineDiff(
       }
       if (run.length > 0) hunkLines.push(...markedRun(run));
       return {
-        lines: hunkLines.slice(0, MAX_HUNK_LINES),
-        omittedLineCount: Math.max(0, hunkLines.length - MAX_HUNK_LINES),
+        lines: hunkLines.slice(0, maxHunkLines),
+        omittedLineCount: Math.max(0, hunkLines.length - maxHunkLines),
       };
     });
 
   return {
     hunks,
-    omittedHunkCount: Math.max(0, merged.length - MAX_HUNKS),
+    omittedHunkCount: Math.max(0, merged.length - maxHunks),
     addedLineCount: lines.filter(
       (line) => line.kind === "added" && line.text.trim(),
     ).length,

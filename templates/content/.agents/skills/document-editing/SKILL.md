@@ -283,8 +283,8 @@ pnpm action update-document --id abc123 --description "Stable guidance for what 
 ```
 
 A page in Trash refuses `update-document` (except a favorite toggle),
-`restore-document-version` and a Blocks value set with `set-document-property`,
-with `DOCUMENT_NOT_FOUND`, like `edit-document`.
+`restore-document-version`, `name-document-version` and a Blocks value set
+with `set-document-property`, with `DOCUMENT_NOT_FOUND`, like `edit-document`.
 
 ### Suggested edits
 
@@ -795,6 +795,8 @@ failures stop the run.
 | "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
 | "Pin this Design screen"     | `capture-design-screen --documentId ... --link ...`, then `edit-document` with the tag         |
 | "Show me the document tree"  | `list-documents`                                                                              |
+| "Name this version"          | `name-document-version --documentId ... --name "Week of Nov 17"`                              |
+| "What changed since then?"   | `compare-document-versions --documentId ... --fromVersionName "Week of Nov 17"`               |
 
 Always run `refresh-list` after any create, update, or delete operation.
 

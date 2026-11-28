@@ -4,6 +4,8 @@ import type {
   DocumentHistoryCheckpointDetail,
   DocumentHistoryCheckpointPage,
   DocumentHistoryPage,
+  DocumentVersionComparison,
+  NamedDocumentVersionResult,
 } from "@shared/document-history";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -77,6 +79,58 @@ export function useDocumentHistoryCheckpoint(
     documentId && versionId ? { documentId, versionId } : undefined,
     { enabled: !!documentId && !!versionId },
   );
+}
+
+export interface NamedDocumentVersion {
+  id: string;
+  title: string;
+  createdAt: string;
+  name: string;
+  namedBy: string | null;
+  namedAt: string | null;
+}
+
+export function useNamedDocumentVersions(documentId: string | null) {
+  return useActionQuery<{ versions: NamedDocumentVersion[] }>(
+    "list-document-versions",
+    documentId
+      ? { documentId, includeContent: false, namedOnly: true, limit: 100 }
+      : undefined,
+    {
+      enabled: !!documentId,
+      placeholderData: (previous) => previous,
+      staleTime: 0,
+      refetchOnMount: "always",
+    },
+  );
+}
+
+export function useDocumentVersionComparison(
+  documentId: string | null,
+  versionId: string | null,
+) {
+  return useActionQuery<DocumentVersionComparison>(
+    "compare-document-versions",
+    documentId && versionId
+      ? { documentId, fromVersionId: versionId }
+      : undefined,
+    { enabled: !!documentId && !!versionId, staleTime: 0 },
+  );
+}
+
+const HISTORY_QUERY_KEYS = [
+  ["action", "list-document-versions"],
+  ["action", "list-document-history"],
+  ["action", "list-document-history-checkpoints"],
+  ["action", "get-document-history-checkpoint"],
+  ["action", "compare-document-versions"],
+] as const;
+
+export function useNameDocumentVersion() {
+  return useContentActionMutation<
+    NamedDocumentVersionResult,
+    { documentId: string; versionId?: string; name: string }
+  >("name-document-version", { invalidates: [...HISTORY_QUERY_KEYS] });
 }
 
 export function useRestoreDocumentVersion(documentId: string) {

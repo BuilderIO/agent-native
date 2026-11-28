@@ -60,9 +60,30 @@ the markdown.
 
 ## Versions
 
-`list-document-versions` / `restore-document-version` operate on saved
-document versions. There is no diff view — restoring replaces the current
-content with the selected version's content wholesale.
+Content saves a page's versions on its own as people and agents edit; they
+show under Version history. `list-document-versions` lists them newest first,
+and `restore-document-version` puts one back, replacing the current title and
+body wholesale (the current state stays in history).
+
+A version can carry a name, such as "Week of Nov 17", so people and agents can
+find it again:
+
+- `name-document-version` without `versionId` saves the page as it is now as a
+  named version (open editors save first). With `versionId` it names, renames
+  or, with an empty `name`, unnames that saved version. Names are unique on a
+  page, ignoring case, and naming never changes the page. It needs edit
+  access.
+- `list-document-versions --namedOnly true` lists just the named versions.
+- `get-document-history-checkpoint` reads one version's title and body, by
+  `versionId` or by its `versionName`.
+- `compare-document-versions` returns what changed from one version to
+  another, or to the page as last saved when both `to*` fields are left out:
+  the title change and the body's changed lines with a little context. Use it
+  for "what changed since last week's version" instead of reading two whole
+  bodies.
+
+A named version is a label on a moment in the page's history, not a separate
+copy of the page: there is still one current body.
 
 ## Image blocks
 

@@ -1790,21 +1790,24 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "versions.history-and-restore",
     surface: "versions",
-    label: "Open version history and restore a previous document version",
+    label:
+      "Open version history, name versions, compare one with the current page, and restore a previous document version",
     uiEntrypoints: [
       "app/components/editor/VersionHistoryPanel.tsx",
       "app/hooks/use-document-versions.ts",
     ],
     durableEffect:
-      "Document versions are listed and selected versions can restore the document while snapshotting current state.",
+      "Document versions are listed with named ones first, can be named or unnamed, compare with the current page, and restore the document while snapshotting current state.",
     uiImplementation:
-      "Version panel reads and restores through document version actions.",
+      "Version panel reads, names, compares, and restores through document version actions.",
     status: "action-backed",
     actions: [
       "list-document-versions",
       "list-document-history",
       "list-document-history-checkpoints",
       "get-document-history-checkpoint",
+      "name-document-version",
+      "compare-document-versions",
       "restore-document-version",
     ],
     exception: null,

@@ -28,7 +28,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-11-27"
 ---
 
 # Named Page Versions
@@ -130,6 +130,8 @@ Given a Page with several Versions, independent Blocks-field histories, archived
 ## Current evidence
 
 Content currently preserves whole-document snapshots and can restore earlier title/body state. Those snapshots are useful recovery donor machinery, not named Versions: they do not prove stable alternative identities, parallel bodies, Version-specific access, a revision graph, in-place selective merge, promotion, or Version-aware collaboration. This Capability remains `approved_shape`.
+
+Those snapshots can now carry a name, such as "Week of Nov 17", and compare with the current Page (`content.version.field-history` records the details). A named snapshot is a label on a past state of the one body, not a named Version: it has no body of its own to edit, and restoring it still replaces the current title and body.
 
 ## Proof plan
 

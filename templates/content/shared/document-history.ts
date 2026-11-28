@@ -1,3 +1,5 @@
+import type { BuilderBodyDiff } from "./builder-body-diff.js";
+
 export type DocumentHistoryGroupKind =
   | "human_session"
   | "agent_run"
@@ -39,6 +41,11 @@ export interface DocumentHistoryPage {
   hasMore: boolean;
 }
 
+export const DOCUMENT_VERSION_NAME_MAX_LENGTH = 80;
+
+export const NAME_DOCUMENT_VERSION_OPERATION = "name-document-version";
+export const DOCUMENT_VERSION_NAME_TAKEN = "DOCUMENT_VERSION_NAME_TAKEN";
+
 export interface DocumentHistoryCheckpoint {
   id: string;
   documentId: string;
@@ -46,6 +53,9 @@ export interface DocumentHistoryCheckpoint {
   title: string;
   checkpointKind: DocumentHistoryCheckpointKind;
   createdAt: string;
+  name: string | null;
+  namedBy: string | null;
+  namedAt: string | null;
 }
 
 export interface DocumentHistoryCheckpointDetail extends DocumentHistoryCheckpoint {
@@ -56,4 +66,25 @@ export interface DocumentHistoryCheckpointPage {
   checkpoints: DocumentHistoryCheckpoint[];
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+export interface NamedDocumentVersionResult {
+  checkpoint: DocumentHistoryCheckpoint;
+  created: boolean;
+}
+
+export interface DocumentVersionComparisonSide {
+  kind: "checkpoint" | "current";
+  id: string | null;
+  name: string | null;
+  title: string;
+  at: string;
+}
+
+export interface DocumentVersionComparison {
+  from: DocumentVersionComparisonSide;
+  to: DocumentVersionComparisonSide;
+  identical: boolean;
+  title: { before: string; after: string } | null;
+  body: BuilderBodyDiff | null;
 }
