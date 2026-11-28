@@ -7445,6 +7445,8 @@ export interface AgentKitComposerProps extends Omit<
     | "layoutVariant"
     | "availableModels"
     | "modelListLoading"
+    | "modelListUnavailable"
+    | "onRetryModelList"
     | "selectedModel"
     | "defaultModel"
     | "selectedEngine"
@@ -7579,6 +7581,8 @@ export function AgentKitComposer({
   layoutVariant,
   availableModels,
   modelListLoading,
+  modelListUnavailable,
+  onRetryModelList,
   selectedModel,
   selectedEngine,
   selectedEffort,
@@ -8507,6 +8511,8 @@ export function AgentKitComposer({
             composerRef,
             availableModels,
             modelListLoading,
+            modelListUnavailable,
+            onRetryModelList,
             selectedModel,
             defaultModel,
             selectedEngine,

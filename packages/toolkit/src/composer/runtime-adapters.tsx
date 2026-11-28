@@ -99,6 +99,8 @@ export interface ComposerModelState {
   selectedEffort: ReasoningEffort;
   availableModels: EngineModelGroup[];
   isLoading: boolean;
+  catalogUnavailable?: boolean;
+  refreshEngines?: () => void;
   onModelChange: (model: string, engine: string) => void;
   onEffortChange: (effort: ReasoningEffort) => void;
 }

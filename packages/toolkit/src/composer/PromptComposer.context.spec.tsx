@@ -1591,34 +1591,39 @@ describe("controlled composer context", () => {
       configured: false,
       props: {},
       chip: false,
+      label: undefined,
     },
     {
       name: "a host setup card",
       configured: false,
       props: { showMissingApiKeySetup: false, setupCardVisible: true },
       chip: false,
+      label: undefined,
     },
     {
       name: "no setup card on screen",
       configured: false,
       props: { showMissingApiKeySetup: false },
       chip: true,
+      label: "Connect agent",
     },
     {
       name: "an empty host model list with no loading signal",
       configured: false,
       props: { showMissingApiKeySetup: false, availableModels: [] },
       chip: true,
+      label: "Model",
     },
     {
       name: "a connected provider",
       configured: true,
       props: {},
       chip: true,
+      label: undefined,
     },
   ])(
     "shows the model control beside $name: $chip",
-    async ({ configured, props, chip }) => {
+    async ({ configured, props, chip, label }) => {
       await act(async () => {
         root.render(
           <ComposerRuntimeAdaptersProvider
@@ -1662,8 +1667,8 @@ describe("controlled composer context", () => {
         '[data-agent-composer-slot="model-button"]',
       );
       expect(Boolean(modelButton)).toBe(chip);
-      if (chip && !configured) {
-        expect(modelButton?.textContent).toContain("Connect agent");
+      if (label) {
+        expect(modelButton?.textContent).toContain(label);
       }
     },
   );
@@ -2418,6 +2423,28 @@ describe("controlled composer context", () => {
 
     expect(onSubmit).toHaveBeenCalledOnce();
     expect(onSubmit.mock.calls[0][3].contextItems).toEqual([updatedContext]);
+  });
+
+  it("submits the model returned by pre-submit verification", async () => {
+    const verified = {
+      engine: "anthropic",
+      model: "claude-test",
+      effort: "high" as const,
+    };
+    const { onSubmit } = await mount({
+      showModelSelector: true,
+      selectedEngine: "openai",
+      selectedModel: "gpt-old",
+      onBeforeSubmit: async () => verified,
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][3]).toMatchObject(verified);
   });
 
   it("uses the latest host submit callback after readiness resolves", async () => {

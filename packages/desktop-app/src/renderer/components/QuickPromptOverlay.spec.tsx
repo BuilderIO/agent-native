@@ -1,41 +1,100 @@
-// @vitest-environment happy-dom
-import { getComposerDraftKey } from "@agent-native/toolkit/composer/draft-key";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+// @vitest-environment jsdom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const LEGACY_KEY = getComposerDraftKey("desktop:quick-prompt");
-const EARLIER_KEY = getComposerDraftKey("desktop:quick-prompt:earlier-load");
-const CREATE_APP_KEY = getComposerDraftKey("desktop:chat-first:create-app");
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
+  PromptComposer: ({
+    disabled,
+    selectedModel,
+    selectedEngine,
+    selectedEffort,
+    onBeforeSubmit,
+    onSubmit,
+  }: {
+    disabled: boolean;
+    selectedModel: string;
+    selectedEngine: string;
+    selectedEffort?: string;
+    onBeforeSubmit: () => Promise<
+      boolean | { model: string; engine: string; effort?: string }
+    >;
+    onSubmit: (
+      text: string,
+      files: File[],
+      references: unknown[],
+      options: object,
+    ) => Promise<void>;
+  }) => (
+    <>
+      <textarea
+        aria-label="composer"
+        disabled={disabled}
+        data-model={selectedModel}
+      />
+      <button
+        disabled={disabled}
+        onClick={() =>
+          void (async () => {
+            const verified = await onBeforeSubmit();
+            if (verified) {
+              await onSubmit(
+                "hello",
+                [],
+                [],
+                typeof verified === "object"
+                  ? verified
+                  : {
+                      model: selectedModel,
+                      engine: selectedEngine,
+                      effort: selectedEffort,
+                    },
+              );
+            }
+          })()
+        }
+      >
+        Send
+      </button>
+    </>
+  ),
+  readAgentPromptAttachment: vi.fn(),
+}));
+vi.mock("@agent-native/toolkit/ui/select", () => ({
+  Select: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectGroup: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectItem: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
+
+import QuickPromptOverlay from "./QuickPromptOverlay.js";
 
 let container: HTMLDivElement;
 let root: Root;
-
-// The composer stack is slow to transform on a cold cache.
-beforeAll(async () => {
-  stubElectronApi();
-  await import("./QuickPromptOverlay.js");
-}, 120_000);
+const model = {
+  engine: "openai",
+  engineLabel: "OpenAI",
+  model: "gpt-5",
+  configured: true,
+};
 
 beforeEach(() => {
-  localStorage.clear();
-  vi.resetModules();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  stubElectronApi();
-  // The composer probes origin-relative endpoints the file:// shell never has.
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response("{}", { status: 404 })),
-  );
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -45,127 +104,304 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
-  Reflect.deleteProperty(window, "electronAPI");
 });
 
-function stubElectronApi() {
-  const model = {
-    engine: "codex-cli",
-    engineLabel: "Codex",
-    model: "test-model",
-    label: "Test model",
-    configured: true,
-  };
-  Object.defineProperty(window, "electronAPI", {
-    configurable: true,
-    value: {
-      platform: "darwin",
-      quickPrompt: {
-        setSetupRequired: vi.fn(),
-        setPickerOpen: vi.fn(),
-        onHidden: vi.fn(() => () => {}),
-        dismiss: vi.fn(),
-        openProviderSettings: vi.fn(),
+describe("Quick Prompt model discovery", () => {
+  it("retries an unavailable catalog and restores the composer", async () => {
+    const listModels = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "unavailable" })
+      .mockResolvedValueOnce({ status: "unavailable" })
+      .mockResolvedValueOnce({
+        status: "ok",
+        models: [model],
+        selected: model,
+      });
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        codeAgents: {
+          listModels,
+          listProjects: vi.fn(async () => ({ projects: [] })),
+        },
+        quickPrompt: {
+          setSetupRequired: vi.fn(),
+          onHidden: () => () => {},
+          setPickerOpen: vi.fn(),
+        },
       },
-      codeAgents: {
-        listProjects: vi.fn(async () => ({ projects: [] })),
-        listModels: vi.fn(async () => ({
+    });
+    await act(async () => {
+      root.render(
+        <QuickPromptOverlay onSubmit={vi.fn()} onDismiss={vi.fn()} />,
+      );
+    });
+    const composer = container.querySelector<HTMLTextAreaElement>("textarea")!;
+    const retry = () =>
+      [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "common.retry",
+      )!;
+    expect(composer.disabled).toBe(true);
+    expect(retry()).toBeDefined();
+    await act(async () => retry().click());
+    expect(composer.disabled).toBe(true);
+    expect(retry()).toBeDefined();
+    await act(async () => retry().click());
+    expect(listModels).toHaveBeenLastCalledWith({ refresh: true });
+    expect(composer.disabled).toBe(false);
+    expect(retry()).toBeUndefined();
+  });
+
+  it("keeps a persisted configured choice on the initial catalog load", async () => {
+    const chosen = { ...model, model: "gpt-5-mini" };
+    localStorage.setItem(
+      "agent-native-code:model-selection",
+      JSON.stringify(chosen),
+    );
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        codeAgents: {
+          listModels: vi.fn(async () => ({
+            status: "ok",
+            models: [model, chosen],
+            selected: model,
+          })),
+          listProjects: vi.fn(async () => ({ projects: [] })),
+        },
+        quickPrompt: {
+          setSetupRequired: vi.fn(),
+          onHidden: () => () => {},
+          setPickerOpen: vi.fn(),
+        },
+      },
+    });
+    await act(async () => {
+      root.render(
+        <QuickPromptOverlay onSubmit={vi.fn()} onDismiss={vi.fn()} />,
+      );
+    });
+    expect(
+      container.querySelector("textarea")?.getAttribute("data-model"),
+    ).toBe("gpt-5-mini");
+  });
+
+  it.each(["ok", "unavailable"])(
+    "waits for the forced pre-submit refresh when focus occurs (%s)",
+    async (status) => {
+      let finishRefresh: (value: unknown) => void = () => {};
+      const listModels = vi
+        .fn()
+        .mockResolvedValueOnce({
           status: "ok",
           models: [model],
-          selected: { engine: model.engine, model: model.model },
-        })),
-      },
+          selected: model,
+        })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishRefresh = resolve;
+            }),
+        );
+      const onSubmit = vi.fn(async () => {});
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          codeAgents: {
+            listModels,
+            listProjects: vi.fn(async () => ({ projects: [] })),
+          },
+          quickPrompt: {
+            setSetupRequired: vi.fn(),
+            onHidden: () => () => {},
+            setPickerOpen: vi.fn(),
+          },
+        },
+      });
+      await act(async () => {
+        root.render(
+          <QuickPromptOverlay onSubmit={onSubmit} onDismiss={vi.fn()} />,
+        );
+      });
+      const send = [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "Send",
+      )!;
+      await act(async () => send.click());
+      await act(async () => window.dispatchEvent(new Event("focus")));
+      expect(listModels).toHaveBeenCalledTimes(2);
+      expect(onSubmit).not.toHaveBeenCalled();
+      await act(async () =>
+        finishRefresh(
+          status === "ok"
+            ? { status, models: [model], selected: model }
+            : { status },
+        ),
+      );
+      expect(onSubmit).toHaveBeenCalledTimes(status === "ok" ? 1 : 0);
+      expect(
+        container.querySelector<HTMLTextAreaElement>("textarea")!.disabled,
+      ).toBe(status !== "ok");
     },
-  });
-}
-
-async function mountOverlay() {
-  const { default: QuickPromptOverlay } =
-    await import("./QuickPromptOverlay.js");
-  const queryClient = new QueryClient();
-  await act(async () => {
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <QuickPromptOverlay onDismiss={vi.fn()} onSubmit={vi.fn()} />
-      </QueryClientProvider>,
-    );
-  });
-}
-
-function quickPromptKeys(): string[] {
-  const keys: string[] = [];
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    if (key?.startsWith(getComposerDraftKey("desktop:quick-prompt")))
-      keys.push(key);
-  }
-  return keys;
-}
-
-async function type(text: string) {
-  const editor = container.querySelector<HTMLElement>(
-    '[contenteditable="true"]',
   );
-  if (!editor) throw new Error("Missing composer");
-  await act(async () => {
-    editor.focus();
-    editor.textContent = text;
-    editor.dispatchEvent(
-      new InputEvent("input", {
-        bubbles: true,
-        inputType: "insertText",
-        data: text,
-      }),
+
+  it.each([
+    { storedEffort: undefined, expectedEffort: "high" },
+    { storedEffort: "low", expectedEffort: "low" },
+  ])(
+    "submits normalized effort when verification finishes before the initial catalog",
+    async ({ storedEffort, expectedEffort }) => {
+      if (storedEffort) {
+        localStorage.setItem(
+          "agent-native-code:model-selection",
+          JSON.stringify({ effort: storedEffort }),
+        );
+      }
+      const listModels = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValueOnce({
+          status: "ok",
+          models: [model],
+          selected: model,
+        });
+      const onSubmit = vi.fn(async () => {});
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          codeAgents: {
+            listModels,
+            listProjects: vi.fn(async () => ({ projects: [] })),
+          },
+          quickPrompt: {
+            setSetupRequired: vi.fn(),
+            onHidden: () => () => {},
+            setPickerOpen: vi.fn(),
+          },
+        },
+      });
+      await act(async () =>
+        root.render(
+          <QuickPromptOverlay onSubmit={onSubmit} onDismiss={vi.fn()} />,
+        ),
+      );
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Send")!
+          .click();
+      });
+      expect(onSubmit).toHaveBeenCalledWith("hello", [], undefined, {
+        engine: model.engine,
+        model: model.model,
+        effort: expectedEffort,
+      });
+    },
+  );
+
+  it("submits the configured fallback returned by the pre-submit refresh", async () => {
+    const fallback = { ...model, engine: "anthropic", model: "claude-test" };
+    const listModels = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "ok", models: [model], selected: model })
+      .mockResolvedValueOnce({
+        status: "ok",
+        models: [fallback],
+        selected: fallback,
+      });
+    const onSubmit = vi.fn(async () => {});
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        codeAgents: {
+          listModels,
+          listProjects: vi.fn(async () => ({ projects: [] })),
+        },
+        quickPrompt: {
+          setSetupRequired: vi.fn(),
+          onHidden: () => () => {},
+          setPickerOpen: vi.fn(),
+        },
+      },
+    });
+    await act(async () =>
+      root.render(
+        <QuickPromptOverlay onSubmit={onSubmit} onDismiss={vi.fn()} />,
+      ),
     );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  });
-}
-
-describe("Quick Prompt draft ownership", () => {
-  it("does not restore an earlier load's draft and removes the old keys", async () => {
-    localStorage.setItem(LEGACY_KEY, "<p>A private acquisition notes</p>");
-    localStorage.setItem(EARLIER_KEY, "<p>A earlier draft</p>");
-    localStorage.setItem(CREATE_APP_KEY, "<p>unrelated draft</p>");
-
-    await mountOverlay();
-
-    expect(container.textContent).not.toContain("A private acquisition notes");
-    expect(container.textContent).not.toContain("A earlier draft");
-    expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
-    expect(localStorage.getItem(EARLIER_KEY)).toBeNull();
-    expect(localStorage.getItem(CREATE_APP_KEY)).toBe("<p>unrelated draft</p>");
+    expect(
+      container.querySelector("textarea")?.getAttribute("data-model"),
+    ).toBe(model.model);
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Send")!
+        .click();
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith("hello", [], undefined, {
+      engine: fallback.engine,
+      model: fallback.model,
+      effort: "high",
+    });
   });
 
-  it("keeps the draft when the overlay is shown again in the same load", async () => {
-    await mountOverlay();
-    await type("A unsent text");
-    expect(quickPromptKeys()).toHaveLength(1);
-    const [key] = quickPromptKeys();
-    expect(key).not.toBe(LEGACY_KEY);
-
-    act(() => root.unmount());
-    root = createRoot(container);
-    await mountOverlay();
-
-    expect(container.textContent).toContain("A unsent text");
-    expect(quickPromptKeys()).toEqual([key]);
-  });
-
-  it("does not restore a draft saved by an earlier load", async () => {
-    await mountOverlay();
-    await type("A unsent text");
-    const savedKey = quickPromptKeys()[0] ?? "";
-    expect(savedKey).not.toBe("");
-    const savedDraft = localStorage.getItem(savedKey);
-    act(() => root.unmount());
-
-    // A new renderer load is a fresh module instance.
-    vi.resetModules();
-    root = createRoot(container);
-    await mountOverlay();
-
-    expect(container.textContent).not.toContain("A unsent text");
-    expect(savedDraft).toContain("A unsent text");
-    expect(localStorage.getItem(savedKey)).toBeNull();
-  });
+  it.each(["rejection", "unavailable"])(
+    "ignores an older focus %s after a forced refresh succeeds",
+    async (outcome) => {
+      let rejectOlder: (error: Error) => void = () => {};
+      let resolveOlder: (result: { status: string }) => void = () => {};
+      const listModels = vi
+        .fn()
+        .mockResolvedValueOnce({ status: "unavailable" })
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              resolveOlder = resolve;
+              rejectOlder = reject;
+            }),
+        )
+        .mockResolvedValueOnce({
+          status: "ok",
+          models: [model],
+          selected: model,
+        });
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          codeAgents: {
+            listModels,
+            listProjects: vi.fn(async () => ({ projects: [] })),
+          },
+          quickPrompt: {
+            setSetupRequired: vi.fn(),
+            onHidden: () => () => {},
+            setPickerOpen: vi.fn(),
+          },
+        },
+      });
+      await act(async () => {
+        root.render(
+          <QuickPromptOverlay onSubmit={vi.fn()} onDismiss={vi.fn()} />,
+        );
+      });
+      const retry = [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "common.retry",
+      )!;
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await act(async () => {
+        retry.click();
+      });
+      const composer =
+        container.querySelector<HTMLTextAreaElement>("textarea")!;
+      expect(composer.disabled).toBe(false);
+      await act(async () => {
+        if (outcome === "rejection") rejectOlder(new Error("late failure"));
+        else resolveOlder({ status: "unavailable" });
+      });
+      expect(composer.disabled).toBe(false);
+      expect(container.textContent).not.toContain(
+        "setup.providerStatusUnavailable",
+      );
+    },
+  );
 });
