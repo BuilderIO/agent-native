@@ -1716,6 +1716,11 @@ describe("DragHandle block selection", () => {
       0,
     ],
     ["a divider before a hidden block", "<hr><aside>Folded</aside>", 0],
+    [
+      "a hidden block before a see-through one",
+      "<aside>Folded</aside><section>Faded</section>",
+      0,
+    ],
   ])("lets go of %s by moving past the hidden text", (_name, content, pos) => {
     const Folded = Node.create({
       name: "folded",
@@ -1724,13 +1729,20 @@ describe("DragHandle block selection", () => {
       parseHTML: () => [{ tag: "aside" }],
       renderHTML: () => ["aside", ["div", { style: "display: none" }, 0]],
     });
+    const Faded = Node.create({
+      name: "faded",
+      group: "block",
+      content: "text*",
+      parseHTML: () => [{ tag: "section" }],
+      renderHTML: () => ["section", ["div", { style: "opacity: 0" }, 0]],
+    });
     const { editor } = mountEditor(
       `${content}<p>Second</p>`,
       {},
       undefined,
       undefined,
       undefined,
-      [StarterKit, Folded],
+      [StarterKit, Folded, Faded],
     );
     const page = document.createElement("div");
     document.body.appendChild(page);

@@ -492,7 +492,10 @@ const showsPosition = (view: EditorView, pos: number) => {
   const { node } = view.domAtPos(pos);
   const element = node instanceof Element ? node : node.parentElement;
   if (!element || !("checkVisibility" in element)) return true;
-  return element.checkVisibility();
+  return element.checkVisibility({
+    opacityProperty: true,
+    visibilityProperty: true,
+  });
 };
 
 const visibleCaret = (view: EditorView, $start: ResolvedPos, dir: 1 | -1) => {

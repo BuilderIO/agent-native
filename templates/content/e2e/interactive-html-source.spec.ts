@@ -84,6 +84,7 @@ test.describe("interactive HTML source", () => {
     await expect(block.locator("pre")).toBeVisible();
     await press(block, "Hide source");
     await expect(block.locator("pre")).toBeHidden();
+    await expect(page.locator(".ProseMirror-selectednode")).toHaveCount(1);
 
     await clickBeside(page, block);
     await expect(block.locator("pre")).toBeHidden();
