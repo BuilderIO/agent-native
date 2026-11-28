@@ -491,7 +491,8 @@ const KEEPS_BLOCK_SELECTION = [
 const showsPosition = (view: EditorView, pos: number) => {
   const { node } = view.domAtPos(pos);
   const element = node instanceof Element ? node : node.parentElement;
-  return element?.checkVisibility?.() ?? true;
+  if (!element || !("checkVisibility" in element)) return true;
+  return element.checkVisibility();
 };
 
 const editorArea = (registration: DragHandleRegistration) => {
