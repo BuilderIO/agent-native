@@ -2515,6 +2515,12 @@ type PendingDocumentSave = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type PendingLocalSourceVersion = {
+  request: VisualEditorExternalContent;
+  document: Document;
+  revision: DesktopContentFileRevision | undefined;
+};
+
 type DocumentSaveOptions = {
   persistenceSequence?: number;
   telemetryOrigin?: "recovery";
@@ -3722,6 +3728,8 @@ function PageEditorSessionBody({
     diskRevision?: DesktopContentFileRevision;
     unsavedText: string;
   } | null>(null);
+  const localSourceConflictRef = useRef(localSourceConflict);
+  localSourceConflictRef.current = localSourceConflict;
   const reconcileRecoveryStateRef =
     useRef<DocumentReconcileRecoveryState | null>(null);
   const reconcileSaveRef = useRef<
@@ -3743,19 +3751,8 @@ function PageEditorSessionBody({
   const [localFileSyncRevision, setLocalFileSyncRevision] = useState(0);
   const [localSourceText, setLocalSourceText] =
     useState<VisualEditorExternalContent | null>(null);
-  const showLocalSourceText = useCallback((content: string) => {
-    let pending = true;
-    setLocalSourceText((current) => ({
-      key: String(Number(current?.key ?? 0) + 1),
-      merge: (_live, canHold) => {
-        if (!pending) return null;
-        pending = false;
-        if (canHold(content)) return content;
-        setLocalFileSyncRevision((revision) => revision + 1);
-        return null;
-      },
-    }));
-  }, []);
+  const pendingLocalSourceRef = useRef<PendingLocalSourceVersion | null>(null);
+  const localSourceRequestCountRef = useRef(0);
   const editorHistoryControllerDocumentIdRef = useRef<string | null>(null);
   const [editorHistoryControllerReady, setEditorHistoryControllerReady] =
     useState(false);
@@ -3984,16 +3981,22 @@ function PageEditorSessionBody({
   const savedBodySpellingRef = useRef<{ saved: string; held: string } | null>(
     null,
   );
-  const bodyMatchesSaved = useCallback((body: string) => {
-    const saved = lastSavedContentRef.current.content;
-    if (body === saved) return true;
-    let spelling = savedBodySpellingRef.current;
-    if (spelling?.saved !== saved) {
-      spelling = { saved, held: canonicalizeNfm(saved) };
-      savedBodySpellingRef.current = spelling;
-    }
-    return body === spelling.held;
-  }, []);
+  const bodyMatchesSaved = useCallback(
+    (body: string) => {
+      const saved = lastSavedContentRef.current.content;
+      if (body === saved) return true;
+      let spelling = savedBodySpellingRef.current;
+      if (spelling?.saved !== saved) {
+        spelling = { saved, held: canonicalizeNfm(saved) };
+        savedBodySpellingRef.current = spelling;
+      }
+      return (
+        body === spelling.held ||
+        (isLinkedLocalSourceDocument && sameSourceMarkdown(body, saved))
+      );
+    },
+    [isLinkedLocalSourceDocument],
+  );
   // The body a save sends: the saved one when the editor holds it in its own
   // spelling, so saving an unedited page asks for no body change. The server
   // refuses a browser save that replaces another writer's body with an
@@ -4528,6 +4531,7 @@ function PageEditorSessionBody({
       setLocalSourceMissing(false);
       setLocalSourceAccess("checking");
       setLocalFileSyncRevision(0);
+      pendingLocalSourceRef.current = null;
       setLocalSourceText(null);
     }
     if (!isInitializedRef.current) {
@@ -4696,6 +4700,7 @@ function PageEditorSessionBody({
       };
 
       if (isLinkedLocalSource) {
+        const conflictBeforeWrite = localSourceConflictRef.current;
         let expectedLocalSourceRevision = localSourceRevisionForSave(
           options.expectedLocalSourceRevision,
           localSourceRevisionRef.current,
@@ -4785,7 +4790,9 @@ function PageEditorSessionBody({
         if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {
           pendingLocalSourceWriteRef.current = null;
         }
-        setLocalSourceConflict(null);
+        setLocalSourceConflict((current) =>
+          current === conflictBeforeWrite ? null : current,
+        );
         localSourceWriteErrorShownRef.current = false;
         setLocalContentUpdatedAt(nextSavedAt);
       }
@@ -5013,13 +5020,60 @@ function PageEditorSessionBody({
   const persistDocumentUpdatesRef = useRef(persistDocumentUpdates);
   persistDocumentUpdatesRef.current = persistDocumentUpdates;
 
+  const showLocalSourceVersion = useCallback(
+    (
+      diskDocument: Document,
+      diskRevision: DesktopContentFileRevision | undefined,
+      adopt: () => void,
+    ) => {
+      const base = localContentRef.current;
+      localSourceRequestCountRef.current += 1;
+      const request: VisualEditorExternalContent = {
+        key: String(localSourceRequestCountRef.current),
+        merge: (live, canHold) => {
+          const pending = pendingLocalSourceRef.current;
+          if (pending?.request !== request) return null;
+          pendingLocalSourceRef.current = null;
+          const held = live ?? localContentRef.current;
+          if (
+            !sameSourceMarkdown(held, base) ||
+            !sameSourceMarkdown(localContentRef.current, base)
+          ) {
+            setLocalSourceConflict({
+              diskDocument: pending.document,
+              diskRevision: pending.revision,
+              unsavedText: held,
+            });
+            return null;
+          }
+          localSourceRevisionRef.current = pending.revision;
+          adopt();
+          if (canHold(pending.document.content)) {
+            return pending.document.content;
+          }
+          setLocalFileSyncRevision((revision) => revision + 1);
+          return null;
+        },
+      };
+      pendingLocalSourceRef.current = {
+        request,
+        document: diskDocument,
+        revision: diskRevision,
+      };
+      setLocalSourceText(request);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!isLinkedLocalSourceDocument) return;
     let active = true;
+    let latestRead = 0;
 
     const adoptDisk = async () => {
+      const read = ++latestRead;
       const result = await readDocumentFromLinkedLocalSource(document);
-      if (!active) return;
+      if (!active || read !== latestRead) return;
       if (!result.ok) {
         setLocalSourceAccess("unavailable");
         if (result.error.includes("was not found")) {
@@ -5036,6 +5090,15 @@ function PageEditorSessionBody({
       setLocalSourceAccess("available");
       setLocalSourceMissing(false);
       const diskContent = result.document.content;
+      const pending = pendingLocalSourceRef.current;
+      if (
+        pending?.document.title === result.document.title &&
+        sameSourceMarkdown(pending.document.content, diskContent)
+      ) {
+        pending.revision = result.revision;
+        return;
+      }
+      pendingLocalSourceRef.current = null;
       const disposition = classifyLocalSourceRead({
         diskTitle: result.document.title,
         diskContent,
@@ -5057,28 +5120,31 @@ function PageEditorSessionBody({
         });
         return;
       }
-      localSourceRevisionRef.current = result.revision;
-      if (disposition === "unchanged") return;
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-        pendingDocumentSaveRef.current = null;
+      if (disposition === "unchanged") {
+        localSourceRevisionRef.current = result.revision;
+        return;
       }
-      localTitleRef.current = result.document.title;
-      localContentRef.current = diskContent;
-      setLocalTitle(result.document.title);
-      setLocalContent(diskContent);
-      setLocalContentUpdatedAt(result.updatedAt);
-      lastSavedTitleRef.current = {
-        title: result.document.title,
-        updatedAt: result.updatedAt,
-      };
-      lastSavedContentRef.current = {
-        content: diskContent,
-        updatedAt: result.updatedAt,
-      };
-      showLocalSourceText(diskContent);
-      setLocalSourceConflict(null);
+      showLocalSourceVersion(result.document, result.revision, () => {
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+          pendingDocumentSaveRef.current = null;
+        }
+        localTitleRef.current = result.document.title;
+        localContentRef.current = diskContent;
+        setLocalTitle(result.document.title);
+        setLocalContent(diskContent);
+        setLocalContentUpdatedAt(result.updatedAt);
+        lastSavedTitleRef.current = {
+          title: result.document.title,
+          updatedAt: result.updatedAt,
+        };
+        lastSavedContentRef.current = {
+          content: diskContent,
+          updatedAt: result.updatedAt,
+        };
+        setLocalSourceConflict(null);
+      });
     };
 
     void adoptDisk();
@@ -5100,27 +5166,27 @@ function PageEditorSessionBody({
     document.id,
     document.source,
     isLinkedLocalSourceDocument,
-    showLocalSourceText,
+    showLocalSourceVersion,
   ]);
 
   const handleLinkedLocalAgentPersistence = useCallback(
     (persisted: Document, revision?: DesktopContentFileRevision) => {
-      localSourceRevisionRef.current = revision;
-      localTitleRef.current = persisted.title;
-      localContentRef.current = persisted.content;
-      setLocalTitle(persisted.title);
-      setLocalContent(persisted.content);
-      setLocalContentUpdatedAt(persisted.updatedAt ?? new Date().toISOString());
-      lastSavedTitleRef.current = {
-        title: persisted.title,
-        updatedAt: lastSavedTitleRef.current.updatedAt,
-      };
-      lastSavedContentRef.current = {
-        content: persisted.content,
-        updatedAt: lastSavedContentRef.current.updatedAt,
-      };
-      showLocalSourceText(persisted.content);
-      setLocalSourceConflict(null);
+      showLocalSourceVersion(persisted, revision, () => {
+        localTitleRef.current = persisted.title;
+        localContentRef.current = persisted.content;
+        setLocalTitle(persisted.title);
+        setLocalContent(persisted.content);
+        setLocalContentUpdatedAt(persisted.updatedAt);
+        lastSavedTitleRef.current = {
+          title: persisted.title,
+          updatedAt: lastSavedTitleRef.current.updatedAt,
+        };
+        lastSavedContentRef.current = {
+          ...lastSavedContentRef.current,
+          content: persisted.content,
+        };
+        setLocalSourceConflict(null);
+      });
       const sqlUpdatedAt = documentUpdatedAtRef.current;
       queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
         mergeDocumentIntoDocumentCache(old, {
@@ -5129,7 +5195,7 @@ function PageEditorSessionBody({
         }),
       );
     },
-    [documentId, queryClient, showLocalSourceText],
+    [documentId, queryClient, showLocalSourceVersion],
   );
 
   useEffect(() => {
@@ -9019,7 +9085,8 @@ function PageEditorSessionBody({
         return "retained";
       }
       if (
-        newContent === localContentRef.current &&
+        (newContent === localContentRef.current ||
+          bodyMatchesSaved(newContent)) &&
         !readEditorSaveState().unsavedEdits
       )
         return "unchanged";
@@ -9034,6 +9101,7 @@ function PageEditorSessionBody({
         : "failed";
     },
     [
+      bodyMatchesSaved,
       editorCanEdit,
       handleContentChange,
       handleContentSaveNow,
@@ -9195,6 +9263,8 @@ function PageEditorSessionBody({
       saveTimeoutRef.current = null;
       pendingDocumentSaveRef.current = null;
     }
+    pendingLocalSourceRef.current = null;
+    setLocalSourceText(null);
     localSourceRevisionRef.current = localSourceConflict.diskRevision;
     localTitleRef.current = next.title;
     localContentRef.current = next.content;

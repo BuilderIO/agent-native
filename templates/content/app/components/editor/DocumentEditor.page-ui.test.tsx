@@ -3,6 +3,7 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { Document } from "@shared/api";
 import { canonicalizeNfm } from "@shared/nfm";
+import { sameSourceMarkdown } from "@shared/source-markdown";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
@@ -13,7 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommentThread } from "@/hooks/use-comments";
 import type { LocalSourceDocumentReadResult } from "@/lib/local-content-source-files";
 
-import type { VisualEditor } from "./VisualEditor";
+import type {
+  VisualEditor,
+  VisualEditorPersistenceController,
+} from "./VisualEditor";
 
 type ToolbarProps = {
   documentId: string;
@@ -36,8 +40,18 @@ const fixture = vi.hoisted(() => ({
   threads: [] as CommentThread[],
   suggestions: [] as ResourceSuggestion[],
   readLocal: null as LocalSourceDocumentReadResult | null,
+  localWrites: [] as {
+    content: string;
+    expectedRevision?: string;
+    accepted: boolean;
+  }[],
   localFileChanged: null as (() => void) | null,
   realEditor: false,
+  persistence: null as VisualEditorPersistenceController | null,
+  reportPersistence: new WeakMap<
+    (controller: VisualEditorPersistenceController | null) => void,
+    (controller: VisualEditorPersistenceController | null) => void
+  >(),
   toolbars: [] as ToolbarProps[],
   sidebars: [] as SidebarProps[],
   properties: [] as { documentId: string; databaseId?: string | null }[],
@@ -155,10 +169,38 @@ vi.mock("@/lib/local-content-source-files", async (original) => ({
     fixture.localFileChanged = onChange;
     return { ok: true, unsubscribe: () => {} };
   },
-  writeDocumentToLinkedLocalSource: async () => ({
-    ok: true,
-    revision: "disk-2",
-  }),
+  writeDocumentToLinkedLocalSource: async (
+    written: Document,
+    _source: unknown,
+    options: { expectedRevision?: string } = {},
+  ) => {
+    const disk = fixture.readLocal;
+    const accepted = !disk?.ok || options.expectedRevision === disk.revision;
+    fixture.localWrites.push({
+      content: written.content,
+      expectedRevision: options.expectedRevision,
+      accepted,
+    });
+    if (!accepted) {
+      return {
+        ok: false,
+        error: "The file changed on disk.",
+        conflict: {
+          path: "notes/page.md",
+          expectedRevision: options.expectedRevision,
+        },
+      };
+    }
+    const revision = `written-${fixture.localWrites.length}`;
+    if (disk?.ok) {
+      fixture.readLocal = {
+        ...disk,
+        document: { ...disk.document, content: written.content },
+        revision,
+      };
+    }
+    return { ok: true, revision };
+  },
 }));
 vi.mock("./comment-ai", () => ({
   useCommentAiRequests: () => ({ requests: [], freshResolutions: new Map() }),
@@ -216,7 +258,21 @@ vi.mock("./VisualEditor", async (original) => {
     ...actual,
     VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
       fixture.editors.push(props);
-      if (fixture.realEditor) return createElement(actual.VisualEditor, props);
+      if (fixture.realEditor) {
+        const report = props.onPersistenceControllerChange;
+        let observed = report && fixture.reportPersistence.get(report);
+        if (report && !observed) {
+          observed = (controller) => {
+            fixture.persistence = controller;
+            report(controller);
+          };
+          fixture.reportPersistence.set(report, observed);
+        }
+        return createElement(actual.VisualEditor, {
+          ...props,
+          onPersistenceControllerChange: observed,
+        });
+      }
       return createElement(
         "div",
         {
@@ -241,6 +297,7 @@ vi.mock("./VisualEditor", async (original) => {
 });
 
 import { PageEditorSurface } from "./DocumentEditor";
+import { runPersistableHistoryCommand } from "./editor-transaction-meta";
 import { createPageEditorMount, present } from "./page-editor-test-utils";
 
 let mount: ReturnType<typeof createPageEditorMount>;
@@ -283,8 +340,10 @@ beforeEach(() => {
   fixture.threads = [thread("t-text", "body"), thread("t-page", null)];
   fixture.suggestions = [];
   fixture.readLocal = null;
+  fixture.localWrites = [];
   fixture.localFileChanged = null;
   fixture.realEditor = false;
+  fixture.persistence = null;
   fixture.toolbars = [];
   fixture.sidebars = [];
   fixture.properties = [];
@@ -511,41 +570,97 @@ describe("a page read from a local file", () => {
     expect(toolbar().canEdit).toBe(true);
   });
 
-  it("shows a change made outside Content in place, keeping the cursor and Undo", async () => {
-    fixture.realEditor = true;
-    const onDisk = {
-      ...present(fixture.pages.page),
-      content: "First paragraph\n\nSecond paragraph",
-    };
+  const putOnDisk = (content: string, revision: string, updatedAt?: string) => {
+    const page = present(fixture.pages.page);
     fixture.readLocal = {
       ok: true,
-      document: onDisk,
-      revision: "disk-1",
-      updatedAt: onDisk.updatedAt,
+      document: { ...page, content },
+      revision,
+      updatedAt: updatedAt ?? page.updatedAt,
     } as LocalSourceDocumentReadResult;
-    await render(surface("page", "page"));
-    const body = shownEditor();
-    const editor = body.editor;
-    const caret = 1 + "First par".length;
-    await act(async () => {
-      editor.commands.focus();
-      editor.commands.setTextSelection(caret);
-    });
-    expect(document.activeElement).toBe(body);
-
-    const outside = "This sentence was written outside Content.";
-    fixture.readLocal = {
-      ok: true,
-      document: { ...onDisk, content: `${onDisk.content}\n\n${outside}` },
-      revision: "disk-2",
-      updatedAt: "2026-10-19T12:05:00.000Z",
-    } as LocalSourceDocumentReadResult;
+  };
+  const onDisk = () => {
+    const disk = present(fixture.readLocal);
+    if (!disk.ok) throw new Error(disk.error);
+    return disk;
+  };
+  const diskHolds = (text: string) =>
+    sameSourceMarkdown(onDisk().document.content, text);
+  const changeOutside = async (content: string, revision = "outside-1") => {
+    putOnDisk(content, revision, new Date(Date.now() + 60_000).toISOString());
     await act(async () => present(fixture.localFileChanged)());
     await act(async () => {});
+  };
+  const savesWithout = (text: string, revision = "outside-1") =>
+    fixture.localWrites.filter(
+      (write) =>
+        write.accepted &&
+        write.expectedRevision === revision &&
+        !write.content.includes(text),
+    );
+  const settle = () =>
+    act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  const type = async (editor: Editor, position: number, text: string) => {
+    await act(async () => {
+      editor.commands.focus();
+      editor.commands.setTextSelection(position);
+      editor.view.dispatch(editor.state.tr.insertText(text));
+    });
+  };
+  const holdComposition = (editor: Editor) => {
+    let composing = true;
+    Object.defineProperty(editor.view, "composing", {
+      configurable: true,
+      get: () => composing,
+    });
+    return () => {
+      composing = false;
+    };
+  };
+  const typedLongAgo = () => {
+    const now = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => now() + 5_000);
+  };
+  const countDocChanges = (editor: Editor) => {
+    const count = { changes: 0 };
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) count.changes += 1;
+    });
+    return count;
+  };
+  const undo = (editor: Editor) =>
+    act(async () => {
+      runPersistableHistoryCommand(editor, "undo");
+    });
+  const useDiskVersionButton = () =>
+    present(
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "editor.useDiskVersion",
+      ),
+    );
+
+  it("shows a change made outside Content in place, keeping focus, the cursor and Undo", async () => {
+    fixture.realEditor = true;
+    putOnDisk("First paragraph\n\nSecond paragraph", "disk-1");
+    await render(surface("page", "page"));
+    const body = shownEditor();
+    const { editor } = body;
+    await type(
+      editor,
+      editor.state.doc.child(0).nodeSize + 1 + "Second paragraph".length,
+      " typed",
+    );
+    await vi.waitFor(() =>
+      expect(onDisk().document.content).toContain("Second paragraph typed"),
+    );
+    const caret = editor.state.selection.from;
+
+    const outside = "This sentence was written outside Content.";
+    await changeOutside(`${onDisk().document.content}\n\n${outside}`);
 
     expect(paragraphs()).toEqual([
       "First paragraph",
-      "Second paragraph",
+      "Second paragraph typed",
       outside,
     ]);
     expect(document.activeElement).toBe(body);
@@ -553,14 +668,200 @@ describe("a page read from a local file", () => {
     expect(editor.state.selection.from).toBe(caret);
     expect(editor.state.selection.empty).toBe(true);
 
+    const writes = fixture.localWrites.length;
     await act(async () => {
-      editor.commands.undo();
+      await present(fixture.persistence).flushLatest();
     });
+    expect(fixture.localWrites.length).toBe(writes);
+
+    await undo(editor);
     expect(paragraphs()).toEqual([
       "First paragraph",
       "Second paragraph",
       outside,
     ]);
+    await vi.waitFor(() => expect(onDisk().revision).not.toBe("outside-1"));
+    expect(fixture.localWrites.at(-1)).toMatchObject({
+      expectedRevision: "outside-1",
+      accepted: true,
+    });
+    expect(onDisk().document.content).toContain(outside);
+    expect(onDisk().document.content).not.toContain("typed");
+  });
+
+  it("keeps the cursor and Undo when a change outside Content rewords the paragraph being typed in", async () => {
+    fixture.realEditor = true;
+    putOnDisk("Hello!", "disk-1");
+    await render(surface("page", "page"));
+    const body = shownEditor();
+    const { editor } = body;
+    await type(editor, 1 + "Hello".length, " world");
+    await vi.waitFor(() => expect(diskHolds("Hello world!")).toBe(true));
+
+    await changeOutside("Hi world!");
+
+    expect(paragraphs()).toEqual(["Hi world!"]);
+    expect(shownEditor()).toBe(body);
+    expect(document.activeElement).toBe(body);
+    expect(editor.state.selection.from).toBe(1 + "Hi world".length);
+
+    await undo(editor);
+    expect(paragraphs()).toEqual(["Hi!"]);
+    await vi.waitFor(() => expect(diskHolds("Hi!")).toBe(true));
+    expect(fixture.localWrites.at(-1)).toMatchObject({
+      expectedRevision: "outside-1",
+      accepted: true,
+    });
+  });
+
+  it("saves nothing over a change made outside Content while a word is still being composed", async () => {
+    fixture.realEditor = true;
+    putOnDisk("Saved body", "disk-1");
+    await render(surface("page", "page"));
+    const { editor } = shownEditor();
+    await type(editor, 1 + "Saved body".length, " typed");
+    await vi.waitFor(() => expect(diskHolds("Saved body typed")).toBe(true));
+    const endComposition = holdComposition(editor);
+
+    const outside = "Written outside.";
+    await changeOutside(`Saved body typed\n\n${outside}`);
+    expect(paragraphs()).toEqual(["Saved body typed"]);
+
+    await act(async () => {
+      await present(fixture.persistence).flushLatest();
+    });
+    expect(savesWithout(outside)).toEqual([]);
+    expect(onDisk().document.content).toContain(outside);
+
+    endComposition();
+    await vi.waitFor(() =>
+      expect(paragraphs()).toEqual(["Saved body typed", outside]),
+    );
+    expect(container.querySelector("[data-local-source-conflict]")).toBe(null);
+    expect(savesWithout(outside)).toEqual([]);
+  });
+
+  it("keeps both a word composed while a change arrives from outside Content and that change", async () => {
+    fixture.realEditor = true;
+    putOnDisk("Saved body", "disk-1");
+    await render(surface("page", "page"));
+    const { editor } = shownEditor();
+    await type(editor, 1 + "Saved body".length, " typed");
+    await vi.waitFor(() => expect(diskHolds("Saved body typed")).toBe(true));
+    const endComposition = holdComposition(editor);
+
+    const outside = "Written outside.";
+    await changeOutside(`Saved body typed\n\n${outside}`);
+    await act(async () => {
+      editor.view.dispatch(editor.state.tr.insertText("漢字"));
+    });
+    await vi.waitFor(() =>
+      expect(fixture.localWrites.at(-1)?.content).toContain("漢字"),
+    );
+    endComposition();
+    await vi.waitFor(() =>
+      expect(container.querySelector("[data-local-source-conflict]")).not.toBe(
+        null,
+      ),
+    );
+    await settle();
+
+    expect(paragraphs()).toEqual(["Saved body typed漢字"]);
+    expect(onDisk().document.content).toBe(`Saved body typed\n\n${outside}`);
+    expect(savesWithout(outside)).toEqual([]);
+  });
+
+  it("waits out a word being composed before showing a change made outside Content, then shows it once", async () => {
+    fixture.realEditor = true;
+    putOnDisk("Saved body", "disk-1");
+    await render(surface("page", "page"));
+    const { editor } = shownEditor();
+    await type(editor, 1 + "Saved body".length, " typed");
+    await vi.waitFor(() => expect(diskHolds("Saved body typed")).toBe(true));
+    const endComposition = holdComposition(editor);
+    typedLongAgo();
+
+    const outside = "Written outside.";
+    await changeOutside(`Saved body typed\n\n${outside}`);
+    await settle();
+    expect(paragraphs()).toEqual(["Saved body typed"]);
+
+    const count = countDocChanges(editor);
+    endComposition();
+    await vi.waitFor(() =>
+      expect(paragraphs()).toEqual(["Saved body typed", outside]),
+    );
+    await settle();
+    expect(count.changes).toBe(1);
+  });
+
+  it("waits out a slash command being typed before showing a change made outside Content, then shows it once", async () => {
+    fixture.realEditor = true;
+    putOnDisk("Saved body", "disk-1");
+    await render(surface("page", "page"));
+    const { editor } = shownEditor();
+    await act(async () => {
+      editor
+        .chain()
+        .insertContentAt(editor.state.doc.content.size, {
+          type: "paragraph",
+          content: [{ type: "text", text: "/he" }],
+        })
+        .focus("end")
+        .run();
+    });
+    typedLongAgo();
+
+    const outside = "Written outside.";
+    await changeOutside(`Saved body\n\n${outside}`);
+    await settle();
+    expect(paragraphs()).toEqual(["Saved body", "/he"]);
+
+    await act(async () => {
+      const { doc } = editor.state;
+      editor.view.dispatch(
+        editor.state.tr.delete(
+          doc.content.size - present(doc.lastChild).nodeSize,
+          doc.content.size,
+        ),
+      );
+    });
+    const count = countDocChanges(editor);
+    await vi.waitFor(() =>
+      expect(paragraphs()).toEqual(["Saved body", outside]),
+    );
+    await settle();
+    expect(count.changes).toBe(1);
+    expect(container.querySelector("[data-local-source-conflict]")).toBe(null);
+  });
+
+  it("drops a change from outside Content it hasn't shown yet when the disk version is chosen", async () => {
+    fixture.realEditor = true;
+    putOnDisk("Saved body", "disk-1");
+    await render(surface("page", "page"));
+    const { editor } = shownEditor();
+    holdComposition(editor);
+    const outside = "Written outside.";
+    await changeOutside(`Saved body\n\n${outside}`);
+    await type(editor, 1 + "Saved body".length, " composed");
+    await vi.waitFor(() =>
+      expect(fixture.localWrites.at(-1)).toMatchObject({
+        expectedRevision: "disk-1",
+        accepted: false,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(container.querySelector("[data-local-source-conflict]")).not.toBe(
+        null,
+      ),
+    );
+
+    await act(async () => useDiskVersionButton().click());
+    await settle();
+
+    expect(container.querySelector("[data-local-source-conflict]")).toBe(null);
+    expect(paragraphs()).toEqual(["Saved body", outside]);
+    expect(onDisk().document.content).toBe(`Saved body\n\n${outside}`);
   });
 
   it("asks before a change made outside Content replaces unsaved typing", async () => {

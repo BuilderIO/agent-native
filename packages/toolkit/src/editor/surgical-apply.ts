@@ -1,6 +1,6 @@
 import { createNodeFromContent } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Transform, type Step } from "@tiptap/pm/transform";
+import { replaceStep, Transform, type Step } from "@tiptap/pm/transform";
 import type { Editor } from "@tiptap/react";
 
 export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
@@ -583,6 +583,23 @@ function withPreservedTrailingParagraph(
   return newDoc.copy(newDoc.content.addToEnd(oldLast!.type.create()));
 }
 
+function narrowestReplacement(
+  oldDoc: ProseMirrorNode,
+  target: ProseMirrorNode,
+): Step | null {
+  const start = oldDoc.content.findDiffStart(target.content);
+  const end = oldDoc.content.findDiffEnd(target.content);
+  if (start === null || !end) return null;
+  const overlap = Math.max(0, start - Math.min(end.a, end.b));
+  const step = replaceStep(
+    oldDoc,
+    start,
+    end.a + overlap,
+    target.slice(start, end.b + overlap),
+  );
+  return step?.apply(oldDoc).doc?.eq(target) ? step : null;
+}
+
 /** The doc `applyDocSurgically` would leave, or why it would not change one. */
 export function surgicalApplyTarget(
   oldDoc: ProseMirrorNode,
@@ -612,9 +629,13 @@ export function applyDocSurgically(
     const diff = diffTopLevel(oldDoc, target);
     if (!diff) return "noop";
 
-    const fragment = changedFragment(target, diff);
     const tr = editor.state.tr;
-    tr.replaceWith(diff.fromPos, diff.toPos, fragment);
+    const step = narrowestReplacement(oldDoc, target);
+    if (step) {
+      tr.step(step);
+    } else {
+      tr.replaceWith(diff.fromPos, diff.toPos, changedFragment(target, diff));
+    }
     tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     editor.view.dispatch(tr);

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { Editor, Extension } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, it } from "vitest";
 
@@ -204,6 +205,40 @@ describe("applyDocSurgically", () => {
     } finally {
       editor.destroy();
       foreign.destroy();
+    }
+  });
+
+  it("keeps the cursor where it was inside a block whose words changed", () => {
+    const editor = makeEditor("Hello world!");
+    try {
+      editor.commands.setTextSelection(1 + "Hello world".length);
+
+      expect(applyDocSurgically(editor, parse(editor, "Hi world!"))).toBe(
+        "applied",
+      );
+
+      expect(md(editor)).toBe("Hi world!");
+      expect(editor.state.selection.empty).toBe(true);
+      expect(editor.state.selection.from).toBe(1 + "Hi world".length);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps an earlier Undo step inside a block whose words changed", () => {
+    const editor = makeEditor("Hello!");
+    try {
+      editor.view.dispatch(
+        closeHistory(editor.state.tr.insertText(" world", 1 + "Hello".length)),
+      );
+      expect(md(editor)).toBe("Hello world!");
+
+      applyDocSurgically(editor, parse(editor, "Hi world!"));
+      expect(editor.commands.undo()).toBe(true);
+
+      expect(md(editor)).toBe("Hi!");
+    } finally {
+      editor.destroy();
     }
   });
 
