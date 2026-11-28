@@ -1305,7 +1305,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         (await openInEditor(tx, context.resourceId))
       ) {
         fail(
-          "The words this suggestion changes were just edited, so it wasn't accepted. It's still pending: accept it again once those edits save, or reject it.",
+          "The words this suggestion changes were just edited, so it wasn't accepted. It's still pending: try again in a moment, or reject it and make the edit yourself.",
           { statusCode: 409, errorCode: "suggestion_conflict" },
         );
       }

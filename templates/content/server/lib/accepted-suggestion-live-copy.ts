@@ -405,6 +405,7 @@ function writeAtPlacement(
     )
       continue;
     const offset = from - $from.start();
+    if (!range.text && $from.parent.content.size > 0) continue;
     if (!$from.parent.content.cut(offset, offset + length).eq(seen)) continue;
     const replacement = $next.parent.content.cut(
       from - $next.start(),
@@ -560,7 +561,14 @@ function storedFormMatches(
   seen: ProseMirrorNode,
   before: ProseMirrorNode,
 ): boolean {
-  if (!sameBlocksTextAndMarks(seen, before)) return false;
+  const extra = seen.childCount - before.childCount;
+  const filler = extra === 1 ? seen.lastChild : null;
+  if (extra !== 0 && !(filler?.isTextblock && filler.content.size === 0))
+    return false;
+  const shared = filler
+    ? seen.copy(seen.content.cut(0, seen.content.size - filler.nodeSize))
+    : seen;
+  if (!sameBlocksTextAndMarks(shared, before)) return false;
   try {
     return seen.type.schema
       .nodeFromJSON(nfmToDoc(docToNfm(seen.toJSON() as PMNode)))
@@ -602,17 +610,23 @@ function writeWhereUnchanged(
     const position =
       unchanged || storedFormMatches(seen, before)
         ? $start.before()
-      : uniqueTextblock(before, stored) === null
-        ? null
-        : uniqueTextblock(seen, stored);
+        : uniqueTextblock(before, stored) === null
+          ? null
+          : uniqueTextblock(seen, stored);
     if (position === null) return false;
     const element = liveElementAt(fragment, live, position);
-    if (!element) return false;
+    const held = live.nodeAt(position);
+    if (!element || !held || !seen.nodeAt(position)?.content.eq(stored.content))
+      return false;
     const target = live.replace(
       position,
       position + stored.nodeSize,
       new Slice(
-        Fragment.from(withBlockIdOf(live.nodeAt(position), next)),
+        Fragment.from(
+          stored.sameMarkup(next)
+            ? held.copy(next.content)
+            : withBlockIdOf(held, next),
+        ),
         0,
         0,
       ),
