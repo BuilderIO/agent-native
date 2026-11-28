@@ -12,6 +12,7 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 export type PostFinalizeJobKind =
   | "media-ready"
   | "seekable"
+  | "audio-level"
   | "thumbnail"
   | "transcript"
   | "brain-export"

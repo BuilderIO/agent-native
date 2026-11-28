@@ -130,7 +130,10 @@ vi.mock("../../shared/loom.js", () => ({
   isLoomRecordingSource: vi.fn(() => false),
 }));
 
-import { ensureRecordingSeekable } from "./ensure-seekable-video";
+import {
+  ensureRecordingSeekable,
+  readBodyWithinLimit,
+} from "./ensure-seekable-video";
 
 describe("ensureRecordingSeekable timeline normalization", () => {
   beforeEach(() => {
@@ -543,5 +546,36 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       expect(result.status).toBe("skipped-upload-failed");
       expect(mockDb.update).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("readBodyWithinLimit", () => {
+  function streamOf(chunks: number[]) {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = chunks.shift();
+        if (next === undefined) controller.close();
+        else controller.enqueue(new Uint8Array(next));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    return { stream, wasCancelled: () => cancelled, left: () => chunks.length };
+  }
+
+  it("returns the whole body when it fits", async () => {
+    const { stream } = streamOf([3, 4]);
+    const read = await readBodyWithinLimit(stream, 10);
+    expect(read.ok && read.bytes.byteLength).toBe(7);
+  });
+
+  it("stops and cancels an oversized body without Content-Length", async () => {
+    const body = streamOf([6, 6, 6, 6]);
+    const read = await readBodyWithinLimit(body.stream, 10);
+    expect(read.ok).toBe(false);
+    expect(body.wasCancelled()).toBe(true);
+    expect(body.left()).toBeGreaterThan(0);
   });
 });
