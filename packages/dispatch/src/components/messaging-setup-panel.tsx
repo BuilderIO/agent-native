@@ -155,10 +155,21 @@ function PublicValueReveal({ envKey: _envKey }: { envKey: string }) {
 function ConnectionStatus({
   configured,
   enabled,
+  tokenRejected,
 }: {
   configured: boolean;
   enabled: boolean;
+  tokenRejected: boolean;
 }) {
+  const t = useT();
+  if (tokenRejected) {
+    return (
+      <StatusPill
+        tone="warning"
+        label={t("messaging.slackBotToken.rejectedStatus")}
+      />
+    );
+  }
   if (enabled) {
     return <StatusPill tone="success" label="Connected" />;
   }
@@ -461,13 +472,21 @@ export function MessagingSetupPanel() {
       >
         {CHANNELS.map((platform) => {
           const status = statusByPlatform.get(platform.id);
-          const configured =
-            !!status?.configured ||
-            (platform.id === "slack" &&
-              installations.some(
-                (installation) => installation.status === "connected",
-              ));
+          const managedWorkspaceConnected =
+            platform.id === "slack" &&
+            installations.some(
+              (installation) => installation.status === "connected",
+            );
+          const configured = !!status?.configured || managedWorkspaceConnected;
           const enabled = !!status?.enabled;
+          const legacyBotTokenRejected =
+            status?.details?.botTokenHealth === "revoked";
+          const botTokenRejected =
+            legacyBotTokenRejected && !managedWorkspaceConnected;
+          const botTokenError =
+            typeof status?.details?.botTokenError === "string"
+              ? status.details.botTokenError
+              : null;
           const envKeys = platform.credentialRequirements;
           const primaryEnvKeys = envKeys.filter(
             (envKey) => envKey.key !== "SLACK_BOT_TOKEN",
@@ -506,6 +525,7 @@ export function MessagingSetupPanel() {
                       <ConnectionStatus
                         configured={configured}
                         enabled={enabled}
+                        tokenRejected={botTokenRejected}
                       />
                     </div>
                     <p className="mt-1 truncate text-sm text-muted-foreground">
@@ -520,11 +540,13 @@ export function MessagingSetupPanel() {
                   <div className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">
-                        {enabled
-                          ? "Messages are flowing"
-                          : configured
-                            ? "Ready to connect"
-                            : "Finish setup to connect"}
+                        {botTokenRejected
+                          ? t("messaging.slackBotToken.rejectedTitle")
+                          : enabled
+                            ? "Messages are flowing"
+                            : configured
+                              ? "Ready to connect"
+                              : "Finish setup to connect"}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {envLoading ? (
@@ -533,6 +555,16 @@ export function MessagingSetupPanel() {
                           credentialSummary
                         )}
                       </p>
+                      {botTokenRejected ? (
+                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                          {botTokenError
+                            ? `${t("messaging.slackBotToken.rejectedReason", {
+                                code: botTokenError,
+                              })} `
+                            : null}
+                          {t("messaging.slackBotToken.rejectedFix")}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {platform.id === "telegram" && configured ? (
@@ -951,9 +983,21 @@ export function MessagingSetupPanel() {
                                     </div>
                                     <StatusPill
                                       tone={
-                                        isConfigured ? "success" : "neutral"
+                                        isConfigured && legacyBotTokenRejected
+                                          ? "warning"
+                                          : isConfigured
+                                            ? "success"
+                                            : "neutral"
                                       }
-                                      label={isConfigured ? "Saved" : "Not set"}
+                                      label={
+                                        isConfigured && legacyBotTokenRejected
+                                          ? t(
+                                              "messaging.slackBotToken.rejected",
+                                            )
+                                          : isConfigured
+                                            ? "Saved"
+                                            : "Not set"
+                                      }
                                     />
                                   </div>
                                   {!isConfigured ? (
