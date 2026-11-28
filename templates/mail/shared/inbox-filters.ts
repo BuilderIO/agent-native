@@ -236,21 +236,16 @@ export function inboxFilterRequest(search: string | URLSearchParams): string {
   return filterStateKey(state, FIELDS).replace(/^\?/, "");
 }
 
-export function inboxFilterGmailClause(
-  param: string,
-  { standalone }: { standalone: boolean },
-): string {
+export function inboxFilterGmailClause(param: string): string {
   const terms = inboxFilterTerms(param);
   if (!terms) return "";
   if (terms.length === 0) return "is:unread -is:unread";
   const clauses = new Set<string>();
   for (const term of terms) {
-    let positiveAllowed = standalone;
+    const positive = FLAG_KEYS.find((key) => term[key] === true);
     const literals = FLAG_KEYS.flatMap((key) => {
       if (term[key] === false) return [`-is:${key}`];
-      if (term[key] !== true || !positiveAllowed) return [];
-      positiveAllowed = false;
-      return [`is:${key}`];
+      return key === positive ? [`is:${key}`] : [];
     });
     if (literals.length === 0) return "";
     clauses.add(literals.join(" "));

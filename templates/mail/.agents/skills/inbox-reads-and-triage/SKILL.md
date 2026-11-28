@@ -34,7 +34,11 @@ Filters judge whole conversations: Starred keeps a conversation with any
 starred message and Starred No one with none; Unread works the same way.
 Gmail's `is:starred` and `is:unread` test single messages, so `list-emails`
 `q` cannot reproduce a filtered All Mail on its own: list `view: "all"` with
-the search as `q`, then keep each conversation by all of its messages' flags.
+`q` set to the search in parentheses followed by one Yes rule, such as
+`(subject:invoice) is:starred` (`{is:unread is:starred}` for either), then
+keep each conversation by all of its messages' flags. Beside a search or
+label, that leaves out a conversation whose starred or unread message is not
+the one that matches, as Mail does.
 
 Starred opens All Mail filtered by Starred (`/all?r=starred:is_checked`),
 because starred mail stays starred after it is archived. Unread opens the inbox

@@ -392,7 +392,7 @@ describe("view-screen Mail preview", () => {
       const result = JSON.parse(await action.run({}));
 
       expect(mocks.listGmailMessages).toHaveBeenCalledWith(
-        "label:work",
+        "label:work is:starred",
         11,
         OWNER,
         undefined,

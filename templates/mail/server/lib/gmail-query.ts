@@ -79,10 +79,7 @@ export function buildGmailEmailSearchQuery({
         gmailAppLabelSearchClause(label),
       ]
     : [VIEW_QUERIES[view] ?? `label:${view}`];
-  const standalone = !normalizedSearch && scope.every((clause) => !clause);
-  const filterClause = inboxFilter
-    ? inboxFilterGmailClause(inboxFilter, { standalone })
-    : "";
+  const filterClause = inboxFilterGmailClause(inboxFilter ?? "");
   const searchClause =
     filterClause && normalizedSearch
       ? `(${normalizedSearch})`

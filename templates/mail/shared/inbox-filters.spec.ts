@@ -102,45 +102,35 @@ describe("inbox filter rules", () => {
 });
 
 describe("inbox filter Gmail clause", () => {
-  const standalone = { standalone: true };
-  const besideSearch = { standalone: false };
-
   it("asks Gmail for the same mail the Unread and Starred pages did", () => {
-    expect(inboxFilterGmailClause(UNREAD, standalone)).toBe("is:unread");
-    expect(inboxFilterGmailClause(STARRED, standalone)).toBe("is:starred");
-    expect(inboxFilterGmailClause("r=unread:is_unchecked", standalone)).toBe(
-      "-is:unread",
-    );
+    expect(inboxFilterGmailClause(UNREAD)).toBe("is:unread");
+    expect(inboxFilterGmailClause(STARRED)).toBe("is:starred");
+    expect(inboxFilterGmailClause("r=unread:is_unchecked")).toBe("-is:unread");
   });
 
-  it("asks only for mail every matching conversation has", () => {
-    expect(inboxFilterGmailClause(`${UNREAD}&${STARRED}`, standalone)).toBe(
-      "is:unread",
-    );
-    expect(inboxFilterGmailClause(EITHER, standalone)).toBe(
+  it("asks for one Yes rule per term, since one message need not carry both", () => {
+    expect(inboxFilterGmailClause(`${UNREAD}&${STARRED}`)).toBe("is:unread");
+    expect(inboxFilterGmailClause(EITHER)).toBe(
       "{is:unread (is:unread -is:starred) (-is:unread is:starred)}",
     );
-    expect(inboxFilterGmailClause("", standalone)).toBe("");
+    expect(inboxFilterGmailClause(SAME_OR_NEITHER)).toBe(
+      "{is:unread (-is:unread -is:starred)}",
+    );
+    expect(inboxFilterGmailClause("")).toBe("");
   });
 
-  it("leaves a Yes rule to the conversation check when other terms share the query", () => {
-    expect(inboxFilterGmailClause(STARRED, besideSearch)).toBe("");
-    expect(inboxFilterGmailClause(UNREAD, besideSearch)).toBe("");
-    expect(inboxFilterGmailClause(EITHER, besideSearch)).toBe("");
-    expect(inboxFilterGmailClause("r=starred:is_unchecked", besideSearch)).toBe(
-      "-is:starred",
+  it("keeps every No rule beside a Yes rule", () => {
+    expect(inboxFilterGmailClause(`${UNREAD}&r=starred:is_unchecked`)).toBe(
+      "is:unread -is:starred",
     );
     expect(
-      inboxFilterGmailClause(`${UNREAD}&r=starred:is_unchecked`, besideSearch),
-    ).toBe("-is:starred");
+      inboxFilterGmailClause("r=unread:is_unchecked&r=starred:is_unchecked"),
+    ).toBe("-is:unread -is:starred");
   });
 
   it("matches nothing when the rules contradict each other", () => {
     expect(
-      inboxFilterGmailClause(
-        "r=unread:is_checked&r=unread:is_unchecked",
-        besideSearch,
-      ),
+      inboxFilterGmailClause("r=unread:is_checked&r=unread:is_unchecked"),
     ).toBe("is:unread -is:unread");
   });
 });
