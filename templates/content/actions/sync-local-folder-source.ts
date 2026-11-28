@@ -221,12 +221,10 @@ async function trashPageOfRemovedFile(
 ) {
   const { row } = args;
   await db.transaction(async (tx: Db) => {
-    const owner = (
-      await tx
-        .select({ ownerEmail: schema.documents.ownerEmail })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, row.documentId))
-    ).at(0);
+    const [owner]: Array<{ ownerEmail: string } | undefined> = await tx
+      .select({ ownerEmail: schema.documents.ownerEmail })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, row.documentId));
     const locks = owner
       ? await lockLifecycleGroup(tx, {
           operation: "trash",
@@ -256,12 +254,10 @@ async function trashPageOfRemovedFile(
       )
       .limit(1);
     if (otherLinks.length > 0 || !owner || !locks) return;
-    const page = (
-      await tx
-        .select()
-        .from(schema.documents)
-        .where(eq(schema.documents.id, row.documentId))
-    ).at(0);
+    const [page]: Array<PageRow | undefined> = await tx
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, row.documentId));
     if (
       !page ||
       page.trashedAt ||
