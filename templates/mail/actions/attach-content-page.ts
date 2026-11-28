@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   attachmentNameForFile,
   CONTENT_FILE_FORMATS,
+  CONTENT_PDF_FONTS,
   contentFileFormatSchema,
   contentPageKindSchema,
   readContentPageFile,
@@ -40,7 +41,7 @@ const attachContentPageOutputSchema = z.object({
 
 export default defineAction({
   description:
-    "Turn a Content page into an email attachment: a page as a PDF or Markdown file, a collection as a CSV. Content reads it under the user's own access, and Mail stores the file. Then pass the returned attachment in manage-draft's attachments to put it on a draft. Find pages with list-content-pages. Attaching does not send email.",
+    "Turn a Content page into an email attachment: a page as a PDF or Markdown file, a collection as a CSV. A PDF is set in sans type unless you ask for serif, which suits poetry and other literary pages. Content reads it under the user's own access, and Mail stores the file. Then pass the returned attachment in manage-draft's attachments to put it on a draft. Find pages with list-content-pages. Attaching does not send email.",
   schema: z.object({
     id: z
       .string()
@@ -54,6 +55,12 @@ export default defineAction({
       .describe(
         "pdf or markdown for a page, csv for a collection. Defaults to markdown for a page and csv for a collection.",
       ),
+    font: z
+      .enum(CONTENT_PDF_FONTS)
+      .optional()
+      .describe(
+        "Typeface for a PDF: sans (the default) or serif. Markdown and CSV ignore it.",
+      ),
   }),
   outputSchema: attachContentPageOutputSchema,
   mcpAnnotations: {
@@ -61,7 +68,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
-  run: async ({ id, format }) => {
+  run: async ({ id, format, font }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       fail("Sign in to attach a Content page.", {
@@ -69,7 +76,7 @@ export default defineAction({
         errorCode: "unauthorized",
       });
     }
-    const file = await readContentPageFile({ id, format });
+    const file = await readContentPageFile({ id, format, font });
     const originalName = attachmentNameForFile(file);
     const orgId = getRequestOrgId();
     let stored;

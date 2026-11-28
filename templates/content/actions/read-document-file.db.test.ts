@@ -273,6 +273,29 @@ describe("Content read-document-file", () => {
     expect("size" in result && result.size).toBe(pdf.byteLength);
   });
 
+  it("sets a PDF in serif type when asked, and in sans by default", async () => {
+    const pdfText = async (font?: "sans" | "serif") => {
+      const result = await readAs(owner, () =>
+        action.run({
+          operation: "read",
+          id: "plan-page",
+          page: 1,
+          format: "pdf",
+          font,
+        }),
+      );
+      return Buffer.from(
+        "content" in result ? result.content : "",
+        "base64",
+      ).toString("latin1");
+    };
+
+    expect(await pdfText("serif")).toContain("/BaseFont /Spectral-Regular");
+    const sans = await pdfText();
+    expect(sans).toContain("/BaseFont /LiberationSans-Regular");
+    expect(sans).not.toContain("Spectral");
+  });
+
   it("reads a collection as a CSV of its columns, leaving out always-hidden and Blocks fields", async () => {
     const result = await read("tracker-page");
     expect(result).toMatchObject({

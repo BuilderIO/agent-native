@@ -98,7 +98,7 @@ describe("attach-content-page", () => {
     });
   });
 
-  it("stores a PDF page's bytes as they came from Content", async () => {
+  it("asks Content for the PDF in the font picked and stores its bytes as they came", async () => {
     const pdf = Buffer.from("%PDF-1.3\n%\xff\xfe\n", "latin1");
     readContentPageFile.mockResolvedValue({
       id: "poems-page",
@@ -113,8 +113,13 @@ describe("attach-content-page", () => {
     });
     const action = (await import("./attach-content-page.js")).default;
 
-    await action.run({ id: "poems-page", format: "pdf" });
+    await action.run({ id: "poems-page", format: "pdf", font: "serif" });
 
+    expect(readContentPageFile).toHaveBeenCalledWith({
+      id: "poems-page",
+      format: "pdf",
+      font: "serif",
+    });
     const stored = storeMediaUpload.mock.calls[0]?.[0];
     expect(stored).toMatchObject({
       originalName: "Poems.pdf",

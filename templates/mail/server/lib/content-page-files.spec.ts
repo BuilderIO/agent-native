@@ -167,6 +167,36 @@ describe("Content page files", () => {
     });
   });
 
+  it("asks Content for serif type only for a serif PDF", async () => {
+    const pdf = Buffer.from("%PDF-1.3\n", "latin1");
+    invokeAgentAction.mockResolvedValue(
+      completed({
+        ...pageFile,
+        format: "pdf",
+        filename: "Q3 plan.pdf",
+        encoding: "base64",
+        content: pdf.toString("base64"),
+        size: pdf.byteLength,
+      }),
+    );
+    const { readContentPageFile } = await import("./content-page-files.js");
+
+    await readContentPageFile({
+      id: "plan-page",
+      format: "pdf",
+      font: "serif",
+    });
+    await readContentPageFile({ id: "plan-page", format: "pdf", font: "sans" });
+
+    expect(invokeAgentAction.mock.calls[0]?.[0].input).toMatchObject({
+      format: "pdf",
+      font: "serif",
+    });
+    expect(invokeAgentAction.mock.calls[1]?.[0].input).not.toHaveProperty(
+      "font",
+    );
+  });
+
   it("refuses a PDF that isn't base64, isn't a PDF, or is cut short", async () => {
     const { readContentPageFile } = await import("./content-page-files.js");
     const pdf = Buffer.from("%PDF-1.3\n", "latin1");
