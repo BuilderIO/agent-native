@@ -43,7 +43,6 @@ export interface DocumentHistoryPage {
 
 export const DOCUMENT_VERSION_NAME_MAX_LENGTH = 80;
 
-/** History operation for a checkpoint saved to name the page as it is now. */
 export const NAME_DOCUMENT_VERSION_OPERATION = "name-document-version";
 
 export interface DocumentHistoryCheckpoint {
@@ -70,7 +69,6 @@ export interface DocumentHistoryCheckpointPage {
 
 export interface NamedDocumentVersionResult {
   checkpoint: DocumentHistoryCheckpoint;
-  /** True when naming the page as it is now saved a new checkpoint. */
   created: boolean;
 }
 
@@ -79,7 +77,6 @@ export interface DocumentVersionComparisonSide {
   id: string | null;
   name: string | null;
   title: string;
-  /** When the checkpoint was saved, or when the current page last changed. */
   at: string;
 }
 

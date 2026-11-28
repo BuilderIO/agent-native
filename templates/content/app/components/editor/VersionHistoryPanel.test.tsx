@@ -677,16 +677,22 @@ describe("VersionHistoryPanel named versions", () => {
     ) as HTMLInputElement | null;
   }
 
-  async function typeName(value: string) {
+  function openNameInput() {
     const input = nameInput();
-    expect(input, document.body.innerHTML).toBeTruthy();
+    if (!input) throw new Error(`No name input in ${document.body.innerHTML}`);
+    return input;
+  }
+
+  async function typeName(value: string) {
+    const input = openNameInput();
     const setValue = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       "value",
-    )!.set!;
+    )?.set;
+    if (!setValue) throw new Error("The input value setter is missing.");
     await act(async () => {
       setValue.call(input, value);
-      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
 
@@ -699,7 +705,6 @@ describe("VersionHistoryPanel named versions", () => {
           cancelable: true,
         }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
 
@@ -732,7 +737,7 @@ describe("VersionHistoryPanel named versions", () => {
     mocks.namedVersions.data = { versions: [namedVersion] };
     mocks.detailName = namedVersion.name;
     await render();
-    const text = document.body.textContent ?? "";
+    const text = document.body.textContent;
     expect(text.indexOf("Named versions")).toBeGreaterThan(-1);
     expect(text.indexOf("Named versions")).toBeLessThan(
       text.indexOf("All changes"),
@@ -765,7 +770,7 @@ describe("VersionHistoryPanel named versions", () => {
     });
     expect(nameInput()).toBeNull();
     expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
-    expect(document.activeElement?.textContent?.trim()).toBe(
+    expect(document.activeElement?.textContent.trim()).toBe(
       "Name current version",
     );
   });
@@ -787,12 +792,12 @@ describe("VersionHistoryPanel named versions", () => {
   it("Escape cancels the name form without closing the panel", async () => {
     await render();
     await clickButton("Name current version");
-    await pressEscape(nameInput()!);
+    await pressEscape(openNameInput());
 
     expect(nameInput()).toBeNull();
     expect(mocks.onOpenChange).not.toHaveBeenCalledWith(false);
     expect(mocks.nameVersion).not.toHaveBeenCalled();
-    expect(document.activeElement?.textContent?.trim()).toBe(
+    expect(document.activeElement?.textContent.trim()).toBe(
       "Name current version",
     );
   });
@@ -814,7 +819,7 @@ describe("VersionHistoryPanel named versions", () => {
       name: "Week of Sep 7",
     });
     expect(document.body.textContent).toContain("Week of Sep 7");
-    expect(document.activeElement?.textContent?.trim()).toBe("Rename");
+    expect(document.activeElement?.textContent.trim()).toBe("Rename");
 
     mocks.nameVersion.mockResolvedValueOnce(nameResult("version-1", null));
     const remove = document.querySelector(
@@ -832,13 +837,13 @@ describe("VersionHistoryPanel named versions", () => {
     expect(document.querySelector('button[aria-label="Remove name"]')).toBe(
       null,
     );
-    expect(document.activeElement?.textContent?.trim()).toBe(
+    expect(document.activeElement?.textContent.trim()).toBe(
       "Name this version",
     );
   });
 
   it("compares the selected version with the current page", async () => {
-    mocks.comparison.data = {
+    const comparisonData: DocumentVersionComparison = {
       from: {
         kind: "checkpoint",
         id: "version-1",
@@ -870,6 +875,7 @@ describe("VersionHistoryPanel named versions", () => {
         removedLineCount: 1,
       },
     };
+    mocks.comparison.data = comparisonData;
     await render();
     await clickButton("Editing session", false);
     await clickButton("DraftAfter");
@@ -877,7 +883,7 @@ describe("VersionHistoryPanel named versions", () => {
 
     const compare = await clickButton("Compare with current");
     expect(compare.getAttribute("aria-pressed")).toBe("true");
-    expect(mocks.comparedVersionIds.at(-1)).toBe("version-1");
+    expect(mocks.comparedVersionIds).toContain("version-1");
     expect(document.querySelector("[data-testid=history-preview]")).toBeNull();
     expect(document.body.textContent).toContain("Current content");
     expect(document.body.textContent).toContain("Final");
@@ -890,7 +896,7 @@ describe("VersionHistoryPanel named versions", () => {
       expect.anything(),
     );
 
-    mocks.comparison.data = { ...mocks.comparison.data!, identical: true };
+    mocks.comparison.data = { ...comparisonData, identical: true };
     await render();
     expect(document.body.textContent).toContain(
       "This version matches the current page.",

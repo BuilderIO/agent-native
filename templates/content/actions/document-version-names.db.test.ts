@@ -408,10 +408,10 @@ describe("reading and comparing versions", () => {
       title: { before: "Draft", after: "Final" },
       body: { addedLineCount: 1, removedLineCount: 1 },
     });
-    const changedLines = withCurrent.body!.hunks.flatMap((hunk) =>
+    const changedLines = withCurrent.body?.hunks.flatMap((hunk) =>
       hunk.lines.filter((line) => line.kind !== "same"),
     );
-    expect(changedLines.map((line) => [line.kind, line.text])).toEqual([
+    expect(changedLines?.map((line) => [line.kind, line.text])).toEqual([
       ["removed", "line two"],
       ["added", "line 2 changed"],
     ]);

@@ -15,6 +15,7 @@ import {
   documentVersionChatContextFromAction,
   serializeDocumentVersionChatContext,
 } from "./document-version-context.js";
+import { firstRow } from "./first-row.js";
 
 type CheckpointRow = typeof schema.documentVersions.$inferSelect;
 
@@ -71,12 +72,11 @@ function nameTaken(name: string, versionId?: string): never {
   });
 }
 
-/** Finds one checkpoint of a page by its ID or, ignoring case, its name. */
 export async function findDocumentCheckpoint(args: {
   ownerEmail: string;
   documentId: string;
-  versionId?: string;
-  versionName?: string;
+  versionId?: string | undefined;
+  versionName?: string | undefined;
 }): Promise<CheckpointRow> {
   const name =
     args.versionName === undefined
@@ -88,19 +88,21 @@ export async function findDocumentCheckpoint(args: {
       statusCode: 400,
     });
   }
-  const [row] = await getDb()
-    .select()
-    .from(schema.documentVersions)
-    .where(
-      and(
-        eq(schema.documentVersions.ownerEmail, args.ownerEmail),
-        eq(schema.documentVersions.documentId, args.documentId),
-        args.versionId
-          ? eq(schema.documentVersions.id, args.versionId)
-          : sql`lower(${schema.documentVersions.name}) = lower(${name})`,
-      ),
-    )
-    .limit(1);
+  const row = firstRow(
+    await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.ownerEmail, args.ownerEmail),
+          eq(schema.documentVersions.documentId, args.documentId),
+          args.versionId
+            ? eq(schema.documentVersions.id, args.versionId)
+            : sql`lower(${schema.documentVersions.name}) = lower(${name})`,
+        ),
+      )
+      .limit(1),
+  );
   if (!row) checkpointNotFound(args.versionId ?? `"${name}"`);
   return row;
 }
@@ -111,20 +113,22 @@ async function assertNameFree(args: {
   name: string;
   exceptVersionId?: string;
 }) {
-  const [existing] = await getDb()
-    .select({ id: schema.documentVersions.id })
-    .from(schema.documentVersions)
-    .where(
-      and(
-        eq(schema.documentVersions.ownerEmail, args.ownerEmail),
-        eq(schema.documentVersions.documentId, args.documentId),
-        sql`lower(${schema.documentVersions.name}) = lower(${args.name})`,
-        args.exceptVersionId
-          ? ne(schema.documentVersions.id, args.exceptVersionId)
-          : undefined,
-      ),
-    )
-    .limit(1);
+  const existing = firstRow(
+    await getDb()
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.ownerEmail, args.ownerEmail),
+          eq(schema.documentVersions.documentId, args.documentId),
+          sql`lower(${schema.documentVersions.name}) = lower(${args.name})`,
+          args.exceptVersionId
+            ? ne(schema.documentVersions.id, args.exceptVersionId)
+            : undefined,
+        ),
+      )
+      .limit(1),
+  );
   if (existing) nameTaken(args.name, existing.id);
 }
 
@@ -137,7 +141,6 @@ async function namingWrite<T>(name: string, write: () => Promise<T>) {
   }
 }
 
-/** Sets, changes or (with a null name) removes the name of a checkpoint. */
 export async function setDocumentCheckpointName(args: {
   ownerEmail: string;
   documentId: string;
@@ -154,7 +157,7 @@ export async function setDocumentCheckpointName(args: {
       exceptVersionId: args.versionId,
     });
   }
-  const [row] = await namingWrite(args.name ?? "", () =>
+  const updated = await namingWrite(args.name ?? "", () =>
     getDb()
       .update(schema.documentVersions)
       .set(
@@ -171,15 +174,11 @@ export async function setDocumentCheckpointName(args: {
       )
       .returning(),
   );
+  const row = firstRow(updated);
   if (!row) checkpointNotFound(args.versionId);
   return { checkpoint: documentHistoryCheckpoint(row), created: false };
 }
 
-/**
- * Names the page as it is now. The newest checkpoint is named when it already
- * holds exactly this title and body and has no name; otherwise a new
- * checkpoint of the current page is saved with the name.
- */
 export async function nameCurrentDocumentVersion(args: {
   ownerEmail: string;
   documentId: string;
@@ -193,21 +192,23 @@ export async function nameCurrentDocumentVersion(args: {
     documentId: args.documentId,
     name: args.name,
   });
-  const [latest] = await getDb()
-    .select()
-    .from(schema.documentVersions)
-    .where(
-      and(
-        eq(schema.documentVersions.ownerEmail, args.ownerEmail),
-        eq(schema.documentVersions.documentId, args.documentId),
-      ),
-    )
-    .orderBy(
-      desc(schema.documentVersions.createdAt),
-      sql`case when ${schema.documentVersions.checkpointKind} = 'after' then 0 else 1 end`,
-      desc(schema.documentVersions.id),
-    )
-    .limit(1);
+  const latest = firstRow(
+    await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.ownerEmail, args.ownerEmail),
+          eq(schema.documentVersions.documentId, args.documentId),
+        ),
+      )
+      .orderBy(
+        desc(schema.documentVersions.createdAt),
+        sql`case when ${schema.documentVersions.checkpointKind} = 'after' then 0 else 1 end`,
+        desc(schema.documentVersions.id),
+      )
+      .limit(1),
+  );
   const namedBy = args.ctx?.userEmail ?? null;
   if (
     latest &&
@@ -228,7 +229,7 @@ export async function nameCurrentDocumentVersion(args: {
   const createdAt = new Date(
     Math.max(new Date(args.now).getTime(), latestMs + 1),
   ).toISOString();
-  const [row] = await namingWrite(args.name, () =>
+  const inserted = await namingWrite(args.name, () =>
     getDb()
       .insert(schema.documentVersions)
       .values({
@@ -242,8 +243,8 @@ export async function nameCurrentDocumentVersion(args: {
           documentVersionChatContextFromAction(args.ctx),
         ),
         ...resolveDocumentHistoryCause({
-          ctx: args.ctx,
           operation: NAME_DOCUMENT_VERSION_OPERATION,
+          ...(args.ctx ? { ctx: args.ctx } : {}),
         }),
         checkpointKind: "after",
         name: args.name,
@@ -254,6 +255,7 @@ export async function nameCurrentDocumentVersion(args: {
       })
       .returning(),
   );
+  const row = firstRow(inserted);
   if (!row) {
     fail("The named version could not be saved.", {
       errorCode: "DOCUMENT_VERSION_NOT_SAVED",

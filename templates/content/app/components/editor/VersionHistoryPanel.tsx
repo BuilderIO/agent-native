@@ -82,7 +82,6 @@ interface VersionHistoryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
-  /** Whether the viewer may name versions. Defaults to canRestore. */
   canNameVersions?: boolean;
   restoreReady?: boolean;
   activeUsers?: CollabUser[];
@@ -105,7 +104,6 @@ type SelectedVersion = Pick<
 
 type DetailView = "preview" | "compare";
 
-/** What the open name form names: the page as it is now, or the selected checkpoint. */
 type NamingTarget = "current" | "checkpoint";
 
 function mergeRefreshedFirstPage<T extends { id: string }>(
@@ -271,7 +269,6 @@ export function VersionHistoryPanel({
   const detail = checkpointDetail.data?.checkpoint;
   const detailId = detail?.id;
   const detailName = detail?.name;
-  // Someone else (a person or an agent) can rename the open version.
   useEffect(() => {
     if (!detailId || detailName === undefined) return;
     setSelectedCheckpoint((current) =>
@@ -448,7 +445,6 @@ export function VersionHistoryPanel({
           side="right"
           className="w-[92vw] max-w-[430px] p-0"
           onEscapeKeyDown={(event) => {
-            // Escape in an open name form cancels the form, not the panel.
             if (!namingTarget) return;
             event.preventDefault();
             if (!nameVersion.isPending) closeNaming();

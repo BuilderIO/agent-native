@@ -68,7 +68,7 @@ export default defineAction({
         documentId: args.documentId,
         versionId: args.versionId,
         name,
-        namedBy: ctx.userEmail ?? null,
+        namedBy: ctx?.userEmail ?? null,
         now,
       });
     }
@@ -96,7 +96,7 @@ export default defineAction({
         bodyRevision: doc.bodyRevision as number | null,
       },
       name,
-      ctx,
+      ...(ctx ? { ctx } : {}),
       now,
     });
   },
