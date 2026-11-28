@@ -167,6 +167,8 @@ export interface PlatformAdapter {
 
   getRequiredEnvKeys(): EnvKeyConfig[];
 
+  validateCredential?(key: string, value: string): string | void;
+
   handleVerification(event: H3Event): Promise<{
     handled: boolean;
     response?: unknown;
