@@ -476,7 +476,7 @@ describe("useEmails query warming", () => {
     expect(source).toContain(
       "EMAIL_PREFETCH_TIMEOUT_MS,\n        prefetchKey,",
     );
-    expect(source).toContain("...emailQueryOptions(qc, view, search, label)");
+    // oracle-change: use-emails.list.spec.tsx now checks that useEmails reads a prefetched list without asking again
   });
 });
 

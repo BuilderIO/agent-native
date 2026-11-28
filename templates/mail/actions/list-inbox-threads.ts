@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
@@ -22,13 +22,19 @@ import {
 import {
   buildLocalInboxItems,
   partitionInboxItems,
-  resolveActiveTabId,
   resolveInboxTabs,
+  resolvePageTabs,
   type ResolvedInboxTab,
 } from "../server/lib/inbox-tabs-server.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
 import { gmailReadState } from "../shared/gmail-freshness.js";
+import {
+  inboxFilterAccepts,
+  inboxFilterIsReadable,
+  inboxFilterParam,
+  type InboxFilterFlags,
+} from "../shared/inbox-filters.js";
 import {
   ALL_TAB_ID,
   ALL_TAB_PARAM,
@@ -44,6 +50,17 @@ import {
 import type { Label } from "../shared/types.js";
 
 const TAB_PREVIEW_LIMIT = 50;
+
+type PageAccepts = (flags: InboxFilterFlags) => boolean;
+
+type InboxPageRequest = {
+  tab?: string | undefined;
+  limit: number;
+  offset: number;
+  accepts?: PageAccepts | undefined;
+  inboxFiltered: boolean;
+};
+
 const SQL_TAB_KINDS: ReadonlySet<InboxTabKind> = new Set([
   "all",
   "inbox",
@@ -55,15 +72,15 @@ type CachedTabCount = { total: number; unread: number };
 
 type InboxResultWindow = {
   tabs: ResolvedInboxTab[];
+  shownTabs: ResolvedInboxTab[];
   activeTabId: string;
   counts: Map<string, CachedTabCount>;
   previews: Map<string, InboxThreadItem[]>;
   pageItems: InboxThreadItem[];
-  /** Rows the active tab's page is cut from: unread-only when requested. */
   activePoolLength: number;
   offset: number;
   limit: number;
-  unreadOnly?: boolean;
+  filtered: boolean;
   labels: Label[];
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
@@ -82,6 +99,7 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
   const reachedCap =
     (olderRows && window.offset + window.limit >= INBOX_MAX_PAGE_OFFSET) ||
     (Boolean(window.syncCapped) && !olderRows);
+  const shownTabIds = new Set(window.shownTabs.map((tab) => tab.id));
   const resultTabs: InboxTab[] = window.tabs.map((tab) => {
     const count = window.counts.get(tab.id) ?? { total: 0, unread: 0 };
     return {
@@ -97,15 +115,18 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
   const activeTab = resultTabs.find((tab) => tab.id === window.activeTabId);
 
   return {
-    tabs: resultTabs,
+    tabs: resultTabs.filter((tab) => shownTabIds.has(tab.id)),
     activeTabId: window.activeTabId,
     items: window.pageItems,
     tabPreviews: Object.fromEntries(
-      window.tabs.map((tab) => [tab.id, window.previews.get(tab.id) ?? []]),
+      window.shownTabs.map((tab) => [
+        tab.id,
+        window.previews.get(tab.id) ?? [],
+      ]),
     ),
     total: activeTab?.total ?? 0,
     complete:
-      !window.unreadOnly &&
+      !window.filtered &&
       !activeTab?.totalIsLowerBound &&
       window.offset + window.pageItems.length >= window.activePoolLength &&
       window.activePoolLength >= (activeTab?.total ?? 0),
@@ -122,8 +143,9 @@ function buildWindowedResult(
   windows: InboxTabWindows,
   input: {
     tabs: ResolvedInboxTab[];
+    shownTabs: ResolvedInboxTab[];
     activeTabId: string;
-    page: { offset: number; limit: number; unreadOnly?: boolean };
+    page: InboxPageRequest;
     labels: Label[];
     syncing: boolean;
     accounts: InboxSyncAccountStatus[];
@@ -139,6 +161,7 @@ function buildWindowedResult(
   }
   return buildInboxResult({
     tabs: input.tabs,
+    shownTabs: input.shownTabs,
     activeTabId: input.activeTabId,
     counts: windows.counts,
     previews: new Map(
@@ -148,12 +171,10 @@ function buildWindowedResult(
       ]),
     ),
     pageItems: windows.page.map(input.rowToItem),
-    activePoolLength: input.page.unreadOnly
-      ? activeCount.unread
-      : activeCount.total,
+    activePoolLength: windows.pageTotal,
     offset: input.page.offset,
     limit: input.page.limit,
-    unreadOnly: input.page.unreadOnly,
+    filtered: input.page.accepts !== undefined,
     labels: input.labels,
     syncing: input.syncing,
     accounts: input.accounts,
@@ -169,22 +190,30 @@ function paginateIntoResult(
   config: InboxTabConfig,
   labelNameById: Map<string, string>,
   labels: Label[],
-  page: { tab?: string; limit: number; offset: number; unreadOnly?: boolean },
+  page: InboxPageRequest,
   syncing: boolean,
   accounts: InboxSyncAccountStatus[],
   backfillIncomplete = false,
   syncCapped = false,
 ): ListInboxThreadsResult {
-  const tabs = resolveInboxTabs(config, labelNameById);
+  const shownTabs = resolveInboxTabs(config, labelNameById);
+  const { pageTabs: tabs, activeTabId } = resolvePageTabs(
+    shownTabs,
+    page.tab,
+    page.inboxFiltered,
+  );
   const byTab = partitionInboxItems(items, tabs);
-  const activeTabId = resolveActiveTabId(page.tab, tabs);
   const activeMembers = byTab.get(activeTabId) ?? [];
-  const pageSource = page.unreadOnly
-    ? activeMembers.filter((item) => item.unreadCount > 0)
+  const accepts = page.accepts;
+  const pageSource = accepts
+    ? activeMembers.filter((item) =>
+        accepts({ unread: item.unreadCount > 0, starred: item.isStarred }),
+      )
     : activeMembers;
 
   return buildInboxResult({
     tabs,
+    shownTabs,
     activeTabId,
     counts: new Map(
       tabs.map((tab) => {
@@ -208,7 +237,7 @@ function paginateIntoResult(
     activePoolLength: pageSource.length,
     offset: page.offset,
     limit: page.limit,
-    unreadOnly: page.unreadOnly,
+    filtered: accepts !== undefined,
     labels,
     syncing,
     accounts,
@@ -223,7 +252,7 @@ function paginateIntoResult(
 
 export default defineAction({
   description:
-    'Read the human\'s inbox exactly as the UI shows it: the tab bar (All, Important, pinned labels, saved filters, and Other — or one combined Inbox tab when the user has turned on "combine inbox"), each tab\'s total/unread counts, and the active tab\'s rows. All three come from one partition over the synced inbox store, so a tab\'s badge can never disagree with the rows returned for it, and this read is always fast — never a live Gmail call. `tab` accepts any id from the returned `tabs` list (All, a pinned label id, a saved filter id, "important", "other", or "inbox"); an unrecognized or omitted id falls back to the first tab. This is the inbox view specifically; for Sent, Archive, Trash, All Mail, or an ad hoc query, use `list-emails` or `search-emails` instead.',
+    'Read the human\'s inbox exactly as the UI shows it: the tab bar (All, Important, pinned labels, saved filters, and Other — or one combined Inbox tab when the user has turned on "combine inbox"), each tab\'s total/unread counts, and the active tab\'s rows. All three come from one partition over the synced inbox store, and this read is always fast — never a live Gmail call. Tab badges always count the whole tab; `unreadOnly` and `inboxFilter` narrow the returned rows, never the counts. `tab` accepts any id from the returned `tabs` list (All, a pinned label id, a saved filter id, "important", "other", or "inbox"); an unrecognized or omitted id falls back to the first tab, except that an `inboxFilter` read with no tab covers the whole inbox even when the All tab is hidden. This is the inbox view specifically; for Sent, Archive, Trash, All Mail, or an ad hoc query, use `list-emails` or `search-emails` instead.',
   schema: z.object({
     tab: z
       .string()
@@ -258,6 +287,14 @@ export default defineAction({
       .describe(
         "Return only unread rows for this page; tab counts are unaffected",
       ),
+    inboxFilter: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .describe(
+        'The inbox Filter menu\'s rules in their URL form, as `navigation.inboxFilter` reports them: "r=unread:is_checked" (unread), "r=starred:is_checked" (starred), "r=unread:is_unchecked" (read), several `r=` joined with "&" for all of them, plus "match=any" for any of them. Narrows the page like unreadOnly; tab counts are unaffected',
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -265,8 +302,16 @@ export default defineAction({
   link: ({ args }) => {
     const requestedTab = typeof args?.tab === "string" ? args.tab : undefined;
     const tab = requestedTab === ALL_TAB_ID ? ALL_TAB_PARAM : requestedTab;
+    const inboxFilter =
+      typeof args.inboxFilter === "string"
+        ? inboxFilterParam(args.inboxFilter) || undefined
+        : undefined;
     return {
-      url: buildDeepLink({ app: "mail", view: "inbox", params: { tab } }),
+      url: buildDeepLink({
+        app: "mail",
+        view: "inbox",
+        params: { tab, inboxFilter },
+      }),
       label: "Open inbox in Mail",
       view: "inbox",
     };
@@ -276,11 +321,29 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    const page = {
+    const filterAccepts = args.inboxFilter
+      ? inboxFilterAccepts(args.inboxFilter)
+      : null;
+    if (
+      args.inboxFilter &&
+      (!filterAccepts || !inboxFilterIsReadable(args.inboxFilter))
+    ) {
+      fail(
+        `inboxFilter "${args.inboxFilter}" holds a rule the inbox cannot read; use r=unread:is_checked, r=starred:is_checked, or their is_unchecked forms.`,
+        { errorCode: "invalid_inbox_filter" },
+      );
+    }
+    const page: InboxPageRequest = {
       tab: args.tab,
       limit: effectiveInboxPageLimit(args.offset, args.limit),
       offset: args.offset,
-      unreadOnly: args.unreadOnly,
+      inboxFiltered: filterAccepts !== null,
+      accepts:
+        args.unreadOnly || filterAccepts
+          ? (flags) =>
+              (!args.unreadOnly || flags.unread) &&
+              (!filterAccepts || filterAccepts(flags))
+          : undefined,
     };
 
     const [oauthAccounts, managedConnection, syncAccounts] = await Promise.all([
@@ -354,8 +417,12 @@ export default defineAction({
       showAllTab: settings.showAllTab,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
-    const tabs = resolveInboxTabs(config, labelNameById);
-    const activeTabId = resolveActiveTabId(page.tab, tabs);
+    const shownTabs = resolveInboxTabs(config, labelNameById);
+    const { pageTabs: tabs, activeTabId } = resolvePageTabs(
+      shownTabs,
+      page.tab,
+      page.inboxFiltered,
+    );
     // Built-in tabs are SQL-expressible; a pinned label or saved filter is not,
     // so those accounts fall back to reading every row.
     const sqlTabs = tabs.every((tab) => SQL_TAB_KINDS.has(tab.kind));
@@ -369,7 +436,7 @@ export default defineAction({
             pageTabId: activeTabId,
             pageOffset: page.offset,
             pageLimit: page.limit,
-            pageUnreadOnly: page.unreadOnly === true,
+            pageAccepts: page.accepts,
             previewLimit: TAB_PREVIEW_LIMIT,
           }),
         }
@@ -433,6 +500,7 @@ export default defineAction({
       rowSource.kind === "windows"
         ? buildWindowedResult(rowSource.windows, {
             tabs,
+            shownTabs,
             activeTabId,
             page,
             labels,

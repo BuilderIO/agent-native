@@ -83,3 +83,33 @@ describe("emailMessageMatchesSearch — inbox tab query forms", () => {
     expect(emailMessageMatchesSearch(fromSomeoneElse, query)).toBe(true);
   });
 });
+
+describe("emailMessageMatchesSearch — brace groups of AND groups", () => {
+  it("reads each parenthesized alternative as one AND group", () => {
+    const query = "{(is:unread is:starred) (-is:unread -is:starred)}";
+    expect(
+      emailMessageMatchesSearch(
+        email({ isRead: false, isStarred: true }),
+        query,
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        email({ isRead: true, isStarred: false }),
+        query,
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        email({ isRead: false, isStarred: false }),
+        query,
+      ),
+    ).toBe(false);
+    expect(
+      emailMessageMatchesSearch(
+        email({ isRead: true, isStarred: true }),
+        query,
+      ),
+    ).toBe(false);
+  });
+});

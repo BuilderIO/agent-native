@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   scrollToIndex: vi.fn(),
   trash: vi.fn(),
   searchQuery: "",
+  urlSearch: "",
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
   freezeVirtualStart: false,
@@ -113,7 +114,7 @@ vi.mock("react-router", () => ({
   useParams: () => ({ view: mocks.view, threadId: mocks.threadId }),
   useSearchParams: () => [
     new URLSearchParams(
-      mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
+      mocks.searchQuery ? { q: mocks.searchQuery } : mocks.urlSearch,
     ),
   ],
 }));
@@ -228,6 +229,7 @@ vi.mock("@/hooks/use-emails", () => {
     useMarkRead: mutation,
     useMarkThreadRead: mutation,
     useToggleStar: mutation,
+    useUnstarThread: mutation,
     useArchiveEmail: mutation,
     useUnarchiveEmail: mutation,
     useTrashEmail: () => ({
@@ -313,6 +315,7 @@ function Harness({
   readingPane,
   keyboardEnabled,
   onThreadOrderChange,
+  fetchNextPage,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
@@ -337,6 +340,7 @@ function Harness({
   readingPane?: boolean;
   keyboardEnabled?: boolean;
   onThreadOrderChange?: (threadIds: string[]) => void;
+  fetchNextPage?: () => Promise<unknown>;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>(initialFocusedId);
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -371,6 +375,7 @@ function Harness({
         readingPane={readingPane}
         keyboardEnabled={keyboardEnabled}
         onThreadOrderChange={onThreadOrderChange}
+        fetchNextPage={fetchNextPage}
       />
     </>
   );
@@ -437,6 +442,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.scrollToIndex.mockReset();
     mocks.trash.mockReset();
     mocks.searchQuery = "";
+    mocks.urlSearch = "";
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.freezeVirtualStart = false;
@@ -2139,6 +2145,63 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
+  it("leaves rows from the previous filter alone until the new filter's rows arrive", () => {
+    const { rerender } = render(<Harness isPlaceholderData />);
+    press("d");
+    press("j");
+    press("x");
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    expect(rows()[0]?.closest("[inert]")).not.toBeNull();
+
+    rerender(<Harness isPlaceholderData={false} />);
+    expect(rows()[0]?.closest("[inert]")).toBeNull();
+    press("d");
+    expect(mocks.trash).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps reading pages while a filtered page comes back empty", async () => {
+    const observers: Array<
+      (entries: Array<{ isIntersecting: boolean }>) => void
+    > = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(
+          callback: (entries: Array<{ isIntersecting: boolean }>) => void,
+        ) {
+          observers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const fetchNextPage = vi.fn(() => Promise.resolve());
+    const { rerender } = render(
+      <Harness emails={[]} hasNextPage fetchNextPage={fetchNextPage} />,
+    );
+    await act(async () =>
+      observers[observers.length - 1]?.([{ isIntersecting: true }]),
+    );
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <Harness
+        emails={[]}
+        hasNextPage
+        isFetchingNextPage
+        fetchNextPage={fetchNextPage}
+      />,
+    );
+    rerender(<Harness emails={[]} hasNextPage fetchNextPage={fetchNextPage} />);
+    await act(async () =>
+      observers[observers.length - 1]?.([{ isIntersecting: true }]),
+    );
+    expect(fetchNextPage).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
   it.each([
     { key: "d", shiftKey: false },
     { key: "#", shiftKey: true },
@@ -2331,6 +2394,25 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(
       screen.queryByRole("button", { name: "mail.empty.openAllMailForOlder" }),
     ).toBeNull();
+  });
+
+  it("keeps the inbox filter on the All Mail link past the cap", () => {
+    mocks.urlSearch = "tab=important&r=unread:is_checked";
+    render(<Harness reachedCap hasNextPage={false} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.empty.openAllMailForOlder" }),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/all?r=unread:is_checked");
+  });
+
+  it("offers the All Mail link when a capped, filtered inbox has no rows to show", () => {
+    mocks.urlSearch = "r=unread:is_checked";
+    render(<Harness emails={[]} reachedCap hasNextPage={false} />);
+    expect(screen.getByText("mail.empty.nothingHere")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.empty.openAllMailForOlder" }),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/all?r=unread:is_checked");
   });
 
   it("does not consume navigation shortcuts while an input is focused", () => {

@@ -45,6 +45,15 @@ describe("InboxZero rendering", () => {
     expect(markup).not.toContain('data-testid="inbox-zero"');
   });
 
+  it("keeps the list, with its Filter button, for an empty filtered inbox", () => {
+    const markup = renderToStaticMarkup(
+      <InboxZeroBoundary state={{ ...emptyInbox, isFiltered: true }} />,
+    );
+
+    expect(markup).toContain('data-testid="email-list"');
+    expect(markup).not.toContain('data-testid="inbox-zero"');
+  });
+
   it("renders Inbox Zero after the final empty page", () => {
     const markup = renderToStaticMarkup(
       <InboxZeroBoundary state={emptyInbox} />,

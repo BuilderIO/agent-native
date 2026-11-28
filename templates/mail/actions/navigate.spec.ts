@@ -42,6 +42,71 @@ describe("Mail navigate", () => {
     });
   });
 
+  it("opens the inbox with the Unread or Starred filter", async () => {
+    await action.run({ unread: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      unread: "true",
+    });
+
+    await action.run({ starred: false, tab: "important" });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      tab: "important",
+      starred: "false",
+    });
+
+    await action.run({ starred: true, tab: "important" });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      tab: "important",
+      starred: "true",
+    });
+  });
+
+  it("opens Starred on All Mail, where archived starred mail still shows", async () => {
+    await action.run({ starred: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "all",
+      starred: "true",
+    });
+
+    await action.run({ starred: true, unread: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "all",
+      unread: "true",
+      starred: "true",
+    });
+
+    await action.run({ view: "inbox", starred: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      starred: "true",
+    });
+  });
+
+  it("rejects a filter on a view without the Filter menu", async () => {
+    await expect(action.run({ view: "sent", starred: true })).rejects.toThrow(
+      /filter the inbox or all, not sent/,
+    );
+    await expect(
+      action.run({ settingsSection: "rules", unread: true }),
+    ).rejects.toThrow(/filter the inbox or all, not settings/);
+    await expect(
+      action.run({ composeDraftId: "draft-1", starred: true }),
+    ).rejects.toThrow(/filter the inbox or all, not a compose draft/);
+    expect(writeAppStateForCurrentTab).not.toHaveBeenCalled();
+  });
+
+  it("keeps a thread inside the filtered list it opens on", async () => {
+    await action.run({ starred: true, threadId: "t1" });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "all",
+      threadId: "t1",
+      starred: "true",
+    });
+  });
+
   it.each([
     ["rules", "/settings/app/rules"],
     ["ai-filter", "/settings/app/ai-filter"],

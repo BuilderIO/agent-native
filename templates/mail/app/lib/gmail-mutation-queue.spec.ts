@@ -253,6 +253,113 @@ describe("gmailMutationQueue", () => {
     });
   });
 
+  describe("conversation unstars", () => {
+    const account = "a@x.com";
+    const unstarConversation = (threadId: string) =>
+      gmailMutationQueue.enqueue("star", {
+        id: threadId,
+        threadId,
+        accountEmail: account,
+        flag: false,
+        wholeThread: true,
+      });
+    const starLatest = (id: string, threadId: string) =>
+      gmailMutationQueue.enqueue("star", {
+        id,
+        threadId,
+        accountEmail: account,
+        flag: true,
+      });
+
+    it("sends a quick unstar then star to Gmail in that order, ending starred", async () => {
+      const unstarred = unstarConversation("t1");
+      const starred = starLatest("m2", "t1");
+
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.all([unstarred, starred]);
+
+      expect(callAction.mock.calls).toEqual([
+        [
+          "star-email",
+          { threadId: "t1", accountEmails: account, unstar: true },
+        ],
+        [
+          "star-email",
+          { id: "m2", threadIds: "t1", accountEmails: account, unstar: false },
+        ],
+      ]);
+    });
+
+    it("waits for an unstar already on its way before sending the star", async () => {
+      let finishUnstar: (value: string) => void = () => {};
+      callAction.mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishUnstar = resolve;
+          }),
+      );
+      const unstarred = unstarConversation("t1");
+      await vi.advanceTimersByTimeAsync(200);
+      const starred = starLatest("m2", "t1");
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(callAction).toHaveBeenCalledTimes(1);
+      finishUnstar("Unstarred thread t1");
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.all([unstarred, starred]);
+
+      expect(callAction.mock.calls.map(([, args]) => args)).toEqual([
+        { threadId: "t1", accountEmails: account, unstar: true },
+        { id: "m2", threadIds: "t1", accountEmails: account, unstar: false },
+      ]);
+    });
+
+    it("lets an unstar replace a star still waiting for the same conversation", async () => {
+      const starred = starLatest("m2", "t1");
+      const unstarred = unstarConversation("t1");
+
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.all([starred, unstarred]);
+
+      expect(callAction.mock.calls).toEqual([
+        [
+          "star-email",
+          { threadId: "t1", accountEmails: account, unstar: true },
+        ],
+      ]);
+    });
+
+    it("batches a bulk unstar and retries only the deferred conversations", async () => {
+      callAction
+        .mockResolvedValueOnce({
+          requested: ["t1", "t2", "t3"],
+          succeeded: ["t1"],
+          failed: [],
+          remaining: ["t2", "t3"],
+          retryAfterSeconds: 2,
+        })
+        .mockResolvedValueOnce("Unstarred 2 threads");
+      const pending = ["t1", "t2", "t3"].map(unstarConversation);
+
+      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await Promise.all(pending);
+
+      expect(callAction.mock.calls.map(([, args]) => args)).toEqual([
+        {
+          threadId: "t1,t2,t3",
+          accountEmails: `${account},${account},${account}`,
+          unstar: true,
+        },
+        {
+          threadId: "t2,t3",
+          accountEmails: `${account},${account}`,
+          unstar: true,
+        },
+      ]);
+    });
+  });
+
   it("batches trash and settles partial per-item results from one action call", async () => {
     callAction.mockResolvedValueOnce({
       requested: ["m1", "m2"],

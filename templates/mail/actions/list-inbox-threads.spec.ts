@@ -89,6 +89,7 @@ vi.mock("../server/lib/inbox-store.js", () => ({
   }),
 }));
 
+import { ALL_TAB_ID } from "../shared/inbox-threads.js";
 import action from "./list-inbox-threads";
 
 // The SQL windows are verified against the in-memory partition in
@@ -396,6 +397,148 @@ describe("list-inbox-threads action", () => {
     expect(result.tabs.find((t) => t.id === "important")?.total).toBe(2);
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(1);
   });
+
+  it("inboxFilter narrows the page to the Filter menu's rules and leaves tab counts unchanged", async () => {
+    mocks.readInboxThreads.mockResolvedValue([
+      row({
+        threadId: "t1",
+        latestMessageId: "m1",
+        isUnread: true,
+        unreadCount: 1,
+        isStarred: false,
+      }),
+      row({
+        threadId: "t2",
+        latestMessageId: "m2",
+        isUnread: false,
+        unreadCount: 0,
+        isStarred: true,
+      }),
+      row({
+        threadId: "t3",
+        latestMessageId: "m3",
+        isUnread: false,
+        unreadCount: 0,
+        isStarred: false,
+      }),
+    ]);
+
+    const starred = await action.run({
+      inboxFilter: "r=starred:is_checked",
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(starred.items.map((item) => item.threadId)).toEqual(["t2"]);
+    expect(starred.complete).toBe(false);
+    expect(starred.hasMore).toBe(false);
+    expect(starred.tabs.find((t) => t.id === "important")?.total).toBe(3);
+
+    const either = await action.run({
+      inboxFilter: "match=any&r=unread:is_checked&r=starred:is_checked",
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(either.items.map((item) => item.threadId).sort()).toEqual([
+      "t1",
+      "t2",
+    ]);
+
+    const both = await action.run({
+      inboxFilter: "r=starred:is_checked",
+      unreadOnly: true,
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(both.items).toEqual([]);
+  });
+
+  it("rejects an inboxFilter with no rule the inbox reads instead of returning the whole inbox", async () => {
+    mocks.readInboxThreads.mockResolvedValue([row({ threadId: "t1" })]);
+
+    await expect(
+      action.run({ inboxFilter: "r=label:is_checked", limit: 50, offset: 0 }),
+    ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
+  });
+
+  it("rejects an inboxFilter it can only partly read", async () => {
+    mocks.readInboxThreads.mockResolvedValue([row({ threadId: "t1" })]);
+
+    await expect(
+      action.run({
+        inboxFilter: "r=unread:is_checked&r=unknown:is_checked",
+        limit: 50,
+        offset: 0,
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
+    await expect(
+      action.run({
+        inboxFilter:
+          "match=all&match=any&r=unread:is_checked&r=starred:is_checked",
+        limit: 50,
+        offset: 0,
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
+  });
+
+  it.each([
+    ["the SQL windows", []],
+    ["the in-memory partition", ["work"]],
+  ])(
+    "reads the whole inbox for a filtered read with no tab while All is hidden, through %s",
+    async (_path, pinnedLabels) => {
+      mocks.readSettings.mockResolvedValue({
+        combineInbox: false,
+        showAllTab: false,
+        pinnedLabels,
+        savedFilters: [],
+        labelAliases: {},
+      });
+      mocks.readInboxThreads.mockResolvedValue([
+        row({ threadId: "t1", latestMessageId: "m1", latestDate: 3 }),
+        row({
+          threadId: "t2",
+          latestMessageId: "m2",
+          latestDate: 2,
+          isAutomated: true,
+        }),
+        row({
+          threadId: "t3",
+          latestMessageId: "m3",
+          latestDate: 1,
+          isUnread: false,
+          unreadCount: 0,
+        }),
+      ]);
+
+      const tabless = await action.run({
+        inboxFilter: "r=unread:is_checked",
+        limit: 50,
+        offset: 0,
+      });
+
+      expect(tabless.items.map((item) => item.threadId)).toEqual(["t1", "t2"]);
+      expect(tabless.activeTabId).toBe(ALL_TAB_ID);
+      expect(tabless.tabs.map((tab) => tab.id)).not.toContain(ALL_TAB_ID);
+      expect(tabless.tabs.find((tab) => tab.id === "other")?.total).toBe(1);
+
+      const important = await action.run({
+        tab: "important",
+        inboxFilter: "r=unread:is_checked",
+        limit: 50,
+        offset: 0,
+      });
+
+      expect(important.items.map((item) => item.threadId)).toEqual(["t1"]);
+      expect(important.activeTabId).toBe("important");
+
+      const unfiltered = await action.run({ limit: 50, offset: 0 });
+
+      expect(unfiltered.activeTabId).toBe("important");
+    },
+  );
 
   it("reports initial progress from SQL without making Gmail or token-refresh calls", async () => {
     mocks.readInboxThreads.mockResolvedValue([]);
@@ -776,6 +919,43 @@ describe("list-inbox-threads action", () => {
     expect(result.tabs.find((t) => t.id === "other")?.total).toBe(2);
     expect(result.items.map((item) => item.threadId)).toEqual(["plain"]);
     expect(result.items[0]?.isAutomated).toBe(false);
+  });
+
+  it("keeps threads a pinned label or saved filter claims out of Important and Other", async () => {
+    mocks.readSettings.mockResolvedValue({
+      combineInbox: false,
+      pinnedLabels: ["important", "work"],
+      savedFilters: [{ id: "pitches", name: "Pitches", query: "label:pitch" }],
+      labelAliases: {},
+    });
+    mocks.readInboxThreads.mockResolvedValue([
+      row({ threadId: "work", latestDate: 5, labelIds: ["work"] }),
+      row({ threadId: "pitch", latestDate: 4, labelIds: ["pitch"] }),
+      row({
+        threadId: "automated-pitch",
+        latestDate: 3,
+        labelIds: ["pitch"],
+        isAutomated: true,
+      }),
+      row({ threadId: "plain", latestDate: 2 }),
+      row({ threadId: "automated", latestDate: 1, isAutomated: true }),
+    ]);
+    const read = async (tab?: string) =>
+      (
+        await action.run({ ...(tab ? { tab } : {}), limit: 50, offset: 0 })
+      ).items.map((item) => item.threadId);
+
+    expect(await read("important")).toEqual(["plain"]);
+    expect(await read("other")).toEqual(["automated"]);
+    expect(await read("work")).toEqual(["work"]);
+    expect(await read("pitches")).toEqual(["pitch", "automated-pitch"]);
+    expect(await read()).toEqual([
+      "work",
+      "pitch",
+      "automated-pitch",
+      "plain",
+      "automated",
+    ]);
   });
 });
 

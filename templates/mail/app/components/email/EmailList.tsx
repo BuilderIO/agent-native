@@ -11,6 +11,7 @@ import {
 } from "@shared/ai-priority";
 import { type GmailReadState } from "@shared/gmail-freshness";
 import { mailLabelsInclude } from "@shared/gmail-labels";
+import { inboxFilterParam, withInboxFilter } from "@shared/inbox-filters";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
 import {
@@ -91,6 +92,7 @@ import {
   useMarkRead,
   useMarkThreadRead,
   useToggleStar,
+  useUnstarThread,
   useArchiveEmail,
   useUnarchiveEmail,
   useTrashEmail,
@@ -274,6 +276,8 @@ interface EmailListProps {
   onJevRetry?: () => void;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
+  filterControl?: ReactNode;
+  emptyHintKey?: string | undefined;
   readingPane?: boolean;
   keyboardEnabled?: boolean;
   onThreadOrderChange?: (threadIds: string[]) => void;
@@ -317,8 +321,6 @@ function emptyStateHintKeyForView(view: string): string {
       return "mail.empty.snoozed";
     case "drafts":
       return "mail.empty.drafts";
-    case "starred":
-      return "mail.empty.starred";
     case "sent":
       return "mail.empty.sent";
     case "scheduled":
@@ -331,8 +333,6 @@ function emptyStateHintKeyForView(view: string): string {
       return "mail.empty.spam";
     case "all":
       return "mail.empty.all";
-    case "unread":
-      return "mail.empty.unread";
     default:
       return "mail.empty.default";
   }
@@ -661,6 +661,8 @@ export function EmailList({
   onJevRetry,
   sortMode = "newest",
   onSortModeChange,
+  filterControl,
+  emptyHintKey,
   readingPane = false,
   keyboardEnabled = true,
   onThreadOrderChange,
@@ -714,6 +716,7 @@ export function EmailList({
   const listIsPlaceholder =
     isPlaceholderDataProp ??
     (emailsProp === undefined && fetchedEmailsPlaceholder);
+  const rowShortcutsEnabled = keyboardEnabled && !listIsPlaceholder;
   const emailsError = emailsErrorProp ?? fetchedEmailsError;
   const accountErrors = accountErrorsProp ?? fetchedAccountErrors;
   const read = readProp ?? fetchedRead;
@@ -732,6 +735,7 @@ export function EmailList({
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
+  const unstarThread = useUnstarThread();
   const archiveEmail = useArchiveEmail();
   const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
@@ -2059,31 +2063,22 @@ export function EmailList({
     ],
   );
 
-  const getThreadMessagesForKey = useCallback(
-    (key: string) => emails.filter((e) => (e.threadId || e.id) === key),
-    [emails],
-  );
-
   const setThreadStarred = useCallback(
     (thread: ThreadSummary, isStarred: boolean) => {
-      const key = thread.latestMessage.threadId || thread.latestMessage.id;
-      const messages = getThreadMessagesForKey(key);
-      const targets = isStarred
-        ? [thread.latestMessage]
-        : messages.filter((message) => message.isStarred);
-      const fallbackTargets =
-        targets.length > 0 ? targets : [thread.latestMessage];
-
-      for (const target of fallbackTargets) {
+      const latest = thread.latestMessage;
+      const key = latest.threadId || latest.id;
+      if (isStarred) {
         toggleStar.mutate({
-          id: target.id,
+          id: latest.id,
           isStarred,
-          accountEmail: target.accountEmail,
+          accountEmail: latest.accountEmail,
           threadId: key,
         });
+        return;
       }
+      unstarThread.mutate({ threadId: key, accountEmail: latest.accountEmail });
     },
-    [getThreadMessagesForKey, toggleStar],
+    [toggleStar, unstarThread],
   );
 
   const starFocused = useCallback(() => {
@@ -2185,7 +2180,7 @@ export function EmailList({
       { key: "a", handler: replyAllFocused },
       { key: "Escape", handler: clearSelection },
     ],
-    keyboardEnabled,
+    rowShortcutsEnabled,
   );
 
   const focusedThreadKeyRef = useRef<string | null>(null);
@@ -2394,7 +2389,7 @@ export function EmailList({
       { key: " ", shift: true, handler: () => pageFocus(-1) },
       { key: "Home", handler: () => goToRow(0) },
     ],
-    keyboardEnabled,
+    rowShortcutsEnabled,
   );
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -3035,11 +3030,13 @@ export function EmailList({
 
   const headerActions = useMemo(
     () =>
+      filterControl ||
       sortHeaderAction ||
       bulkHeaderActions ||
       jevConnectionDialog ||
       viewHeaderActions ? (
         <>
+          {filterControl}
           {sortHeaderAction}
           {bulkHeaderActions ?? viewHeaderActions}
           {jevConnectionDialog}
@@ -3047,6 +3044,7 @@ export function EmailList({
       ) : null,
     [
       bulkHeaderActions,
+      filterControl,
       jevConnectionDialog,
       sortHeaderAction,
       viewHeaderActions,
@@ -3153,6 +3151,23 @@ export function EmailList({
     );
   }
 
+  const olderMailLink =
+    reachedCap && !hasNextPage ? (
+      <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={() =>
+            void navigate(
+              withInboxFilter("/all", inboxFilterParam(searchParams)),
+            )
+          }
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          {t("mail.empty.openAllMailForOlder")}
+        </button>
+      </div>
+    ) : null;
+
   // Empty state
   if (threads.length === 0) {
     if (searchQuery) {
@@ -3191,6 +3206,8 @@ export function EmailList({
       );
     }
     if (
+      !emptyHintKey &&
+      !olderMailLink &&
       (view === "inbox" || view === "important" || labelParam) &&
       !accountErrors?.length &&
       !cooldownNotice
@@ -3210,8 +3227,9 @@ export function EmailList({
               {t("mail.empty.nothingHere")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {t(emptyStateHintKeyForView(view))}
+              {t(emptyHintKey ?? emptyStateHintKeyForView(view))}
             </p>
+            {olderMailLink}
           </div>
         </div>
       </div>
@@ -3269,6 +3287,8 @@ export function EmailList({
           onPick={(choice, action) => labelFocused(action, choice)}
         />
         <div
+          inert={listIsPlaceholder}
+          aria-busy={listIsPlaceholder || undefined}
           style={{
             height: rowVirtualizer.getTotalSize(),
             position: "relative",
@@ -3405,17 +3425,7 @@ export function EmailList({
             )}
           </div>
         )}
-        {reachedCap && !hasNextPage && (
-          <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
-            <button
-              type="button"
-              onClick={() => void navigate("/all")}
-              className="underline underline-offset-2 hover:text-foreground"
-            >
-              {t("mail.empty.openAllMailForOlder")}
-            </button>
-          </div>
-        )}
+        {olderMailLink}
       </div>
     </div>
   );

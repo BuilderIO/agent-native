@@ -1,4 +1,4 @@
-import { isKnownMailView } from "@shared/mail-routes";
+import { filteredPathForView, isKnownMailView } from "@shared/mail-routes";
 import { data, Navigate, useLocation, useParams } from "react-router";
 
 import messages from "@/i18n/en-US";
@@ -35,11 +35,13 @@ export function meta({ params }: { params: { view?: string } }) {
 }
 
 export default function ViewRoute() {
-  const { view } = useParams<{ view: string }>();
+  const { view, threadId } = useParams<{ view: string; threadId: string }>();
   const location = useLocation();
   if (view === "scheduled") {
     return <Navigate to={`/drafts${location.search}`} replace />;
   }
+  const filteredPath = filteredPathForView(view, location.search, threadId);
+  if (filteredPath) return <Navigate to={filteredPath} replace />;
   if (!isKnownMailView(view)) {
     return <NotFound />;
   }

@@ -55,9 +55,13 @@ traffic to any one path.
 - NAV-001 — Load the root route. SH: confirm the default inbox, active tab,
   counts, search, compose, account state, and first message. MAIL: confirm the
   same landmarks and that no connect banner replaces a known local mailbox.
-- NAV-002 — Open each primary view from the visible nav: Inbox, Unread,
-  Starred, Snoozed, Sent, Drafts, Archive/Done, Trash, All Mail, Scheduled,
-  and labels. Confirm URL, active tab, count source, rows, empty state, and
+- NAV-002 — Open each primary view from the visible nav: Inbox, Snoozed,
+  Sent, Drafts, Archive/Done, Trash, All Mail, Scheduled, and labels. Unread
+  and Starred are the Filter menu on Inbox and All Mail now: `/mail/unread`
+  redirects to `/mail/inbox?r=unread:is_checked`, and `/mail/starred` to
+  `/mail/all?r=starred:is_checked` so archived starred mail stays listed.
+  Shift+U, G S, and ⌘K Go to Starred open the same links.
+  Confirm URL, active tab, count source, rows, empty state, and
   back/forward history. An isolated, disconnected browser pass on 2026-09-14
   used sidebar clicks to verify `/mail/unread`, `/mail/starred`,
   `/mail/snoozed`, `/mail/sent`, `/mail/draft-queue`, `/mail/scheduled`,

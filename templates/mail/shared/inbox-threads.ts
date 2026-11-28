@@ -101,6 +101,7 @@ export type ListInboxThreadsInput = {
   limit?: number;
   offset?: number;
   unreadOnly?: boolean;
+  inboxFilter?: string;
 };
 
 export type ListInboxThreadsResult = {

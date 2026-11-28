@@ -12,6 +12,11 @@ import {
   gmailReadState,
   type GmailReadState,
 } from "@shared/gmail-freshness";
+import {
+  inboxFilterAccepts,
+  keepAcceptedConversations,
+  type InboxFilterAccepts,
+} from "@shared/inbox-filters";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
   ComposeAttachment,
@@ -1095,6 +1100,28 @@ export function reconcileOptimisticOverrides(
   if (changed) notifyOptimisticOverrideListeners();
 }
 
+function keepFilteredThreads(
+  emails: EmailMessage[],
+  accepts: InboxFilterAccepts,
+): EmailMessage[] {
+  if (optimisticOverrides.size === 0) return emails;
+  const touched = new Set(
+    emails
+      .filter((email) => optimisticOverrides.has(email.id))
+      .map(messageThreadKey),
+  );
+  if (touched.size === 0) return emails;
+  const kept = new Set(
+    keepAcceptedConversations(
+      emails.filter((email) => touched.has(messageThreadKey(email))),
+      accepts,
+    ),
+  );
+  return emails.filter(
+    (email) => !touched.has(messageThreadKey(email)) || kept.has(email),
+  );
+}
+
 function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
   if (optimisticOverrides.size === 0) return emails;
   let changed = false;
@@ -1133,7 +1160,8 @@ function isRecentSentListKey(key: readonly unknown[]): boolean {
     key[0] === "emails" &&
     (key[1] === "sent" || key[1] === "all") &&
     key[2] == null &&
-    key[3] == null
+    key[3] == null &&
+    key[4] == null
   );
 }
 
@@ -1237,12 +1265,32 @@ export function emailListRefetchInterval(
   return base;
 }
 
-type EmailQueryKey = readonly [
-  "emails" | "email-prefetch",
-  string,
-  string | undefined,
-  string | undefined,
-];
+type EmailQueryKey =
+  | readonly [
+      "emails" | "email-prefetch",
+      string,
+      string | undefined,
+      string | undefined,
+    ]
+  | readonly [
+      "emails" | "email-prefetch",
+      string,
+      string | undefined,
+      string | undefined,
+      string,
+    ];
+
+function emailListKey(
+  root: "emails" | "email-prefetch",
+  view: string,
+  search: string | undefined,
+  label: string | undefined,
+  inboxFilter: string | undefined,
+): EmailQueryKey {
+  return inboxFilter
+    ? [root, view, search, label, inboxFilter]
+    : [root, view, search, label];
+}
 
 function emailQueryOptions(
   queryClient: QueryClient,
@@ -1252,6 +1300,7 @@ function emailQueryOptions(
   prefetchTimeoutMs?: number,
   queryKey: EmailQueryKey = ["emails", view, search, label],
 ) {
+  const inboxFilter = queryKey[4];
   return {
     queryKey,
     queryFn: async ({
@@ -1267,6 +1316,7 @@ function emailQueryOptions(
       params.set("limit", String(EMAIL_PAGE_SIZE));
       if (search) params.set("q", search);
       if (label) params.set("label", label);
+      if (inboxFilter) params.set("inboxFilter", inboxFilter);
       if (pageParam) params.set("pageToken", pageParam);
       const forceRefreshAt = !pageParam
         ? consumeExternalEmailRefresh(
@@ -1346,11 +1396,19 @@ export function useEmails(
   view: string = "inbox",
   search?: string,
   label?: string,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; inboxFilter?: string | undefined },
 ) {
   const qc = useQueryClient();
+  const inboxFilter = options?.inboxFilter || undefined;
   const q = useInfiniteQuery({
-    ...emailQueryOptions(qc, view, search, label),
+    ...emailQueryOptions(
+      qc,
+      view,
+      search,
+      label,
+      undefined,
+      emailListKey("emails", view, search, label, inboxFilter),
+    ),
     placeholderData: keepPreviousData,
     refetchInterval: (query) => emailListRefetchInterval(query.state, search),
     refetchOnWindowFocus: false,
@@ -1387,20 +1445,33 @@ export function useEmails(
     const firstPage = q.data.pages[0] as EmailsPage | undefined;
     if (firstPage?.read && firstPage.read.freshness !== "live") return;
     lastProviderSnapshotId.current = providerSnapshotId;
-    reconcileSuppressionEvidence(q.data.pages, view, label, search);
+    if (!inboxFilter) {
+      reconcileSuppressionEvidence(q.data.pages, view, label, search);
+    }
     if (!search) reconcileOptimisticOverrides(q.data.pages);
-  }, [q.data, q.isPlaceholderData, view, search, label, providerSnapshotId]);
+  }, [
+    q.data,
+    q.isPlaceholderData,
+    view,
+    search,
+    label,
+    inboxFilter,
+    providerSnapshotId,
+  ]);
 
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
     const visible = applyOverrides(filterSuppressedThreads(all, view, label));
+    const accepts = inboxFilter ? inboxFilterAccepts(inboxFilter) : null;
+    if (accepts) return keepFilteredThreads(visible, accepts);
     return applyRecentSentEmails(visible, view, search, label);
   }, [
     q.data,
     view,
     search,
     label,
+    inboxFilter,
     currentSuppressionVersion,
     currentOptimisticOverrideVersion,
   ]);
@@ -1951,6 +2022,102 @@ export function useToggleStar() {
         context?.accountEmail,
       );
       if (context?.inboxMutationId) {
+        forgetInboxMutation(qc, context.inboxMutationId);
+      }
+      toast.error(toError(err).message);
+    },
+    onSettled: (_data, _error, _variables, context) =>
+      delayedInvalidate(
+        qc,
+        [["emails"], LABELS_QUERY_KEY, INBOX_THREADS_QUERY_KEY],
+        3_000,
+        () => settleInboxMutationIfObserved(qc, context?.inboxMutationId),
+      ),
+  });
+}
+
+export function useUnstarThread() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      threadId,
+      accountEmail,
+    }: {
+      threadId: string;
+      accountEmail?: string | undefined;
+    }) =>
+      gmailMutationQueue.enqueue("star", {
+        id: threadId,
+        threadId,
+        accountEmail,
+        flag: false,
+        wholeThread: true,
+      }),
+    onMutate: async ({ threadId, accountEmail }) => {
+      const cached = qc
+        .getQueriesData<InfiniteEmails>({ queryKey: ["emails"] })
+        .flatMap(([, data]) => flattenInfiniteEmails(data))
+        .filter((email) => messageThreadKey(email) === threadId);
+      const resolvedAccountEmail = accountEmail ?? cached[0]?.accountEmail;
+      const previousThread = getCachedThread(threadId, resolvedAccountEmail);
+      const starredById = new Map<string, boolean>();
+      for (const email of [...cached, ...(previousThread ?? [])]) {
+        starredById.set(email.id, email.isStarred);
+      }
+      const mutations = [...starredById].map(([id, isStarred]) => ({
+        id,
+        version: beginStarMutation(id, isStarred, false),
+      }));
+      for (const id of starredById.keys()) {
+        setOptimisticOverride(id, { isStarred: false });
+      }
+      const inboxMutationId = toggleInboxThreadsStarOptimistic(
+        qc,
+        new Set([threadId]),
+        false,
+      );
+      if (previousThread) {
+        setCachedThread(
+          threadId,
+          previousThread.map((message) => ({ ...message, isStarred: false })),
+          resolvedAccountEmail,
+        );
+      }
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ["emails"] }),
+        cancelInboxThreadsQueries(qc),
+      ]);
+      return {
+        mutations,
+        threadId,
+        inboxMutationId,
+        accountEmail: resolvedAccountEmail,
+      };
+    },
+    onSuccess: (_data, _variables, context) => {
+      applyStarMutationStates(
+        new Map(
+          context.mutations.map(({ id, version }) => [
+            id,
+            confirmStarMutation(id, version, false),
+          ]),
+        ),
+        context.threadId,
+        context.accountEmail,
+      );
+    },
+    onError: (err, _variables, context) => {
+      if (context) {
+        applyStarMutationStates(
+          new Map(
+            context.mutations.map(({ id, version }) => [
+              id,
+              rollbackStarMutation(id, version),
+            ]),
+          ),
+          context.threadId,
+          context.accountEmail,
+        );
         forgetInboxMutation(qc, context.inboxMutationId);
       }
       toast.error(toError(err).message);

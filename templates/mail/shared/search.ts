@@ -172,7 +172,7 @@ function expandSearchDisjunction(query: string): string[] | undefined {
     const alternatives =
       splitSearchOr(braceGroup.content) ??
       braceGroup.content.match(
-        /-?(?:[a-z][\w-]*:\s*)?(?:"[^"\\]*(?:\\.[^"\\]*)*"|\S+)/gi,
+        /-?\((?:[^()"]|"[^"]*")*\)|-?(?:[a-z][\w-]*:\s*)?(?:"[^"\\]*(?:\\.[^"\\]*)*"|\S+)/gi,
       ) ??
       [];
     if (alternatives.length === 0) return [];

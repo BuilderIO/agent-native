@@ -1,3 +1,4 @@
+import type { ListInboxThreadsResult } from "@shared/inbox-threads";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -14,6 +15,7 @@ import {
   cancelInboxThreadsQueries,
   clearInboxThreadRemoval,
   findInboxThreadIdByMessageId,
+  forgetInboxMutation,
   INBOX_THREADS_QUERY_KEY,
   inboxOverviewQueryKey,
   inboxSyncRefetchInterval,
@@ -731,9 +733,195 @@ describe("toggleInboxThreadsStarOptimistic", () => {
   });
 });
 
+describe("filtered inbox membership", () => {
+  const UNREAD_KEY = [
+    "action",
+    "list-inbox-threads",
+    { tab: "important", inboxFilter: "r=unread:is_checked" },
+  ];
+  const STARRED_KEY = [
+    "action",
+    "list-inbox-threads",
+    { tab: "important", inboxFilter: "r=starred:is_checked" },
+  ];
+
+  function filteredRows(qc: QueryClient, key: unknown[]) {
+    const raw = qc.getQueryData<ListInboxThreadsResult>(key);
+    if (!raw) throw new Error("no cached inbox page");
+    return applyInboxMutationOverlay(
+      qc,
+      raw,
+      (key[2] as { inboxFilter: string }).inboxFilter,
+    ).items.map((item) => item.threadId);
+  }
+
+  it("drops a row a read mutation takes out of Unread, and brings it back on rollback", () => {
+    const qc = new QueryClient();
+    qc.setQueryData(
+      UNREAD_KEY,
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 1,
+            isRead: false,
+            isStarred: false,
+          },
+          {
+            id: "m3",
+            threadId: "t3",
+            unreadCount: 2,
+            isRead: false,
+            isStarred: false,
+          },
+        ],
+      }),
+    );
+
+    const readId = markInboxThreadReadOptimistic(qc, new Set(["t1"]), true);
+    expect(filteredRows(qc, UNREAD_KEY)).toEqual(["t3"]);
+
+    forgetInboxMutation(qc, readId);
+    expect(filteredRows(qc, UNREAD_KEY)).toEqual(["t1", "t3"]);
+  });
+
+  it("drops an unstarred row from Starred and settles once a fresh read leaves it out", () => {
+    const qc = new QueryClient();
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 0,
+            isRead: true,
+            isStarred: true,
+          },
+        ],
+      }),
+    );
+
+    const starId = toggleInboxThreadsStarOptimistic(qc, new Set(["t1"]), false);
+    expect(filteredRows(qc, STARRED_KEY)).toEqual([]);
+
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({ items: [], clientSnapshotId: 10 }),
+    );
+    settleInboxMutationIfObserved(qc, starId);
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 0,
+            isRead: true,
+            isStarred: true,
+          },
+        ],
+        clientSnapshotId: 11,
+      }),
+    );
+    expect(filteredRows(qc, STARRED_KEY)).toEqual(["t1"]);
+  });
+
+  it("settles only on a fresh read of a page that held the row", () => {
+    const qc = new QueryClient();
+    const otherTabKey = [
+      "action",
+      "list-inbox-threads",
+      { tab: "other", inboxFilter: "r=starred:is_checked" },
+    ];
+    const nextPageKey = [
+      "action",
+      "list-inbox-threads",
+      { tab: "important", inboxFilter: "r=starred:is_checked", offset: 50 },
+    ];
+    const starredRow = {
+      id: "m1",
+      threadId: "t1",
+      unreadCount: 0,
+      isRead: true,
+      isStarred: true,
+    };
+    qc.setQueryData(STARRED_KEY, seedResult({ items: [starredRow] }));
+
+    const starId = toggleInboxThreadsStarOptimistic(qc, new Set(["t1"]), false);
+    qc.setQueryData(
+      otherTabKey,
+      seedResult({ items: [], clientSnapshotId: 10 }),
+    );
+    qc.setQueryData(
+      nextPageKey,
+      seedResult({ items: [], clientSnapshotId: 10 }),
+    );
+    settleInboxMutationIfObserved(qc, starId);
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({ items: [starredRow], clientSnapshotId: 11 }),
+    );
+    expect(filteredRows(qc, STARRED_KEY)).toEqual([]);
+
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({ items: [], clientSnapshotId: 12 }),
+    );
+    settleInboxMutationIfObserved(qc, starId);
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({ items: [starredRow], clientSnapshotId: 13 }),
+    );
+    expect(filteredRows(qc, STARRED_KEY)).toEqual(["t1"]);
+  });
+
+  it("keeps rows the mutation leaves inside the filter", () => {
+    const qc = new QueryClient();
+    qc.setQueryData(
+      STARRED_KEY,
+      seedResult({
+        items: [
+          {
+            id: "m1",
+            threadId: "t1",
+            unreadCount: 1,
+            isRead: false,
+            isStarred: true,
+          },
+        ],
+      }),
+    );
+
+    markInboxThreadReadOptimistic(qc, new Set(["t1"]), true);
+    expect(filteredRows(qc, STARRED_KEY)).toEqual(["t1"]);
+  });
+});
+
 describe("inboxThreadsHasNextPage", () => {
   it("is true while fewer rows are loaded than the tab's total", () => {
     expect(inboxThreadsHasNextPage(100, 250)).toBe(true);
+  });
+
+  it("trusts the server's hasMore for a filtered page that ends on a full page", () => {
+    expect(
+      inboxThreadsHasNextPage(50, 400, {
+        complete: false,
+        hasMore: false,
+        lastPageLength: 50,
+        pageSize: 50,
+      }),
+    ).toBe(false);
+    expect(
+      inboxThreadsHasNextPage(50, 400, {
+        complete: false,
+        hasMore: true,
+        lastPageLength: 50,
+        pageSize: 50,
+      }),
+    ).toBe(true);
   });
 
   it("stops at the offset cap even when older rows exist", () => {

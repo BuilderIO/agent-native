@@ -20,6 +20,8 @@ export const COLLAPSIBLE_VIEW_IDS = [
   AI_FILTER_LABEL,
 ] as const;
 
+export const LEGACY_FILTER_VIEW_IDS: readonly string[] = ["unread", "starred"];
+
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
 
@@ -104,7 +106,7 @@ export function resolvePinnedLabels(
   if (userPinnedLabels === undefined) {
     return isGoogleConnected ? ["important"] : [];
   }
-  return [...userPinnedLabels];
+  return userPinnedLabels.filter((id) => !LEGACY_FILTER_VIEW_IDS.includes(id));
 }
 
 export function labelTabHref(

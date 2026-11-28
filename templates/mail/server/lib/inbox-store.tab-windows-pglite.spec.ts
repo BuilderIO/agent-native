@@ -1,3 +1,4 @@
+import { inboxFilterAccepts } from "@shared/inbox-filters.js";
 import { INBOX_MAX_PAGE_OFFSET } from "@shared/inbox-threads.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -37,7 +38,7 @@ function syntheticRows(count: number) {
   ];
   const base = Date.UTC(2026, 0, 1);
   return Array.from({ length: count }, (_, i) => {
-    const account = ACCOUNTS[i % ACCOUNTS.length];
+    const account = ACCOUNTS[i % ACCOUNTS.length] ?? OWNER;
     const labels = labelChoices[Math.floor(next() * labelChoices.length)];
     const unread = next() < 0.4 ? 1 + Math.floor(next() * 2) : 0;
     return {
@@ -48,7 +49,7 @@ function syntheticRows(count: number) {
       historyId: "1",
       inInbox: i === 0 || i === 3 || next() < 0.9 ? 1 : 0,
       isUnread: unread > 0 ? 1 : 0,
-      isStarred: 0,
+      isStarred: i % 5 === 3 ? 1 : 0,
       isImportant: 0,
       isAutomated: i === 0 || i === 3 ? 2 : next() < 0.25 ? 1 : 0,
       latestDate: base + Math.floor(next() * 20) * 60_000,
@@ -210,9 +211,40 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
           expect((byTab.get(tab.id) ?? []).length).toBeGreaterThan(0);
         }
 
+        const pageFilters = [
+          "",
+          "r=unread:is_checked",
+          "r=starred:is_checked",
+          "match=any&r=unread:is_checked&r=starred:is_checked",
+          "r=starred:is_unchecked",
+        ];
+        const poolOf = (tabId: string, pageFilter: string) => {
+          const pageAccepts = inboxFilterAccepts(pageFilter);
+          const members = byTab.get(tabId) ?? [];
+          return pageAccepts
+            ? members.filter((item) =>
+                pageAccepts({
+                  unread: item.unreadCount > 0,
+                  starred: item.isStarred,
+                }),
+              )
+            : members;
+        };
+        for (const tab of resolved.filter(
+          (candidate) => candidate.kind === "all" || candidate.kind === "inbox",
+        )) {
+          for (const pageFilter of pageFilters.slice(1)) {
+            expect(poolOf(tab.id, pageFilter).length).toBeGreaterThan(0);
+            expect(poolOf(tab.id, pageFilter).length).toBeLessThan(
+              poolOf(tab.id, "").length,
+            );
+          }
+        }
         for (const tab of resolved) {
           const pageLimit = 17;
-          for (const unreadOnly of [false, true]) {
+          for (const pageFilter of pageFilters) {
+            const pageAccepts = inboxFilterAccepts(pageFilter) ?? undefined;
+            const pool = poolOf(tab.id, pageFilter);
             for (const offset of [0, 17, 34]) {
               const windows = await store.readInboxTabWindows({
                 ownerEmail: OWNER,
@@ -221,12 +253,11 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
                 pageTabId: tab.id,
                 pageOffset: offset,
                 pageLimit,
-                pageUnreadOnly: unreadOnly,
+                pageAccepts,
                 previewLimit: 50,
               });
               const keyOf = (r: { accountEmail?: string; threadId: string }) =>
                 `${r.accountEmail}:${r.threadId}`;
-              const members = byTab.get(tab.id) ?? [];
 
               for (const other of resolved) {
                 const expected = byTab.get(other.id) ?? [];
@@ -244,12 +275,10 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
                 ).toEqual(expected.slice(0, 50).map((item) => keyOf(item)));
               }
 
-              const pool = unreadOnly
-                ? members.filter((item) => item.unreadCount > 0)
-                : members;
+              expect(windows.pageTotal).toBe(pool.length);
               expect(
                 windows.page.map(keyOf),
-                `${scenario.name}/${tab.id} page offset ${offset} unread ${unreadOnly}`,
+                `${scenario.name}/${tab.id} page offset ${offset} filter ${pageFilter}`,
               ).toEqual(
                 pool
                   .slice(offset, offset + pageLimit)
@@ -288,7 +317,6 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
       accountEmails: ACCOUNTS,
       tabs,
       pageTabId: "__inbox_all__",
-      pageUnreadOnly: false,
       previewLimit: 50,
     };
 
@@ -334,5 +362,55 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
       }),
     ).resolves.toMatchObject({ page: [] });
     exec.execute = originalExecute as typeof exec.execute;
+  }, 60_000);
+
+  it("splits the window's groups by Starred only when the page filter reads Starred", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const [{ default: initializeMailDb }, { getDb, schema }, store, core] =
+      await Promise.all([
+        import("../plugins/db.js"),
+        import("../db/index.js"),
+        import("./inbox-store.js"),
+        import("@agent-native/core/db"),
+      ]);
+    await initializeMailDb({});
+    await getDb().insert(schema.mailInboxThreads).values(syntheticRows(60));
+
+    const exec = core.getDbExec();
+    const originalExecute = exec.execute.bind(exec);
+    const executed: string[] = [];
+    exec.execute = (async (query: { sql: string; args: unknown[] }) => {
+      executed.push(query.sql);
+      return originalExecute(query);
+    }) as typeof exec.execute;
+
+    const readsStarred = async (pageFilter: string) => {
+      executed.length = 0;
+      await store.readInboxTabWindows({
+        ownerEmail: OWNER,
+        accountEmails: ACCOUNTS,
+        tabs: [{ id: "__inbox_all__", kind: "all" }],
+        pageTabId: "__inbox_all__",
+        pageOffset: 0,
+        pageLimit: 20,
+        pageAccepts: inboxFilterAccepts(pageFilter) ?? undefined,
+        previewLimit: 20,
+      });
+      expect(executed).toHaveLength(1);
+      return executed.some((sql) => sql.includes("is_starred"));
+    };
+
+    try {
+      expect(await readsStarred("")).toBe(false);
+      expect(await readsStarred("r=unread:is_checked")).toBe(false);
+      expect(await readsStarred("r=starred:is_checked")).toBe(true);
+      expect(
+        await readsStarred(
+          "match=any&r=unread:is_checked&r=starred:is_unchecked",
+        ),
+      ).toBe(true);
+    } finally {
+      exec.execute = originalExecute as typeof exec.execute;
+    }
   }, 60_000);
 });

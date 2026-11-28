@@ -20,7 +20,13 @@ import {
   normalizedAiFilterLabelId,
 } from "@shared/ai-filter-rules";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
+import {
+  inboxFilterParamForView,
+  inboxFilterRequest,
+  withInboxFilter,
+} from "@shared/inbox-filters";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { STARRED_MAIL_PATH, UNREAD_INBOX_PATH } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
@@ -115,6 +121,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
+  LEGACY_FILTER_VIEW_IDS,
   OTHER_INBOX_TAB_PARAM,
   isInboxScopedLabel,
   pinnedTriageLabels,
@@ -251,6 +258,29 @@ function shortLabelName(name: string): string {
   return name;
 }
 
+export interface PreSearchView {
+  view: string;
+  label: string | null;
+  tab: string | null;
+  filter: string | null;
+  inboxFilter: string;
+}
+
+export function preSearchPath({
+  view,
+  label,
+  tab,
+  filter,
+  inboxFilter,
+}: PreSearchView): string {
+  const params = new URLSearchParams();
+  if (label) params.set("label", label);
+  if (tab) params.set("tab", tab);
+  if (filter) params.set("filter", filter);
+  const search = params.toString();
+  return withInboxFilter(`/${view}${search ? `?${search}` : ""}`, inboxFilter);
+}
+
 export function buildLabelDisplayNames(
   labels: readonly Label[],
 ): Map<string, string> {
@@ -287,6 +317,34 @@ export function sidebarLabelTabs<
 >(tabs: readonly T[]): T[] {
   return tabs.filter(
     (tab) => tab.pinnedId !== undefined || tab.filterId !== undefined,
+  );
+}
+
+export function inboxTabLinkHref(
+  tab: { id: string; kind: string },
+  labels: readonly Label[],
+  inboxFilter: string,
+): string {
+  return tab.kind === "label" && !isInboxScopedLabel(tab.id, labels)
+    ? labelTabHref(tab.id, labels)
+    : withInboxFilter(inboxTabHref(tab.id), inboxFilter);
+}
+
+export function pinPickerLabels(
+  labels: readonly Label[],
+  systemViewIds: readonly string[],
+  aiTagIds: ReadonlySet<string>,
+): Label[] {
+  const excluded = new Set([
+    "inbox",
+    ...LEGACY_FILTER_VIEW_IDS,
+    ...systemViewIds,
+  ]);
+  return labels.filter(
+    (label) =>
+      !excluded.has(label.id) &&
+      !aiTagIds.has(label.id) &&
+      !aiTagIds.has(normalizedAiFilterLabelId(label.name)),
   );
 }
 
@@ -355,8 +413,6 @@ interface AppLayoutProps {
 }
 
 const collapsibleViews = [
-  { id: "unread", labelKey: "mail.views.unread" },
-  { id: "starred", labelKey: "mail.views.starred" },
   { id: "sent", labelKey: "mail.views.sent" },
   { id: "drafts", labelKey: "mail.views.drafts" },
   { id: "archive", labelKey: "mail.views.archive" },
@@ -512,6 +568,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const queuedDrafts = useQueuedDraftCount();
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
+  const viewFilter = inboxFilterParamForView(view, searchParams);
+  const requestFilter = inboxFilterRequest(viewFilter);
+  const inboxFilter = view === "inbox" ? requestFilter : "";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -530,16 +589,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { replace: true },
     );
   }, [location.pathname, navigate, searchParams]);
-  const preSearchViewRef = useRef<{
-    view: string;
-    label: string | null;
-    tab: string | null;
-    filter: string | null;
-  }>({
+  const preSearchViewRef = useRef<PreSearchView>({
     view,
     label: activeLabel,
     tab: activeInboxTab,
     filter: activeFilterId,
+    inboxFilter: viewFilter,
   });
   useEffect(() => {
     if (!activeSearchQuery) {
@@ -548,18 +603,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label: activeLabel,
         tab: activeInboxTab,
         filter: activeFilterId,
+        inboxFilter: viewFilter,
       };
     }
-  }, [view, activeLabel, activeInboxTab, activeFilterId, activeSearchQuery]);
-  const restorePreSearchPath = useCallback(() => {
-    const { view: v, label: l, tab, filter } = preSearchViewRef.current;
-    const params = new URLSearchParams();
-    if (l) params.set("label", l);
-    if (tab) params.set("tab", tab);
-    if (filter) params.set("filter", filter);
-    const search = params.toString();
-    return `/${v}${search ? `?${search}` : ""}`;
-  }, []);
+  }, [
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeFilterId,
+    viewFilter,
+    activeSearchQuery,
+  ]);
+  const restorePreSearchPath = useCallback(
+    () => preSearchPath(preSearchViewRef.current),
+    [],
+  );
   const prevSearchQueryRef = useRef(activeSearchQuery);
   useEffect(() => {
     if (prevSearchQueryRef.current && !activeSearchQuery) {
@@ -704,6 +762,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     accountEmails: inboxAccountEmails,
     limit: INBOX_PAGE_SIZE,
     offset: 0,
+    ...(inboxFilter ? { inboxFilter } : {}),
   };
   const inboxThreads = useInboxThreads(inboxThreadInput);
   const inboxRawPage = queryClient.getQueryData<
@@ -817,9 +876,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label:
           tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
         fullLabel: aiTagName ?? label?.name,
-        href: mailboxWideLabelTab
-          ? labelTabHref(tab.id, labels)
-          : inboxTabHref(tab.id),
+        href: inboxTabLinkHref(tab, labels, view === "inbox" ? viewFilter : ""),
         isActive:
           (view === "inbox" && activeInboxTabId === tab.id) ||
           (mailboxWideLabelTab && activeLabel === tab.id && view === "all"),
@@ -837,6 +894,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     activeLabel,
     activeInboxTabId,
     aiTagDisplayNames,
+    viewFilter,
     inboxTabs,
     labels,
     labelsFailed,
@@ -887,16 +945,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     ) ?? headerOnlyViews.find((v) => v.id === view);
   const currentInHidden = currentHiddenView !== undefined;
 
-  const userLabels = useMemo(() => {
-    const aiTagIds = new Set(aiTags.map((tag) => tag.id));
-    const filtered = labels.filter(
-      (l) =>
-        !["inbox", ...systemViews.map((v) => v.id)].includes(l.id) &&
-        !aiTagIds.has(l.id) &&
-        !aiTagIds.has(normalizedAiFilterLabelId(l.name)),
-    );
-    return filtered;
-  }, [aiTags, labels, systemViews]);
+  const userLabels = useMemo(
+    () =>
+      pinPickerLabels(
+        labels,
+        systemViews.map((v) => v.id),
+        new Set(aiTags.map((tag) => tag.id)),
+      ),
+    [aiTags, labels, systemViews],
+  );
 
   const handleCompose = useCallback(() => {
     trackEvent("compose_opened", {
@@ -916,7 +973,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const isMailboxView = [
     "inbox",
-    "starred",
     "sent",
     "drafts",
     "archive",
@@ -955,6 +1011,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isMailboxView &&
         (view !== "inbox" ||
           (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady)),
+      inboxFilter: requestFilter,
     },
   );
   const currentViewEmails = useInboxThreadsForActionTargets
@@ -1411,7 +1468,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       key: "U",
       shift: true,
       handler: () => {
-        void navigate("/unread");
+        void navigate(UNREAD_INBOX_PATH);
       },
     },
     { key: "c", handler: handleCompose },
@@ -1462,7 +1519,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         void invalidateInboxThreads(queryClient);
       },
     },
-    { keys: ["g", "s"], handler: () => navigate("/starred") },
+    {
+      keys: ["g", "s"],
+      handler: () => {
+        void navigate(STARRED_MAIL_PATH);
+      },
+    },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
     { keys: ["g", "a"], handler: () => navigate("/all") },

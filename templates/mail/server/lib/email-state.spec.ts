@@ -23,6 +23,7 @@ import {
   archiveEmail,
   unarchiveEmail,
   toggleStar,
+  unstarThread,
   trashEmail,
   untrashEmail,
   markAllLocalUnreadRead,
@@ -1057,6 +1058,55 @@ describe("markAllLocalUnreadRead", () => {
     await expect(failedBulk).rejects.toThrow("write failed");
     await expect(queuedStar).resolves.toMatchObject({ isStarred: true });
     expect(emails.find((email) => email.id === MSG_ID)?.isStarred).toBe(true);
+  });
+});
+
+describe("unstarThread", () => {
+  it("unstars every starred message of a local thread, older ones included", async () => {
+    mockConnected(false);
+    mockLocalEmails(
+      makeLocalEmails().map((email, index) => ({
+        ...email,
+        isStarred: index === 0,
+      })),
+    );
+
+    const result = await unstarThread({
+      threadId: THREAD_ID,
+      ownerEmail: OWNER,
+    });
+
+    expect(result).toEqual({ threadId: THREAD_ID, isStarred: false });
+    const written = vi
+      .mocked(putUserSetting)
+      .mock.calls.find(([, key]) => key === "local-emails")?.[2] as
+      | { emails: Array<{ isStarred: boolean }> }
+      | undefined;
+    expect(written?.emails.map((email) => email.isStarred)).toEqual([
+      false,
+      false,
+    ]);
+  });
+
+  it("removes STARRED from the whole Gmail thread and from its synced row", async () => {
+    mockConnected(true);
+    mockAccounts();
+    vi.mocked(gmailModifyThread).mockResolvedValue({ historyId: "42" });
+
+    await unstarThread({ threadId: THREAD_ID, ownerEmail: OWNER });
+
+    expect(gmailModifyThread).toHaveBeenCalledWith(
+      ACCESS_TOKEN,
+      THREAD_ID,
+      undefined,
+      ["STARRED"],
+    );
+    expect(inboxStoreSyncMocks.syncInboxLabelDelta).toHaveBeenCalledWith(
+      OWNER,
+      ACCT,
+      [THREAD_ID],
+      { remove: ["STARRED"], providerHistoryId: "42" },
+    );
   });
 });
 

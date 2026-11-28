@@ -4,10 +4,11 @@ export type GmailMutationKind = "archive" | "mark-read" | "star" | "trash";
 
 export interface GmailMutationTarget {
   id: string;
-  threadId?: string;
-  accountEmail?: string;
+  threadId?: string | undefined;
+  accountEmail?: string | undefined;
   removeLabel?: string;
   flag?: boolean;
+  wholeThread?: boolean;
 }
 
 interface QueuedMutation extends GmailMutationTarget {
@@ -47,7 +48,20 @@ function targetKey(
   kind: GmailMutationKind,
   target: GmailMutationTarget,
 ): string {
-  return `${kind}:${target.accountEmail ?? ""}:${target.id}:${target.removeLabel ?? ""}`;
+  const scope = target.wholeThread ? ":thread" : "";
+  return `${kind}:${target.accountEmail ?? ""}:${target.id}:${target.removeLabel ?? ""}${scope}`;
+}
+
+function unstarsThread(target: GmailMutationTarget): boolean {
+  return target.wholeThread === true && target.flag === false;
+}
+
+function sameThread(a: GmailMutationTarget, b: GmailMutationTarget): boolean {
+  return (
+    Boolean(a.threadId) &&
+    a.threadId === b.threadId &&
+    (a.accountEmail ?? "") === (b.accountEmail ?? "")
+  );
 }
 
 function bulkArgs(targets: GmailMutationTarget[]) {
@@ -197,22 +211,53 @@ class GmailMutationQueue {
     this.ensureUnloadHook();
     const key = targetKey(kind, target);
     return new Promise<void>((resolve, reject) => {
-      const existing = this.pending.get(key);
-      if (existing) {
-        if (target.flag !== undefined) existing.flag = target.flag;
-        existing.resolves.push(resolve);
-        existing.rejects.push(reject);
-      } else {
-        this.pending.set(key, {
-          kind,
-          ...target,
-          resolves: [resolve],
-          rejects: [reject],
-        });
-      }
+      const superseded =
+        kind === "star" && unstarsThread(target)
+          ? this.takeThreadStars(key, target)
+          : [];
+      const existing =
+        this.pending.get(key) ??
+        (kind === "star" && target.flag === false
+          ? this.pendingThreadUnstar(target)
+          : undefined);
+      const entry = existing ?? {
+        kind,
+        ...target,
+        resolves: [],
+        rejects: [],
+      };
+      if (existing && target.flag !== undefined) existing.flag = target.flag;
+      entry.resolves.push(resolve, ...superseded.flatMap((op) => op.resolves));
+      entry.rejects.push(reject, ...superseded.flatMap((op) => op.rejects));
+      if (!existing) this.pending.set(key, entry);
       if (!this.firstEnqueueAt) this.firstEnqueueAt = Date.now();
       this.scheduleFlush();
     });
+  }
+
+  private takeThreadStars(
+    key: string,
+    target: GmailMutationTarget,
+  ): QueuedMutation[] {
+    const taken: QueuedMutation[] = [];
+    for (const [pendingKey, op] of this.pending) {
+      if (pendingKey !== key && op.kind === "star" && sameThread(op, target)) {
+        this.pending.delete(pendingKey);
+        taken.push(op);
+      }
+    }
+    return taken;
+  }
+
+  private pendingThreadUnstar(
+    target: GmailMutationTarget,
+  ): QueuedMutation | undefined {
+    for (const op of this.pending.values()) {
+      if (op.kind === "star" && unstarsThread(op) && sameThread(op, target)) {
+        return op;
+      }
+    }
+    return undefined;
   }
 
   cancel(kind: GmailMutationKind, id: string, removeLabel?: string): boolean {
@@ -347,15 +392,20 @@ class GmailMutationQueue {
       }
 
       if (kind === "star") {
+        const threadUnstars = ops.filter(unstarsThread);
+        if (threadUnstars.length > 0) {
+          await this.flushStar(threadUnstars, false, true);
+        }
         const byFlag = new Map<boolean, QueuedMutation[]>();
         for (const op of ops) {
+          if (unstarsThread(op)) continue;
           const flag = op.flag !== false;
           const list = byFlag.get(flag) ?? [];
           list.push(op);
           byFlag.set(flag, list);
         }
         for (const [isStarred, group] of byFlag) {
-          await this.flushStar(group, isStarred);
+          await this.flushStar(group, isStarred, false);
         }
       }
 
@@ -627,17 +677,25 @@ class GmailMutationQueue {
   private async flushStar(
     ops: QueuedMutation[],
     isStarred: boolean,
+    wholeThreads: boolean,
   ): Promise<void> {
     let pending = [...ops];
     let firstError: unknown;
+    const starArgs = (targets: QueuedMutation[]) =>
+      wholeThreads
+        ? {
+            threadId: targets.map((t) => t.id).join(","),
+            accountEmails: targets.map((t) => t.accountEmail ?? "").join(","),
+            unstar: true,
+          }
+        : { ...bulkArgs(targets), unstar: !isStarred };
 
     for (let attempt = 0; pending.length > 0; attempt += 1) {
       let result: unknown;
       try {
-        result = await callAction("star-email", {
-          ...bulkArgs(pending),
-          unstar: !isStarred,
-        }).then(assertActionSuccess);
+        result = await callAction("star-email", starArgs(pending)).then(
+          assertActionSuccess,
+        );
       } catch (error) {
         if (isGmailQuotaCooldown(error)) {
           if (attempt + 1 < MAX_ARCHIVE_BATCH_ATTEMPTS) {
@@ -653,11 +711,20 @@ class GmailMutationQueue {
           }
         } else {
           const fallbackError = await this.flushIndividually(pending, (op) =>
-            callAction("star-email", {
-              id: op.id,
-              accountEmail: op.accountEmail,
-              unstar: !isStarred,
-            }).then(assertActionSuccess),
+            callAction(
+              "star-email",
+              wholeThreads
+                ? {
+                    threadId: op.id,
+                    accountEmail: op.accountEmail,
+                    unstar: true,
+                  }
+                : {
+                    id: op.id,
+                    accountEmail: op.accountEmail,
+                    unstar: !isStarred,
+                  },
+            ).then(assertActionSuccess),
           );
           firstError = fallbackError;
         }

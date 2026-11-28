@@ -24,6 +24,11 @@ import {
   isInboxScopedAppLabel,
   mailLabelMatches,
 } from "@shared/gmail-labels.js";
+import {
+  inboxFilterAccepts,
+  inboxFilterIsReadable,
+  keepAcceptedConversations,
+} from "@shared/inbox-filters.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import {
   emailMessageMatchesSearch,
@@ -521,6 +526,7 @@ type CooldownRead = {
   view: string;
   q?: string;
   label?: string;
+  inboxFilter?: string;
   limit: number;
   /** A later page needs a live Gmail cursor; the store only has page one. */
   pageToken?: string;
@@ -541,19 +547,20 @@ async function respondToGmailCooldown(
   const accounts =
     accountEmails ??
     (await getConnectedAccountsWithErrors(read.ownerEmail)).accounts;
-  const cached = read.pageToken
-    ? null
-    : await readCachedInboxEmails({
-        ownerEmail: read.ownerEmail,
-        view: read.view,
-        q: read.q,
-        label: read.label,
-        limit: read.limit,
-        accountEmails: accounts,
-      }).catch((error: unknown) => {
-        console.error("[listEmails] cached inbox read failed:", error);
-        return null;
-      });
+  const cached =
+    read.pageToken || read.inboxFilter
+      ? null
+      : await readCachedInboxEmails({
+          ownerEmail: read.ownerEmail,
+          view: read.view,
+          q: read.q,
+          label: read.label,
+          limit: read.limit,
+          accountEmails: accounts,
+        }).catch((error: unknown) => {
+          console.error("[listEmails] cached inbox read failed:", error);
+          return null;
+        });
   if (cached) {
     const readState = gmailReadState(cooldown, cached.syncedAt, Date.now());
     countGmailCooldown(
@@ -587,16 +594,32 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     view = "inbox",
     q,
     label,
+    inboxFilter,
     forceRefresh,
     limit,
   } = getQuery(event) as {
     view?: string;
     q?: string;
     label?: string;
+    inboxFilter?: string;
     forceRefresh?: string;
     limit?: string;
   };
   const pageLimit = parseEmailPageLimit(limit);
+  const filterAccepts =
+    typeof inboxFilter === "string" ? inboxFilterAccepts(inboxFilter) : null;
+  if (
+    inboxFilter !== undefined &&
+    (typeof inboxFilter !== "string" ||
+      !filterAccepts ||
+      !inboxFilterIsReadable(inboxFilter))
+  ) {
+    setResponseStatus(event, 400);
+    return {
+      error: `inboxFilter "${inboxFilter}" holds a rule Mail cannot read`,
+      errorCode: "invalid_inbox_filter",
+    };
+  }
 
   if (view === "snoozed" || view === "scheduled") {
     let emails = await getSyntheticEmailsForView(email, view);
@@ -615,6 +638,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       view,
       q,
       label,
+      inboxFilter,
       limit: pageLimit,
       pageToken,
     };
@@ -658,7 +682,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         invalidateListCacheForOwner(email);
       }
       const labelMap = await getCachedLabelMap(accountTokens);
-      const isPlainInboxRequest = view === "inbox" && !q && !label;
+      const isPlainInboxRequest =
+        view === "inbox" && !q && !label && !inboxFilter;
       const settings = isPlainInboxRequest
         ? await readSettings(email)
         : undefined;
@@ -673,13 +698,15 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         view,
         q,
         label,
+        inboxFilter,
         limit: pageLimit,
         pageTokens,
         threadFormat:
           view === "drafts" || hasAttachmentSavedFilter ? "full" : "metadata",
-        threadCandidateLimit: q
-          ? Math.min(500, Math.max(40, pageLimit + 1))
-          : undefined,
+        threadCandidateLimit:
+          q || inboxFilter
+            ? Math.min(500, Math.max(40, pageLimit + 1))
+            : undefined,
         accountTokens,
         labelMap,
       });
@@ -730,7 +757,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  let emails = await readEmails(email);
+  const mailbox = await readEmails(email);
+  let emails = mailbox;
 
   if (label && (view === "inbox" || view === "unread")) {
     emails = filterInboxScopedThreadMessages(
@@ -788,6 +816,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 
   if (q) {
     emails = emails.filter((e) => emailMessageMatchesSearch(e, q));
+  }
+  if (filterAccepts) {
+    emails = keepAcceptedConversations(emails, filterAccepts, mailbox);
   }
 
   if (!q && (view === "inbox" || view === "unread")) {

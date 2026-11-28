@@ -19,10 +19,8 @@ import {
   IconClock,
   IconFileText,
   IconInbox,
-  IconMail,
   IconPlus,
   IconSend,
-  IconStar,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -50,8 +48,6 @@ const MAIL_SIDEBAR_VIEWS: {
   icon: ComponentType<{ className?: string }>;
 }[] = [
   { id: "inbox", labelKey: "mail.views.inbox", icon: IconInbox },
-  { id: "unread", labelKey: "mail.views.unread", icon: IconMail },
-  { id: "starred", labelKey: "mail.views.starred", icon: IconStar },
   { id: "snoozed", labelKey: "mail.views.snoozed", icon: IconClock },
   { id: "sent", labelKey: "mail.views.sent", icon: IconSend },
   { id: "drafts", labelKey: "mail.views.drafts", icon: IconFileText },
