@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import {
   createFusionAgentFeed,
   sendFusionBranchMessage,
@@ -42,6 +46,8 @@ export default defineAction({
         "When this applies a pending visual-edit handoff, its revision from get-visual-edit-pending. It is cleared only if Builder finishes without an error.",
       ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ designId, prompt, visualEditRevision }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       fail("Full app building is not enabled", {

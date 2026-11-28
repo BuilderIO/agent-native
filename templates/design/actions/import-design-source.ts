@@ -1,5 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { listAppState } from "@agent-native/core/application-state";
 import uploadImage, {
   commitUploadReceiptsForImport,
@@ -218,6 +218,8 @@ export default defineAction({
     abort: z.boolean().optional(),
   }),
   maxBodyBytes: MAX_UPLOAD_BYTES,
+  needsApproval: ({ abort }, ctx) => abort === true && isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (input, context) => {
     const { designId, sourceType, content, originalName } = input;
     const resolvedDesignId = await resolveImportDesignId(designId);

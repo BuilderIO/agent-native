@@ -77,6 +77,7 @@ export default defineAction({
         "Reference to a design_version snapshot or preview image URL produced when this state was captured.",
       ),
   }),
+  mcpTool: "search",
   run: async ({
     designId,
     name,

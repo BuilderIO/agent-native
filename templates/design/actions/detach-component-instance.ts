@@ -181,6 +181,7 @@ export default defineAction({
       })
       .optional(),
   }),
+  mcpTool: "search",
   run: async ({ designId, nodeId, fileId, source }, context) => {
     const access = await resolveAccess("design", designId);
     if (!access)

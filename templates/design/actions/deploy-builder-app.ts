@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import {
   deployFusionProject,
   getFusionHostingUrl,
@@ -48,6 +52,8 @@ export default defineAction({
           "use the design's already-reserved slug, or derive one from the title.",
       ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ designId, slug }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       fail("Full app building is not enabled", {

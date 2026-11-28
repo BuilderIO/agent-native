@@ -75,6 +75,7 @@ export default defineAction({
     "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. A page link (node-id of a page, such as Figma's 0-1) or a file link imports that page's top-level frames, sections opened, each as its own screen (up to 50). Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret. A failure names its own cause (unusable URL, node the token cannot read, oversized frame, Figma rate limit, missing durable file storage) and carries a stable errorCode — relay that message to the user instead of reporting a generic failure.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args, context) => {
     if (args.createNew && args.designId) {
       failFigmaImport(

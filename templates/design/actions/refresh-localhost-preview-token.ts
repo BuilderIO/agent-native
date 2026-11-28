@@ -43,6 +43,7 @@ export default defineAction({
   requiresAuth: false,
   http: { method: "GET" },
   capabilityScopes: ["visual-edit"],
+  mcpTool: false,
   run: async ({ designId, connectionId, connectionIds, publicVisualEdit }) => {
     const access = await assertAccess("design", designId, "viewer");
     const designData = (access.resource as { data?: unknown }).data;

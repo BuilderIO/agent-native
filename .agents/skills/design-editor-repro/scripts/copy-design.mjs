@@ -19,7 +19,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
-import { action, api } from "../harness/dlib.mjs";
+import { action, api, uiAction } from "../harness/dlib.mjs";
 import {
   BASE,
   PROD_BASE,
@@ -49,7 +49,7 @@ if (toDelete) {
     );
     process.exit(4);
   }
-  await action(prod, "delete-design", { id: toDelete });
+  await uiAction(prod, PROD_BASE, "delete-design", { id: toDelete });
   console.log(`deleted production copy ${toDelete}`);
   process.exit(0);
 }

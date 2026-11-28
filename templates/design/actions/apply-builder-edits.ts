@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import {
   createFusionAgentFeed,
   sendFusionBranchMessage,
@@ -77,6 +81,8 @@ export default defineAction({
           "checking the app shows they did not land.",
       ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ designId, editIds, retryUnconfirmed }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       fail("Full app building is not enabled", {

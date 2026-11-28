@@ -16,6 +16,7 @@ export default defineAction({
   schema: z.object({ designId: z.string().min(1) }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId }) => {
     if (!(await resolveAccess("design", designId)))
       fail("Design not found", { errorCode: "not_found", statusCode: 404 });

@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { chromium, type Frame, type Page } from "playwright";
 
+import { presentUiCapability } from "./ui-action.ts";
+
 const designUrl =
   process.env.VISUAL_EDIT_AUTH_DESIGN_URL ?? "http://localhost:8091";
 const slidesUrl =
@@ -387,6 +389,7 @@ async function main() {
           "Content-Type": "application/json",
           "X-Agent-Native-Browser-Tab": "visual-edit-auth-runtime-proof",
           "X-Agent-Native-Frontend": "1",
+          Origin: new URL(designUrl).origin,
         },
       },
     );
@@ -872,6 +875,7 @@ async function main() {
     if (createdDesignId) {
       try {
         await signInDesign();
+        await presentUiCapability(page.request, designUrl);
         await postAction("delete-design", { id: createdDesignId });
       } catch (error) {
         cleanupError = error;

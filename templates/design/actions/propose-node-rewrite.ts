@@ -190,6 +190,7 @@ export default defineAction({
   // The proposal is published by compare-and-set on its repromptId, and a replay
   // reuses the published winner instead of writing a second proposal.
   retrySafe: true,
+  mcpTool: false,
   run: async ({ source, target, baseVersionHash, variants, repromptId }) => {
     const file = await resolveEditableDesignFile(source);
     const sourceDescriptor: CodeLayerSource = {

@@ -13,6 +13,7 @@ import { parseArgs, promisify } from "node:util";
 import { chromium, type Page } from "@playwright/test";
 
 import { pnpmCommand } from "../../../../scripts/lib/pnpm-command.ts";
+import { postUiAction } from "../ui-action.ts";
 import {
   BenchLockHeld,
   CHECKPOINT_LOAD_WAIT_MS,
@@ -55,7 +56,7 @@ async function deleteSeededDesign() {
   if (!seededDesignId) return;
   const id = seededDesignId;
   seededDesignId = undefined;
-  await postAction("delete-design", { id });
+  await postUiAction(baseUrl, "delete-design", { id });
 }
 async function deleteSeededDesignOrReport(): Promise<string | null> {
   const id = seededDesignId;
@@ -285,24 +286,6 @@ async function seedDesign(url: string): Promise<string> {
   return id;
 }
 
-async function postAction(name: string, input: unknown): Promise<unknown> {
-  const response = await fetch(`${baseUrl}/_agent-native/actions/${name}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Native-CSRF": "1",
-      Connection: "close",
-    },
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) {
-    throw new Error(
-      `${name} failed: ${response.status} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
 let designId: string;
 const invocationStartedAt = Date.now();
 const seedStartedAt = Date.now();
@@ -402,7 +385,7 @@ async function findReusableDesign(): Promise<string | null> {
   if (!problem) return cached.designId;
   console.warn(`cached design ${cached.designId} ${problem}; seeding fresh`);
   if (state) {
-    await postAction("delete-design", { id: cached.designId });
+    await postUiAction(baseUrl, "delete-design", { id: cached.designId });
   }
   writeDesignCache((cache) => {
     delete cache[designCacheKey];

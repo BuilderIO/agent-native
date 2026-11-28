@@ -27,6 +27,7 @@ export default defineAction({
   readOnly: true,
   requiresAuth: false,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId, path, fileId }) => {
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,

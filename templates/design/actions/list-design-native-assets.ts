@@ -92,6 +92,7 @@ export default defineAction({
   readOnly: true,
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
+  mcpTool: "search",
   run: ({ category }) => {
     const assets = category
       ? DESIGN_NATIVE_ASSETS.filter((asset) => asset.category === category)

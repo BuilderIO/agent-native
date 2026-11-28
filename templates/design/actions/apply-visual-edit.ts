@@ -1098,6 +1098,7 @@ export default defineAction({
       ),
   }),
   retrySafe: visualEditIsRetrySafe,
+  mcpTool: "search",
   run: async (
     {
       source,

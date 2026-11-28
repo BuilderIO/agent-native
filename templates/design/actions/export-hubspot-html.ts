@@ -33,6 +33,7 @@ export default defineAction({
   }),
   readOnly: true,
   dedupe: false,
+  mcpTool: "search",
   run: async ({ id, fileId, expectedVersionHash, preserveLinksFromFileId }) => {
     const access = await resolveAccess("design", id);
     if (!access)

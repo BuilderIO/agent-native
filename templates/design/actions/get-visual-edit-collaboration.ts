@@ -15,6 +15,7 @@ export default defineAction({
   readOnly: true,
   requiresAuth: false,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId }) => {
     const access = await assertAccess("design", designId, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;

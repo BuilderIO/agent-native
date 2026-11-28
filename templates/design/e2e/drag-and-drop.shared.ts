@@ -1,7 +1,8 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { waitForEditorBoot } from "./editor-boot";
-import { appPath, designFrame, expandAllLayers } from "./helpers";
+import { appPath, designFrame, expandAllLayers, postUiAction } from "./helpers";
 
 export const PAGE_W = 1440;
 export const PAGE_H = 900;
@@ -75,7 +76,7 @@ export async function newDesign(
       fileType: "html",
     });
   } catch (error) {
-    await postAction(page, "delete-design", { id });
+    await postUiAction(page.request, e2eBaseURL(), "delete-design", { id });
     throw error;
   }
   return id;

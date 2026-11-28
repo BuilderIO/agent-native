@@ -23,6 +23,7 @@ export default defineAction({
   readOnly: true,
   dedupe: false,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       fail("Full app building is not enabled", {

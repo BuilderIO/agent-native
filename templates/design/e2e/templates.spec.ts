@@ -1,7 +1,7 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, openAppMenuSubmenu } from "./helpers";
+import { appPath, openAppMenuSubmenu, postUiAction } from "./helpers";
 import { expect, test } from "./rails";
 // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
@@ -260,14 +260,14 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     expect(browserErrors.failedRequests).toEqual([]);
   } finally {
     if (savedTemplateId) {
-      await postAction(request, "delete-design-template", {
+      await postUiAction(request, e2eBaseURL(), "delete-design-template", {
         id: savedTemplateId,
       }).catch(() => {});
     }
     if (createdDesignId) {
-      await postAction(request, "delete-design", { id: createdDesignId }).catch(
-        () => {},
-      );
+      await postUiAction(request, e2eBaseURL(), "delete-design", {
+        id: createdDesignId,
+      }).catch(() => {});
     }
   }
 });

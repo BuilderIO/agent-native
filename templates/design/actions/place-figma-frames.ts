@@ -57,6 +57,7 @@ export default defineAction({
     openWorldHint: false,
   },
   http: { method: "POST" },
+  mcpTool: false,
   run: async ({ ref, designId, frames }, context) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {

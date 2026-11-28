@@ -202,6 +202,7 @@ export default defineAction({
     "Insert a Design-native reusable primitive/component into the active design file. Use list-design-native-assets first to choose a kind. Inserts editable HTML stamped with Design component and layer metadata.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args, context) => {
     const target = await resolveAssetInsertTarget({
       designId: args.designId,

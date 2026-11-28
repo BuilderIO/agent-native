@@ -14,6 +14,7 @@ import {
   postActionWithRetry,
 } from "../../lib/action-retry";
 import { collectAppPageErrors } from "../../lib/app";
+import { postActionAsApp } from "../../lib/app-action";
 import {
   assertSignedInOnBeta,
   runMarker,
@@ -470,7 +471,9 @@ async function createFixture(
     });
   } catch (error) {
     try {
-      await postAction(page, "delete-design", { id: designId });
+      await postActionAsApp(page.context(), ORIGIN, "delete-design", {
+        id: designId,
+      });
       onCreated("");
     } catch (cleanupError) {
       throw new AggregateError(
@@ -539,7 +542,9 @@ async function createNestedDropFixture(
     });
   } catch (error) {
     try {
-      await postAction(page, "delete-design", { id: designId });
+      await postActionAsApp(page.context(), ORIGIN, "delete-design", {
+        id: designId,
+      });
       onCreated("");
     } catch (cleanupError) {
       throw new AggregateError(
@@ -617,7 +622,9 @@ async function createCrossScreenOptionDragFixture(
     return { designId, sourceId, destinationId };
   } catch (error) {
     try {
-      await postAction(page, "delete-design", { id: designId });
+      await postActionAsApp(page.context(), ORIGIN, "delete-design", {
+        id: designId,
+      });
       onCreated("");
     } catch (cleanupError) {
       throw new AggregateError(
@@ -683,7 +690,9 @@ async function cleanupTest(options: {
   const failures: string[] = [];
   try {
     if (options.designId) {
-      await postAction(options.page, "delete-design", { id: options.designId });
+      await postActionAsApp(options.page.context(), ORIGIN, "delete-design", {
+        id: options.designId,
+      });
     }
   } catch (error) {
     failures.push(

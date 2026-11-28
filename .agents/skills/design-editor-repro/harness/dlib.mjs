@@ -181,6 +181,38 @@ export async function action(ctx, name, params = {}, method = "POST") {
   return body ? JSON.parse(body) : null;
 }
 
+export async function uiAction(ctx, base, name, params = {}) {
+  const headers = { Origin: new URL(base).origin };
+  const minted = await send("ui-capability", () =>
+    ctx.get("_agent-native/ui-capability", { headers }),
+  );
+  if (!minted.ok())
+    throw new Error(
+      `ui-capability failed: ${minted.status()} ${(await minted.text()).slice(0, 400)}`,
+    );
+  const session = cookieHeader(base, (await ctx.storageState()).cookies);
+  const capability = minted
+    .headersArray()
+    .filter((header) => header.name.toLowerCase() === "set-cookie")
+    .map((header) => header.value.split(";")[0]);
+  const cookie = session ? [session, ...capability].join("; ") : null;
+  const res = await send(name, () =>
+    ctx.post(`_agent-native/actions/${name}`, {
+      data: params,
+      headers: {
+        ...headers,
+        ...(cookie ? { cookie } : {}),
+        "Content-Type": "application/json",
+        "X-Agent-Native-Frontend": "1",
+      },
+    }),
+  );
+  const body = await res.text();
+  if (!res.ok())
+    throw new Error(`${name} failed: ${res.status()} ${body.slice(0, 400)}`);
+  return body ? JSON.parse(body) : null;
+}
+
 export async function newDesign(title, bodyHtml = "") {
   const ctx = await api();
   const { id } = await action(ctx, "create-design", {

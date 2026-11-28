@@ -3417,6 +3417,7 @@ export default defineAction({
     "apply-design-token-edit.",
   schema: tokenImportSchema,
   maxBodyBytes: DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES,
+  mcpTool: "search",
   run: async ({ designId, source, files, text }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);

@@ -1,7 +1,7 @@
 // Checks the harness can do its job:  node .agents/skills/design-editor-repro/harness/doctor.mjs
 // PASS: go on. WAIT (exit 75): the dev server is still starting or compiling;
 // run it again. FAIL (exit 1): report the line and its screenshot, and stop.
-import { action, api, newDesign, openEditor } from "./dlib.mjs";
+import { api, newDesign, openEditor, uiAction } from "./dlib.mjs";
 import {
   BASE,
   CDP_URL,
@@ -80,7 +80,9 @@ if (up && (await check("local login", async () => (await api()).dispose()))) {
     await d.page.screenshot({ path: shot });
     await d.close();
     const ctx = await api();
-    await action(ctx, "delete-design", { id: d.designId }).catch(() => {});
+    await uiAction(ctx, BASE, "delete-design", { id: d.designId }).catch(
+      () => {},
+    );
     await ctx.dispose();
     return shot;
   });

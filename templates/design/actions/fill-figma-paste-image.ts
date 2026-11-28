@@ -40,6 +40,7 @@ export default defineAction({
         "The data-figma-image-ref hash to fill. Required when the screen has more than one missing image.",
       ),
   }),
+  mcpTool: "search",
   run: async ({ fileId, imageUrl, hash }, context) => {
     const { workspaceFile, designId } = await loadHydratableFile(fileId);
     const live = await readLiveSourceFile(workspaceFile);

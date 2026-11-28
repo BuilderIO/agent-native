@@ -11,6 +11,7 @@ import {
   isSuccessStatus,
   postActionWithRetry,
 } from "../../lib/action-retry";
+import { postActionAsApp } from "../../lib/app-action";
 import {
   assertSignedInOnBeta,
   signedInContext,
@@ -63,9 +64,10 @@ async function postAction(
 }
 
 async function createCullingDesign(
-  request: APIRequestContext,
+  page: Page,
   origin: string,
 ): Promise<string> {
+  const request = page.request;
   const created = await postAction(request, origin, "create-design", {
     title: `Beta E2E culling ${Date.now()}`,
     projectType: "prototype",
@@ -90,7 +92,9 @@ async function createCullingDesign(
     }
     return designId;
   } catch (error) {
-    await postAction(request, origin, "delete-design", { id: designId });
+    await postActionAsApp(page.context(), origin, "delete-design", {
+      id: designId,
+    });
     throw error;
   }
 }
@@ -217,7 +221,7 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     await assertSignedInOnBeta(context, site);
     const page = await context.newPage();
     await installChurnObserver(page);
-    designId = await createCullingDesign(page.request, origin);
+    designId = await createCullingDesign(page, origin);
     await page.goto(`${origin}/design/${designId}`, {
       waitUntil: "domcontentloaded",
       timeout: 90_000,
@@ -364,7 +368,7 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     expect(perf?.iframeLoads ?? 0).toBeLessThanOrEqual(6);
   } finally {
     if (designId) {
-      await postAction(context.request, origin, "delete-design", {
+      await postActionAsApp(context, origin, "delete-design", {
         id: designId,
       });
     }

@@ -19,7 +19,11 @@
  * migration is preview-only until the user approves cutover.
  */
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -99,6 +103,8 @@ export default defineAction({
           "Builder cloud agent as context).",
       ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ designId, branchName, purpose }) => {
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);

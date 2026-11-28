@@ -3,6 +3,7 @@ import path from "node:path";
 
 import {
   expect,
+  type APIRequestContext,
   type Page,
   type FrameLocator,
   type Locator,
@@ -188,6 +189,38 @@ export function appPath(path: string): string {
   url.search = route.search;
   url.hash = route.hash;
   return url.toString();
+}
+
+export async function postUiAction(
+  request: APIRequestContext,
+  baseUrl: string,
+  name: string,
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  const origin = new URL(baseUrl).origin;
+  const capability = await request.get(
+    `${baseUrl}/_agent-native/ui-capability`,
+    { headers: { Origin: origin } },
+  );
+  if (!capability.ok()) {
+    throw new Error(
+      `ui-capability failed: ${capability.status()} ${await capability.text()}`,
+    );
+  }
+  const res = await request.post(`${baseUrl}/_agent-native/actions/${name}`, {
+    data: input,
+    headers: {
+      "Content-Type": "application/json",
+      Origin: origin,
+      "X-Agent-Native-Frontend": "1",
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `action ${name} failed: ${res.status()} ${await res.text()}`,
+    );
+  }
+  return res.json();
 }
 
 /** This tab's selection: parallel workers share one user, so the global key is anyone's. */

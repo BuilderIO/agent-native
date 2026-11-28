@@ -124,6 +124,7 @@ export default defineAction({
     "Insert a rendered Figma component or component set into a Design file, preserving Figma file/node/component provenance. Use list-figma-library-assets first to get renderUrl and metadata.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args, context) => {
     const target = await resolveAssetInsertTarget({
       designId: args.designId,

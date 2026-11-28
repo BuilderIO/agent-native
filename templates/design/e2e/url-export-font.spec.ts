@@ -19,7 +19,7 @@ import {
 import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
-import { openAppMenuSubmenu } from "./helpers";
+import { openAppMenuSubmenu, postUiAction } from "./helpers";
 import { expect, isSandboxedFrameAutomationNoise, test } from "./rails";
 
 const HTML = `<!doctype html>
@@ -729,7 +729,7 @@ test("cross-origin localhost PNG and PDF preserve the live custom font pixels", 
       await new Promise<void>((resolve) => vite?.once("exit", () => resolve()));
     }
     if (designId) {
-      await postAction(request, baseURL, "delete-design", {
+      await postUiAction(request, baseURL, "delete-design", {
         id: designId,
       }).catch(() => undefined);
     }

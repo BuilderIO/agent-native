@@ -87,6 +87,7 @@ export default defineAction({
   readOnly: true,
   capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId, connectionId, path: relPath }, ctx) => {
     await assertAccess("design", designId, "editor");
 

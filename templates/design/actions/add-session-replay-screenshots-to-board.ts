@@ -3,6 +3,7 @@ import {
   defineAction,
   fail,
   isActionContractError,
+  isOutsideAgentCall,
 } from "@agent-native/core/action";
 import {
   ATTACHMENT_REF_MAX_CHARS,
@@ -421,6 +422,9 @@ export default defineAction({
   requiresAuth: true,
   maxBodyBytes: MAX_SCREENSHOTS * (ATTACHMENT_REF_MAX_CHARS + 3_200) + 16_384,
   schema: inputSchema,
+  needsApproval: ({ allowEncryptedPublicUploadFallback }, ctx) =>
+    allowEncryptedPublicUploadFallback === true && isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (
     {
       designId: requestedDesignId,

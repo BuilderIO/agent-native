@@ -45,6 +45,7 @@ export default defineAction({
       .describe("SVG viewport height in pixels"),
   }),
   readOnly: true,
+  mcpTool: "search",
   run: trackSvgExportFailures(async ({ id, width, height }, ctx, facts) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);

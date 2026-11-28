@@ -45,6 +45,7 @@ export default defineAction({
       .optional()
       .describe("Iframe viewport height. Defaults to 900."),
   }),
+  mcpTool: "search",
   run: async ({ designId, paths, width, height }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       fail("Full app building is not enabled", {

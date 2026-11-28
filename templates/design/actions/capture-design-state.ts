@@ -125,6 +125,7 @@ export default defineAction({
           "or after the capture (optional).",
       ),
   }),
+  mcpTool: "search",
   run: async ({
     designId,
     name,

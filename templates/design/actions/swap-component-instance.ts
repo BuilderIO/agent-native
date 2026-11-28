@@ -338,6 +338,7 @@ export default defineAction({
       })
       .optional(),
   }),
+  mcpTool: "search",
   run: async (
     { designId, nodeId, fileId, targetComponentName, source },
     context,

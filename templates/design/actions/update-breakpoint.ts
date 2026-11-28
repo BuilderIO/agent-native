@@ -102,6 +102,7 @@ export default defineAction({
       .describe("Optional replacement label for the frame."),
   }),
   capabilityScopes: ["visual-edit"],
+  mcpTool: "search",
   run: async ({ designId, breakpointId, widthPx, label }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);

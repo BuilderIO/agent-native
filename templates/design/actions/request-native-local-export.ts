@@ -37,6 +37,7 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  mcpTool: false,
   run: async ({ targetTabId, ...args }) => {
     const tabId = targetTabId ?? requireNativeLocalExportTabId();
     if (!targetTabId) await assertNativeLocalExportEditor(args.designId);

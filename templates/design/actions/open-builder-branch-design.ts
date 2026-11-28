@@ -63,6 +63,7 @@ export default defineAction({
     /** The host's current preview URL, used until the container reports its own. */
     previewUrl: z.string().url().optional(),
   }),
+  mcpTool: false,
   run: async ({
     projectId,
     branchName,

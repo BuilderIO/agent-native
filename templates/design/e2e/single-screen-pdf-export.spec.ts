@@ -14,6 +14,7 @@ import { type APIRequestContext, type Page } from "@playwright/test";
 import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
+import { postUiAction } from "./helpers";
 import { expect, test } from "./rails";
 
 test.use({
@@ -313,7 +314,7 @@ test("single-screen PDF download preserves localhost source pixels", async ({
       await new Promise<void>((resolve) => vite?.once("exit", () => resolve()));
     }
     if (designId) {
-      await postAction(request, baseURL, "delete-design", {
+      await postUiAction(request, baseURL, "delete-design", {
         id: designId,
       }).catch((error) =>
         console.error("single-screen PDF fixture cleanup failed", error),
