@@ -2990,7 +2990,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.t3CodeDialogDescription":
     "你的提及会发送到你电脑上的 T3 Code。你的 Claude Code 和 Codex 登录信息留在那里，此应用永远看不到。",
   "settingsModel.t3CodeDialogStep1":
-    "在 T3 Code 中打开 Settings › Environments，打开这台电脑的菜单，选择 Copy MCP URL。",
+    "在运行智能体的电脑上，打开 T3 Code 的 Settings › Sharing & access，选择 Use in another app (MCP)，再选 Something else…，然后复制 URL。",
   "settingsModel.t3CodeDialogStep2":
     "粘贴到这里。必须开启 T3 Connect，此应用才能连到你的电脑。",
   "settingsModel.t3CodeAddressLabel": "T3 Code 的 MCP 地址",

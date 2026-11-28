@@ -3460,7 +3460,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.t3CodeDialogDescription":
     "تُرسل إشاراتك إلى T3 Code على جهازك. تبقى عمليات تسجيل دخولك إلى Claude Code وCodex هناك، ولا يراها هذا التطبيق أبدًا.",
   "settingsModel.t3CodeDialogStep1":
-    "في T3 Code، افتح Settings › Environments، ثم قائمة هذا الجهاز، واختر Copy MCP URL.",
+    "على الجهاز الذي ستعمل عليه وكلاؤك، افتح Settings › Sharing & access في T3 Code، واختر Use in another app (MCP)، ثم Something else…، وانسخ الرابط.",
   "settingsModel.t3CodeDialogStep2":
     "الصقه هنا. يجب أن يكون T3 Connect مفعّلًا ليتمكن هذا التطبيق من الوصول إلى جهازك.",
   "settingsModel.t3CodeAddressLabel": "عنوان MCP الخاص بـ T3 Code",

@@ -3488,7 +3488,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.t3CodeDialogDescription":
     "Tus menciones van a T3 Code en tu ordenador. Tus sesiones de Claude Code y Codex se quedan allí; esta app nunca las ve.",
   "settingsModel.t3CodeDialogStep1":
-    "En T3 Code, abre Settings › Environments, abre el menú de este ordenador y elige Copy MCP URL.",
+    "En el ordenador donde se ejecutarán tus agentes, abre Settings › Sharing & access en T3 Code, elige Use in another app (MCP), luego Something else… y copia la URL.",
   "settingsModel.t3CodeDialogStep2":
     "Pégala aquí. T3 Connect tiene que estar activado para que esta app llegue a tu ordenador.",
   "settingsModel.t3CodeAddressLabel": "URL de MCP de T3 Code",

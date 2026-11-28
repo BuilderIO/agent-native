@@ -3233,7 +3233,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.t3CodeDialogDescription":
     "태그는 내 컴퓨터의 T3 Code로 전달됩니다. Claude Code와 Codex 로그인 정보는 그곳에 남고, 이 앱은 볼 수 없습니다.",
   "settingsModel.t3CodeDialogStep1":
-    "T3 Code에서 Settings › Environments를 열고, 이 컴퓨터의 메뉴에서 Copy MCP URL을 선택하세요.",
+    "에이전트를 실행할 컴퓨터의 T3 Code에서 Settings › Sharing & access를 열고 Use in another app (MCP)를 선택한 다음 Something else…를 골라 URL을 복사하세요.",
   "settingsModel.t3CodeDialogStep2":
     "여기에 붙여 넣으세요. 이 앱이 내 컴퓨터에 닿으려면 T3 Connect가 켜져 있어야 합니다.",
   "settingsModel.t3CodeAddressLabel": "T3 Code의 MCP URL",
