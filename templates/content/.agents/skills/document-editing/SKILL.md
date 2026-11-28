@@ -794,6 +794,7 @@ failures stop the run.
 | "Import my Notion export"    | Pass the zip's files with their paths; dry run, report losses and `databases`, then apply     |
 | "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
 | "Pin this Design screen"     | `capture-design-screen --documentId ... --link ...`, then `edit-document` with the tag         |
+| "What links to this page?"   | `list-backlinks --documentId ...` lists the pages you can open that link to or mention it     |
 | "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.

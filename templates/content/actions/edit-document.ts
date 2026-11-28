@@ -30,6 +30,7 @@ import { recordDocumentHistoryTransition } from "../server/lib/document-history.
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
@@ -663,6 +664,11 @@ export default defineAction({
           tx as unknown as ReturnType<typeof getDb>,
           { documentId: id, before: existing.content ?? "", after: content },
         );
+        await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+          documentId: id,
+          before: existing.content ?? "",
+          after: content,
+        });
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx as unknown as ReturnType<typeof getDb>,

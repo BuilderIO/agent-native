@@ -12,6 +12,7 @@ import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
@@ -549,6 +550,11 @@ async function writeMarkdown(
       userEmail: documentAttributionActor(),
     });
     await syncAnalyticsChartCitations(db, {
+      documentId: target.rowDocumentId,
+      before: loaded.markdown,
+      after: markdown,
+    });
+    await syncPageLinks(db, {
       documentId: target.rowDocumentId,
       before: loaded.markdown,
       after: markdown,

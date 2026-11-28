@@ -10,6 +10,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { chunks } from "./_batch-utils.js";
 import {
   assertNoColumnRuleOn,
@@ -780,6 +781,10 @@ export async function runMigration(
               after: version.content,
             },
           );
+          await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+            documentId: prior.documentId,
+            after: version.content,
+          });
         }
         const ids = rollback.createdPropertyIds ?? [];
         if (ids.length) {

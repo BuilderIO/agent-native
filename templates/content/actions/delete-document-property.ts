@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { clearAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { clearPageLinks } from "../server/lib/page-links.js";
 import { withoutDeletedDatabaseProperty } from "../shared/database-table-columns.js";
 import {
   isBlocksPropertyType,
@@ -246,6 +247,10 @@ export default defineAction({
                 inArray(schema.documents.id, documentsWithoutSurvivingPrimary),
               );
             await clearAnalyticsChartCitations(
+              tx as unknown as ReturnType<typeof getDb>,
+              documentsWithoutSurvivingPrimary,
+            );
+            await clearPageLinks(
               tx as unknown as ReturnType<typeof getDb>,
               documentsWithoutSurvivingPrimary,
             );

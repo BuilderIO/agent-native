@@ -17,6 +17,7 @@ import {
 import { firstRow } from "../server/lib/first-row.js";
 import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
@@ -621,6 +622,11 @@ export default defineAction({
           tx as unknown as ReturnType<typeof getDb>,
           { documentId, before: previousContent, after: content },
         );
+        await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+          documentId,
+          before: previousContent,
+          after: content,
+        });
         if (
           !primaryBlocksFields.some((field) => field.propertyId === propertyId)
         ) {

@@ -19,6 +19,7 @@ import {
   lockLegacyBodyWrites,
   type LegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   builderSourceKindForModel,
@@ -738,24 +739,35 @@ export async function pullBuilderDocIntoContent(args: {
             ...sourceFields,
           })
           .where(eq(schema.documents.id, documentId));
+        await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+          documentId,
+          after: bundle.mdx.body,
+        });
       });
     } else {
-      await db.insert(schema.documents).values({
-        id: documentId,
-        spaceId: targetSpaceId,
-        ownerEmail,
-        orgId,
-        parentId: null,
-        title: bundle.mdx.title,
-        content: bundle.mdx.body,
-        icon: null,
-        position: 0,
-        isFavorite: 0,
-        hideFromSearch: 0,
-        visibility: "private",
-        createdAt: now,
-        updatedAt: now,
-        ...sourceFields,
+      await db.transaction(async (tx) => {
+        await tx.insert(schema.documents).values({
+          id: documentId,
+          spaceId: targetSpaceId,
+          ownerEmail,
+          orgId,
+          parentId: null,
+          title: bundle.mdx.title,
+          content: bundle.mdx.body,
+          icon: null,
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+          ...sourceFields,
+        });
+        await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+          documentId,
+          before: "",
+          after: bundle.mdx.body,
+        });
       });
     }
     await ensureDocumentFilesMembership(db, documentId, now);
@@ -903,6 +915,10 @@ async function refreshBuilderDocumentAfterPush(args: {
         ...builderDocumentSourceFields(bundle, now),
       })
       .where(eq(schema.documents.id, args.documentId));
+    await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+      documentId: args.documentId,
+      after: bundle.mdx.body,
+    });
     return null;
   });
   // The page took its live copy or its lock while Builder took the push, which

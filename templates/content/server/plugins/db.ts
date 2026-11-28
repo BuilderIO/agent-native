@@ -2022,6 +2022,19 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS t3_agent_requests_document_owner_idx
         ON t3_agent_requests (document_id, owner_email)`,
     },
+    {
+      version: 150,
+      name: "content-page-links",
+      sql: `CREATE TABLE IF NOT EXISTS content_page_links (
+        source_document_id TEXT NOT NULL,
+        target_document_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_link_unique
+        ON content_page_links (source_document_id, target_document_id);
+      CREATE INDEX IF NOT EXISTS content_page_link_target_idx
+        ON content_page_links (target_document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

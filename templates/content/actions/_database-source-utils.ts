@@ -22,6 +22,7 @@ import {
   lockLegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
 import { firstRow } from "../server/lib/first-row.js";
+import { syncPageLinks, syncPageLinksMany } from "../server/lib/page-links.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -2983,6 +2984,13 @@ async function processBuilderBodyHydrationJob(
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
         .returning({ id: schema.documents.id });
       wroteBody = Boolean(updatedDocument);
+      if (wroteBody) {
+        await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+          documentId: row.documentId,
+          before: currentContent,
+          after: nextContent,
+        });
+      }
     }
     if (shouldWriteBody && !wroteBody) {
       await leaveBuilderBodyHydrationPending(tx, {
@@ -3530,6 +3538,14 @@ async function persistPristineBuilderBodyHydrationsInBulk(
             "Builder body hydration document changed.",
           );
         }
+        await syncPageLinksMany(
+          tx as unknown as ReturnType<typeof getDb>,
+          batch.map((row) => ({
+            documentId: row.job.documentId,
+            before: row.documentContent,
+            after: row.content,
+          })),
+        );
 
         const updatedSourceRows = await tx
           .update(schema.contentDatabaseSourceRows)

@@ -116,6 +116,22 @@ export const analyticsChartCitations = table(
   ],
 );
 
+export const pageLinks = table(
+  "content_page_links",
+  {
+    sourceDocumentId: text("source_document_id").notNull(),
+    targetDocumentId: text("target_document_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (link) => [
+    uniqueIndex("content_page_link_unique").on(
+      link.sourceDocumentId,
+      link.targetDocumentId,
+    ),
+    index("content_page_link_target_idx").on(link.targetDocumentId),
+  ],
+);
+
 export const contentSpaces = table(
   "content_spaces",
   {
