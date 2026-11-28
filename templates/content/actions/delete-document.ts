@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { deleteDocumentImports } from "../server/lib/document-imports.js";
+import { LOCAL_FOLDER_TRASH_ORIGIN } from "../shared/content-trash.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
@@ -733,9 +734,11 @@ export async function trashDocumentSubtree(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, [id], ownerEmail);
-  await assertLocalFolderAllowsPagesEdit(db, documentIds, "trash", {
-    rootId: id,
-  });
+  if (origin !== LOCAL_FOLDER_TRASH_ORIGIN) {
+    await assertLocalFolderAllowsPagesEdit(db, documentIds, "trash", {
+      rootId: id,
+    });
+  }
   const memberships = await selectMembershipsForDocuments(db, documentIds);
   if (
     [

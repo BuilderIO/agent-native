@@ -109,6 +109,8 @@ let editDocument: typeof import("./edit-document.js").default;
 let appendToDocument: typeof import("./append-to-document.js").default;
 let moveDocument: typeof import("./move-document.js").default;
 let deleteDocument: typeof import("./delete-document.js").default;
+let lockLifecycleGroup: typeof import("./delete-document.js").lockLifecycleGroup;
+let trashDocumentSubtree: typeof import("./delete-document.js").trashDocumentSubtree;
 let addComment: typeof import("./add-comment.js").default;
 let shareLocalFileDocument: typeof import("./share-local-file-document.js").default;
 let importContentSource: typeof import("./import-content-source.js").default;
@@ -152,6 +154,8 @@ beforeAll(async () => {
   appendToDocument = (await import("./append-to-document.js")).default;
   moveDocument = (await import("./move-document.js")).default;
   deleteDocument = (await import("./delete-document.js")).default;
+  ({ lockLifecycleGroup, trashDocumentSubtree } =
+    await import("./delete-document.js"));
   addComment = (await import("./add-comment.js")).default;
   shareLocalFileDocument = (await import("./share-local-file-document.js"))
     .default;
@@ -841,6 +845,34 @@ describe("every other writer of a folder's page", () => {
     });
     expect((await readPage(parent.id)).trashedAt).toBeNull();
     expect((await readPage(id)).trashedAt).toBeNull();
+  });
+
+  it("still lets the folder's own sync move a page to Trash", async () => {
+    const { id } = await folderPage("h7-sync-trash");
+    const trash = (origin?: string) =>
+      asOwner(() =>
+        getDb().transaction(async (transaction) => {
+          const tx = transaction as unknown as ReturnType<typeof getDb>;
+          const locks = await lockLifecycleGroup(tx, {
+            operation: "trash",
+            roots: [{ id, ownerEmail: OWNER }],
+          });
+          return trashDocumentSubtree(tx, id, OWNER, undefined, locks, origin);
+        }),
+      );
+
+    await expect(trash()).rejects.toMatchObject({
+      errorCode: "SOURCE_READ_ONLY",
+    });
+    expect((await readPage(id)).trashedAt).toBeNull();
+
+    await trash("local-folder");
+    const after = await readPage(id);
+    expect(after.trashedAt).not.toBeNull();
+    expect(after).toMatchObject({
+      trashRootId: id,
+      trashOrigin: "local-folder",
+    });
   });
 });
 
