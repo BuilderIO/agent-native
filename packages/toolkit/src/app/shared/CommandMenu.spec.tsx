@@ -967,6 +967,177 @@ describe("CommandMenu", () => {
     returnFocusTarget.remove();
   });
 
+  it.each([
+    { kind: "item", movesFocus: true },
+    { kind: "app", movesFocus: true },
+    { kind: "item", movesFocus: false },
+  ])(
+    "handles focus after a $kind command when dialog cleanup is delayed (moves focus: $movesFocus)",
+    ({ kind, movesFocus }) => {
+      const events: string[] = [];
+      let opener: HTMLButtonElement;
+      let target: HTMLInputElement;
+      function Harness() {
+        const [open, setOpen] = React.useState(false);
+        return (
+          <>
+            <button
+              ref={(node) => {
+                if (node) opener = node;
+              }}
+              onClick={() => setOpen(true)}
+            >
+              Open
+            </button>
+            <input
+              ref={(node) => {
+                if (node) target = node;
+              }}
+              aria-label="Search events"
+            />
+            <CommandMenu
+              open={open}
+              onOpenChange={setOpen}
+              showAgentFallback={false}
+              showSettingsCommand={false}
+              showSignOutCommand={false}
+              onCloseAutoFocus={() => events.push("closed")}
+              appCommandGroups={
+                kind === "app"
+                  ? [
+                      {
+                        id: "actions",
+                        order: 0,
+                        commands: [
+                          {
+                            id: "search",
+                            order: 0,
+                            label: "Search",
+                            onSelect: () => {
+                              if (movesFocus) target.focus();
+                              events.push("selected");
+                            },
+                          },
+                        ],
+                      },
+                    ]
+                  : undefined
+              }
+            >
+              {kind === "item" ? (
+                <CommandMenu.Group heading="Actions">
+                  <CommandMenu.Item
+                    onSelect={() => {
+                      if (movesFocus) target.focus();
+                      events.push("selected");
+                    }}
+                  >
+                    Search
+                  </CommandMenu.Item>
+                </CommandMenu.Group>
+              ) : null}
+            </CommandMenu>
+          </>
+        );
+      }
+      act(() => root.render(<Harness />));
+      act(() => {
+        opener.focus();
+        opener.click();
+      });
+      const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+      expect(input).toBeTruthy();
+      vi.useFakeTimers();
+      const schedule = globalThis.setTimeout;
+      vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+        callback: TimerHandler,
+        delay?: number,
+        ...args: unknown[]
+      ) =>
+        schedule(
+          callback,
+          delay === 0 ? 100 : delay,
+          ...args,
+        )) as typeof setTimeout);
+      try {
+        if (!input) throw new Error("Command menu input missing");
+        act(() => {
+          input.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+        });
+        act(() => {
+          vi.advanceTimersByTime(50);
+        });
+        expect(document.activeElement).toBe(
+          movesFocus ? target : document.body,
+        );
+        act(() => {
+          vi.advanceTimersByTime(50);
+        });
+        expect(events).toEqual(["selected", "closed"]);
+        expect(document.activeElement).toBe(movesFocus ? target : opener);
+      } finally {
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("returns focus to the opener when Escape dismisses the menu", async () => {
+    let opener: HTMLButtonElement;
+    function Harness() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button
+            ref={(node) => {
+              if (node) opener = node;
+            }}
+            onClick={() => setOpen(true)}
+          >
+            Open
+          </button>
+          <CommandMenu
+            open={open}
+            onOpenChange={setOpen}
+            showAgentFallback={false}
+          >
+            <CommandMenu.Group heading="Actions">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Search
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          </CommandMenu>
+        </>
+      );
+    }
+    act(() => root.render(<Harness />));
+    act(() => {
+      opener.focus();
+      opener.click();
+    });
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      expect(document.querySelector("[role=dialog]")).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("dismisses a nested dialog before the command dialog", async () => {
     const dismissNested = vi.fn();
     const onOpenChange = vi.fn();

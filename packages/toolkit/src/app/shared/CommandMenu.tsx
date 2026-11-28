@@ -69,6 +69,7 @@ const LazyChangelogDialog = lazy(async () => {
 interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
+  selectCommand: () => void;
   registerNestedDialog: (dismiss: () => void) => () => void;
   selectionEnabled: boolean;
 }
@@ -225,7 +226,8 @@ function CommandItem({
   disabled = false,
   preview,
 }: CommandItemProps) {
-  const { onOpenChange, selectionEnabled } = useCommandMenuContext();
+  const { onOpenChange, selectCommand, selectionEnabled } =
+    useCommandMenuContext();
   const selectedValue = useCommandState((state) => state.value);
 
   const handleSelect = () => {
@@ -235,6 +237,7 @@ function CommandItem({
       return;
     }
 
+    selectCommand();
     onOpenChange(false);
     setTimeout(onSelect, 50);
   };
@@ -645,6 +648,7 @@ export function CommandMenu<TAppContext = unknown>({
   const chatReady = providerStatus === "configured";
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const commandSelectedRef = useRef(false);
   const searchValueRef = useRef("");
   const selectionEnabledRef = useRef(false);
   const [selectionEnabled, setSelectionEnabled] = useState(false);
@@ -986,6 +990,7 @@ export function CommandMenu<TAppContext = unknown>({
       closeMenu();
       return;
     }
+    commandSelectedRef.current = true;
     closeMenu();
     setTimeout(() => command.onSelect?.(appCommandContext), 50);
   };
@@ -1351,7 +1356,21 @@ export function CommandMenu<TAppContext = unknown>({
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
-          onCloseAutoFocus={onCloseAutoFocus}
+          onCloseAutoFocus={(event) => {
+            onCloseAutoFocus?.(event);
+            const active = document.activeElement;
+            if (
+              commandSelectedRef.current &&
+              active instanceof HTMLElement &&
+              active.isConnected &&
+              active !== document.body &&
+              active !== document.documentElement &&
+              !containerRef.current?.contains(active)
+            ) {
+              event.preventDefault();
+            }
+            commandSelectedRef.current = false;
+          }}
           style={{
             animation: "none",
             transition: "none",
@@ -1369,6 +1388,9 @@ export function CommandMenu<TAppContext = unknown>({
               value={{
                 search,
                 onOpenChange,
+                selectCommand: () => {
+                  commandSelectedRef.current = true;
+                },
                 registerNestedDialog,
                 selectionEnabled:
                   initialSelection !== "none" || selectionEnabled,
