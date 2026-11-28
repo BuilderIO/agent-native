@@ -71,12 +71,17 @@ the merged `✅` close-out after an in-review reply, which gets no second reply.
 - **Not a to-do list for them:** look things up yourself first (the
   message's time and author, their account and recent activity, logs, the
   linked page or screenshot). Ask only when nothing else can unblock it, and
-  then ask one small thing, in this one reply. Never send a list of
-  questions, never ask them to test, retry, re-record, pull, reinstall, or
-  gather logs, and never come back later asking for something you could have
-  asked the first time. If it needs access you don't have (credentials, admin
-  rights, account changes), say it's logged for someone with access and add
-  🎫; never hand it to the reporter.
+  then ask one direct, plain-English question for the exact detail needed so
+  the reporter clearly knows we are waiting on their reply (e.g., "Could you
+  share the error output or steps to reproduce so we can look into this?").
+  Never post passive statements like "X is needed" or vague notes about
+  missing info that leave the reporter unsure whether to reply, never send a
+  list of questions, never promise a turnaround window ("within 2 business
+  days") unless a human has committed to it, and never come back later
+  asking for something you could have asked the first time. If it needs
+  access you don't have (credentials, admin rights, account changes), say
+  it's logged for someone with access and add 🎫; never hand it to the
+  reporter.
 - **Plain, not preachy:** don't explain how the product works unless they
   asked, don't tell them what they should do, and skip apologies, hedging,
   "actually", "just", "simply", and "Great catch!!".
