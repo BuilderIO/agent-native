@@ -64,6 +64,7 @@ function queryClient(initial = [comment()]) {
     ),
     invalidateQueries: vi.fn(async () => undefined),
     refetchQueries: vi.fn(async () => undefined),
+    getQueryCache: () => ({ findAll: () => [], get: () => undefined }),
     read: () => data,
     replace: (comments: Comment[]) => {
       data = { comments };
@@ -819,5 +820,179 @@ describe("optimistic comment mutations", () => {
 
     expect(selectedComments(client)[0]).toMatchObject({ resolved: 0 });
     expect(selectedComments(client)[0].mutation).toBeUndefined();
+  });
+});
+
+describe("a row's comment counts in a collection read", () => {
+  type MutationHooks = {
+    onMutate: (variables: object) => Promise<{ temporaryId: string }>;
+    onSuccess: (data: object, variables: object, context: unknown) => void;
+    onError: (error: Error, variables: object, context: unknown) => void;
+  };
+  const collectionKey = [
+    "action",
+    "get-content-database",
+    { documentId: "collection-1" },
+  ] as const;
+
+  function collectionClient(
+    comments: Comment[],
+    rowComments?: {
+      open: number;
+      properties: Record<string, { open: number; latestThreadId: string }>;
+    },
+  ) {
+    const client = new QueryClient();
+    client.setQueryData(key, { comments });
+    client.setQueryData(
+      collectionKey,
+      {
+        items: [
+          {
+            id: "row-1",
+            document: { id: "doc-1" },
+            ...(rowComments ? { comments: rowComments } : {}),
+          },
+          { id: "row-2", document: { id: "doc-2" } },
+        ],
+      },
+      { updatedAt: 1 },
+    );
+    useQueryClient.mockReturnValue(client);
+    const row = (id = "row-1") =>
+      client
+        .getQueryData<{ items: { id: string; comments?: unknown }[] }>(
+          collectionKey,
+        )
+        ?.items.find((item) => item.id === id);
+    return { client, row };
+  }
+
+  it("counts a new Property comment on its row and cell at once, and takes it back when the post fails", async () => {
+    const { client, row } = collectionClient([]);
+    const mutation = useCreateComment() as unknown as MutationHooks;
+    const variables = {
+      documentId: "doc-1",
+      content: "Status looks wrong",
+      propertyId: "status",
+      databaseId: "collection-1",
+    };
+
+    const context = await mutation.onMutate(variables);
+    expect(row()?.comments).toEqual({
+      open: 1,
+      properties: {
+        status: { open: 1, latestThreadId: context.temporaryId },
+      },
+    });
+    expect(row("row-2")).not.toHaveProperty("comments");
+    expect(client.getQueryState(collectionKey)?.dataUpdatedAt).toBe(1);
+
+    mutation.onError(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+      variables,
+      context,
+    );
+    expect(row()).not.toHaveProperty("comments");
+    expect(client.getQueryState(collectionKey)?.isInvalidated).toBe(true);
+    client.clear();
+  });
+
+  it("leaves a row's counts alone for a reply", async () => {
+    const { client, row } = collectionClient([comment()], {
+      open: 1,
+      properties: {},
+    });
+    const mutation = useCreateComment() as unknown as MutationHooks;
+
+    await mutation.onMutate({
+      documentId: "doc-1",
+      content: "Agreed",
+      threadId: "root-1",
+      parentId: "root-1",
+    });
+    expect(row()?.comments).toEqual({ open: 1, properties: {} });
+    client.clear();
+  });
+
+  it("keeps the counts of a read that arrived after the post when the post fails", async () => {
+    const { client, row } = collectionClient([]);
+    const mutation = useCreateComment() as unknown as MutationHooks;
+    const variables = { documentId: "doc-1", content: "Page comment" };
+
+    const context = await mutation.onMutate(variables);
+    expect(row()?.comments).toEqual({ open: 1, properties: {} });
+    client.setQueryData(
+      collectionKey,
+      {
+        items: [
+          {
+            id: "row-1",
+            document: { id: "doc-1" },
+            comments: { open: 3, properties: {} },
+          },
+        ],
+      },
+      { updatedAt: 2 },
+    );
+
+    mutation.onError(
+      Object.assign(new Error("Timed out"), { timedOut: true }),
+      variables,
+      context,
+    );
+    expect(row()?.comments).toEqual({ open: 3, properties: {} });
+    client.clear();
+  });
+
+  it("takes a resolved thread off its row and cell at once, and restores it when the resolve fails", async () => {
+    const root = comment({ property_id: "status" });
+    const reply = comment({ id: "reply-1", parent_id: "root-1" });
+    const before = {
+      open: 2,
+      properties: { status: { open: 1, latestThreadId: "root-1" } },
+    };
+    const { client, row } = collectionClient([root, reply], before);
+    const mutation = useResolveComment() as unknown as MutationHooks;
+    const variables = { id: "reply-1", documentId: "doc-1", resolved: true };
+
+    const context = await mutation.onMutate(variables);
+    expect(row()?.comments).toEqual({ open: 1, properties: {} });
+
+    mutation.onError(new Error("No access"), variables, context);
+    expect(row()?.comments).toEqual(before);
+    client.clear();
+  });
+
+  it("counts a reopened thread, and drops the row's counts when its last thread is resolved", async () => {
+    const { client, row } = collectionClient([comment({ resolved: 1 })]);
+    const mutation = useResolveComment() as unknown as MutationHooks;
+    const reopen = { id: "root-1", documentId: "doc-1", resolved: false };
+
+    const reopenContext = await mutation.onMutate(reopen);
+    expect(row()?.comments).toEqual({ open: 1, properties: {} });
+    mutation.onSuccess({ ok: true, resolved: false }, reopen, reopenContext);
+
+    await mutation.onMutate({ ...reopen, resolved: true });
+    expect(row()).not.toHaveProperty("comments");
+    client.clear();
+  });
+
+  it("keeps a later reopen's count when an earlier resolve fails", async () => {
+    const { client, row } = collectionClient([comment()], {
+      open: 1,
+      properties: {},
+    });
+    const mutation = useResolveComment() as unknown as MutationHooks;
+    const resolveA = { id: "root-1", documentId: "doc-1", resolved: true };
+    const resolveB = { ...resolveA, resolved: false };
+
+    const contextA = await mutation.onMutate(resolveA);
+    await mutation.onMutate(resolveB);
+    expect(row()?.comments).toEqual({ open: 1, properties: {} });
+
+    mutation.onError(new Error("A rejected"), resolveA, contextA);
+    expect(row()?.comments).toEqual({ open: 1, properties: {} });
+    client.clear();
   });
 });
