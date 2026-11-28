@@ -3619,6 +3619,56 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.mutateSetting).toHaveBeenCalled();
   });
 
+  it("hands ordinary app creation data-scope and sample lifecycle guidance to Builder", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "tracker1",
+      url: "https://builder.io/app/projects/project-1/tracker1",
+      status: "processing",
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        startWorkspaceAppCreation({
+          prompt: "Build a personal activity tracker",
+          appId: "tracker",
+        }),
+    );
+
+    expect(result.mode).toBe("builder");
+    expect(mocks.runBuilderAgent).toHaveBeenCalledOnce();
+    const { prompt } = mocks.runBuilderAgent.mock.calls[0][0];
+    expect(prompt).toMatch(
+      /authenticated caller.*access scope.*all domain reads and writes/i,
+    );
+    expect(prompt).toMatch(/scope private user records to their owner/i);
+    expect(prompt).toMatch(
+      /scope organization records to the active organization/i,
+    );
+    expect(prompt).toMatch(/enforce access checks for shared records/i);
+    expect(prompt).toMatch(/do not make all data private/i);
+    expect(prompt).toMatch(/visibly identify.*samples.*UI/i);
+    expect(prompt).toMatch(/mark.*stored records as samples/i);
+    expect(prompt).toMatch(/seed samples per user/i);
+    expect(prompt).toMatch(/scope sample reads and clearing to that user/i);
+    expect(prompt).toMatch(
+      /remember dismissal.*cleared samples do not return/i,
+    );
+    expect(prompt).toMatch(/never silently put samples in real accounts/i);
+    expect(prompt).toMatch(
+      /if any of these safeguards cannot be ensured, use an empty state/i,
+    );
+  });
+
   it("persists the curated source id with a hosted pending reservation", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
