@@ -32,10 +32,10 @@ description: >-
    resolved `templateId`.
 4. **Stop after a pure copy.** If there is no prompt, open the copied design and
    do not start generation.
-5. **Adapt copied screens.** When the user supplied a prompt, call `get-design-snapshot` exactly once,
-   then refine the existing unlocked content with `edit-design`. Never call
-   `generate-design`, delete the copied screens, or recreate the template from
-   scratch.
+5. **Adapt copied screens.** When the user supplied a prompt, call `get-design-snapshot`,
+   then refine the existing unlocked content with `edit-design`. If an edit batch
+   conflicts, reread the current file before retrying. Never call `generate-design`,
+   delete the copied screens, or recreate the template from scratch.
 6. **Verify.** Read back the copied design and confirm its screens, canvas
    dimensions, and locked-layer boundaries before
    reporting completion.

@@ -148,6 +148,32 @@ describe("edit-design action schema", () => {
     expect(content).toBe(`<main><button>Start</button></main>`);
   });
 
+  it("rejects whitespace-variant duplicates after stripping stable ids", () => {
+    const content =
+      '<p  data-agent-native-node-id="one" >One</p><p data-agent-native-node-id="two" >One</p>';
+    const search = '<p data-agent-native-node-id="old" >One</p>';
+    expect(() =>
+      applySearchReplaceEdits(content, [{ search, replace: "X" }]),
+    ).toThrow(/matched .* places/);
+  });
+
+  it("words a stable-id boundary rejection so the review agent reads it as ambiguous", () => {
+    const content = '<p data-agent-native-node-id="live" class="old">Hi</p>';
+    const search = ' data-agent-native-node-id="stale" class="old"';
+    expect(() =>
+      applySearchReplaceEdits(content, [{ search, replace: ' class="new"' }]),
+    ).toThrow(/matched .* places/);
+  });
+
+  it("rejects a whitespace-only stable-id fallback match", () => {
+    const content =
+      '<main><p data-agent-native-node-id="live"  class="item">Hi</p><aside>Keep</aside></main>';
+    const search = '<p data-agent-native-node-id="old" class="item">Hi</p>';
+    expect(() =>
+      applySearchReplaceEdits(content, [{ search, replace: "<p>Updated</p>" }]),
+    ).toThrow(/search text was not found/);
+  });
+
   it("matches a unique whitespace-insensitive edit", () => {
     const { content, applied } = applySearchReplaceEdits(
       `<div>\n  <span>label</span>\n</div>`,

@@ -25,6 +25,7 @@ import {
   ApplyEditConflictError,
   applyEditsInOrder,
   applyOneEdit,
+  findWhitespaceFlexibleMatches,
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
@@ -89,27 +90,51 @@ function stripStableNodeIdAttributes(value: string): {
 function findUniqueStableIdAgnosticSpan(
   content: string,
   search: string,
+  editIndex: number,
 ): { start: number; end: number } | null {
   const strippedContent = stripStableNodeIdAttributes(content);
-  const strippedSearch = stripStableNodeIdAttributes(search).content;
+  const searchProjection = stripStableNodeIdAttributes(search);
+  const strippedSearch = searchProjection.content;
   if (!strippedSearch) return null;
 
-  let count = 0;
-  let onlyIndex = -1;
-  let index = strippedContent.content.indexOf(strippedSearch);
-  while (index !== -1) {
-    count += 1;
-    onlyIndex = index;
-    if (count > 1) return null;
-    index = strippedContent.content.indexOf(strippedSearch, index + 1);
+  const firstExact = strippedContent.content.indexOf(strippedSearch);
+  if (firstExact === -1) return null;
+  if (strippedContent.content.indexOf(strippedSearch, firstExact + 1) !== -1) {
+    throw new ApplyEditConflictError(
+      `Edit ${editIndex + 1}: "search" matched multiple places (exact) — add more surrounding context so it matches exactly one location.`,
+      "ambiguous",
+    );
   }
-  if (count !== 1) return null;
-
-  const lastMatched = onlyIndex + strippedSearch.length - 1;
-  return {
-    start: strippedContent.indexMap[onlyIndex] ?? 0,
-    end: (strippedContent.indexMap[lastMatched] ?? content.length - 1) + 1,
-  };
+  const matches = findWhitespaceFlexibleMatches(
+    strippedContent.content,
+    strippedSearch,
+  );
+  if (matches.length > 1) {
+    throw new ApplyEditConflictError(
+      `Edit ${editIndex + 1}: "search" matched ${matches.length} places (whitespace-insensitive) — add more surrounding context so it matches exactly one location.`,
+      "ambiguous",
+    );
+  }
+  const start = firstExact;
+  const end = start + strippedSearch.length;
+  const originalStart = strippedContent.indexMap[start] ?? 0;
+  const originalEnd =
+    (strippedContent.indexMap[end - 1] ?? content.length - 1) + 1;
+  const previousEnd =
+    start === 0 ? 0 : (strippedContent.indexMap[start - 1] ?? -1) + 1;
+  const nextStart = strippedContent.indexMap[end] ?? content.length;
+  if (
+    originalStart !== previousEnd ||
+    originalEnd !== nextStart ||
+    searchProjection.indexMap[0] !== 0 ||
+    searchProjection.indexMap[strippedSearch.length - 1] !== search.length - 1
+  ) {
+    throw new ApplyEditConflictError(
+      `Edit ${editIndex + 1}: "search" matched at a stable-ID boundary that could belong to several places. Read the current file (get-design-snapshot) and include the complete element in the search.`,
+      "ambiguous",
+    );
+  }
+  return { start: originalStart, end: originalEnd };
 }
 
 function applyOneEditWithStableIdFallback(
@@ -121,9 +146,11 @@ function applyOneEditWithStableIdFallback(
     return applyOneEdit(content, edit, index);
   } catch (error) {
     if (!(error instanceof ApplyEditConflictError)) throw error;
-    const span = findUniqueStableIdAgnosticSpan(content, edit.search);
-    if (span) {
-      return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    if (error.kind === "not_found") {
+      const span = findUniqueStableIdAgnosticSpan(content, edit.search, index);
+      if (span) {
+        return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+      }
     }
     throw error;
   }
@@ -141,7 +168,10 @@ export function applySearchReplaceEdits(
     return applyEditsInOrder(content, edits, applyOneEditWithStableIdFallback);
   } catch (error) {
     if (!(error instanceof ApplyEditConflictError)) throw error;
-    throw new NoWriteError(error.message, designEditConflictOptions());
+    throw new NoWriteError(
+      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry all intended edits in the rejected batch with enough context to uniquely identify each match. Use one pass or smaller sequential batches when appropriate.`,
+      designEditConflictOptions(),
+    );
   }
 }
 

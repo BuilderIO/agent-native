@@ -102,6 +102,10 @@ describe("designTemplateRefinementDirectives", () => {
     expect(text).toContain("do not call `generate-design`");
     expect(text).not.toContain("When calling `generate-design`");
     expect(text).not.toContain("Use the `generate-design");
+    expect(text).toContain("smaller sequential batches");
+    expect(text).toContain("re-read");
+    expect(text).not.toContain("exactly once before editing");
+    expect(text).not.toContain("After edit-design succeeds, stop");
   });
 });
 

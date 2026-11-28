@@ -52,6 +52,20 @@ describe("applyEdits", () => {
     expect(content).toBe(`<div><b>label</b></div>`);
   });
 
+  it("treats offsets in one leading whitespace run as one flexible match", () => {
+    expect(
+      applyEdits("start\n    color: red; end", [
+        { search: "\n  color: red;", replace: " UPDATED" },
+      ]).content,
+    ).toBe("start UPDATED end");
+  });
+
+  it("prefers a unique exact match over whitespace variants", () => {
+    expect(
+      applyEdits("a b | a  b", [{ search: "a b", replace: "X" }]).content,
+    ).toBe("X | a  b");
+  });
+
   it("treats $ in the replacement literally (no regex group expansion)", () => {
     const html = `<p>price</p>`;
     const { content } = applyEdits(html, [
@@ -75,9 +89,13 @@ describe("applyEdits", () => {
     );
   });
 
-  it("resolves self-overlapping exact matches via whitespace-flexible fallback", () => {
-    const { content } = applyEdits(`aaa`, [{ search: `aa`, replace: `b` }]);
-    expect(content).toBe(`ba`);
+  it.each([
+    ["exact", "aaa", "aa"],
+    ["whitespace-flexible", "a a a", "a  a"],
+  ])("rejects overlapping %s matches", (_kind, content, search) => {
+    expect(() => applyEdits(content, [{ search, replace: "b" }])).toThrow(
+      /matched 2 places/,
+    );
   });
 
   it("throws ambiguous when both strategies find multiple matches", () => {

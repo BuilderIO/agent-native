@@ -146,6 +146,18 @@ describe("design template agent instructions", () => {
   it.each([
     ["agent chat system prompt", agentChatSource],
     ["design-templates skill", designTemplateSkill],
+  ])(
+    "allows rereading after a template edit conflict in the %s",
+    (_surface, instructions) => {
+      expect(instructions).toContain(
+        "conflicts, reread the current file before retrying",
+      );
+    },
+  );
+
+  it.each([
+    ["agent chat system prompt", agentChatSource],
+    ["design-templates skill", designTemplateSkill],
     ["Design AGENTS guide", designAgentGuide],
   ])(
     "uses the main action surface and resolves templates or prior designs in the %s",

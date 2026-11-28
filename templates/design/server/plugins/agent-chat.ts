@@ -83,7 +83,7 @@ function projectChatGptDirectoryResult(
     }
     if (projected.nextRequiredAction) {
       projected.nextRequiredAction =
-        "Use edit-design once on the returned editTarget. Re-read only if the edit fails with a concrete missing-context error.";
+        "Use edit-design on the returned editTarget in one pass or smaller sequential batches when appropriate. If a batch conflicts, none of its edits were saved; re-read with get-design-snapshot and retry all intended edits in the rejected batch with unique context.";
     }
   }
   if (toolName === "present-design-variants") {
@@ -353,7 +353,7 @@ Build layers the way a designer would, because every element becomes a layer the
 
 Generated controls that look interactive must work in the prototype. Give links valid destinations and wire buttons to the requested navigation or state change; if no behavior is intended, render the element as non-interactive content instead of a dead control. Exercise the primary links and buttons before reporting completion.
 
-When the user asks to start from a template or references a prior design/past work as the starting point, call both list-design-templates and list-designs before generating so you resolve the existing resource instead of recreating it. For a template, call create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
+When the user asks to start from a template or references a prior design/past work as the starting point, call both list-design-templates and list-designs before generating so you resolve the existing resource instead of recreating it. For a template, call create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt, call get-design-snapshot and refine unlocked content with edit-design; if an edit batch conflicts, reread the current file before retrying. Do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 
 When the user asks you to refine an existing design, call view-screen if the open design is unclear, then read the live current file with get-design-snapshot before editing. For small localized changes, call edit-design with exact search/replace edits. For broad copy-only changes such as translating all visible text, call edit-design in replace-file mode with the complete updated file content from the snapshot so the HTML structure, scripts, styles, and tweaks are preserved without dozens of fragile search blocks. Do not claim the design is updated until the mutating action succeeds.
 
