@@ -20,7 +20,13 @@ import {
   normalizedAiFilterLabelId,
 } from "@shared/ai-filter-rules";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
+import {
+  inboxFilterGmailClause,
+  inboxFilterParam,
+  withInboxFilter,
+} from "@shared/inbox-filters";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { STARRED_INBOX_PATH, UNREAD_INBOX_PATH } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
@@ -355,8 +361,6 @@ interface AppLayoutProps {
 }
 
 const collapsibleViews = [
-  { id: "unread", labelKey: "mail.views.unread" },
-  { id: "starred", labelKey: "mail.views.starred" },
   { id: "sent", labelKey: "mail.views.sent" },
   { id: "drafts", labelKey: "mail.views.drafts" },
   { id: "archive", labelKey: "mail.views.archive" },
@@ -512,6 +516,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const queuedDrafts = useQueuedDraftCount();
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
+  const inboxFilter = view === "inbox" ? inboxFilterParam(searchParams) : "";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -704,6 +709,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     accountEmails: inboxAccountEmails,
     limit: INBOX_PAGE_SIZE,
     offset: 0,
+    ...(inboxFilter ? { inboxFilter } : {}),
   };
   const inboxThreads = useInboxThreads(inboxThreadInput);
   const inboxRawPage = queryClient.getQueryData<
@@ -819,7 +825,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         fullLabel: aiTagName ?? label?.name,
         href: mailboxWideLabelTab
           ? labelTabHref(tab.id, labels)
-          : inboxTabHref(tab.id),
+          : withInboxFilter(inboxTabHref(tab.id), inboxFilter),
         isActive:
           (view === "inbox" && activeInboxTabId === tab.id) ||
           (mailboxWideLabelTab && activeLabel === tab.id && view === "all"),
@@ -837,6 +843,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     activeLabel,
     activeInboxTabId,
     aiTagDisplayNames,
+    inboxFilter,
     inboxTabs,
     labels,
     labelsFailed,
@@ -916,7 +923,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const isMailboxView = [
     "inbox",
-    "starred",
     "sent",
     "drafts",
     "archive",
@@ -925,8 +931,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const shellSearchQuery =
+  const shellBaseSearchQuery =
     activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
+  const shellSearchQuery =
+    inboxFilter && shellBaseSearchQuery
+      ? `${shellBaseSearchQuery} ${inboxFilterGmailClause(inboxFilter)}`
+      : shellBaseSearchQuery;
   const shellQueryScope = resolveInboxEmailQueryScope({
     view,
     activeLabel,
@@ -935,7 +945,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     activeSavedFilter: activeSavedFilterQuery !== undefined,
     combineInbox,
     triageLabels: pinnedTriageLabels(pinnedLabels),
-    searchQuery: shellSearchQuery,
+    searchQuery: shellBaseSearchQuery,
   });
   const useInboxThreadsForActionTargets =
     view === "inbox" &&
@@ -1411,7 +1421,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       key: "U",
       shift: true,
       handler: () => {
-        void navigate("/unread");
+        void navigate(UNREAD_INBOX_PATH);
       },
     },
     { key: "c", handler: handleCompose },
@@ -1462,7 +1472,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         void invalidateInboxThreads(queryClient);
       },
     },
-    { keys: ["g", "s"], handler: () => navigate("/starred") },
+    {
+      keys: ["g", "s"],
+      handler: () => {
+        void navigate(STARRED_INBOX_PATH);
+      },
+    },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
     { keys: ["g", "a"], handler: () => navigate("/all") },

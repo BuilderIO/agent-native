@@ -1,3 +1,4 @@
+import type { InboxFilterFlags } from "@shared/inbox-filters.js";
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
 
 import type { InboxTabWindows, InboxThreadRow } from "./inbox-store.js";
@@ -13,7 +14,7 @@ export function inMemoryTabWindows(
     pageTabId: string;
     pageOffset: number;
     pageLimit: number;
-    pageUnreadOnly: boolean;
+    pageAccepts?: ((flags: InboxFilterFlags) => boolean) | undefined;
     previewLimit: number;
   },
   toItem: (row: InboxThreadRow) => InboxThreadItem,
@@ -31,7 +32,15 @@ export function inMemoryTabWindows(
     members.filter((row) => (row.unreadCount ?? 0) > 0);
 
   const active = rowsOf(params.pageTabId);
-  const pool = params.pageUnreadOnly ? unreadOf(active) : active;
+  const pageAccepts = params.pageAccepts;
+  const pool = pageAccepts
+    ? active.filter((row) =>
+        pageAccepts({
+          unread: (row.unreadCount ?? 0) > 0,
+          starred: row.isStarred,
+        }),
+      )
+    : active;
   return {
     hasUnclassified: items.some((item) => item.isAutomated === null),
     hasLegacyClassification: items.some(
@@ -53,5 +62,6 @@ export function inMemoryTabWindows(
       ]),
     ),
     page: pool.slice(params.pageOffset, params.pageOffset + params.pageLimit),
+    pageTotal: pool.length,
   };
 }

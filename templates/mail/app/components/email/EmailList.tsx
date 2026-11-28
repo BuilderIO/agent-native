@@ -274,6 +274,8 @@ interface EmailListProps {
   onJevRetry?: () => void;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
+  filterControl?: ReactNode;
+  emptyHintKey?: string | undefined;
   readingPane?: boolean;
   keyboardEnabled?: boolean;
   onThreadOrderChange?: (threadIds: string[]) => void;
@@ -317,8 +319,6 @@ function emptyStateHintKeyForView(view: string): string {
       return "mail.empty.snoozed";
     case "drafts":
       return "mail.empty.drafts";
-    case "starred":
-      return "mail.empty.starred";
     case "sent":
       return "mail.empty.sent";
     case "scheduled":
@@ -331,8 +331,6 @@ function emptyStateHintKeyForView(view: string): string {
       return "mail.empty.spam";
     case "all":
       return "mail.empty.all";
-    case "unread":
-      return "mail.empty.unread";
     default:
       return "mail.empty.default";
   }
@@ -659,6 +657,8 @@ export function EmailList({
   onJevRetry,
   sortMode = "newest",
   onSortModeChange,
+  filterControl,
+  emptyHintKey,
   readingPane = false,
   keyboardEnabled = true,
   onThreadOrderChange,
@@ -3030,11 +3030,13 @@ export function EmailList({
 
   const headerActions = useMemo(
     () =>
+      filterControl ||
       sortHeaderAction ||
       bulkHeaderActions ||
       jevConnectionDialog ||
       viewHeaderActions ? (
         <>
+          {filterControl}
           {sortHeaderAction}
           {bulkHeaderActions ?? viewHeaderActions}
           {jevConnectionDialog}
@@ -3042,6 +3044,7 @@ export function EmailList({
       ) : null,
     [
       bulkHeaderActions,
+      filterControl,
       jevConnectionDialog,
       sortHeaderAction,
       viewHeaderActions,
@@ -3186,6 +3189,7 @@ export function EmailList({
       );
     }
     if (
+      !emptyHintKey &&
       (view === "inbox" || view === "important" || labelParam) &&
       !accountErrors?.length &&
       !cooldownNotice
@@ -3205,7 +3209,7 @@ export function EmailList({
               {t("mail.empty.nothingHere")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {t(emptyStateHintKeyForView(view))}
+              {t(emptyHintKey ?? emptyStateHintKeyForView(view))}
             </p>
           </div>
         </div>

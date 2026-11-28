@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { ALL_TAB_ID } from "./inbox-threads";
-import { openThreadPath, resolveMailOpenPath } from "./mail-routes";
+import {
+  filteredInboxPathForView,
+  openThreadPath,
+  resolveMailOpenPath,
+  STARRED_INBOX_PATH,
+  UNREAD_INBOX_PATH,
+} from "./mail-routes";
 import { mailSettingsRoute } from "./settings-navigation";
 
 describe("Mail open paths", () => {
@@ -75,6 +81,38 @@ describe("Mail open paths", () => {
     expect(
       resolveMailOpenPath({ view: "unknown", params: { q: "term" } }),
     ).toBeNull();
+  });
+
+  it("keeps the inbox filter on links from list-inbox-threads", () => {
+    expect(
+      resolveMailOpenPath({
+        view: "inbox",
+        params: { tab: "important", inboxFilter: "r=unread:is_checked" },
+      }),
+    ).toBe("/inbox?tab=important&r=unread:is_checked");
+    expect(
+      resolveMailOpenPath({
+        view: "inbox",
+        params: { inboxFilter: "r=starred:is_checked&r=bogus:is_checked" },
+      }),
+    ).toBe("/inbox?r=starred:is_checked");
+    expect(
+      resolveMailOpenPath({
+        view: "inbox",
+        params: { inboxFilter: "r=bogus:is_checked" },
+      }),
+    ).toBeNull();
+  });
+
+  it("sends the old Unread and Starred views to the filtered inbox", () => {
+    expect(UNREAD_INBOX_PATH).toBe("/inbox?r=unread:is_checked");
+    expect(STARRED_INBOX_PATH).toBe("/inbox?r=starred:is_checked");
+    expect(filteredInboxPathForView("unread", "")).toBe(UNREAD_INBOX_PATH);
+    expect(filteredInboxPathForView("starred", "?tab=other", "t/1")).toBe(
+      "/inbox/t%2F1?tab=other&r=starred:is_checked",
+    );
+    expect(filteredInboxPathForView("sent", "")).toBeNull();
+    expect(filteredInboxPathForView(undefined, "")).toBeNull();
   });
 
   it("builds the same encoded thread URL for the navigate command", () => {

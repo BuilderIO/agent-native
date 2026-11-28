@@ -15,6 +15,9 @@ export interface NavigationState {
   search?: string;
   label?: string;
   filter?: string;
+  inboxFilter?: string;
+  unread?: string;
+  starred?: string;
   activeInboxTab?: string;
   tab?: string;
   activeAccounts?: string[];

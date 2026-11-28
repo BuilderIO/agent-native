@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
@@ -30,6 +30,11 @@ import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
 import { gmailReadState } from "../shared/gmail-freshness.js";
 import {
+  inboxFilterAccepts,
+  inboxFilterParam,
+  type InboxFilterFlags,
+} from "../shared/inbox-filters.js";
+import {
   ALL_TAB_ID,
   ALL_TAB_PARAM,
   effectiveInboxPageLimit,
@@ -44,6 +49,16 @@ import {
 import type { Label } from "../shared/types.js";
 
 const TAB_PREVIEW_LIMIT = 50;
+
+type PageAccepts = (flags: InboxFilterFlags) => boolean;
+
+type InboxPageRequest = {
+  tab?: string | undefined;
+  limit: number;
+  offset: number;
+  accepts?: PageAccepts | undefined;
+};
+
 const SQL_TAB_KINDS: ReadonlySet<InboxTabKind> = new Set([
   "all",
   "inbox",
@@ -59,11 +74,10 @@ type InboxResultWindow = {
   counts: Map<string, CachedTabCount>;
   previews: Map<string, InboxThreadItem[]>;
   pageItems: InboxThreadItem[];
-  /** Rows the active tab's page is cut from: unread-only when requested. */
   activePoolLength: number;
   offset: number;
   limit: number;
-  unreadOnly?: boolean;
+  filtered: boolean;
   labels: Label[];
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
@@ -105,7 +119,7 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
     ),
     total: activeTab?.total ?? 0,
     complete:
-      !window.unreadOnly &&
+      !window.filtered &&
       !activeTab?.totalIsLowerBound &&
       window.offset + window.pageItems.length >= window.activePoolLength &&
       window.activePoolLength >= (activeTab?.total ?? 0),
@@ -123,7 +137,7 @@ function buildWindowedResult(
   input: {
     tabs: ResolvedInboxTab[];
     activeTabId: string;
-    page: { offset: number; limit: number; unreadOnly?: boolean };
+    page: InboxPageRequest;
     labels: Label[];
     syncing: boolean;
     accounts: InboxSyncAccountStatus[];
@@ -148,12 +162,10 @@ function buildWindowedResult(
       ]),
     ),
     pageItems: windows.page.map(input.rowToItem),
-    activePoolLength: input.page.unreadOnly
-      ? activeCount.unread
-      : activeCount.total,
+    activePoolLength: windows.pageTotal,
     offset: input.page.offset,
     limit: input.page.limit,
-    unreadOnly: input.page.unreadOnly,
+    filtered: input.page.accepts !== undefined,
     labels: input.labels,
     syncing: input.syncing,
     accounts: input.accounts,
@@ -169,7 +181,7 @@ function paginateIntoResult(
   config: InboxTabConfig,
   labelNameById: Map<string, string>,
   labels: Label[],
-  page: { tab?: string; limit: number; offset: number; unreadOnly?: boolean },
+  page: InboxPageRequest,
   syncing: boolean,
   accounts: InboxSyncAccountStatus[],
   backfillIncomplete = false,
@@ -179,8 +191,11 @@ function paginateIntoResult(
   const byTab = partitionInboxItems(items, tabs);
   const activeTabId = resolveActiveTabId(page.tab, tabs);
   const activeMembers = byTab.get(activeTabId) ?? [];
-  const pageSource = page.unreadOnly
-    ? activeMembers.filter((item) => item.unreadCount > 0)
+  const accepts = page.accepts;
+  const pageSource = accepts
+    ? activeMembers.filter((item) =>
+        accepts({ unread: item.unreadCount > 0, starred: item.isStarred }),
+      )
     : activeMembers;
 
   return buildInboxResult({
@@ -208,7 +223,7 @@ function paginateIntoResult(
     activePoolLength: pageSource.length,
     offset: page.offset,
     limit: page.limit,
-    unreadOnly: page.unreadOnly,
+    filtered: accepts !== undefined,
     labels,
     syncing,
     accounts,
@@ -258,6 +273,14 @@ export default defineAction({
       .describe(
         "Return only unread rows for this page; tab counts are unaffected",
       ),
+    inboxFilter: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .describe(
+        'The inbox Filter menu\'s rules in their URL form, as `navigation.inboxFilter` reports them: "r=unread:is_checked" (unread), "r=starred:is_checked" (starred), "r=unread:is_unchecked" (read), several `r=` joined with "&" for all of them, plus "match=any" for any of them. Narrows the page like unreadOnly; tab counts are unaffected',
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -265,8 +288,16 @@ export default defineAction({
   link: ({ args }) => {
     const requestedTab = typeof args?.tab === "string" ? args.tab : undefined;
     const tab = requestedTab === ALL_TAB_ID ? ALL_TAB_PARAM : requestedTab;
+    const inboxFilter =
+      typeof args.inboxFilter === "string"
+        ? inboxFilterParam(args.inboxFilter) || undefined
+        : undefined;
     return {
-      url: buildDeepLink({ app: "mail", view: "inbox", params: { tab } }),
+      url: buildDeepLink({
+        app: "mail",
+        view: "inbox",
+        params: { tab, inboxFilter },
+      }),
       label: "Open inbox in Mail",
       view: "inbox",
     };
@@ -276,11 +307,25 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    const page = {
+    const filterAccepts = args.inboxFilter
+      ? inboxFilterAccepts(args.inboxFilter)
+      : null;
+    if (args.inboxFilter && !filterAccepts) {
+      fail(
+        `inboxFilter "${args.inboxFilter}" holds no rule the inbox reads; use r=unread:is_checked, r=starred:is_checked, or their is_unchecked forms.`,
+        { errorCode: "invalid_inbox_filter" },
+      );
+    }
+    const page: InboxPageRequest = {
       tab: args.tab,
       limit: effectiveInboxPageLimit(args.offset, args.limit),
       offset: args.offset,
-      unreadOnly: args.unreadOnly,
+      accepts:
+        args.unreadOnly || filterAccepts
+          ? (flags) =>
+              (!args.unreadOnly || flags.unread) &&
+              (!filterAccepts || filterAccepts(flags))
+          : undefined,
     };
 
     const [oauthAccounts, managedConnection, syncAccounts] = await Promise.all([
@@ -369,7 +414,7 @@ export default defineAction({
             pageTabId: activeTabId,
             pageOffset: page.offset,
             pageLimit: page.limit,
-            pageUnreadOnly: page.unreadOnly === true,
+            pageAccepts: page.accepts,
             previewLimit: TAB_PREVIEW_LIMIT,
           }),
         }

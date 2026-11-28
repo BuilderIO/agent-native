@@ -22,6 +22,14 @@ read never waits on a live Gmail call. `tab` accepts any id from the returned
 `list-emails`/`search-emails` for every other view (Sent, Archive, Trash, All
 Mail) or an ad hoc query — not for the inbox.
 
+Unread and Starred are filters on the inbox, not separate views. The UI keeps
+them in the URL, and `navigation.inboxFilter` holds the active rules
+(`r=unread:is_checked`, `r=starred:is_checked`, `match=any` for "either"). Pass
+that value as `list-inbox-threads` `inboxFilter` to read the rows the person
+sees; tab counts stay unfiltered. `navigate` `unread`/`starred` opens the
+filtered inbox. The Starred filter covers starred inbox mail only; for starred
+mail anywhere, search `is:starred`.
+
 Membership is independent of Gmail's IMPORTANT label: a thread belongs to its
 first matching pinned-label or saved-filter tab. Unmatched personal mail goes to
 Important; automated and unclassified mail goes to Other. All, when enabled,

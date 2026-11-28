@@ -1,3 +1,9 @@
+import {
+  inboxFilterParam,
+  inboxFilterParamFor,
+  withInboxFilter,
+  type InboxFilterFlags,
+} from "./inbox-filters";
 import { inboxTabHref } from "./inbox-threads";
 import { mailSettingsRoute } from "./settings-navigation";
 
@@ -14,8 +20,34 @@ const MAIL_VIEWS = new Set([
   "all",
 ]);
 
+const FILTER_VIEWS = new Map<string, Partial<InboxFilterFlags>>([
+  ["unread", { unread: true }],
+  ["starred", { starred: true }],
+]);
+
+export const UNREAD_INBOX_PATH = withInboxFilter(
+  "/inbox",
+  inboxFilterParamFor({ unread: true }),
+);
+
+export const STARRED_INBOX_PATH = withInboxFilter(
+  "/inbox",
+  inboxFilterParamFor({ starred: true }),
+);
+
 export function isKnownMailView(view: string | undefined): boolean {
   return !view || MAIL_VIEWS.has(view);
+}
+
+export function filteredInboxPathForView(
+  view: string | undefined,
+  search: string,
+  threadId?: string,
+): string | null {
+  const flags = view ? FILTER_VIEWS.get(view) : undefined;
+  if (!flags) return null;
+  const path = threadId ? `/inbox/${encodeURIComponent(threadId)}` : "/inbox";
+  return withInboxFilter(`${path}${search}`, inboxFilterParamFor(flags));
 }
 
 /** A thread's path under its list view, or the Inbox's for any other view. */
@@ -46,9 +78,15 @@ export function resolveMailOpenPath({
   if (view === "settings") {
     return mailSettingsRoute(params.settingsSection || "general");
   }
-  if (params.tab) return inboxTabHref(params.tab);
+  const inboxFilter = params.inboxFilter
+    ? inboxFilterParam(params.inboxFilter)
+    : "";
+  if (params.tab) return withInboxFilter(inboxTabHref(params.tab), inboxFilter);
   if (params.filter) {
     return `/inbox?filter=${encodeURIComponent(params.filter)}`;
+  }
+  if (inboxFilter && !params.threadId) {
+    return withInboxFilter("/inbox", inboxFilter);
   }
   if (params.threadId) return openThreadPath(view, params.threadId);
   if (params.q && isKnownMailView(view)) {

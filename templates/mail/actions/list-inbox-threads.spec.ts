@@ -397,6 +397,71 @@ describe("list-inbox-threads action", () => {
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(1);
   });
 
+  it("inboxFilter narrows the page to the Filter menu's rules and leaves tab counts unchanged", async () => {
+    mocks.readInboxThreads.mockResolvedValue([
+      row({
+        threadId: "t1",
+        latestMessageId: "m1",
+        isUnread: true,
+        unreadCount: 1,
+        isStarred: false,
+      }),
+      row({
+        threadId: "t2",
+        latestMessageId: "m2",
+        isUnread: false,
+        unreadCount: 0,
+        isStarred: true,
+      }),
+      row({
+        threadId: "t3",
+        latestMessageId: "m3",
+        isUnread: false,
+        unreadCount: 0,
+        isStarred: false,
+      }),
+    ]);
+
+    const starred = await action.run({
+      inboxFilter: "r=starred:is_checked",
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(starred.items.map((item) => item.threadId)).toEqual(["t2"]);
+    expect(starred.complete).toBe(false);
+    expect(starred.hasMore).toBe(false);
+    expect(starred.tabs.find((t) => t.id === "important")?.total).toBe(3);
+
+    const either = await action.run({
+      inboxFilter: "match=any&r=unread:is_checked&r=starred:is_checked",
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(either.items.map((item) => item.threadId).sort()).toEqual([
+      "t1",
+      "t2",
+    ]);
+
+    const both = await action.run({
+      inboxFilter: "r=starred:is_checked",
+      unreadOnly: true,
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(both.items).toEqual([]);
+  });
+
+  it("rejects an inboxFilter with no rule the inbox reads instead of returning the whole inbox", async () => {
+    mocks.readInboxThreads.mockResolvedValue([row({ threadId: "t1" })]);
+
+    await expect(
+      action.run({ inboxFilter: "r=label:is_checked", limit: 50, offset: 0 }),
+    ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
+  });
+
   it("reports initial progress from SQL without making Gmail or token-refresh calls", async () => {
     mocks.readInboxThreads.mockResolvedValue([]);
     mocks.readSyncAccounts.mockResolvedValue([

@@ -42,6 +42,21 @@ describe("Mail navigate", () => {
     });
   });
 
+  it("opens the inbox with the Unread or Starred filter", async () => {
+    await action.run({ unread: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      unread: "true",
+    });
+
+    await action.run({ starred: false, tab: "important" });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      tab: "important",
+      starred: "false",
+    });
+  });
+
   it.each([
     ["rules", "/settings/app/rules"],
     ["ai-filter", "/settings/app/ai-filter"],

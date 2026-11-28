@@ -1,5 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
+import type { InboxFilterFlags } from "@shared/inbox-filters.js";
 import {
   INBOX_MAX_PAGE_OFFSET,
   isReadableInboxPageOffset,
@@ -390,6 +391,7 @@ export type InboxTabWindowSpec = { id: string; kind: string };
 export type InboxTabWindows = {
   counts: Map<string, { total: number; unread: number }>;
   page: InboxThreadRow[];
+  pageTotal: number;
   previews: Map<string, InboxThreadRow[]>;
   hasUnclassified: boolean;
   hasLegacyClassification: boolean;
@@ -399,7 +401,15 @@ const AUTOMATED_GROUP_BIT = 2;
 const UNCLASSIFIED_GROUP_BIT = 4;
 const LEGACY_GROUP_BIT = 8;
 const UNREAD_GROUP_BIT = 1;
-const GROUP_COUNT = 16;
+const STARRED_GROUP_BIT = 16;
+const GROUP_COUNT = 32;
+
+function groupFlags(group: number): InboxFilterFlags {
+  return {
+    unread: (group & UNREAD_GROUP_BIT) !== 0,
+    starred: (group & STARRED_GROUP_BIT) !== 0,
+  };
+}
 
 function tabAcceptsGroup(kind: string, group: number): boolean {
   const automated =
@@ -430,7 +440,7 @@ export async function readInboxTabWindows(params: {
   pageTabId: string;
   pageOffset: number;
   pageLimit: number;
-  pageUnreadOnly: boolean;
+  pageAccepts?: ((flags: InboxFilterFlags) => boolean) | undefined;
   previewLimit: number;
 }): Promise<InboxTabWindows> {
   const accounts = params.accountEmails.map((e) => e.toLowerCase());
@@ -460,10 +470,10 @@ export async function readInboxTabWindows(params: {
 
   // raw-sql-ok: Account values and window limits use bound parameters; interpolated bits are constants.
   const { rows } = await getDbExec().execute({
-    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 16 × rankLimit) return to JS
+    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 32 × rankLimit) return to JS
     sql: `
       WITH keys AS (
-        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count
+        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count, t.is_starred
         FROM mail_inbox_threads t
         WHERE t.owner_email = ${ownerParam} AND t.in_inbox = 1
           AND t.account_email IN (${accountParams.join(", ")})
@@ -472,7 +482,8 @@ export async function readInboxTabWindows(params: {
         SELECT k.id,
           row_number() OVER (ORDER BY k.latest_date DESC, k.latest_message_id DESC, k.id DESC) AS r,
           (CASE WHEN k.is_automated = 1 THEN ${AUTOMATED_GROUP_BIT} WHEN k.is_automated = 2 THEN 0 WHEN k.is_automated = 0 THEN ${UNCLASSIFIED_GROUP_BIT + LEGACY_GROUP_BIT} ELSE ${UNCLASSIFIED_GROUP_BIT} END
-            + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END) AS grp
+            + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END
+            + CASE WHEN coalesce(k.is_starred, 0) = 1 THEN ${STARRED_GROUP_BIT} ELSE 0 END) AS grp
         FROM keys k
       ),
       grouped AS (
@@ -494,15 +505,17 @@ export async function readInboxTabWindows(params: {
   for (const row of windowRows) {
     if (row.groupRank === 1) groupTotal.set(row.group, row.groupTotal);
   }
-  const windowOf = (kind: string, unreadOnly: boolean) =>
-    windowRows.filter(
-      (row) =>
-        tabAcceptsGroup(kind, row.group) &&
-        (!unreadOnly || (row.group & UNREAD_GROUP_BIT) !== 0),
-    );
+  const pageAccepts = params.pageAccepts;
+  const pageKeepsGroup = (group: number) =>
+    tabAcceptsGroup(pageTab.kind, group) &&
+    (!pageAccepts || pageAccepts(groupFlags(group)));
 
   const counts = new Map<string, { total: number; unread: number }>();
   const previews = new Map<string, InboxThreadRow[]>();
+  let pageTotal = 0;
+  for (let group = 0; group < GROUP_COUNT; group += 1) {
+    if (pageKeepsGroup(group)) pageTotal += groupTotal.get(group) ?? 0;
+  }
   for (const tab of params.tabs) {
     let total = 0;
     let unread = 0;
@@ -515,7 +528,9 @@ export async function readInboxTabWindows(params: {
     counts.set(tab.id, { total, unread });
     previews.set(
       tab.id,
-      windowOf(tab.kind, false).slice(0, params.previewLimit),
+      windowRows
+        .filter((row) => tabAcceptsGroup(tab.kind, row.group))
+        .slice(0, params.previewLimit),
     );
   }
   return {
@@ -526,10 +541,10 @@ export async function readInboxTabWindows(params: {
     hasLegacyClassification: [...groupTotal].some(
       ([group, total]) => (group & LEGACY_GROUP_BIT) !== 0 && total > 0,
     ),
-    page: windowOf(pageTab.kind, params.pageUnreadOnly).slice(
-      params.pageOffset,
-      params.pageOffset + params.pageLimit,
-    ),
+    page: windowRows
+      .filter((row) => pageKeepsGroup(row.group))
+      .slice(params.pageOffset, params.pageOffset + params.pageLimit),
+    pageTotal,
     previews,
   };
 }

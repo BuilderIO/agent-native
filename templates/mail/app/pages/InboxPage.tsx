@@ -5,6 +5,12 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import {
+  inboxFilterGmailClause,
+  inboxFilterParam,
+  inboxFilterParamFor,
+  withInboxFilter,
+} from "@shared/inbox-filters";
 import { inboxTabHref } from "@shared/inbox-threads";
 import { openThreadPath } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
@@ -21,6 +27,7 @@ import {
   type EmailListSection,
 } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
+import { InboxFilterMenu } from "@/components/email/InboxFilterMenu";
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { ReadingPaneDivider } from "@/components/email/ReadingPaneDivider";
 import {
@@ -396,6 +403,10 @@ function ReadingPaneEmpty({
 
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
+const INBOX_FILTER_EMPTY_HINTS = new Map([
+  [inboxFilterParamFor({ unread: true }), "mail.empty.unread"],
+  [inboxFilterParamFor({ starred: true }), "mail.empty.starred"],
+]);
 
 export function InboxPage() {
   const t = useT();
@@ -504,6 +515,11 @@ export function InboxPage() {
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
+  const inboxFilter = view === "inbox" ? inboxFilterParam(searchParams) : "";
+  const inboxFilterControl = useMemo(
+    () => (view === "inbox" ? <InboxFilterMenu /> : undefined),
+    [view],
+  );
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts, allAccounts } = useAccountFilter();
   const myEmails = useMemo(() => {
@@ -600,6 +616,7 @@ export function InboxPage() {
       accountEmails: inboxAccountEmails,
       limit: INBOX_PAGE_SIZE,
       offset: 0,
+      ...(inboxFilter ? { inboxFilter } : {}),
     },
     { enabled: view === "inbox" },
   );
@@ -680,6 +697,7 @@ export function InboxPage() {
       tab: resolvedInboxTab,
       accountEmails: inboxAccountEmails,
       limit: INBOX_PAGE_SIZE,
+      ...(inboxFilter ? { inboxFilter } : {}),
     },
     inboxExtraOffsets,
     { enabled: isInboxView && inboxExtraOffsets.length > 0 },
@@ -762,6 +780,7 @@ export function InboxPage() {
       activeLabel ||
       activeInboxTab ||
       activeFilterId ||
+      inboxFilter ||
       searchQuery ||
       combineInbox
     )
@@ -781,6 +800,7 @@ export function InboxPage() {
     activeInboxTab,
     activeLabel,
     combineInbox,
+    inboxFilter,
     isOnboardingPreview,
     isGoogleConnected,
     navigate,
@@ -832,9 +852,14 @@ export function InboxPage() {
     isFetchNextPageError: emailsIsFetchNextPageError,
     accountErrors: emailsAccountErrors,
     read: emailsRead,
-  } = useEmails(emailView, searchQuery, effectiveLabel, {
-    enabled: !isInboxView,
-  });
+  } = useEmails(
+    emailView,
+    inboxFilter && searchQuery
+      ? `${searchQuery} ${inboxFilterGmailClause(inboxFilter)}`
+      : searchQuery,
+    effectiveLabel,
+    { enabled: !isInboxView },
+  );
   const listRead = isInboxView
     ? inboxThreads.isPlaceholderData
       ? undefined
@@ -1029,6 +1054,7 @@ export function InboxPage() {
       search: searchQ,
       label: activeLabel ?? undefined,
       filter: activeFilterId ?? undefined,
+      inboxFilter: inboxFilter || undefined,
       activeInboxTab:
         view === "inbox"
           ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
@@ -1047,6 +1073,7 @@ export function InboxPage() {
     searchQ,
     activeLabel,
     activeFilterId,
+    inboxFilter,
     isInboxView,
     inboxThreads.data?.activeTabId,
     resolvedInboxTab,
@@ -1074,6 +1101,12 @@ export function InboxPage() {
     const targetView = navCommand.view || view;
     const targetFilter = navCommand.filter;
     const targetThread = navCommand.threadId;
+    const flagOf = (value: string | undefined) =>
+      value === "true" ? true : value === "false" ? false : undefined;
+    const targetInboxFilter = inboxFilterParamFor({
+      unread: flagOf(navCommand.unread),
+      starred: flagOf(navCommand.starred),
+    });
 
     if (navCommand.sort === "newest") {
       changeSortMode("newest");
@@ -1099,12 +1132,19 @@ export function InboxPage() {
     } else if (targetView === "settings") {
       void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
     } else if (navCommand.tab) {
-      void navigate(inboxTabHref(navCommand.tab));
+      void navigate(
+        withInboxFilter(inboxTabHref(navCommand.tab), targetInboxFilter),
+      );
+    } else if (targetInboxFilter && !targetThread) {
+      void navigate(withInboxFilter("/inbox", targetInboxFilter));
     } else if (targetFilter) {
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
       void navigate(openThreadPath(targetView, targetThread));
-    } else if (targetView !== view) {
+    } else if (
+      targetView !== view ||
+      (targetView === "inbox" && inboxFilter && !navCommand.sort)
+    ) {
       void navigate(`/${targetView === "scheduled" ? "drafts" : targetView}`);
     }
 
@@ -1239,6 +1279,7 @@ export function InboxPage() {
     hasThread,
     searchQuery,
     isSavedFilter: Boolean(activeSavedFilter),
+    isFiltered: Boolean(inboxFilter),
     threadCount: threads.length,
     hasNextPage: Boolean(hasNextPage || hasOlderInbox),
     hasAccountErrors: Boolean(accountErrors?.length),
@@ -1319,6 +1360,13 @@ export function InboxPage() {
           onJevConnected={onJevAvailabilityChange}
           onJevRetry={onJevAvailabilityChange}
           onSortModeChange={changeSortMode}
+          filterControl={inboxFilterControl}
+          emptyHintKey={
+            inboxFilter
+              ? (INBOX_FILTER_EMPTY_HINTS.get(inboxFilter) ??
+                "mail.empty.default")
+              : undefined
+          }
           readingPane={paneLayout !== null}
           keyboardEnabled={!(paneLayout && hasThread)}
           onThreadOrderChange={setListThreadIds}

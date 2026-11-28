@@ -281,7 +281,7 @@ describe("AppLayout inbox tab bar", () => {
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
     expect(source).toContain(
-      "href: mailboxWideLabelTab ? labelTabHref(tab.id, labels) : inboxTabHref(tab.id)",
+      "href: mailboxWideLabelTab ? labelTabHref(tab.id, labels) : withInboxFilter(inboxTabHref(tab.id), inboxFilter)",
     );
     expect(source).toContain(
       'const mailboxWideLabelTab = tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);',
@@ -293,7 +293,7 @@ describe("AppLayout inbox tab bar", () => {
       "isLabelCountLowerBound(labelsFailed, labelAccountErrors)",
     );
     expect(source.replace(/\s+/g, " ")).toContain(
-      "[ activeLabel, activeInboxTabId, aiTagDisplayNames, inboxTabs, labels, labelsFailed, labelAccountErrors, t, view, ]",
+      "[ activeLabel, activeInboxTabId, aiTagDisplayNames, inboxFilter, inboxTabs, labels, labelsFailed, labelAccountErrors, t, view, ]",
     );
     expect(source).toContain(
       "dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)",

@@ -260,6 +260,28 @@ describe("view-screen Mail preview", () => {
     ).toEqual(["inbox-match"]);
   });
 
+  it("reads the inbox through its Unread/Starred filter and reports it", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      inboxFilter: "r=starred:is_checked",
+    });
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [],
+      pinnedLabels: [],
+    });
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [{ ...email("starred"), labelIds: ["INBOX", "STARRED"] }],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.listGmailMessages.mock.calls[0][0]).toBe(
+      "in:inbox is:starred",
+    );
+    expect(result.emailList.inboxFilter).toBe("r=starred:is_checked");
+  });
+
   it("uses the visible fallback tab when hidden All is requested", async () => {
     mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",

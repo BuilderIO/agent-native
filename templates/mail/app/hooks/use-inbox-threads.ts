@@ -388,7 +388,13 @@ export function seedInboxTabPreviews(
   input: ListInboxThreadsInput,
   incoming: InboxQueryResult,
 ) {
-  if ((input.offset ?? 0) !== 0 || input.unreadOnly === true) return;
+  if (
+    (input.offset ?? 0) !== 0 ||
+    input.unreadOnly === true ||
+    Boolean(input.inboxFilter)
+  ) {
+    return;
+  }
 
   for (const tab of incoming.tabs) {
     if (input.tab === tab.id) continue;

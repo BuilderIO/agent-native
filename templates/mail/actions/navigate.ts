@@ -19,7 +19,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (inbox, starred, sent, drafts, archive, trash, draft-queue, settings). Drafts also lists scheduled emails and drafts teammates requested; scheduled, and draft-queue without queuedDraftId, open Drafts",
+        "View to navigate to (inbox, sent, drafts, archive, trash, all, draft-queue, settings). Unread and Starred are inbox filters, not views: use unread or starred. Drafts also lists scheduled emails and drafts teammates requested; scheduled, and draft-queue without queuedDraftId, open Drafts. view inbox alone clears the inbox filter",
       ),
     tab: z
       .string()
@@ -48,6 +48,18 @@ export default defineAction({
       .enum(["newest", "priority"])
       .optional()
       .describe("Inbox sort order to use"),
+    unread: z
+      .boolean()
+      .optional()
+      .describe(
+        "Filter the inbox to unread (true) or read (false) conversations; combine with starred and tab",
+      ),
+    starred: z
+      .boolean()
+      .optional()
+      .describe(
+        "Filter the inbox to starred (true) or unstarred (false) conversations; combine with unread and tab",
+      ),
     threadId: z.string().optional().describe("Thread ID to open"),
     settingsSection: z
       .enum(MAIL_SETTINGS_SECTIONS)
@@ -98,10 +110,13 @@ export default defineAction({
       !args.queuedDraftId &&
       !args.settingsSection &&
       !args.composeDraftId &&
-      !args.sort
+      !args.sort &&
+      args.unread === undefined &&
+      args.starred === undefined
     ) {
-      throw new Error(
-        "At least --view, --tab, --sort, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
+      fail(
+        "At least --view, --tab, --sort, --unread, --starred, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
+        { errorCode: "missing_navigation_target" },
       );
     }
     if (args.settingsSection || args.view === "settings") {
@@ -125,6 +140,12 @@ export default defineAction({
       if (args.filter) nav.filter = args.filter;
     }
     if (args.threadId) nav.threadId = args.threadId;
+    for (const flag of ["unread", "starred"] as const) {
+      const value = args[flag];
+      if (value === undefined) continue;
+      nav.view = args.view || "inbox";
+      nav[flag] = String(value);
+    }
     if (args.sort) {
       nav.view = args.view || "inbox";
       nav.sort = args.sort;
@@ -138,6 +159,6 @@ export default defineAction({
       nav.composeDraftId = args.composeDraftId;
     }
     await writeAppStateForCurrentTab("navigate", nav);
-    return `Navigating to ${nav.view || ""}${tab ? ` tab:${tab}` : ""}${args.sort ? ` sort:${args.sort}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}`;
+    return `Navigating to ${nav.view || ""}${tab ? ` tab:${tab}` : ""}${nav.unread ? ` unread:${nav.unread}` : ""}${nav.starred ? ` starred:${nav.starred}` : ""}${args.sort ? ` sort:${args.sort}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}`;
   },
 });

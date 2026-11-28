@@ -4,6 +4,11 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import {
+  inboxFilterAccepts,
+  inboxFilterGmailClause,
+  inboxFilterParam,
+} from "@shared/inbox-filters.js";
+import {
   emailMessageMatchesSearch,
   searchQueryNeedsAttachmentMetadata,
 } from "@shared/search.js";
@@ -114,6 +119,7 @@ async function fetchEmailList(
   activeInboxTab?: string,
   activeAccounts?: string[],
   filterId?: string,
+  inboxFilter = "",
 ): Promise<EmailPreviewResult> {
   try {
     const ownerEmail = getRequestUserEmail();
@@ -279,10 +285,16 @@ async function fetchEmailList(
         view: effectiveView,
         q: effectiveSearch,
       });
-      const effectiveQuery =
+      const viewQuery =
         effectiveView === "all" && !effectiveSearch
           ? ""
           : gmailQuery || "in:inbox";
+      const effectiveQuery =
+        effectiveView === "inbox"
+          ? [viewQuery, inboxFilterGmailClause(inboxFilter)]
+              .filter(Boolean)
+              .join(" ")
+          : viewQuery;
       const listOptions: NonNullable<Parameters<typeof listGmailMessages>[4]> =
         {
           mode: "threads" as const,
@@ -378,6 +390,17 @@ async function fetchEmailList(
     if (effectiveSearch) {
       emails = emails.filter((e: any) =>
         emailMessageMatchesSearch(e, effectiveSearch),
+      );
+    }
+    const filterAccepts =
+      effectiveView === "inbox" ? inboxFilterAccepts(inboxFilter) : null;
+    if (filterAccepts) {
+      emails = emails.filter((e: EmailMessage & { unreadCount?: unknown }) =>
+        filterAccepts({
+          unread:
+            typeof e.unreadCount === "number" ? e.unreadCount > 0 : !e.isRead,
+          starred: e.isStarred,
+        }),
       );
     }
     return boundEmailPreview(applyActiveInboxTab(emails));
@@ -564,6 +587,10 @@ export default defineAction({
         };
       }
     } else if (nav?.view) {
+      const inboxFilter =
+        nav.view === "inbox" && typeof nav.inboxFilter === "string"
+          ? inboxFilterParam(nav.inboxFilter)
+          : "";
       const { emails, truncated, coverageComplete, failedAccounts, error } =
         await fetchEmailList(
           nav.view,
@@ -572,6 +599,7 @@ export default defineAction({
           nav.tab ?? nav.activeInboxTab ?? nav.label,
           nav.activeAccounts,
           nav.filter,
+          inboxFilter,
         );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(
@@ -597,6 +625,7 @@ export default defineAction({
         view: nav.view,
         label: nav.label ?? null,
         filter: nav.filter ?? null,
+        inboxFilter: inboxFilter || null,
         activeInboxTab: nav.activeInboxTab ?? null,
         sort: nav.sort ?? "newest",
         activeAccounts: nav.activeAccounts ?? [],

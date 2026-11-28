@@ -61,10 +61,9 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 
 ## Application State
 
-- `navigation` exposes inbox/thread/draft-queue views and selected ids; `compose-{id}` holds open compose tabs and draft content.
+- `navigation` exposes inbox/thread/draft-queue views, selected ids, and `inboxFilter`; `compose-{id}` holds open compose tabs and draft content.
 - `navigation.readingPane` is true while the list and the open email sit side by side; `update-mail-settings` `readingPane` turns that layout on or off.
-- `navigate` accepts `view`, `tab` (`label`/`filter`), `sort` (`newest`/`priority`), `threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
-- `settingsSection` opens `rules` or `ai-filter`.
+- `navigate` accepts `view`, `tab` (`label`/`filter`), `unread`/`starred`, `sort` (`newest`/`priority`), `threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.
 

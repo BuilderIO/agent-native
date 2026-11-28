@@ -17,6 +17,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "mail.appName": "Mail",
       "mail.views.inbox": "Inbox",
       "mail.views.unread": "Unread",
+      "mail.views.starred": "Starred",
+      "mail.views.sent": "Sent",
+      "mail.inbox.unreadCount": "Unread conversations: {{count}}",
       "mail.views.labels": "Labels",
       "sidebar.collapseSidebar": "Collapse sidebar",
       "sidebar.expandSidebar": "Expand sidebar",
@@ -196,11 +199,27 @@ describe("MailSidebar", () => {
     expect(
       within(drawer).queryByRole("button", { name: "Collapse sidebar" }),
     ).toBeNull();
-    const unread = within(drawer).getByRole("link", { name: /Unread/ });
-    expect(unread.textContent).toContain("Unread");
+    const sent = within(drawer).getByRole("link", { name: /Sent/ });
+    expect(sent.textContent).toContain("Sent");
 
-    fireEvent.click(unread);
+    fireEvent.click(sent);
 
     expect(onMobileOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the unread count on Inbox and has no Unread or Starred pages", () => {
+    setWindowWidth(1536);
+    renderSidebar({ inboxUnreadCount: 12 });
+
+    const links = screen.getAllByRole("link");
+    const hrefs = links.map((link) => link.getAttribute("href"));
+    expect(hrefs).toContain("/inbox");
+    expect(hrefs).not.toContain("/unread");
+    expect(hrefs).not.toContain("/starred");
+    expect(screen.queryByRole("link", { name: /^Unread/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^Starred/ })).toBeNull();
+    const inbox = screen.getByRole("link", { name: /^Inbox/ });
+    expect(inbox.getAttribute("href")).toBe("/inbox");
+    expect(inbox.textContent).toContain("12");
   });
 });
