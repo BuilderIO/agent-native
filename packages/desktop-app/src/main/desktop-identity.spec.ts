@@ -1949,6 +1949,46 @@ describe("DesktopIdentityBroker", () => {
     },
   );
 
+  it("keeps the signed-in account available when the Dispatch pane offers an excluded one", async () => {
+    const server = dispatchServer({
+      "isolated-session": rolloutAccount,
+      "pane-session": excludedAccount,
+    });
+    const authority = authorityFixture();
+    authority.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_dispatch", authority.origin, "pane-session"),
+      ]),
+      fetch: server,
+    } as unknown as Electron.Session;
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie(
+            "an_session_dispatch",
+            authority.origin,
+            "isolated-session",
+          ),
+        ]),
+        fetch: server,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: fetchDesktopIdentityAvailability,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    await broker.refreshStatus(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+
+    await expect(broker.adoptAppSession(authority.id)).resolves.toBe(false);
+
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(broker.isAvailable()).toBe(true);
+  });
+
   it("announces a status only when it actually changes", async () => {
     const authority = authorityFixture();
     const onStatus = vi.fn();
@@ -2271,6 +2311,60 @@ describe("DesktopIdentityBroker", () => {
     expect(clearStorageData).not.toHaveBeenCalled();
     expect(appFetch).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { pane: excludedAccount, prepared: false },
+    { pane: rolloutAccount, prepared: true },
+  ])(
+    "spreads a pane sign-out to the workspace only when $pane.email is in the rollout",
+    async ({ pane, prepared }) => {
+      const server = dispatchServer({
+        "isolated-session": rolloutAccount,
+        "pane-session": pane,
+      });
+      const authority = authorityFixture();
+      authority.session = {
+        cookies: cookieStore([
+          sessionCookie(
+            "an_session_dispatch",
+            authority.origin,
+            "pane-session",
+          ),
+        ]),
+        fetch: server,
+      } as unknown as Electron.Session;
+      const clearStorageData = vi.fn(async () => {});
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore([
+            sessionCookie(
+              "an_session_dispatch",
+              authority.origin,
+              "isolated-session",
+            ),
+          ]),
+          fetch: server,
+          clearStorageData,
+        } as unknown as Electron.Session,
+        isAvailable: fetchDesktopIdentityAvailability,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+      await broker.refreshStatus(authority);
+      expect(broker.getStatus()).toBe("signed-in");
+
+      await expect(
+        broker.prepareExternalSignOut([authority], {
+          logoutPath: "/_agent-native/auth/logout",
+          alreadyRevokedAppId: authority.id,
+        }),
+      ).resolves.toBe(prepared);
+
+      expect(clearStorageData).not.toHaveBeenCalled();
+    },
+  );
 
   it("bounds a stalled rollout availability request", async () => {
     vi.useFakeTimers();
