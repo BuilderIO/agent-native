@@ -58,7 +58,9 @@ export function DocumentBacklinks({ documentId }: { documentId: string }) {
           aria-label={t("backlinks.loading")}
         />
       ) : pages.length === 0 ? (
-        <p data-document-backlinks-empty>{t("backlinks.none")}</p>
+        <p data-document-backlinks-empty>
+          {list.more ? t("backlinks.tooManyToCheck") : t("backlinks.none")}
+        </p>
       ) : (
         <>
           <ul className="-mx-1 grid gap-px" data-document-backlinks-list>

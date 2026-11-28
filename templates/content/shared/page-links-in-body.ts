@@ -1,8 +1,4 @@
-import {
-  isContentLinkId,
-  normalizeNotionPageId,
-  pageLinkBlockId,
-} from "./content-links.js";
+import { isContentLinkId, normalizeNotionPageId } from "./content-links.js";
 import { nfmToDoc, type PMNode } from "./nfm.js";
 
 export const PAGE_LINKS_MAX_PER_PAGE = 1_000;
@@ -13,19 +9,29 @@ export const PAGE_LINK_MARKERS = [
   "documentId=",
   "<page",
   "<mention-page",
-  "notion.so/",
-  "notion.site/",
 ] as const;
+
+export const NOTION_LINK_HOSTS = ["notion.so", "notion.site"] as const;
+
+const NOTION_HOST = /notion\.(?:so|site)/i;
 
 const RELATIVE_BASE = "https://relative.invalid";
 
 export type PageLinkReference = {
-  id: string;
+  target: string;
   outside: boolean;
 };
 
+export function notionPageLinkTarget(notionKey: string): string {
+  return `notion:${notionKey}`;
+}
+
 export function mayHoldPageLinks(body: string | null | undefined): boolean {
-  return !!body && PAGE_LINK_MARKERS.some((marker) => body.includes(marker));
+  return (
+    !!body &&
+    (PAGE_LINK_MARKERS.some((marker) => body.includes(marker)) ||
+      NOTION_HOST.test(body))
+  );
 }
 
 function decodedSegment(segment: string): string | null {
@@ -62,7 +68,7 @@ export function pageIdFromHref(href: unknown): string | null {
 function notionPageKeyFromHref(href: string): string | null {
   if (!isAbsoluteHref(href) || !URL.canParse(href)) return null;
   const host = new URL(href).hostname.toLowerCase();
-  const notion = ["notion.so", "notion.site"].some(
+  const notion = NOTION_LINK_HOSTS.some(
     (domain) => host === domain || host.endsWith(`.${domain}`),
   );
   return notion ? normalizeNotionPageId(href) : null;
@@ -96,22 +102,27 @@ export function pageLinkReferencesInBody(
 ): PageLinkReference[] {
   if (!body || !mayHoldPageLinks(body)) return [];
   const references = new Map<string, PageLinkReference>();
-  const add = (value: string | null | undefined, outside: boolean) => {
-    if (!value || !isContentLinkId(value)) return;
-    const id = normalizeNotionPageId(value) ?? value;
-    const seen = references.get(id);
+  const add = (target: string, outside: boolean) => {
+    const seen = references.get(target);
     if (seen) {
       seen.outside &&= outside;
     } else if (references.size < PAGE_LINKS_MAX_PER_PAGE) {
-      references.set(id, { id, outside });
+      references.set(target, { target, outside });
     }
+  };
+  const addPage = (id: string | null | undefined, outside: boolean) => {
+    if (id && isContentLinkId(id)) add(id, outside);
+  };
+  const addNotion = (value: string | null | undefined) => {
+    const key = normalizeNotionPageId(value);
+    if (key) add(notionPageLinkTarget(key), false);
   };
   const addHref = (href: unknown, inPageAtom = false) => {
     if (typeof href !== "string") return;
     const target = href.trim();
     const notionKey = notionPageKeyFromHref(target);
-    if (notionKey) add(notionKey, false);
-    else add(pageIdFromHref(target), !inPageAtom && isAbsoluteHref(target));
+    if (notionKey) add(notionPageLinkTarget(notionKey), false);
+    else addPage(pageIdFromHref(target), !inPageAtom && isAbsoluteHref(target));
   };
   const visit = (node: PMNode) => {
     for (const mark of node.marks ?? []) {
@@ -119,18 +130,16 @@ export function pageLinkReferencesInBody(
     }
     if (isPageLinkAtom(node)) {
       const attrs = atomAttrs(node.attrs?.attrsJson);
-      add(pageLinkBlockId(attrs), false);
+      addPage(attrs["data-agent-native-document-id"], false);
+      addPage(attrs.id, false);
+      addNotion(attrs.id);
       addHref(attrs.url, true);
       addHref(attrs.href, true);
+      addNotion(attrs.pageId);
+      addNotion(attrs.page_id);
     }
     for (const child of node.content ?? []) visit(child);
   };
   for (const node of nfmToDoc(body).content) visit(node);
   return [...references.values()];
-}
-
-export function pageLinkTargetsInBody(
-  body: string | null | undefined,
-): string[] {
-  return pageLinkReferencesInBody(body).map((reference) => reference.id);
 }

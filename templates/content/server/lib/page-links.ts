@@ -8,7 +8,22 @@ import { getDb, schema } from "../db/index.js";
 
 type Database = ReturnType<typeof getDb>;
 
+type PageBody = {
+  documentId: string;
+  before?: string | undefined;
+  after: string;
+};
+
 const IDS_AT_ONCE = 300;
+const ROWS_AT_ONCE = 1_000;
+
+function needsSync(page: PageBody): boolean {
+  return (
+    page.before === undefined ||
+    mayHoldPageLinks(page.before) ||
+    mayHoldPageLinks(page.after)
+  );
+}
 
 export async function pageLinkTargets(
   db: Database,
@@ -16,11 +31,11 @@ export async function pageLinkTargets(
   body: string | null | undefined,
 ): Promise<string[]> {
   const references = pageLinkReferencesInBody(body).filter(
-    (reference) => reference.id !== documentId,
+    (reference) => reference.target !== documentId,
   );
   const outside = references
     .filter((reference) => reference.outside)
-    .map((reference) => reference.id);
+    .map((reference) => reference.target);
   const existing = new Set<string>();
   for (let at = 0; at < outside.length; at += IDS_AT_ONCE) {
     // guard:allow-unscoped — ids only, to keep a full URL's link only when it names a page here; list-backlinks checks each viewer's access.
@@ -31,23 +46,45 @@ export async function pageLinkTargets(
     for (const row of rows) existing.add(row.id);
   }
   return references
-    .filter((reference) => !reference.outside || existing.has(reference.id))
-    .map((reference) => reference.id);
+    .filter((reference) => !reference.outside || existing.has(reference.target))
+    .map((reference) => reference.target);
 }
 
 export async function syncPageLinks(
   db: Database,
-  input: { documentId: string; before?: string | undefined; after: string },
+  input: PageBody,
 ): Promise<void> {
-  if (
-    input.before !== undefined &&
-    !mayHoldPageLinks(input.before) &&
-    !mayHoldPageLinks(input.after)
-  ) {
-    return;
-  }
+  if (!needsSync(input)) return;
   const targets = await pageLinkTargets(db, input.documentId, input.after);
   await writePageLinks(db, input.documentId, targets);
+}
+
+export async function syncPageLinksMany(
+  db: Database,
+  pages: PageBody[],
+): Promise<void> {
+  const changed = pages.filter(needsSync);
+  if (!changed.length) return;
+  const rows: { sourceDocumentId: string; targetDocumentId: string }[] = [];
+  for (const page of changed) {
+    for (const targetDocumentId of await pageLinkTargets(
+      db,
+      page.documentId,
+      page.after,
+    )) {
+      rows.push({ sourceDocumentId: page.documentId, targetDocumentId });
+    }
+  }
+  await clearPageLinks(
+    db,
+    changed.map((page) => page.documentId),
+  );
+  for (let at = 0; at < rows.length; at += ROWS_AT_ONCE) {
+    await db
+      .insert(schema.pageLinks)
+      .values(rows.slice(at, at + ROWS_AT_ONCE))
+      .onConflictDoNothing();
+  }
 }
 
 export async function writePageLinks(
@@ -82,8 +119,14 @@ export async function clearPageLinks(
   db: Database,
   documentIds: string[],
 ): Promise<void> {
-  if (!documentIds.length) return;
-  await db
-    .delete(schema.pageLinks)
-    .where(inArray(schema.pageLinks.sourceDocumentId, documentIds));
+  for (let at = 0; at < documentIds.length; at += IDS_AT_ONCE) {
+    await db
+      .delete(schema.pageLinks)
+      .where(
+        inArray(
+          schema.pageLinks.sourceDocumentId,
+          documentIds.slice(at, at + IDS_AT_ONCE),
+        ),
+      );
+  }
 }

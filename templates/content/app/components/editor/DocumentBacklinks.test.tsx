@@ -152,6 +152,15 @@ describe("DocumentBacklinks", () => {
     ).toBe("/page/a%20b%2Fc");
   });
 
+  it("says it couldn't check every page when none of those it checked can be listed", () => {
+    mocks.backlinks.list = { pages: [], count: 0, more: true };
+    render(<DocumentBacklinks documentId="target" />);
+
+    expect(
+      container.querySelector("[data-document-backlinks-empty]")?.textContent,
+    ).toBe("backlinks.tooManyToCheck");
+  });
+
   it("says no pages link here yet", () => {
     mocks.backlinks.list = { pages: [], count: 0, more: false };
     render(<DocumentBacklinks documentId="target" />);

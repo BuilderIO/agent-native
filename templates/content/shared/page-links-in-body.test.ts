@@ -2,13 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   mayHoldPageLinks,
+  notionPageLinkTarget,
   PAGE_LINKS_MAX_PER_PAGE,
   pageIdFromHref,
   pageLinkReferencesInBody,
-  pageLinkTargetsInBody,
 } from "./page-links-in-body";
 
 const NOTION_KEY = "0123456789abcdef0123456789abcdef";
+
+const NOTION_TARGET = notionPageLinkTarget(NOTION_KEY);
+
+const DASHED = `${NOTION_KEY.slice(0, 8)}-${NOTION_KEY.slice(8, 12)}-${NOTION_KEY.slice(12, 16)}-${NOTION_KEY.slice(16, 20)}-${NOTION_KEY.slice(20)}`;
+
+function targets(body: string | null | undefined): string[] {
+  return pageLinkReferencesInBody(body).map((reference) => reference.target);
+}
 
 describe("pageIdFromHref", () => {
   it.each([
@@ -42,7 +50,7 @@ describe("pageIdFromHref", () => {
   });
 });
 
-describe("pageLinkTargetsInBody", () => {
+describe("pageLinkReferencesInBody", () => {
   it("finds links, sub-page and link-to-page blocks, and page mentions, once each", () => {
     const body = [
       "# Notes",
@@ -52,53 +60,47 @@ describe("pageLinkTargetsInBody", () => {
       "- [a list item](/p/published)",
     ].join("\n\n");
 
-    expect(pageLinkTargetsInBody(body).sort()).toEqual(
-      ["child", NOTION_KEY, "plan", "published"].sort(),
+    expect(targets(body).sort()).toEqual(
+      ["child", NOTION_TARGET, "plan", "published"].sort(),
     );
   });
 
   it("reads Notion links as Notion page ids, in either form", () => {
-    const dashed = `${NOTION_KEY.slice(0, 8)}-${NOTION_KEY.slice(8, 12)}-${NOTION_KEY.slice(12, 16)}-${NOTION_KEY.slice(16, 20)}-${NOTION_KEY.slice(20)}`;
     const body = [
       `See [the plan](https://www.notion.so/team/The-Plan-${NOTION_KEY}).`,
-      `And [the site](https://team.notion.site/${dashed}).`,
-      `<page id="${dashed}">Child</page>`,
+      `And [the site](https://team.notion.site/${DASHED}).`,
       "[Not Notion](https://example.test/0123456789abcdef0123456789abcdef)",
     ].join("\n\n");
 
-    expect(pageLinkTargetsInBody(body)).toEqual([NOTION_KEY]);
+    expect(targets(body)).toEqual([NOTION_TARGET]);
   });
 
-  it("leaves out page paths that aren't links", () => {
+  it("reads Notion links whatever the host's case or port", () => {
     const body = [
-      "The path `/page/in-code` is only text.",
-      "```",
-      "[not a link](/page/in-fence)",
-      "```",
+      `[Plan](https://WWW.NOTION.SO/team/Plan-${NOTION_KEY})`,
+      `[Site](https://Team.Notion.Site:443/${DASHED})`,
     ].join("\n\n");
 
-    expect(pageLinkTargetsInBody(body)).toEqual([]);
+    expect(mayHoldPageLinks(body)).toBe(true);
+    expect(targets(body)).toEqual([NOTION_TARGET]);
   });
 
-  it("finds nothing in a body with no page links", () => {
-    expect(
-      pageLinkTargetsInBody("Plain [web](https://example.test) link"),
-    ).toEqual([]);
-    expect(pageLinkTargetsInBody("")).toEqual([]);
-    expect(pageLinkTargetsInBody(null)).toEqual([]);
+  it("keeps a page id that looks like a Notion id as the page's own id", () => {
+    const body = [
+      `[Page](/page/${DASHED})`,
+      `<page data-agent-native-document-id="${NOTION_KEY}">Child</page>`,
+    ].join("\n\n");
+
+    expect(targets(body)).toEqual([DASHED, NOTION_KEY]);
   });
 
-  it("keeps at most the per-page limit", () => {
-    const body = Array.from(
-      { length: PAGE_LINKS_MAX_PER_PAGE + 5 },
-      (_, index) => `[p${index}](/page/p${index})`,
-    ).join("\n\n");
-
-    expect(pageLinkTargetsInBody(body)).toHaveLength(PAGE_LINKS_MAX_PER_PAGE);
+  it("reads a sub-page block's id as a page id and as a Notion page id", () => {
+    expect(targets(`<page id="${DASHED}">Child</page>`)).toEqual([
+      DASHED,
+      NOTION_TARGET,
+    ]);
   });
-});
 
-describe("pageLinkReferencesInBody", () => {
   it("marks the ids that only a full URL names", () => {
     const body = [
       "[Relative](/page/relative)",
@@ -109,12 +111,38 @@ describe("pageLinkReferencesInBody", () => {
     ].join("\n\n");
 
     expect(pageLinkReferencesInBody(body)).toEqual([
-      { id: "relative", outside: false },
-      { id: "post", outside: true },
-      { id: "both", outside: false },
-      { id: "mentioned", outside: false },
-      { id: NOTION_KEY, outside: false },
+      { target: "relative", outside: false },
+      { target: "post", outside: true },
+      { target: "both", outside: false },
+      { target: "mentioned", outside: false },
+      { target: NOTION_TARGET, outside: false },
     ]);
+  });
+
+  it("leaves out page paths that aren't links", () => {
+    const body = [
+      "The path `/page/in-code` is only text.",
+      "```",
+      "[not a link](/page/in-fence)",
+      "```",
+    ].join("\n\n");
+
+    expect(targets(body)).toEqual([]);
+  });
+
+  it("finds nothing in a body with no page links", () => {
+    expect(targets("Plain [web](https://example.test) link")).toEqual([]);
+    expect(targets("")).toEqual([]);
+    expect(targets(null)).toEqual([]);
+  });
+
+  it("keeps at most the per-page limit", () => {
+    const body = Array.from(
+      { length: PAGE_LINKS_MAX_PER_PAGE + 5 },
+      (_, index) => `[p${index}](/page/p${index})`,
+    ).join("\n\n");
+
+    expect(targets(body)).toHaveLength(PAGE_LINKS_MAX_PER_PAGE);
   });
 });
 
@@ -133,6 +161,7 @@ describe("mayHoldPageLinks", () => {
       '<mention-page url="x">A</mention-page>',
       "[a](https://www.notion.so/a)",
       "[a](https://team.notion.site/a)",
+      "[a](https://WWW.NOTION.SO/a)",
     ]) {
       expect(mayHoldPageLinks(body)).toBe(true);
     }

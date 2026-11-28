@@ -745,27 +745,29 @@ export async function pullBuilderDocIntoContent(args: {
         });
       });
     } else {
-      await db.insert(schema.documents).values({
-        id: documentId,
-        spaceId: targetSpaceId,
-        ownerEmail,
-        orgId,
-        parentId: null,
-        title: bundle.mdx.title,
-        content: bundle.mdx.body,
-        icon: null,
-        position: 0,
-        isFavorite: 0,
-        hideFromSearch: 0,
-        visibility: "private",
-        createdAt: now,
-        updatedAt: now,
-        ...sourceFields,
-      });
-      await syncPageLinks(db, {
-        documentId,
-        before: "",
-        after: bundle.mdx.body,
+      await db.transaction(async (tx) => {
+        await tx.insert(schema.documents).values({
+          id: documentId,
+          spaceId: targetSpaceId,
+          ownerEmail,
+          orgId,
+          parentId: null,
+          title: bundle.mdx.title,
+          content: bundle.mdx.body,
+          icon: null,
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+          ...sourceFields,
+        });
+        await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+          documentId,
+          before: "",
+          after: bundle.mdx.body,
+        });
       });
     }
     await ensureDocumentFilesMembership(db, documentId, now);

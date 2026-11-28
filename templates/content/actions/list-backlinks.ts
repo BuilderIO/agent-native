@@ -8,6 +8,7 @@ import { createdPageUrl } from "../server/lib/created-page-links.js";
 import { firstRow } from "../server/lib/first-row.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
 import { normalizeNotionPageId } from "../shared/content-links.js";
+import { notionPageLinkTarget } from "../shared/page-links-in-body.js";
 import {
   accessibleDocumentIds,
   resolveDocumentAccess,
@@ -105,21 +106,24 @@ export default defineAction({
           eq(schema.documentSyncLinks.provider, "notion"),
         ),
       );
-    const notionKeys = [
+    const notionTargets = [
       ...new Set(
-        imports.flatMap((row) => normalizeNotionPageId(row.remotePageId) ?? []),
+        imports.flatMap((row) => {
+          const key = normalizeNotionPageId(row.remotePageId);
+          return key ? [notionPageLinkTarget(key)] : [];
+        }),
       ),
     ];
     const linksHere = or(
       eq(links.targetDocumentId, documentId),
-      notionKeys.length
+      notionTargets.length
         ? and(
-            inArray(links.targetDocumentId, notionKeys),
+            inArray(links.targetDocumentId, notionTargets),
             eq(documents.ownerEmail, placed.ownerEmail),
           )
         : undefined,
     );
-    const openable: string[] = [];
+    const openable = new Set<string>();
     let scanned = 0;
     let more = false;
     type Candidate = { id: string; updatedAt: string };
@@ -154,15 +158,15 @@ export default defineAction({
       const accessible = await accessibleDocumentIds(
         batch.map((row) => row.id),
       );
-      openable.push(
-        ...batch.filter((row) => accessible.has(row.id)).map((row) => row.id),
-      );
+      for (const row of batch) {
+        if (accessible.has(row.id)) openable.add(row.id);
+      }
       scanned += batch.length;
       const unread: boolean = rows.length > CANDIDATES_AT_ONCE;
       more = unread && scanned >= MAX_SCANNED;
       after = unread && !more ? (firstRow(batch.slice(-1)) ?? null) : null;
     } while (after);
-    const shown = openable.slice(0, MAX_PAGES);
+    const shown = [...openable].slice(0, MAX_PAGES);
     const pages: z.infer<typeof backlinkSchema>[] = [];
     if (shown.length) {
       // guard:allow-unscoped — every id passed accessibleDocumentIds above.
@@ -190,7 +194,7 @@ export default defineAction({
     }
     return {
       pages,
-      count: openable.length,
+      count: openable.size,
       more,
     };
   },

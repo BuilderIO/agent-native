@@ -22,7 +22,7 @@ import {
   lockLegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
 import { firstRow } from "../server/lib/first-row.js";
-import { syncPageLinks } from "../server/lib/page-links.js";
+import { syncPageLinks, syncPageLinksMany } from "../server/lib/page-links.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -3538,13 +3538,14 @@ async function persistPristineBuilderBodyHydrationsInBulk(
             "Builder body hydration document changed.",
           );
         }
-        for (const row of batch) {
-          await syncPageLinks(tx as unknown as ReturnType<typeof getDb>, {
+        await syncPageLinksMany(
+          tx as unknown as ReturnType<typeof getDb>,
+          batch.map((row) => ({
             documentId: row.job.documentId,
             before: row.documentContent,
             after: row.content,
-          });
-        }
+          })),
+        );
 
         const updatedSourceRows = await tx
           .update(schema.contentDatabaseSourceRows)

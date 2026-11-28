@@ -4,7 +4,10 @@ import { getSetting, mutateSetting } from "@agent-native/core/settings";
 import { asc, eq, gt, like, or, sql } from "drizzle-orm";
 
 import { lockDocumentRows } from "../../actions/_row-lock-order.js";
-import { PAGE_LINK_MARKERS } from "../../shared/page-links-in-body.js";
+import {
+  NOTION_LINK_HOSTS,
+  PAGE_LINK_MARKERS,
+} from "../../shared/page-links-in-body.js";
 import { getDb, schema } from "../db/index.js";
 import { firstRow } from "./first-row.js";
 import { pageLinkTargets, writePageLinks } from "./page-links.js";
@@ -32,7 +35,7 @@ type BackfillState = {
   run: { id: string; leaseUntil: string } | null;
 };
 
-type StopReason = "deadline" | "aborted" | "lease_lost";
+type StopReason = "deadline" | "aborted" | "lease_lost" | "retries_full";
 
 export type PageLinksBackfillReport =
   | { status: "done" }
@@ -97,6 +100,9 @@ function mayHoldPageLinksSql() {
   return or(
     ...PAGE_LINK_MARKERS.map((marker) =>
       like(schema.documents.content, `%${marker}%`),
+    ),
+    ...NOTION_LINK_HOSTS.map(
+      (host) => sql`lower(${schema.documents.content}) like ${`%${host}%`}`,
     ),
   );
 }
@@ -233,13 +239,11 @@ export async function runPageLinksBackfillSweep(context: {
       if (stoppedEarly) break;
       scanned += 1;
       if (Number(page.mayHold) === 1 && !(await tryIndex(page.id))) {
-        if (failed.size < MAX_FAILED) {
-          failed.set(page.id, 1);
-        } else {
-          console.error(
-            `[${PAGE_LINKS_BACKFILL_SWEEP_ID}] page ${page.id} left out: too many pages are waiting to retry`,
-          );
+        if (failed.size >= MAX_FAILED) {
+          stoppedEarly = "retries_full";
+          break;
         }
+        failed.set(page.id, 1);
       }
       after = page.id;
     }

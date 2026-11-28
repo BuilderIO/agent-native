@@ -230,7 +230,9 @@ describe("recording a page's links as its body saves", () => {
 
     await save(source, "", body);
 
-    expect(await targetsOf(source)).toEqual([child, linked, NOTION_KEY].sort());
+    expect(await targetsOf(source)).toEqual(
+      [child, linked, `notion:${NOTION_KEY}`].sort(),
+    );
     expect(
       (await list(OWNER, imported)).pages.map((linking) => linking.id),
     ).toEqual([source]);
@@ -253,7 +255,7 @@ describe("recording a page's links as its body saves", () => {
       `<mention-page url="https://www.notion.so/${key}">Theirs</mention-page>`,
     );
 
-    expect(await targetsOf(source)).toEqual([key]);
+    expect(await targetsOf(source)).toEqual([`notion:${key}`]);
     expect((await list(STRANGER, strangersImport)).count).toBe(0);
   });
 
@@ -427,6 +429,17 @@ describe("list-backlinks", () => {
     await save(source, "", linksTo("backlinks-made-later"));
     const target = await page({ id: "backlinks-made-later" });
 
+    expect(
+      (await list(OWNER, target)).pages.map((linking) => linking.id),
+    ).toEqual([source]);
+  });
+
+  it("lists a page that links to a page whose id looks like a Notion id", async () => {
+    const target = await page({ id: crypto.randomUUID() });
+    const source = await page();
+    await save(source, "", linksTo(target));
+
+    expect(await targetsOf(source)).toEqual([target]);
     expect(
       (await list(OWNER, target)).pages.map((linking) => linking.id),
     ).toEqual([source]);
