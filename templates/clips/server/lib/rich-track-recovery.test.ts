@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   finalize: vi.fn(),
   discard: vi.fn(),
   deleteDraft: vi.fn(),
+  withdrawDraft: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/db", async (original) => {
@@ -71,7 +72,12 @@ vi.mock("../routes/api/uploads/[recordingId]/tracks/finalize.post.js", () => ({
 vi.mock("./recording-tracks.js", () => ({
   readRichDraft: async (recordingId: string) =>
     mocks.drafts.get(recordingId) ?? null,
+  readSavedRichDraft: async (recordingId: string) => {
+    const body = mocks.drafts.get(recordingId);
+    return body ? { version: 1, body } : null;
+  },
   deleteRichDraft: (...args: unknown[]) => mocks.deleteDraft(...args),
+  withdrawRichDraft: (...args: unknown[]) => mocks.withdrawDraft(...args),
   discardTrackUploads: (...args: unknown[]) => mocks.discard(...args),
 }));
 vi.mock("./upload-lease.js", () => ({ UPLOAD_LEASE_MS: 60 * 60 * 1000 }));
@@ -176,6 +182,7 @@ describe("recoverIdleTrackUploads", () => {
     mocks.finalize.mockResolvedValue({ ok: true, mediaFormat: "rich" });
     mocks.discard.mockResolvedValue([]);
     mocks.deleteDraft.mockResolvedValue(undefined);
+    mocks.withdrawDraft.mockResolvedValue(undefined);
   });
 
   it("finalizes a finished recording's idle tracks from the recorder's draft, as its owner", async () => {
@@ -283,9 +290,22 @@ describe("recoverIdleTrackUploads", () => {
     ).toEqual(["draft-only", "failed", "no-draft", "old-draft", "rich"]);
     expect(mocks.discard).toHaveBeenCalledWith(
       { id: "rich", ownerEmail: "owner@example.com", storageMode: "own" },
-      { stillHeld: expect.any(Function) },
+      {
+        lease: expect.objectContaining({ key: "rich-finalize:rich" }),
+        stillHeld: expect.any(Function),
+      },
     );
-    expect(mocks.deleteDraft).toHaveBeenCalledTimes(5);
+    expect(
+      mocks.withdrawDraft.mock.calls
+        .map(([recordingId]) => String(recordingId))
+        .sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["draft-only", "old-draft"]);
+    expect(mocks.withdrawDraft).toHaveBeenCalledWith(
+      "old-draft",
+      { version: 1, body: draft("gen-1") },
+      expect.objectContaining({ key: "rich-finalize:old-draft" }),
+    );
+    expect(mocks.deleteDraft).not.toHaveBeenCalled();
     const { rows } = await client.query(
       "SELECT lease_key FROM clips_backfill_leases",
     );
@@ -310,6 +330,7 @@ describe("recoverIdleTrackUploads", () => {
       failed: 3,
     });
     expect(mocks.deleteDraft).not.toHaveBeenCalled();
+    expect(mocks.withdrawDraft).not.toHaveBeenCalled();
 
     await expect(recoverIdleTrackUploads({ now: NOW })).resolves.toEqual({
       recovered: 0,
@@ -347,7 +368,10 @@ describe("recoverIdleTrackUploads", () => {
     ).resolves.toEqual({ recovered: 0, discarded: 1, failed: 0 });
     expect(mocks.discard).toHaveBeenCalledWith(
       expect.objectContaining({ id: "rec-b" }),
-      { stillHeld: expect.any(Function) },
+      {
+        lease: expect.objectContaining({ key: "rich-finalize:rec-b" }),
+        stillHeld: expect.any(Function),
+      },
     );
   });
 
