@@ -69,13 +69,17 @@ describe("code colors", () => {
       const variables = themeVariables(theme);
       const background = variables.get("--muted") ?? "";
       expect(background).toMatch(/^[\d.]+ [\d.]+% [\d.]+%$/);
-      for (const { selectors, color } of syntaxColors) {
-        const value = resolve(color, variables);
-        expect(value, selectors).toMatch(/^[\d.]+ [\d.]+% [\d.]+%$/);
-        expect(contrast(value, background), selectors).toBeGreaterThanOrEqual(
-          4.5,
+      const unreadable = syntaxColors
+        .map(({ selectors, color }) => ({
+          selectors,
+          color: resolve(color, variables),
+        }))
+        .filter(
+          ({ color }) =>
+            !/^[\d.]+ [\d.]+% [\d.]+%$/.test(color) ||
+            contrast(color, background) < 4.5,
         );
-      }
+      expect(unreadable).toEqual([]);
     });
   }
 });
