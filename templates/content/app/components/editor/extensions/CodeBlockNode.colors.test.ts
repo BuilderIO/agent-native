@@ -5,21 +5,43 @@ import { describe, expect, it } from "vitest";
 const css = readFileSync(
   new URL("../../../global.css", import.meta.url),
   "utf8",
-);
+).replace(/\/\*[\s\S]*?\*\//g, "");
 
 function themeVariables(selector: string) {
   const start = css.indexOf(`\n${selector} {`);
   const body = css.slice(start, css.indexOf("\n}", start));
-  return Object.fromEntries(
-    [...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, name, value]) => [
-      name,
-      value.trim(),
-    ]),
+  return new Map(
+    Array.from(
+      body.matchAll(/(--[\w-]+):\s*([^;]+);/g),
+      ([, name = "", value = ""]) => [name, value.trim()] as const,
+    ),
   );
 }
 
+const syntaxColors = Array.from(
+  css.matchAll(/([^{}]+)\{([^{}]*)\}/g),
+  ([, selectors = "", body = ""]) => {
+    const [, color = ""] = /(?:^|;)\s*color:\s*([^;]+);/.exec(body) ?? [];
+    return { selectors: selectors.trim(), color: color.trim() };
+  },
+).filter(
+  ({ selectors, color }) =>
+    color !== "" &&
+    selectors
+      .split(",")
+      .every((selector) =>
+        selector.trim().startsWith(".content-editor .hljs-"),
+      ),
+);
+
+function resolve(color: string, variables: Map<string, string>) {
+  const [, name = ""] = /^hsl\(var\((--[\w-]+)\)\)$/.exec(color) ?? [];
+  const [, literal = ""] = /^hsl\(([^)]+)\)$/.exec(color) ?? [];
+  return variables.get(name) ?? literal;
+}
+
 function luminance(hsl: string) {
-  const [h, s, l] = hsl.match(/[\d.]+/g)!.map(Number);
+  const [h = 0, s = 0, l = 0] = (hsl.match(/[\d.]+/g) ?? []).map(Number);
   const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
   const channel = (n: number) => {
     const k = (n + h / 30) % 12;
@@ -30,25 +52,29 @@ function luminance(hsl: string) {
 }
 
 function contrast(foreground: string, background: string) {
-  const [high, low] = [luminance(foreground), luminance(background)].sort(
-    (x, y) => y - x,
-  );
+  const [high = 0, low = 0] = [
+    luminance(foreground),
+    luminance(background),
+  ].sort((x, y) => y - x);
   return (high + 0.05) / (low + 0.05);
 }
 
 describe("code colors", () => {
+  it("finds the stylesheet's syntax colors", () => {
+    expect(syntaxColors.length).toBeGreaterThan(10);
+  });
+
   for (const theme of [":root", ".dark"]) {
     it(`keeps every syntax color readable on the code block in ${theme}`, () => {
       const variables = themeVariables(theme);
-      const tokens = Object.entries(variables).filter(([name]) =>
-        name.startsWith("--code-token-"),
-      );
-      expect(tokens.length).toBeGreaterThan(0);
-      for (const [name, value] of tokens) {
-        expect(
-          contrast(value, variables["--muted"]),
-          name,
-        ).toBeGreaterThanOrEqual(4.5);
+      const background = variables.get("--muted") ?? "";
+      expect(background).toMatch(/^[\d.]+ [\d.]+% [\d.]+%$/);
+      for (const { selectors, color } of syntaxColors) {
+        const value = resolve(color, variables);
+        expect(value, selectors).toMatch(/^[\d.]+ [\d.]+% [\d.]+%$/);
+        expect(contrast(value, background), selectors).toBeGreaterThanOrEqual(
+          4.5,
+        );
       }
     });
   }

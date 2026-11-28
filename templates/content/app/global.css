@@ -976,7 +976,7 @@
   font-size: 0.85rem;
   background: transparent;
   border-radius: 0;
-  padding: 0;
+  padding: 0.9em 1.1em;
   margin: 0;
   overflow-x: auto;
   line-height: 1.55;
@@ -985,8 +985,12 @@
   background: hsl(var(--muted));
   border-radius: 6px;
   margin: 0.6em 0;
+  padding: 0;
 }
 .content-editor .content-code-block code {
+  display: block;
+  overflow-x: auto;
+  padding: 0.9em 1.1em;
   /* Room for the block's bar, which shows on hover or with the cursor in it. */
   padding-top: 2.5em;
 }
@@ -995,12 +999,10 @@
   overflow-wrap: anywhere;
 }
 .content-editor pre code {
-  display: block;
-  overflow-x: auto;
   white-space: pre;
   font-family: inherit;
   background: none;
-  padding: 0.9em 1.1em;
+  padding: 0;
   border: none;
   font-size: inherit;
   color: inherit;
@@ -1020,7 +1022,7 @@
   }
 }
 @supports (animation-timeline: scroll()) {
-  .content-editor pre code {
+  .content-editor .content-code-block code {
     mask-image: linear-gradient(
       to left,
       transparent,
@@ -1028,6 +1030,13 @@
     );
     animation: content-code-fade linear both;
     animation-timeline: scroll(self inline);
+  }
+  .content-editor .content-code-block code:dir(rtl) {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--content-code-fade)
+    );
   }
 }
 
