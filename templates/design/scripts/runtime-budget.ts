@@ -330,6 +330,15 @@ function isDetachedTargetError(error: unknown): boolean {
   );
 }
 
+async function readSessionMemory(
+  session: CDPSession,
+): Promise<{ heapMB: number; documents: number }> {
+  await session.send("HeapProfiler.collectGarbage");
+  const { usedSize } = await session.send("Runtime.getHeapUsage");
+  const { documents } = await session.send("Memory.getDOMCounters");
+  return { heapMB: usedSize / 1e6, documents };
+}
+
 async function readRendererMemory(): Promise<RendererMemory> {
   const frameSessions: CDPSession[] = [];
   for (const frame of page.frames()) {
@@ -342,9 +351,9 @@ async function readRendererMemory(): Promise<RendererMemory> {
       }
     }
   }
+  // Chrome puts every sandboxed preview of a site in one renderer, so many
+  // frame sessions report the same isolate; count each isolate once.
   try {
-    // Chrome puts every sandboxed preview of a site in one renderer, so many
-    // frame sessions report the same isolate; count each isolate once.
     const sessionByIsolate = new Map<string, CDPSession>();
     const mainIsolate = await cdp.send("Runtime.getIsolateId");
     sessionByIsolate.set(mainIsolate.id, cdp);
@@ -356,22 +365,15 @@ async function readRendererMemory(): Promise<RendererMemory> {
         if (!isDetachedTargetError(error)) throw error;
       }
     }
-    const perProcess: Array<{ heapMB: number; documents: number }> = [];
+    const editorProcess = await readSessionMemory(cdp);
+    const perProcess = [editorProcess];
     for (const session of sessionByIsolate.values()) {
+      if (session === cdp) continue;
       try {
-        await session.send("HeapProfiler.collectGarbage");
-        const { usedSize } = await session.send("Runtime.getHeapUsage");
-        const { documents } = await session.send("Memory.getDOMCounters");
-        perProcess.push({ heapMB: usedSize / 1e6, documents });
+        perProcess.push(await readSessionMemory(session));
       } catch (error) {
-        if (session === cdp || !isDetachedTargetError(error)) throw error;
+        if (!isDetachedTargetError(error)) throw error;
       }
-    }
-    const editorProcess = perProcess[0];
-    if (!editorProcess) {
-      throw new Error(
-        "readRendererMemory: main editor CDP session returned no memory sample",
-      );
     }
     return {
       editorHeapMB: editorProcess.heapMB,
