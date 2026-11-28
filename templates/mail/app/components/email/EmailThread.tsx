@@ -471,6 +471,14 @@ export function EmailThread({
   const focusedRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // The card sits above the first message, and an open thread is scrolled to
+  // its newest one, so opening the card from there would leave it off screen.
+  const { open: summaryOpen, toggle: toggleSummaryPanel } = summaryPanel;
+  const toggleSummary = useCallback(() => {
+    if (!summaryOpen) scrollContainerRef.current?.scrollTo({ top: 0 });
+    toggleSummaryPanel();
+  }, [summaryOpen, toggleSummaryPanel]);
+
   const scrolledForRef = useRef<string | undefined>(undefined);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1217,7 +1225,7 @@ export function EmailThread({
         key: "u",
         handler: () => email && setCurrentEmailReadState(!email.isRead),
       },
-      { key: "i", handler: summaryPanel.toggle },
+      { key: "i", handler: toggleSummary },
     ],
     !!threadId,
   );
@@ -1506,7 +1514,7 @@ export function EmailThread({
                 >
                   <button
                     type="button"
-                    onClick={summaryPanel.toggle}
+                    onClick={toggleSummary}
                     aria-pressed={summaryPanel.open}
                     aria-label={t("mail.summary.summarize")}
                     className={cn(
