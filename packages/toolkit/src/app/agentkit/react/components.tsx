@@ -7520,6 +7520,100 @@ export interface AgentKitComposerProps extends Omit<
   toolbarSlot?: ReactNode;
 }
 
+function composerIntegrationContext(
+  text: string,
+  resources: ReturnType<typeof useComposerRuntimeAdapters>["resources"],
+  mode: AgentKitComposerProps["plusMenuMode"],
+  menuItems: AgentKitComposerProps["contextMenuItems"],
+  disabled: boolean | undefined,
+  canAttach: boolean,
+): string | undefined {
+  if (
+    disabled ||
+    mode === "terminal" ||
+    (mode === "attach-only" && canAttach) ||
+    (mode === "hidden" && menuItems === undefined) ||
+    !resources?.useWorkspaceMenu ||
+    !resources.getIntegrationPromptPresets ||
+    !resources.isMcpIntegrationAvailable?.()
+  )
+    return undefined;
+
+  const overridesConnect = (items: NonNullable<typeof menuItems>): boolean =>
+    items.some(
+      (item) =>
+        item.id === "workspace-connect-integrations" ||
+        (item.children && overridesConnect(item.children)),
+    );
+  if (menuItems && overridesConnect(menuItems)) return undefined;
+
+  const hostnames: string[] = [];
+  const prose = text.replace(/https?:\/\/[^\s<>()[\]{}]+/gi, (candidate) => {
+    const cleaned = candidate.replace(/[.,!?;:'"]+$/, "");
+    if (URL.canParse(cleaned)) hostnames.push(new URL(cleaned).hostname);
+    return " ";
+  });
+  const mentions = (term: string) => {
+    const value = term.trim();
+    if (value.length < 3 || !/^[\p{L}\p{N} .&+()_-]{1,80}$/u.test(value))
+      return false;
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(
+      `(?<![\\p{L}\\p{N}_/@\\\\.])${escaped}(?!(?:[\\p{L}\\p{N}_/@\\\\]|\\.[\\p{L}\\p{N}]))`,
+      "iu",
+    ).test(prose);
+  };
+  const generic =
+    /\b(integrations?|connectors?|mcp)\b/i.test(prose) ||
+    /\b(?:connect|set up|setup)\b.{0,40}\b(?:apps|services|tools)\b/i.test(
+      prose,
+    );
+  const presets = resources
+    .getIntegrationPromptPresets()
+    .filter(
+      (preset) =>
+        /^[\p{L}\p{N} .&+()_-]{1,80}$/u.test(preset.name) &&
+        (preset.personal || preset.workspace),
+    );
+  const matches = presets.filter(
+    (preset) =>
+      [preset.name, ...preset.aliases].some(mentions) ||
+      hostnames.some((hostname) => preset.matchesHostname?.(hostname)) ||
+      (generic &&
+        preset.keywords.some(
+          (keyword) =>
+            keyword.length >= 5 &&
+            !/^(integrations?|connectors?|services?|tools?)$/i.test(
+              keyword.trim(),
+            ) &&
+            mentions(keyword),
+        )),
+  );
+  const selected = (matches.length ? matches : generic ? presets : []).slice(
+    0,
+    8,
+  );
+  if (!selected.length) return undefined;
+  return [
+    "At submission time, the composer + menu offered Connect integrations. This UI snapshot may change before a queued message runs.",
+    "These are preset connection flows, not connected tools. Connection status is unknown; verify it before claiming a connection. Provider setup or restrictions may apply.",
+    ...selected.map(
+      (preset) =>
+        `- ${preset.name}: ${[
+          preset.personal ? "personal" : null,
+          preset.workspace
+            ? "workspace (requires a workspace and an owner or admin)"
+            : null,
+        ]
+          .filter(Boolean)
+          .join(", ")}`,
+    ),
+    ...(selected.length < (matches.length || presets.length)
+      ? ["This list is incomplete; consult the composer catalog."]
+      : []),
+  ].join("\n");
+}
+
 function hasActiveRuns(thread: AgentThreadState): boolean {
   return threadHasActiveRuns(thread);
 }
@@ -7736,7 +7830,8 @@ export function AgentKitComposer({
     };
   }, []);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const composerTranslate = useComposerRuntimeAdapters().translate;
+  const composerAdapters = useComposerRuntimeAdapters();
+  const composerTranslate = composerAdapters.translate;
   useEffect(() => {
     setAttachmentError(null);
     setStopError(null);
@@ -7988,6 +8083,22 @@ export function AgentKitComposer({
     const onLocalSubmit = () => {
       options.onLocalSubmit?.();
     };
+    const integrationContext = composerIntegrationContext(
+      text,
+      composerAdapters.resources,
+      plusMenuMode,
+      contextMenuItems,
+      disabled,
+      canUpload || Boolean(onAttachmentRequest),
+    );
+    if (integrationContext) {
+      options = {
+        ...options,
+        composerModeContext: [options.composerModeContext, integrationContext]
+          .filter(Boolean)
+          .join("\n\n"),
+      };
+    }
     if (files.length && !uploadGateRef.current.enabled) {
       throw new AgentKitCapabilityError(
         "uploads",

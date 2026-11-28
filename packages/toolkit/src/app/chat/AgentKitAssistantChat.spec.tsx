@@ -1051,6 +1051,19 @@ async function flush() {
 }
 
 describe("host composer input controls", () => {
+  it("does not attach composer instructions to an imperative send", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => {
+      await (ref.current as AssistantChatHandle).sendMessage(
+        "Sent by the host",
+      );
+    });
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toBe(
+      "Sent by the host",
+    );
+  });
+
   it("disables attachment entry without disabling voice or the composer", async () => {
     await mount(baseProps({ composerAttachmentsEnabled: false }));
     expect(chatMocks.composerProps.attachmentsEnabled).toBe(false);
@@ -3341,12 +3354,14 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(queueMessage).toHaveBeenCalledOnce();
       expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
         threadId: chatMocks.threadId,
-        text: "Next turn",
       });
+      expect(queueMessage.mock.calls[0][0].text).toBe("Next turn");
       expect(startRun).toHaveBeenCalledOnce();
-      expect(client.getThread(chatMocks.threadId).queuedMessages).toEqual([
-        expect.objectContaining({ text: "Next turn" }),
-      ]);
+      expect(
+        client
+          .getThread(chatMocks.threadId)
+          .queuedMessages.map(({ text }) => text),
+      ).toEqual(["Next turn"]);
     } finally {
       activeRunFinished.resolve();
       await flush();
@@ -3449,7 +3464,6 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(queueMessage).toHaveBeenCalledOnce();
       expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
         id: staged[0]?.id,
-        text: "Next turn",
         attachments: [
           {
             type: "file",
@@ -3458,6 +3472,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           },
         ],
       });
+      expect(queueMessage.mock.calls[0][0].text).toBe("Next turn");
     } finally {
       readiness.resolve();
       upload.resolve([]);
@@ -3754,6 +3769,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(queuedRows()).toEqual([
         expect.stringContaining("Also greet Lee."),
       ]);
+      expect(queuedRows()[0]).not.toContain("Connection status is unknown");
       expect(startRun).toHaveBeenCalledOnce();
 
       const reservation = client.getThread(chatMocks.threadId)
@@ -3767,10 +3783,8 @@ describe("AgentKitAssistantChat host behavior", () => {
       await flush();
       await flush();
 
-      expect(queueMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Also greet Lee." }),
-        expect.anything(),
-      );
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(queueMessage.mock.calls[0][0].text).toBe("Also greet Lee.");
       expect(startRun).toHaveBeenCalledOnce();
       expect(queuedRows()).toEqual([
         expect.stringContaining("Also greet Lee."),
@@ -3867,13 +3881,13 @@ describe("AgentKitAssistantChat host behavior", () => {
       await flush();
 
       expect(startRun).toHaveBeenCalledOnce();
-      expect(startRun.mock.calls[0]![0].messages.at(-1)?.parts).toEqual([
-        { type: "text", text: "Greet everyone" },
-      ]);
-      expect(queueMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Also greet Lee." }),
-        expect.anything(),
-      );
+      const parts = startRun.mock.calls[0][0].messages.at(-1)?.parts;
+      expect(parts).toHaveLength(1);
+      expect(parts?.[0]?.type).toBe("text");
+      if (parts?.[0]?.type !== "text") throw new Error("Expected text part");
+      expect(parts[0].text).toBe("Greet everyone");
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(queueMessage.mock.calls[0][0].text).toBe("Also greet Lee.");
     } finally {
       firstReadiness.resolve();
       activeRunFinished.resolve();
@@ -5684,8 +5698,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.uploadFiles.mock.calls[0]?.[0]).toMatchObject([
       { name: image.name, mediaType: "image/png", size: image.size },
     ]);
+    expect(chatMocks.control.sendMessage.mock.calls[0][0].text).toBe(
+      "Describe this slide",
+    );
     expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      text: "Describe this slide",
       attachments: [
         {
           name: image.name,
@@ -5719,8 +5735,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[1][0].text).toBe(
+      "Summarize this pasted text:\n\nFull pasted document text",
+    );
     expect(chatMocks.control.sendMessage.mock.calls[1]?.[0]).toMatchObject({
-      text: "Summarize this pasted text:\n\nFull pasted document text",
       attachments: [],
     });
   });
@@ -6882,9 +6900,9 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
-    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      text: "Send without selection",
-    });
+    expect(chatMocks.control.sendMessage.mock.calls[0][0].text).toBe(
+      "Send without selection",
+    );
     expect(
       chatMocks.control.sendMessage.mock.calls[0]?.[0]?.options?.metadata,
     ).not.toHaveProperty("agentNativeSkipPendingSelectionContext");
@@ -6943,8 +6961,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0][0].text).toBe(
+      "Describe this slide",
+    );
     expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      text: "Describe this slide",
       options: {
         metadata: { agentNativeSkipPendingSelectionContext: true },
       },

@@ -1115,6 +1115,15 @@ export function filterMcpIntegrations(
   });
 }
 
+export function mcpIntegrationHostnameMatches(
+  integration: DefaultMcpIntegration,
+  hostname: string,
+): boolean {
+  return (MCP_LINK_HOSTS[integration.id] ?? []).some((domain) =>
+    hostMatches(hostname.toLowerCase(), domain),
+  );
+}
+
 export function isMcpIntegrationUrl(
   integration: DefaultMcpIntegration,
   serverUrl: string,
@@ -1124,10 +1133,8 @@ export function isMcpIntegrationUrl(
   }
 
   try {
-    const hostname = new URL(serverUrl.trim()).hostname.toLowerCase();
-    return (MCP_LINK_HOSTS[integration.id] ?? []).some((domain) =>
-      hostMatches(hostname, domain),
-    );
+    const hostname = new URL(serverUrl.trim()).hostname;
+    return mcpIntegrationHostnameMatches(integration, hostname);
     // coercion-ok: a malformed saved server URL cannot match a provider host.
   } catch {
     return false;
@@ -1161,9 +1168,7 @@ export function findMcpIntegrationForText(
   const url = findUrlForText(text);
   if (url) {
     const match = integrations.find((integration) =>
-      (MCP_LINK_HOSTS[integration.id] ?? []).some((domain) =>
-        hostMatches(url.hostname.toLowerCase(), domain),
-      ),
+      mcpIntegrationHostnameMatches(integration, url.hostname),
     );
     if (match) return match;
   }
