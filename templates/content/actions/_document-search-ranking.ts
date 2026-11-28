@@ -129,32 +129,23 @@ export function documentSearchRanking(
         ),
       )!
     : sql`false`;
+  const simpleTier = (compare: (query: string) => SQL) =>
+    (normalizedSimpleQueries.length > 0
+      ? and(
+          guardNormalizedTitle ? allTitleSubstrings : sql`true`,
+          or(...normalizedSimpleQueries.map(compare)),
+        )
+      : undefined) ?? sql`false`;
   const matchTier = sql<number>`case
-    when ${
-      normalizedSimpleQueries.length
-        ? and(
-            guardNormalizedTitle ? allTitleSubstrings : sql`true`,
-            or(
-              ...normalizedSimpleQueries.map(
-                (query) => sql`${normalizedTitle} = ${query}`,
-              ),
-            )!,
-          )!
-        : sql`false`
-    } then 5
-    when ${
-      normalizedSimpleQueries.length
-        ? and(
-            guardNormalizedTitle ? allTitleSubstrings : sql`true`,
-            or(
-              ...normalizedSimpleQueries.map(
-                (query) =>
-                  sql`${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\'`,
-              ),
-            )!,
-          )!
-        : sql`false`
-    } then 4
+    when ${simpleTier((query) => sql`${normalizedTitle} = ${query}`)} then 6
+    when ${simpleTier(
+      (query) =>
+        sql`(${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\' and substr(${normalizedTitle}, char_length(${query}::text) + 1) !~ '[^[:alnum:]_]')`,
+    )} then 5
+    when ${simpleTier(
+      (query) =>
+        sql`${normalizedTitle} like ${`${escapeLike(query)}%`} escape '\\'`,
+    )} then 4
     when ${allTitleSubstrings} and ${allTitleWordPrefixes} then 3
     when ${allTitleSubstrings} then 2
     when ${allTitleOrDescription} then 1

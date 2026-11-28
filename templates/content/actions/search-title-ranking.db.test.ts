@@ -112,9 +112,10 @@ async function compareOrders(query: string, parentId: string) {
 }
 
 describe("shared title ranking matches search-documents' title tiers", () => {
-  it("orders exact, prefix, word-prefix, and substring matches identically for a single term", async () => {
+  it("orders exact, completion, prefix, word-prefix, and substring matches identically for a single term", async () => {
     const parentId = await seedTitles("single", [
       "Road",
+      "Road trip",
       "Roadmap",
       "Stellar Road",
       "Crossroad",
@@ -125,10 +126,32 @@ describe("shared title ranking matches search-documents' title tiers", () => {
     expect(serverOrder).toEqual(browserOrder);
     expect(
       serverOrder.map((id) => id.replace("title-rank-single-", "")),
-    ).toEqual(["road", "roadmap", "stellar-road", "crossroad"]);
+    ).toEqual(["road", "roadmap", "road-trip", "stellar-road", "crossroad"]);
   });
 
-  it("orders exact, prefix, word-prefix, and substring matches identically for a multi-term AND query", async () => {
+  it("puts the title a query completes above newer titles it only starts", async () => {
+    const parentId = await seedTitles("completion", [
+      "Task Priorities board: simpler columns",
+      "Task Priorities: the views you could have",
+      "Task Priorities",
+    ]);
+
+    const { serverOrder, browserOrder } = await compareOrders(
+      "task prio",
+      parentId,
+    );
+
+    expect(serverOrder).toEqual(browserOrder);
+    expect(
+      serverOrder.map((id) => id.replace("title-rank-completion-", "")),
+    ).toEqual([
+      "task-priorities",
+      "task-priorities-board-simpler-columns",
+      "task-priorities-the-views-you-could-have",
+    ]);
+  });
+
+  it("orders exact, completion, prefix, word-prefix, and substring matches identically for a multi-term AND query", async () => {
     const parentId = await seedTitles("multi", [
       "Stellar Road",
       "Stellar Roadside",

@@ -128,6 +128,33 @@ describe("indexedSearchSql", () => {
     });
   });
 
+  it("ranks an exact title, then a title the query completes, then one it only starts", () => {
+    const { text, params } = render(search("task prio").matchTier);
+    const both = (n: number) => `(${title(n)} and ${title(n + 1)})`;
+    expect(
+      text
+        .split("\n")
+        .slice(1, 4)
+        .map((line) => line.trim()),
+    ).toEqual([
+      `when (${both(1)} and search_index.title_norm = $3) then 6`,
+      `when (${both(4)} and (${title(6)} AND substr(search_index.title_norm, char_length($7::text) + 1) !~ '[^[:alnum:]_]')) then 5`,
+      `when (${both(8)} and ${title(10)}) then 4`,
+    ]);
+    expect(params.slice(0, 10)).toEqual([
+      "%task%",
+      "%prio%",
+      "task prio",
+      "%task%",
+      "%prio%",
+      "task prio%",
+      "task prio",
+      "%task%",
+      "%prio%",
+      "task prio%",
+    ]);
+  });
+
   it("matches nothing for an empty query", () => {
     expect(render(search("").match)).toEqual({ text: "false", params: [] });
   });
