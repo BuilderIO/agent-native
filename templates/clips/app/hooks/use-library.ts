@@ -9,6 +9,7 @@ import {
   libraryFilterCounts,
   type LibraryFilterCounts,
 } from "@shared/library-filters";
+import type { RecordingBatchItem } from "@shared/recording-batch";
 import type { RecordingKind } from "@shared/recording-kind";
 import {
   useInfiniteQuery,
@@ -415,8 +416,90 @@ export function useMoveRecording() {
   >("move-recording");
 }
 
+function withoutIds<T extends { id: string }>(
+  recordings: T[],
+  recordingIds: ReadonlySet<string>,
+): T[] {
+  return recordings.filter((recording) => !recordingIds.has(recording.id));
+}
+
+export function removeRecordingsFromListData(
+  data: unknown,
+  recordingIds: ReadonlySet<string>,
+): unknown {
+  if (isInfiniteRecordingsData(data)) {
+    const pages = data.pages.map((page) => {
+      const recordings = withoutIds(page.recordings, recordingIds);
+      return recordings.length === page.recordings.length
+        ? page
+        : { ...page, recordings };
+    });
+    return pages.some((page, i) => page !== data.pages[i])
+      ? { ...data, pages }
+      : data;
+  }
+  if (isFlatRecordingsData(data)) {
+    const recordings = withoutIds(data.recordings, recordingIds);
+    return recordings.length === data.recordings.length
+      ? data
+      : { ...data, recordings };
+  }
+  return data;
+}
+
+function isFlatRecordingsData(
+  data: unknown,
+): data is { recordings: RecordingSummary[] } {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "recordings" in data &&
+    Array.isArray(data.recordings)
+  );
+}
+
+function isInfiniteRecordingsData(
+  data: unknown,
+): data is InfiniteRecordingsData {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "pages" in data &&
+    Array.isArray(data.pages) &&
+    data.pages.every(isFlatRecordingsData)
+  );
+}
+
+type TrashResult =
+  | { id: string; trashedAt: string | null }
+  | { results: RecordingBatchItem[] };
+
+export function trashedRecordingIds(result: TrashResult): Set<string> {
+  if ("results" in result) {
+    return new Set(
+      result.results
+        .filter((item) => item.status !== "skipped")
+        .map((item) => item.id),
+    );
+  }
+  return new Set(result.trashedAt ? [result.id] : []);
+}
+
 export function useTrashRecording() {
-  return useActionMutation("trash-recording");
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    TrashResult,
+    { id?: string; ids?: string[] },
+    "trash-recording"
+  >("trash-recording", {
+    onSuccess: (result) => {
+      const ids = trashedRecordingIds(result);
+      queryClient.setQueriesData(
+        { queryKey: ["action", "list-recordings"] },
+        (old: unknown) => removeRecordingsFromListData(old, ids),
+      );
+    },
+  });
 }
 
 export function useArchiveRecording() {
