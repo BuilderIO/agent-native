@@ -499,6 +499,7 @@ const database = {
   newProperty: "Nova propriedade",
   newViewName: "Nome da nova visualização",
   nextDatabasePage: "Próxima página da coleção",
+  previewPosition: "{{index}} de {{total}}",
   nextMonth: "Próximo mês",
   nextTimelineRange: "Próximo intervalo da linha do tempo",
   noRowsMatchThisView: "Nenhuma linha corresponde a esta visualização",

@@ -1990,6 +1990,7 @@ const overrides = {
     newProperty: "新屬性",
     newViewName: "新檢視名稱",
     nextDatabasePage: "下一頁面集合頁面",
+    previewPosition: "{{index}} / {{total}}",
     nextMonth: "下個月",
     nextTimelineRange: "下一個時間線範圍",
     noRowsMatchThisView: "沒有行匹配此檢視",

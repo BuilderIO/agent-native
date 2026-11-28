@@ -304,6 +304,7 @@ import {
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
   documentEditorDatabaseRegionClassName,
+  documentEditorIconRowClassName,
   documentEditorTitleRegionClassName,
   type DocumentEditorIconRow,
 } from "./document-editor-layout";
@@ -9248,7 +9249,7 @@ function PageEditorSessionBody({
   const pagePanelOpenRef = useRef(false);
   const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
   const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
-  const pagePanelFocusInsideRef = useRef(false);
+  const pagePanelFocusInsideRef = useRef<boolean | "heading">(false);
   // A row preview's panel sits in the same document as its collection's.
   const pagePanelId = host === "page" ? undefined : "document-row-panel";
   const pagePanelComposerRef = useRef<TiptapComposerHandle>(null);
@@ -9961,9 +9962,12 @@ function PageEditorSessionBody({
     const panel = pagePanelRef.current;
     if (pagePanelTab) {
       if (!pagePanelFocusInsideRef.current) return;
+      const focusHeading = pagePanelFocusInsideRef.current === "heading";
       pagePanelFocusInsideRef.current = false;
       const composer =
-        pagePanelTab === "comments" ? pagePanelComposerRef.current : null;
+        pagePanelTab === "comments" && !focusHeading
+          ? pagePanelComposerRef.current
+          : null;
       if (composer) {
         composer.focus();
         return;
@@ -10395,11 +10399,14 @@ function PageEditorSessionBody({
   );
 
   const handlePagePanelChange = useCallback(
-    (next: DocumentPagePanelTab | null) => {
+    (next: DocumentPagePanelTab | null, focusInside = false) => {
       // Discussion's tab or key brings back the Discussion that stepped aside.
       if (next === "comments" && peeking) {
         leaveDiscussionPeek();
         return;
+      }
+      if (focusInside) {
+        pagePanelFocusInsideRef.current = next === null ? false : "heading";
       }
       const activeElement = globalThis.document.activeElement;
       if (
@@ -10422,7 +10429,7 @@ function PageEditorSessionBody({
       if (
         sendPagePanelAgentCommand(next, {
           ownsAgent: showAgentTab,
-          focus: pagePanelFocusInsideRef.current,
+          focus: pagePanelFocusInsideRef.current !== false,
         })
       ) {
         return;
@@ -11887,6 +11894,7 @@ function PageEditorSessionBody({
         <div className="col-span-2 min-w-0">
           <DocumentToolbar
             compact={host === "preview"}
+            pageEditorOwner={pageEditorOwner}
             documentId={documentId}
             documentTitle={exportTitle}
             documentContent={exportContent}
@@ -11978,7 +11986,11 @@ function PageEditorSessionBody({
           />
         </div>
         <div
-          className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col"
+          className={cn(
+            "col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col",
+            host === "preview" &&
+              "[&>:first-child:not([data-document-print-scroll])]:mt-16 sm:[&>:first-child:not([data-document-print-scroll])]:mt-14",
+          )}
           inert={pageUnderSheet || undefined}
         >
           <ContentImportDialog
@@ -12193,7 +12205,7 @@ function PageEditorSessionBody({
                     host,
                   )}
                 >
-                  <div className="mb-1">
+                  <div className={documentEditorIconRowClassName(host)}>
                     {documentCanonicalMutationsEnabled(
                       editorCanEdit,
                       isSuggesting,
@@ -12911,6 +12923,7 @@ function PageEditorSessionBody({
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
           agentHeadSlotRef={host === "page" ? agentHeadSlotRef : undefined}
           headToolsRef={setPagePanelHeadTools}
+          belowFloatingControls={host === "preview"}
           onClose={() => handlePagePanelChange(null)}
         >
           {pagePanelBody}

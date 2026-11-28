@@ -181,6 +181,7 @@ import {
 } from "@/components/ui/popover";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -258,6 +259,7 @@ import {
   startDatabaseItemPreviewReads,
   useUpdateDocument,
 } from "@/hooks/use-documents";
+import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 import { useStableRecord } from "@/hooks/use-stable-record";
@@ -324,6 +326,10 @@ import {
   updatePropertyOptionColor,
 } from "../DocumentProperties";
 import { EmojiPicker } from "../EmojiPicker";
+import {
+  type PreviewControls,
+  PreviewControlsContext,
+} from "../preview-controls";
 import {
   deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
@@ -564,7 +570,7 @@ export type DatabaseColumnCalculation = ContentDatabaseColumnCalculation;
 export type DatabaseRowDensity = ContentDatabaseRowDensity;
 export type ColumnKey = "name" | (string & {});
 
-const DEFAULT_NAME_COLUMN_WIDTH = 240;
+const DEFAULT_NAME_COLUMN_WIDTH = 380;
 const DEFAULT_PROPERTY_COLUMN_WIDTH = 180;
 const MIN_COLUMN_WIDTH = 96;
 const MIN_NAME_COLUMN_WIDTH = 220;
@@ -4265,6 +4271,7 @@ function DatabaseTable({
               collapsedGroupIds={activeView.collapsedGroupIds ?? []}
               hideEmptyGroups={activeView.hideEmptyGroups === true}
               focusedTitleDocumentId={inlineTitleFocusDocumentId}
+              previewDocumentId={previewItem?.document.id ?? null}
               addPropertyOpenRequestId={addPropertyOpenRequestId}
               onAddPropertyOpenRequestHandled={(requestId) =>
                 setAddPropertyOpenRequestId((current) =>
@@ -5731,6 +5738,7 @@ function DatabaseItemPreviewSheet({
       <SheetContent
         side="right"
         showOverlay={false}
+        showClose={false}
         onEscapeKeyDown={(event) => {
           const preview =
             event.target instanceof Element
@@ -5897,9 +5905,7 @@ function DatabaseItemPreview({
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   async function duplicatePreviewRow() {
-    setActionsMenuOpen(false);
     try {
       await sessionRef.current?.flush();
       const response = await duplicateItem.mutateAsync({ itemId: item.id });
@@ -5939,146 +5945,175 @@ function DatabaseItemPreview({
     if (nextItem ?? previousItem) onPreviewItem?.((nextItem ?? previousItem)!);
     else onClose();
   }
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const [controlsSlot, setControlsSlot] = useState<HTMLElement | null>(null);
+  const controlsFit = useElementWidthValue<DatabasePreviewControlsFit>(
+    frameRef,
+    databasePreviewControlsFit,
+    "wide",
+  );
+  const touch = controlsFit !== "wide";
+  const showDuplicateRow =
+    canEditExpected && databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  const rowMenu =
+    showDuplicateRow || removesFavoriteMembership ? (
+      <>
+        {showDuplicateRow ? (
+          <DropdownMenuItem
+            disabled={!canEdit || duplicateItem.isPending || transitionPending}
+            onSelect={() => void duplicatePreviewRow()}
+          >
+            {dbText("duplicateRow")}
+          </DropdownMenuItem>
+        ) : null}
+        {removesFavoriteMembership ? (
+          <DropdownMenuItem
+            disabled={transitionPending}
+            onSelect={() => {
+              void deletePreviewPage(true).catch((error) => {
+                const description = workspaceReferenceErrorMessage(
+                  error,
+                  t("sidebar.workspaceReferenceProtected"),
+                );
+                if (description) {
+                  toast.error(dbText("failedToSavePagePreview"), {
+                    description,
+                  });
+                } else {
+                  toast.error(dbText("failedToSavePagePreview"));
+                }
+              });
+            }}
+          >
+            {sidebarText("removeFromFavorites")}
+          </DropdownMenuItem>
+        ) : null}
+      </>
+    ) : null;
+  const controlClassName = cn(
+    "rounded-[8px] text-muted-foreground hover:text-foreground",
+    touch && "size-11",
+  );
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col"
+      ref={frameRef}
+      className="relative flex min-h-0 flex-1 flex-col"
       aria-busy={transitionPending || undefined}
     >
-      <SheetHeader className="shrink-0 gap-0 border-b border-border px-4 py-2 text-start">
-        <div className="flex min-w-0 items-center justify-between gap-2 pe-10">
-          <SheetTitle className="sr-only sm:not-sr-only sm:min-w-0 sm:truncate sm:text-sm sm:font-medium">
-            {previewTitle}
-          </SheetTitle>
-          <div className="flex shrink-0 items-center gap-1">
-            {position ? (
-              <span className="hidden px-1.5 text-xs text-muted-foreground sm:inline">
-                {position.index + 1} of {position.total}
-              </span>
-            ) : null}
-            <Button
-              ref={previousButtonRef}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={!previousItem}
-              aria-label={dbText("previousDatabasePage")}
-              onPointerEnter={() => {
-                if (previousDocumentId) onPrepareRow(previousDocumentId);
-              }}
-              onFocus={() => {
-                if (previousDocumentId) onPrepareRow(previousDocumentId);
-              }}
-              onClick={() => {
-                if (previousItem) onPreviewItem?.(previousItem);
-              }}
-            >
-              <IconArrowLeft className="size-3.5" />
-            </Button>
-            <Button
-              ref={nextButtonRef}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={!nextItem}
-              aria-label={dbText("nextDatabasePage")}
-              onPointerEnter={() => {
-                if (nextDocumentId) onPrepareRow(nextDocumentId);
-              }}
-              onFocus={() => {
-                if (nextDocumentId) onPrepareRow(nextDocumentId);
-              }}
-              onClick={() => {
-                if (nextItem) onPreviewItem?.(nextItem);
-              }}
-            >
-              <IconArrowRight className="size-3.5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 px-2 text-xs"
-              disabled={transitionPending}
-              onClick={onOpenPage}
-            >
-              <IconExternalLink className="size-3.5" />
-              {dbText("openPage")}
-            </Button>
-            {(canEditExpected && !isWorkspaceCatalog) ||
-            removesFavoriteMembership ? (
-              <DropdownMenu
-                modal={false}
-                open={actionsMenuOpen}
-                onOpenChange={setActionsMenuOpen}
-              >
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1.5 px-2 text-xs"
-                    aria-label={`Preview actions for ${previewTitle}`}
-                  >
-                    <IconTable className="size-3.5" />
-                    {dbText("row")}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  data-database-preview-portal=""
-                >
-                  {canEditExpected &&
-                  databaseItemCanDuplicate(item, isWorkspaceCatalog) ? (
-                    <DropdownMenuItem
-                      disabled={
-                        !canEdit || duplicateItem.isPending || transitionPending
-                      }
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void duplicatePreviewRow();
-                      }}
-                    >
-                      {dbText("duplicateRow")}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {removesFavoriteMembership ? (
-                    <DropdownMenuItem
-                      disabled={transitionPending}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        setActionsMenuOpen(false);
-                        void deletePreviewPage(true).catch((error) => {
-                          const description = workspaceReferenceErrorMessage(
-                            error,
-                            t("sidebar.workspaceReferenceProtected"),
-                          );
-                          if (description) {
-                            toast.error(dbText("failedToSavePagePreview"), {
-                              description,
-                            });
-                          } else {
-                            toast.error(dbText("failedToSavePagePreview"));
-                          }
-                        });
-                      }}
-                    >
-                      {sidebarText("removeFromFavorites")}
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </div>
-        </div>
-        <SheetDescription className="sr-only">
+      <SheetHeader className="sr-only">
+        <SheetTitle>{previewTitle}</SheetTitle>
+        <SheetDescription>
           {dbText("previewThisDatabasePageWithoutLeavingTheDatabase")}
         </SheetDescription>
       </SheetHeader>
       <div
+        className="absolute end-2 top-2 z-50 flex items-center gap-0.5 rounded-[10px] border border-border bg-background p-0.5 sm:end-3 sm:top-3"
+        data-database-preview-controls=""
+        data-editor-selection-continuation=""
+      >
+        <Button
+          ref={previousButtonRef}
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={controlClassName}
+          disabled={!previousItem}
+          aria-label={dbText("previousDatabasePage")}
+          onPointerEnter={() => {
+            if (previousDocumentId) onPrepareRow(previousDocumentId);
+          }}
+          onFocus={() => {
+            if (previousDocumentId) onPrepareRow(previousDocumentId);
+          }}
+          onClick={() => {
+            if (previousItem) onPreviewItem?.(previousItem);
+          }}
+        >
+          <IconArrowLeft className="size-4" />
+        </Button>
+        {position ? (
+          <span
+            className="px-0.5 text-center text-xs tabular-nums text-muted-foreground"
+            style={{
+              minWidth: `${
+                dbText("previewPosition", {
+                  index: position.total,
+                  total: position.total,
+                }).length
+              }ch`,
+            }}
+          >
+            {dbText("previewPosition", {
+              index: position.index + 1,
+              total: position.total,
+            })}
+          </span>
+        ) : null}
+        <Button
+          ref={nextButtonRef}
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={controlClassName}
+          disabled={!nextItem}
+          aria-label={dbText("nextDatabasePage")}
+          onPointerEnter={() => {
+            if (nextDocumentId) onPrepareRow(nextDocumentId);
+          }}
+          onFocus={() => {
+            if (nextDocumentId) onPrepareRow(nextDocumentId);
+          }}
+          onClick={() => {
+            if (nextItem) onPreviewItem?.(nextItem);
+          }}
+        >
+          <IconArrowRight className="size-4" />
+        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className={controlClassName}
+              disabled={transitionPending}
+              aria-label={dbText("openPage")}
+              onClick={onOpenPage}
+            >
+              <IconArrowsDiagonal className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{dbText("openPage")}</TooltipContent>
+        </Tooltip>
+        <span
+          ref={setControlsSlot}
+          className="contents"
+          inert={transitionPending || undefined}
+        />
+        <SheetClose asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className={controlClassName}
+            aria-label={dbText("close")}
+          >
+            <IconX className="size-4" />
+          </Button>
+        </SheetClose>
+      </div>
+      <div
         className="flex min-h-0 flex-1"
         inert={transitionPending || undefined}
       >
-        <SidebarTriggerContext.Provider value={null}>
+        <DatabasePreviewPageContexts
+          controls={{
+            slot: controlsSlot,
+            rowMenu,
+            touch,
+            discussionInMenu: controlsFit === "touch-compact",
+          }}
+        >
           <PageEditorSurface
             // Each row mounts its own surface, inside a frame that stays put.
             key={`${item.databaseId}:${item.id}:${item.document.id}`}
@@ -6094,10 +6129,38 @@ function DatabaseItemPreview({
             onSessionChange={handleSessionChange}
             onDelete={() => deletePreviewPage()}
           />
-        </SidebarTriggerContext.Provider>
+        </DatabasePreviewPageContexts>
       </div>
     </div>
   );
+}
+
+function DatabasePreviewPageContexts({
+  controls,
+  children,
+}: {
+  controls: PreviewControls;
+  children: ReactNode;
+}) {
+  return (
+    <PreviewControlsContext.Provider value={controls}>
+      <SidebarTriggerContext.Provider value={null}>
+        {children}
+      </SidebarTriggerContext.Provider>
+    </PreviewControlsContext.Provider>
+  );
+}
+
+type DatabasePreviewControlsFit = "wide" | "touch" | "touch-compact";
+
+const DATABASE_PREVIEW_TOUCH_MAX_WIDTH = 639;
+const DATABASE_PREVIEW_TOUCH_DISCUSSION_MIN_WIDTH = 420;
+
+function databasePreviewControlsFit(width: number): DatabasePreviewControlsFit {
+  if (window.innerWidth > DATABASE_PREVIEW_TOUCH_MAX_WIDTH) return "wide";
+  return width < DATABASE_PREVIEW_TOUCH_DISCUSSION_MIN_WIDTH
+    ? "touch-compact"
+    : "touch";
 }
 
 function DatabaseTableView({
@@ -6140,6 +6203,7 @@ function DatabaseTableView({
   collapsedGroupIds,
   hideEmptyGroups,
   focusedTitleDocumentId,
+  previewDocumentId,
   addPropertyOpenRequestId,
   onAddPropertyOpenRequestHandled,
   onConnectSource,
@@ -6206,6 +6270,7 @@ function DatabaseTableView({
   collapsedGroupIds: string[];
   hideEmptyGroups: boolean;
   focusedTitleDocumentId: string | null;
+  previewDocumentId: string | null;
   addPropertyOpenRequestId: number;
   onAddPropertyOpenRequestHandled: (requestId: number) => void;
   onConnectSource: () => void;
@@ -7153,6 +7218,7 @@ function DatabaseTableView({
                               newRowLabel={newRowLabel}
                               canCreateItems={canCreateItems}
                               focusedTitleDocumentId={focusedTitleDocumentId}
+                              previewDocumentId={previewDocumentId}
                               collapsed={databaseGroupIsCollapsed(
                                 collapsedGroupIds,
                                 group.id,
@@ -7194,6 +7260,9 @@ function DatabaseTableView({
                               }
                               startEditingTitle={
                                 focusedTitleDocumentId === item.document.id
+                              }
+                              previewOpen={
+                                previewDocumentId === item.document.id
                               }
                               onDragHandlePointerDown={
                                 onRowDragHandlePointerDown
@@ -16465,6 +16534,7 @@ function DatabaseGroupedTableSection({
   newRowLabel,
   canCreateItems,
   focusedTitleDocumentId,
+  previewDocumentId,
   collapsed,
   onCreateRow,
   onTitleFocusHandled,
@@ -16496,6 +16566,7 @@ function DatabaseGroupedTableSection({
   newRowLabel: string;
   canCreateItems: boolean;
   focusedTitleDocumentId: string | null;
+  previewDocumentId: string | null;
   collapsed: boolean;
   onCreateRow: (
     group: DatabaseBoardGroup,
@@ -16538,6 +16609,7 @@ function DatabaseGroupedTableSection({
               isDragging={false}
               isDropTarget={false}
               startEditingTitle={focusedTitleDocumentId === item.document.id}
+              previewOpen={previewDocumentId === item.document.id}
               wrapCells={wrapCells}
               columnWrapOverrides={columnWrapOverrides}
               rowDensity={rowDensity}
@@ -16628,6 +16700,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   isDragging,
   isDropTarget,
   startEditingTitle,
+  previewOpen,
   wrapCells,
   columnWrapOverrides,
   rowDensity,
@@ -16654,6 +16727,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   isDragging: boolean;
   isDropTarget: boolean;
   startEditingTitle: boolean;
+  previewOpen: boolean;
   wrapCells: boolean;
   columnWrapOverrides: Record<string, boolean>;
   rowDensity: DatabaseRowDensity;
@@ -16682,10 +16756,13 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
         "group grid border-t border-border/35 transition-colors [@media(any-hover:none)]:select-none [@media(any-hover:none)]:[-webkit-touch-callout:none] [&_input]:select-text",
         databaseTableRowDensityClass(rowDensity),
         selected && "bg-muted",
+        previewOpen &&
+          "bg-[color-mix(in_srgb,var(--color-database-blue)_8%,hsl(var(--background)))] dark:bg-[color-mix(in_srgb,var(--color-database-blue)_16%,hsl(var(--background)))]",
         isDragging && "opacity-50",
         isDropTarget && "bg-accent ring-1 ring-inset ring-ring/50",
       )}
       data-database-row-id={item.id}
+      data-database-row-preview-open={previewOpen ? "" : undefined}
       propertyIds={properties.map((property) => property.definition.id)}
       widths={Object.fromEntries(
         ["name", ...properties.map((property) => property.definition.id)].map(

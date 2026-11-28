@@ -47,6 +47,7 @@ export function DocumentPanelTabs({
   openCommentCount = 0,
   checksToLookAt = 0,
   plain = false,
+  compact = false,
   panelId = DOCUMENT_PAGE_PANEL_ID,
   commentsTriggerRef,
   onTabChange,
@@ -57,6 +58,7 @@ export function DocumentPanelTabs({
   checksToLookAt?: number;
   /** A phone's header: plain 44 px buttons without the track. */
   plain?: boolean;
+  compact?: boolean;
   panelId?: string | undefined;
   commentsTriggerRef?: Ref<HTMLButtonElement> | undefined;
   onTabChange: (tab: DocumentPagePanelTab | null) => void;
@@ -167,7 +169,9 @@ export function DocumentPanelTabs({
                 className={cn(
                   "flex items-center justify-center gap-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   plain
-                    ? "h-11 min-w-11 rounded-lg px-1.5"
+                    ? compact
+                      ? "h-8 min-w-8 rounded-[8px] px-1.5 hover:bg-accent"
+                      : "h-11 min-w-11 rounded-lg px-1.5"
                     : "h-7 min-w-[38px] rounded-sm px-2",
                   // The track is the same 32 px as the bar's other buttons,
                   // and its tabs fill on hover as they do.

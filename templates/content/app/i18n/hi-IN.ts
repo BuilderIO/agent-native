@@ -462,6 +462,7 @@ const database = {
   newProperty: "नई प्रॉपर्टी",
   newViewName: "नए दृश्य का नाम",
   nextDatabasePage: "अगला संग्रह पेज",
+  previewPosition: "{{total}} में से {{index}}",
   nextMonth: "अगला महीना",
   nextTimelineRange: "अगला टाइमलाइन रेंज",
   noRowsMatchThisView: "इस दृश्य से कोई पंक्ति मेल नहीं खाती",

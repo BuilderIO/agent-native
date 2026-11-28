@@ -10,6 +10,7 @@ import {
   DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
+  documentEditorIconRowClassName,
   documentEditorTitleRegionClassName,
 } from "./document-editor-layout";
 import { DocumentProperties } from "./DocumentProperties";
@@ -51,6 +52,7 @@ export function DatabaseItemPreviewPlaceholder({
     >
       <DocumentToolbar
         compact
+        inert
         documentId={documentId}
         documentTitle={document.title}
         canEdit={document.canEdit === true}
@@ -63,7 +65,7 @@ export function DatabaseItemPreviewPlaceholder({
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         <div className={DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME}>
           <div className={documentEditorTitleRegionClassName(false, "preview")}>
-            <div className="mb-1">
+            <div className={documentEditorIconRowClassName("preview")}>
               {document.icon ? (
                 <div className="-ml-1 flex size-14 items-center justify-center p-1">
                   <ContentIcon value={document.icon} size={48} />

@@ -26,6 +26,7 @@ export function DocumentPagePanel({
   agentHeadSlotRef,
   headToolsRef,
   panelId = DOCUMENT_PAGE_PANEL_ID,
+  belowFloatingControls = false,
   onClose,
   children,
 }: {
@@ -42,6 +43,7 @@ export function DocumentPagePanel({
   /** Where a tab puts its own tools, between the title and Close. */
   headToolsRef?: Ref<HTMLDivElement> | undefined;
   panelId?: string | undefined;
+  belowFloatingControls?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -93,6 +95,7 @@ export function DocumentPagePanel({
           // floats on its shadow alone.
           mode === "dock" && "border-s border-t border-border",
           mode === "over" && "shadow-[-10px_0_28px_rgba(0,0,0,0.09)]",
+          belowFloatingControls && "mt-16 sm:mt-14",
           open
             ? "translate-x-0 translate-y-0"
             : cn(

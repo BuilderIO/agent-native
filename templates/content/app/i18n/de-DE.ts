@@ -506,6 +506,7 @@ const database = {
   newProperty: "Neue Eigenschaft",
   newViewName: "Name der neuen Ansicht",
   nextDatabasePage: "Nächste Sammlungsseite",
+  previewPosition: "{{index}} von {{total}}",
   nextMonth: "Nächster Monat",
   nextTimelineRange: "Nächster Zeitachsenbereich",
   noRowsMatchThisView: "Keine Zeilen entsprechen dieser Ansicht",
