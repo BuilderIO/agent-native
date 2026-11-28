@@ -2338,20 +2338,30 @@ describe("Workspace sign-in outcomes for an eligible app", () => {
     invalidateRememberedDesktopIdentityStatus();
   });
 
+  type Status = "idle" | "signed-in" | "signing-in";
+
   async function renderMail(identity: {
-    status: "idle" | "signed-in";
+    status: Status | Status[];
     synchronized: boolean;
   }) {
     const ensureAppSession = vi.fn(async () => identity.synchronized);
     const reported: string[] = [];
+    const statuses = [identity.status].flat();
+    const getStatus = vi.fn(async () =>
+      statuses.length > 1 ? statuses.shift() : statuses[0],
+    );
+    let statusListener: ((status: Status) => void) | undefined;
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
         identity: {
           getSettings: vi.fn(async () => ({ ssoEnabled: true })),
-          getStatus: vi.fn(async () => identity.status),
+          getStatus,
           ensureAppSession,
-          onStatusChange: vi.fn(() => () => {}),
+          onStatusChange: vi.fn((listener: (status: Status) => void) => {
+            statusListener = listener;
+            return () => {};
+          }),
         },
       },
     });
@@ -2389,9 +2399,20 @@ describe("Workspace sign-in outcomes for an eligible app", () => {
     });
     return {
       ensureAppSession,
+      getStatus,
       reported,
-      src: container.querySelector("webview")?.getAttribute("src") ?? "",
-      gate: container.querySelector(".desktop-identity-gate"),
+      get src() {
+        return container.querySelector("webview")?.getAttribute("src") ?? "";
+      },
+      get gate() {
+        return container.querySelector(".desktop-identity-gate");
+      },
+      async emit(status: Status) {
+        await act(async () => {
+          statusListener?.(status);
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+      },
     };
   }
 
@@ -2402,6 +2423,31 @@ describe("Workspace sign-in outcomes for an eligible app", () => {
     expect(result.gate).toBeNull();
     expect(result.reported).not.toContain("failed");
     expect(result.ensureAppSession).not.toHaveBeenCalled();
+  });
+
+  it("lets the app sign in on its own when the sign-in poll finds the account outside the rollout", async () => {
+    const result = await renderMail({
+      status: ["signing-in", "idle"],
+      synchronized: false,
+    });
+
+    expect(result.getStatus).toHaveBeenCalledTimes(2);
+    expect(result.src).toContain("https://mail.agent-native.com");
+    expect(result.gate).toBeNull();
+    expect(result.reported).not.toContain("failed");
+    expect(result.ensureAppSession).not.toHaveBeenCalled();
+  });
+
+  it("resumes workspace sign-in for the app when an idle pane is told the account is signed in", async () => {
+    const result = await renderMail({ status: "idle", synchronized: true });
+    expect(result.ensureAppSession).not.toHaveBeenCalled();
+
+    await result.emit("signed-in");
+
+    expect(result.ensureAppSession).toHaveBeenCalledWith("mail");
+    expect(result.src).toContain("https://mail.agent-native.com");
+    expect(result.reported.at(-1)).toBe("signed-in");
+    expect(result.gate).toBeNull();
   });
 
   it("still gates the app when a rollout account's session cannot be synchronized", async () => {

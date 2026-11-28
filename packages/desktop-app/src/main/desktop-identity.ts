@@ -427,7 +427,7 @@ export async function fetchDesktopIdentityAvailability(
         ...(cookieHeader ? { headers: { Cookie: cookieHeader } } : {}),
       },
     );
-    if (!response.ok) {
+    if (response.status !== 200) {
       throw new Error(
         `Workspace sign-in availability returned ${response.status}`,
       );
@@ -594,12 +594,13 @@ export class DesktopIdentityBroker {
 
   private async probeAvailability(
     authority: DesktopIdentityApp,
+    accountSession: Session = this.options.identitySession,
   ): Promise<DesktopIdentityAvailabilityProbe> {
     if (!this.options.isAvailable) return "available";
     try {
       const available = await this.options.isAvailable(
         authority,
-        this.options.identitySession,
+        accountSession,
       );
       return available ? "available" : "unavailable";
     } catch (error) {
@@ -2143,7 +2144,9 @@ export class DesktopIdentityBroker {
     if (!authority) return false;
 
     if (this.options.isAvailable) {
-      const availability = await this.probeAvailability(authority);
+      const availability = sourceApp.identityAuthority
+        ? await this.probeAvailability(sourceApp, sourceApp.session)
+        : await this.probeAvailability(authority);
       if (!this.isCeremonyCurrent(generation) || availability !== "available") {
         this.availability = "unavailable";
         return false;

@@ -315,6 +315,29 @@ function sessionResponse(email = "steve@example.com"): Response {
   });
 }
 
+const rolloutAccount = { email: "alice@example.com", inRollout: true };
+const excludedAccount = { email: "bob@example.com", inRollout: false };
+
+function dispatchServer(
+  accounts: Record<string, { email: string; inRollout: boolean }>,
+) {
+  return vi.fn(async (url: string, init?: RequestInit) => {
+    const cookie = new Headers(init?.headers).get("Cookie") ?? "";
+    const value = /(?:^|; )an_session_dispatch=([^;]+)/.exec(cookie)?.[1];
+    const account = value ? accounts[value] : undefined;
+    const path = new URL(url).pathname;
+    if (path === "/_agent-native/identity/availability") {
+      return Response.json({ available: account?.inRollout ?? true });
+    }
+    if (path === "/_agent-native/auth/session") {
+      return account
+        ? sessionResponse(account.email)
+        : Response.json({ error: "Not authenticated" });
+    }
+    return new Response(null, { status: 404 });
+  });
+}
+
 describe("Desktop identity navigation boundaries", () => {
   const app = appFixture();
 
@@ -1815,6 +1838,117 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.isAvailable()).toBe(false);
   });
 
+  it.each([
+    {
+      isolated: rolloutAccount,
+      pane: excludedAccount,
+      staleSignIn: false,
+      status: "signed-in",
+    },
+    {
+      isolated: excludedAccount,
+      pane: rolloutAccount,
+      staleSignIn: false,
+      status: "idle",
+    },
+    {
+      isolated: rolloutAccount,
+      pane: excludedAccount,
+      staleSignIn: true,
+      status: "signed-in",
+    },
+    {
+      isolated: excludedAccount,
+      pane: rolloutAccount,
+      staleSignIn: true,
+      status: "idle",
+    },
+  ])(
+    "settles $isolated.email as $status while the Dispatch pane holds $pane.email (stale sign-in: $staleSignIn)",
+    async ({ isolated, pane, staleSignIn, status }) => {
+      const server = dispatchServer({
+        "isolated-session": isolated,
+        "pane-session": pane,
+      });
+      const authority = authorityFixture();
+      authority.session = {
+        cookies: cookieStore([
+          sessionCookie(
+            "an_session_dispatch",
+            authority.origin,
+            "pane-session",
+          ),
+        ]),
+        fetch: server,
+      } as unknown as Electron.Session;
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore([
+            sessionCookie(
+              "an_session_dispatch",
+              authority.origin,
+              "isolated-session",
+            ),
+          ]),
+          fetch: server,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        isAvailable: fetchDesktopIdentityAvailability,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+      if (staleSignIn) broker.setStatusForSetting("signing-in");
+
+      await broker.refreshStatus(authority);
+
+      expect(broker.getStatus()).toBe(status);
+      expect(broker.isAvailable()).toBe(isolated.inRollout);
+    },
+  );
+
+  it.each([
+    { account: rolloutAccount, adopted: true, status: "signed-in" },
+    { account: excludedAccount, adopted: false, status: "idle" },
+  ])(
+    "decides adoption from the Dispatch pane by $account.email's rollout",
+    async ({ account, adopted, status }) => {
+      const server = dispatchServer({ "pane-session": account });
+      const authority = authorityFixture();
+      authority.session = {
+        cookies: cookieStore([
+          sessionCookie(
+            "an_session_dispatch",
+            authority.origin,
+            "pane-session",
+          ),
+        ]),
+        fetch: server,
+      } as unknown as Electron.Session;
+      const identityCookies = cookieStore();
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: identityCookies,
+          fetch: server,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        isAvailable: fetchDesktopIdentityAvailability,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        listApps: () => [authority],
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+
+      await expect(broker.adoptAppSession(authority.id)).resolves.toBe(adopted);
+
+      expect(broker.getStatus()).toBe(status);
+      expect(broker.isAvailable()).toBe(account.inRollout);
+      expect(identityCookies.set.mock.calls.length > 0).toBe(adopted);
+    },
+  );
+
   it("announces a status only when it actually changes", async () => {
     const authority = authorityFixture();
     const onStatus = vi.fn();
@@ -2185,6 +2319,9 @@ describe("DesktopIdentityBroker", () => {
     await expect(
       probe(async () => json({ error: "identity_unavailable" }, 503)),
     ).rejects.toThrow("503");
+    await expect(
+      probe(async () => json({ available: true }, 202)),
+    ).rejects.toThrow("202");
     await expect(probe(async () => json({}))).rejects.toThrow("malformed");
     await expect(
       probe(async () => new Response("<html></html>", { status: 200 })),

@@ -1195,6 +1195,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               return;
             }
           } else {
+            if (status === "idle") setDesktopIdentityEnabled(false);
             updateDesktopIdentitySessionReady(true);
             setDesktopIdentityStatus(status);
             return;
