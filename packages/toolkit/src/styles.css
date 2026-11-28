@@ -16,6 +16,11 @@
  *   - Published package: this file ships at `dist/styles.css`, so also scan
  *     compiled `.js` next to it for consumers that only install `dist/`.
  */
+@import "@agent-native/design-system/tokens.css";
+@import "@agent-native/design-system/main.css";
+@import "@agent-native/design-system/styles.css";
+@import "@agent-native/design-system/themes/agent-native.css";
+@import "@agent-native/design-system/appearances.css";
 @import "./theme/resource-icons.css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/geist";
