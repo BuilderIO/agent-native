@@ -23,13 +23,22 @@ const DESIGN_CONTENT_ACTIONS = new Set([
 // Reads that nothing in a collaborator's file or screen edit can change. Their
 // own mutations publish their own events, which are not content events.
 const CONTENT_INDEPENDENT_QUERIES = new Set([
+  "describe-models",
   "get-agentkit-capabilities",
+  "get-design-access-status",
   "get-feature-flags",
   "get-lab-states",
+  "get-localization-preference",
   "get-localhost-write-consent-request",
+  "get-native-render-contexts",
+  "get-native-shader-approvals",
+  "get-user-profile",
+  "get-view-settings",
   "get-visual-edit-pending",
+  "list-design-native-assets",
   "list-localhost-connections",
   "list-resource-shares",
+  "list-review-agent-requests",
   "list-review-comments",
   "read-brief-titles",
 ]);

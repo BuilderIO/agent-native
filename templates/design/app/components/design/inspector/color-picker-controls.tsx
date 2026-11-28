@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type PointerEvent,
   type ReactNode,
 } from "react";
 
@@ -73,6 +72,56 @@ export function computeScrubbedValue(
   return clampTo(startValue + delta, min, max, decimals);
 }
 
+function trySetPointerCapture(element: Element, pointerId: number): boolean {
+  if (typeof element.setPointerCapture !== "function") return false;
+  try {
+    element.setPointerCapture(pointerId);
+    return true;
+    // coercion-ok: returning false explicitly selects the window-listener fallback when a pointer is synthetic or no longer active.
+  } catch (error) {
+    if (error instanceof DOMException) return false;
+    throw error;
+  }
+}
+
+function tryReleasePointerCapture(element: Element, pointerId: number): void {
+  if (
+    typeof element.hasPointerCapture === "function" &&
+    typeof element.releasePointerCapture === "function" &&
+    element.hasPointerCapture(pointerId)
+  ) {
+    element.releasePointerCapture(pointerId);
+  }
+}
+
+function attachWindowPointerFallback(handlers: {
+  pointerId: number;
+  onMove: (event: globalThis.PointerEvent) => void;
+  onUp: (event: globalThis.PointerEvent) => void;
+  onCancel: (event: globalThis.PointerEvent) => void;
+}): () => void {
+  const handleMove = (event: globalThis.PointerEvent) => {
+    if (event.pointerId !== handlers.pointerId) return;
+    handlers.onMove(event);
+  };
+  const handleUp = (event: globalThis.PointerEvent) => {
+    if (event.pointerId !== handlers.pointerId) return;
+    handlers.onUp(event);
+  };
+  const handleCancel = (event: globalThis.PointerEvent) => {
+    if (event.pointerId !== handlers.pointerId) return;
+    handlers.onCancel(event);
+  };
+  window.addEventListener("pointermove", handleMove);
+  window.addEventListener("pointerup", handleUp);
+  window.addEventListener("pointercancel", handleCancel);
+  return () => {
+    window.removeEventListener("pointermove", handleMove);
+    window.removeEventListener("pointerup", handleUp);
+    window.removeEventListener("pointercancel", handleCancel);
+  };
+}
+
 // Knobs are 16px; their center travels from 8px to width - 8px so they stay
 // on the track at both ends, and the pointer maps onto that same span.
 const TRACK_KNOB_INSET_PX = 8;
@@ -103,21 +152,60 @@ export function SaturationBrightnessField({
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
+  const activePointerIdRef = useRef<number | null>(null);
+  const sawPressedButtonsRef = useRef(false);
+  const cleanupWindowFallbackRef = useRef<(() => void) | null>(null);
+  const latestRef = useRef({ hsv, disabled, onChange, onCommit });
+  latestRef.current = { hsv, disabled, onChange, onCommit };
   const hueColor =
     hueColorOverride ??
     rgbaToCss(hsvToRgba({ h: hsv.h, s: 100, v: 100, a: 1 }));
 
-  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
+  const clearWindowFallback = () => {
+    cleanupWindowFallbackRef.current?.();
+    cleanupWindowFallbackRef.current = null;
+  };
+
+  useEffect(() => () => clearWindowFallback(), []);
+
+  useEffect(() => {
+    if (!disabled || !draggingRef.current) return;
+    clearWindowFallback();
+    const ended = endPointerGesture(draggingRef.current);
+    draggingRef.current = ended.state;
+    activePointerIdRef.current = null;
+    sawPressedButtonsRef.current = false;
+  }, [disabled]);
+
+  const updateFromClientPoint = (clientX: number, clientY: number) => {
     const rect = fieldRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const nextSaturation = ((event.clientX - rect.left) / rect.width) * 100;
-    const nextBrightness =
-      100 - ((event.clientY - rect.top) / rect.height) * 100;
-    onChange({
-      ...hsv,
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    const nextSaturation = ((clientX - rect.left) / rect.width) * 100;
+    const nextBrightness = 100 - ((clientY - rect.top) / rect.height) * 100;
+    latestRef.current.onChange({
+      ...latestRef.current.hsv,
       s: clamp(nextSaturation, 0, 100),
       v: clamp(nextBrightness, 0, 100),
     });
+  };
+
+  const finishGesture = (pointerId?: number, releaseTarget?: Element) => {
+    if (
+      pointerId !== undefined &&
+      activePointerIdRef.current !== null &&
+      activePointerIdRef.current !== pointerId
+    ) {
+      return;
+    }
+    clearWindowFallback();
+    const ended = endPointerGesture(draggingRef.current);
+    draggingRef.current = ended.state;
+    activePointerIdRef.current = null;
+    sawPressedButtonsRef.current = false;
+    if (releaseTarget && pointerId !== undefined) {
+      tryReleasePointerCapture(releaseTarget, pointerId);
+    }
+    if (ended.shouldCommit) latestRef.current.onCommit?.();
   };
 
   const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -152,29 +240,57 @@ export function SaturationBrightnessField({
       aria-label={label}
       aria-disabled={disabled}
       onPointerDown={(event) => {
-        if (disabled) return;
+        if (disabled || event.button !== 0) return;
         event.preventDefault();
         event.currentTarget.focus();
+        clearWindowFallback();
         draggingRef.current = startPointerGesture();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        updateFromPointer(event);
+        activePointerIdRef.current = event.pointerId;
+        sawPressedButtonsRef.current = event.buttons > 0;
+        const captured = trySetPointerCapture(
+          event.currentTarget,
+          event.pointerId,
+        );
+        if (!captured) {
+          cleanupWindowFallbackRef.current = attachWindowPointerFallback({
+            pointerId: event.pointerId,
+            onMove: (moveEvent) => {
+              if (!draggingRef.current || latestRef.current.disabled) return;
+              if (sawPressedButtonsRef.current && moveEvent.buttons === 0) {
+                finishGesture(moveEvent.pointerId);
+                return;
+              }
+              updateFromClientPoint(moveEvent.clientX, moveEvent.clientY);
+            },
+            onUp: (upEvent) => finishGesture(upEvent.pointerId),
+            onCancel: (cancelEvent) => finishGesture(cancelEvent.pointerId),
+          });
+        }
+        updateFromClientPoint(event.clientX, event.clientY);
       }}
       onPointerMove={(event) => {
-        if (!draggingRef.current || disabled) return;
-        updateFromPointer(event);
+        if (
+          !draggingRef.current ||
+          disabled ||
+          (activePointerIdRef.current !== null &&
+            activePointerIdRef.current !== event.pointerId)
+        ) {
+          return;
+        }
+        if (sawPressedButtonsRef.current && event.buttons === 0) {
+          finishGesture(event.pointerId, event.currentTarget);
+          return;
+        }
+        updateFromClientPoint(event.clientX, event.clientY);
       }}
       onPointerUp={(event) => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        if (ended.shouldCommit) onCommit?.();
+        finishGesture(event.pointerId, event.currentTarget);
       }}
-      onPointerCancel={() => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (ended.shouldCommit) onCommit?.();
+      onPointerCancel={(event) => {
+        finishGesture(event.pointerId, event.currentTarget);
+      }}
+      onLostPointerCapture={(event) => {
+        finishGesture(event.pointerId);
       }}
       onKeyDown={stepWithKeyboard}
       className={cn(
@@ -230,15 +346,57 @@ export function ColorTrack({
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
+  const activePointerIdRef = useRef<number | null>(null);
+  const sawPressedButtonsRef = useRef(false);
+  const cleanupWindowFallbackRef = useRef<(() => void) | null>(null);
   const gestureStartValueRef = useRef(value);
-  const percent = ((value - min) / (max - min)) * 100;
+  const latestRef = useRef({ min, max, disabled, onChange, onCommit });
+  latestRef.current = { min, max, disabled, onChange, onCommit };
+  const range = max - min;
+  const percent = range > 0 ? ((value - min) / range) * 100 : 0;
 
-  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
+  const clearWindowFallback = () => {
+    cleanupWindowFallbackRef.current?.();
+    cleanupWindowFallbackRef.current = null;
+  };
+
+  useEffect(() => () => clearWindowFallback(), []);
+
+  useEffect(() => {
+    if (!disabled || !draggingRef.current) return;
+    clearWindowFallback();
+    const ended = endPointerGesture(draggingRef.current);
+    draggingRef.current = ended.state;
+    activePointerIdRef.current = null;
+    sawPressedButtonsRef.current = false;
+  }, [disabled]);
+
+  const updateFromClientX = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const { min: lo, max: hi, onChange: emit } = latestRef.current;
+    if (!rect || rect.width <= 0 || hi <= lo) return;
     const span = Math.max(1, rect.width - TRACK_KNOB_INSET_PX * 2);
-    const ratio = (event.clientX - rect.left - TRACK_KNOB_INSET_PX) / span;
-    onChange(clamp(min + ratio * (max - min), min, max));
+    const ratio = (clientX - rect.left - TRACK_KNOB_INSET_PX) / span;
+    emit(clamp(lo + ratio * (hi - lo), lo, hi));
+  };
+
+  const finishGesture = (pointerId?: number, releaseTarget?: Element) => {
+    if (
+      pointerId !== undefined &&
+      activePointerIdRef.current !== null &&
+      activePointerIdRef.current !== pointerId
+    ) {
+      return;
+    }
+    clearWindowFallback();
+    const ended = endPointerGesture(draggingRef.current);
+    draggingRef.current = ended.state;
+    activePointerIdRef.current = null;
+    sawPressedButtonsRef.current = false;
+    if (releaseTarget && pointerId !== undefined) {
+      tryReleasePointerCapture(releaseTarget, pointerId);
+    }
+    if (ended.shouldCommit) latestRef.current.onCommit?.();
   };
 
   const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -277,7 +435,14 @@ export function ColorTrack({
     ) {
       event.preventDefault();
       event.stopPropagation();
+      clearWindowFallback();
+      const pointerId = activePointerIdRef.current;
       draggingRef.current = POINTER_GESTURE_IDLE;
+      activePointerIdRef.current = null;
+      sawPressedButtonsRef.current = false;
+      if (pointerId !== null && trackRef.current) {
+        tryReleasePointerCapture(trackRef.current, pointerId);
+      }
       onChange(gestureStartValueRef.current);
       onCancel();
       return;
@@ -297,30 +462,58 @@ export function ColorTrack({
       aria-disabled={disabled}
       onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
-        if (disabled) return;
+        if (disabled || event.button !== 0) return;
         event.preventDefault();
         event.currentTarget.focus();
+        clearWindowFallback();
         gestureStartValueRef.current = value;
         draggingRef.current = startPointerGesture();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        updateFromPointer(event);
+        activePointerIdRef.current = event.pointerId;
+        sawPressedButtonsRef.current = event.buttons > 0;
+        const captured = trySetPointerCapture(
+          event.currentTarget,
+          event.pointerId,
+        );
+        if (!captured) {
+          cleanupWindowFallbackRef.current = attachWindowPointerFallback({
+            pointerId: event.pointerId,
+            onMove: (moveEvent) => {
+              if (!draggingRef.current || latestRef.current.disabled) return;
+              if (sawPressedButtonsRef.current && moveEvent.buttons === 0) {
+                finishGesture(moveEvent.pointerId);
+                return;
+              }
+              updateFromClientX(moveEvent.clientX);
+            },
+            onUp: (upEvent) => finishGesture(upEvent.pointerId),
+            onCancel: (cancelEvent) => finishGesture(cancelEvent.pointerId),
+          });
+        }
+        updateFromClientX(event.clientX);
       }}
       onPointerMove={(event) => {
-        if (!draggingRef.current || disabled) return;
-        updateFromPointer(event);
+        if (
+          !draggingRef.current ||
+          disabled ||
+          (activePointerIdRef.current !== null &&
+            activePointerIdRef.current !== event.pointerId)
+        ) {
+          return;
+        }
+        if (sawPressedButtonsRef.current && event.buttons === 0) {
+          finishGesture(event.pointerId, event.currentTarget);
+          return;
+        }
+        updateFromClientX(event.clientX);
       }}
       onPointerUp={(event) => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        if (ended.shouldCommit) onCommit?.();
+        finishGesture(event.pointerId, event.currentTarget);
       }}
-      onPointerCancel={() => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (ended.shouldCommit) onCommit?.();
+      onPointerCancel={(event) => {
+        finishGesture(event.pointerId, event.currentTarget);
+      }}
+      onLostPointerCapture={(event) => {
+        finishGesture(event.pointerId);
       }}
       className={cn(
         "relative h-4 touch-none cursor-pointer rounded-full border border-border/60 outline-none",
@@ -383,6 +576,43 @@ export function ScrubbyNumberInput({
   const draftRef = useRef(draft);
   const skipBlurRef = useRef(false);
   const scrubRef = useRef<ScrubGestureState>(SCRUB_GESTURE_IDLE);
+  const activePointerIdRef = useRef<number | null>(null);
+  const sawPressedButtonsRef = useRef(false);
+  const cleanupWindowFallbackRef = useRef<(() => void) | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const latestRef = useRef({
+    min,
+    max,
+    step,
+    decimals,
+    disabled,
+    onChange,
+    onCommit,
+  });
+  latestRef.current = {
+    min,
+    max,
+    step,
+    decimals,
+    disabled,
+    onChange,
+    onCommit,
+  };
+
+  const clearWindowFallback = () => {
+    cleanupWindowFallbackRef.current?.();
+    cleanupWindowFallbackRef.current = null;
+  };
+
+  useEffect(() => () => clearWindowFallback(), []);
+
+  useEffect(() => {
+    if (!disabled || !scrubRef.current.active) return;
+    clearWindowFallback();
+    scrubRef.current = SCRUB_GESTURE_IDLE;
+    activePointerIdRef.current = null;
+    sawPressedButtonsRef.current = false;
+  }, [disabled]);
 
   useEffect(() => {
     const nextDraft = shown(value);
@@ -408,6 +638,67 @@ export function ScrubbyNumberInput({
     onCommit?.();
   };
 
+  const applyScrubMove = (
+    clientX: number,
+    shiftKey: boolean,
+    preventDefault?: () => void,
+  ) => {
+    const deltaX = clientX - scrubRef.current.startX;
+    if (!scrubRef.current.dragging) {
+      if (Math.abs(deltaX) < SCRUB_DRAG_THRESHOLD_PX) return;
+      scrubRef.current = { ...scrubRef.current, dragging: true };
+      window.getSelection()?.removeAllRanges();
+    }
+    preventDefault?.();
+    const {
+      min: lo,
+      max: hi,
+      step: s,
+      decimals: d,
+      onChange: emit,
+    } = latestRef.current;
+    emit(
+      computeScrubbedValue(
+        scrubRef.current.startValue,
+        deltaX,
+        lo,
+        hi,
+        shiftKey,
+        s,
+        d,
+      ),
+    );
+  };
+
+  const finishScrub = (
+    pointerId: number | undefined,
+    blurAfterDrag: boolean,
+    releaseTarget?: Element,
+  ) => {
+    if (
+      pointerId !== undefined &&
+      activePointerIdRef.current !== null &&
+      activePointerIdRef.current !== pointerId
+    ) {
+      return;
+    }
+    clearWindowFallback();
+    const wasDragging = scrubRef.current.dragging;
+    scrubRef.current = SCRUB_GESTURE_IDLE;
+    activePointerIdRef.current = null;
+    sawPressedButtonsRef.current = false;
+    if (releaseTarget && pointerId !== undefined) {
+      tryReleasePointerCapture(releaseTarget, pointerId);
+    }
+    if (wasDragging) {
+      latestRef.current.onCommit?.();
+      skipBlurRef.current = true;
+      if (blurAfterDrag) {
+        inputRef.current?.blur();
+      }
+    }
+  };
+
   return (
     <div className="relative min-w-0">
       {prefix !== undefined && (
@@ -416,6 +707,7 @@ export function ScrubbyNumberInput({
         </span>
       )}
       <input
+        ref={inputRef}
         type="number"
         step={step}
         aria-label={ariaLabel}
@@ -453,16 +745,16 @@ export function ScrubbyNumberInput({
           if (e.key === "ArrowUp") {
             e.preventDefault();
             const tick = e.shiftKey ? step * 10 : step;
-            const parsed = Number(draftRef.current);
-            const base = Number.isFinite(parsed) ? parsed : value;
+            const parsed = parseNumericDraft(draftRef.current);
+            const base = parsed ?? value;
             onChange(clampTo(base + tick, min, max, decimals));
             onCommit?.();
           }
           if (e.key === "ArrowDown") {
             e.preventDefault();
             const tick = e.shiftKey ? step * 10 : step;
-            const parsed = Number(draftRef.current);
-            const base = Number.isFinite(parsed) ? parsed : value;
+            const parsed = parseNumericDraft(draftRef.current);
+            const base = parsed ?? value;
             onChange(clampTo(base - tick, min, max, decimals));
             onCommit?.();
           }
@@ -475,50 +767,56 @@ export function ScrubbyNumberInput({
           commit();
         }}
         onPointerDown={(e) => {
-          if (disabled) return;
+          if (disabled || e.button !== 0) return;
+          clearWindowFallback();
           scrubRef.current = startScrubGesture(e.clientX, value);
-          e.currentTarget.setPointerCapture(e.pointerId);
+          activePointerIdRef.current = e.pointerId;
+          sawPressedButtonsRef.current = e.buttons > 0;
+          const captured = trySetPointerCapture(e.currentTarget, e.pointerId);
+          if (!captured) {
+            cleanupWindowFallbackRef.current = attachWindowPointerFallback({
+              pointerId: e.pointerId,
+              onMove: (moveEvent) => {
+                if (latestRef.current.disabled || !scrubRef.current.active) {
+                  return;
+                }
+                if (sawPressedButtonsRef.current && moveEvent.buttons === 0) {
+                  finishScrub(moveEvent.pointerId, true);
+                  return;
+                }
+                applyScrubMove(moveEvent.clientX, moveEvent.shiftKey, () =>
+                  moveEvent.preventDefault(),
+                );
+              },
+              onUp: (upEvent) => finishScrub(upEvent.pointerId, true),
+              onCancel: (cancelEvent) =>
+                finishScrub(cancelEvent.pointerId, false),
+            });
+          }
         }}
         onPointerMove={(e) => {
-          if (disabled || !scrubRef.current.active) return;
-          const deltaX = e.clientX - scrubRef.current.startX;
-          if (!scrubRef.current.dragging) {
-            if (Math.abs(deltaX) < SCRUB_DRAG_THRESHOLD_PX) return;
-            scrubRef.current = { ...scrubRef.current, dragging: true };
-            window.getSelection?.()?.removeAllRanges();
+          if (
+            disabled ||
+            !scrubRef.current.active ||
+            (activePointerIdRef.current !== null &&
+              activePointerIdRef.current !== e.pointerId)
+          ) {
+            return;
           }
-          e.preventDefault();
-          onChange(
-            computeScrubbedValue(
-              scrubRef.current.startValue,
-              deltaX,
-              min,
-              max,
-              e.shiftKey,
-              step,
-              decimals,
-            ),
-          );
+          if (sawPressedButtonsRef.current && e.buttons === 0) {
+            finishScrub(e.pointerId, true, e.currentTarget);
+            return;
+          }
+          applyScrubMove(e.clientX, e.shiftKey, () => e.preventDefault());
         }}
         onPointerUp={(e) => {
-          const wasDragging = scrubRef.current.dragging;
-          scrubRef.current = SCRUB_GESTURE_IDLE;
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-            e.currentTarget.releasePointerCapture(e.pointerId);
-          }
-          if (wasDragging) {
-            onCommit?.();
-            skipBlurRef.current = true;
-            e.currentTarget.blur();
-          }
+          finishScrub(e.pointerId, true, e.currentTarget);
         }}
         onPointerCancel={(e) => {
-          const wasDragging = scrubRef.current.dragging;
-          scrubRef.current = SCRUB_GESTURE_IDLE;
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-            e.currentTarget.releasePointerCapture(e.pointerId);
-          }
-          if (wasDragging) onCommit?.();
+          finishScrub(e.pointerId, false, e.currentTarget);
+        }}
+        onLostPointerCapture={(e) => {
+          finishScrub(e.pointerId, false);
         }}
       />
       {suffix !== undefined && (

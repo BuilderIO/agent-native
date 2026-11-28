@@ -96,6 +96,10 @@ export interface SaveFileContentArgs {
   getPendingBaseContent?: (fileId: string) => string | undefined;
   /** Reads the file's current live content, the version a CAS write must match. */
   readLiveFileContent?: (fileId: string) => Promise<string>;
+  onPersistedFileVersion?: (
+    fileId: string,
+    file: { content: string; updatedAt: string },
+  ) => void;
   queryClient: QueryClient;
   setPatchProof: Dispatch<SetStateAction<PatchProofState | null>>;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -359,6 +363,7 @@ export function runSaveFileContent(
     markPendingLocalFileContent,
     getPendingBaseContent,
     readLiveFileContent,
+    onPersistedFileVersion,
     queryClient,
     setPatchProof,
     t,
@@ -592,6 +597,12 @@ export function runSaveFileContent(
           typeof resultInfo?.updatedAt === "string"
             ? resultInfo.updatedAt
             : undefined;
+        if (persistedUpdatedAt !== undefined) {
+          onPersistedFileVersion?.(pending.id, {
+            content: pending.content,
+            updatedAt: persistedUpdatedAt,
+          });
+        }
         queryClient.setQueryData(designQueryKey, (old: any) => {
           if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
             return old;

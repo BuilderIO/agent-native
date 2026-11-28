@@ -9,6 +9,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import {
   DesignSelectionPublishError,
+  flushPendingAgentSelectionContext,
   runPublishAgentSelectionContext,
   summarizeAgentSelectionScreens,
   type ScreenFrameTypeCache,
@@ -643,5 +644,143 @@ describe("runPublishAgentSelectionContext published image data", () => {
     });
     expect(JSON.stringify(tabValue)).not.toMatch(/data:image|base64,/i);
     expect(() => assertNoInlineImageBytes(tabValue)).not.toThrow();
+  });
+});
+
+describe("runPublishAgentSelectionContext geometry coalescing", () => {
+  beforeEach(() => {
+    vi.mocked(setClientAppState).mockClear();
+  });
+
+  function elementWithGeometry(
+    sourceId: string,
+    rect: { x: number; y: number; width: number; height: number },
+  ): ElementInfo {
+    return {
+      tagName: "div",
+      id: sourceId,
+      classes: ["box"],
+      sourceId,
+      selector: `#${sourceId}`,
+      path: [0],
+      boundingRect: rect,
+      computedStyles: {
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+      },
+    } as unknown as ElementInfo;
+  }
+
+  it("coalesces rapid boundingRect and computedStyles edits on the same element", async () => {
+    vi.useFakeTimers();
+    try {
+      const shared = argsFor({
+        selectedElement: elementWithGeometry("box-1", {
+          x: 10,
+          y: 20,
+          width: 100,
+          height: 50,
+        }),
+      });
+      runPublishAgentSelectionContext(shared);
+      expect(setClientAppState).toHaveBeenCalledTimes(2);
+      vi.mocked(setClientAppState).mockClear();
+
+      for (const rect of [
+        { x: 10, y: 20, width: 240, height: 50 },
+        { x: 10, y: 20, width: 240, height: 120 },
+        { x: 80, y: 20, width: 240, height: 120 },
+        { x: 80, y: 95, width: 240, height: 120 },
+      ]) {
+        runPublishAgentSelectionContext({
+          ...shared,
+          selectedElement: elementWithGeometry("box-1", rect),
+        });
+      }
+      expect(setClientAppState).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(200);
+      expect(setClientAppState).toHaveBeenCalledTimes(2);
+      const published = vi.mocked(setClientAppState).mock.calls[0]?.[1] as
+        | {
+            selectedElement: {
+              boundingRect: unknown;
+              computedStyles: unknown;
+            };
+          }
+        | undefined;
+      expect(published?.selectedElement.boundingRect).toEqual({
+        x: 80,
+        y: 95,
+        width: 240,
+        height: 120,
+      });
+      expect(published?.selectedElement.computedStyles).toEqual({
+        width: "240px",
+        height: "120px",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flushes a pending debounced geometry write immediately before an agent turn and publishes element switches immediately", async () => {
+    vi.useFakeTimers();
+    try {
+      const shared = argsFor({
+        selectedElement: elementWithGeometry("box-1", {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+        }),
+      });
+      runPublishAgentSelectionContext(shared);
+      vi.mocked(setClientAppState).mockClear();
+
+      runPublishAgentSelectionContext({
+        ...shared,
+        selectedElement: elementWithGeometry("box-1", {
+          x: 42,
+          y: 64,
+          width: 300,
+          height: 180,
+        }),
+      });
+      expect(setClientAppState).not.toHaveBeenCalled();
+
+      await flushPendingAgentSelectionContext({
+        pendingPersistedSelectionWriteRef:
+          shared.pendingPersistedSelectionWriteRef,
+        persistedSelectionStateRef: shared.persistedSelectionStateRef,
+        persistedSelectionContextRef: shared.persistedSelectionContextRef,
+        persistedSelectionWriteTimerRef: shared.persistedSelectionWriteTimerRef,
+        selectionPublishFailedLabel: shared.selectionPublishFailedLabel,
+      });
+      expect(setClientAppState).toHaveBeenCalledTimes(2);
+      const flushed = vi.mocked(setClientAppState).mock.calls[0]?.[1] as
+        | { selectedElement: { boundingRect: unknown } }
+        | undefined;
+      expect(flushed?.selectedElement.boundingRect).toEqual({
+        x: 42,
+        y: 64,
+        width: 300,
+        height: 180,
+      });
+
+      vi.mocked(setClientAppState).mockClear();
+      runPublishAgentSelectionContext({
+        ...shared,
+        selectedElement: elementWithGeometry("box-2", {
+          x: 0,
+          y: 0,
+          width: 50,
+          height: 50,
+        }),
+      });
+      expect(setClientAppState).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -11,6 +11,9 @@ const sessionState = vi.hoisted(() => ({
   current: null as { email: string } | null,
 }));
 const embedState = vi.hoisted(() => ({ token: false, mcpAppWidget: false }));
+const useGuidedQuestionFlowMock = vi.hoisted(() =>
+  vi.fn(() => ({ questions: [] })),
+);
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -42,7 +45,7 @@ vi.mock(
   "@agent-native/toolkit/app/chat/agentkit-chat",
   async (importOriginal) => ({
     ...(await importOriginal<object>()),
-    useGuidedQuestionFlow: () => ({ questions: [] }),
+    useGuidedQuestionFlow: useGuidedQuestionFlowMock,
   }),
 );
 vi.mock("@/hooks/use-navigation-state", () => ({
@@ -83,6 +86,30 @@ afterEach(async () => {
   sessionState.current = null;
   embedState.token = false;
   embedState.mcpAppWidget = false;
+  useGuidedQuestionFlowMock.mockClear();
+});
+
+it("disables guided-question polling in standalone-editor and never polls on an interval in app-shell", async () => {
+  sessionState.current = { email: "person@example.com" };
+  embedState.token = true;
+  embedState.mcpAppWidget = true;
+  await renderEditorRoute(<div data-testid="editor" />);
+  expect(useGuidedQuestionFlowMock).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      enabled: false,
+      refetchInterval: false,
+    }),
+  );
+
+  useGuidedQuestionFlowMock.mockClear();
+  embedState.mcpAppWidget = false;
+  await renderEditorRoute(<div data-testid="editor" />);
+  expect(useGuidedQuestionFlowMock).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      enabled: true,
+      refetchInterval: false,
+    }),
+  );
 });
 
 it("keeps the design editor mounted when the session resolves", async () => {
