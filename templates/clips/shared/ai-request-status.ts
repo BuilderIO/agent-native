@@ -63,4 +63,5 @@ export interface ClipsAiRequestStatus {
 export interface AutoTitleCandidate {
   id: string;
   createdAt: string;
+  transcriptRevision?: string;
 }

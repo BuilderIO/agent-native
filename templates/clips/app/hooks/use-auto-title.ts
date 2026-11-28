@@ -56,6 +56,7 @@ interface AiRequest {
   transcriptStatus?: string;
   transcriptText?: string;
   segmentsJson?: string;
+  transcriptRevision?: string;
   agentsContext?: string;
   includeSummary?: boolean;
   thresholdMs?: number;
@@ -222,7 +223,9 @@ export function useAutoTitleBridge(): void {
             request.kind === "generate-metadata" ||
             request.kind === "regenerate-title"
           ) {
-            dispatched.current.add(fallbackKey(request.recordingId));
+            dispatched.current.add(
+              fallbackKey(request.recordingId, request.transcriptRevision),
+            );
           }
 
           if (
@@ -319,7 +322,7 @@ export function useAutoTitleBridge(): void {
           if (autoTitleFallbackDelay(candidate, dispatched.current) !== 0) {
             continue;
           }
-          const key = fallbackKey(candidate.id);
+          const key = fallbackKey(candidate.id, candidate.transcriptRevision);
           dispatched.current.add(key);
           callAction("regenerate-title", {
             recordingId: candidate.id,
@@ -332,7 +335,11 @@ export function useAutoTitleBridge(): void {
                 reason?: string;
                 queueSkippedReason?: string;
               } | null;
-              if (outcome?.queued === true) {
+              if (
+                outcome?.queued === true ||
+                outcome?.reason === "title_request_unsuccessful" ||
+                outcome?.queueSkippedReason === "title_request_unsuccessful"
+              ) {
                 bumpAiRequestRefresh();
               } else if (
                 // The local title is saved but its refinement was not queued;
@@ -344,8 +351,15 @@ export function useAutoTitleBridge(): void {
                 retryTitleFallback(key);
               }
             })
-            .catch(() => {
-              retryTitleFallback(key);
+            .catch((error: unknown) => {
+              if (
+                (error as { errorCode?: unknown })?.errorCode ===
+                "title_request_unsuccessful"
+              ) {
+                bumpAiRequestRefresh();
+              } else {
+                retryTitleFallback(key);
+              }
             });
         }
       } finally {
@@ -403,8 +417,8 @@ export function nextAiRequestRetryDelay(currentDelay: number): number {
   );
 }
 
-function fallbackKey(recordingId: string): string {
-  return `${recordingId}:fallback`;
+function fallbackKey(recordingId: string, transcriptRevision?: string): string {
+  return `${recordingId}:fallback${transcriptRevision ? `:${transcriptRevision}` : ""}`;
 }
 
 /**
@@ -416,7 +430,8 @@ function autoTitleFallbackDelay(
   dispatched: ReadonlySet<string>,
   now = Date.now(),
 ): number | null {
-  if (dispatched.has(fallbackKey(candidate.id))) return null;
+  if (dispatched.has(fallbackKey(candidate.id, candidate.transcriptRevision)))
+    return null;
   const createdAt = new Date(candidate.createdAt).getTime();
   return Number.isFinite(createdAt)
     ? Math.max(0, TWO_MINUTES_MS - (now - createdAt))

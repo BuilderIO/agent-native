@@ -1,6 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
+  compareAndSetManyAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -8,6 +9,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { CLIPS_AI_REQUEST_KINDS } from "../shared/ai-request-status.js";
+import {
+  isUnsuccessfulTitleStatus,
+  titleTerminalKey,
+} from "./lib/ai-request-status.js";
 
 const STATUS_KEY_PREFIX = "clips-ai-request-status-";
 
@@ -66,6 +71,15 @@ export default defineAction({
       });
     }
     if (args.operationId && current.operationId !== args.operationId) {
+      if (
+        args.status !== "working" &&
+        typeof current.operationId === "string"
+      ) {
+        fail(`Cannot update a stale ${args.kind} request.`, {
+          errorCode: "request_conflict",
+          statusCode: 409,
+        });
+      }
       const queued = await readAppState(`clips-ai-request-${args.recordingId}`);
       if (
         queued?.kind !== args.kind ||
@@ -97,7 +111,7 @@ export default defineAction({
     let expected = current;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const next = {
-        ...current,
+        ...expected,
         kind: args.kind,
         status: args.status,
         message: args.message || null,
@@ -108,7 +122,28 @@ export default defineAction({
         ...(args.turnId ? { turnId: args.turnId } : {}),
         ...(args.runId ? { runId: args.runId } : {}),
       };
-      if (await compareAndSetAppState(statusKey, expected, next)) {
+      const unsuccessfulTitle = isUnsuccessfulTitleStatus(next);
+      const markerKey = titleTerminalKey(args.recordingId);
+      const marker = unsuccessfulTitle ? await readAppState(markerKey) : null;
+      const saved = unsuccessfulTitle
+        ? await compareAndSetManyAppState([
+            { key: statusKey, expectedValue: expected, nextValue: next },
+            {
+              key: markerKey,
+              expectedValue: marker,
+              nextValue: {
+                kind: args.kind,
+                status: args.status,
+                requestedAt: args.requestedAt,
+                ...(typeof expected.transcriptRevision === "string"
+                  ? { transcriptRevision: expected.transcriptRevision }
+                  : {}),
+                suppressed: true,
+              },
+            },
+          ])
+        : await compareAndSetAppState(statusKey, expected, next);
+      if (saved) {
         try {
           await writeAppState("refresh-signal", { ts: Date.now() });
         } catch (error) {
@@ -156,6 +191,13 @@ export default defineAction({
         latest.requestedAt === args.requestedAt &&
         ["queued", "working"].includes(String(latest.status))
       ) {
+        if (
+          args.operationId &&
+          typeof latest.operationId === "string" &&
+          latest.operationId !== args.operationId
+        ) {
+          break;
+        }
         expected = latest;
         continue;
       }

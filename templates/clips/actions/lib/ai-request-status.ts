@@ -11,6 +11,59 @@ import { assertRecordingNotExpired } from "../../server/lib/recording-read-acces
 import type { ClipsAiRequestKind } from "../../shared/ai-request-status.js";
 
 const STATUS_KEY_PREFIX = "clips-ai-request-status-";
+const TITLE_TERMINAL_KEY_PREFIX = "clips-ai-title-terminal-";
+
+export const titleTerminalKey = (recordingId: string) =>
+  `${TITLE_TERMINAL_KEY_PREFIX}${recordingId}`;
+
+export function isUnsuccessfulTitleStatus(
+  status: Record<string, unknown> | null,
+) {
+  return (
+    (status?.kind === "regenerate-title" ||
+      status?.kind === "generate-metadata") &&
+    ["failed", "truncated", "cancelled"].includes(String(status.status))
+  );
+}
+
+function isSupersededTitleStatus(
+  marker: Record<string, unknown> | null,
+  status: Record<string, unknown> | null,
+) {
+  return (
+    marker?.suppressed === false &&
+    marker.supersededStatus !== undefined &&
+    JSON.stringify(marker.supersededStatus) === JSON.stringify(status)
+  );
+}
+
+export function isCurrentTitleFailure(
+  marker: Record<string, unknown> | null,
+  status: Record<string, unknown> | null,
+  transcriptRevision: string | null,
+) {
+  const current = (value: Record<string, unknown>) =>
+    typeof value.transcriptRevision !== "string" ||
+    value.transcriptRevision === transcriptRevision;
+  return (
+    (marker?.suppressed === true && current(marker)) ||
+    (!!status &&
+      !isSupersededTitleStatus(marker, status) &&
+      isUnsuccessfulTitleStatus(status) &&
+      current(status))
+  );
+}
+
+export async function hasUnsuccessfulTitleRequest(
+  recordingId: string,
+  transcriptRevision: string | null,
+) {
+  const [marker, status] = await Promise.all([
+    readAppState(titleTerminalKey(recordingId)),
+    readAppState(`${STATUS_KEY_PREFIX}${recordingId}`),
+  ]);
+  return isCurrentTitleFailure(marker, status, transcriptRevision);
+}
 
 export function withAiRequestStatusInstructions({
   message,
@@ -41,17 +94,20 @@ export async function queueAiRequest({
   kind,
   requestedAt,
   request,
+  automaticTitle = false,
 }: {
   recordingId: string;
   kind: ClipsAiRequestKind;
   requestedAt: string;
   request: Record<string, unknown>;
+  automaticTitle?: boolean;
 }): Promise<void> {
   await queueBackgroundAiRequest({
     recordingId,
     kind,
     requestedAt,
     request,
+    automaticTitle,
   });
 }
 
@@ -77,11 +133,13 @@ export async function queueBackgroundAiRequest({
   kind,
   requestedAt,
   request,
+  automaticTitle = false,
 }: {
   recordingId: string;
   kind: ClipsAiRequestKind;
   requestedAt: string;
   request: Record<string, unknown>;
+  automaticTitle?: boolean;
 }): Promise<void> {
   const statusKey = `${STATUS_KEY_PREFIX}${recordingId}`;
   const requestKey = `clips-ai-request-${recordingId}`;
@@ -91,13 +149,41 @@ export async function queueBackgroundAiRequest({
     message: null,
     requestedAt,
     updatedAt: requestedAt,
+    ...(typeof request.transcriptRevision === "string"
+      ? { transcriptRevision: request.transcriptRevision }
+      : {}),
   };
 
+  assertRecordingNotExpired(
+    await assertAccess("recording", recordingId, "editor"),
+  );
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const [status, previousRequest] = await Promise.all([
+    const [status, previousRequest, marker] = await Promise.all([
       readAppState(statusKey),
       readAppState(requestKey),
+      readAppState(titleTerminalKey(recordingId)),
     ]);
+    const legacyFailure =
+      isUnsuccessfulTitleStatus(status) &&
+      !isSupersededTitleStatus(marker, status);
+    if (
+      automaticTitle &&
+      isCurrentTitleFailure(
+        marker,
+        status,
+        typeof request.transcriptRevision === "string"
+          ? request.transcriptRevision
+          : null,
+      )
+    ) {
+      fail(
+        "Automatic title generation stopped after an unsuccessful request.",
+        {
+          errorCode: "title_request_unsuccessful",
+          statusCode: 409,
+        },
+      );
+    }
     if (status && ["queued", "working"].includes(String(status.status))) {
       fail(
         `A ${String(status.kind ?? "AI")} request is already running for this recording.`,
@@ -121,6 +207,25 @@ export async function queueBackgroundAiRequest({
           expectedValue: previousRequest,
           nextValue: request,
         },
+        ...(legacyFailure &&
+        (marker?.suppressed !== true ||
+          marker.requestedAt !== status?.requestedAt)
+          ? [
+              {
+                key: titleTerminalKey(recordingId),
+                expectedValue: marker,
+                nextValue: { ...status, suppressed: true },
+              },
+            ]
+          : automaticTitle
+            ? [
+                {
+                  key: titleTerminalKey(recordingId),
+                  expectedValue: marker,
+                  nextValue: marker ?? { suppressed: false },
+                },
+              ]
+            : []),
       ])
     ) {
       try {

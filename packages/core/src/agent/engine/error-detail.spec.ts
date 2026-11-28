@@ -16,6 +16,13 @@ import {
   isTerminalRecoveryErrorCode,
 } from "./error-detail.js";
 
+describe("isTerminalRecoveryErrorCode", () => {
+  it("treats email verification as terminal but not transient network errors", () => {
+    expect(isTerminalRecoveryErrorCode("email_verification_required")).toBe(true);
+    expect(isTerminalRecoveryErrorCode("provider_network_error")).toBe(false);
+  });
+});
+
 describe("describeErrorWithCauses", () => {
   it("returns the bare message when there is no cause", () => {
     expect(describeErrorWithCauses(new Error("Connection error."))).toBe(

@@ -154,11 +154,166 @@ describe("regenerate-title fallback refinement", () => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
     mockRemoval.at = null;
+    mockReadAppState.mockReset();
     mockReadAppState.mockResolvedValue(null);
     mockCompareAndSetManyAppState.mockResolvedValue(true);
     mockUpdateReturning.mockResolvedValue([{ id: "rec_1" }]);
     mockLoadAgentsContext.mockResolvedValue("");
     mockChatModelAvailability.mockResolvedValue("available");
+  });
+
+  it("skips automatic title generation after an unsuccessful terminal outcome", async () => {
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-title-terminal-rec_1"
+        ? { status: "failed", suppressed: true }
+        : null,
+    );
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "",
+        },
+      ],
+    ];
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", automatic: true }),
+    ).resolves.toMatchObject({
+      skipped: true,
+      reason: "title_request_unsuccessful",
+    });
+    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
+  it.each(["regenerate-title", "generate-metadata"] as const)(
+    "skips a legacy unsuccessful %s status",
+    async (kind) => {
+      mockReadAppState.mockImplementation(async (key: string) =>
+        key === "clips-ai-request-status-rec_1"
+          ? { kind, status: "truncated" }
+          : null,
+      );
+      mockSelectRows.queue = [
+        [
+          {
+            id: "rec_1",
+            title: "Untitled recording",
+            titleSource: "default",
+            description: "",
+          },
+        ],
+      ];
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1", automatic: true }),
+      ).resolves.toMatchObject({
+        skipped: true,
+        reason: "title_request_unsuccessful",
+      });
+      expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows a manual title request despite an unsuccessful marker", async () => {
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-title-terminal-rec_1"
+        ? { suppressed: true, status: "failed" }
+        : null,
+    );
+    const current = {
+      title: "Untitled recording",
+      titleSource: "default",
+      updatedAt: "one",
+    };
+    mockSelectRows.queue = [
+      [{ id: "rec_1", ...current, description: "Saved" }],
+      [
+        {
+          status: "ready",
+          fullText: "A representative transcript.",
+          segmentsJson: "[]",
+        },
+      ],
+      [current],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "Generated title",
+      provider: "builder",
+    });
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", automatic: false }),
+    ).resolves.toMatchObject({ updated: true, title: "Generated title" });
+  });
+
+  it("clears only the pre-existing failure after a manual title succeeds", async () => {
+    const marker = { suppressed: true, status: "failed", requestedAt: "old" };
+    const status = {
+      kind: "regenerate-title",
+      status: "failed",
+      requestedAt: "old",
+    };
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-title-terminal-rec_1"
+        ? marker
+        : key === "clips-ai-request-status-rec_1"
+          ? status
+          : null,
+    );
+    const current = {
+      title: "Untitled recording",
+      titleSource: "default",
+      updatedAt: "one",
+    };
+    mockSelectRows.queue = [
+      [{ id: "rec_1", ...current, description: "Saved" }],
+      [{ status: "ready", fullText: "Transcript.", segmentsJson: "[]" }],
+      [current],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "A generated title",
+      provider: "builder",
+    });
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", automatic: false }),
+    ).resolves.toMatchObject({ updated: true });
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-ai-request-status-rec_1",
+        expectedValue: status,
+        nextValue: status,
+      },
+      {
+        key: "clips-ai-title-terminal-rec_1",
+        expectedValue: marker,
+        nextValue: { suppressed: false, supersededStatus: status },
+      },
+    ]);
+  });
+
+  it("does not claim suppression was cleared when a newer request wins", async () => {
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "clips-ai-title-terminal-rec_1" ? { suppressed: true } : null,
+    );
+    const current = {
+      title: "Untitled recording",
+      titleSource: "default",
+      updatedAt: "one",
+    };
+    mockSelectRows.queue = [
+      [{ id: "rec_1", ...current, description: "Saved" }],
+      [{ status: "ready", fullText: "Transcript.", segmentsJson: "[]" }],
+      [current],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "A generated title",
+      provider: "builder",
+    });
+    mockCompareAndSetManyAppState.mockResolvedValueOnce(false);
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", automatic: false }),
+    ).rejects.toThrow("Title saved");
   });
 
   it("does not automatically replace a manually chosen default title", async () => {

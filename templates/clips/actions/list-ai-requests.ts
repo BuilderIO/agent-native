@@ -33,6 +33,25 @@ interface ActiveAiRequestSession {
   updatedAt?: string;
 }
 
+function requestSession(
+  recordingId: string,
+  value: Record<string, unknown> | null,
+): (ActiveAiRequestSession & Record<string, unknown>) | null {
+  if (
+    !value ||
+    !(CLIPS_AI_REQUEST_KINDS as readonly unknown[]).includes(value.kind) ||
+    value.status !== "working" ||
+    typeof value.requestedAt !== "string" ||
+    typeof value.operationId !== "string" ||
+    typeof value.threadId !== "string" ||
+    typeof value.turnId !== "string"
+  ) {
+    return null;
+  }
+  return { ...value, recordingId } as ActiveAiRequestSession &
+    Record<string, unknown>;
+}
+
 async function listQueuedRequests(requesterEmail?: string | null): Promise<{
   requests: QueuedAiRequest[];
   activeSessions: ActiveAiRequestSession[];
@@ -98,21 +117,13 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
       );
     });
 
-  const kinds: readonly unknown[] = CLIPS_AI_REQUEST_KINDS;
-  const requestSessions = statusEntries
-    .map((entry): Record<string, unknown> & { recordingId: string } => ({
-      ...(entry.value as Record<string, unknown>),
-      recordingId: entry.key.slice(STATUS_PREFIX.length),
-    }))
-    .filter(
-      (status): status is ActiveAiRequestSession & Record<string, unknown> =>
-        kinds.includes(status.kind) &&
-        status.status === "working" &&
-        typeof status.requestedAt === "string" &&
-        typeof status.operationId === "string" &&
-        typeof status.threadId === "string" &&
-        typeof status.turnId === "string",
+  const requestSessions = statusEntries.flatMap((entry) => {
+    const session = requestSession(
+      entry.key.slice(STATUS_PREFIX.length),
+      entry.value,
     );
+    return session ? [session] : [];
+  });
 
   const workflowSessions = workflowEntries.flatMap(
     (entry): ActiveAiRequestSession[] => {
@@ -166,7 +177,6 @@ async function listQueuedRequests(requesterEmail?: string | null): Promise<{
     );
 
   const titles = new Map(accessible.map((r) => [r.id, r.title]));
-
   // Not every request kind stores `currentTitle` when queued; fill it from the
   // recording so every delivered request tells the agent what the clip is.
   return {

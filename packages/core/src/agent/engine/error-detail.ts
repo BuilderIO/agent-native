@@ -115,6 +115,7 @@ export function isTerminalRecoveryErrorCode(errorCode?: string): boolean {
     code === "billing_error" ||
     code === "unauthorized" ||
     code === "authentication_error" ||
+    code === "email_verification_required" ||
     code === "permission_error" ||
     code === "builder_auth_error" ||
     // The account cannot use this model; another POST picks the same one.
