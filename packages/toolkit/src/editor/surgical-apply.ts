@@ -1,6 +1,6 @@
 import { createNodeFromContent } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Transform, type Step } from "@tiptap/pm/transform";
+import { replaceStep, Transform, type Step } from "@tiptap/pm/transform";
 import type { Editor } from "@tiptap/react";
 
 export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
@@ -583,6 +583,46 @@ function withPreservedTrailingParagraph(
   return newDoc.copy(newDoc.content.addToEnd(oldLast!.type.create()));
 }
 
+function narrowestReplacements(
+  oldDoc: ProseMirrorNode,
+  target: ProseMirrorNode,
+  diff: TopLevelDiff,
+): readonly Step[] | null {
+  const runs = diffTopLevelHunks(oldDoc, target) ?? [
+    {
+      baseFromIndex: diff.fromIndex,
+      baseToIndex: diff.oldToIndex,
+      changedFromIndex: diff.fromIndex,
+      changedToIndex: diff.newToIndex,
+    },
+  ];
+  const transform = new Transform(oldDoc);
+  for (const run of [...runs].reverse()) {
+    const from = positionOfChild(oldDoc, run.baseFromIndex);
+    const targetFrom = positionOfChild(target, run.changedFromIndex);
+    const oldRun = oldDoc.content.cut(
+      from,
+      positionOfChild(oldDoc, run.baseToIndex),
+    );
+    const targetRun = target.content.cut(
+      targetFrom,
+      positionOfChild(target, run.changedToIndex),
+    );
+    const start = oldRun.findDiffStart(targetRun);
+    const end = oldRun.findDiffEnd(targetRun);
+    if (start === null || !end) return null;
+    const overlap = Math.max(0, start - Math.min(end.a, end.b));
+    const step = replaceStep(
+      transform.doc,
+      from + start,
+      from + end.a + overlap,
+      target.slice(targetFrom + start, targetFrom + end.b + overlap),
+    );
+    if (!step || transform.maybeStep(step).failed) return null;
+  }
+  return transform.doc.eq(target) ? transform.steps : null;
+}
+
 /** The doc `applyDocSurgically` would leave, or why it would not change one. */
 export function surgicalApplyTarget(
   oldDoc: ProseMirrorNode,
@@ -612,9 +652,13 @@ export function applyDocSurgically(
     const diff = diffTopLevel(oldDoc, target);
     if (!diff) return "noop";
 
-    const fragment = changedFragment(target, diff);
     const tr = editor.state.tr;
-    tr.replaceWith(diff.fromPos, diff.toPos, fragment);
+    const steps = narrowestReplacements(oldDoc, target, diff);
+    if (steps) {
+      for (const step of steps) tr.step(step);
+    } else {
+      tr.replaceWith(diff.fromPos, diff.toPos, changedFragment(target, diff));
+    }
     tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     editor.view.dispatch(tr);

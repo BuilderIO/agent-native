@@ -171,6 +171,16 @@ describe("VisualEditor external content", () => {
     expect(merge).toHaveBeenCalledTimes(1);
   });
 
+  it("reports no typed text from an editor nobody has edited", async () => {
+    await act(async () => render(null));
+    const merge = vi.fn(() => "Theirs");
+
+    await act(async () => render({ key: "11:1", merge }));
+
+    expect(merge).toHaveBeenCalledExactlyOnceWith(null, expect.any(Function));
+    expect(paragraphs(liveEditor())).toEqual(["Theirs"]);
+  });
+
   it("reports no typed text from an editor that can't be edited", async () => {
     await act(async () => render(null, false));
     const merge = vi.fn(() => "Theirs");
