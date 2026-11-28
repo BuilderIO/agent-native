@@ -474,6 +474,30 @@ describe("a page read from a local file", () => {
     expect(toolbar().canEdit).toBe(false);
   });
 
+  it("shows each version synced from the device that holds the file", async () => {
+    fixture.readLocal = {
+      ok: false,
+      error: "The desktop bridge is not available",
+    } as LocalSourceDocumentReadResult;
+    await render(surface("page", "page"));
+    expect(present(last(fixture.editors)).content).toBe("Saved body");
+
+    page("page", {
+      source: { mode: "local-files", path: "notes/page.md" },
+      title: "Synced title",
+      content: "Synced body",
+      revision: "r2",
+      updatedAt: "2026-10-19T12:05:00.000Z",
+    } as Partial<Document>);
+    await render(surface("page", "page"));
+
+    expect(present(last(fixture.editors)).content).toBe("Synced body");
+    expect(present(container.querySelector("textarea")).value).toBe(
+      "Synced title",
+    );
+    expect(toolbar().canEdit).toBe(false);
+  });
+
   it("edits a file this client can read", async () => {
     const onDisk = present(fixture.pages.page);
     fixture.readLocal = {
