@@ -45,9 +45,10 @@ describe("code colors", () => {
       );
       expect(tokens.length).toBeGreaterThan(0);
       for (const [name, value] of tokens) {
-        expect(contrast(value, variables["--muted"]), name).toBeGreaterThanOrEqual(
-          4.5,
-        );
+        expect(
+          contrast(value, variables["--muted"]),
+          name,
+        ).toBeGreaterThanOrEqual(4.5);
       }
     });
   }
