@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   localSourceAbsolutePath,
   readDocumentFromLinkedLocalSource,
+  rememberLinkedLocalSourceDirectories,
   rememberLinkedLocalSourceDirectory,
   revealLinkedLocalSourceFile,
   sourceFileContent,
@@ -744,6 +745,165 @@ Closing words.
     expect(revealFile).toHaveBeenCalledWith({
       folderId: "folder-repo",
       path: "content/getting-started.mdx",
+    });
+  });
+
+  describe("a page's own folder", () => {
+    type BrowserFolder = Parameters<
+      typeof rememberLinkedLocalSourceDirectory
+    >[0];
+
+    function browserFolder(files: Record<string, string>) {
+      const written: string[] = [];
+      const getFileHandle = vi.fn(async (name: string) => {
+        if (!(name in files))
+          throw new DOMException("No such file.", "NotFoundError");
+        return {
+          kind: "file" as const,
+          name,
+          getFile: async () =>
+            ({
+              text: async () => files[name],
+              lastModified: Date.parse("2026-11-01T00:00:00.000Z"),
+            }) as File,
+          createWritable: async () => ({
+            truncate: async () => undefined,
+            write: async (next: string) => {
+              files[name] = next;
+              written.push(name);
+            },
+            close: async () => undefined,
+            abort: async () => undefined,
+          }),
+        };
+      });
+      const handle: BrowserFolder = {
+        kind: "directory",
+        name: "folder",
+        values: vi.fn(),
+        getDirectoryHandle: vi.fn(),
+        getFileHandle,
+        queryPermission: async () => "granted",
+        requestPermission: async () => "granted",
+      };
+      return { handle, files, written, getFileHandle };
+    }
+
+    const pageIn = (rootPath: string): Document => ({
+      ...document,
+      source: { mode: "local-files", kind: "file", path: "notes.md", rootPath },
+    });
+
+    it("stays read-only when its folder isn't on this device, and leaves another folder's same-path file alone", async () => {
+      const other = { id: "folder-b", name: "Other notes" };
+      const readFiles = vi.fn().mockResolvedValue({
+        ok: true,
+        folder: other,
+        sources: { "notes.md": "Folder B's notes." },
+        revisions: { "notes.md": "b".repeat(64) },
+      });
+      const writeFile = vi.fn();
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+          agentNativeDesktop: {
+            contentFiles: {
+              getFolder: vi.fn().mockResolvedValue({
+                ok: true,
+                folder: other,
+                folders: [other, { id: "folder-c", name: "More notes" }],
+              }),
+              chooseFolder: vi.fn(),
+              writeFiles: vi.fn(),
+              writeFile,
+              readFiles,
+              revealFile: vi.fn(),
+              clearFolder: vi.fn(),
+            },
+          },
+        },
+      });
+
+      await expect(
+        readDocumentFromLinkedLocalSource(pageIn("folder-a")),
+      ).resolves.toMatchObject({ ok: false, unavailable: true });
+      await expect(
+        writeDocumentToLinkedLocalSource(pageIn("folder-a"), undefined, {
+          expectedRevision: "b".repeat(64),
+        }),
+      ).resolves.toMatchObject({ ok: false, unavailable: true });
+      expect(readFiles).not.toHaveBeenCalled();
+      expect(writeFile).not.toHaveBeenCalled();
+
+      const chosen = browserFolder({ "notes.md": "Folder B's notes." });
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {},
+      });
+      rememberLinkedLocalSourceDirectories([
+        {
+          id: "browser-b",
+          name: "Other notes",
+          sourcePrefix: "Other notes",
+          handle: chosen.handle,
+        },
+      ]);
+
+      await expect(
+        readDocumentFromLinkedLocalSource(pageIn("browser-a")),
+      ).resolves.toMatchObject({ ok: false, unavailable: true });
+      await expect(
+        writeDocumentToLinkedLocalSource(pageIn("browser-a"), undefined, {
+          expectedRevision: "sha256:any",
+        }),
+      ).resolves.toMatchObject({ ok: false, unavailable: true });
+      expect(chosen.getFileHandle).not.toHaveBeenCalled();
+      expect(chosen.files["notes.md"]).toBe("Folder B's notes.");
+    });
+
+    it("reads and writes each page through its own Chrome folder when two hold the same path", async () => {
+      const folderA = browserFolder({ "notes.md": "Folder A's notes." });
+      const folderB = browserFolder({ "notes.md": "Folder B's notes." });
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {},
+      });
+      rememberLinkedLocalSourceDirectories([
+        {
+          id: "browser-a",
+          name: "Field notes",
+          sourcePrefix: "Field notes",
+          handle: folderA.handle,
+        },
+        {
+          id: "browser-b",
+          name: "Other notes",
+          sourcePrefix: "Other notes",
+          handle: folderB.handle,
+        },
+      ]);
+
+      const readA = await readDocumentFromLinkedLocalSource(
+        pageIn("browser-a"),
+      );
+      const readB = await readDocumentFromLinkedLocalSource(
+        pageIn("browser-b"),
+      );
+      if (!readA.ok || !readB.ok) throw new Error("A folder couldn't be read.");
+      expect(readA.document.content).toBe("Folder A's notes.");
+      expect(readB.document.content).toBe("Folder B's notes.");
+
+      await expect(
+        writeDocumentToLinkedLocalSource(
+          { ...pageIn("browser-a"), content: "Edited in A." },
+          undefined,
+          { expectedRevision: readA.revision },
+        ),
+      ).resolves.toMatchObject({ ok: true, runtime: "browser" });
+      expect(folderA.written).toEqual(["notes.md"]);
+      expect(folderA.files["notes.md"]).toContain("Edited in A.");
+      expect(folderB.written).toEqual([]);
+      expect(folderB.files["notes.md"]).toBe("Folder B's notes.");
     });
   });
 });

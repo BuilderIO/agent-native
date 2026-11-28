@@ -19,8 +19,9 @@ and concurrent changes become reviewable incoming change sets instead of
 silently deleting or overwriting a page. A folder linked with
 `truthPolicy: "source_primary"` owns its pages' title, body, description and
 place: only the folder sync, and the editor on the device that wrote the file,
-change them, and ordinary writers refuse with `SOURCE_READ_ONLY` (409). Other
-devices and browsers show the last synced copy read-only. SQL stores only
+change them, and ordinary writers refuse with `SOURCE_READ_ONLY` (409). A
+device or browser without that folder shows the last synced copy read-only,
+even when another folder there has a file at the same path. SQL stores only
 opaque connection identity, relative paths, and hashes. Disconnecting a folder
 keeps both the Content pages and disk files.
 
