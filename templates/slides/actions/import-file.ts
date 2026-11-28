@@ -42,6 +42,7 @@ import {
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
 import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
+import { summarizePptxShapes } from "../shared/pptx-reference-shapes.js";
 import {
   normalizeSlideTransition,
   type SlideTransitionType,
@@ -336,20 +337,31 @@ export default defineAction({
         };
       }
 
+      const shapeSummaries = summarizePptxShapes(presentation.slides);
       return {
         format: "pptx",
+        vectorSummaryNotice:
+          "Vector summaries cover supported parsed shapes only; images, tables, unsupported content and shapes the parser could not read are not represented. Custom geometry is limited to what the parser recovered and may be incomplete in the source.",
         title: resolveImportedDeckTitle(
           title,
           presentation.slides[0]?.texts.map((text) => text.content).join("\n"),
           fallbackTitle,
         ),
         slideCount: presentation.slides.length,
+        ...(presentation.hiddenSlideCount
+          ? { hiddenSlideCount: presentation.hiddenSlideCount }
+          : {}),
         slides: presentation.slides.map((slide, i) => ({
           index: i,
           texts: slide.texts.map((t) => t.content).join(" "),
           textRuns: slide.texts,
           imageCount: slide.images.length,
           imageNames: slide.images.map((img) => img.name),
+          widthEmu: slide.widthEmu,
+          heightEmu: slide.heightEmu,
+          vectorShapes: shapeSummaries[i]?.shapes ?? [],
+          vectorShapesOmitted: shapeSummaries[i]?.omitted ?? 0,
+          tablesDegraded: slide.tablesDegraded ?? 0,
           notes: slide.notes,
           layoutHint: slide.layoutHint,
           transition: slide.transition,
