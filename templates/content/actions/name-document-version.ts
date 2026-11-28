@@ -53,7 +53,6 @@ export default defineAction({
     "label a version",
     "bookmark this version",
     "save a named version",
-    "rename version",
   ],
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args, ctx): Promise<NamedDocumentVersionResult> => {

@@ -26,7 +26,7 @@ interface ComparedVersion {
 
 export default defineAction({
   description:
-    "Compare two versions of a page and return what changed from the first to the second: the title change and the body's changed lines with a little unchanged context. Name each version by versionId (from list-document-versions) or by its exact versionName, ignoring case. Leave out both to* fields to compare with the page as it was last saved. Use get-document-history-checkpoint to read a whole version.",
+    "Compare two versions of a page and return what changed from the first to the second: the title change and the body's changed lines with a little unchanged context. Name each version by versionId (from list-document-versions) or by its exact versionName, ignoring case. Leave out both to* fields to compare with the current page as saved. Use get-document-history-checkpoint to read a whole version.",
   schema: z.object({
     documentId: z.string().min(1).describe("Document ID"),
     fromVersionId: z
@@ -62,7 +62,7 @@ export default defineAction({
   searchHints: [
     "what changed since",
     "diff versions",
-    "compare with last week",
+    "compare with a week ago",
     "version differences",
   ],
   run: async (args): Promise<DocumentVersionComparison> => {
