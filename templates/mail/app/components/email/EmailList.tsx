@@ -92,6 +92,7 @@ import {
   useMarkRead,
   useMarkThreadRead,
   useToggleStar,
+  useUnstarThread,
   useArchiveEmail,
   useUnarchiveEmail,
   useTrashEmail,
@@ -731,6 +732,7 @@ export function EmailList({
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
+  const unstarThread = useUnstarThread();
   const archiveEmail = useArchiveEmail();
   const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
@@ -2058,31 +2060,22 @@ export function EmailList({
     ],
   );
 
-  const getThreadMessagesForKey = useCallback(
-    (key: string) => emails.filter((e) => (e.threadId || e.id) === key),
-    [emails],
-  );
-
   const setThreadStarred = useCallback(
     (thread: ThreadSummary, isStarred: boolean) => {
-      const key = thread.latestMessage.threadId || thread.latestMessage.id;
-      const messages = getThreadMessagesForKey(key);
-      const targets = isStarred
-        ? [thread.latestMessage]
-        : messages.filter((message) => message.isStarred);
-      const fallbackTargets =
-        targets.length > 0 ? targets : [thread.latestMessage];
-
-      for (const target of fallbackTargets) {
+      const latest = thread.latestMessage;
+      const key = latest.threadId || latest.id;
+      if (isStarred) {
         toggleStar.mutate({
-          id: target.id,
+          id: latest.id,
           isStarred,
-          accountEmail: target.accountEmail,
+          accountEmail: latest.accountEmail,
           threadId: key,
         });
+        return;
       }
+      unstarThread.mutate({ threadId: key, accountEmail: latest.accountEmail });
     },
-    [getThreadMessagesForKey, toggleStar],
+    [toggleStar, unstarThread],
   );
 
   const starFocused = useCallback(() => {
@@ -3152,6 +3145,23 @@ export function EmailList({
     );
   }
 
+  const olderMailLink =
+    reachedCap && !hasNextPage ? (
+      <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={() =>
+            void navigate(
+              withInboxFilter("/all", inboxFilterParam(searchParams)),
+            )
+          }
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          {t("mail.empty.openAllMailForOlder")}
+        </button>
+      </div>
+    ) : null;
+
   // Empty state
   if (threads.length === 0) {
     if (searchQuery) {
@@ -3191,6 +3201,7 @@ export function EmailList({
     }
     if (
       !emptyHintKey &&
+      !olderMailLink &&
       (view === "inbox" || view === "important" || labelParam) &&
       !accountErrors?.length &&
       !cooldownNotice
@@ -3212,6 +3223,7 @@ export function EmailList({
             <p className="text-xs text-muted-foreground mt-1">
               {t(emptyHintKey ?? emptyStateHintKeyForView(view))}
             </p>
+            {olderMailLink}
           </div>
         </div>
       </div>
@@ -3405,21 +3417,7 @@ export function EmailList({
             )}
           </div>
         )}
-        {reachedCap && !hasNextPage && (
-          <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
-            <button
-              type="button"
-              onClick={() =>
-                void navigate(
-                  withInboxFilter("/all", inboxFilterParam(searchParams)),
-                )
-              }
-              className="underline underline-offset-2 hover:text-foreground"
-            >
-              {t("mail.empty.openAllMailForOlder")}
-            </button>
-          </div>
-        )}
+        {olderMailLink}
       </div>
     </div>
   );

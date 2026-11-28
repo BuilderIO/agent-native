@@ -23,8 +23,8 @@ export interface CachedInboxRead {
 
 export function canServeFromInboxStore(params: {
   view: string;
-  q?: string;
-  label?: string;
+  q?: string | undefined;
+  label?: string | undefined;
 }): boolean {
   return (
     CACHEABLE_VIEWS.has(params.view) &&
@@ -43,8 +43,8 @@ export function canServeFromInboxStore(params: {
 export async function readCachedInboxEmails(params: {
   ownerEmail: string;
   view: string;
-  label?: string;
-  q?: string;
+  label?: string | undefined;
+  q?: string | undefined;
   accountEmails: readonly string[];
   limit: number;
 }): Promise<CachedInboxRead | null> {

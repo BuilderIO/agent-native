@@ -120,6 +120,22 @@ export default defineAction({
         { errorCode: "missing_navigation_target" },
       );
     }
+    const filtered = args.unread !== undefined || args.starred !== undefined;
+    const unfilteredTarget = args.settingsSection
+      ? "settings"
+      : args.queuedDraftId
+        ? "a queued draft"
+        : args.composeDraftId
+          ? "a compose draft"
+          : args.view && !viewTakesInboxFilter(args.view)
+            ? args.view
+            : undefined;
+    if (filtered && unfilteredTarget) {
+      fail(
+        `--unread and --starred filter the inbox or all, not ${unfilteredTarget}.`,
+        { errorCode: "view_has_no_filter" },
+      );
+    }
     if (args.settingsSection || args.view === "settings") {
       // Settings has its own routes, so this opens the URL directly instead
       // of a command only the inbox listens for.
@@ -132,13 +148,6 @@ export default defineAction({
         _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       });
       return `Opening ${pathname}`;
-    }
-    const filtered = args.unread !== undefined || args.starred !== undefined;
-    if (filtered && args.view && !viewTakesInboxFilter(args.view)) {
-      fail(
-        `--unread and --starred filter the inbox or all, not ${args.view}.`,
-        { errorCode: "view_has_no_filter" },
-      );
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;

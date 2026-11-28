@@ -8,12 +8,10 @@ import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
 import {
   inboxFilterParamFor,
   inboxFilterParamForView,
+  inboxFilterRequest,
   viewTakesInboxFilter,
-  withInboxFilter,
-  withInboxFilterClause,
 } from "@shared/inbox-filters";
-import { inboxTabHref } from "@shared/inbox-threads";
-import { openThreadPath } from "@shared/mail-routes";
+import { mailListPath } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { IconMail } from "@tabler/icons-react";
@@ -517,7 +515,8 @@ export function InboxPage() {
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
   const listFilter = inboxFilterParamForView(view, searchParams);
-  const inboxFilter = view === "inbox" ? listFilter : "";
+  const requestFilter = inboxFilterRequest(listFilter);
+  const inboxFilter = view === "inbox" ? requestFilter : "";
   const inboxFilterControl = useMemo(
     () => (viewTakesInboxFilter(view) ? <InboxFilterMenu /> : undefined),
     [view],
@@ -681,6 +680,7 @@ export function InboxPage() {
     );
   }, [
     activeAccounts,
+    inboxFilter,
     isInboxView,
     showPrioritySort,
     resolvedInboxTab,
@@ -722,6 +722,12 @@ export function InboxPage() {
           complete:
             inboxExtraPages[inboxExtraPages.length - 1]?.data?.complete ??
             inboxThreads.data.complete,
+          hasMore: inboxFilter
+            ? (
+                inboxExtraPages[inboxExtraPages.length - 1]?.data ??
+                inboxThreads.data
+              ).hasMore
+            : undefined,
           lastPageLength:
             inboxExtraPages[inboxExtraPages.length - 1]?.data?.items.length ??
             inboxThreads.data.items.length,
@@ -782,7 +788,7 @@ export function InboxPage() {
       activeLabel ||
       activeInboxTab ||
       activeFilterId ||
-      inboxFilter ||
+      listFilter ||
       searchQuery ||
       combineInbox
     )
@@ -802,7 +808,7 @@ export function InboxPage() {
     activeInboxTab,
     activeLabel,
     combineInbox,
-    inboxFilter,
+    listFilter,
     isOnboardingPreview,
     isGoogleConnected,
     navigate,
@@ -854,12 +860,10 @@ export function InboxPage() {
     isFetchNextPageError: emailsIsFetchNextPageError,
     accountErrors: emailsAccountErrors,
     read: emailsRead,
-  } = useEmails(
-    emailView,
-    withInboxFilterClause(searchQuery, listFilter),
-    effectiveLabel,
-    { enabled: !isInboxView },
-  );
+  } = useEmails(emailView, searchQuery, effectiveLabel, {
+    enabled: !isInboxView,
+    inboxFilter: requestFilter,
+  });
   const listRead = isInboxView
     ? inboxThreads.isPlaceholderData
       ? undefined
@@ -1042,7 +1046,7 @@ export function InboxPage() {
 
   useEffect(
     () => setSelectedIds(new Set()),
-    [view, activeLabel, activeInboxTab, activeFilterId],
+    [view, activeLabel, activeInboxTab, activeFilterId, listFilter],
   );
 
   const searchQ = searchQuery;
@@ -1054,7 +1058,7 @@ export function InboxPage() {
       search: searchQ,
       label: activeLabel ?? undefined,
       filter: activeFilterId ?? undefined,
-      inboxFilter: listFilter || undefined,
+      inboxFilter: requestFilter || undefined,
       activeInboxTab:
         view === "inbox"
           ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
@@ -1073,7 +1077,7 @@ export function InboxPage() {
     searchQ,
     activeLabel,
     activeFilterId,
-    listFilter,
+    requestFilter,
     isInboxView,
     inboxThreads.data?.activeTabId,
     resolvedInboxTab,
@@ -1133,19 +1137,22 @@ export function InboxPage() {
       void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
     } else if (navCommand.tab) {
       void navigate(
-        withInboxFilter(inboxTabHref(navCommand.tab), targetInboxFilter),
-      );
-    } else if (targetInboxFilter && !targetThread) {
-      void navigate(
-        withInboxFilter(
-          viewTakesInboxFilter(targetView) ? `/${targetView}` : "/inbox",
-          targetInboxFilter,
-        ),
+        mailListPath({
+          tab: navCommand.tab,
+          threadId: targetThread,
+          inboxFilter: targetInboxFilter,
+        }),
       );
     } else if (targetFilter) {
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
-    } else if (targetThread) {
-      void navigate(openThreadPath(targetView, targetThread));
+    } else if (targetInboxFilter || targetThread) {
+      void navigate(
+        mailListPath({
+          view: targetView,
+          threadId: targetThread,
+          inboxFilter: targetInboxFilter,
+        }),
+      );
     } else if (targetView !== view || (listFilter && !navCommand.sort)) {
       void navigate(`/${targetView === "scheduled" ? "drafts" : targetView}`);
     }
@@ -1281,7 +1288,7 @@ export function InboxPage() {
     hasThread,
     searchQuery,
     isSavedFilter: Boolean(activeSavedFilter),
-    isFiltered: Boolean(inboxFilter),
+    isFiltered: Boolean(view === "inbox" && listFilter),
     threadCount: threads.length,
     hasNextPage: Boolean(hasNextPage || hasOlderInbox),
     hasAccountErrors: Boolean(accountErrors?.length),

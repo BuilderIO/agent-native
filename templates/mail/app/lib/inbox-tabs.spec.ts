@@ -233,6 +233,12 @@ describe("resolvePinnedLabels", () => {
     ).toEqual(["archive", "important", "drafts"]);
     expect(resolvePinnedLabels(["archive"], true)).toEqual(["archive"]);
   });
+
+  it("drops pins left from the Unread and Starred pages, which are filters now", () => {
+    expect(
+      resolvePinnedLabels(["starred", "important", "unread", "work"], true),
+    ).toEqual(["important", "work"]);
+  });
 });
 
 describe("labelTabHref", () => {
@@ -292,7 +298,15 @@ describe("resolveDefaultMailHref", () => {
         pinnedLabels: ["starred", "important"],
         isGoogleConnected: true,
       }),
-    ).toBe("/starred");
+    ).toBe("/inbox?label=important");
+
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: ["unread"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox");
 
     expect(
       resolveDefaultMailHref({

@@ -229,6 +229,7 @@ vi.mock("@/hooks/use-emails", () => {
     useMarkRead: mutation,
     useMarkThreadRead: mutation,
     useToggleStar: mutation,
+    useUnstarThread: mutation,
     useArchiveEmail: mutation,
     useUnarchiveEmail: mutation,
     useTrashEmail: () => ({
@@ -2324,6 +2325,16 @@ describe("EmailList keyboard navigation interactions", () => {
   it("keeps the inbox filter on the All Mail link past the cap", () => {
     mocks.urlSearch = "tab=important&r=unread:is_checked";
     render(<Harness reachedCap hasNextPage={false} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.empty.openAllMailForOlder" }),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/all?r=unread:is_checked");
+  });
+
+  it("offers the All Mail link when a capped, filtered inbox has no rows to show", () => {
+    mocks.urlSearch = "r=unread:is_checked";
+    render(<Harness emails={[]} reachedCap hasNextPage={false} />);
+    expect(screen.getByText("mail.empty.nothingHere")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "mail.empty.openAllMailForOlder" }),
     );

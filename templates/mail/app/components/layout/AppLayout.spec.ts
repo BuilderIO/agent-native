@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildLabelDisplayNames,
+  inboxTabLinkHref,
   isInboxSyncing,
   labelTreeRows,
+  pinPickerLabels,
   reorderById,
   sidebarLabelTabs,
 } from "./AppLayout";
@@ -281,9 +283,6 @@ describe("AppLayout inbox tab bar", () => {
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
     expect(source).toContain(
-      "href: mailboxWideLabelTab ? labelTabHref(tab.id, labels) : withInboxFilter(inboxTabHref(tab.id), inboxFilter)",
-    );
-    expect(source).toContain(
       'const mailboxWideLabelTab = tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);',
     );
     expect(source).toContain(
@@ -292,12 +291,47 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "isLabelCountLowerBound(labelsFailed, labelAccountErrors)",
     );
-    expect(source.replace(/\s+/g, " ")).toContain(
-      "[ activeLabel, activeInboxTabId, aiTagDisplayNames, inboxFilter, inboxTabs, labels, labelsFailed, labelAccountErrors, t, view, ]",
-    );
     expect(source).toContain(
       "dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)",
     );
+  });
+
+  it("keeps the inbox filter on tab links, but not on mailbox-wide label links", () => {
+    const labels = [
+      { id: "work", name: "Work", type: "user" as const },
+      { id: "updates", name: "Updates", type: "system" as const },
+    ];
+    const unread = "r=unread:is_checked";
+
+    expect(
+      inboxTabLinkHref({ id: "important", kind: "important" }, labels, unread),
+    ).toBe(`/inbox?tab=important&${unread}`);
+    expect(
+      inboxTabLinkHref({ id: "updates", kind: "label" }, labels, unread),
+    ).toBe(`/inbox?tab=updates&${unread}`);
+    expect(
+      inboxTabLinkHref({ id: "work", kind: "label" }, labels, unread),
+    ).toBe("/all?label=work");
+    expect(
+      inboxTabLinkHref({ id: "important", kind: "important" }, labels, ""),
+    ).toBe("/inbox?tab=important");
+  });
+
+  it("keeps Gmail's Starred and Unread system labels out of the pin picker", () => {
+    const labels = [
+      { id: "starred", name: "Starred", type: "system" as const },
+      { id: "unread", name: "Unread", type: "system" as const },
+      { id: "inbox", name: "Inbox", type: "system" as const },
+      { id: "sent", name: "Sent", type: "system" as const },
+      { id: "work", name: "Work", type: "user" as const },
+      { id: "ai-tag", name: "Needs reply", type: "user" as const },
+    ];
+
+    expect(
+      pinPickerLabels(labels, ["sent"], new Set(["ai-tag"])).map(
+        (label) => label.id,
+      ),
+    ).toEqual(["work"]);
   });
 
   it("reuses the existing Google reconnect UI for a needs_reauth account", () => {

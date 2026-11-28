@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import {
+  buildLocalInboxItems,
   partitionInboxItems,
   resolveActiveTabId,
   resolveInboxTabs,
@@ -311,5 +312,27 @@ describe("resolveActiveTabId", () => {
     expect(resolveActiveTabId(undefined, tabsWithPinnedLabels)).toBe(
       ALL_TAB_ID,
     );
+  });
+});
+
+describe("buildLocalInboxItems", () => {
+  it("stars a conversation when any of its messages is starred, not only the latest", () => {
+    const message = (id: string, date: string, isStarred: boolean) => ({
+      ...item({ id, threadId: "t1", date, isStarred, isRead: true }),
+      isDraft: false,
+      isSent: false,
+    });
+
+    const threads = buildLocalInboxItems(
+      [
+        message("older", "2026-11-01T00:00:00.000Z", true),
+        message("latest", "2026-11-02T00:00:00.000Z", false),
+      ],
+      "owner@example.com",
+    );
+
+    expect(threads.map(({ id, isStarred }) => ({ id, isStarred }))).toEqual([
+      { id: "latest", isStarred: true },
+    ]);
   });
 });

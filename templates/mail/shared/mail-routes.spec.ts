@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ALL_TAB_ID } from "./inbox-threads";
 import {
   filteredPathForView,
+  mailListPath,
   openThreadPath,
   resolveMailOpenPath,
   STARRED_MAIL_PATH,
@@ -47,7 +48,7 @@ describe("Mail open paths", () => {
         view: "inbox",
         params: { tab: "important", threadId: "abc" },
       }),
-    ).toBe("/inbox?tab=important");
+    ).toBe("/inbox/abc?tab=important");
   });
 
   it("carries the queued draft, inbox tab, saved filter, and search", () => {
@@ -102,6 +103,32 @@ describe("Mail open paths", () => {
         params: { inboxFilter: "r=bogus:is_checked" },
       }),
     ).toBeNull();
+  });
+
+  it("builds one destination from the view, thread, search and filter", () => {
+    expect(
+      resolveMailOpenPath({
+        view: "all",
+        params: { q: "from:alice", inboxFilter: "r=starred:is_checked" },
+      }),
+    ).toBe("/all?q=from:alice&r=starred:is_checked");
+    expect(
+      resolveMailOpenPath({
+        view: "all",
+        params: { threadId: "t/1", inboxFilter: "r=starred:is_checked" },
+      }),
+    ).toBe("/all/t%2F1?r=starred:is_checked");
+    expect(
+      mailListPath({
+        view: "inbox",
+        tab: "important",
+        threadId: "t1",
+        inboxFilter: "r=unread:is_checked",
+      }),
+    ).toBe("/inbox/t1?tab=important&r=unread:is_checked");
+    expect(
+      mailListPath({ view: "sent", inboxFilter: "r=unread:is_checked" }),
+    ).toBe("/sent");
   });
 
   it("sends the old Unread page to the filtered inbox and Starred to All Mail", () => {

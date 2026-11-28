@@ -1,10 +1,11 @@
 import {
-  addFilterRule,
+  createFilterGroup,
   createFilterRule,
   createFilterState,
   isDefaultFilterState,
   matchesFilter,
   type FilterField,
+  type FilterItem,
   type FilterMatchContext,
   type FilterState,
 } from "@agent-native/toolkit/app/filters/model";
@@ -30,6 +31,10 @@ export const INBOX_FILTER_LABELS_EN: InboxFilterLabels = {
 };
 
 const FLAG_KEYS = ["unread", "starred"] as const;
+
+type InboxFilterTerm = Partial<InboxFilterFlags>;
+
+const FILTER_PARAM_KEYS: ReadonlySet<string> = new Set(["r", "g", "match"]);
 
 const FILTERED_VIEWS: ReadonlySet<string> = new Set(["inbox", "all"]);
 
@@ -85,15 +90,13 @@ export function inboxFilterParamForView(
 export function inboxFilterParamFor(flags: {
   [Key in keyof InboxFilterFlags]?: boolean | undefined;
 }): string {
-  let state = createFilterState(FIELDS);
-  for (const field of FIELDS) {
-    const value = flags[field.id as keyof InboxFilterFlags];
-    if (value === undefined) continue;
-    state = addFilterRule(
-      state,
-      createFilterRule(field, [], value ? "is_checked" : "is_unchecked"),
-    );
+  const term: InboxFilterTerm = {};
+  for (const key of FLAG_KEYS) {
+    const value = flags[key];
+    if (value !== undefined) term[key] = value;
   }
+  const state = createFilterState(FIELDS);
+  state.items = termRules(term);
   return filterStateKey(state, FIELDS).replace(/^\?/, "");
 }
 
@@ -112,33 +115,77 @@ export function withInboxFilter(href: string, param: string): string {
   return `${path}${writeFilterSearch(search, readInboxFilter(param), FIELDS)}`;
 }
 
-export function inboxFilterGmailClause(param: string): string {
+function inboxFilterTerms(param: string): InboxFilterTerm[] | null {
   const accepts = inboxFilterAccepts(param);
-  if (!accepts) return "";
-  const allowed = FLAG_COMBINATIONS.filter(accepts);
-  if (allowed.length === 0) return "is:unread -is:unread";
-  if (allowed.length === FLAG_COMBINATIONS.length) return "";
+  if (!accepts) return null;
   const keys = FLAG_KEYS.filter((key) =>
     FLAG_COMBINATIONS.some(
       (flags) => accepts(flags) !== accepts({ ...flags, [key]: !flags[key] }),
     ),
   );
-  const terms = [
-    ...new Set(
-      allowed.map((flags) =>
-        keys.map((key) => (flags[key] ? `is:${key}` : `-is:${key}`)).join(" "),
-      ),
-    ),
-  ];
-  if (terms.length === 1) return terms[0] ?? "";
-  return `{${terms.map((term) => (keys.length > 1 ? `(${term})` : term)).join(" ")}}`;
+  const terms = new Map<string, InboxFilterTerm>();
+  for (const flags of FLAG_COMBINATIONS.filter(accepts)) {
+    const term: InboxFilterTerm = {};
+    for (const key of keys) term[key] = flags[key];
+    terms.set(JSON.stringify(term), term);
+  }
+  return [...terms.values()];
 }
 
-export function withInboxFilterClause(
-  search: string | undefined,
-  param: string,
-): string | undefined {
-  const clause = inboxFilterGmailClause(param);
-  if (!clause) return search;
-  return search ? `${search} ${clause}` : clause;
+function termRules(term: InboxFilterTerm): FilterItem[] {
+  return FIELDS.flatMap((field) => {
+    const value = term[field.id as keyof InboxFilterFlags];
+    return value === undefined
+      ? []
+      : [createFilterRule(field, [], value ? "is_checked" : "is_unchecked")];
+  });
+}
+
+export function inboxFilterIsReadable(param: string): boolean {
+  const counts = { r: 0, g: 0 };
+  for (const [key, value] of new URLSearchParams(param)) {
+    if (!FILTER_PARAM_KEYS.has(key)) return false;
+    if (key === "match" && value !== "any" && value !== "all") return false;
+    if (key === "r" || key === "g") counts[key] += 1;
+  }
+  const read = new URLSearchParams(inboxFilterParam(param));
+  return (
+    counts.r > 0 &&
+    read.getAll("r").length === counts.r &&
+    read.getAll("g").length === counts.g
+  );
+}
+
+export function inboxFilterRequest(search: string | URLSearchParams): string {
+  const terms = inboxFilterTerms(inboxFilterParam(search));
+  if (!terms) return "";
+  const state = createFilterState(FIELDS);
+  if (terms.length === 0) {
+    state.items = [
+      ...termRules({ unread: true }),
+      ...termRules({ unread: false }),
+    ];
+  } else if (terms.length === 1) {
+    state.items = terms.flatMap(termRules);
+  } else {
+    state.mode = "or";
+    state.items = terms.flatMap((term) => {
+      const rules = termRules(term);
+      return rules.length === 1 ? rules : [createFilterGroup(rules, "and")];
+    });
+  }
+  return filterStateKey(state, FIELDS).replace(/^\?/, "");
+}
+
+export function inboxFilterGmailClause(param: string): string {
+  const terms = inboxFilterTerms(param);
+  if (!terms) return "";
+  if (terms.length === 0) return "is:unread -is:unread";
+  const clauses = terms.map((term) =>
+    FLAG_KEYS.flatMap((key) =>
+      term[key] === undefined ? [] : [term[key] ? `is:${key}` : `-is:${key}`],
+    ).join(" "),
+  );
+  if (clauses.length === 1) return clauses[0] ?? "";
+  return `{${clauses.map((clause) => (clause.includes(" ") ? `(${clause})` : clause)).join(" ")}}`;
 }

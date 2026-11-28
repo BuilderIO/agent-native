@@ -22,8 +22,8 @@ import {
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import {
   inboxFilterParamForView,
+  inboxFilterRequest,
   withInboxFilter,
-  withInboxFilterClause,
 } from "@shared/inbox-filters";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
 import { STARRED_MAIL_PATH, UNREAD_INBOX_PATH } from "@shared/mail-routes";
@@ -121,6 +121,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
+  LEGACY_FILTER_VIEW_IDS,
   OTHER_INBOX_TAB_PARAM,
   isInboxScopedLabel,
   pinnedTriageLabels,
@@ -293,6 +294,34 @@ export function sidebarLabelTabs<
 >(tabs: readonly T[]): T[] {
   return tabs.filter(
     (tab) => tab.pinnedId !== undefined || tab.filterId !== undefined,
+  );
+}
+
+export function inboxTabLinkHref(
+  tab: { id: string; kind: string },
+  labels: readonly Label[],
+  inboxFilter: string,
+): string {
+  return tab.kind === "label" && !isInboxScopedLabel(tab.id, labels)
+    ? labelTabHref(tab.id, labels)
+    : withInboxFilter(inboxTabHref(tab.id), inboxFilter);
+}
+
+export function pinPickerLabels(
+  labels: readonly Label[],
+  systemViewIds: readonly string[],
+  aiTagIds: ReadonlySet<string>,
+): Label[] {
+  const excluded = new Set([
+    "inbox",
+    ...LEGACY_FILTER_VIEW_IDS,
+    ...systemViewIds,
+  ]);
+  return labels.filter(
+    (label) =>
+      !excluded.has(label.id) &&
+      !aiTagIds.has(label.id) &&
+      !aiTagIds.has(normalizedAiFilterLabelId(label.name)),
   );
 }
 
@@ -517,7 +546,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const viewFilter = inboxFilterParamForView(view, searchParams);
-  const inboxFilter = view === "inbox" ? viewFilter : "";
+  const requestFilter = inboxFilterRequest(viewFilter);
+  const inboxFilter = view === "inbox" ? requestFilter : "";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -824,9 +854,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label:
           tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
         fullLabel: aiTagName ?? label?.name,
-        href: mailboxWideLabelTab
-          ? labelTabHref(tab.id, labels)
-          : withInboxFilter(inboxTabHref(tab.id), inboxFilter),
+        href: inboxTabLinkHref(tab, labels, view === "inbox" ? viewFilter : ""),
         isActive:
           (view === "inbox" && activeInboxTabId === tab.id) ||
           (mailboxWideLabelTab && activeLabel === tab.id && view === "all"),
@@ -844,7 +872,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     activeLabel,
     activeInboxTabId,
     aiTagDisplayNames,
-    inboxFilter,
+    viewFilter,
     inboxTabs,
     labels,
     labelsFailed,
@@ -895,16 +923,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     ) ?? headerOnlyViews.find((v) => v.id === view);
   const currentInHidden = currentHiddenView !== undefined;
 
-  const userLabels = useMemo(() => {
-    const aiTagIds = new Set(aiTags.map((tag) => tag.id));
-    const filtered = labels.filter(
-      (l) =>
-        !["inbox", ...systemViews.map((v) => v.id)].includes(l.id) &&
-        !aiTagIds.has(l.id) &&
-        !aiTagIds.has(normalizedAiFilterLabelId(l.name)),
-    );
-    return filtered;
-  }, [aiTags, labels, systemViews]);
+  const userLabels = useMemo(
+    () =>
+      pinPickerLabels(
+        labels,
+        systemViews.map((v) => v.id),
+        new Set(aiTags.map((tag) => tag.id)),
+      ),
+    [aiTags, labels, systemViews],
+  );
 
   const handleCompose = useCallback(() => {
     trackEvent("compose_opened", {
@@ -932,12 +959,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const shellBaseSearchQuery =
+  const shellSearchQuery =
     activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
-  const shellSearchQuery = withInboxFilterClause(
-    shellBaseSearchQuery,
-    viewFilter,
-  );
   const shellQueryScope = resolveInboxEmailQueryScope({
     view,
     activeLabel,
@@ -946,7 +969,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     activeSavedFilter: activeSavedFilterQuery !== undefined,
     combineInbox,
     triageLabels: pinnedTriageLabels(pinnedLabels),
-    searchQuery: shellBaseSearchQuery,
+    searchQuery: shellSearchQuery,
   });
   const useInboxThreadsForActionTargets =
     view === "inbox" &&
@@ -966,6 +989,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isMailboxView &&
         (view !== "inbox" ||
           (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady)),
+      inboxFilter: requestFilter,
     },
   );
   const currentViewEmails = useInboxThreadsForActionTargets

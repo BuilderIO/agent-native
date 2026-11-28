@@ -2,6 +2,7 @@ import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
 } from "@shared/gmail-labels.js";
+import { inboxFilterGmailClause } from "@shared/inbox-filters.js";
 import { isSelfAddressedThread } from "@shared/self-notes.js";
 import type { EmailMessage } from "@shared/types.js";
 
@@ -64,21 +65,30 @@ export function buildGmailEmailSearchQuery({
   view = "inbox",
   q,
   label,
+  inboxFilter,
 }: {
   view?: string;
-  q?: string;
-  label?: string;
+  q?: string | undefined;
+  label?: string | undefined;
+  inboxFilter?: string | undefined;
 }): string {
-  const searchClause = gmailSearchClause(q);
+  const filterClause = inboxFilter ? inboxFilterGmailClause(inboxFilter) : "";
+  const normalizedSearch = gmailSearchClause(q);
+  const searchClause =
+    filterClause && normalizedSearch
+      ? `(${normalizedSearch})`
+      : normalizedSearch;
 
   if (label) {
     const labelClause = gmailAppLabelSearchClause(label);
     const viewClause = viewSearchClauseForLabelTab(view, label);
-    return [viewClause, labelClause, searchClause].filter(Boolean).join(" ");
+    return [viewClause, labelClause, searchClause, filterClause]
+      .filter(Boolean)
+      .join(" ");
   }
 
   const viewQuery = VIEW_QUERIES[view] ?? `label:${view}`;
-  return [viewQuery, searchClause].filter(Boolean).join(" ");
+  return [viewQuery, searchClause, filterClause].filter(Boolean).join(" ");
 }
 
 export function filterLabelMessages(

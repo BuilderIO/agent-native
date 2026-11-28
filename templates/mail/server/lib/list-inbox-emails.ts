@@ -21,6 +21,7 @@ export interface ListInboxEmailsParams {
   view: string;
   q?: string;
   label?: string;
+  inboxFilter?: string | undefined;
   limit: number;
   pageTokens?: Record<string, string>;
   threadFormat?: "full" | "metadata" | "minimal";
@@ -87,6 +88,7 @@ export async function listInboxEmails(
     view,
     q,
     label,
+    inboxFilter,
     limit,
     pageTokens,
     threadFormat,
@@ -100,7 +102,12 @@ export async function listInboxEmails(
   const connectedEmails = new Set(
     accountTokens.map((account) => account.email.toLowerCase()),
   );
-  const searchQuery = buildGmailEmailSearchQuery({ view, q, label });
+  const searchQuery = buildGmailEmailSearchQuery({
+    view,
+    q,
+    label,
+    inboxFilter,
+  });
 
   const { messages, errors, nextPageTokens, resultSizeEstimate } =
     await listGmailMessages(searchQuery, limit, ownerEmail, pageTokens, {
@@ -110,6 +117,7 @@ export async function listInboxEmails(
       threadRecentMessageCandidateLimit:
         includeRecentMessageCandidates &&
         !q &&
+        !inboxFilter &&
         (view === "inbox" || view === "unread")
           ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
           : undefined,

@@ -784,6 +784,52 @@ export async function toggleStar(
   throw lastErr ?? new Error("Toggle star failed");
 }
 
+export interface UnstarThreadInput {
+  threadId: string;
+  ownerEmail: string;
+  accountEmail?: string | undefined;
+}
+
+export async function unstarThread(
+  input: UnstarThreadInput,
+): Promise<{ threadId: string; isStarred: false }> {
+  const { threadId, ownerEmail, accountEmail } = input;
+
+  if (!(await isConnected(ownerEmail))) {
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      if (!emails.some((e) => (e.threadId || e.id) === threadId)) {
+        throw new Error(`Thread ${threadId} not found`);
+      }
+      await writeLocalEmails(
+        ownerEmail,
+        emails.map((e) =>
+          (e.threadId || e.id) === threadId && e.isStarred
+            ? { ...e, isStarred: false }
+            : e,
+        ),
+      );
+      return { threadId, isStarred: false as const };
+    });
+  }
+
+  const resolvedAccount = await resolveMutationAccount(
+    ownerEmail,
+    accountEmail,
+    { threadId },
+  );
+  const token = await getAccountToken(resolvedAccount, ownerEmail);
+  const updated = (await gmailModifyThread(token, threadId, undefined, [
+    "STARRED",
+  ])) as { historyId?: string } | undefined;
+  invalidateThreadCache(ownerEmail, threadId, resolvedAccount);
+  await syncInboxLabelDelta(ownerEmail, resolvedAccount, [threadId], {
+    remove: ["STARRED"],
+    ...(updated?.historyId ? { providerHistoryId: updated.historyId } : {}),
+  });
+  return { threadId, isStarred: false };
+}
+
 export interface TrashEmailInput {
   id: string;
   ownerEmail: string;

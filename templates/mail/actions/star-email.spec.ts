@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   isConnected: vi.fn(),
   gmailBatchModifyByAccount: vi.fn(),
   toggleStar: vi.fn(),
+  unstarThread: vi.fn(),
   resolveMutationAccounts: vi.fn(),
   syncInboxLabelDeltaForTargets: vi.fn(),
   invalidateThreadCache: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("../server/lib/email-state.js", () => ({
   resolveMutationAccounts: mocks.resolveMutationAccounts,
   toggleStar: mocks.toggleStar,
+  unstarThread: mocks.unstarThread,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => ({
@@ -62,6 +64,35 @@ beforeEach(() => {
 });
 
 describe("star-email action", () => {
+  it("unstars every message of a conversation by its thread id", async () => {
+    const result = await action.run({
+      threadId: "thread-1",
+      unstar: true,
+      accountEmail: ACCOUNT,
+    });
+
+    expect(mocks.unstarThread).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      ownerEmail: OWNER,
+      accountEmail: ACCOUNT,
+    });
+    expect(mocks.toggleStar).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).toHaveBeenCalledWith("refresh-signal", {
+      ts: expect.any(Number),
+    });
+    expect(result).toBe("Unstarred thread thread-1");
+  });
+
+  it("rejects starring a whole conversation, or a thread id mixed with message ids", async () => {
+    await expect(action.run({ threadId: "thread-1" })).rejects.toMatchObject({
+      errorCode: "invalid_star_target",
+    });
+    await expect(
+      action.run({ threadId: "thread-1", id: "message-1", unstar: true }),
+    ).rejects.toMatchObject({ errorCode: "invalid_star_target" });
+    expect(mocks.unstarThread).not.toHaveBeenCalled();
+  });
+
   it("returns quota-deferred targets for the queue to retry in one batch", async () => {
     const result = await action.run({
       id: "message-1,message-2",

@@ -70,6 +70,7 @@ export function buildLocalInboxItems(
       return {
         ...latest,
         labelIds,
+        isStarred: messages.some((m) => m.isStarred),
         messageCount: messages.length,
         unreadCount: messages.filter((m) => !m.isRead).length,
         messageIds: messages.map((m) => m.id),
@@ -171,4 +172,22 @@ export function resolveActiveTabId(
   const first = tabs[0]?.id ?? OTHER_TAB_ID;
   if (!requested) return first;
   return tabs.some((t) => t.id === requested) ? requested : first;
+}
+
+export function resolvePageTabs(
+  tabs: ResolvedInboxTab[],
+  requested: string | undefined,
+  filtered: boolean,
+): { pageTabs: ResolvedInboxTab[]; activeTabId: string } {
+  const scopesWholeInbox =
+    filtered &&
+    (!requested || requested === ALL_TAB_ID) &&
+    !tabs.some((tab) => tab.kind === "all" || tab.kind === "inbox");
+  if (!scopesWholeInbox) {
+    return { pageTabs: tabs, activeTabId: resolveActiveTabId(requested, tabs) };
+  }
+  return {
+    pageTabs: [{ id: ALL_TAB_ID, kind: "all", name: "All" }, ...tabs],
+    activeTabId: ALL_TAB_ID,
+  };
 }

@@ -89,7 +89,22 @@ describe("Mail navigate", () => {
     await expect(action.run({ view: "sent", starred: true })).rejects.toThrow(
       /filter the inbox or all, not sent/,
     );
+    await expect(
+      action.run({ settingsSection: "rules", unread: true }),
+    ).rejects.toThrow(/filter the inbox or all, not settings/);
+    await expect(
+      action.run({ composeDraftId: "draft-1", starred: true }),
+    ).rejects.toThrow(/filter the inbox or all, not a compose draft/);
     expect(writeAppStateForCurrentTab).not.toHaveBeenCalled();
+  });
+
+  it("keeps a thread inside the filtered list it opens on", async () => {
+    await action.run({ starred: true, threadId: "t1" });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "all",
+      threadId: "t1",
+      starred: "true",
+    });
   });
 
   it.each([

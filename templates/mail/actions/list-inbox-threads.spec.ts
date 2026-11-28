@@ -89,6 +89,7 @@ vi.mock("../server/lib/inbox-store.js", () => ({
   }),
 }));
 
+import { ALL_TAB_ID } from "../shared/inbox-threads.js";
 import action from "./list-inbox-threads";
 
 // The SQL windows are verified against the in-memory partition in
@@ -461,6 +462,75 @@ describe("list-inbox-threads action", () => {
       action.run({ inboxFilter: "r=label:is_checked", limit: 50, offset: 0 }),
     ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
   });
+
+  it("rejects an inboxFilter it can only partly read", async () => {
+    mocks.readInboxThreads.mockResolvedValue([row({ threadId: "t1" })]);
+
+    await expect(
+      action.run({
+        inboxFilter: "r=unread:is_checked&r=unknown:is_checked",
+        limit: 50,
+        offset: 0,
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_inbox_filter" });
+  });
+
+  it.each([
+    ["the SQL windows", []],
+    ["the in-memory partition", ["work"]],
+  ])(
+    "reads the whole inbox for a filtered read with no tab while All is hidden, through %s",
+    async (_path, pinnedLabels) => {
+      mocks.readSettings.mockResolvedValue({
+        combineInbox: false,
+        showAllTab: false,
+        pinnedLabels,
+        savedFilters: [],
+        labelAliases: {},
+      });
+      mocks.readInboxThreads.mockResolvedValue([
+        row({ threadId: "t1", latestMessageId: "m1", latestDate: 3 }),
+        row({
+          threadId: "t2",
+          latestMessageId: "m2",
+          latestDate: 2,
+          isAutomated: true,
+        }),
+        row({
+          threadId: "t3",
+          latestMessageId: "m3",
+          latestDate: 1,
+          isUnread: false,
+          unreadCount: 0,
+        }),
+      ]);
+
+      const tabless = await action.run({
+        inboxFilter: "r=unread:is_checked",
+        limit: 50,
+        offset: 0,
+      });
+
+      expect(tabless.items.map((item) => item.threadId)).toEqual(["t1", "t2"]);
+      expect(tabless.activeTabId).toBe(ALL_TAB_ID);
+      expect(tabless.tabs.map((tab) => tab.id)).not.toContain(ALL_TAB_ID);
+      expect(tabless.tabs.find((tab) => tab.id === "other")?.total).toBe(1);
+
+      const important = await action.run({
+        tab: "important",
+        inboxFilter: "r=unread:is_checked",
+        limit: 50,
+        offset: 0,
+      });
+
+      expect(important.items.map((item) => item.threadId)).toEqual(["t1"]);
+      expect(important.activeTabId).toBe("important");
+
+      const unfiltered = await action.run({ limit: 50, offset: 0 });
+
+      expect(unfiltered.activeTabId).toBe("important");
+    },
+  );
 
   it("reports initial progress from SQL without making Gmail or token-refresh calls", async () => {
     mocks.readInboxThreads.mockResolvedValue([]);

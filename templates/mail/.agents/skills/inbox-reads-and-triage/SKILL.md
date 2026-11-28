@@ -16,9 +16,12 @@ description: >-
 (Important, pinned labels, saved filters, Other — or one combined Inbox tab
 when the user has "combine inbox" on), each tab's total/unread counts, and
 the active tab's rows, all computed from one partition over the synced inbox
-store. A tab's badge can never disagree with the rows it returns, and the
-read never waits on a live Gmail call. `tab` accepts any id from the returned
-`tabs` list; an unrecognized or omitted id falls back to the first tab. Use
+store, and the read never waits on a live Gmail call. Tab badges always count
+the whole tab: `unreadOnly` and `inboxFilter` narrow the returned rows, never
+the counts. `tab` accepts any id from the returned `tabs` list; an
+unrecognized or omitted id falls back to the first tab, except that an
+`inboxFilter` read with no tab covers the whole inbox even when the All tab is
+hidden. Use
 `list-emails`/`search-emails` for every other view (Sent, Archive, Trash, All
 Mail) or an ad hoc query — not for the inbox.
 
@@ -26,16 +29,22 @@ Unread and Starred are filters, not separate views. Inbox and All Mail both
 have the Filter menu. The UI keeps its rules in the URL, and
 `navigation.inboxFilter` holds them (`r=unread:is_checked`,
 `r=starred:is_checked`, `match=any` for "either"). On the inbox, pass that
-value as `list-inbox-threads` `inboxFilter` to read the rows the person sees;
-tab counts stay unfiltered. On All Mail the filter adds its Gmail clause
-(`is:starred`, `is:unread`) to All Mail's query: read those rows with
-`list-emails` `view: "all"` and the clause as `q`.
+value as `list-inbox-threads` `inboxFilter` to read the rows the person sees.
+On All Mail the filter adds its Gmail clause (`is:starred`, `is:unread`)
+after All Mail's search: read those rows with `list-emails` `view: "all"` and
+`q` set to the search in parentheses followed by the clause, such as
+`(subject:invoice OR subject:receipt) is:unread`.
 
 Starred opens All Mail filtered by Starred (`/all?r=starred:is_checked`),
 because starred mail stays starred after it is archived. Unread opens the inbox
 filtered by Unread (`/inbox?r=unread:is_checked`). `navigate` `starred: true`
 with no `view`, `tab` or `sort` opens All Mail the same way; other
-`unread`/`starred` values filter the inbox unless `view` is `all`.
+`unread`/`starred` values filter the inbox unless `view` is `all`. A
+`threadId` opens that conversation inside the filtered list.
+
+A conversation stays starred while any of its messages is. To unstar the
+whole conversation, call `star-email` with `threadId` and `unstar: true`
+rather than unstarring its latest message.
 
 Membership is independent of Gmail's IMPORTANT label: a thread belongs to its
 first matching pinned-label or saved-filter tab. Unmatched personal mail goes to

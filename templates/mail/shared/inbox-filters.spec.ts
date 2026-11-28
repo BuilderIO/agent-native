@@ -3,20 +3,22 @@ import { describe, expect, it } from "vitest";
 import {
   inboxFilterAccepts,
   inboxFilterGmailClause,
+  inboxFilterIsReadable,
   inboxFilterParam,
   inboxFilterParamFor,
   inboxFilterParamForView,
+  inboxFilterRequest,
   readInboxFilter,
   viewTakesInboxFilter,
   withInboxFilter,
-  withInboxFilterClause,
   type InboxFilterFlags,
 } from "./inbox-filters";
-import { emailMessageMatchesSearch } from "./search";
 
 const UNREAD = "r=unread:is_checked";
 const STARRED = "r=starred:is_checked";
 const EITHER = "match=any&r=unread:is_checked&r=starred:is_checked";
+const SAME_OR_NEITHER =
+  "match=any&g=1:all&r=1/unread:is_checked&r=1/starred:is_checked&g=2:all&r=2/unread:is_unchecked&r=2/starred:is_unchecked";
 
 const COMBINATIONS: InboxFilterFlags[] = [
   { unread: true, starred: true },
@@ -130,40 +132,76 @@ describe("views with the Filter menu", () => {
     expect(inboxFilterParamForView("all", `?${STARRED}`)).toBe(STARRED);
     expect(inboxFilterParamForView("archive", `?${STARRED}`)).toBe("");
   });
+});
 
-  it("adds the filter's Gmail clause to a list's search", () => {
-    expect(withInboxFilterClause(undefined, STARRED)).toBe("is:starred");
-    expect(withInboxFilterClause("from:ada", UNREAD)).toBe(
-      "from:ada is:unread",
-    );
-    expect(withInboxFilterClause("from:ada", "")).toBe("from:ada");
-    expect(withInboxFilterClause(undefined, "")).toBeUndefined();
+describe("inbox filter requests", () => {
+  it("sends the same rows the menu's rules keep, in a bounded form", () => {
+    for (const param of [
+      UNREAD,
+      STARRED,
+      EITHER,
+      SAME_OR_NEITHER,
+      `${UNREAD}&${STARRED}`,
+      "r=unread:is_checked&r=unread:is_unchecked",
+    ]) {
+      expect(kept(inboxFilterRequest(`?${param}`))).toEqual(kept(param));
+    }
+    expect(inboxFilterRequest(`?${UNREAD}`)).toBe(UNREAD);
+    expect(inboxFilterRequest(`?${SAME_OR_NEITHER}`)).toBe(SAME_OR_NEITHER);
   });
 
-  it("finds archived starred mail in the local fallback, as the Starred page did", () => {
-    const message = {
-      subject: "Trip plans",
-      snippet: "",
-      body: "",
-      from: { name: "Ada", email: "ada@example.com" },
-      to: [],
-      labelIds: [],
-      isRead: true,
-      isArchived: true,
-      isTrashed: false,
-      isDraft: false,
-      isSent: false,
-      date: "2026-11-01T00:00:00.000Z",
-    };
-    const starredSearch = withInboxFilterClause(undefined, STARRED) ?? "";
-    expect(
-      emailMessageMatchesSearch({ ...message, isStarred: true }, starredSearch),
-    ).toBe(true);
-    expect(
-      emailMessageMatchesSearch(
-        { ...message, isStarred: false },
-        starredSearch,
+  it("collapses repeated lines, so the request stays under the action's cap", () => {
+    const repeated = Array.from({ length: 40 }, () => UNREAD).join("&");
+    expect(repeated.length).toBeGreaterThan(500);
+    expect(inboxFilterRequest(`?${repeated}`)).toBe(UNREAD);
+    const sprawling = [
+      "match=any",
+      ...Array.from(
+        { length: 30 },
+        (_, index) =>
+          `g=${index + 1}:all&r=${index + 1}/unread:is_checked&r=${index + 1}/starred:is_unchecked`,
       ),
-    ).toBe(false);
+    ].join("&");
+    expect(inboxFilterRequest(`?${sprawling}`)).toBe(
+      "r=unread:is_checked&r=starred:is_unchecked",
+    );
+  });
+
+  it("sends nothing when the rules keep every conversation", () => {
+    expect(
+      inboxFilterRequest(
+        "?match=any&r=unread:is_checked&r=unread:is_unchecked",
+      ),
+    ).toBe("");
+    expect(inboxFilterRequest("?q=receipts")).toBe("");
+  });
+});
+
+describe("reading an inbox filter strictly", () => {
+  it("accepts what the menu writes", () => {
+    for (const param of [
+      UNREAD,
+      EITHER,
+      SAME_OR_NEITHER,
+      "r=starred:is_unchecked",
+      "match=all&r=unread:is_checked",
+    ]) {
+      expect(inboxFilterIsReadable(param)).toBe(true);
+    }
+  });
+
+  it("rejects input the inbox would only partly read", () => {
+    for (const param of [
+      "",
+      "r=label:is_checked",
+      "r=unread:is_checked&r=unknown:is_checked",
+      "r=unread:is_yes",
+      "r=3/unread:is_checked",
+      "g=1:all",
+      "match=some&r=unread:is_checked",
+      "r=unread:is_checked&tab=important",
+    ]) {
+      expect(inboxFilterIsReadable(param)).toBe(false);
+    }
   });
 });

@@ -6,6 +6,10 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { agentNativeApiDisabledReason } from "@agent-native/core/client/host";
+import {
+  inboxFilterAccepts,
+  type InboxFilterFlags,
+} from "@shared/inbox-filters";
 import type {
   InboxThreadItem,
   InboxSyncAccountStatus,
@@ -282,6 +286,15 @@ function readInboxQueryParams(key: QueryKey): Record<string, unknown> | null {
     : null;
 }
 
+function inboxQueryFilterAccepts(
+  key: QueryKey,
+): ((flags: InboxFilterFlags) => boolean) | null {
+  const filter = readInboxQueryParams(key)?.inboxFilter;
+  return typeof filter === "string" && filter
+    ? inboxFilterAccepts(filter)
+    : null;
+}
+
 function inboxQueryScope(key: QueryKey): string {
   const params = readInboxQueryParams(key);
   if (!params) return JSON.stringify(key);
@@ -431,7 +444,12 @@ export function useInboxThreads(
     retry: false,
     refetchInterval: inboxThreadsRefetchInterval,
     staleTime: inboxThreadsStaleTime,
-    select: (data) => applyInboxMutationOverlay(qc, data) as InboxQueryResult,
+    select: (data) =>
+      applyInboxMutationOverlay(
+        qc,
+        data,
+        input.inboxFilter,
+      ) as InboxQueryResult,
   });
 }
 
@@ -566,7 +584,11 @@ export function useInboxThreadsPages(
         enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
         retry: false,
         select: (data: ListInboxThreadsResult) =>
-          applyInboxMutationOverlay(qc, data) as InboxQueryResult,
+          applyInboxMutationOverlay(
+            qc,
+            data,
+            params.inboxFilter,
+          ) as InboxQueryResult,
         staleTime: 60_000,
       };
     }),
@@ -592,6 +614,7 @@ export function inboxThreadsHasNextPage(
   total: number,
   options?: {
     complete?: boolean;
+    hasMore?: boolean | undefined;
     lastPageLength?: number;
     pageSize?: number;
     reachedCap?: boolean;
@@ -603,6 +626,7 @@ export function inboxThreadsHasNextPage(
   // Loaded count is checked directly: a lower-bound or unread-only total can
   // leave `reachedCap` unset while the next offset is already at the cap.
   if (options?.reachedCap || loadedCount >= INBOX_MAX_PAGE_OFFSET) return false;
+  if (options?.hasMore !== undefined) return options.hasMore;
   if (
     options?.totalIsLowerBound ||
     (options?.complete === false && options.lastPageLength !== undefined)
@@ -1028,7 +1052,11 @@ export function settleInboxMutationIfObserved(
     if (
       !mutation.threadIds.every((threadId) => {
         const item = freshItemByThread.get(threadId);
-        return item !== undefined && item.isStarred === mutation.isStarred;
+        return item
+          ? item.isStarred === mutation.isStarred
+          : freshFilterLeavesOut(snapshots, mutation, threadId, {
+              starred: mutation.isStarred,
+            });
       })
     ) {
       return;
@@ -1049,11 +1077,12 @@ export function settleInboxMutationIfObserved(
     if (
       !states.every((state) => {
         const item = freshItemByThread.get(state.threadId);
-        return (
-          item !== undefined &&
-          item.isRead === state.isRead &&
-          item.unreadCount === state.unreadCount
-        );
+        return item
+          ? item.isRead === state.isRead &&
+              item.unreadCount === state.unreadCount
+          : freshFilterLeavesOut(snapshots, mutation, state.threadId, {
+              unread: state.unreadCount > 0,
+            });
       })
     ) {
       return;
@@ -1062,6 +1091,43 @@ export function settleInboxMutationIfObserved(
 
   supersedeOlderInboxMutations(qc, mutation);
   forgetInboxMutation(qc, id);
+}
+
+function freshFilterLeavesOut(
+  snapshots: ReadonlyArray<[QueryKey, InboxQueryResult | undefined]>,
+  mutation: InboxMutation,
+  threadId: string,
+  known: Partial<InboxFilterFlags>,
+): boolean {
+  return snapshots.some(([key, data]) => {
+    const accepts = inboxQueryFilterAccepts(key);
+    if (
+      !accepts ||
+      !data ||
+      data.clientSnapshotId <= mutation.providerSnapshotFence ||
+      data.items.some((item) => threadKeyOf(item) === threadId)
+    ) {
+      return false;
+    }
+    return [true, false].every((unread) =>
+      [true, false].every(
+        (starred) =>
+          !accepts({
+            unread: known.unread ?? unread,
+            starred: known.starred ?? starred,
+          }),
+      ),
+    );
+  });
+}
+
+function inboxMutationThreadIds(mutation: InboxMutation): string[] {
+  if (mutation.kind === "read") {
+    return mutation.states.map((state) => state.threadId);
+  }
+  if (mutation.kind === "unread-count") return [mutation.state.threadId];
+  if (mutation.kind === "star") return mutation.threadIds;
+  return [];
 }
 
 export function clearInboxThreadRemoval(
@@ -1222,8 +1288,10 @@ function applyInboxMutation(
 export function applyInboxMutationOverlay(
   qc: QueryClient,
   data: ListInboxThreadsResult,
+  inboxFilter?: string,
 ): ListInboxThreadsResult {
   let result = data;
+  const mutatedThreadIds = new Set<string>();
   const mutations = activeInboxMutations(qc);
   const latestByKey = new Map<string, string>();
   for (const mutation of mutations) {
@@ -1239,9 +1307,20 @@ export function applyInboxMutationOverlay(
   }
   for (const mutation of mutations) {
     const current = currentInboxMutation(mutation, latestByKey);
-    if (current) result = applyInboxMutation(result, current);
+    if (!current) continue;
+    result = applyInboxMutation(result, current);
+    for (const threadId of inboxMutationThreadIds(current)) {
+      mutatedThreadIds.add(threadId);
+    }
   }
-  return result;
+  const accepts = inboxFilter ? inboxFilterAccepts(inboxFilter) : null;
+  if (!accepts || mutatedThreadIds.size === 0) return result;
+  const items = result.items.filter(
+    (item) =>
+      !mutatedThreadIds.has(threadKeyOf(item)) ||
+      accepts({ unread: item.unreadCount > 0, starred: item.isStarred }),
+  );
+  return items.length === result.items.length ? result : { ...result, items };
 }
 
 /**
