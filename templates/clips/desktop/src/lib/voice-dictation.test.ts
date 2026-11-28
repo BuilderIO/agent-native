@@ -51,6 +51,7 @@ vi.mock("./personal-vocabulary", () => ({
   currentVocabulary: vi.fn(() => ({ status: "unloaded" })),
   loadVocabulary: vi.fn(async () => ({ status: "unloaded" })),
   recordPasteForLearn: vi.fn(),
+  hasPendingVocabularySuggestion: vi.fn(() => false),
 }));
 vi.mock("./transcription-engine", () => ({
   onAudioLevel: (callback: (event: Record<string, unknown>) => void) => {

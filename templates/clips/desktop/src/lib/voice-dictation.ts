@@ -7,6 +7,7 @@ import { applyBacktrack } from "./backtrack";
 import {
   configureVocabularyClient,
   currentVocabulary,
+  hasPendingVocabularySuggestion,
   loadVocabulary,
   recordPasteForLearn,
 } from "./personal-vocabulary";
@@ -729,6 +730,8 @@ export function installDesktopVoiceDictation(
     window.setTimeout(() => {
       if (disposed || !lifecycle.isLatest(runId) || lifecycle.isBusy()) return;
       setFlowState("idle", undefined, { runId });
+      // A learned-word suggestion is waiting for an answer in the bar.
+      if (hasPendingVocabularySuggestion()) return;
       invoke("hide_flow_bar").catch(() => {});
     }, delayMs);
   };

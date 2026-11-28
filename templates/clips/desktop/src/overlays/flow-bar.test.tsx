@@ -187,4 +187,80 @@ describe("FlowBar", () => {
       host.querySelector(".flow-bar-result-copy")?.textContent,
     ).not.toContain("AppleSpeech");
   });
+
+  it("asks before learning a corrected word and sends the answer", async () => {
+    const onStateChange = mocks.listeners.get("voice:state-change");
+    await act(async () => {
+      onStateChange?.({ payload: { state: "complete", runId: 124 } });
+      await Promise.resolve();
+    });
+    const onSuggestion = mocks.listeners.get("voice:vocab-suggestion");
+    expect(onSuggestion).toBeDefined();
+    await act(async () => {
+      onSuggestion?.({
+        payload: { id: 7, term: "kublectl", replacement: "kubectl" },
+      });
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain("dictateRoute.flowLearnWordQuestion");
+    expect(host.textContent).toContain("kublectl → kubectl");
+
+    const add = [...host.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("dictateRoute.flowLearnWordAdd"),
+    );
+    await act(async () => {
+      add?.click();
+      await Promise.resolve();
+    });
+    expect(mocks.emitted).toContainEqual({
+      name: "voice:vocab-suggestion-answer",
+      payload: { id: 7, accept: true },
+    });
+    expect(host.textContent).not.toContain(
+      "dictateRoute.flowLearnWordQuestion",
+    );
+    expect(host.textContent).toContain("dictateRoute.flowLearnWordSaving");
+
+    const onSaved = mocks.listeners.get("voice:vocab-suggestion-saved");
+    // A result for another save does not change what the bar shows.
+    await act(async () => {
+      onSaved?.({ payload: { id: 6, saved: true } });
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain("dictateRoute.flowLearnWordSaving");
+    await act(async () => {
+      onSaved?.({ payload: { id: 7, saved: false } });
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain("dictateRoute.flowLearnWordFailed");
+
+    // A newer suggestion drops the earlier save: its late result is ignored.
+    await act(async () => {
+      onSuggestion?.({
+        payload: { id: 8, term: "Nevel", replacement: "Nevil" },
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      onSaved?.({ payload: { id: 7, saved: true } });
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain("Nevel → Nevil");
+    expect(host.textContent).not.toContain("dictateRoute.flowLearnWordSaved");
+
+    // A late event for an older suggestion does not replace the current one.
+    await act(async () => {
+      onSuggestion?.({
+        payload: { id: 7, term: "kublectl", replacement: "kubectl" },
+      });
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain("Nevel → Nevil");
+  });
+
+  it("tells a new flow bar's suggestion listener is ready", () => {
+    expect(mocks.emitted.map((e) => e.name)).toContain(
+      "voice:vocab-suggestion-ready",
+    );
+  });
 });
