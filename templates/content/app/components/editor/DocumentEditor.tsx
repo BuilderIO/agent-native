@@ -493,6 +493,7 @@ import type {
   VisualEditorHistoryState,
   VisualEditorPersistenceController,
   VisualEditorSelectionController,
+  VisualEditorExternalContent,
   VisualEditorSelectionSnapshot,
   VisualEditorSuggestionPlacements,
 } from "./VisualEditor";
@@ -3740,6 +3741,21 @@ function PageEditorSessionBody({
     "checking" | "available" | "unavailable"
   >("checking");
   const [localFileSyncRevision, setLocalFileSyncRevision] = useState(0);
+  const [localSourceText, setLocalSourceText] =
+    useState<VisualEditorExternalContent | null>(null);
+  const showLocalSourceText = useCallback((content: string) => {
+    let pending = true;
+    setLocalSourceText((current) => ({
+      key: String(Number(current?.key ?? 0) + 1),
+      merge: (_live, canHold) => {
+        if (!pending) return null;
+        pending = false;
+        if (canHold(content)) return content;
+        setLocalFileSyncRevision((revision) => revision + 1);
+        return null;
+      },
+    }));
+  }, []);
   const editorHistoryControllerDocumentIdRef = useRef<string | null>(null);
   const [editorHistoryControllerReady, setEditorHistoryControllerReady] =
     useState(false);
@@ -4512,6 +4528,7 @@ function PageEditorSessionBody({
       setLocalSourceMissing(false);
       setLocalSourceAccess("checking");
       setLocalFileSyncRevision(0);
+      setLocalSourceText(null);
     }
     if (!isInitializedRef.current) {
       setLocalTitle(document.title);
@@ -5060,7 +5077,7 @@ function PageEditorSessionBody({
         content: diskContent,
         updatedAt: result.updatedAt,
       };
-      setLocalFileSyncRevision((revision) => revision + 1);
+      showLocalSourceText(diskContent);
       setLocalSourceConflict(null);
     };
 
@@ -5079,7 +5096,12 @@ function PageEditorSessionBody({
       active = false;
       stop?.();
     };
-  }, [document.id, document.source, isLinkedLocalSourceDocument]);
+  }, [
+    document.id,
+    document.source,
+    isLinkedLocalSourceDocument,
+    showLocalSourceText,
+  ]);
 
   const handleLinkedLocalAgentPersistence = useCallback(
     (persisted: Document, revision?: DesktopContentFileRevision) => {
@@ -5097,7 +5119,7 @@ function PageEditorSessionBody({
         content: persisted.content,
         updatedAt: lastSavedContentRef.current.updatedAt,
       };
-      setLocalFileSyncRevision((revision) => revision + 1);
+      showLocalSourceText(persisted.content);
       setLocalSourceConflict(null);
       const sqlUpdatedAt = documentUpdatedAtRef.current;
       queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
@@ -5107,7 +5129,7 @@ function PageEditorSessionBody({
         }),
       );
     },
-    [documentId, queryClient],
+    [documentId, queryClient, showLocalSourceText],
   );
 
   useEffect(() => {
@@ -12593,6 +12615,9 @@ function PageEditorSessionBody({
                                         : showLocalCreationDraft
                                           ? localContent
                                           : document.content))
+                                }
+                                externalContent={
+                                  isLocalFileDocument ? localSourceText : null
                                 }
                                 contentUpdatedAt={
                                   isLocalFileDocument || showLocalCreationDraft

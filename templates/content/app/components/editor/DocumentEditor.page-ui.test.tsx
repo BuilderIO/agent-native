@@ -5,6 +5,7 @@ import type { Document } from "@shared/api";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import type { QueryClient } from "@tanstack/react-query";
+import type { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,6 +36,8 @@ const fixture = vi.hoisted(() => ({
   threads: [] as CommentThread[],
   suggestions: [] as ResourceSuggestion[],
   readLocal: null as LocalSourceDocumentReadResult | null,
+  localFileChanged: null as (() => void) | null,
+  realEditor: false,
   toolbars: [] as ToolbarProps[],
   sidebars: [] as SidebarProps[],
   properties: [] as { documentId: string; databaseId?: string | null }[],
@@ -148,7 +151,10 @@ vi.mock("@/lib/local-content-source-files", async (original) => ({
   canWriteLinkedLocalSource: (_id: string, source: Document["source"]) =>
     source?.mode === "local-files",
   readDocumentFromLinkedLocalSource: async () => fixture.readLocal,
-  watchLinkedLocalSource: async () => ({ ok: false, error: "unwatched" }),
+  watchLinkedLocalSource: async (_source: unknown, onChange: () => void) => {
+    fixture.localFileChanged = onChange;
+    return { ok: true, unsubscribe: () => {} };
+  },
   writeDocumentToLinkedLocalSource: async () => ({
     ok: true,
     revision: "disk-2",
@@ -204,31 +210,35 @@ vi.mock("./LinkedLocalDocumentAgentBridge", () => ({
 vi.mock("./DocumentReconcileRecovery", () => ({
   DocumentReconcileRecovery: () => null,
 }));
-vi.mock("./VisualEditor", async (original) => ({
-  ...(await original<typeof import("./VisualEditor")>()),
-  VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
-    fixture.editors.push(props);
-    return createElement(
-      "div",
-      {
-        className: "ProseMirror content-editor",
-        tabIndex: 0,
-        "data-visual-body": "",
-      },
-      createElement(
-        "p",
-        null,
+vi.mock("./VisualEditor", async (original) => {
+  const actual = await original<typeof import("./VisualEditor")>();
+  return {
+    ...actual,
+    VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
+      fixture.editors.push(props);
+      if (fixture.realEditor) return createElement(actual.VisualEditor, props);
+      return createElement(
+        "div",
+        {
+          className: "ProseMirror content-editor",
+          tabIndex: 0,
+          "data-visual-body": "",
+        },
         createElement(
-          "span",
-          { className: "comment-highlight--pending" },
-          "Saved",
+          "p",
+          null,
+          createElement(
+            "span",
+            { className: "comment-highlight--pending" },
+            "Saved",
+          ),
+          " ",
+          createElement("span", { "data-comment-thread": "t-text" }, "body"),
         ),
-        " ",
-        createElement("span", { "data-comment-thread": "t-text" }, "body"),
-      ),
-    );
-  },
-}));
+      );
+    },
+  };
+});
 
 import { PageEditorSurface } from "./DocumentEditor";
 import { createPageEditorMount, present } from "./page-editor-test-utils";
@@ -273,6 +283,8 @@ beforeEach(() => {
   fixture.threads = [thread("t-text", "body"), thread("t-page", null)];
   fixture.suggestions = [];
   fixture.readLocal = null;
+  fixture.localFileChanged = null;
+  fixture.realEditor = false;
   fixture.toolbars = [];
   fixture.sidebars = [];
   fixture.properties = [];
@@ -447,6 +459,17 @@ describe("a page read from a local file", () => {
     } as Partial<Document>);
   });
 
+  type ShownEditor = HTMLElement & { editor: Editor };
+  const shownEditor = () =>
+    present(container.querySelector<ShownEditor>(".ProseMirror"));
+  const paragraphs = () => {
+    const { doc } = shownEditor().editor.state;
+    return Array.from(
+      { length: doc.childCount },
+      (_, index) => doc.child(index).textContent,
+    ).filter(Boolean);
+  };
+
   it("says when the file was deleted and stops editing", async () => {
     fixture.readLocal = {
       ok: false,
@@ -486,6 +509,104 @@ describe("a page read from a local file", () => {
 
     expect(container.querySelector("[data-local-source-read-only]")).toBe(null);
     expect(toolbar().canEdit).toBe(true);
+  });
+
+  it("shows a change made outside Content in place, keeping the cursor and Undo", async () => {
+    fixture.realEditor = true;
+    const onDisk = {
+      ...present(fixture.pages.page),
+      content: "First paragraph\n\nSecond paragraph",
+    };
+    fixture.readLocal = {
+      ok: true,
+      document: onDisk,
+      revision: "disk-1",
+      updatedAt: onDisk.updatedAt,
+    } as LocalSourceDocumentReadResult;
+    await render(surface("page", "page"));
+    const body = shownEditor();
+    const editor = body.editor;
+    const caret = 1 + "First par".length;
+    await act(async () => {
+      editor.commands.focus();
+      editor.commands.setTextSelection(caret);
+    });
+    expect(document.activeElement).toBe(body);
+
+    const outside = "This sentence was written outside Content.";
+    fixture.readLocal = {
+      ok: true,
+      document: { ...onDisk, content: `${onDisk.content}\n\n${outside}` },
+      revision: "disk-2",
+      updatedAt: "2026-10-19T12:05:00.000Z",
+    } as LocalSourceDocumentReadResult;
+    await act(async () => present(fixture.localFileChanged)());
+    await act(async () => {});
+
+    expect(paragraphs()).toEqual([
+      "First paragraph",
+      "Second paragraph",
+      outside,
+    ]);
+    expect(document.activeElement).toBe(body);
+    expect(shownEditor()).toBe(body);
+    expect(editor.state.selection.from).toBe(caret);
+    expect(editor.state.selection.empty).toBe(true);
+
+    await act(async () => {
+      editor.commands.undo();
+    });
+    expect(paragraphs()).toEqual([
+      "First paragraph",
+      "Second paragraph",
+      outside,
+    ]);
+  });
+
+  it("asks before a change made outside Content replaces unsaved typing", async () => {
+    fixture.realEditor = true;
+    const onDisk = present(fixture.pages.page);
+    fixture.readLocal = {
+      ok: true,
+      document: onDisk,
+      revision: "disk-1",
+      updatedAt: onDisk.updatedAt,
+    } as LocalSourceDocumentReadResult;
+    await render(surface("page", "page"));
+    const body = shownEditor();
+    await act(async () => {
+      body.editor.commands.focus();
+      body.editor.commands.setTextSelection(1 + "Saved body".length);
+      body.editor.view.dispatch(body.editor.state.tr.insertText(" typed"));
+    });
+    await vi.waitFor(() =>
+      expect(present(last(fixture.editors)).content).toContain(
+        "Saved body typed",
+      ),
+    );
+
+    fixture.readLocal = {
+      ok: true,
+      document: { ...onDisk, content: "Saved body\n\nWritten outside." },
+      revision: "disk-2",
+      updatedAt: "2026-10-19T12:05:00.000Z",
+    } as LocalSourceDocumentReadResult;
+    await act(async () => present(fixture.localFileChanged)());
+    await act(async () => {});
+
+    expect(container.querySelector("[data-local-source-conflict]")).not.toBe(
+      null,
+    );
+    expect(paragraphs()).toEqual(["Saved body typed"]);
+    expect(document.activeElement).toBe(body);
+
+    const useDisk = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.useDiskVersion",
+    );
+    await act(async () => present(useDisk).click());
+    await act(async () => {});
+    expect(container.querySelector("[data-local-source-conflict]")).toBe(null);
+    expect(paragraphs()).toEqual(["Saved body", "Written outside."]);
   });
 });
 
