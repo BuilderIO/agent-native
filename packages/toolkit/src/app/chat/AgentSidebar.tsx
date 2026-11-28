@@ -279,6 +279,8 @@ export interface AgentSidebarProps {
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
   composerSlot?: AssistantChatProps["composerSlot"];
+  composerHeaderSlot?: AssistantChatProps["composerHeaderSlot"];
+  hiddenComposerContextItemKeys?: AssistantChatProps["hiddenComposerContextItemKeys"];
   composerContextProvider?: AssistantChatProps["composerContextProvider"];
   onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
@@ -404,6 +406,8 @@ export function AgentSidebar({
   dynamicSuggestions,
   composerToolbarSlot,
   composerSlot,
+  composerHeaderSlot,
+  hiddenComposerContextItemKeys,
   composerContextProvider,
   onComposerTextChange,
   imageModelMenu,
@@ -1864,6 +1868,8 @@ export function AgentSidebar({
           suggestionPlacement="context-chips"
           composerToolbarSlot={composerToolbarSlot}
           composerSlot={composerSlot}
+          composerHeaderSlot={composerHeaderSlot}
+          hiddenComposerContextItemKeys={hiddenComposerContextItemKeys}
           // A host's tab opens the chat without taking focus from the tab.
           {...(hostedPanel
             ? {

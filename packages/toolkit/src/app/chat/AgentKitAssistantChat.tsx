@@ -151,6 +151,7 @@ import {
   ComposerNotice,
   ComposerNoticeScope,
 } from "../../composer/composer-notice.js";
+import { mergeHiddenComposerContextItems } from "../../composer/context-items.js";
 import { approvalRequestKind } from "../agentkit/react/approval-card.js";
 import {
   AgentKitChat,
@@ -5794,27 +5795,6 @@ export function partitionComposerContextItemsForComposer(
   };
 }
 
-/**
- * Reattach hidden registered items to the composer's submission snapshot.
- * The composer only knows about the chips it rendered, so without this the
- * hidden item would be visible now but absent from the prompt it belongs to.
- * Keep the composer's order and identity; append each hidden key at most once.
- */
-export function mergeHiddenComposerContextItems(
-  submissionItems: readonly AgentChatContextItem[],
-  hiddenItems: readonly AgentChatContextItem[],
-): AgentChatContextItem[] {
-  if (!hiddenItems.length) return [...submissionItems];
-  const merged = [...submissionItems];
-  const presentKeys = new Set(merged.map((item) => item.key));
-  for (const item of hiddenItems) {
-    if (presentKeys.has(item.key)) continue;
-    presentKeys.add(item.key);
-    merged.push(item);
-  }
-  return merged;
-}
-
 function AgentKitComposerSurface({
   threadId,
   props,
@@ -6348,6 +6328,7 @@ function AgentKitComposerSurface({
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
           contextItems={composerContextItems.visible}
+          hiddenContextItems={composerContextItems.hidden}
           contextMenuItems={
             props.showContextPicker === false
               ? undefined
@@ -6424,6 +6405,7 @@ function AgentKitComposerSurface({
             </>
           }
           extraActionButton={props.composerExtraActionButton}
+          headerSlot={props.composerHeaderSlot}
           includeDefaultSlashCommands
           includeDefaultSlashSkills
           onSlashCommand={props.onSlashCommand}

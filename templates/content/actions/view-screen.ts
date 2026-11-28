@@ -43,6 +43,7 @@ import {
   formulaValueText,
   isEmptyPropertyValue,
 } from "../shared/properties.js";
+import { documentContentPreview } from "../shared/screen-document-preview.js";
 import {
   filterDatabaseContainedDocuments,
   getContentDatabaseResponse,
@@ -225,24 +226,6 @@ function propertyValueTextForScreen(
 }
 
 export const DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT = 50;
-export const SCREEN_DOCUMENT_PREVIEW_CHARS = 1_200;
-
-export function documentContentPreview(content: string) {
-  const normalized = content.trim();
-  if (normalized.length <= SCREEN_DOCUMENT_PREVIEW_CHARS) {
-    return {
-      contentPreview: normalized,
-      contentLength: content.length,
-      contentTruncated: false,
-    };
-  }
-
-  return {
-    contentPreview: `${normalized.slice(0, SCREEN_DOCUMENT_PREVIEW_CHARS).trimEnd()}... [document body truncated; call get-document for the full content]`,
-    contentLength: content.length,
-    contentTruncated: true,
-  };
-}
 
 interface ContentSelectionAppState {
   documentId?: unknown;

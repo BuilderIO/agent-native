@@ -106,6 +106,7 @@ import {
   ComposerNotice,
   ComposerNoticeScope,
 } from "../../../composer/composer-notice.js";
+import { mergeHiddenComposerContextItems } from "../../../composer/context-items.js";
 import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.js";
 import { Dialog, Tooltip } from "../../../design-system/index.js";
 import { useTableColumnGlide } from "../../../table-column-glide.js";
@@ -7518,6 +7519,10 @@ export interface AgentKitComposerProps extends Omit<
   planModeDisabled?: boolean;
   /** Shared host toolbar controls shown above the composer. */
   toolbarSlot?: ReactNode;
+  /** Host row inside the message box, under the editing row when there is one. */
+  headerSlot?: ReactNode;
+  /** Items the host submits without showing them as chips, so an edited message keeps them too. */
+  hiddenContextItems?: PromptComposerProps["contextItems"];
 }
 
 function hasActiveRuns(thread: AgentThreadState): boolean {
@@ -7566,6 +7571,7 @@ export function AgentKitComposer({
   autoFocus = true,
   defaultModel,
   toolbarSlot,
+  headerSlot,
   disabled,
   isReferenceTarget,
   submissionDisabled,
@@ -7606,6 +7612,7 @@ export function AgentKitComposer({
   onTextChange,
   composerRef: hostComposerRef,
   contextItems,
+  hiddenContextItems,
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
@@ -8025,7 +8032,13 @@ export function AgentKitComposer({
     }
     const effort = options.effort;
     const executionMode = options.requestMode ?? "act";
-    const contextItemsForSubmission = options.contextItems ?? contextItems;
+    const submittedContextItems = options.contextItems ?? contextItems;
+    const contextItemsForSubmission = hiddenContextItems?.length
+      ? mergeHiddenComposerContextItems(
+          submittedContextItems ?? [],
+          hiddenContextItems,
+        )
+      : submittedContextItems;
     // A fork resends the edited message as a new request.
     const editedMetadata = { ...editingMessage?.metadata };
     delete editedMetadata[AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY];
@@ -8571,7 +8584,16 @@ export function AgentKitComposer({
             if (next) steerQueued?.(next);
           }}
           showModelSelector={showModelSelector && canSelectModel}
-          headerSlot={editingRow}
+          headerSlot={
+            editingRow && headerSlot ? (
+              <>
+                {editingRow}
+                {headerSlot}
+              </>
+            ) : (
+              (editingRow ?? headerSlot)
+            )
+          }
           sendButtonDisabled={submissionPending && !active}
           onSubmissionPendingChange={handleSubmissionPendingChange}
           onSubmitStart={startPendingSubmission}

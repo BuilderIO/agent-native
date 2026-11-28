@@ -96,11 +96,12 @@ import {
   AgentPanelTabCloseButton,
   closeAgentPanelTabOnKey,
 } from "./AgentPanelThreadTabs.js";
-import type {
-  AssistantChatProps,
-  AssistantChatHandle,
-  AssistantChatSnapshotSaveSource,
-  AssistantChatSendOptions,
+import {
+  AGENT_RESOURCE_CONTEXT_KEY,
+  type AssistantChatProps,
+  type AssistantChatHandle,
+  type AssistantChatSnapshotSaveSource,
+  type AssistantChatSendOptions,
 } from "./chat/surface-types.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 import {
@@ -475,7 +476,7 @@ function buildResourceContextItem(
   const label = scope.label?.trim();
   const marker = `Resource context: ${scope.type}:${scope.id}`;
   return {
-    key: scope.contextKey?.trim() || "agent-current-resource-context",
+    key: scope.contextKey?.trim() || AGENT_RESOURCE_CONTEXT_KEY,
     title: label || type.replace(/^./, (character) => character.toUpperCase()),
     ...(contextNamespace ? { contextNamespace } : {}),
     context: [
