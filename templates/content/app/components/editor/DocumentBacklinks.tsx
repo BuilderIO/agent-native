@@ -65,7 +65,7 @@ export function DocumentBacklinks({ documentId }: { documentId: string }) {
             {shown.map((page) => (
               <li key={page.id} className="min-w-0">
                 <Link
-                  to={`/page/${page.id}`}
+                  to={`/page/${encodeURIComponent(page.id)}`}
                   className="flex min-h-7 min-w-0 items-center gap-1.5 rounded px-1 py-1 text-sm text-foreground/85 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   data-document-backlink={page.id}
                 >
@@ -100,7 +100,8 @@ export function DocumentBacklinks({ documentId }: { documentId: string }) {
                 : t("backlinks.showMore", { count: hidden })}
             </button>
           ) : null}
-          {list.more && (unfolded || hidden === 0) ? (
+          {(list.more || pages.length < list.count) &&
+          (unfolded || hidden === 0) ? (
             <p>{t("backlinks.notAllListed")}</p>
           ) : null}
         </>
@@ -117,7 +118,8 @@ export function BacklinkCount({
   onOpen: () => void;
 }) {
   const t = useT();
-  const { list } = useBacklinks(documentId);
+  const { query, list } = useBacklinks(documentId);
+  if (query.isError && refusedRead(query.error)) return null;
   if (!list || list.count === 0) return null;
   return (
     <button

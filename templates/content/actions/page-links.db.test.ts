@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { mutateSetting } from "@agent-native/core/settings";
+import { getSetting, mutateSetting } from "@agent-native/core/settings";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -198,13 +198,18 @@ describe("recording a page's links as its body saves", () => {
     expect(await targetsOf(source)).toEqual([]);
   });
 
-  it("records no link to the page itself or to a page that doesn't exist", async () => {
+  it("records links to pages made later, but a full URL's only when it names a page here", async () => {
     const target = await page();
     const source = await page();
+    const body = [
+      linksTo(source, "made-later", target),
+      "[Elsewhere](https://blog.example.test/p/some-post)",
+      `[Here too](https://content.example.test/page/${target})`,
+    ].join("\n\n");
 
-    await save(source, "", linksTo(source, "no-such-page", target));
+    await save(source, "", body);
 
-    expect(await targetsOf(source)).toEqual([target]);
+    expect(await targetsOf(source)).toEqual(["made-later", target].sort());
   });
 
   it("records the sub-page and link-to-page blocks and mentions a body holds", async () => {
@@ -225,25 +230,31 @@ describe("recording a page's links as its body saves", () => {
 
     await save(source, "", body);
 
-    expect(await targetsOf(source)).toEqual([child, linked, imported].sort());
+    expect(await targetsOf(source)).toEqual([child, linked, NOTION_KEY].sort());
+    expect(
+      (await list(OWNER, imported)).pages.map((linking) => linking.id),
+    ).toEqual([source]);
   });
 
-  it("resolves an imported page only among the linking page's owner's imports", async () => {
+  it("counts a link to an imported Notion page only in pages its importer owns", async () => {
+    const key = "00112233445566778899aabbccddeeff";
     const strangersImport = await page({ ownerEmail: STRANGER });
     await getDb().insert(schema.documentSyncLinks).values({
       documentId: strangersImport,
       ownerEmail: STRANGER,
-      remotePageId: "00112233445566778899aabbccddeeff",
+      remotePageId: key,
     });
     const source = await page();
+    await share(source, STRANGER);
 
     await save(
       source,
       "",
-      '<mention-page url="https://www.notion.so/00112233445566778899aabbccddeeff">Theirs</mention-page>',
+      `<mention-page url="https://www.notion.so/${key}">Theirs</mention-page>`,
     );
 
-    expect(await targetsOf(source)).toEqual([]);
+    expect(await targetsOf(source)).toEqual([key]);
+    expect((await list(STRANGER, strangersImport)).count).toBe(0);
   });
 
   it("records the links update-document and edit-document save", async () => {
@@ -389,6 +400,72 @@ describe("list-backlinks", () => {
     });
   });
 
+  it("lists a page that links to a Notion page imported after it", async () => {
+    const key = "0123456789abcdef0123456789abcdef";
+    const source = await page();
+    await save(
+      source,
+      "",
+      `See [the plan](https://www.notion.so/team/The-Plan-${key}).`,
+    );
+    const imported = await page();
+    await getDb()
+      .insert(schema.documentSyncLinks)
+      .values({
+        documentId: imported,
+        ownerEmail: OWNER,
+        remotePageId: `${key.slice(0, 8)}-${key.slice(8, 12)}-${key.slice(12, 16)}-${key.slice(16, 20)}-${key.slice(20)}`,
+      });
+
+    expect(
+      (await list(OWNER, imported)).pages.map((linking) => linking.id),
+    ).toEqual([source]);
+  });
+
+  it("lists a page that linked here before this page was made", async () => {
+    const source = await page();
+    await save(source, "", linksTo("backlinks-made-later"));
+    const target = await page({ id: "backlinks-made-later" });
+
+    expect(
+      (await list(OWNER, target)).pages.map((linking) => linking.id),
+    ).toEqual([source]);
+  });
+
+  it("checks access before it stops looking, so pages the caller can't open don't hide the ones they can", async () => {
+    const target = await page();
+    await share(target, VIEWER);
+    const hidden: string[] = [];
+    for (let index = 0; index < 205; index += 1) {
+      hidden.push(
+        await page({
+          ownerEmail: STRANGER,
+          updatedAt: new Date(
+            Date.UTC(2026, 10, 2, 12, 0, index),
+          ).toISOString(),
+        }),
+      );
+    }
+    await getDb()
+      .insert(schema.pageLinks)
+      .values(
+        hidden.map((sourceDocumentId) => ({
+          sourceDocumentId,
+          targetDocumentId: target,
+        })),
+      );
+    const visible = await page({
+      updatedAt: new Date(Date.UTC(2026, 10, 1)).toISOString(),
+    });
+    await share(visible, VIEWER);
+    await save(visible, "", linksTo(target));
+
+    const forViewer = await list(VIEWER, target);
+    expect(forViewer.pages.map((linking) => linking.id)).toEqual([visible]);
+    expect(forViewer.count).toBe(1);
+    expect(forViewer.more).toBe(false);
+  }, 60_000);
+
   it("finds a page once a page linking to it is saved", async () => {
     const target = await page();
     const source = await page({ content: "# Notes" });
@@ -438,6 +515,59 @@ describe("the page-links backfill", () => {
     ).resolves.toEqual({ status: "done" });
     await expect(backfill.nextPageLinksBackfillDueAt()).resolves.toBeNull();
   }, 60_000);
+
+  it("stops at its deadline before the next page and keeps its place", async () => {
+    await mutateSetting(backfill.PAGE_LINKS_BACKFILL_STATE_KEY, () => ({
+      version: 1,
+      after: "zz-backfill-059",
+      scanDone: false,
+      failed: [],
+      doneAt: null,
+      run: null,
+    }));
+
+    const report = await backfill.runPageLinksBackfillSweep({
+      deadlineAt: Date.now(),
+    });
+
+    expect(report).toMatchObject({
+      status: "ran",
+      scanned: 0,
+      finished: false,
+      stoppedEarly: "deadline",
+    });
+    expect(
+      await getSetting(backfill.PAGE_LINKS_BACKFILL_STATE_KEY),
+    ).toMatchObject({ after: "zz-backfill-059", scanDone: false, run: null });
+  });
+
+  it("retries a page that failed before it calls the pass done", async () => {
+    const target = await page();
+    const source = await page({ content: linksTo(target) });
+    await mutateSetting(backfill.PAGE_LINKS_BACKFILL_STATE_KEY, () => ({
+      version: 1,
+      after: "zz-backfill-trashed",
+      scanDone: true,
+      failed: [{ id: source, attempts: 2 }],
+      doneAt: null,
+      run: null,
+    }));
+
+    const report = await backfill.runPageLinksBackfillSweep({
+      deadlineAt: Date.now() + 60_000,
+    });
+
+    expect(report).toMatchObject({
+      status: "ran",
+      scanned: 0,
+      indexed: 1,
+      failed: 0,
+      waitingRetry: 0,
+      finished: true,
+    });
+    expect(await targetsOf(source)).toEqual([target]);
+    await expect(backfill.nextPageLinksBackfillDueAt()).resolves.toBeNull();
+  });
 
   it("waits while another sweep holds the pass", async () => {
     const leaseUntil = new Date(Date.now() + 60_000).toISOString();

@@ -129,6 +129,29 @@ describe("DocumentBacklinks", () => {
     ).toContain("200+");
   });
 
+  it("says the list stops short when it counted more than it lists", () => {
+    mocks.backlinks.list = { pages: pages(3), count: 250, more: false };
+    render(<DocumentBacklinks documentId="target" />);
+
+    expect(container.textContent).toContain("backlinks.notAllListed");
+    expect(
+      container.querySelector("[data-document-backlinks-count]")?.textContent,
+    ).not.toContain("+");
+  });
+
+  it("links each page by its encoded id", () => {
+    mocks.backlinks.list = {
+      pages: pages(1).map((linking) => ({ ...linking, id: "a b/c" })),
+      count: 1,
+      more: false,
+    };
+    render(<DocumentBacklinks documentId="target" />);
+
+    expect(
+      container.querySelector("[data-document-backlink]")?.getAttribute("href"),
+    ).toBe("/page/a%20b%2Fc");
+  });
+
   it("says no pages link here yet", () => {
     mocks.backlinks.list = { pages: [], count: 0, more: false };
     render(<DocumentBacklinks documentId="target" />);
@@ -193,6 +216,20 @@ describe("BacklinkCount", () => {
     click(count);
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
+
+  it.each([401, 403, 404])(
+    "hides an earlier count once the read is refused with %s",
+    (status) => {
+      mocks.backlinks.list = { pages: pages(3), count: 3, more: false };
+      mocks.backlinks.isError = true;
+      mocks.backlinks.error = Object.assign(new Error("refused"), { status });
+      render(<BacklinkCount documentId="target" onOpen={vi.fn()} />);
+
+      expect(
+        container.querySelector("[data-document-backlink-count]"),
+      ).toBeNull();
+    },
+  );
 
   it("says there are more than it counted", () => {
     mocks.backlinks.list = { pages: pages(3), count: 1_000, more: true };

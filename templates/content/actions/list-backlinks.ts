@@ -1,12 +1,13 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { createdPageUrl } from "../server/lib/created-page-links.js";
 import { firstRow } from "../server/lib/first-row.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
+import { normalizeNotionPageId } from "../shared/content-links.js";
 import {
   accessibleDocumentIds,
   resolveDocumentAccess,
@@ -17,7 +18,7 @@ const MAX_PAGES = 200;
 
 const CANDIDATES_AT_ONCE = 200;
 
-const MAX_CANDIDATES = 1_000;
+const MAX_SCANNED = 2_000;
 
 const MAX_TITLE_CHARS = 500;
 
@@ -38,7 +39,7 @@ function shortTitle(title: string): string {
 
 export default defineAction({
   description:
-    "Lists the pages you can open that link to or mention a page, most recently edited first, with each one's id, title, icon, link and last edit. count is how many there are; at most 200 are listed, and more is true when there may be others. A link counts once its page is saved. Pages in Trash are left out until restored, and so is the page's parent, which holds it as a sub-page.",
+    "Lists the pages you can open that link to or mention a page, most recently edited first, with each one's id, title, icon, link and last edit. count is how many there are; at most 200 are listed. more is true when too many pages link here to check them all, so count is a lower bound. A link counts once its page is saved. Pages in Trash are left out until restored, and so is the page's parent, which holds it as a sub-page.",
   schema: z.object({
     documentId: z.string().min(1).describe("The linked-to page's document ID"),
   }),
@@ -71,40 +72,96 @@ export default defineAction({
     }
     const db = getDb();
     const links = schema.pageLinks;
+    const documents = schema.documents;
     // guard:allow-unscoped — the caller can open this page, as resolveDocumentAccess just checked.
     const placed = firstRow(
       await db
-        .select({ parentId: schema.documents.parentId })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, documentId))
+        .select({
+          parentId: documents.parentId,
+          ownerEmail: documents.ownerEmail,
+        })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.id, documentId),
+            ...softDeletedDatabaseDocumentExclusions(documents.id),
+          ),
+        )
         .limit(1),
     );
-    const parentId = placed?.parentId ?? null;
-    // guard:allow-unscoped — ids only; accessibleDocumentIds below keeps the pages the caller can open before anything about them is read.
-    const candidates = await db
-      .select({ id: schema.documents.id })
-      .from(links)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, links.sourceDocumentId),
-      )
+    if (!placed) {
+      fail("Page not found", {
+        errorCode: "document_not_found",
+        statusCode: 404,
+      });
+    }
+    // guard:allow-unscoped — the Notion page ids this page was imported from, which links in its owner's pages may name instead of its id.
+    const imports = await db
+      .select({ remotePageId: schema.documentSyncLinks.remotePageId })
+      .from(schema.documentSyncLinks)
       .where(
         and(
-          eq(links.targetDocumentId, documentId),
-          parentId ? ne(schema.documents.id, parentId) : undefined,
-          isNull(schema.documents.trashedAt),
-          ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+          eq(schema.documentSyncLinks.documentId, documentId),
+          eq(schema.documentSyncLinks.provider, "notion"),
         ),
-      )
-      .orderBy(desc(schema.documents.updatedAt), schema.documents.id)
-      .limit(MAX_CANDIDATES + 1);
-    const ids = candidates.slice(0, MAX_CANDIDATES).map((row) => row.id);
+      );
+    const notionKeys = [
+      ...new Set(
+        imports.flatMap((row) => normalizeNotionPageId(row.remotePageId) ?? []),
+      ),
+    ];
+    const linksHere = or(
+      eq(links.targetDocumentId, documentId),
+      notionKeys.length
+        ? and(
+            inArray(links.targetDocumentId, notionKeys),
+            eq(documents.ownerEmail, placed.ownerEmail),
+          )
+        : undefined,
+    );
     const openable: string[] = [];
-    for (let at = 0; at < ids.length; at += CANDIDATES_AT_ONCE) {
-      const slice = ids.slice(at, at + CANDIDATES_AT_ONCE);
-      const accessible = await accessibleDocumentIds(slice);
-      openable.push(...slice.filter((id) => accessible.has(id)));
-    }
+    let scanned = 0;
+    let more = false;
+    type Candidate = { id: string; updatedAt: string };
+    let after: Candidate | null = null;
+    do {
+      // guard:allow-unscoped — ids only; accessibleDocumentIds below keeps the pages the caller can open before anything about them is read.
+      const rows: Candidate[] = await db
+        .selectDistinct({ id: documents.id, updatedAt: documents.updatedAt })
+        .from(links)
+        .innerJoin(documents, eq(documents.id, links.sourceDocumentId))
+        .where(
+          and(
+            linksHere,
+            ne(documents.id, documentId),
+            placed.parentId ? ne(documents.id, placed.parentId) : undefined,
+            isNull(documents.trashedAt),
+            ...softDeletedDatabaseDocumentExclusions(documents.id),
+            after
+              ? or(
+                  lt(documents.updatedAt, after.updatedAt),
+                  and(
+                    eq(documents.updatedAt, after.updatedAt),
+                    gt(documents.id, after.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(documents.updatedAt), documents.id)
+        .limit(CANDIDATES_AT_ONCE + 1);
+      const batch = rows.slice(0, CANDIDATES_AT_ONCE);
+      const accessible = await accessibleDocumentIds(
+        batch.map((row) => row.id),
+      );
+      openable.push(
+        ...batch.filter((row) => accessible.has(row.id)).map((row) => row.id),
+      );
+      scanned += batch.length;
+      const unread: boolean = rows.length > CANDIDATES_AT_ONCE;
+      more = unread && scanned >= MAX_SCANNED;
+      after = unread && !more ? (firstRow(batch.slice(-1)) ?? null) : null;
+    } while (after);
     const shown = openable.slice(0, MAX_PAGES);
     const pages: z.infer<typeof backlinkSchema>[] = [];
     if (shown.length) {
@@ -134,7 +191,7 @@ export default defineAction({
     return {
       pages,
       count: openable.length,
-      more: openable.length > MAX_PAGES || candidates.length > MAX_CANDIDATES,
+      more,
     };
   },
 });

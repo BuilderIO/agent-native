@@ -1,93 +1,38 @@
 import { and, eq, inArray, notInArray } from "drizzle-orm";
 
 import {
-  dashedNotionPageId,
-  normalizeNotionPageId,
-} from "../../shared/content-links.js";
-import {
   mayHoldPageLinks,
-  pageLinkTargetsInBody,
+  pageLinkReferencesInBody,
 } from "../../shared/page-links-in-body.js";
 import { getDb, schema } from "../db/index.js";
-import { firstRow } from "./first-row.js";
 
 type Database = ReturnType<typeof getDb>;
 
 const IDS_AT_ONCE = 300;
-
-async function importedPageIds(
-  db: Database,
-  documentId: string,
-  ids: string[],
-): Promise<string[]> {
-  const forms = new Set<string>();
-  for (const id of ids) {
-    const key = normalizeNotionPageId(id);
-    if (!key) continue;
-    forms.add(key);
-    forms.add(dashedNotionPageId(key));
-    forms.add(id);
-  }
-  if (!forms.size) return [];
-  // guard:allow-unscoped — reads only the linking page's owner, to resolve Notion page ids that owner imported.
-  const source = firstRow(
-    await db
-      .select({ ownerEmail: schema.documents.ownerEmail })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId))
-      .limit(1),
-  );
-  if (!source) return [];
-  const remote = [...forms];
-  const resolved: string[] = [];
-  for (let at = 0; at < remote.length; at += IDS_AT_ONCE) {
-    // guard:allow-unscoped — ids only, limited to pages the linking page's owner imported; list-backlinks checks each viewer's access.
-    const rows = await db
-      .select({ documentId: schema.documentSyncLinks.documentId })
-      .from(schema.documentSyncLinks)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.documentSyncLinks.documentId),
-      )
-      .where(
-        and(
-          inArray(
-            schema.documentSyncLinks.remotePageId,
-            remote.slice(at, at + IDS_AT_ONCE),
-          ),
-          eq(schema.documents.ownerEmail, source.ownerEmail),
-        ),
-      );
-    resolved.push(...rows.map((row) => row.documentId));
-  }
-  return resolved;
-}
 
 export async function pageLinkTargets(
   db: Database,
   documentId: string,
   body: string | null | undefined,
 ): Promise<string[]> {
-  const ids = pageLinkTargetsInBody(body);
-  if (!ids.length) return [];
-  const named = new Set([
-    ...ids,
-    ...(await importedPageIds(db, documentId, ids)),
-  ]);
-  named.delete(documentId);
-  const candidates = [...named];
-  const targets: string[] = [];
-  for (let at = 0; at < candidates.length; at += IDS_AT_ONCE) {
-    // guard:allow-unscoped — ids only, to keep links to pages that exist; list-backlinks checks each viewer's access.
+  const references = pageLinkReferencesInBody(body).filter(
+    (reference) => reference.id !== documentId,
+  );
+  const outside = references
+    .filter((reference) => reference.outside)
+    .map((reference) => reference.id);
+  const existing = new Set<string>();
+  for (let at = 0; at < outside.length; at += IDS_AT_ONCE) {
+    // guard:allow-unscoped — ids only, to keep a full URL's link only when it names a page here; list-backlinks checks each viewer's access.
     const rows = await db
       .select({ id: schema.documents.id })
       .from(schema.documents)
-      .where(
-        inArray(schema.documents.id, candidates.slice(at, at + IDS_AT_ONCE)),
-      );
-    targets.push(...rows.map((row) => row.id));
+      .where(inArray(schema.documents.id, outside.slice(at, at + IDS_AT_ONCE)));
+    for (const row of rows) existing.add(row.id);
   }
-  return targets;
+  return references
+    .filter((reference) => !reference.outside || existing.has(reference.id))
+    .map((reference) => reference.id);
 }
 
 export async function syncPageLinks(

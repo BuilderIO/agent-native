@@ -38,6 +38,7 @@ import {
   type GitHubRepositoryTarget,
   type GitHubTreeEntry,
 } from "../server/lib/github-source-client.js";
+import { syncPageLinks } from "../server/lib/page-links.js";
 import { tabsFrozenBy } from "../shared/column-rules.js";
 import {
   classifyGitHubSourceFile,
@@ -1845,6 +1846,11 @@ async function applyFile(
             await bindStoredImages(tx, [
               { documentId: document.id, mediaIds: built.mediaIds },
             ]);
+            await syncPageLinks(tx, {
+              documentId: document.id,
+              before: document.content,
+              after: page.content,
+            });
           } else if (moved) {
             await tx
               .update(schema.documents)
@@ -2152,6 +2158,11 @@ async function insertNewPages(tx: Db, run: SyncRun, pages: BuiltFile[]) {
       return { documentId, mediaIds };
     }),
   );
+  for (const [index, { page }] of pages.entries()) {
+    const documentId = documentIds[index];
+    assert(documentId, "A synced page has no document id.");
+    await syncPageLinks(tx, { documentId, before: "", after: page.content });
+  }
   // Every page's values fit the columns before any are written, and each
   // column's new select options are added in one write.
   const options = new Map<GitHubColumn, unknown[]>();

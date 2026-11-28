@@ -11790,7 +11790,7 @@ function PageEditorSessionBody({
         );
         if (!section) return;
         section.scrollIntoView({
-          block: "nearest",
+          block: "start",
           behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
             .matches
             ? "auto"

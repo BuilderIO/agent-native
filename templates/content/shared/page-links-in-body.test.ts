@@ -4,6 +4,7 @@ import {
   mayHoldPageLinks,
   PAGE_LINKS_MAX_PER_PAGE,
   pageIdFromHref,
+  pageLinkReferencesInBody,
   pageLinkTargetsInBody,
 } from "./page-links-in-body";
 
@@ -56,6 +57,18 @@ describe("pageLinkTargetsInBody", () => {
     );
   });
 
+  it("reads Notion links as Notion page ids, in either form", () => {
+    const dashed = `${NOTION_KEY.slice(0, 8)}-${NOTION_KEY.slice(8, 12)}-${NOTION_KEY.slice(12, 16)}-${NOTION_KEY.slice(16, 20)}-${NOTION_KEY.slice(20)}`;
+    const body = [
+      `See [the plan](https://www.notion.so/team/The-Plan-${NOTION_KEY}).`,
+      `And [the site](https://team.notion.site/${dashed}).`,
+      `<page id="${dashed}">Child</page>`,
+      "[Not Notion](https://example.test/0123456789abcdef0123456789abcdef)",
+    ].join("\n\n");
+
+    expect(pageLinkTargetsInBody(body)).toEqual([NOTION_KEY]);
+  });
+
   it("leaves out page paths that aren't links", () => {
     const body = [
       "The path `/page/in-code` is only text.",
@@ -85,6 +98,26 @@ describe("pageLinkTargetsInBody", () => {
   });
 });
 
+describe("pageLinkReferencesInBody", () => {
+  it("marks the ids that only a full URL names", () => {
+    const body = [
+      "[Relative](/page/relative)",
+      "[Elsewhere](https://blog.example.test/p/post)",
+      "[Both](https://content.example.test/page/both) and [both](/page/both)",
+      '<mention-page url="https://content.example.test/page/mentioned">M</mention-page>',
+      `[Notion](https://www.notion.so/${NOTION_KEY})`,
+    ].join("\n\n");
+
+    expect(pageLinkReferencesInBody(body)).toEqual([
+      { id: "relative", outside: false },
+      { id: "post", outside: true },
+      { id: "both", outside: false },
+      { id: "mentioned", outside: false },
+      { id: NOTION_KEY, outside: false },
+    ]);
+  });
+});
+
 describe("mayHoldPageLinks", () => {
   it("is false for a body that can't hold a page link", () => {
     expect(mayHoldPageLinks("No links here")).toBe(false);
@@ -98,6 +131,8 @@ describe("mayHoldPageLinks", () => {
       "[a](/_agent-native/open?documentId=a)",
       '<page id="a">A</page>',
       '<mention-page url="x">A</mention-page>',
+      "[a](https://www.notion.so/a)",
+      "[a](https://team.notion.site/a)",
     ]) {
       expect(mayHoldPageLinks(body)).toBe(true);
     }
