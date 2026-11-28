@@ -812,6 +812,8 @@ const editor = {
     "بعض التفاصيل في هذه الصفحة تأتي من قاعدة بيانات {{name}} في Notion وهي للعرض فقط هنا.",
   syncedPageSourceUnreadable: "تعذّر التحقق من مصدر هذه الصفحة.",
   syncedPageCheckAgain: "إعادة المحاولة",
+  localFileMissing:
+    "لم يعد الملف متاحًا. نُقل أو حُذف على القرص، لذلك لا يمكن تعديل هذه الصفحة.",
   textColor: "لون النص",
   resizeColumns: "تغيير حجم الأعمدة",
   backgroundColor: "لون الخلفية",
@@ -2037,6 +2039,7 @@ const overrides = {
     pageMissing: "هذه الصفحة غير موجودة",
     pageInTrash: "هذه الصفحة في المهملات",
     pageInTrashAskOwner: "اطلب من المالك استعادتها.",
+    pageInTrashFileDeleted: "حُذف ملفها من القرص.",
     openTrash: "فتح المهملات",
     goToMyPages: "الانتقال إلى صفحاتي",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",

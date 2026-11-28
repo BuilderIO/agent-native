@@ -1737,6 +1737,7 @@ const enUS = {
     pageMissing: "This page doesn't exist",
     pageInTrash: "This page is in the trash",
     pageInTrashAskOwner: "Ask the owner to restore it.",
+    pageInTrashFileDeleted: "Its file was deleted on disk.",
     openTrash: "Open Trash",
     goToMyPages: "Go to my pages",
     documentNotFound: "Document not found",
@@ -1890,6 +1891,8 @@ const enUS = {
       "The file changed on disk while this page had unsaved edits.",
     localFileReadOnlySnapshot:
       "Read-only snapshot · Last synced from {{device}} at {{date}}",
+    localFileMissing:
+      "File no longer available. It was moved or deleted on disk, so this page can't be edited.",
     githubSourceReadOnly:
       "View only. This page follows a file in GitHub and updates after each push.",
     githubSourceOpenFile: "Open in GitHub",

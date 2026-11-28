@@ -833,6 +833,8 @@ const editor = {
     "이 페이지의 일부 세부 정보는 Notion의 {{name}} 데이터베이스에서 가져오며 여기서는 보기 전용입니다.",
   syncedPageSourceUnreadable: "이 페이지의 출처를 확인하지 못했습니다.",
   syncedPageCheckAgain: "다시 시도",
+  localFileMissing:
+    "파일을 더 이상 사용할 수 없습니다. 디스크에서 이동되거나 삭제되어 이 페이지를 편집할 수 없습니다.",
   textColor: "텍스트 색상",
   resizeColumns: "열 너비 조절",
   backgroundColor: "배경색",
@@ -2052,6 +2054,7 @@ const overrides = {
     pageMissing: "이 페이지는 존재하지 않습니다",
     pageInTrash: "이 페이지는 휴지통에 있습니다",
     pageInTrashAskOwner: "소유자에게 복원을 요청하세요.",
+    pageInTrashFileDeleted: "파일이 디스크에서 삭제되었습니다.",
     openTrash: "휴지통 열기",
     goToMyPages: "내 페이지로 이동",
     noPageDescription: "사이드바에서 페이지를 선택하거나 새로 만드세요.",

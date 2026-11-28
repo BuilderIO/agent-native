@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -21,6 +21,7 @@ import {
   isContentSourcePath,
   parseContentSourceFile,
 } from "../shared/content-source.js";
+import { LOCAL_FOLDER_TRASH_ORIGIN } from "../shared/content-trash.js";
 import {
   sameSourceMarkdown,
   sourceMarkdownForm,
@@ -42,6 +43,11 @@ import {
   normalizeLocalFolderSourceIdentity,
 } from "./_local-folder-source.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
+import {
+  lockLifecycleGroup,
+  restoreDocumentSubtree,
+  trashDocumentSubtree,
+} from "./delete-document.js";
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
@@ -173,9 +179,107 @@ function metadataChanges(
   });
 }
 
+type Db = ReturnType<typeof getDb>;
+type PageRow = typeof schema.documents.$inferSelect;
+type LinkedFileRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
+
+function returnedToFolder(page: PageRow | undefined): page is PageRow {
+  return (
+    !!page?.trashedAt &&
+    page.trashOrigin === LOCAL_FOLDER_TRASH_ORIGIN &&
+    page.trashRootId === page.id
+  );
+}
+
+async function restorePageOfReturnedFile(db: Db, page: PageRow) {
+  await db.transaction(async (tx: Db) => {
+    const locks = await lockLifecycleGroup(tx, {
+      operation: "restore",
+      roots: [{ id: page.id, ownerEmail: page.ownerEmail }],
+    });
+    const [current]: Array<PageRow | undefined> = await tx
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, page.id));
+    if (!returnedToFolder(current)) return;
+    await restoreDocumentSubtree(tx, page.id, page.ownerEmail, locks);
+  });
+}
+
+async function trashPageOfRemovedFile(
+  db: Db,
+  args: {
+    row: LinkedFileRow;
+    filesDatabaseId: string;
+    spaceId: string;
+    sourceRootPath: string;
+    now: string;
+    ctx: ActionRunContext | undefined;
+  },
+) {
+  const { row } = args;
+  await db.transaction(async (tx: Db) => {
+    const [owner]: Array<{ ownerEmail: string } | undefined> = await tx
+      .select({ ownerEmail: schema.documents.ownerEmail })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, row.documentId));
+    const locks = owner
+      ? await lockLifecycleGroup(tx, {
+          operation: "trash",
+          roots: [{ id: row.documentId, ownerEmail: owner.ownerEmail }],
+          alsoLockDatabaseIds: [args.filesDatabaseId],
+        })
+      : null;
+    const [unchanged]: Array<{ id: string } | undefined> = await tx
+      .select({ id: schema.contentDatabaseSourceRows.id })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceRows.id, row.id),
+          eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+          eq(schema.contentDatabaseSourceRows.updatedAt, row.updatedAt),
+        ),
+      );
+    if (!unchanged) return;
+    await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+    const [otherLink]: Array<{ id: string } | undefined> = await tx
+      .select({ id: schema.contentDatabaseSourceRows.id })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
+      )
+      .limit(1);
+    if (otherLink || !owner || !locks) return;
+    const [page]: Array<PageRow | undefined> = await tx
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, row.documentId));
+    if (
+      !page ||
+      page.trashedAt ||
+      page.spaceId !== args.spaceId ||
+      page.sourceMode !== "local-files" ||
+      page.sourceRootPath !== args.sourceRootPath
+    ) {
+      return;
+    }
+    await trashDocumentSubtree(
+      tx,
+      row.documentId,
+      owner.ownerEmail,
+      args.now,
+      locks,
+      LOCAL_FOLDER_TRASH_ORIGIN,
+      args.ctx,
+    );
+  });
+}
+
 export default defineAction({
   description:
-    "Refresh a connected local-folder source through the trusted browser/Desktop bridge, materializing Markdown/MDX as normal SQL-backed Content pages and recording safe source identity and conflicts.",
+    "Refresh a connected local-folder source through the trusted browser/Desktop bridge, materializing Markdown/MDX as normal SQL-backed Content pages and recording safe source identity and conflicts. When the folder is the source of truth, a page whose file left it moves to Trash, and comes back if a file with its id returns.",
   schema: z.object({
     sourceId: z.string().min(1),
     files: z
@@ -261,6 +365,9 @@ export default defineAction({
     }
 
     const explicitIds = valid.flatMap((file) => (file.id ? [file.id] : []));
+    const pathId = (path: string) =>
+      opaqueId("content_local_file", `${sourceId}:${path}`);
+    const pathIds = valid.map((file) => pathId(file.path));
     type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
     type Document = typeof schema.documents.$inferSelect;
     const deletedFilePath = (row: SourceRow) => {
@@ -296,7 +403,9 @@ export default defineAction({
         storedRows.map((row) => [row.documentId, row]),
       );
       const linkedIds = storedRows.map((row) => row.documentId);
-      const candidateIds = [...new Set([...explicitIds, ...linkedIds])];
+      const candidateIds = [
+        ...new Set([...explicitIds, ...pathIds, ...linkedIds]),
+      ];
       const existingDocuments = (
         candidateIds.length
           ? await queryDb
@@ -318,6 +427,7 @@ export default defineAction({
     ) => {
       const documentIds = new Set([
         ...explicitIds,
+        ...pathIds,
         ...snapshot.storedRows.map((row) => row.documentId),
       ]);
       for (const id of documentIds) {
@@ -450,10 +560,7 @@ export default defineAction({
         const incomingHash = contentHash(file.content);
         const pathRow = knownRow(file) ?? movedRows.get(file);
         const explicitId = explicitIdOf(file);
-        const id =
-          explicitId ??
-          pathRow?.documentId ??
-          opaqueId("content_local_file", `${sourceId}:${file.path}`);
+        const id = explicitId ?? pathRow?.documentId ?? pathId(file.path);
         const existing = snapshot.documentById.get(id);
         const previousRow = snapshot.rowByDocumentId.get(id) ?? pathRow;
         const previousValues = parseJson(previousRow?.sourceValuesJson);
@@ -627,6 +734,11 @@ export default defineAction({
         if (rebindsExistingPage(plan)) await assertLocalFileLinkable(plan.id);
       }
     } else {
+      for (const plan of plans) {
+        if (returnedToFolder(plan.existing)) {
+          await restorePageOfReturnedFile(db, plan.existing);
+        }
+      }
       await db.transaction(async (tx: any) => {
         const claimedSources = await tx
           .update(schema.contentDatabaseSources)
@@ -1035,48 +1147,7 @@ export default defineAction({
               ),
             );
         }
-        for (const row of missingRows) {
-          if (policy === "source_primary") {
-            await tx
-              .delete(schema.contentDatabaseSourceRows)
-              .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-            const [remainingSourceRow] = await tx
-              .select({ id: schema.contentDatabaseSourceRows.id })
-              .from(schema.contentDatabaseSourceRows)
-              .where(
-                eq(
-                  schema.contentDatabaseSourceRows.databaseItemId,
-                  row.databaseItemId,
-                ),
-              )
-              .limit(1);
-            if (!remainingSourceRow) {
-              await tx
-                .delete(schema.contentDatabaseItems)
-                .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-              await tx
-                .update(schema.documents)
-                .set({
-                  sourceMode: null,
-                  sourceKind: null,
-                  sourcePath: null,
-                  sourceRootPath: null,
-                  sourceUpdatedAt: now,
-                  updatedAt: now,
-                })
-                .where(
-                  and(
-                    eq(schema.documents.id, row.documentId),
-                    eq(schema.documents.spaceId, targetSpaceId),
-                    eq(
-                      schema.documents.sourceRootPath,
-                      target.source.sourceTable,
-                    ),
-                  ),
-                );
-            }
-            continue;
-          }
+        for (const row of policy === "source_primary" ? [] : missingRows) {
           const values = parseJson(row.sourceValuesJson);
           const path = deletedFilePath(row);
           const changeSetId = deletionChangeSetId(row);
@@ -1129,6 +1200,18 @@ export default defineAction({
           );
         }
       });
+      if (policy === "source_primary") {
+        for (const row of missingRows) {
+          await trashPageOfRemovedFile(db, {
+            row,
+            filesDatabaseId: target.database.id,
+            spaceId: targetSpaceId,
+            sourceRootPath: target.source.sourceTable,
+            now,
+            ctx,
+          });
+        }
+      }
       await writeAppState("refresh-signal", { ts: Date.now() });
     }
 

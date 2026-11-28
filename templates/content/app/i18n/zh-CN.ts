@@ -783,6 +783,8 @@ const editor = {
     "此页面上的部分详细信息来自 Notion 中的 {{name}} 数据库，在这里仅供查看。",
   syncedPageSourceUnreadable: "无法确认此页面的来源。",
   syncedPageCheckAgain: "重试",
+  localFileMissing:
+    "文件已不可用。它已在磁盘上被移动或删除，因此无法编辑此页面。",
   textColor: "文本颜色",
   resizeColumns: "调整列宽",
   backgroundColor: "背景颜色",
@@ -2066,6 +2068,7 @@ const overrides = {
     pageMissing: "此页面不存在",
     pageInTrash: "此页面在回收站中",
     pageInTrashAskOwner: "请让所有者恢复它。",
+    pageInTrashFileDeleted: "它的文件已在磁盘上被删除。",
     openTrash: "打开回收站",
     goToMyPages: "前往我的页面",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",

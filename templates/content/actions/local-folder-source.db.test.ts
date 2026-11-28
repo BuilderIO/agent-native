@@ -1492,7 +1492,7 @@ describe("local-folder Content source", () => {
     await expect(openDeletions()).resolves.toEqual([{ id: deletion!.id }]);
   });
 
-  it("tracks stable-id renames and removes source-primary deletions from Files without deleting the cached page", async () => {
+  it("tracks stable-id renames, moves a source-primary deletion to Trash, and brings the page back with its file", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
         connectionId: "desktop-folder-rename",
@@ -1527,6 +1527,14 @@ describe("local-folder Content source", () => {
     ).resolves.toEqual([
       expect.objectContaining({ sourcePath: "new-name.md" }),
     ]);
+    const searchDocuments = (await import("./search-documents.js")).default;
+    const searchedIds = async () =>
+      (
+        (await runWithRequestContext({ userEmail: OWNER }, () =>
+          searchDocuments.run({ query: "Stable page", mode: "words" }),
+        )) as { documents: Array<{ id: string }> }
+      ).documents.map((document) => document.id);
+    expect(await searchedIds()).toEqual(["stable-local-page"]);
 
     const deletion = await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({ sourceId: connection.sourceId, files: {} }),
@@ -1541,14 +1549,14 @@ describe("local-folder Content source", () => {
         .from(schema.documents)
         .where(eq(schema.documents.id, "stable-local-page")),
     ).resolves.toEqual([
-      expect.objectContaining({ sourceMode: null, sourcePath: null }),
+      expect.objectContaining({
+        trashedAt: expect.any(String),
+        trashOrigin: "local-folder",
+        sourceMode: "local-files",
+        sourcePath: "new-name.md",
+        content: "# Stable page\n\nBody.",
+      }),
     ]);
-    await expect(
-      getDb()
-        .select()
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.documentId, "stable-local-page")),
-    ).resolves.toHaveLength(0);
     await expect(
       getDb()
         .select()
@@ -1563,6 +1571,107 @@ describe("local-folder Content source", () => {
           ),
         ),
     ).resolves.toHaveLength(0);
+    expect(await searchedIds()).toEqual([]);
+
+    const again = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: connection.sourceId, files: {} }),
+    );
+    expect(again.removed).toEqual([]);
+
+    const returned = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "nested/new-location.md": `---\nid: stable-local-page\n---\n# Stable page\n\nBody, moved.`,
+        },
+      }),
+    );
+    expect(returned.created).toHaveLength(0);
+    expect(returned.updated).toEqual([
+      expect.objectContaining({
+        id: "stable-local-page",
+        path: "nested/new-location.md",
+      }),
+    ]);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "stable-local-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        trashedAt: null,
+        sourceMode: "local-files",
+        sourcePath: "nested/new-location.md",
+        content: "# Stable page\n\nBody, moved.",
+      }),
+    ]);
+    expect(await searchedIds()).toEqual(["stable-local-page"]);
+  });
+
+  it("moves a deleted path-named file's page to Trash and gives the same path back its page", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-path-delete",
+        label: "Path docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "drafts/second-note.md": "# Second note\n\nDraft.",
+          "drafts/kept.md": "# Kept\n\nStays.",
+        },
+      }),
+    );
+    const pageId = first.idByPath["drafts/second-note.md"];
+    const page = async (id: string) =>
+      (
+        await getDb()
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+      )[0];
+    const keptId = first.idByPath["drafts/kept.md"];
+
+    const deletion = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "drafts/kept.md": "# Kept\n\nStays." },
+      }),
+    );
+    expect(deletion.removed).toEqual([
+      { id: pageId, path: "drafts/second-note.md" },
+    ]);
+    expect(await page(pageId)).toEqual(
+      expect.objectContaining({
+        trashedAt: expect.any(String),
+        trashOrigin: "local-folder",
+      }),
+    );
+    expect((await page(keptId)).trashedAt).toBeNull();
+
+    const restored = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "drafts/second-note.md": "# Second note\n\nDraft.",
+          "drafts/kept.md": "# Kept\n\nStays.",
+        },
+      }),
+    );
+    expect(restored.created).toHaveLength(0);
+    expect(restored.idByPath["drafts/second-note.md"]).toBe(pageId);
+    expect(await page(pageId)).toEqual(
+      expect.objectContaining({
+        trashedAt: null,
+        sourcePath: "drafts/second-note.md",
+        content: "# Second note\n\nDraft.",
+      }),
+    );
   });
 
   it("recognizes an unchanged path-only file move without creating a deletion conflict", async () => {

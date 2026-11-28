@@ -12126,7 +12126,7 @@ function PageEditorSessionBody({
               role="alert"
               data-local-source-missing
             >
-              {t("empty.documentNotFound")}
+              {t("editor.localFileMissing")}
             </div>
           ) : null}
 

@@ -864,6 +864,8 @@ const editor = {
     "Certains détails de cette page proviennent de la base de données {{name}} dans Notion et sont en lecture seule ici.",
   syncedPageSourceUnreadable: "Impossible de vérifier d’où vient cette page.",
   syncedPageCheckAgain: "Réessayer",
+  localFileMissing:
+    "Fichier plus disponible. Il a été déplacé ou supprimé sur le disque, cette page ne peut donc pas être modifiée.",
   textColor: "Couleur du texte",
   resizeColumns: "Redimensionner les colonnes",
   backgroundColor: "Couleur d’arrière-plan",
@@ -2128,6 +2130,7 @@ const overrides = {
     pageMissing: "Cette page n’existe pas",
     pageInTrash: "Cette page est dans la corbeille",
     pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
+    pageInTrashFileDeleted: "Son fichier a été supprimé du disque.",
     openTrash: "Ouvrir la corbeille",
     goToMyPages: "Aller à mes pages",
     noPageDescription:

@@ -5,13 +5,15 @@ import { resolveDocumentAccess } from "./_document-access.js";
 
 export default defineAction({
   description:
-    "Read one authorized Page body from Trash without restoring or hydrating it. With trashRootOnly, return only the ID of the Page its restore starts from.",
+    "Read one authorized Page body from Trash without restoring or hydrating it. With trashRootOnly, return only the ID of the Page its restore starts from and what moved it to Trash (trashOrigin, e.g. local-folder when its file was deleted).",
   schema: z.object({
     id: z.string().min(1).describe("Trashed Page ID"),
     trashRootOnly: z
       .boolean()
       .optional()
-      .describe("Return only { id, trashRootId }, without the body"),
+      .describe(
+        "Return only { id, trashRootId, trashOrigin }, without the body",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -26,7 +28,11 @@ export default defineAction({
       });
     }
     if (trashRootOnly) {
-      return { id: document.id, trashRootId: document.trashRootId };
+      return {
+        id: document.id,
+        trashRootId: document.trashRootId,
+        trashOrigin: document.trashOrigin,
+      };
     }
     return document;
   },

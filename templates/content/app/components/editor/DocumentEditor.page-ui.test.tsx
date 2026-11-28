@@ -35,6 +35,8 @@ const fixture = vi.hoisted(() => ({
   threads: [] as CommentThread[],
   suggestions: [] as ResourceSuggestion[],
   readLocal: null as LocalSourceDocumentReadResult | null,
+  watchesLocal: false,
+  localChange: null as (() => void) | null,
   toolbars: [] as ToolbarProps[],
   sidebars: [] as SidebarProps[],
   properties: [] as { documentId: string; databaseId?: string | null }[],
@@ -148,7 +150,11 @@ vi.mock("@/lib/local-content-source-files", async (original) => ({
   canWriteLinkedLocalSource: (_id: string, source: Document["source"]) =>
     source?.mode === "local-files",
   readDocumentFromLinkedLocalSource: async () => fixture.readLocal,
-  watchLinkedLocalSource: async () => ({ ok: false, error: "unwatched" }),
+  watchLinkedLocalSource: async (_source: unknown, onChange: () => void) => {
+    if (!fixture.watchesLocal) return { ok: false, error: "unwatched" };
+    fixture.localChange = onChange;
+    return { ok: true, unsubscribe: () => {} };
+  },
   writeDocumentToLinkedLocalSource: async () => ({
     ok: true,
     revision: "disk-2",
@@ -273,6 +279,8 @@ beforeEach(() => {
   fixture.threads = [thread("t-text", "body"), thread("t-page", null)];
   fixture.suggestions = [];
   fixture.readLocal = null;
+  fixture.watchesLocal = false;
+  fixture.localChange = null;
   fixture.toolbars = [];
   fixture.sidebars = [];
   fixture.properties = [];
@@ -456,8 +464,42 @@ describe("a page read from a local file", () => {
 
     expect(
       container.querySelector("[data-local-source-missing]")?.textContent,
-    ).toBe("empty.documentNotFound");
+    ).toBe("editor.localFileMissing");
     expect(toolbar().canEdit).toBe(false);
+  });
+
+  it("says the open page's file is gone when it's deleted, and edits again once the sync finds where it moved", async () => {
+    fixture.watchesLocal = true;
+    const onDisk = present(fixture.pages.page);
+    const readable = {
+      ok: true,
+      document: onDisk,
+      revision: "disk-1",
+      updatedAt: onDisk.updatedAt,
+    } as LocalSourceDocumentReadResult;
+    fixture.readLocal = readable;
+    await render(surface("page", "page"));
+    expect(toolbar().canEdit).toBe(true);
+
+    fixture.readLocal = {
+      ok: false,
+      error: 'Local file "notes/page.md" was not found.',
+    } as LocalSourceDocumentReadResult;
+    await act(async () => present(fixture.localChange)());
+
+    expect(
+      container.querySelector("[data-local-source-missing]")?.textContent,
+    ).toBe("editor.localFileMissing");
+    expect(toolbar().canEdit).toBe(false);
+
+    page("page", {
+      source: { mode: "local-files", path: "nested/page.md" },
+    } as Partial<Document>);
+    fixture.readLocal = readable;
+    await render(surface("page", "page"));
+
+    expect(container.querySelector("[data-local-source-missing]")).toBeNull();
+    expect(toolbar().canEdit).toBe(true);
   });
 
   it("stays read-only, without saying it's deleted, when this client can't reach the file", async () => {

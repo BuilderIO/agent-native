@@ -811,6 +811,8 @@ const editor = {
     "इस पेज के कुछ विवरण Notion में {{name}} डेटाबेस से आते हैं और यहाँ केवल देखने के लिए हैं।",
   syncedPageSourceUnreadable: "यह पेज कहाँ से आता है, इसकी जाँच नहीं हो सकी।",
   syncedPageCheckAgain: "फिर से कोशिश करें",
+  localFileMissing:
+    "फ़ाइल अब उपलब्ध नहीं है। इसे डिस्क पर ले जाया या हटाया गया है, इसलिए यह पेज संपादित नहीं किया जा सकता।",
   textColor: "टेक्स्ट का रंग",
   resizeColumns: "कॉलम का आकार बदलें",
   backgroundColor: "पृष्ठभूमि का रंग",
@@ -2012,6 +2014,7 @@ const overrides = {
     pageMissing: "यह पेज मौजूद नहीं है",
     pageInTrash: "यह पेज ट्रैश में है",
     pageInTrashAskOwner: "मालिक से इसे रीस्टोर करने के लिए कहें।",
+    pageInTrashFileDeleted: "इसकी फ़ाइल डिस्क से हटा दी गई है।",
     openTrash: "ट्रैश खोलें",
     goToMyPages: "मेरे पेज पर जाएं",
     noPageDescription: "sidebar से page चुनें या नया बनाएं।",
