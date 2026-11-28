@@ -2039,7 +2039,7 @@ function leadingTabs(line: string): number {
 // Code fences open with three or more backticks or tildes, and close with at
 // least as many of the same character.
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
-const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
+export const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
 
 function splitCodeFenceInfo(info: string | undefined): {
   lang: string;
@@ -2056,12 +2056,12 @@ function splitCodeFenceInfo(info: string | undefined): {
 
 // A backtick fence's language holds no backtick, so a line that starts with
 // a long code span, as the editor writes ``` `` ```, stays a paragraph.
-function matchFenceOpen(line: string): RegExpMatchArray | null {
+export function matchFenceOpen(line: string): RegExpMatchArray | null {
   const open = line.match(FENCE_OPEN);
   return open && open[1][0] === "`" && open[2].includes("`") ? null : open;
 }
 
-function closesFence(
+export function closesFence(
   close: RegExpMatchArray | null,
   marker: string,
 ): close is RegExpMatchArray {

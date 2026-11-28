@@ -64,6 +64,7 @@ import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { sameSourceMarkdown } from "@shared/source-markdown";
 import {
   joinRewrittenParagraphs,
+  listNumberDifferences,
   markdownSuggestionOperations,
 } from "@shared/suggestion-diff";
 import {
@@ -1037,21 +1038,34 @@ export function documentEditorSuggestionPresentations(args: {
     };
     const beforeMarkdown = (operation.before as { markdown: string }).markdown;
     const operationAnchor = operation.anchor as { from: number; to: number };
+    const shownText = args.currentMarkdown.slice(
+      suggestion.anchor.from,
+      suggestion.anchor.to,
+    );
+    const renumbered =
+      shownText !== after.changedText &&
+      listNumberDifferences(after.changedText, shownText) !== null;
     draftPresentations.push({
       id: suggestion.id,
       kind: operation.kind as VisualEditorSuggestion["kind"],
       beforeText: before.changedText,
-      afterText: after.changedText,
+      afterText: renumbered ? shownText : after.changedText,
       beforePresentation: {
         source: beforeMarkdown,
         from: operationAnchor.from,
         to: operationAnchor.to,
       },
-      afterPresentation: {
-        source: after.markdown,
-        from: operationAnchor.from,
-        to: operationAnchor.from + after.changedText.length,
-      },
+      afterPresentation: renumbered
+        ? {
+            source: args.currentMarkdown,
+            from: suggestion.anchor.from,
+            to: suggestion.anchor.to,
+          }
+        : {
+            source: after.markdown,
+            from: operationAnchor.from,
+            to: operationAnchor.from + after.changedText.length,
+          },
       anchor: suggestion.anchor,
       presentation: "draft",
     });
