@@ -1862,6 +1862,8 @@ export function EditorLayout({
                         <TimelineTrack
                           width={totalWidth}
                           height={WAVEFORM_HEIGHT}
+                          viewportWidth={viewportWidth}
+                          scrollLeft={clampedScrollLeft}
                           durationMs={durationMs}
                           edits={shownEdits}
                           selection={selection}
