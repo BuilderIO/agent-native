@@ -1235,6 +1235,8 @@ export default {
     saveTemplate: "Save template",
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
+    templateRequiresScreen:
+      "Add at least one design screen before saving a template.",
     appMenu: {
       backToDashboard: "Back to dashboard",
       file: "File",

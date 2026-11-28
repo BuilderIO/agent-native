@@ -1300,6 +1300,8 @@ export default {
     saveTemplate: "템플릿 저장",
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
+    templateRequiresScreen:
+      "템플릿을 저장하기 전에 디자인 화면을 하나 이상 추가하세요.",
     appMenu: {
       backToDashboard: "대시보드로 돌아가기",
       file: "파일",

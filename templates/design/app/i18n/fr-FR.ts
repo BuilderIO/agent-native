@@ -1322,6 +1322,8 @@ export default {
     saveTemplate: "Enregistrer le modèle",
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
+    templateRequiresScreen:
+      "Ajoutez au moins un écran de design avant d’enregistrer un modèle.",
     appMenu: {
       backToDashboard: "Retour au tableau de bord",
       file: "Fichier",

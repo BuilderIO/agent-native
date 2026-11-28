@@ -1316,6 +1316,8 @@ export default {
     saveTemplate: "テンプレートを保存",
     templateSaved: "テンプレートをライブラリに保存しました",
     templateSaveFailed: "このテンプレートを保存できませんでした",
+    templateRequiresScreen:
+      "テンプレートを保存する前に、デザイン画面を少なくとも1つ追加してください。",
     appMenu: {
       backToDashboard: "ダッシュボードに戻る",
       file: "ファイル",

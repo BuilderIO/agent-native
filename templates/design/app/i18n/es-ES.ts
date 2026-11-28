@@ -1319,6 +1319,8 @@ export default {
     saveTemplate: "Guardar plantilla",
     templateSaved: "Plantilla guardada en la biblioteca",
     templateSaveFailed: "No se pudo guardar esta plantilla",
+    templateRequiresScreen:
+      "Añade al menos una pantalla de diseño antes de guardar una plantilla.",
     appMenu: {
       backToDashboard: "Volver al panel",
       file: "Archivo",

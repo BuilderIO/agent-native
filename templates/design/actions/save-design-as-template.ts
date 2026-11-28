@@ -68,9 +68,10 @@ export default defineAction({
     const snapshot = await buildDesignSnapshot(designId, rawData);
     const screenFiles = snapshot.files.filter(isOverviewScreenFile);
     if (screenFiles.length === 0) {
-      throw new Error(
-        "Add at least one design screen before saving a template.",
-      );
+      fail("Add at least one design screen before saving a template.", {
+        errorCode: "template_requires_screen",
+        statusCode: 400,
+      });
     }
 
     const ownerEmail = getRequestUserEmail();

@@ -1115,6 +1115,7 @@ export default {
     saveTemplate: "儲存範本",
     templateSaved: "範本已儲存至範本庫",
     templateSaveFailed: "無法儲存此範本",
+    templateRequiresScreen: "儲存範本前，請至少新增一個設計畫面。",
     responsiveInteract: {
       device: "裝置",
       deviceCustom: "自訂 · {{width}}×{{height}}",

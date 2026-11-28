@@ -1,3 +1,7 @@
+import {
+  actionErrorCode,
+  actionErrorMessage,
+} from "@agent-native/core/client/hooks";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -250,9 +254,10 @@ export function renderPromptPopovers({
             });
           } catch (error) {
             toast.error(
-              error instanceof Error
-                ? error.message
-                : t("designEditor.templateSaveFailed"),
+              actionErrorCode(error) === "template_requires_screen"
+                ? t("designEditor.templateRequiresScreen")
+                : (actionErrorMessage(error) ??
+                    t("designEditor.templateSaveFailed")),
             );
           }
         }}

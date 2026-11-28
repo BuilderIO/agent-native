@@ -1283,6 +1283,7 @@ export default {
     saveTemplate: "حفظ القالب",
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
+    templateRequiresScreen: "أضف شاشة تصميم واحدة على الأقل قبل حفظ القالب.",
     appMenu: {
       backToDashboard: "العودة إلى لوحة التحكم",
       file: "ملف",
