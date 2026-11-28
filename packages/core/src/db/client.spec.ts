@@ -2691,11 +2691,157 @@ describe("db/client postgres-js request pool recovery", () => {
     }
 
     expect(statements.slice(1)).toEqual([
-      "SELECT set_config('statement_timeout', $1, true) [720ms]",
+      "SELECT set_config('statement_timeout', $1, true) [470ms]",
       "SELECT 1",
       "SELECT set_config('statement_timeout', $1, true) [0]",
     ]);
   });
+
+  it.each([
+    [0, 0, 0, [3_750], true, 3_750, 4_000],
+    [0, 1, 3, [3_750, 3_699], true, 3_699, 3_996],
+    [0, 249, 0, [3_750, 3_189], true, 3_189, 3_751],
+    [0, 250, 0, [3_750, 3_187], true, 3_187, 3_750],
+    [0, 300, 300, [3_750, 3_075], true, 3_075, 3_400],
+    [3_725, 300, 300, [3_725, 3_075], true, 3_075, 3_400],
+    [3_650, 300, 300, [3_650, 3_075], true, 3_075, 3_400],
+    [3_450, 300, 0, [3_450], true, 3_450, 3_700],
+    [2_000, 300, 0, [2_000], true, 2_000, 3_700],
+    [0, 1_875, 0, [3_750, 1_062], true, 1_062, 2_125],
+    [0, 1_894, 0, [3_750, 1_053], true, 1_053, 2_106],
+    [0, 1_900, 0, [3_750, 1_050], true, 1_050, 2_100],
+    [0, 2_100, 0, [3_750, 950], true, 950, 1_900],
+    [0, 2_100, 300, [3_750, 950], true, 950, 1_600],
+    [3_725, 2_100, 0, [3_725, 950], true, 950, 1_900],
+    [1_000, 2_100, 0, [1_000], true, 1_000, 1_900],
+    [0, 2_100, 949, [3_750, 950], false, null, null],
+    [0, 2_100, 950, [3_750, 950], false, null, null],
+    [3_725, 2_100, 950, [3_725, 950], false, null, null],
+    [0, 300, 301, [3_750, 3_075], true, 3_075, 3_399],
+    [0, 300, 375, [3_750, 3_075], true, 3_075, 3_325],
+    [0, 300, 376, [3_750, 3_075], false, null, null],
+    [0, 300, 549, [3_750, 3_075], false, null, null],
+    [0, 300, 550, [3_750, 3_075], false, null, null],
+    [0, 300, 1_000, [3_750, 3_075], false, null, null],
+    [3_725, 300, 1_000, [3_725, 3_075], false, null, null],
+    [0, 300, 3_700, [3_750, 3_075], false, null, null],
+    [0, 3_999, 0, [3_750], false, null, null],
+    [0, 4_000, 0, [3_750], false, null, null],
+  ] as const)(
+    "bounds a 4s statement timeout across setup RTTs (%i, %i, %i)",
+    async (
+      previousMs,
+      firstRtt,
+      secondRtt,
+      expectedCaps,
+      succeeds,
+      expectedCap,
+      expectedRemaining,
+    ) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+      vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+      vi.stubGlobal("__env__", {});
+      const previous = `${previousMs}ms`;
+      let serverCap = previousMs;
+      const setupCaps: number[] = [];
+      const statementObservation: {
+        cap: number | null;
+        remaining: number | null;
+      } = {
+        cap: null,
+        remaining: null,
+      };
+      let elapsedMs = 0;
+      const txSql = {
+        unsafe: vi.fn((query: string, args?: unknown[]) => {
+          if (query.includes("current_setting")) {
+            const requested = Number(args?.[0]);
+            serverCap =
+              previousMs > 0 ? Math.min(previousMs, requested) : requested;
+            setupCaps.push(serverCap);
+            vi.advanceTimersByTime(firstRtt);
+            elapsedMs += firstRtt;
+            return Promise.resolve(
+              Object.assign([{ previous, previous_ms: String(previousMs) }], {
+                count: 1,
+              }),
+            );
+          }
+          if (query.includes("set_config")) {
+            serverCap = Number.parseInt(String(args?.[0]), 10);
+            if (args?.[0] !== previous) {
+              setupCaps.push(serverCap);
+              vi.advanceTimersByTime(secondRtt);
+              elapsedMs += secondRtt;
+            }
+          } else if (query === "SELECT 1") {
+            statementObservation.cap = serverCap;
+            statementObservation.remaining = 4_000 - elapsedMs;
+          }
+          return Promise.resolve(Object.assign([], { count: 1 }));
+        }),
+      };
+      const postgres = vi.fn(() =>
+        Object.assign(() => undefined, {
+          unsafe: vi.fn(),
+          begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+            fn(txSql),
+          ),
+          end: vi.fn(async () => {}),
+        }),
+      );
+      vi.doMock("postgres", () => ({ default: postgres }));
+      const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+        import("./client.js"),
+        import("./request-pool-context.js"),
+      ]);
+
+      try {
+        await runWithRequestDbPoolScope(true, undefined, () => {
+          const transaction = getDbExec().transaction;
+          if (!transaction) throw new Error("Transactions are unavailable");
+          return transaction(async (tx) => {
+            const result = tx.execute({
+              sql: "SELECT 1",
+              timeoutMs: 4_000,
+              maxAttempts: 1,
+            });
+            const outcome = await result.then(
+              () => ({ code: null }),
+              (error: unknown) => ({ code: (error as { code?: string }).code }),
+            );
+            expect(outcome).toEqual({
+              code: succeeds ? null : "STATEMENT_BUDGET_EXHAUSTED",
+            });
+            expect(serverCap).toBe(previousMs);
+            await tx.execute({ sql: "SELECT 2" });
+          });
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(setupCaps).toEqual(expectedCaps);
+      expect(setupCaps.every((cap) => cap > 0)).toBe(true);
+      expect(
+        setupCaps.every((cap) => previousMs === 0 || cap <= previousMs),
+      ).toBe(true);
+      expect(statementObservation).toEqual({
+        cap: expectedCap,
+        remaining: expectedRemaining,
+      });
+      expect(
+        statementObservation.cap === null ||
+          (statementObservation.remaining !== null &&
+            statementObservation.remaining > 1 &&
+            statementObservation.cap > 0 &&
+            statementObservation.cap < statementObservation.remaining),
+      ).toBe(true);
+      expect(txSql.unsafe).toHaveBeenCalledWith("SELECT 2", []);
+    },
+  );
 
   it("never starts a statement whose budget the tightening round trip spent", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -2708,7 +2854,8 @@ describe("db/client postgres-js request pool recovery", () => {
     const txSql = {
       unsafe: vi.fn((query: string, args?: unknown[]) => {
         statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
-        if (query.includes("set_config")) vi.advanceTimersByTime(300);
+        if (query.includes("current_setting")) vi.advanceTimersByTime(300);
+        else if (query.includes("set_config")) vi.advanceTimersByTime(500);
         return Promise.resolve(
           Object.assign(
             query.includes("current_setting")
