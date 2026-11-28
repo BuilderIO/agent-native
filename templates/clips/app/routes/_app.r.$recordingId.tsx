@@ -3492,6 +3492,26 @@ export default function RecordingPage() {
   const recordedOn = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
   }).format(new Date(recording.createdAt));
+  const captureMetadata = recording.captureMetadata as
+    | {
+        captureMode?: unknown;
+        trackReportedFrameRate?: unknown;
+        observedFrameRate?: unknown;
+      }
+    | undefined;
+  const isRequestedMotionCapture = captureMetadata?.captureMode === "motion";
+  const trackReportedFrameRate =
+    typeof captureMetadata?.trackReportedFrameRate === "number" &&
+    Number.isFinite(captureMetadata.trackReportedFrameRate) &&
+    captureMetadata.trackReportedFrameRate > 0
+      ? captureMetadata.trackReportedFrameRate
+      : null;
+  const observedFrameRate =
+    typeof captureMetadata?.observedFrameRate === "number" &&
+    Number.isFinite(captureMetadata.observedFrameRate) &&
+    captureMetadata.observedFrameRate > 0
+      ? captureMetadata.observedFrameRate
+      : null;
 
   const viewer = (
     <>
@@ -3765,6 +3785,28 @@ export default function RecordingPage() {
                             ) : null}
                           </p>
                         </div>
+                        {isRequestedMotionCapture ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1 font-medium text-foreground">
+                              <IconBolt
+                                className="size-3.5"
+                                aria-hidden="true"
+                              />
+                              {t("recordingPage.motionCaptureRequested")}
+                            </span>
+                            <span>
+                              {observedFrameRate !== null
+                                ? t("recordingPage.captureRateMeasured", {
+                                    fps: observedFrameRate.toFixed(1),
+                                  })
+                                : trackReportedFrameRate !== null
+                                  ? t("recordingPage.captureTrackReported", {
+                                      fps: trackReportedFrameRate.toFixed(1),
+                                    })
+                                  : t("recordingPage.captureRateUnverified")}
+                            </span>
+                          </div>
+                        ) : null}
                         {titleGenerationPaused ? (
                           <BuilderCreditsTitleNotice className="mt-2" />
                         ) : null}

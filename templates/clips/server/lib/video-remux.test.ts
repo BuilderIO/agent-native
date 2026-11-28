@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,6 +15,7 @@ import {
   resolveFfmpegCommand,
   remuxWebmToSeekable,
   timelineNormalizationFfmpegArgs,
+  webmRemuxFfmpegArgs,
 } from "./video-remux";
 
 const hasSystemFfmpeg = (() => {
@@ -285,4 +286,166 @@ describe("probeHasAudioStream", () => {
     const result = await probeHasAudioStream(garbage, "mp4");
     expect(result).not.toBe(false);
   });
+});
+
+describe("remuxing a capture whose timestamps are evidence", () => {
+  function offsetWebm(): Uint8Array {
+    const dir = mkdtempSync(join(tmpdir(), "clips-pts-test-"));
+    const output = join(dir, "offset.webm");
+    try {
+      execFileSync(
+        resolveFfmpegCommand(),
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc2=size=160x90:rate=10:duration=1",
+          "-f",
+          "lavfi",
+          "-i",
+          "sine=frequency=440:duration=1",
+          "-c:v",
+          "libvpx",
+          "-deadline",
+          "realtime",
+          "-c:a",
+          "libopus",
+          "-output_ts_offset",
+          "0.123",
+          "-f",
+          "webm",
+          output,
+        ],
+        { stdio: "ignore" },
+      );
+      return new Uint8Array(readFileSync(output));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  function packetPts(bytes: Uint8Array): Map<string, number[]> {
+    const dir = mkdtempSync(join(tmpdir(), "clips-pts-read-"));
+    const input = join(dir, "input.webm");
+    try {
+      writeFileSync(input, bytes);
+      const listing = execFileSync(
+        resolveFfmpegCommand(),
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-copyts",
+          "-i",
+          input,
+          "-map",
+          "0",
+          "-c",
+          "copy",
+          "-avoid_negative_ts",
+          "disabled",
+          "-f",
+          "framecrc",
+          "-",
+        ],
+        { encoding: "utf8" },
+      );
+      const streams = new Map<string, number[]>();
+      for (const line of listing.split("\n")) {
+        if (!line.trim() || line.startsWith("#")) continue;
+        const fields = line.split(",").map((field) => field.trim());
+        const stream = fields[0] ?? "";
+        const pts = fields[2] ?? "";
+        streams.set(stream, [...(streams.get(stream) ?? []), Number(pts)]);
+      }
+      return streams;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("keeps the upstream remux arguments unless timestamps must be preserved", () => {
+    expect(webmRemuxFfmpegArgs("in.webm", "out.webm")).toEqual([
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-nostdin",
+      "-y",
+      "-fflags",
+      "+genpts",
+      "-i",
+      "in.webm",
+      "-map",
+      "0",
+      "-c",
+      "copy",
+      "-f",
+      "webm",
+      "out.webm",
+    ]);
+    expect(
+      webmRemuxFfmpegArgs("in.webm", "out.webm", { preserveTimestamps: true }),
+    ).toEqual([
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-nostdin",
+      "-y",
+      "-copyts",
+      "-i",
+      "in.webm",
+      "-map",
+      "0",
+      "-c",
+      "copy",
+      "-avoid_negative_ts",
+      "disabled",
+      "-f",
+      "webm",
+      "out.webm",
+    ]);
+  });
+
+  // oracle-change: new remux cases, not a narrowed one; they need ffmpeg to make their test file, so they run wherever the bundled ffmpeg answers
+  it.skipIf(!isFfmpegAvailable())(
+    "keeps the first and last PTS of every stream in a WebM that starts after zero",
+    async () => {
+      const source = offsetWebm();
+      const before = packetPts(source);
+      expect(before.get("0")?.[0]).toBe(123);
+      expect(before.size).toBe(2);
+
+      const preserved = await remuxWebmToSeekable(source, {
+        preserveTimestamps: true,
+      });
+      expect(preserved.changed).toBe(true);
+      const after = packetPts(preserved.bytes);
+      for (const [stream, pts] of before) {
+        expect(after.get(stream)?.[0]).toBe(pts[0]);
+        expect(after.get(stream)?.slice(-1)).toEqual(pts.slice(-1));
+        expect(after.get(stream)).toEqual(pts);
+      }
+
+      const viaDispatch = await makeSeekable({
+        mediaBytes: source,
+        videoFormat: "webm",
+        preserveTimestamps: true,
+      });
+      expect(packetPts(viaDispatch.bytes).get("0")?.[0]).toBe(123);
+    },
+  );
+
+  // oracle-change: new remux cases, not a narrowed one; they need ffmpeg to make their test file, so they run wherever the bundled ffmpeg answers
+  it.skipIf(!isFfmpegAvailable())(
+    "still rebases an ordinary recording the way upstream always has",
+    async () => {
+      const source = offsetWebm();
+      const rebased = await remuxWebmToSeekable(source);
+      expect(rebased.changed).toBe(true);
+      expect(packetPts(rebased.bytes).get("0")?.[0]).not.toBe(123);
+    },
+  );
 });

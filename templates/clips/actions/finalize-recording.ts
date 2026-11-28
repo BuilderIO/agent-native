@@ -95,8 +95,13 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import {
+  captureMetadataJsonToStore,
+  isMotionCaptureMetadataJson,
+} from "../shared/recording-capture.js";
 import { transcriptFailureMessage } from "../shared/transcript-failure.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
+import { recordingCaptureMetadataSchema } from "./lib/capture-metadata-schema.js";
 import { resolveCloudTranscriptionAccess } from "./lib/cloud-transcription-access.js";
 import {
   isRemoteProviderUrl,
@@ -367,7 +372,9 @@ function queueBackgroundBuilderCompression(args: {
   assetDbId?: string | null;
   sourceSizeBytes?: number | null;
   locallyTranscoded?: boolean;
+  preserveSourceTimeline?: boolean;
 }): void {
+  if (args.preserveSourceTimeline) return;
   void queueBuilderMediaCompression(args).catch((err) => {
     console.warn("[finalize] failed to queue media compression", {
       recordingId: args.recordingId,
@@ -547,6 +554,8 @@ type PendingMediaVerification = {
   providerId?: string;
   assetDbId?: string;
   locallyTranscoded: boolean;
+  preserveSourceTimeline: boolean;
+  captureMetadataJson?: string | undefined;
 };
 
 function pendingMediaVerificationFromState(
@@ -580,6 +589,9 @@ function pendingMediaVerificationFromState(
     providerId: stateString(state, "providerId"),
     assetDbId: stateString(state, "assetDbId"),
     locallyTranscoded: stateBoolean(state, "locallyTranscoded") ?? false,
+    preserveSourceTimeline:
+      stateBoolean(state, "preserveSourceTimeline") ?? false,
+    captureMetadataJson: stateString(state, "captureMetadataJson"),
   };
 }
 
@@ -698,6 +710,10 @@ async function persistPendingMediaVerification(params: {
         providerId: media.providerId,
         assetDbId: media.assetDbId,
         locallyTranscoded: media.locallyTranscoded,
+        preserveSourceTimeline: media.preserveSourceTimeline,
+        ...(media.captureMetadataJson
+          ? { captureMetadataJson: media.captureMetadataJson }
+          : {}),
         updatedAt: now,
       },
     },
@@ -1103,6 +1119,7 @@ async function markRecordingReady(params: {
   existingTitle: string;
   seekableApplied: boolean;
   browserSessionId?: string;
+  captureMetadataJson?: string | undefined;
 }) {
   const {
     id,
@@ -1122,6 +1139,7 @@ async function markRecordingReady(params: {
     existingTitle,
     seekableApplied,
     browserSessionId,
+    captureMetadataJson,
   } = params;
   const db = getDb();
   const now = new Date().toISOString();
@@ -1129,6 +1147,7 @@ async function markRecordingReady(params: {
   const promoted = await db
     .update(schema.recordings)
     .set({
+      ...(captureMetadataJson === undefined ? {} : { captureMetadataJson }),
       status: "ready",
       videoUrl,
       videoFormat,
@@ -1521,6 +1540,7 @@ async function retryPendingMediaVerification(params: {
       storageMode,
       seekableApplied: candidate.seekableApplied,
       browserSessionId,
+      captureMetadataJson: candidate.captureMetadataJson,
     });
     if (result.status === "ready" && result.transitionedToReady) {
       queueBackgroundBuilderCompression({
@@ -1532,6 +1552,7 @@ async function retryPendingMediaVerification(params: {
         assetDbId: candidate.assetDbId,
         sourceSizeBytes: candidate.videoSizeBytes,
         locallyTranscoded: candidate.locallyTranscoded,
+        preserveSourceTimeline: candidate.preserveSourceTimeline,
       });
     }
     return result;
@@ -1684,6 +1705,11 @@ export default defineAction({
       .nullable()
       .optional()
       .describe("Upload generation that owns the scratch data being finalized"),
+    captureMetadata: recordingCaptureMetadataSchema
+      .optional()
+      .describe(
+        "Final capture-side metadata. Requested and track-reported cadence are claims; observed cadence is populated only by media measurement.",
+      ),
   }),
   mcpTool: "search",
   run: async (args) => {
@@ -1860,7 +1886,15 @@ export default defineAction({
           ? args.hasCamera
           : (stateBoolean(uploadState, "hasCamera") ?? existing.hasCamera);
 
+      const captureMetadataJson = captureMetadataJsonToStore(
+        args.captureMetadata,
+        existing.captureMetadataJson,
+      );
+      const preserveSourceTimeline =
+        args.captureMetadata?.captureMode === "motion" ||
+        isMotionCaptureMetadataJson(existing.captureMetadataJson);
       const readyParams = {
+        captureMetadataJson,
         id,
         ownerEmail,
         videoFormat,
@@ -2207,6 +2241,8 @@ export default defineAction({
               mimeType,
               providerId: resumableSession.providerId,
               locallyTranscoded: args.locallyTranscoded === true,
+              preserveSourceTimeline,
+              captureMetadataJson,
             },
           });
           await deleteResumableSession(id, generationId).catch((deleteErr) =>
@@ -2233,6 +2269,7 @@ export default defineAction({
             providerId: resumableSession.providerId,
             sourceSizeBytes: resumableSession.bytesUploaded,
             locallyTranscoded: args.locallyTranscoded === true,
+            preserveSourceTimeline,
           });
         }
         deleteResumableSession(id, generationId).catch((err) =>
@@ -2264,6 +2301,7 @@ export default defineAction({
         .set({
           status: "processing",
           uploadProgress: 100,
+          ...(captureMetadataJson ? { captureMetadataJson } : {}),
           mediaUpdatedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
@@ -2522,7 +2560,9 @@ export default defineAction({
       } else if (videoFormat === "webm") {
         if (assembled.byteLength <= inlineRemuxMaxBytes()) {
           try {
-            const seekable = await remuxWebmToSeekable(uploadData);
+            const seekable = await remuxWebmToSeekable(uploadData, {
+              preserveTimestamps: preserveSourceTimeline,
+            });
             if (seekable.changed) {
               uploadData = seekable.bytes;
               seekableApplied = true;
@@ -2935,6 +2975,8 @@ export default defineAction({
             assetDbId: upload.id,
             locallyTranscoded:
               args.locallyTranscoded === true || Boolean(compressionMeta),
+            preserveSourceTimeline,
+            captureMetadataJson,
           },
         });
       }
@@ -2960,6 +3002,7 @@ export default defineAction({
           sourceSizeBytes: uploadData.byteLength,
           locallyTranscoded:
             args.locallyTranscoded === true || Boolean(compressionMeta),
+          preserveSourceTimeline,
         });
       }
       return result;

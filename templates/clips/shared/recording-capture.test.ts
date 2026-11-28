@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MOTION_CAPTURE_FRAME_RATE,
+  MOTION_STREAM_FRAME_RATE,
   SCREEN_CAPTURE_FRAME_RATE,
   SCREEN_CAPTURE_MAX_HEIGHT,
   SCREEN_CAPTURE_MAX_WIDTH,
+  captureFrameRate,
+  captureMetadataJsonToStore,
+  trackReportedCaptureFrameRate,
   screenCaptureVideoConstraints,
   screenCaptureDisplayOptions,
   type ScreenCaptureSurface,
@@ -52,6 +57,37 @@ describe("screen capture quality policy", () => {
     expect(options.video.width).toEqual({ ideal: 3456, max: 3456 });
     expect(options.video.height).toEqual({ ideal: 2234, max: 2234 });
   });
+
+  it("requests 60 fps only for motion-quality capture, from a stream with room for it", () => {
+    expect(captureFrameRate()).toBe(24);
+    expect(captureFrameRate("motion")).toBe(60);
+    expect(MOTION_STREAM_FRAME_RATE).toBeGreaterThan(MOTION_CAPTURE_FRAME_RATE);
+    expect(screenCaptureVideoConstraints("window", "motion").frameRate).toEqual(
+      {
+        ideal: MOTION_STREAM_FRAME_RATE,
+        max: MOTION_STREAM_FRAME_RATE,
+      },
+    );
+  });
+
+  it("reports observed cadence only when the live track exposes it", () => {
+    const observed = {
+      getSettings: () => ({ frameRate: 58.7 }),
+    } as MediaStreamTrack;
+    const roomier = {
+      getSettings: () => ({ frameRate: MOTION_STREAM_FRAME_RATE }),
+    } as MediaStreamTrack;
+    const unavailable = {
+      getSettings: () => ({}),
+    } as MediaStreamTrack;
+
+    expect(trackReportedCaptureFrameRate(observed)).toBe(58.7);
+    expect(trackReportedCaptureFrameRate(roomier)).toBe(
+      MOTION_CAPTURE_FRAME_RATE,
+    );
+    expect(trackReportedCaptureFrameRate(unavailable)).toBeNull();
+    expect(trackReportedCaptureFrameRate(null)).toBeNull();
+  });
 });
 
 describe("screen capture audio policy", () => {
@@ -78,5 +114,29 @@ describe("screen capture audio policy", () => {
     expect(screenCaptureDisplayOptions("window", true).selfBrowserSurface).toBe(
       "exclude",
     );
+  });
+});
+
+describe("stored capture metadata", () => {
+  const motion = JSON.stringify({ captureMode: "motion" });
+
+  it("never lets a later Normal request downgrade a stored Motion take", () => {
+    expect(captureMetadataJsonToStore({ captureMode: "normal" }, motion)).toBe(
+      undefined,
+    );
+    expect(captureMetadataJsonToStore({}, motion)).toBe(undefined);
+  });
+
+  it("stores Motion over anything and Normal over a Normal or empty row", () => {
+    expect(
+      captureMetadataJsonToStore(
+        { captureMode: "motion" },
+        JSON.stringify({ captureMode: "normal" }),
+      ),
+    ).toBe(JSON.stringify({ captureMode: "motion" }));
+    expect(captureMetadataJsonToStore({ captureMode: "normal" }, null)).toBe(
+      JSON.stringify({ captureMode: "normal" }),
+    );
+    expect(captureMetadataJsonToStore(undefined, motion)).toBe(undefined);
   });
 });

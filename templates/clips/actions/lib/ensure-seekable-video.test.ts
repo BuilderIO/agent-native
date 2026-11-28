@@ -12,6 +12,7 @@ const recording = vi.hoisted(() => ({
   height: 720,
   hasAudio: true,
   mediaUpdatedAt: "2026-11-01T00:00:00.000Z",
+  captureMetadataJson: null as string | null,
 }));
 const repairedBytes = vi.hoisted(() => new Uint8Array([9, 8, 7, 6]));
 const mockProbeMediaInfo = vi.hoisted(() => vi.fn());
@@ -21,6 +22,9 @@ const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockMakeSeekable = vi.hoisted(() => vi.fn());
 const mockNormalizeTimelineToMp4 = vi.hoisted(() => vi.fn());
 const mockQueueCompression = vi.hoisted(() => vi.fn());
+const mockNoteCompressedCopyRewritten = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
 const mockDeleteRecordingMediaObjects = vi.hoisted(() => vi.fn());
 const mockDeleteSupersededHostedMedia = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
@@ -90,6 +94,7 @@ vi.mock("../../server/db/index.js", () => ({
       height: "recordings.height",
       hasAudio: "recordings.hasAudio",
       mediaUpdatedAt: "recordings.mediaUpdatedAt",
+      captureMetadataJson: "recordings.captureMetadataJson",
     },
   },
 }));
@@ -97,6 +102,8 @@ vi.mock("../../server/db/index.js", () => ({
 vi.mock("../../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: (...args: unknown[]) =>
     mockQueueCompression(...args),
+  noteCompressedCopyRewritten: (...args: unknown[]) =>
+    mockNoteCompressedCopyRewritten(...args),
 }));
 
 vi.mock("../../server/lib/recording-media-cleanup.js", () => ({
@@ -136,6 +143,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     recording.storageMode = null;
+    recording.captureMetadataJson = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -235,6 +243,12 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     expect(mockQueueCompression).toHaveBeenCalledWith(
       expect.objectContaining({ locallyTranscoded: true }),
     );
+    expect(mockNoteCompressedCopyRewritten).toHaveBeenCalledWith({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+      fromUrl: recording.videoUrl,
+      toUrl: "https://cdn.example.com/repaired.mp4",
+    });
     expect(result).toEqual({
       recordingId: recording.id,
       status: "optimized",
@@ -296,6 +310,63 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       }),
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves motion capture source timestamps when normalization is requested", async () => {
+    recording.captureMetadataJson = JSON.stringify({ captureMode: "motion" });
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+      normalizeTimeline: true,
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockNormalizeTimelineToMp4).not.toHaveBeenCalled();
+    expect(mockUploadRecordingMedia).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      recordingId: recording.id,
+      status: "skipped-authoritative-source",
+      changed: false,
+      videoUrl: recording.videoUrl,
+      detail:
+        "Timeline normalization was skipped because this motion capture's source timestamps are authoritative evidence.",
+    });
+  });
+
+  it("only remuxes a motion take and never queues it for compression", async () => {
+    recording.captureMetadataJson = JSON.stringify({ captureMode: "motion" });
+    mockMakeSeekable.mockResolvedValue({ bytes: repairedBytes, changed: true });
+    mockUploadRecordingMedia.mockResolvedValue({
+      url: "https://cdn.example.com/repaired.webm",
+      provider: "builder",
+      id: "asset-example",
+    });
+    mockReturning.mockResolvedValue([
+      {
+        id: recording.id,
+        videoUrl: "https://cdn.example.com/repaired.webm",
+        videoFormat: "webm",
+      },
+    ]);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result).toEqual({
+      recordingId: recording.id,
+      status: "optimized",
+      changed: true,
+      videoUrl: "https://cdn.example.com/repaired.webm",
+    });
+    expect(mockMakeSeekable).toHaveBeenCalledTimes(1);
+    expect(mockMakeSeekable).toHaveBeenCalledWith(
+      expect.objectContaining({ preserveTimestamps: true }),
+    );
+    expect(mockNormalizeTimelineToMp4).not.toHaveBeenCalled();
+    expect(mockQueueCompression).not.toHaveBeenCalled();
   });
 
   it("leaves the original untouched when normalization cannot verify output", async () => {

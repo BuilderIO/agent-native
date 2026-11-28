@@ -16,8 +16,12 @@ import {
 } from "@shared/media-device-selection";
 import type { RecorderStage } from "@shared/recorder-stage";
 import {
-  SCREEN_CAPTURE_FRAME_RATE,
+  captureFrameRate,
+  trackReportedCaptureFrameRate,
   screenCaptureDisplayOptions,
+  type CaptureQuality,
+  type CaptureStartClockSource,
+  type RecordingCaptureMetadata,
 } from "@shared/recording-capture";
 import {
   classifyUploadResponseError,
@@ -142,6 +146,7 @@ const RECORDING_AT_RISK_STATES = new Set<RecorderState>([
 export interface RecorderEngineOptions {
   recordingId: string;
   mode: RecordingMode;
+  captureQuality?: CaptureQuality;
   displaySurface?: DisplaySurface;
   micDeviceId?: string | null;
   micDeviceLabel?: string | null;
@@ -202,6 +207,7 @@ interface RecordingFinalizeMeta {
   dimensions: { width: number; height: number };
   hasAudio: boolean;
   hasCamera: boolean;
+  captureMetadata: RecordingCaptureMetadata;
 }
 
 interface CompressionUploadMeta {
@@ -482,6 +488,9 @@ export class RecorderEngine {
   private chunkIndex = 0;
   private chunkQueue: Promise<unknown> = Promise.resolve();
   private startedAtMs: number | null = null;
+  private startedAtWallClockMs: number | null = null;
+  private startUncertaintyMs: number | null = null;
+  private startClockSource: CaptureStartClockSource | null = null;
   private pausedAccumMs = 0;
   private pausedStartedMs: number | null = null;
   private uploadFailure: Error | null = null;
@@ -557,6 +566,8 @@ export class RecorderEngine {
           : appApiPath(`/api/uploads/${options.recordingId}/reset-chunks`)),
       ...options,
       maxUploadBytes: options.maxUploadBytes ?? MAX_UPLOAD_BYTES,
+      captureQuality:
+        options.mode === "camera" ? "normal" : options.captureQuality,
     };
   }
 
@@ -566,6 +577,28 @@ export class RecorderEngine {
 
   getMimeType(): string {
     return this.mimeType;
+  }
+
+  getCaptureMetadata(): RecordingCaptureMetadata {
+    const captureMode = this.opts.captureQuality ?? "normal";
+    const settings = this.combinedStream?.getVideoTracks()[0]?.getSettings?.();
+    const positiveNumber = (value: unknown): number | null =>
+      typeof value === "number" && Number.isFinite(value) && value > 0
+        ? value
+        : null;
+    return {
+      captureMode,
+      requestedFrameRate: captureFrameRate(captureMode),
+      trackReportedFrameRate: trackReportedCaptureFrameRate(
+        this.combinedStream,
+      ),
+      observedFrameRate: null,
+      width: positiveNumber(settings?.width),
+      height: positiveNumber(settings?.height),
+      startedAtMs: this.startedAtWallClockMs,
+      startUncertaintyMs: this.startUncertaintyMs,
+      startClockSource: this.startClockSource,
+    };
   }
 
   getCameraStream(): MediaStream | null {
@@ -803,6 +836,7 @@ export class RecorderEngine {
     hasCamera: boolean;
     ownerEmail: string | null;
     recordingPlatform: LocalRecorderPlatform | null;
+    captureMetadata: RecordingCaptureMetadata;
     whole: boolean;
   } | null {
     const meta = this.lastFinalizeMeta;
@@ -818,6 +852,7 @@ export class RecorderEngine {
       hasCamera: meta.hasCamera,
       ownerEmail: this.backupDetails?.ownerEmail ?? null,
       recordingPlatform: this.backupDetails?.recordingPlatform ?? null,
+      captureMetadata: meta.captureMetadata,
       whole: this.captureComplete,
     };
   }
@@ -901,8 +936,14 @@ export class RecorderEngine {
       const displaySurface = normalizeDisplaySurfaceForRuntime(
         this.opts.displaySurface ?? "window",
       );
+      const captureQuality = this.opts.captureQuality ?? "normal";
       let displayOptions: ExtendedDisplayMediaOptions =
-        screenCaptureDisplayOptions(displaySurface, wantsMic);
+        screenCaptureDisplayOptions(
+          displaySurface,
+          wantsMic,
+          undefined,
+          captureQuality,
+        );
 
       if (wantsMic || wantsDisplay) {
         this.audioMixCtx?.close().catch(() => {});
@@ -944,6 +985,7 @@ export class RecorderEngine {
                 displaySurface,
                 wantsMic,
                 { width, height },
+                captureQuality,
               );
             }
           }
@@ -1291,6 +1333,24 @@ export class RecorderEngine {
       this.emitError(err);
     });
 
+    recorder.addEventListener(
+      "start",
+      (event) => {
+        const eventTimestamp = Number(event.timeStamp);
+        const eventWallClockMs =
+          Number.isFinite(eventTimestamp) && eventTimestamp > 1_000_000_000_000
+            ? eventTimestamp
+            : Number.isFinite(eventTimestamp) &&
+                Number.isFinite(performance.timeOrigin)
+              ? performance.timeOrigin + eventTimestamp
+              : Date.now();
+        this.startedAtWallClockMs = eventWallClockMs;
+        this.startUncertaintyMs = 1;
+        this.startClockSource = "media-recorder-start-event";
+      },
+      { once: true },
+    );
+
     if (this.opts.mode === "camera" && !this.hasLiveCameraVideo()) {
       this.cleanupTracks();
       throw new CameraCaptureEndedError();
@@ -1303,6 +1363,9 @@ export class RecorderEngine {
     }
     this.recordedCameraVideo = startsWithCameraVideo;
     this.startedAtMs = performance.now();
+    this.startedAtWallClockMs = Date.now();
+    this.startUncertaintyMs = 5;
+    this.startClockSource = "recorder-start-call";
     this.transition("recording");
   }
 
@@ -1406,6 +1469,11 @@ export class RecorderEngine {
       dimensions,
       hasAudio,
       hasCamera,
+      captureMetadata: {
+        ...this.getCaptureMetadata(),
+        width: dimensions.width || this.getCaptureMetadata().width,
+        height: dimensions.height || this.getCaptureMetadata().height,
+      },
     };
     this.lastFinalizeMeta = finalizeMeta;
     this.captureComplete = backupCaptureComplete;
@@ -1460,6 +1528,7 @@ export class RecorderEngine {
       if (
         COMPRESSION_ENABLED &&
         this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES &&
+        this.opts.captureQuality !== "motion" &&
         this.uploadMode !== "streaming"
       ) {
         result = await this.compressAndReupload(finalizeMeta);
@@ -1492,6 +1561,7 @@ export class RecorderEngine {
           height: dimensions.height,
           hasAudio,
           hasCamera,
+          captureMetadata: JSON.stringify(finalizeMeta.captureMetadata),
           signal: this.uploadAbort?.signal,
         });
       }
@@ -1611,7 +1681,8 @@ export class RecorderEngine {
   ): Promise<Record<string, unknown> | undefined> {
     if (
       COMPRESSION_ENABLED &&
-      this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES
+      this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES &&
+      this.opts.captureQuality !== "motion"
     ) {
       return this.compressAndReupload(meta);
     }
@@ -1860,6 +1931,9 @@ export class RecorderEngine {
     this.uploadAttemptId = null;
     this.uploadGenerationId = null;
     this.startedAtMs = null;
+    this.startedAtWallClockMs = null;
+    this.startUncertaintyMs = null;
+    this.startClockSource = null;
     this.pausedAccumMs = 0;
     this.pausedStartedMs = null;
     this.localChunks = [];
@@ -1993,7 +2067,7 @@ export class RecorderEngine {
       displayStream: this.displayStream!,
       cameraStream: this.cameraStream!,
       bubbleSizeRatio: this.cameraBubbleSizeRatio(),
-      frameRate: SCREEN_CAPTURE_FRAME_RATE,
+      frameRate: captureFrameRate(this.opts.captureQuality ?? "normal"),
     });
     const combined = new MediaStream();
     for (const t of this.cameraComposite.stream.getVideoTracks())
@@ -2286,12 +2360,7 @@ export class RecorderEngine {
   private async uploadBlobInSlices(
     blob: Blob,
     mimeType: string,
-    meta: {
-      durationMs: number;
-      dimensions: { width: number; height: number };
-      hasAudio: boolean;
-      hasCamera: boolean;
-    },
+    meta: RecordingFinalizeMeta,
     signal?: AbortSignal,
   ): Promise<Record<string, unknown> | undefined> {
     void this.uploadThumbnailForBlob(blob, signal);
@@ -2382,6 +2451,7 @@ export class RecorderEngine {
         height: meta.dimensions.height,
         hasAudio: meta.hasAudio,
         hasCamera: meta.hasCamera,
+        captureMetadata: JSON.stringify(meta.captureMetadata),
         signal,
       },
     );
@@ -2397,12 +2467,7 @@ export class RecorderEngine {
   private async uploadBlobInStreamingChunks(
     blob: Blob,
     mimeType: string,
-    meta: {
-      durationMs: number;
-      dimensions: { width: number; height: number };
-      hasAudio: boolean;
-      hasCamera: boolean;
-    },
+    meta: RecordingFinalizeMeta,
     signal?: AbortSignal,
   ): Promise<Record<string, unknown> | undefined> {
     if (blob.size === 0) {
@@ -2431,6 +2496,7 @@ export class RecorderEngine {
               height: meta.dimensions.height,
               hasAudio: meta.hasAudio,
               hasCamera: meta.hasCamera,
+              captureMetadata: JSON.stringify(meta.captureMetadata),
             }
           : {}),
         signal,
@@ -2473,6 +2539,7 @@ export class RecorderEngine {
       height?: number;
       hasAudio?: boolean;
       hasCamera?: boolean;
+      captureMetadata?: string;
       signal?: AbortSignal;
     } = {},
   ): Promise<Record<string, unknown> | undefined> {
@@ -2487,6 +2554,7 @@ export class RecorderEngine {
       hasAudio: extra.hasAudio,
       hasCamera: extra.hasCamera,
       attemptId: this.uploadAttemptId ?? undefined,
+      captureMetadata: extra.captureMetadata,
       uploadGenerationId: this.uploadGenerationId ?? undefined,
     });
 
@@ -2773,6 +2841,7 @@ export class RecorderEngine {
       completedAt,
       state: completedAt ? "recorded-local" : "recording",
       localOnly: this.localOnly,
+      captureMetadata: this.getCaptureMetadata(),
     };
   }
 
@@ -2832,6 +2901,7 @@ export class RecorderEngine {
             savedAt: completedAt,
             completedAt,
             state: "recorded-local",
+            captureMetadata: meta.captureMetadata,
           }),
         );
       })

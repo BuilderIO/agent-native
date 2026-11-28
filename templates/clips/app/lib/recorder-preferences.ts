@@ -1,3 +1,5 @@
+import type { CaptureQuality } from "@shared/recording-capture";
+
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
 import type {
   DisplaySurface,
@@ -19,6 +21,7 @@ import { MAX_BLUR_PX, MIN_BLUR_PX } from "@/lib/camera-blur";
 export interface RecorderPreferences {
   mode: RecordingMode;
   displaySurface: DisplaySurface;
+  captureQuality: CaptureQuality;
   micId: string;
   micLabel: string;
   lastActiveMicId: string;
@@ -34,6 +37,7 @@ const STORAGE_KEY = "clips:recorder-preferences";
 
 const VALID_MODES: RecordingMode[] = ["screen", "camera", "screen+camera"];
 const VALID_SURFACES: DisplaySurface[] = ["monitor", "window", "browser"];
+const VALID_CAPTURE_QUALITIES: CaptureQuality[] = ["normal", "motion"];
 const VALID_SIZES: CameraBubbleSize[] = ["sm", "md", "lg"];
 
 export function loadRecorderPreferences(): Partial<RecorderPreferences> {
@@ -48,6 +52,11 @@ export function loadRecorderPreferences(): Partial<RecorderPreferences> {
     }
     if (VALID_SURFACES.includes(parsed.displaySurface as DisplaySurface)) {
       prefs.displaySurface = parsed.displaySurface as DisplaySurface;
+    }
+    if (
+      VALID_CAPTURE_QUALITIES.includes(parsed.captureQuality as CaptureQuality)
+    ) {
+      prefs.captureQuality = parsed.captureQuality as CaptureQuality;
     }
     if (typeof parsed.micId === "string") prefs.micId = parsed.micId;
     if (typeof parsed.micLabel === "string") {

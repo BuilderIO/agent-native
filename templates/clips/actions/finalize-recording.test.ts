@@ -29,7 +29,10 @@ const mockProbeHasAudioStream = vi.hoisted(() =>
 );
 const mockProbeMediaInfo = vi.hoisted(() => vi.fn());
 const mockRemuxWebmToSeekable = vi.hoisted(() =>
-  vi.fn(async (bytes: Uint8Array) => ({ changed: false, bytes })),
+  vi.fn(async (bytes: Uint8Array, _options?: unknown) => ({
+    changed: false,
+    bytes,
+  })),
 );
 const mockHostedUploadFile = vi.hoisted(() => vi.fn());
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
@@ -299,7 +302,8 @@ vi.mock("../server/lib/upload-lease.js", () => ({
 vi.mock("../server/lib/video-remux.js", () => ({
   probeHasAudioStream: () => mockProbeHasAudioStream(),
   probeMediaInfo: (...args: unknown[]) => mockProbeMediaInfo(...args),
-  remuxWebmToSeekable: (bytes: Uint8Array) => mockRemuxWebmToSeekable(bytes),
+  remuxWebmToSeekable: (bytes: Uint8Array, options?: unknown) =>
+    mockRemuxWebmToSeekable(bytes, options),
 }));
 
 vi.mock("../server/lib/video-storage.js", () => ({
@@ -1404,6 +1408,128 @@ describe("finalize-recording media serve verification", () => {
         upload_attempt_id: "attempt-1",
       }),
       { userId: "owner@example.com", sessionId: "browser-session-1" },
+    );
+  });
+
+  it("keeps a stored Motion take Motion when a later finalize declares Normal", async () => {
+    seedBufferedRecording();
+    const stored = JSON.stringify({ captureMode: "motion" });
+    mockState.selectRows[0] = [
+      { ...mockState.existingRecording, captureMetadataJson: stored },
+    ];
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+      captureMetadata: {
+        captureMode: "normal",
+        requestedFrameRate: 24,
+        trackReportedFrameRate: 24,
+        observedFrameRate: null,
+        width: 1280,
+        height: 720,
+        startedAtMs: null,
+        startUncertaintyMs: null,
+        startClockSource: null,
+      },
+    });
+
+    expect(mockRemuxWebmToSeekable).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      { preserveTimestamps: true },
+    );
+    expect(mockUpdateSet).toHaveBeenCalled();
+    for (const [values] of mockUpdateSet.mock.calls) {
+      expect(values).not.toHaveProperty("captureMetadataJson");
+    }
+  });
+
+  it("writes a Motion take's capture metadata when a deferred verification marks it ready", async () => {
+    const captureMetadata = {
+      captureMode: "motion" as const,
+      requestedFrameRate: 60,
+      trackReportedFrameRate: 60,
+      observedFrameRate: null,
+      width: 1280,
+      height: 720,
+      startedAtMs: 1_790_000_000_000,
+      startUncertaintyMs: 4,
+      startClockSource: "media-recorder-start-event" as const,
+    };
+    const captureMetadataJson = JSON.stringify(captureMetadata);
+    seedBufferedRecording();
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));
+
+    await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+      captureMetadata,
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "processing", captureMetadataJson }),
+    );
+    const published = mockCompareAndSetManyAppState.mock.calls
+      .map(
+        ([operations]) =>
+          operations as Array<{
+            key: string;
+            nextValue: Record<string, unknown>;
+          }>,
+      )
+      .find((operations) =>
+        operations.some(
+          ({ key }) => key === "recording-media-verification-rec_1",
+        ),
+      );
+    const publishedUploadState = published?.find(
+      ({ key }) => key === "recording-upload-rec_1",
+    )?.nextValue;
+    expect(publishedUploadState).toEqual(
+      expect.objectContaining({ captureMetadataJson }),
+    );
+
+    mockUpdateSet.mockClear();
+    Object.assign(mockState.existingRecording, {
+      status: "processing",
+      videoUrl: publishedUploadState?.videoUrl,
+    });
+    mockState.selectRows = [[{ ...mockState.existingRecording }]];
+    mockState.uploadState = publishedUploadState ?? null;
+    const verification = {
+      ...published?.find(
+        ({ key }) => key === "recording-media-verification-rec_1",
+      )?.nextValue,
+      nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      leaseUntil: null,
+    };
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-upload-rec_1") return mockState.uploadState;
+      if (key === "recording-media-verification-rec_1") return verification;
+      return null;
+    });
+    mockUpdateReturning.mockResolvedValue([{ id: "rec_1" }]);
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("ok", {
+        status: 206,
+        headers: { "content-range": "bytes 0-1/11" },
+      }),
+    );
+
+    await finalizeRecording.run({
+      id: "rec_1",
+      mediaVerificationRetryAttempt: 1,
+      uploadGenerationId: null,
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready", captureMetadataJson }),
     );
   });
 

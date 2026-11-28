@@ -6,7 +6,10 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
-import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
+import {
+  noteCompressedCopyRewritten,
+  queueBuilderMediaCompression,
+} from "../../server/lib/builder-media-compression.js";
 import {
   deleteRecordingMediaObjects,
   deleteSupersededHostedMedia,
@@ -26,6 +29,7 @@ import {
   type VideoFormat,
 } from "../../server/lib/video-remux.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
+import { isMotionCaptureMetadataJson } from "../../shared/recording-capture.js";
 import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
 
 const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
@@ -39,6 +43,7 @@ export type EnsureSeekableStatus =
   | "skipped-too-large"
   | "skipped-fetch-failed"
   | "skipped-normalize-failed"
+  | "skipped-authoritative-source"
   | "skipped-upload-failed"
   | "not-found";
 
@@ -226,6 +231,7 @@ async function ensureRecordingSeekableInternal(params: {
       height: schema.recordings.height,
       hasAudio: schema.recordings.hasAudio,
       mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+      captureMetadataJson: schema.recordings.captureMetadataJson,
     })
     .from(schema.recordings)
     .where(
@@ -246,6 +252,17 @@ async function ensureRecordingSeekableInternal(params: {
   }
   if (!rec.videoUrl) {
     return { recordingId, status: "skipped-no-media", changed: false };
+  }
+  const preservesSource = isMotionCaptureMetadataJson(rec.captureMetadataJson);
+  if (normalizeTimeline && preservesSource) {
+    return {
+      recordingId,
+      status: "skipped-authoritative-source",
+      changed: false,
+      videoUrl: rec.videoUrl,
+      detail:
+        "Timeline normalization was skipped because this motion capture's source timestamps are authoritative evidence.",
+    };
   }
   if (!isRemoteProviderUrl(rec.videoUrl)) {
     return {
@@ -286,6 +303,7 @@ async function ensureRecordingSeekableInternal(params: {
     : await makeSeekable({
         mediaBytes: fetched.bytes,
         videoFormat,
+        ...(preservesSource ? { preserveTimestamps: true } : {}),
       });
   const outputFormat: VideoFormat = normalizeTimeline ? "mp4" : videoFormat;
 
@@ -416,9 +434,28 @@ async function ensureRecordingSeekableInternal(params: {
       replacementUrl: upload.url,
     });
   }
+  await noteCompressedCopyRewritten({
+    recordingId,
+    ownerEmail,
+    fromUrl: rec.videoUrl,
+    toUrl: upload.url,
+  }).catch((err) => {
+    console.warn("[ensure-seekable-video] compression record update failed", {
+      recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
   await markRecordingSeekable(recordingId, upload.url);
   await writeAppState("refresh-signal", { ts: Date.now() });
 
+  if (preservesSource) {
+    return {
+      recordingId,
+      status: "optimized",
+      changed: true,
+      videoUrl: upload.url,
+    };
+  }
   void queueBuilderMediaCompression({
     recordingId,
     ownerEmail,

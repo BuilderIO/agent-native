@@ -92,6 +92,9 @@ vi.mock("../server/lib/recordings.js", () => ({
     calls.requireOrgAccess(...args),
   stringifySpaceIds: () => "[]",
 }));
+vi.mock("../server/lib/original-capture-metadata.js", () => ({
+  inheritedMotionCaptureMetadataJson: async () => null,
+}));
 vi.mock("./lib/recording-scope.js", () => ({
   validateRecordingScope: async () => [],
 }));

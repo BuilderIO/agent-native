@@ -1,4 +1,6 @@
 import {
+  appStateGet,
+  appStatePut,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -13,6 +15,7 @@ import {
 import { and, eq, isNull } from "drizzle-orm";
 
 import type { MediaWorkerCallback } from "../../shared/media-worker-contract.js";
+import { isMotionCaptureMetadataJson } from "../../shared/recording-capture.js";
 import { getDb, schema } from "../db/index.js";
 import { isBuilderCdnHost } from "./builder-cdn.js";
 import { enabledFlag } from "./env-flags.js";
@@ -46,6 +49,7 @@ type BuilderCompressionStatus =
   | "failed"
   | "skipped-source-changed"
   | "skipped-too-large"
+  | "skipped-source-preserved"
   | "worker-queued"
   | "worker-processing";
 
@@ -74,6 +78,7 @@ interface BuilderMediaCompressionState extends BuilderMediaTarget {
   lastTriggeredAt?: string | null;
   completedAt?: string | null;
   detail?: string | null;
+  rewrittenCompressedUrls?: string[];
   mediaWorker?: {
     jobId: string;
     outputUrl: string;
@@ -132,7 +137,8 @@ function isFinalStatus(status: BuilderCompressionStatus): boolean {
     status === "ready" ||
     status === "failed" ||
     status === "skipped-source-changed" ||
-    status === "skipped-too-large"
+    status === "skipped-too-large" ||
+    status === "skipped-source-preserved"
   );
 }
 
@@ -258,6 +264,13 @@ function parseState(
     completedAt:
       typeof value.completedAt === "string" ? value.completedAt : null,
     detail: typeof value.detail === "string" ? value.detail : null,
+    ...(Array.isArray(value.rewrittenCompressedUrls)
+      ? {
+          rewrittenCompressedUrls: value.rewrittenCompressedUrls.filter(
+            (url): url is string => typeof url === "string",
+          ),
+        }
+      : {}),
     mediaWorker: parseMediaWorkerState(value.mediaWorker),
   };
 }
@@ -475,6 +488,7 @@ async function swapRecordingToCompressed(
     .select({
       videoUrl: schema.recordings.videoUrl,
       durationMs: schema.recordings.durationMs,
+      captureMetadataJson: schema.recordings.captureMetadataJson,
     })
     .from(schema.recordings)
     .where(
@@ -487,6 +501,14 @@ async function swapRecordingToCompressed(
 
   if (!row) {
     return markCompressionFailed(state, "Recording row no longer exists");
+  }
+
+  if (isMotionCaptureMetadataJson(row.captureMetadataJson)) {
+    return writeCompressionState(state, {
+      status: "skipped-source-preserved",
+      detail: "Motion takes keep their original media",
+      nextAttemptAt: null,
+    });
   }
 
   if (
@@ -721,6 +743,67 @@ export async function runBuilderMediaCompressionForRecording(args: {
   );
 }
 
+export async function preCompressionSourceMedia(recording: {
+  id: string;
+  ownerEmail: string;
+  videoUrl: string | null;
+}): Promise<{ videoUrl: string; sizeBytes: number | null } | null> {
+  if (!recording.videoUrl) return null;
+  const state = parseState(
+    await appStateGet(
+      recording.ownerEmail,
+      builderMediaCompressionStateKey(recording.id),
+    ),
+  );
+  if (
+    !state ||
+    state.recordingId !== recording.id ||
+    state.status !== "ready" ||
+    !compressedCopyUrls(state).includes(recording.videoUrl) ||
+    state.sourceUrl === recording.videoUrl
+  ) {
+    return null;
+  }
+  return {
+    videoUrl: state.sourceUrl,
+    sizeBytes: state.sourceSizeBytes ?? null,
+  };
+}
+
+function compressedCopyUrls(state: BuilderMediaCompressionState): string[] {
+  return [state.compressedUrl, ...(state.rewrittenCompressedUrls ?? [])];
+}
+
+const MAX_REWRITTEN_COMPRESSED_URLS = 8;
+
+export async function noteCompressedCopyRewritten(args: {
+  recordingId: string;
+  ownerEmail: string;
+  fromUrl: string;
+  toUrl: string;
+}): Promise<boolean> {
+  const key = builderMediaCompressionStateKey(args.recordingId);
+  const state = parseState(await appStateGet(args.ownerEmail, key));
+  if (
+    !state ||
+    state.recordingId !== args.recordingId ||
+    state.status !== "ready" ||
+    !compressedCopyUrls(state).includes(args.fromUrl) ||
+    compressedCopyUrls(state).includes(args.toUrl)
+  ) {
+    return false;
+  }
+  await appStatePut(args.ownerEmail, key, {
+    ...state,
+    rewrittenCompressedUrls: [
+      ...(state.rewrittenCompressedUrls ?? []),
+      args.toUrl,
+    ].slice(-MAX_REWRITTEN_COMPRESSED_URLS),
+    updatedAt: new Date().toISOString(),
+  } as unknown as Record<string, unknown>);
+  return true;
+}
+
 export async function queueBuilderMediaCompression(args: {
   recordingId: string;
   ownerEmail: string;
@@ -749,6 +832,21 @@ export async function queueBuilderMediaCompression(args: {
   const target = extractBuilderMediaTarget(args.videoUrl ?? "");
   if (!target) {
     return { queued: false, reason: "non-builder-media" };
+  }
+  const rows = await getDb()
+    .select({ captureMetadataJson: schema.recordings.captureMetadataJson })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, args.recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, args.ownerEmail),
+      ),
+    )
+    .limit(1);
+  if (
+    rows.some((row) => isMotionCaptureMetadataJson(row.captureMetadataJson))
+  ) {
+    return { queued: false, reason: "source-timeline-preserved" };
   }
 
   const sourceSizeBytes = args.sourceSizeBytes ?? null;
@@ -917,7 +1015,10 @@ export async function applyMediaWorkerCallback(
         undefined,
         callback.durationMs,
       );
-      if (next.status !== "ready") {
+      if (
+        next.status !== "ready" &&
+        next.status !== "skipped-source-preserved"
+      ) {
         return {
           ok: false,
           status: 409,

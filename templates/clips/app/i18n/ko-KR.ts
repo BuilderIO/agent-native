@@ -372,6 +372,10 @@ const messages = {
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
     backToLibrary: "라이브러리로 돌아가기",
     sharedWithYou: "나에게 공유됨",
+    motionCaptureRequested: "모션 캡처 요청됨",
+    captureTrackReported: "트랙 보고: {{fps}}fps",
+    captureRateMeasured: "측정됨: {{fps}}fps",
+    captureRateUnverified: "프레임 속도 미검증",
     storageStillDisconnected: "저장소가 아직 연결되지 않았습니다.",
     finishBuilderOrS3:
       "Builder.io 스토리지를 사용하거나 S3 호환 스토리지를 구성한 다음 다시 시도하세요.",
@@ -1918,6 +1922,7 @@ const messages = {
       "Fix camera access or switch to Screen mode before recording. (현지화됨)",
     captureSource: "Capture source (현지화됨)",
     selectedSurface: "{{surface}} selected (현지화됨)",
+    captureFrameRate: "캡처 프레임 속도",
     change: "Change (현지화됨)",
     audioAndCamera: "Audio & camera (현지화됨)",
     audio: "Audio (현지화됨)",

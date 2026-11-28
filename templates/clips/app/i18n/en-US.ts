@@ -310,6 +310,10 @@ const messages = {
     noAccess: "You may not have access to this clip.",
     backToLibrary: "Back to library",
     sharedWithYou: "Shared with you",
+    motionCaptureRequested: "Motion capture requested",
+    captureTrackReported: "Track reports {{fps}} fps",
+    captureRateMeasured: "Measured {{fps}} fps",
+    captureRateUnverified: "Frame rate unverified",
     storageStillDisconnected: "Storage still isn't connected",
     finishBuilderOrS3:
       "Use Builder.io storage or configure S3-compatible storage, then try again.",
@@ -1906,6 +1910,7 @@ const messages = {
       "Fix camera access or switch to Screen mode before recording.",
     captureSource: "Capture source",
     selectedSurface: "{{surface}} selected",
+    captureFrameRate: "Capture frame rate",
     change: "Change",
     audioAndCamera: "Audio & camera",
     audio: "Audio",

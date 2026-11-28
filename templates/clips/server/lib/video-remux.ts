@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createHash, type Hash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -22,6 +23,116 @@ export type VideoFormat = "webm" | "mp4";
 export interface SeekableResult {
   bytes: Uint8Array;
   changed: boolean;
+}
+
+export interface RemuxOptions {
+  preserveTimestamps?: boolean;
+}
+
+export function webmRemuxFfmpegArgs(
+  inputPath: string,
+  outputPath: string,
+  options: RemuxOptions = {},
+): string[] {
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-nostdin",
+    "-y",
+    ...(options.preserveTimestamps ? ["-copyts"] : ["-fflags", "+genpts"]),
+    "-i",
+    inputPath,
+    "-map",
+    "0",
+    "-c",
+    "copy",
+    ...(options.preserveTimestamps ? ["-avoid_negative_ts", "disabled"] : []),
+    "-f",
+    "webm",
+    outputPath,
+  ];
+}
+
+export async function packetTimestampDigest(
+  inputPath: string,
+): Promise<string | null> {
+  const streams = new Map<string, Hash>();
+  let packets = 0;
+  const take = (line: string) => {
+    if (line.startsWith("#tb ")) {
+      const stream = line.slice(4).split(":")[0] ?? "";
+      if (!streams.has(stream)) streams.set(stream, createHash("sha256"));
+      streams.get(stream)?.update(`${line}\n`);
+      return;
+    }
+    if (!line || line.startsWith("#")) return;
+    const fields = line.split(",").map((field) => field.trim());
+    const stream = fields[0] ?? "";
+    const pts = fields[2] ?? "";
+    if (!/^\d+$/.test(stream) || !/^-?\d+$/.test(pts)) return;
+    if (!streams.has(stream)) streams.set(stream, createHash("sha256"));
+    streams.get(stream)?.update(`${pts}\n`);
+    packets += 1;
+  };
+  await new Promise<void>((resolve, reject) => {
+    // observed-write-ok: reads the input's packet timestamps to stdout and writes no file
+    const child = spawn(
+      ffmpegCommand(),
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-copyts",
+        "-i",
+        inputPath,
+        "-map",
+        "0",
+        "-c",
+        "copy",
+        "-avoid_negative_ts",
+        "disabled",
+        "-f",
+        "framecrc",
+        "-",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let pending = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`ffmpeg timestamp read timed out\n${stderr}`));
+    }, REMUX_TIMEOUT_MS);
+    child.stdout.on("data", (chunk: Buffer) => {
+      pending += chunk.toString("utf8");
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) take(line.trim());
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
+    });
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`${err.message}\n${stderr}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      take(pending.trim());
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`ffmpeg exited with code ${code}\n${stderr}`));
+    });
+  });
+  if (packets === 0) return null;
+  return [...streams.entries()]
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([stream, hash]) => `${stream}:${hash.digest("hex")}`)
+    .join(",");
 }
 
 export function timelineNormalizationFfmpegArgs(
@@ -375,6 +486,7 @@ export async function withRemuxSlot<T>(fn: () => Promise<T>): Promise<T> {
 
 export async function remuxWebmToSeekable(
   mediaBytes: Uint8Array,
+  options: RemuxOptions = {},
 ): Promise<SeekableResult> {
   const unchanged: SeekableResult = { bytes: mediaBytes, changed: false };
 
@@ -389,24 +501,7 @@ export async function remuxWebmToSeekable(
   try {
     await writeFile(inputPath, mediaBytes);
     await withRemuxSlot(() =>
-      runFfmpeg([
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-nostdin",
-        "-y",
-        "-fflags",
-        "+genpts",
-        "-i",
-        inputPath,
-        "-map",
-        "0",
-        "-c",
-        "copy",
-        "-f",
-        "webm",
-        outputPath,
-      ]),
+      runFfmpeg(webmRemuxFfmpegArgs(inputPath, outputPath, options)),
     );
 
     const info = await stat(outputPath).catch(() => null);
@@ -414,6 +509,21 @@ export async function remuxWebmToSeekable(
 
     const out = new Uint8Array(await readFile(outputPath));
     if (!startsWithMagic(out, EBML_MAGIC)) return unchanged;
+
+    if (options.preserveTimestamps) {
+      const [before, after] = await withRemuxSlot(() =>
+        Promise.all([
+          packetTimestampDigest(inputPath),
+          packetTimestampDigest(outputPath),
+        ]),
+      );
+      if (before === null || before !== after) {
+        console.warn(
+          "[video-remux] webm remux would move source timestamps, keeping original",
+        );
+        return unchanged;
+      }
+    }
 
     return { bytes: out, changed: true };
   } catch (err) {
@@ -502,10 +612,13 @@ export function faststartMp4(mediaBytes: Uint8Array): SeekableResult {
 export async function makeSeekable(input: {
   mediaBytes: Uint8Array;
   videoFormat: VideoFormat;
+  preserveTimestamps?: boolean;
 }): Promise<SeekableResult> {
   if (input.videoFormat === "mp4") return faststartMp4(input.mediaBytes);
   if (input.videoFormat === "webm") {
-    return remuxWebmToSeekable(input.mediaBytes);
+    return remuxWebmToSeekable(input.mediaBytes, {
+      preserveTimestamps: input.preserveTimestamps === true,
+    });
   }
   return { bytes: input.mediaBytes, changed: false };
 }

@@ -431,6 +431,32 @@ describe("PreRecordPanel desktop-aligned setup", () => {
     ).toBe("screen+camera");
   });
 
+  it("offers Motion only with a screen and records a camera-only take normally", async () => {
+    storage.set(
+      "clips:recorder-preferences",
+      JSON.stringify({ mode: "screen", captureQuality: "motion" }),
+    );
+    const onStart = await renderPanel();
+
+    expect(container.textContent).toContain("60 fps");
+
+    await act(async () =>
+      click(container.querySelector('[aria-label="preRecord.modeCameraOnly"]')),
+    );
+
+    expect(container.textContent).not.toContain("60 fps");
+    await act(async () =>
+      click(
+        Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent.includes("preRecord.startCameraRecording"),
+        ) ?? null,
+      ),
+    );
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "camera", captureQuality: "normal" }),
+    );
+  });
+
   it("uses the camera-specific CTA and semantic recording indicator", async () => {
     await renderPanel();
 
@@ -837,6 +863,7 @@ describe("PreRecordPanel desktop-aligned setup", () => {
       micDeviceId: "__clips_no_microphone__",
       micDeviceLabel: null,
       cameraDeviceId: null,
+      captureQuality: "normal",
     });
   });
 

@@ -167,6 +167,7 @@ export const recordings = table("recordings", {
   videoSizeBytes: integer("video_size_bytes").notNull().default(0),
   width: integer("width").notNull().default(0),
   height: integer("height").notNull().default(0),
+  captureMetadataJson: text("capture_metadata_json"),
   hasAudio: boolean("has_audio").notNull().default(true),
   hasCamera: boolean("has_camera").notNull().default(false),
   // 'rich' once a recorder's separate tracks were finalized beside the
