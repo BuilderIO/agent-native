@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { chromium } from "playwright";
 
+import { presentUiCapability } from "./ui-action.ts";
+
 const designUrl = process.env.VISUAL_EDIT_DESIGN_URL ?? "http://localhost:8091";
 const slidesUrl = process.env.VISUAL_EDIT_SLIDES_URL ?? "http://localhost:8084";
 const bridgeUrl = process.env.VISUAL_EDIT_BRIDGE_URL ?? "http://127.0.0.1:7331";
@@ -116,6 +118,7 @@ async function main() {
           "Content-Type": "application/json",
           "X-Agent-Native-Browser-Tab": "visual-edit-runtime-proof",
           "X-Agent-Native-Frontend": "1",
+          Origin: new URL(designUrl).origin,
         },
       },
     );
@@ -299,6 +302,7 @@ async function main() {
   } finally {
     if (createdDesignId) {
       try {
+        await presentUiCapability(page.request, designUrl);
         await postAction("delete-design", { id: createdDesignId });
       } catch (error) {
         console.warn("visual-edit proof cleanup failed", error);

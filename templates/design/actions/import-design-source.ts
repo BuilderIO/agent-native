@@ -218,6 +218,7 @@ export default defineAction({
     abort: z.boolean().optional(),
   }),
   maxBodyBytes: MAX_UPLOAD_BYTES,
+  mcpTool: "search",
   run: async (input, context) => {
     const { designId, sourceType, content, originalName } = input;
     const resolvedDesignId = await resolveImportDesignId(designId);

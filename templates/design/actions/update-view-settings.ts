@@ -20,6 +20,7 @@ export default defineAction({
   schema: storedViewSettingsSchema.partial(),
   agentInputSchema: viewSettingsSchema.partial(),
   http: { method: "PUT" },
+  mcpTool: false,
   run: async (patch) => {
     const email = getRequestUserEmail();
     if (!email) {

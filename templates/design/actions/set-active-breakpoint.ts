@@ -28,6 +28,7 @@ export default defineAction({
         "How edits at a responsive frame cascade: 'cascade-smaller' applies to this breakpoint and smaller widths; 'only' confines edits to this breakpoint's range.",
       ),
   }),
+  mcpTool: false,
   run: async ({ designId, breakpointId, editScope }) => {
     await assertAccess("design", designId, "editor");
 

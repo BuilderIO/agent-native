@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { chromium, type Frame, type Locator, type Page } from "playwright";
 
+import { presentUiCapability } from "./ui-action.ts";
+
 const designUrl =
   process.env.VISUAL_EDIT_INTERACTION_DESIGN_URL ?? "http://localhost:8091";
 const slidesUrl =
@@ -205,6 +207,7 @@ async function main() {
           "Content-Type": "application/json",
           "X-Agent-Native-Browser-Tab": browserTabId,
           "X-Agent-Native-Frontend": "1",
+          Origin: new URL(designUrl).origin,
         },
         timeout: 60_000,
       },
@@ -1093,6 +1096,7 @@ async function main() {
     }
     if (createdDesignId) {
       try {
+        await presentUiCapability(page.request, designUrl);
         await postAction("delete-design", { id: createdDesignId });
       } catch (error) {
         cleanupErrors.push(

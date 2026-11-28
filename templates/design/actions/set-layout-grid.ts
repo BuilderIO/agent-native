@@ -54,6 +54,7 @@ export default defineAction({
       .optional()
       .describe("Remove this screen's grid entirely instead of setting one."),
   }),
+  mcpTool: "search",
   run: async ({ designId, screenId, size, visible, remove }) => {
     await assertAccess("design", designId, "editor");
 

@@ -56,6 +56,7 @@ export default defineAction({
     "Connect the first-party Assets MCP server for the active Design organization. Use this explicit setup action instead of mutating onboarding status.",
   schema: z.object({}),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: false,
   run: async () => {
     const userEmail = getRequestUserEmail();
     const orgId = getRequestOrgId();

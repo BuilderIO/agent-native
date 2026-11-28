@@ -87,6 +87,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "POST" },
+  mcpTool: "search",
   run: async ({ designId, nodeId, fileId, edit }) => {
     const db = getDb();
 

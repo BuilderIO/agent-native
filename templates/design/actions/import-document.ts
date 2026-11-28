@@ -46,6 +46,7 @@ export default defineAction({
       .describe("Array of uploaded file metadata"),
   }),
   readOnly: true,
+  mcpTool: "search",
   run: async ({ files }) => {
     const capped = files.slice(0, DOC_MAX_FILES);
     const processedFiles = capped.map((file) => {

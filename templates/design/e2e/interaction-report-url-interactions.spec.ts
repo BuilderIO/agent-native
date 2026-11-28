@@ -14,7 +14,13 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath, gotoEditor, resetPersistedCanvasState } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import {
+  appPath,
+  gotoEditor,
+  postUiAction,
+  resetPersistedCanvasState,
+} from "./helpers";
 import { expect, test as railsTest } from "./rails";
 
 const SCREEN_HTML = `<!doctype html>
@@ -178,7 +184,7 @@ async function openUrlDesign(request: APIRequestContext): Promise<UrlDesign> {
     allowedOrigins: [new URL(appPath("/")).origin],
   });
   cleanups.push(async (cleanupRequest) => {
-    await action(cleanupRequest, "delete-design", {
+    await postUiAction(cleanupRequest, e2eBaseURL(), "delete-design", {
       id: opened.designId,
     }).catch(() => {});
     await closeServer(bridge.server);

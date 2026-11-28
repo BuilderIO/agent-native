@@ -49,6 +49,7 @@ export default defineAction({
       message: "Provide either path or fileId.",
       path: ["path"],
     }),
+  mcpTool: "search",
   run: async (
     { designId, path, fileId, edit, expectedVersionHash },
     context,

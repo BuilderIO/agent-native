@@ -37,6 +37,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ repoUrl, ref, include, exclude }) => {
     const collection = await collectBuilderDesignSystemGitHubFiles({
       repoUrl: repoUrl.trim(),

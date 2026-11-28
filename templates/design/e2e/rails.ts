@@ -7,8 +7,9 @@ import {
 import { parse } from "parse5";
 
 import { NATIVE_RENDER_CONTEXT_LEDGER_KEY } from "../shared/native-local-export";
+import { e2eBaseURL } from "./base-url";
 import { isEditorUrl, waitForEditorBoot } from "./editor-boot";
-import { appPath, gotoEditor } from "./helpers";
+import { appPath, gotoEditor, postUiAction } from "./helpers";
 
 const NODE_ID = "data-agent-native-node-id";
 const SAVE_REQUEST =
@@ -468,7 +469,9 @@ export class App {
         });
     }
     for (const id of this.designs)
-      await this.action("delete-design", { id }).catch(() => {});
+      await postUiAction(this.page.request, e2eBaseURL(), "delete-design", {
+        id,
+      }).catch(() => {});
     const unexpected = this.unexpectedFailures(toasts);
     if (unexpected.length && testInfo.status === testInfo.expectedStatus) {
       throw new Error(

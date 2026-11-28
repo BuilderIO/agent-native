@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -24,6 +28,9 @@ export default defineAction({
         .describe("Whether people without the owner's localhost may view it."),
     })
     .strict(),
+  needsApproval: ({ enabled }, ctx) =>
+    enabled === true && isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ designId, enabled }) => {
     await assertVisualEditAccountEditor(designId);
 

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { postActionAsApp } from "../../lib/app-action";
 import {
   assertSignedInOnBeta,
   runMarker,
@@ -140,9 +141,12 @@ test("Design inline source visual edits persist through reload and cleanup", asy
         { params: { id: designId }, headers: ACTION_HEADERS },
       );
       if (existing.status() === 200) {
-        const deleted = await postAction(page, "delete-design", {
-          id: designId,
-        });
+        const deleted = await postActionAsApp(
+          context,
+          ORIGIN,
+          "delete-design",
+          { id: designId },
+        );
         expect(deleted).toMatchObject({ id: designId, deleted: true });
       } else if (existing.status() !== 404) {
         throw new Error(

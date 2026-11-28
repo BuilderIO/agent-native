@@ -290,6 +290,7 @@ export default defineAction({
     expectedVersionHash: z.string().min(1),
     operation,
   }),
+  mcpTool: "search",
   run: async (
     { designId, fileId, expectedVersionHash, operation },
     context,

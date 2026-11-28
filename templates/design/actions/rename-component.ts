@@ -85,6 +85,7 @@ export default defineAction({
       .describe("Persisted canonical component id"),
     newName: z.string().trim().min(1).max(255),
   }),
+  mcpTool: "search",
   run: async ({ designId, componentId, newName }, context) => {
     const access = await resolveAccess("design", designId);
     if (!access)

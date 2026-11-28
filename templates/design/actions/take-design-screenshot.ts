@@ -484,6 +484,7 @@ export default defineAction({
     ),
   readOnly: true,
   http: { method: "POST" },
+  mcpTool: "search",
   run: async (
     {
       designId,

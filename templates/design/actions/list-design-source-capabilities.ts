@@ -31,6 +31,7 @@ export default defineAction({
   readOnly: true,
   capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {

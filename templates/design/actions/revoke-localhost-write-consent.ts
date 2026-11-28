@@ -20,6 +20,7 @@ export default defineAction({
       .string()
       .describe("Localhost connection ID whose grant should be revoked."),
   }),
+  mcpTool: false,
   run: async ({ designId, connectionId }) => {
     await assertAccess("design", designId, "editor");
 

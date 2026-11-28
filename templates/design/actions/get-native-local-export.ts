@@ -28,6 +28,7 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  mcpTool: false,
   run: async ({ designId, requestId, targetTabId }) => {
     const tabId = targetTabId ?? requireNativeLocalExportTabId();
     if (targetTabId && !requestId)

@@ -25,6 +25,7 @@ export default defineAction({
         "Editor chrome preset id. One of: default (template's base palette), warm (cream/orange), ocean (light blue), forest (light green), rose (light pink), slate (cool grey).",
       ),
   }),
+  mcpTool: false,
   run: async ({ preset }) => {
     await writeAppState("appearance", { preset });
     return {

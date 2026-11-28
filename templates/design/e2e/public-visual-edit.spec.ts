@@ -26,6 +26,7 @@ import {
   enterDirectMode,
   installBridge,
   openPageOverview,
+  postUiAction,
   readSeedDesignId,
   selectByText,
   waitForBridge,
@@ -1982,19 +1983,12 @@ async function setLiveCollaboration(
 ): Promise<void> {
   const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
   try {
-    const response = await context.request.post(
-      appUrl("/_agent-native/actions/update-visual-edit-collaboration"),
-      { data: { designId, enabled } },
+    const body = await postUiAction(
+      context.request,
+      BASE_URL,
+      "update-visual-edit-collaboration",
+      { designId, enabled },
     );
-    if (!response.ok()) {
-      throw new Error(
-        `update-visual-edit-collaboration(${enabled}) failed: ${response.status()} ${await response.text()}`,
-      );
-    }
-    const body = (await response.json()) as {
-      designId?: string;
-      enabled?: boolean;
-    };
     expect(body).toMatchObject({ designId, enabled });
   } finally {
     await context.close();
@@ -2155,15 +2149,13 @@ async function createOwnedVisualEditDesign(
     return { designId: openedDesignId, screenIds, urlPath: result.urlPath };
   } catch (error) {
     if (createdDesignId) {
-      const cleanup = await context.request.post(
-        appUrl("/_agent-native/actions/delete-design"),
-        { data: { id: createdDesignId } },
-      );
-      if (!cleanup.ok()) {
+      await postUiAction(context.request, BASE_URL, "delete-design", {
+        id: createdDesignId,
+      }).catch((cleanupError: unknown) => {
         throw new Error(
-          `Visual-edit setup failed (${String(error)}) and delete-design cleanup failed: ${cleanup.status()}`,
+          `Visual-edit setup failed (${String(error)}) and delete-design cleanup failed: ${String(cleanupError)}`,
         );
-      }
+      });
     }
     throw error;
   } finally {
@@ -2174,15 +2166,7 @@ async function createOwnedVisualEditDesign(
 async function deleteDesign(browser: Browser, id: string): Promise<void> {
   const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
   try {
-    const response = await context.request.post(
-      appUrl("/_agent-native/actions/delete-design"),
-      { data: { id } },
-    );
-    if (!response.ok()) {
-      throw new Error(
-        `delete-design failed: ${response.status()} ${await response.text()}`,
-      );
-    }
+    await postUiAction(context.request, BASE_URL, "delete-design", { id });
   } finally {
     await context.close();
   }

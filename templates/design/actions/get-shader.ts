@@ -88,6 +88,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  mcpTool: "search",
   run: async ({
     format,
     definitionId,

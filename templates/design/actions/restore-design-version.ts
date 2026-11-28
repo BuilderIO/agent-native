@@ -11,6 +11,7 @@ export default defineAction({
     designId: z.string().describe("Design project ID"),
     versionId: z.string().describe("Design history checkpoint ID"),
   }),
+  mcpTool: "search",
   run: async ({ designId, versionId }, context) =>
     restoreDesignVersion({ designId, versionId, context }),
 });

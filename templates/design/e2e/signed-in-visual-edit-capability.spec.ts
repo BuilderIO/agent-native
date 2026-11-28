@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/testing";
 
 import { e2eBaseURL } from "./base-url";
+import { postUiAction } from "./helpers";
 import { App, expect, test } from "./rails";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
@@ -296,15 +297,13 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
     await visitor.teardown(test.info());
   } finally {
     if (designId) {
-      const deletion = await ownerContext.request.post(
-        `${BASE_URL}/_agent-native/actions/delete-design`,
-        { data: { id: designId } },
-      );
-      if (!deletion.ok()) {
+      await postUiAction(ownerContext.request, BASE_URL, "delete-design", {
+        id: designId,
+      }).catch((error: unknown) => {
         throw new Error(
-          `Could not clean up E2E design ${designId}: ${deletion.status()} ${await deletion.text()}`,
+          `Could not clean up E2E design ${designId}: ${String(error)}`,
         );
-      }
+      });
     }
     await ownerContext.close();
     await visitorContext.close();

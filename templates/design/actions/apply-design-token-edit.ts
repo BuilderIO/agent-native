@@ -104,6 +104,7 @@ export default defineAction({
           "write-back. Omit for inline designs.",
       ),
   }),
+  mcpTool: "search",
   run: async ({ designId, edits, sourceRef }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);

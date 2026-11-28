@@ -19,7 +19,7 @@ import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
 import { redactExportDiagnostic } from "../scripts/design-export-validation/lib/redact-diagnostic";
-import { openAppMenuSubmenu } from "./helpers";
+import { openAppMenuSubmenu, postUiAction } from "./helpers";
 import { expect, test } from "./rails";
 
 // PNG preparation and rendering can take about 74s. The two PDF pages can each
@@ -1065,7 +1065,9 @@ async function runStaticDesignExportCase(
             downloadStarted,
           });
           stage.name = "design cleanup";
-          await postAction(request, baseURL, "delete-design", { id: designId });
+          await postUiAction(request, baseURL, "delete-design", {
+            id: designId,
+          });
           designIds.splice(designIds.indexOf(designId), 1);
           activeDiagnostics = null;
           continue;
@@ -1277,7 +1279,7 @@ async function runStaticDesignExportCase(
           );
         }
         stage.name = "design cleanup";
-        await postAction(request, baseURL, "delete-design", { id: designId });
+        await postUiAction(request, baseURL, "delete-design", { id: designId });
         designIds.splice(designIds.indexOf(designId), 1);
         activeDiagnostics = null;
       } catch (error) {
@@ -1310,7 +1312,7 @@ async function runStaticDesignExportCase(
         });
         if (designId) {
           try {
-            await postAction(request, baseURL, "delete-design", {
+            await postUiAction(request, baseURL, "delete-design", {
               id: designId,
             });
             const designIndex = designIds.indexOf(designId);
@@ -1432,7 +1434,7 @@ async function runStaticDesignExportCase(
     ).toBe(true);
   } finally {
     for (const designId of designIds) {
-      await postAction(request, baseURL, "delete-design", {
+      await postUiAction(request, baseURL, "delete-design", {
         id: designId,
       }).catch(() => undefined);
     }

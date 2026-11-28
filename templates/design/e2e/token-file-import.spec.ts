@@ -9,7 +9,7 @@ import {
 import { DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES } from "../shared/design-token-import-limits";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
-import { gotoEditor } from "./helpers";
+import { gotoEditor, postUiAction } from "./helpers";
 
 let designId: string;
 let baseURLForActions: string;
@@ -79,7 +79,9 @@ test.beforeAll(async ({ request }, workerInfo) => {
 
 test.afterAll(async ({ request }) => {
   if (!designId) return;
-  await postAction(request, "delete-design", { id: designId }).catch(() => {});
+  await postUiAction(request, baseURLForActions, "delete-design", {
+    id: designId,
+  }).catch(() => {});
 });
 
 test.beforeEach(async ({ page }) => {

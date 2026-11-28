@@ -48,6 +48,7 @@ export default defineAction({
       path: ["path"],
     }),
   readOnly: true,
+  mcpTool: "search",
   run: async ({ designId, path, fileId, edit, expectedVersionHash }) => {
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,

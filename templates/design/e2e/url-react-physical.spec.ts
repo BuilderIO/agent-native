@@ -12,7 +12,8 @@ import {
 } from "@agent-native/core/testing";
 import { type Frame, type FrameLocator, type Locator } from "@playwright/test";
 
-import { expandAllLayers, installBridge } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers, installBridge, postUiAction } from "./helpers";
 import { expect, test } from "./rails";
 
 type CrossScreenDropSample = {
@@ -99,11 +100,9 @@ test.afterAll(async ({ playwright }, testInfo) => {
     await bridge?.server.close();
     vite?.kill();
     if (designId) {
-      await api
-        .post("/_agent-native/actions/delete-design", {
-          data: { id: designId },
-        })
-        .catch(() => undefined);
+      await postUiAction(api, e2eBaseURL(), "delete-design", {
+        id: designId,
+      }).catch(() => undefined);
     }
     fs.rmSync(rootPath, { recursive: true, force: true });
   }

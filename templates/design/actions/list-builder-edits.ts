@@ -34,6 +34,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId, status }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");

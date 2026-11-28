@@ -13,6 +13,7 @@ import {
   readStableZoomUntilAvailable,
   type ZoomSnapshot,
 } from "./runtime-budget-zoom.ts";
+import { postUiAction } from "./ui-action.ts";
 
 type BudgetFile = {
   copies: number;
@@ -23,10 +24,10 @@ type BudgetFile = {
 
 let seededDesignId: string | undefined;
 async function deleteSeededDesign() {
-  if (!seededDesignId) return;
+  if (!seededDesignId || !baseUrl) return;
   const id = seededDesignId;
   seededDesignId = undefined;
-  await postAction("delete-design", { id });
+  await postUiAction(baseUrl, "delete-design", { id });
 }
 // A throw outside a measured step means the session never ran, not that it was over budget.
 process.on("uncaughtException", async (error) => {
@@ -93,23 +94,6 @@ function seedDesign(url: string): string {
   const id = /^design (\S+) /m.exec(output)?.[1];
   if (!id) throw new Error(`seeding printed no design id:\n${output}`);
   return id;
-}
-
-async function postAction(name: string, input: unknown): Promise<unknown> {
-  const response = await fetch(`${baseUrl}/_agent-native/actions/${name}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Native-CSRF": "1",
-    },
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) {
-    throw new Error(
-      `${name} failed: ${response.status} ${await response.text()}`,
-    );
-  }
-  return response.json();
 }
 
 if (!values.design) seededDesignId = seedDesign(baseUrl);

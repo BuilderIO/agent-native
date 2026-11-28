@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, sql } from "drizzle-orm";
@@ -36,6 +36,9 @@ export default defineAction({
         "When supplied, delete only if this personal private design shell is unchanged and has no user content, versions, shares, or state. Used to safely clean up a newly created shell after a failed handoff.",
       ),
   }),
+  needsApproval: ({ expectedCreatedShell }, ctx) =>
+    expectedCreatedShell === undefined && isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id, expectedCreatedShell }) => {
     await assertAccess("design", id, "admin");
 

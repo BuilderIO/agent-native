@@ -25,6 +25,7 @@ export default defineAction({
       .optional()
       .describe("Title for the copy (defaults to 'Copy of ...')"),
   }),
+  mcpTool: "search",
   run: async ({ id, title }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) {

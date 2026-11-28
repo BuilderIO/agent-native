@@ -32,6 +32,7 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
+  mcpTool: false,
   run: async ({ designId, requestId, targetTabId }) => {
     const tabId = targetTabId ?? requireNativeLocalExportTabId();
     await assertAccess("design", designId, "viewer");

@@ -83,6 +83,7 @@ export default defineAction({
       .describe("Design project ID to migrate board objects for."),
   }),
   capabilityScopes: ["visual-edit"],
+  mcpTool: false,
   run: async ({ designId }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);

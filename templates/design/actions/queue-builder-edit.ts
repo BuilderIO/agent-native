@@ -58,6 +58,7 @@ export default defineAction({
       .optional()
       .describe("Optional target context for the element/screen being edited."),
   }),
+  mcpTool: "search",
   run: async ({ designId, instruction, screenFileId, target }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");

@@ -11,6 +11,7 @@ import {
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { E2E_EMAIL } from "./global-setup";
+import { postUiAction } from "./helpers";
 import { INTERACT_FRAME } from "./interact-helpers";
 import { expect, test, type App } from "./rails";
 
@@ -233,9 +234,9 @@ test.describe("URL-backed live auto-layout probe", () => {
 
   test.afterAll(async ({ request }) => {
     if (bridgeDesignId)
-      await postAction(request, "delete-design", { id: bridgeDesignId }).catch(
-        () => undefined,
-      );
+      await postUiAction(request, baseURL, "delete-design", {
+        id: bridgeDesignId,
+      }).catch(() => undefined);
     await closeServer(bridge?.server ?? null);
     await closeServer(devServer);
     if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });

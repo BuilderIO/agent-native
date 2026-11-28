@@ -292,6 +292,7 @@ export default defineAction({
         "Optional editor preimage used to reject a stale component promotion.",
       ),
   }),
+  mcpTool: "search",
   run: async (
     { designId, nodeId, selector, name, fileId, source },
     context,

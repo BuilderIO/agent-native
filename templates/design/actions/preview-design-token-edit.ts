@@ -43,6 +43,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "POST" },
+  mcpTool: "search",
   run: async ({ designId, edits }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {

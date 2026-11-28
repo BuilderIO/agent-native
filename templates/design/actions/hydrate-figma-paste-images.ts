@@ -46,6 +46,7 @@ export default defineAction({
         "ID of the design_files row to hydrate. Use the fileId returned by import-figma-clipboard.",
       ),
   }),
+  mcpTool: "search",
   run: async ({ fileId }, context) => {
     const { workspaceFile, designId, figmaFileKey } =
       await loadHydratableFile(fileId);

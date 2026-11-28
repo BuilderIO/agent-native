@@ -69,6 +69,7 @@ export default defineAction({
           "Defaults to the design's existing fusion screen paths, or ['/'] if none exist.",
       ),
   }),
+  mcpTool: "search",
   run: async ({ designId, paths }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
       fail("Full app building is not enabled", {

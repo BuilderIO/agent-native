@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
@@ -44,6 +48,8 @@ export default defineAction({
     sharePath: z.string(),
     liveCollaborationEnabled: z.boolean(),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ designId, fileId, tunnelUrl, enableLiveCollaboration }) => {
     await assertVisualEditAccountEditor(designId);
     const accessContext = { ...currentAccess() };

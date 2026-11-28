@@ -20,6 +20,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ designId, limit, threadId }) =>
     listDesignVersions(designId, limit, threadId),
 });

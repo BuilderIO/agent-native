@@ -131,6 +131,7 @@ export default defineAction({
     openWorldHint: false,
   },
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args, context) => {
     const { designId, sourceFileId, destFileId } = args;
     const access = await resolveAccess("design", designId);

@@ -25,6 +25,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ companyName, brandNotes, websiteUrl }) => {
     const websiteAnalysis = websiteUrl
       ? await extractRenderedDesignSystemFromUrl(websiteUrl)

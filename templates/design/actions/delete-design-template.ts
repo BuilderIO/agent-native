@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -9,6 +9,8 @@ export default defineAction({
   description:
     "Delete a saved Design template owned or administered by the user.",
   schema: z.object({ id: z.string().min(1).describe("Saved template ID") }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id }) => {
     await assertAccess("design-template", id, "admin");
     const db = getDb();

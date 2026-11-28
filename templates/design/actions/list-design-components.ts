@@ -28,6 +28,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId, excludeName }) => {
     const access = await resolveAccess("design", designId);
     if (!access)

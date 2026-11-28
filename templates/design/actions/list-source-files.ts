@@ -13,6 +13,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designId }) => {
     const workspace = await resolveSourceWorkspace(designId);
     const readonly = !workspace.canEdit || workspace.sourceType !== "inline";

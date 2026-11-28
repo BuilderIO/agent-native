@@ -76,6 +76,7 @@ export default defineAction({
       .nullable()
       .describe("Update the preview snapshot reference."),
   }),
+  mcpTool: "search",
   run: async ({
     id,
     designId,

@@ -120,6 +120,7 @@ export default defineAction({
           "If omitted, Builder generates one.",
       ),
   }),
+  mcpTool: false,
   run: async ({ designId, brandKitSummary, branchName }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
