@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   track: vi.fn(),
   writeAppState: vi.fn(),
   listEndedMeetingsForRecording: vi.fn(async () => []),
+  appState: new Map<string, unknown>(),
 }));
 
 const mockDb = {
@@ -36,6 +37,11 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
+  appStateGet: vi.fn(
+    async (email: string, key: string) =>
+      mocks.appState.get(`${email}:${key}`) ?? null,
+  ),
+  appStatePut: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
@@ -120,6 +126,7 @@ beforeEach(() => {
   mocks.rows = [];
   mocks.lockRows = [{ id: "rec-1" }];
   mocks.listEndedMeetingsForRecording.mockResolvedValue([]);
+  mocks.appState.clear();
 });
 
 describe("save-browser-transcript", () => {
@@ -358,6 +365,65 @@ describe("save-browser-transcript", () => {
     });
     expect(mocks.update).not.toHaveBeenCalled();
     expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
+  describe("a desktop meeting whose audio was transcribed", () => {
+    const cloudTranscript = {
+      status: "ready",
+      fullText: "Nevil: hello\n\nSpeaker B: hi",
+      segmentsJson:
+        '[{"startMs":0,"endMs":1000,"text":"hello","speaker":"Nevil"}]',
+      source: null,
+      provider: "elevenlabs",
+    };
+    const flush = {
+      recordingId: "rec-1",
+      fullText: "Me: hello\n\nThem: hi",
+      source: "whisper" as const,
+      segments: [{ startMs: 0, endMs: 1000, text: "hello", source: "mic" }],
+      overwriteReady: true,
+    };
+
+    it("keeps the transcript with speakers over a late live flush", async () => {
+      mocks.appState.set("owner@example.com:meeting-audio-layout-rec-1", {
+        layout: "mic-left-system-right",
+      });
+      mocks.rows = [
+        [recordingRow({ ownerEmail: "owner@example.com" })],
+        [cloudTranscript],
+      ];
+
+      const result = await saveBrowserTranscript.run(flush as never);
+
+      expect(result).toMatchObject({
+        status: "skipped",
+        reason: "Transcript from the meeting audio is kept",
+      });
+      expect(mocks.update).not.toHaveBeenCalled();
+      expect(mocks.insert).not.toHaveBeenCalled();
+    });
+
+    it("still lets the live capture replace its own draft", async () => {
+      mocks.appState.set("owner@example.com:meeting-audio-layout-rec-1", {
+        layout: "mic-left-system-right",
+      });
+      const set = vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => [{ recordingId: "rec-1" }]),
+        })),
+      }));
+      mocks.update.mockReturnValue({ set });
+      mocks.rows = [
+        [recordingRow({ ownerEmail: "owner@example.com" })],
+        [{ ...cloudTranscript, provider: "native" }],
+        [],
+      ];
+
+      const result = await saveBrowserTranscript.run(flush as never);
+
+      expect(result).toMatchObject({ status: "ready" });
+      expect(set).toHaveBeenCalled();
+    });
   });
 
   it("does not report transcript save success before finalization is accepted", async () => {

@@ -577,6 +577,9 @@ mod macos {
         emit_partials: bool,
         echo_guard: Option<Arc<EchoGuard>>,
         failure: OnceLock<String>,
+        /// Set for a meeting that keeps its audio: every buffer
+        /// this stream hears is also written to the meeting's file.
+        audio_track: OnceLock<Arc<crate::meeting_audio::TrackWriter>>,
     }
 
     /// What a stream's worker transcribes with: a Parakeet dictation's live
@@ -629,6 +632,7 @@ mod macos {
                 emit_partials,
                 echo_guard,
                 failure: OnceLock::new(),
+                audio_track: OnceLock::new(),
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
@@ -662,9 +666,16 @@ mod macos {
             }
         }
 
+        fn keep_audio_in(&self, track: Arc<crate::meeting_audio::TrackWriter>) {
+            let _ = self.audio_track.set(track);
+        }
+
         fn push(&self, frames: &[f32]) {
             if !self.running.load(Ordering::SeqCst) {
                 return;
+            }
+            if let Some(track) = self.audio_track.get() {
+                track.write(frames, f64::from(self.src_rate.load(Ordering::SeqCst)));
             }
             if self.source == "system" {
                 if let Some(guard) = &self.echo_guard {
@@ -1606,6 +1617,14 @@ mod macos {
                 run_id,
             )
         });
+        if owner == SessionOwner::Meeting {
+            if let Some((mic_track, system_track)) = crate::meeting_audio::active_tracks() {
+                mic_stream.keep_audio_in(mic_track);
+                if let Some(sys_stream) = &sys_stream {
+                    sys_stream.keep_audio_in(system_track);
+                }
+            }
+        }
         let mic_for_cb = mic_stream.clone();
         let mic_callback: Arc<dyn Fn(&[f32]) + Send + Sync> =
             Arc::new(move |samples: &[f32]| mic_for_cb.push(samples));

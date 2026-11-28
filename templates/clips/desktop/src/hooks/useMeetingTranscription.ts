@@ -4,7 +4,14 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ClipsActionError } from "../lib/clips-action";
+import { loadDesktopAuthToken } from "../lib/desktop-auth-token";
 import { withMeetingActionTimeout } from "../lib/meeting-action-timeout";
+import {
+  beginMeetingAudio,
+  discardMeetingAudio,
+  meetingAudioPlan,
+  uploadMeetingAudio,
+} from "../lib/meeting-audio";
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import {
   canDiscardTerminalTranscriptForReplacement,
@@ -56,6 +63,10 @@ interface MeetingTranscriptionSession {
   resumingRunId: number | null;
   settlingRunDeadlines: Map<number, number>;
   recordingId: string | null;
+  /** Set while this meeting keeps its audio. */
+  audioKey: string | null;
+  /** True once the kept audio was uploaded or thrown away. */
+  audioSettled: boolean;
   captureStopState: {
     revision: number | null;
     actualEnd: string | null;
@@ -278,6 +289,51 @@ export function useMeetingTranscription({
     }
   }, [callClipsAction]);
 
+  const settleMeetingAudio = useCallback(
+    async (session: MeetingTranscriptionSession, stopReason: string) => {
+      const plan = meetingAudioPlan({
+        audioKey: session.audioKey,
+        alreadySettled: session.audioSettled,
+        stopReason,
+        recordingId: session.recordingId,
+      });
+      if (plan.action === "none") return;
+      session.audioSettled = true;
+      const key = session.audioKey!;
+      if (plan.action === "discard") {
+        await discardMeetingAudio(key);
+        return;
+      }
+      // Tells the server the file is microphone left, system right, so it
+      // names the owner's lines. A failure only costs that naming.
+      await withMeetingActionTimeout(
+        (signal) =>
+          callClipsAction(
+            "mark-meeting-audio",
+            { recordingId: plan.recordingId },
+            { signal },
+          ),
+        MEETING_ACTION_TIMEOUT_MS,
+        "Marking the meeting audio timed out.",
+      ).catch((err) => {
+        console.warn("[meeting-audio] could not mark the audio layout:", err);
+      });
+      try {
+        const result = await uploadMeetingAudio({
+          key,
+          serverUrl: normalizedServerUrl,
+          recordingId: plan.recordingId,
+          authToken: loadDesktopAuthToken(normalizedServerUrl),
+        });
+        console.info("[meeting-audio] meeting audio settled:", result);
+      } catch (err) {
+        // The transcript is saved below either way.
+        console.warn("[meeting-audio] meeting audio upload failed:", err);
+      }
+    },
+    [callClipsAction, normalizedServerUrl],
+  );
+
   const stopInFlightRef = useRef<Promise<StopTranscriptionResult> | null>(null);
   const startInFlightRef = useRef<Promise<void> | null>(null);
 
@@ -369,6 +425,9 @@ export function useMeetingTranscription({
           unlistenAll(session.unlisten.splice(0));
           await invoke("silence_detector_stop").catch(() => {});
           await session.startRecordingInFlight;
+          // Upload the kept audio while the recording still takes an upload:
+          // stopping it marks it ready, and a ready recording refuses media.
+          await settleMeetingAudio(session, stopReason);
           let stopConfirmed = false;
           const result = await stopMeetingBeforeTranscriptFlush({
             stopRecording: async () => {
@@ -544,6 +603,7 @@ export function useMeetingTranscription({
       flushTranscript,
       normalizedServerUrl,
       scheduleRecoveryRetry,
+      settleMeetingAudio,
     ],
   );
 
@@ -702,6 +762,8 @@ export function useMeetingTranscription({
           resumingRunId: null,
           settlingRunDeadlines: new Map(),
           recordingId: null,
+          audioKey: null,
+          audioSettled: false,
           lines: [],
           transcriptionFailure: null,
           unlisten: [],
@@ -806,6 +868,16 @@ export function useMeetingTranscription({
             Date.now() - Date.parse(payload.scheduledStart),
           );
         }
+        // A meeting that starts from earlier Rewind audio has transcript the
+        // kept audio would not cover, so it keeps its transcript only.
+        if (!session.liveTimelineOffsetMs) {
+          session.audioKey = await beginMeetingAudio();
+          if (sessionRef.current !== session || session.stopping) {
+            await discardMeetingAudio(session.audioKey);
+            session.audioKey = null;
+            throw MEETING_START_CANCELLED;
+          }
+        }
         const enginePromise = startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
           runId: session.audioRunId,
@@ -831,19 +903,24 @@ export function useMeetingTranscription({
           MEETING_ACTION_TIMEOUT_MS,
           "Starting the meeting timed out.",
         );
-        session.startRecordingInFlight = startRecordingRequest.then(
+        // The session fields are set inside the promise a stop waits on, so
+        // a stop never sees the request done but `recordingId` still unset.
+        const startRecordingApplied = startRecordingRequest.then((result) => {
+          session.meetingId = result.meetingId ?? meetingId;
+          session.recordingId = result.recording?.id ?? null;
+          session.captureStopState = {
+            revision: result.captureStopRevision ?? null,
+            actualEnd: result.actualEnd ?? null,
+          };
+          return result;
+        });
+        session.startRecordingInFlight = startRecordingApplied.then(
           () => undefined,
           () => undefined,
         );
-        const result = await startRecordingRequest;
+        const result = await startRecordingApplied;
         const resolvedMeetingId = result.meetingId ?? meetingId;
         const recordingId = result.recording?.id;
-        session.meetingId = resolvedMeetingId;
-        session.recordingId = recordingId ?? null;
-        session.captureStopState = {
-          revision: result.captureStopRevision ?? null,
-          actualEnd: result.actualEnd ?? null,
-        };
         if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (!recordingId) {
           throw new Error("Could not create a transcript session.");
@@ -1270,6 +1347,10 @@ export function useMeetingTranscription({
         if (startedSession) {
           startedSession.stopping = true;
           unlistenAll(startedSession.unlisten.splice(0));
+          if (!sessionWasStopping && !startedSession.audioSettled) {
+            startedSession.audioSettled = true;
+            void discardMeetingAudio(startedSession.audioKey);
+          }
         }
         const failedStartCleanup = (async () => {
           if (sessionWasStopping) {

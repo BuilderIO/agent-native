@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockState = vi.hoisted(() => ({
   existingRecording: {
@@ -22,6 +22,8 @@ const mockState = vi.hoisted(() => ({
   selectRows: [] as Array<Array<Record<string, unknown>>>,
   transcriptRows: null as Array<Record<string, unknown>> | null,
 }));
+
+const meetingAudioLayouts = vi.hoisted(() => new Set<string>());
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
 const mockProbeHasAudioStream = vi.hoisted(() =>
@@ -138,6 +140,9 @@ vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
   deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
+  appStateGet: async (_email: string, key: string) =>
+    meetingAudioLayouts.has(key) ? { layout: "mic-left-system-right" } : null,
+  appStatePut: async () => undefined,
 }));
 
 vi.mock("@agent-native/core/db", () => ({
@@ -1923,6 +1928,63 @@ describe("finalize-recording media serve verification", () => {
     expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalledWith(
       expect.objectContaining({ kind: "transcript" }),
     );
+  });
+
+  describe("a desktop meeting that just got its audio", () => {
+    const liveDraft = {
+      recordingId: "rec_1",
+      status: "ready",
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
+      fullText: "Me: hello",
+      source: null,
+      provider: "native",
+    };
+
+    afterEach(() => meetingAudioLayouts.clear());
+
+    it("transcribes the audio with speakers over the live draft", async () => {
+      meetingAudioLayouts.add("meeting-audio-layout-rec_1");
+      mockState.existingRecording.status = "ready";
+      mockState.existingRecording.videoUrl = "/api/uploads/rec_1/blob";
+      mockState.transcriptRows = [{ ...liveDraft }];
+      mockDeleteAppState.mockResolvedValue(undefined);
+      mockWriteAppState.mockResolvedValue(undefined);
+
+      await finalizeRecording.run({ id: "rec_1" });
+
+      expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+        expect.objectContaining({ recordingId: "rec_1", kind: "transcript" }),
+      );
+    });
+
+    it("leaves a ready transcript alone without the meeting audio mark", async () => {
+      mockState.existingRecording.status = "ready";
+      mockState.existingRecording.videoUrl = "/api/uploads/rec_1/blob";
+      mockState.transcriptRows = [{ ...liveDraft }];
+      mockDeleteAppState.mockResolvedValue(undefined);
+      mockWriteAppState.mockResolvedValue(undefined);
+
+      await finalizeRecording.run({ id: "rec_1" });
+
+      expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "transcript" }),
+      );
+    });
+
+    it("never transcribes over a transcript that already has speakers", async () => {
+      meetingAudioLayouts.add("meeting-audio-layout-rec_1");
+      mockState.existingRecording.status = "ready";
+      mockState.existingRecording.videoUrl = "/api/uploads/rec_1/blob";
+      mockState.transcriptRows = [{ ...liveDraft, provider: "elevenlabs" }];
+      mockDeleteAppState.mockResolvedValue(undefined);
+      mockWriteAppState.mockResolvedValue(undefined);
+
+      await finalizeRecording.run({ id: "rec_1" });
+
+      expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "transcript" }),
+      );
+    });
   });
 
   it("reclaims a failed transcript request when ready bookkeeping replays", async () => {
