@@ -16,6 +16,7 @@ import {
   useOrg,
   useOrgInvitations,
   useOrgMembers,
+  useOrgRole,
   useSwitchOrg,
 } from "./hooks.js";
 
@@ -435,5 +436,69 @@ describe("useOrg while the action cache restore holds queries", () => {
       isInitialLoading: false,
       orgId: "org-1",
     });
+  });
+});
+
+describe("useOrgRole invite permission", () => {
+  let container: HTMLDivElement;
+  let queryClient: QueryClient;
+  let root: Root;
+
+  beforeEach(() => {
+    setAgentNativeApiDisabled(null);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    queryClient.clear();
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function readCanInvite(info: OrgInfo): Promise<boolean> {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(info)),
+    );
+    const seen: Array<boolean | undefined> = [];
+    function Probe() {
+      const result = useOrgRole();
+      seen.push(result.org ? result.canInviteMembers : undefined);
+      return null;
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() => expect(seen.at(-1)).not.toBeUndefined());
+    return seen.at(-1) as boolean;
+  }
+
+  it("matches the server-resolved permission for a member", async () => {
+    expect(
+      await readCanInvite({ ...org, role: "member", canInviteMembers: true }),
+    ).toBe(true);
+  });
+
+  it("matches a server denial even for an admin-looking role", async () => {
+    expect(
+      await readCanInvite({ ...org, role: "admin", canInviteMembers: false }),
+    ).toBe(false);
+  });
+
+  it("falls back to admin-only when the server sent no resolved value", async () => {
+    expect(await readCanInvite({ ...org, role: "member" })).toBe(false);
+    queryClient.clear();
+    expect(await readCanInvite({ ...org, role: "admin" })).toBe(true);
   });
 });

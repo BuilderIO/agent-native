@@ -76,6 +76,7 @@ import {
   useWorkspaceUserGroups,
   type WorkspaceGroupEditorController,
 } from "./GroupsSection.js";
+import { InvitationPolicyControl } from "./InvitationPolicyControl.js";
 import { AppRoleControl, AppPermissionsPanel } from "./MemberAppRoles.js";
 import { SuccessorPicker } from "./SuccessorPicker.js";
 import { Button, ErrorText, SectionTooltipProvider } from "./TeamPrimitives.js";
@@ -111,6 +112,7 @@ export function MembersTableCard({
   onRetryMembers,
   currentUserEmail,
   currentUserRole,
+  canInviteMembers,
   showDisabledInviteForMembers,
   emailConfigured,
   appRoles,
@@ -135,6 +137,7 @@ export function MembersTableCard({
   onRetryMembers: () => void;
   currentUserEmail: string;
   currentUserRole: OrgRole | null;
+  canInviteMembers?: boolean;
   showDisabledInviteForMembers?: boolean;
   emailConfigured?: boolean;
   appRoles?: AppRolesDescriptor;
@@ -157,7 +160,7 @@ export function MembersTableCard({
   );
   const [bulkActionKey, setBulkActionKey] = useState(0);
   const [bulkAppRoles, setBulkAppRoles] = useState<string[]>([]);
-  const canInvite = canInviteOrgMembers(currentUserRole);
+  const canInvite = canInviteMembers ?? canInviteOrgMembers(currentUserRole);
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
     { errorNotification: "caller" },
@@ -1013,6 +1016,7 @@ export function MembersSection({
 
   return (
     <SectionTooltipProvider>
+      <InvitationPolicyControl org={org} />
       <MembersTableCard
         members={membersData?.members ?? []}
         totalMembers={membersData?.totalCount}
@@ -1023,6 +1027,7 @@ export function MembersSection({
         onRetryMembers={() => void refetchMembers()}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
+        canInviteMembers={org.canInviteMembers}
         showDisabledInviteForMembers={showDisabledInviteForMembers}
         onInvite={onInvite}
         emailConfigured={org.emailConfigured}

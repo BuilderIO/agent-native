@@ -47,12 +47,24 @@ export {
 
 export {
   canInviteOrgMembers,
+  canInviteOrgMembersUnderPolicy,
   canManageOrg,
   canManageOrgA2ASecret,
   canManageOrgDomain,
   orgRoleAtLeast,
   orgRoleRank,
+  type OrgInvitationPolicy,
+  type OrgMemberInvitationMode,
 } from "./permissions.js";
+const loadOrgInvitationPolicy = () => import("./invitation-policy.js");
+export const canRoleInviteInOrg = lazyFunction(
+  loadOrgInvitationPolicy,
+  "canRoleInviteInOrg",
+);
+export const readOrgInvitationPolicy = lazyFunction(
+  loadOrgInvitationPolicy,
+  "readOrgInvitationPolicy",
+);
 
 export const getOrgContext = lazyFunction(loadOrgContext, "getOrgContext");
 export const getOrgDomain = lazyFunction(loadOrgContext, "getOrgDomain");
@@ -324,6 +336,10 @@ export const setRequiredAuthProviderHandler = lazyFunction(
 export const setWorkspaceAppDefaultVisibilityHandler = lazyFunction(
   loadOrgHandlers,
   "setWorkspaceAppDefaultVisibilityHandler",
+);
+export const setOrgInvitationPolicyHandler = lazyFunction(
+  loadOrgHandlers,
+  "setOrgInvitationPolicyHandler",
 );
 export const setOrgVisualIdentityHandler = lazyFunction(
   loadOrgHandlers,

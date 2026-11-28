@@ -56,6 +56,7 @@ import {
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
   setWorkspaceAppDefaultVisibilityHandler,
+  setOrgInvitationPolicyHandler,
   setOrgVisualIdentityHandler,
 } from "./handlers.js";
 import { schedulePreviewDevOrgMembership } from "./preview-dev-membership.js";
@@ -325,6 +326,17 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return setWorkspaceAppDefaultVisibilityHandler(event);
+      }),
+    );
+
+    app.use(
+      `${ORG_PREFIX}/invitation-policy`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setOrgInvitationPolicyHandler(event);
       }),
     );
 

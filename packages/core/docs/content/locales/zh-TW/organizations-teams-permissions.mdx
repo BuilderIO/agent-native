@@ -52,3 +52,7 @@ Forms 保留現有未指派角色成員的編輯權限。明確指派的 Reviewe
 群組是存取名單，不是下層團隊。它沒有獨立的組織或應用程式角色、資料邊界，也沒有團隊專屬的設定、指示、脈絡、技能、記憶或工作檢視。將資源分享給群組後，該資源的分享角色會授予群組內所有目前成員。存取者仍須屬於資源所在的組織。
 
 詳情請參閱[分享與隱私 → 群組分享](/docs/sharing#group-grants)和[工作區連線](/docs/workspace-connections)。
+
+### 誰可以邀請成員
+
+預設只有擁有者和管理員可以邀請。應用程式透過伺服器程式碼啟用,而不是透過請求:`defineAppConfig({ access: { memberInvitations: "org-setting" } })`。`"members"` 允許所有成員邀請;`"org-setting"` 允許成員邀請,直到擁有者或管理員為該組織開啟「僅管理員可邀請」 (`PUT /_agent-native/org/invitation-policy` 請求內容 `{ "onlyAdminsCanInvite": true }`)。邀請路由、批次邀請和 `invite-organization-member` 動作都使用這同一政策,仍然要求在作用中的組織擁有真實成員身分,且管理員邀請仍僅限擁有者。組織回應包含已解析的 `canInviteMembers`,`useOrgRole()` 會回傳它,使介面與伺服器一致。 成員發出的邀請一律是一般成員身分:只有擁有者和管理員可以附加應用程式角色。

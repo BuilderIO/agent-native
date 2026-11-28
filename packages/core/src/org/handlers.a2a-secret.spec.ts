@@ -5,7 +5,10 @@ import type { AddressInfo } from "node:net";
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetAppConfigForTests } from "../app-config/index.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 const mockExecute = vi.fn();
@@ -60,6 +63,10 @@ vi.mock("../settings/user-settings.js", () => ({
 
 vi.mock("../settings/org-settings.js", () => ({
   getOrgSetting: (...args: any[]) => mockGetOrgSetting(...args),
+  getOrgSettingEntry: async (...args: unknown[]) => {
+    const value = await mockGetOrgSetting(...args);
+    return value == null ? { found: false } : { found: true, value };
+  },
   putOrgSetting: vi.fn(),
 }));
 
@@ -1424,9 +1431,18 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
   });
 });
 
+async function myOrg() {
+  const event = {} as Parameters<typeof getMyOrgHandler>[0];
+  return (await getMyOrgHandler(event)) as {
+    canInviteMembers?: boolean;
+    memberInvitations?: unknown;
+  };
+}
+
 describe("getMyOrgHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAppConfigForTests();
     mockGetOrgSetting.mockResolvedValue(null);
     mockGetOrgContext.mockResolvedValue({
       email: "owner@example.test",
@@ -1457,6 +1473,77 @@ describe("getMyOrgHandler", () => {
     expect(result.a2aSecretSet).toBe(true);
     expect(Object.keys(result)).not.toContain("a2aSecret");
     expect(JSON.stringify(result)).not.toContain("example-stored-secret");
+  });
+
+  describe("member invitation permission", () => {
+    const asMember = () =>
+      mockGetOrgContext.mockResolvedValue({
+        email: "member@example.test",
+        orgId: "org_1",
+        orgName: "Example",
+        role: "member",
+      });
+
+    it("is admin-only for apps that do not opt in", async () => {
+      asMember();
+      const result = await myOrg();
+      expect(result.canInviteMembers).toBe(false);
+      expect(result.memberInvitations).toEqual({
+        mode: "admins",
+        onlyAdminsCanInvite: true,
+      });
+    });
+
+    it("lets a member invite under an opted-in, unrestricted org", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      asMember();
+      const result = await myOrg();
+      expect(result.canInviteMembers).toBe(true);
+      expect(result.memberInvitations).toEqual({
+        mode: "org-setting",
+        onlyAdminsCanInvite: false,
+      });
+    });
+
+    it("reports false for members once admins restrict it, true for admins", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: true });
+      asMember();
+      const member = await myOrg();
+      expect(member.canInviteMembers).toBe(false);
+      mockGetOrgContext.mockResolvedValue(ADMIN_CONTEXT);
+      const admin = await myOrg();
+      expect(admin.canInviteMembers).toBe(true);
+    });
+
+    it("keeps /org/me working when the stored policy is corrupt, failing closed for members", async () => {
+      defineAppConfig({ access: { memberInvitations: "org-setting" } });
+      mockGetOrgSetting.mockResolvedValue({ onlyAdminsCanInvite: "yes" });
+      asMember();
+      const member = await myOrg();
+      expect(member.canInviteMembers).toBe(false);
+      expect(member.memberInvitations).toEqual({
+        mode: "org-setting",
+        onlyAdminsCanInvite: true,
+        invalid: true,
+      });
+      mockGetOrgContext.mockResolvedValue(ADMIN_CONTEXT);
+      const admin = await myOrg();
+      expect(admin.canInviteMembers).toBe(true);
+      expect(admin.memberInvitations).toMatchObject({ invalid: true });
+    });
+
+    it("is false with no active org", async () => {
+      defineAppConfig({ access: { memberInvitations: "members" } });
+      mockGetOrgContext.mockResolvedValue({
+        email: "member@example.test",
+        orgId: null,
+        orgName: null,
+        role: null,
+      });
+      const result = await myOrg();
+      expect(result.canInviteMembers).toBe(false);
+    });
   });
 
   it("omits the indicator entirely for plain members", async () => {

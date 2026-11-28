@@ -138,7 +138,7 @@ const PASTE_PLACEHOLDER = "alice@acme.com, bob@acme.com\ncharlie@acme.com";
 export function BulkInviteForm({
   currentUserRole,
   emailConfigured,
-  appRoles,
+  appRoles: requestedAppRoles,
   onClose,
 }: {
   currentUserRole: string | null;
@@ -164,6 +164,10 @@ export function BulkInviteForm({
     failed: Map<string, string>;
   } | null>(null);
 
+  const appRoles =
+    currentUserRole === "owner" || currentUserRole === "admin"
+      ? requestedAppRoles
+      : undefined;
   const canSetAdmin = currentUserRole === "owner";
   const ownerOnlyAdmin = canSetAdmin
     ? undefined

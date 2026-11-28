@@ -96,7 +96,7 @@ export function useOrgRole(): UseOrgRoleResult {
     role,
     isOwner: role === "owner",
     canManageOrg: canManageOrg(role),
-    canInviteMembers: canInviteOrgMembers(role),
+    canInviteMembers: query.data?.canInviteMembers ?? canInviteOrgMembers(role),
     canManageDomain: canManageOrgDomain(role),
     isLoading: query.isLoading,
     error: query.error,
@@ -471,6 +471,21 @@ export function useSetWorkspaceAppDefaultVisibility() {
       apiFetch(`${orgBasePath()}/workspace-app-default-visibility`, {
         method: "PUT",
         body: JSON.stringify({ visibility }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
+export function useSetOrgInvitationPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: surfaceMutationError(),
+    mutationFn: (onlyAdminsCanInvite: boolean) =>
+      apiFetch(`${orgBasePath()}/invitation-policy`, {
+        method: "PUT",
+        body: JSON.stringify({ onlyAdminsCanInvite }),
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });

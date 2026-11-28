@@ -1,6 +1,9 @@
 const messages = {
   "settingsOrg.inviteAdminExplanation":
     "Only admins can invite others. Ask your admin for help inviting others, or have them make you an admin too.",
+  "settingsOrg.onlyAdminsCanInvite": "Only admins can invite members",
+  "settingsOrg.invitationPolicyInvalid":
+    "The saved invitation setting is invalid, so only admins can invite. Choose a setting to repair it.",
   "settingsApiKeys.approvedOrigins": "Approved origins",
   "settingsApiKeys.originsHint":
     "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",

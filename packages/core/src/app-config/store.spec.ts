@@ -95,6 +95,7 @@ describe("app config store", () => {
     expect(getAppConfig().access).toEqual({
       allowedEmailDomains: [],
       signup: "invited",
+      memberInvitations: "admins",
       orgCreation: "closed",
       autoCreateDefaultOrg: false,
       bootstrapAdmins: ["Admin@example.com", "owner@example.com"],

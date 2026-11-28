@@ -69,6 +69,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { useSettingsPageHeader } from "../../settings/shell/context.js";
 import { BulkInviteForm } from "../BulkInviteForm.js";
 import { GroupsSection } from "../GroupsSection.js";
+import { InvitationPolicyControl } from "../InvitationPolicyControl.js";
 import { AppPermissionsPanel, AppRoleControl } from "../MemberAppRoles.js";
 import { MemberPagination } from "../MembersSection.js";
 import { SuccessorPicker } from "../SuccessorPicker.js";
@@ -424,7 +425,7 @@ function OrgMembersContent({
   const membersQuery = useOrgMembers(offset, search);
   const invitations = useOrgInvitations();
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
-  const canInvite = canInviteOrgMembers(org.role);
+  const canInvite = org.canInviteMembers ?? canInviteOrgMembers(org.role);
   const canManageAppRoles = Boolean(appRoles && appRoleData?.canManage);
 
   useEffect(() => {
@@ -468,6 +469,7 @@ function OrgMembersContent({
   return (
     <div className="space-y-8">
       <section id="members" className="scroll-mt-16 space-y-3">
+        <InvitationPolicyControl org={org} />
         <form role="search" onSubmit={(event) => event.preventDefault()}>
           <InputGroup size="sm">
             <InputGroupInput

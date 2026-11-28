@@ -57,6 +57,18 @@ export interface OrgInfo {
   requiredAuthProvider: RequiredAuthProvider;
   workspaceAppDefaultVisibility?: WorkspaceAppDefaultVisibility;
   /**
+   * Whether the viewer may invite members to the active org, resolved by the
+   * same policy the invitation route and action enforce. Absent from an older
+   * server, which only ever allows owners and admins.
+   */
+  canInviteMembers?: boolean;
+  /** The active org's invitation policy; absent without an active org. */
+  memberInvitations?: {
+    mode: "admins" | "members" | "org-setting";
+    onlyAdminsCanInvite: boolean;
+    invalid?: boolean;
+  };
+  /**
    * The deployment's sign-in methods. Owners and admins only; absent for
    * everyone else, which is not the same as "no methods".
    */

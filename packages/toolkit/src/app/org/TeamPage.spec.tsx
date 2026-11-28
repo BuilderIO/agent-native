@@ -17,6 +17,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   useRemoveMember: () => mocks.removeMember,
   useSetAppMemberRoles: () => mocks.action,
   useSetOrgDomain: () => mocks.setOrgDomain,
+  useSetOrgInvitationPolicy: () => mocks.action,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({

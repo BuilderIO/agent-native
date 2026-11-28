@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
     changeRole: mutation(),
     removeMember: mutation(),
     updateOrg: mutation(),
+    setPolicy: mutation(),
     deleteOrg: mutation(),
     setVisualIdentity: mutation(),
     members: [] as Array<{ email: string; role: string; name?: string }>,
@@ -44,6 +45,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
+  useSetOrgInvitationPolicy: () => mocks.setPolicy,
   useOrg: () => ({
     data: mocks.org,
     isLoading: false,
@@ -376,6 +378,34 @@ describe("Organization settings pages", () => {
       expect(mocks.header).toHaveBeenLastCalledWith(
         expect.objectContaining({ action: expect.anything() }),
       );
+    });
+
+    it("shows the opt-in invitation toggle to an admin and wires the mutation", () => {
+      mocks.org = orgInfo({
+        role: "admin",
+        email: "admin@example.test",
+        memberInvitations: { mode: "org-setting", onlyAdminsCanInvite: false },
+      });
+      render(<OrgMembersPage />);
+      const toggle =
+        container.querySelector<HTMLButtonElement>('[role="switch"]');
+      expect(toggle).not.toBeNull();
+      act(() => toggle?.click());
+      expect(mocks.setPolicy.mutate).toHaveBeenCalledWith(true);
+    });
+
+    it("hides the invitation toggle outside org-setting mode and from members", () => {
+      mocks.org = orgInfo({
+        memberInvitations: { mode: "members", onlyAdminsCanInvite: false },
+      });
+      render(<OrgMembersPage />);
+      expect(container.querySelector('[role="switch"]')).toBeNull();
+      mocks.org = orgInfo({
+        role: "member",
+        memberInvitations: { mode: "org-setting", onlyAdminsCanInvite: false },
+      });
+      render(<OrgMembersPage />);
+      expect(container.querySelector('[role="switch"]')).toBeNull();
     });
 
     it("gives an admin a remove menu for members only, and no role select", () => {

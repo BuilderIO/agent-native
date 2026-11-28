@@ -54,8 +54,9 @@ describe("acceptPendingInvitationsForEmail", () => {
     expect(calls[1].sql).toContain(
       "SELECT federation_removal_pending_at FROM org_members",
     );
-    expect(calls[2].sql).toContain("INSERT INTO org_members");
-    expect(calls[3].sql).toContain("UPDATE org_invitations");
+    expect(calls[2].sql).toContain("status = 'deactivated'");
+    expect(calls[3].sql).toContain("INSERT INTO org_members");
+    expect(calls[4].sql).toContain("UPDATE org_invitations");
     expect(out.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
     expect(mockTrackInviteAccepted).toHaveBeenCalledWith({
       email: "a@b.com",
@@ -72,6 +73,15 @@ describe("acceptPendingInvitationsForEmail", () => {
         orgId: "org1",
       },
     );
+  });
+
+  it("does not accept a pending invitation while an admin's removal marker exists", async () => {
+    queueSelect([{ id: "inv1", orgId: "org1" }], [], [{ 1: 1 }]);
+    const out = await acceptPendingInvitationsForEmail("a@b.com");
+    const sqls = mockExecute.mock.calls.map((c) => c[0].sql as string);
+    expect(sqls.some((q) => q.includes("INSERT INTO org_members"))).toBe(false);
+    expect(sqls.some((q) => q.includes("UPDATE org_invitations"))).toBe(false);
+    expect(out.accepted).toEqual([]);
   });
 
   it("gives invite_accepted telemetry a bounded chance to finish before returning", async () => {

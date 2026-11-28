@@ -26,6 +26,12 @@ export const accessConfig = z.object({
     env: "AUTO_CREATE_DEFAULT_ORG",
     doc: "Whether a user without memberships gets a personal default org. Ignored when organization creation is closed.",
   }),
+  memberInvitations: z
+    .enum(["admins", "members", "org-setting"])
+    .default("admins")
+    .meta({
+      doc: "Who may invite organization members. admins (default): only owners and admins. members: any member. org-setting: any member until an admin turns on only-admins-can-invite for the organization. Admin invitations always stay owner-only. Set from server code only; a request can never select it.",
+    }),
   bootstrapAdmins: z.array(z.string().email()).default([]).meta({
     env: "AUTH_BOOTSTRAP_ADMINS",
     doc: "Comma-separated verified email addresses allowed to bootstrap the workspace organization.",
