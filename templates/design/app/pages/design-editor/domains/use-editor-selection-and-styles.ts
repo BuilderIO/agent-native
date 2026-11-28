@@ -414,6 +414,15 @@ export function useEditorSelectionAndStyles({
     [],
   );
 
+  const extensionScreens = useMemo(
+    () =>
+      files.map((file) => ({
+        id: file.id,
+        filename: file.filename,
+        fileType: file.fileType,
+      })),
+    [files],
+  );
   const designExtensionContext = useMemo<DesignExtensionSlotContext>(
     () => ({
       designId: id ?? "",
@@ -424,11 +433,7 @@ export function useEditorSelectionAndStyles({
       activeContent,
       viewMode,
       zoom,
-      screens: files.map((file) => ({
-        id: file.id,
-        filename: file.filename,
-        fileType: file.fileType,
-      })),
+      screens: extensionScreens,
       selectedScreenIds,
       selectedElement,
       mode,
@@ -445,7 +450,7 @@ export function useEditorSelectionAndStyles({
       activeTool,
       applyFileContentUpdate,
       design?.title,
-      files,
+      extensionScreens,
       handleAssetInserted,
       id,
       mode,
