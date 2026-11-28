@@ -423,10 +423,13 @@ Matching, for each term:
   `SearchTermTooLongError`, and the app answers that search with its
   fallback.
 
-Ranking uses the tiers the browser lane uses: exact title 5, title prefix 4,
-title word prefixes 3, title substrings 2, title or summary 1. Ties go to how
-many query groups the title and then the summary cover, and then to whether
-the body contains the whole query as a phrase. The app adds `updatedAt` and ID.
+Ranking uses the tiers the browser lane uses: exact title 6, title completion
+5, title prefix 4, title word prefixes 3, title substrings 2, title or summary
+1. A completion is a title that is the query with its last word finished and
+nothing after it, so "task prio" completes "Task Priorities" and only starts
+"Task Priorities board". Ties go to how many query groups the title and then
+the summary cover, and then to whether the body contains the whole query as a
+phrase. The app adds `updatedAt` and ID.
 
 Content's parser moved to core, at `@agent-native/core/search-query`; Content
 re-exports it. Its operators keep their meaning: phrases, `-term`, uppercase
