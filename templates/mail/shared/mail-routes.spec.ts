@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { ALL_TAB_ID } from "./inbox-threads";
 import {
-  filteredInboxPathForView,
+  filteredPathForView,
   openThreadPath,
   resolveMailOpenPath,
-  STARRED_INBOX_PATH,
+  STARRED_MAIL_PATH,
   UNREAD_INBOX_PATH,
 } from "./mail-routes";
 import { mailSettingsRoute } from "./settings-navigation";
@@ -104,15 +104,19 @@ describe("Mail open paths", () => {
     ).toBeNull();
   });
 
-  it("sends the old Unread and Starred views to the filtered inbox", () => {
+  it("sends the old Unread page to the filtered inbox and Starred to All Mail", () => {
     expect(UNREAD_INBOX_PATH).toBe("/inbox?r=unread:is_checked");
-    expect(STARRED_INBOX_PATH).toBe("/inbox?r=starred:is_checked");
-    expect(filteredInboxPathForView("unread", "")).toBe(UNREAD_INBOX_PATH);
-    expect(filteredInboxPathForView("starred", "?tab=other", "t/1")).toBe(
-      "/inbox/t%2F1?tab=other&r=starred:is_checked",
+    expect(STARRED_MAIL_PATH).toBe("/all?r=starred:is_checked");
+    expect(filteredPathForView("unread", "")).toBe(UNREAD_INBOX_PATH);
+    expect(filteredPathForView("starred", "")).toBe(STARRED_MAIL_PATH);
+    expect(filteredPathForView("unread", "?tab=other", "t/1")).toBe(
+      "/inbox/t%2F1?tab=other&r=unread:is_checked",
     );
-    expect(filteredInboxPathForView("sent", "")).toBeNull();
-    expect(filteredInboxPathForView(undefined, "")).toBeNull();
+    expect(
+      filteredPathForView("starred", "?accountEmail=a%40example.com", "t/1"),
+    ).toBe("/all/t%2F1?accountEmail=a%40example.com&r=starred:is_checked");
+    expect(filteredPathForView("sent", "")).toBeNull();
+    expect(filteredPathForView(undefined, "")).toBeNull();
   });
 
   it("builds the same encoded thread URL for the navigate command", () => {

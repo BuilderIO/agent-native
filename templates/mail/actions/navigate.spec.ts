@@ -55,6 +55,41 @@ describe("Mail navigate", () => {
       tab: "important",
       starred: "false",
     });
+
+    await action.run({ starred: true, tab: "important" });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      tab: "important",
+      starred: "true",
+    });
+  });
+
+  it("opens Starred on All Mail, where archived starred mail still shows", async () => {
+    await action.run({ starred: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "all",
+      starred: "true",
+    });
+
+    await action.run({ starred: true, unread: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "all",
+      unread: "true",
+      starred: "true",
+    });
+
+    await action.run({ view: "inbox", starred: true });
+    expect(writeAppStateForCurrentTab).toHaveBeenLastCalledWith("navigate", {
+      view: "inbox",
+      starred: "true",
+    });
+  });
+
+  it("rejects a filter on a view without the Filter menu", async () => {
+    await expect(action.run({ view: "sent", starred: true })).rejects.toThrow(
+      /filter the inbox or all, not sent/,
+    );
+    expect(writeAppStateForCurrentTab).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -22,13 +22,20 @@ read never waits on a live Gmail call. `tab` accepts any id from the returned
 `list-emails`/`search-emails` for every other view (Sent, Archive, Trash, All
 Mail) or an ad hoc query — not for the inbox.
 
-Unread and Starred are filters on the inbox, not separate views. The UI keeps
-them in the URL, and `navigation.inboxFilter` holds the active rules
-(`r=unread:is_checked`, `r=starred:is_checked`, `match=any` for "either"). Pass
-that value as `list-inbox-threads` `inboxFilter` to read the rows the person
-sees; tab counts stay unfiltered. `navigate` `unread`/`starred` opens the
-filtered inbox. The Starred filter covers starred inbox mail only; for starred
-mail anywhere, search `is:starred`.
+Unread and Starred are filters, not separate views. Inbox and All Mail both
+have the Filter menu. The UI keeps its rules in the URL, and
+`navigation.inboxFilter` holds them (`r=unread:is_checked`,
+`r=starred:is_checked`, `match=any` for "either"). On the inbox, pass that
+value as `list-inbox-threads` `inboxFilter` to read the rows the person sees;
+tab counts stay unfiltered. On All Mail the filter adds its Gmail clause
+(`is:starred`, `is:unread`) to All Mail's query: read those rows with
+`list-emails` `view: "all"` and the clause as `q`.
+
+Starred opens All Mail filtered by Starred (`/all?r=starred:is_checked`),
+because starred mail stays starred after it is archived. Unread opens the inbox
+filtered by Unread (`/inbox?r=unread:is_checked`). `navigate` `starred: true`
+with no `view`, `tab` or `sort` opens All Mail the same way; other
+`unread`/`starred` values filter the inbox unless `view` is `all`.
 
 Membership is independent of Gmail's IMPORTANT label: a thread belongs to its
 first matching pinned-label or saved-filter tab. Unmatched personal mail goes to
@@ -89,10 +96,11 @@ relying on ambient screen text.
 
 ## Moving the UI
 
-`navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `archive`,
+`navigate` accepts `view` (`inbox`, `all`, `sent`, `drafts`, `archive`,
 `trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
 from `list-inbox-threads`; `label`/`filter` are accepted aliases),
-`threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`. Drafts
+`unread`/`starred` (above), `threadId`, `settingsSection`, `queuedDraftId`, or
+`composeDraftId`. Drafts
 lists requested drafts, then scheduled sends (soonest first), then the user's
 own drafts; `scheduled`, and `draft-queue` without `queuedDraftId`, open it.
 

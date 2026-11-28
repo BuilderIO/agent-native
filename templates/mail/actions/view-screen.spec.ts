@@ -282,6 +282,57 @@ describe("view-screen Mail preview", () => {
     expect(result.emailList.inboxFilter).toBe("r=starred:is_checked");
   });
 
+  it("reads All Mail through the Starred filter with the old Starred page's Gmail query", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "all",
+      inboxFilter: "r=starred:is_checked",
+    });
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [{ ...email("archived-starred"), labelIds: ["STARRED"] }],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.listGmailMessages.mock.calls[0][0]).toBe("is:starred");
+    expect(result.emailList.inboxFilter).toBe("r=starred:is_checked");
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["archived-starred"]);
+  });
+
+  it("keeps archived starred mail in a local All Mail filtered by Starred", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "all",
+      inboxFilter: "r=starred:is_checked",
+    });
+    mocks.isConnected.mockResolvedValue(false);
+    mocks.readLocalEmails.mockResolvedValue([
+      { ...email("archived-starred"), isStarred: true, isArchived: true },
+      { ...email("inbox-starred"), isStarred: true, labelIds: ["inbox"] },
+      { ...email("archived-plain"), isArchived: true },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id).sort(),
+    ).toEqual(["archived-starred", "inbox-starred"]);
+  });
+
+  it("ignores a filter left on a view without the Filter menu", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "sent",
+      inboxFilter: "r=starred:is_checked",
+    });
+    mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.listGmailMessages.mock.calls[0][0]).toBe("in:sent");
+    expect(result.emailList.inboxFilter).toBeNull();
+  });
+
   it("uses the visible fallback tab when hidden All is requested", async () => {
     mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",

@@ -36,14 +36,14 @@ afterEach(cleanup);
 describe("old Unread and Starred links", () => {
   it.each([
     ["/unread", "/inbox?r=unread:is_checked"],
-    ["/starred", "/inbox?r=starred:is_checked"],
+    ["/starred", "/all?r=starred:is_checked"],
     [
       "/unread?accountEmail=a%40example.com",
       "/inbox?accountEmail=a%40example.com&r=unread:is_checked",
     ],
-    ["/starred/thread-1", "/inbox/thread-1?r=starred:is_checked"],
+    ["/starred/thread-1", "/all/thread-1?r=starred:is_checked"],
     ["/unread/thread-1?q=hi", "/inbox/thread-1?q=hi&r=unread:is_checked"],
-  ])("opens %s as the filtered inbox", async (from, to) => {
+  ])("opens %s as the filtered list it became", async (from, to) => {
     renderAt(from);
     expect(await screen.findByText(to)).toBeTruthy();
     expect(screen.getByText("mail list")).toBeTruthy();

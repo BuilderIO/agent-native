@@ -1,4 +1,4 @@
-import { filteredInboxPathForView, isKnownMailView } from "@shared/mail-routes";
+import { filteredPathForView, isKnownMailView } from "@shared/mail-routes";
 import { data, Navigate, useLocation, useParams } from "react-router";
 
 import messages from "@/i18n/en-US";
@@ -40,12 +40,8 @@ export default function ViewRoute() {
   if (view === "scheduled") {
     return <Navigate to={`/drafts${location.search}`} replace />;
   }
-  const filteredInboxPath = filteredInboxPathForView(
-    view,
-    location.search,
-    threadId,
-  );
-  if (filteredInboxPath) return <Navigate to={filteredInboxPath} replace />;
+  const filteredPath = filteredPathForView(view, location.search, threadId);
+  if (filteredPath) return <Navigate to={filteredPath} replace />;
   if (!isKnownMailView(view)) {
     return <NotFound />;
   }

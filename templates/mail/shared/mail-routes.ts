@@ -20,34 +20,41 @@ const MAIL_VIEWS = new Set([
   "all",
 ]);
 
-const FILTER_VIEWS = new Map<string, Partial<InboxFilterFlags>>([
-  ["unread", { unread: true }],
-  ["starred", { starred: true }],
-]);
+type FilteredView = {
+  view: "inbox" | "all";
+  flags: Partial<InboxFilterFlags>;
+};
 
-export const UNREAD_INBOX_PATH = withInboxFilter(
-  "/inbox",
-  inboxFilterParamFor({ unread: true }),
-);
+const UNREAD_VIEW: FilteredView = { view: "inbox", flags: { unread: true } };
+const STARRED_VIEW: FilteredView = { view: "all", flags: { starred: true } };
 
-export const STARRED_INBOX_PATH = withInboxFilter(
-  "/inbox",
-  inboxFilterParamFor({ starred: true }),
-);
+function filteredViewPath(
+  { view, flags }: FilteredView,
+  search = "",
+  threadId?: string,
+): string {
+  const path = threadId
+    ? `/${view}/${encodeURIComponent(threadId)}`
+    : `/${view}`;
+  return withInboxFilter(`${path}${search}`, inboxFilterParamFor(flags));
+}
+
+export const UNREAD_INBOX_PATH = filteredViewPath(UNREAD_VIEW);
+
+export const STARRED_MAIL_PATH = filteredViewPath(STARRED_VIEW);
 
 export function isKnownMailView(view: string | undefined): boolean {
   return !view || MAIL_VIEWS.has(view);
 }
 
-export function filteredInboxPathForView(
+export function filteredPathForView(
   view: string | undefined,
   search: string,
   threadId?: string,
 ): string | null {
-  const flags = view ? FILTER_VIEWS.get(view) : undefined;
-  if (!flags) return null;
-  const path = threadId ? `/inbox/${encodeURIComponent(threadId)}` : "/inbox";
-  return withInboxFilter(`${path}${search}`, inboxFilterParamFor(flags));
+  const target =
+    view === "unread" ? UNREAD_VIEW : view === "starred" ? STARRED_VIEW : null;
+  return target ? filteredViewPath(target, search, threadId) : null;
 }
 
 /** A thread's path under its list view, or the Inbox's for any other view. */

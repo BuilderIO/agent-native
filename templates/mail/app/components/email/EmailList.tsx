@@ -11,6 +11,7 @@ import {
 } from "@shared/ai-priority";
 import { type GmailReadState } from "@shared/gmail-freshness";
 import { mailLabelsInclude } from "@shared/gmail-labels";
+import { inboxFilterParam, withInboxFilter } from "@shared/inbox-filters";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
 import {
@@ -3408,7 +3409,11 @@ export function EmailList({
           <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
             <button
               type="button"
-              onClick={() => void navigate("/all")}
+              onClick={() =>
+                void navigate(
+                  withInboxFilter("/all", inboxFilterParam(searchParams)),
+                )
+              }
               className="underline underline-offset-2 hover:text-foreground"
             >
               {t("mail.empty.openAllMailForOlder")}

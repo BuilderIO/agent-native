@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   scrollToIndex: vi.fn(),
   trash: vi.fn(),
   searchQuery: "",
+  urlSearch: "",
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
   freezeVirtualStart: false,
@@ -113,7 +114,7 @@ vi.mock("react-router", () => ({
   useParams: () => ({ view: mocks.view, threadId: mocks.threadId }),
   useSearchParams: () => [
     new URLSearchParams(
-      mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
+      mocks.searchQuery ? { q: mocks.searchQuery } : mocks.urlSearch,
     ),
   ],
 }));
@@ -437,6 +438,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.scrollToIndex.mockReset();
     mocks.trash.mockReset();
     mocks.searchQuery = "";
+    mocks.urlSearch = "";
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.freezeVirtualStart = false;
@@ -2317,6 +2319,15 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(
       screen.queryByRole("button", { name: "mail.empty.openAllMailForOlder" }),
     ).toBeNull();
+  });
+
+  it("keeps the inbox filter on the All Mail link past the cap", () => {
+    mocks.urlSearch = "tab=important&r=unread:is_checked";
+    render(<Harness reachedCap hasNextPage={false} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.empty.openAllMailForOlder" }),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/all?r=unread:is_checked");
   });
 
   it("does not consume navigation shortcuts while an input is focused", () => {

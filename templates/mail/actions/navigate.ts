@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/application-state";
 import { getDecisionsStatus } from "@agent-native/core/decisions";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { viewTakesInboxFilter } from "@shared/inbox-filters.js";
 import {
   MAIL_SETTINGS_SECTIONS,
   mailSettingsRoute,
@@ -19,7 +20,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (inbox, sent, drafts, archive, trash, all, draft-queue, settings). Unread and Starred are inbox filters, not views: use unread or starred. Drafts also lists scheduled emails and drafts teammates requested; scheduled, and draft-queue without queuedDraftId, open Drafts. view inbox alone clears the inbox filter",
+        "View to navigate to (inbox, sent, drafts, archive, trash, all, draft-queue, settings). Unread and Starred are filters on inbox and all, not views: use unread or starred. Drafts also lists scheduled emails and drafts teammates requested; scheduled, and draft-queue without queuedDraftId, open Drafts. view inbox or all alone clears its filter",
       ),
     tab: z
       .string()
@@ -52,13 +53,13 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Filter the inbox to unread (true) or read (false) conversations; combine with starred and tab",
+        "Filter to unread (true) or read (false) conversations; combine with starred, tab, or view inbox or all",
       ),
     starred: z
       .boolean()
       .optional()
       .describe(
-        "Filter the inbox to starred (true) or unstarred (false) conversations; combine with unread and tab",
+        "Filter to starred (true) or unstarred (false) conversations; combine with unread, tab, or view inbox or all. With no view, tab, or sort, starred true opens All Mail, which keeps starred mail after it is archived; other filters open the inbox",
       ),
     threadId: z.string().optional().describe("Thread ID to open"),
     settingsSection: z
@@ -132,6 +133,13 @@ export default defineAction({
       });
       return `Opening ${pathname}`;
     }
+    const filtered = args.unread !== undefined || args.starred !== undefined;
+    if (filtered && args.view && !viewTakesInboxFilter(args.view)) {
+      fail(
+        `--unread and --starred filter the inbox or all, not ${args.view}.`,
+        { errorCode: "view_has_no_filter" },
+      );
+    }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
     if (tab) {
@@ -140,11 +148,14 @@ export default defineAction({
       if (args.filter) nav.filter = args.filter;
     }
     if (args.threadId) nav.threadId = args.threadId;
+    if (filtered) {
+      nav.view =
+        args.view ||
+        (args.starred === true && !tab && !args.sort ? "all" : "inbox");
+    }
     for (const flag of ["unread", "starred"] as const) {
       const value = args[flag];
-      if (value === undefined) continue;
-      nav.view = args.view || "inbox";
-      nav[flag] = String(value);
+      if (value !== undefined) nav[flag] = String(value);
     }
     if (args.sort) {
       nav.view = args.view || "inbox";

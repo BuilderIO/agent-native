@@ -21,12 +21,12 @@ import {
 } from "@shared/ai-filter-rules";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import {
-  inboxFilterGmailClause,
-  inboxFilterParam,
+  inboxFilterParamForView,
   withInboxFilter,
+  withInboxFilterClause,
 } from "@shared/inbox-filters";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
-import { STARRED_INBOX_PATH, UNREAD_INBOX_PATH } from "@shared/mail-routes";
+import { STARRED_MAIL_PATH, UNREAD_INBOX_PATH } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
@@ -516,7 +516,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const queuedDrafts = useQueuedDraftCount();
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
-  const inboxFilter = view === "inbox" ? inboxFilterParam(searchParams) : "";
+  const viewFilter = inboxFilterParamForView(view, searchParams);
+  const inboxFilter = view === "inbox" ? viewFilter : "";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -933,10 +934,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   ].includes(view);
   const shellBaseSearchQuery =
     activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
-  const shellSearchQuery =
-    inboxFilter && shellBaseSearchQuery
-      ? `${shellBaseSearchQuery} ${inboxFilterGmailClause(inboxFilter)}`
-      : shellBaseSearchQuery;
+  const shellSearchQuery = withInboxFilterClause(
+    shellBaseSearchQuery,
+    viewFilter,
+  );
   const shellQueryScope = resolveInboxEmailQueryScope({
     view,
     activeLabel,
@@ -1475,7 +1476,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     {
       keys: ["g", "s"],
       handler: () => {
-        void navigate(STARRED_INBOX_PATH);
+        void navigate(STARRED_MAIL_PATH);
       },
     },
     { keys: ["g", "t"], handler: () => navigate("/sent") },

@@ -6,7 +6,8 @@ import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import {
   inboxFilterAccepts,
   inboxFilterGmailClause,
-  inboxFilterParam,
+  inboxFilterParamForView,
+  viewTakesInboxFilter,
 } from "@shared/inbox-filters.js";
 import {
   emailMessageMatchesSearch,
@@ -289,12 +290,11 @@ async function fetchEmailList(
         effectiveView === "all" && !effectiveSearch
           ? ""
           : gmailQuery || "in:inbox";
-      const effectiveQuery =
-        effectiveView === "inbox"
-          ? [viewQuery, inboxFilterGmailClause(inboxFilter)]
-              .filter(Boolean)
-              .join(" ")
-          : viewQuery;
+      const effectiveQuery = viewTakesInboxFilter(effectiveView)
+        ? [viewQuery, inboxFilterGmailClause(inboxFilter)]
+            .filter(Boolean)
+            .join(" ")
+        : viewQuery;
       const listOptions: NonNullable<Parameters<typeof listGmailMessages>[4]> =
         {
           mode: "threads" as const,
@@ -392,8 +392,9 @@ async function fetchEmailList(
         emailMessageMatchesSearch(e, effectiveSearch),
       );
     }
-    const filterAccepts =
-      effectiveView === "inbox" ? inboxFilterAccepts(inboxFilter) : null;
+    const filterAccepts = viewTakesInboxFilter(effectiveView)
+      ? inboxFilterAccepts(inboxFilter)
+      : null;
     if (filterAccepts) {
       emails = emails.filter((e: EmailMessage & { unreadCount?: unknown }) =>
         filterAccepts({
@@ -588,8 +589,8 @@ export default defineAction({
       }
     } else if (nav?.view) {
       const inboxFilter =
-        nav.view === "inbox" && typeof nav.inboxFilter === "string"
-          ? inboxFilterParam(nav.inboxFilter)
+        typeof nav.inboxFilter === "string"
+          ? inboxFilterParamForView(nav.view, nav.inboxFilter)
           : "";
       const { emails, truncated, coverageComplete, failedAccounts, error } =
         await fetchEmailList(

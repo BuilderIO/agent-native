@@ -5,10 +5,14 @@ import {
   inboxFilterGmailClause,
   inboxFilterParam,
   inboxFilterParamFor,
+  inboxFilterParamForView,
   readInboxFilter,
+  viewTakesInboxFilter,
   withInboxFilter,
+  withInboxFilterClause,
   type InboxFilterFlags,
 } from "./inbox-filters";
+import { emailMessageMatchesSearch } from "./search";
 
 const UNREAD = "r=unread:is_checked";
 const STARRED = "r=starred:is_checked";
@@ -114,5 +118,52 @@ describe("inbox filter Gmail clause", () => {
     expect(
       inboxFilterGmailClause("r=unread:is_checked&r=unread:is_unchecked"),
     ).toBe("is:unread -is:unread");
+  });
+});
+
+describe("views with the Filter menu", () => {
+  it("reads the filter on Inbox and All Mail only", () => {
+    expect(viewTakesInboxFilter("inbox")).toBe(true);
+    expect(viewTakesInboxFilter("all")).toBe(true);
+    expect(viewTakesInboxFilter("sent")).toBe(false);
+    expect(viewTakesInboxFilter(undefined)).toBe(false);
+    expect(inboxFilterParamForView("all", `?${STARRED}`)).toBe(STARRED);
+    expect(inboxFilterParamForView("archive", `?${STARRED}`)).toBe("");
+  });
+
+  it("adds the filter's Gmail clause to a list's search", () => {
+    expect(withInboxFilterClause(undefined, STARRED)).toBe("is:starred");
+    expect(withInboxFilterClause("from:ada", UNREAD)).toBe(
+      "from:ada is:unread",
+    );
+    expect(withInboxFilterClause("from:ada", "")).toBe("from:ada");
+    expect(withInboxFilterClause(undefined, "")).toBeUndefined();
+  });
+
+  it("finds archived starred mail in the local fallback, as the Starred page did", () => {
+    const message = {
+      subject: "Trip plans",
+      snippet: "",
+      body: "",
+      from: { name: "Ada", email: "ada@example.com" },
+      to: [],
+      labelIds: [],
+      isRead: true,
+      isArchived: true,
+      isTrashed: false,
+      isDraft: false,
+      isSent: false,
+      date: "2026-11-01T00:00:00.000Z",
+    };
+    const starredSearch = withInboxFilterClause(undefined, STARRED) ?? "";
+    expect(
+      emailMessageMatchesSearch({ ...message, isStarred: true }, starredSearch),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        { ...message, isStarred: false },
+        starredSearch,
+      ),
+    ).toBe(false);
   });
 });

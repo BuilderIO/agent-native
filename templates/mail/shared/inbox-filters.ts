@@ -31,6 +31,8 @@ export const INBOX_FILTER_LABELS_EN: InboxFilterLabels = {
 
 const FLAG_KEYS = ["unread", "starred"] as const;
 
+const FILTERED_VIEWS: ReadonlySet<string> = new Set(["inbox", "all"]);
+
 const FLAG_COMBINATIONS: readonly InboxFilterFlags[] = [
   { unread: true, starred: true },
   { unread: true, starred: false },
@@ -67,6 +69,17 @@ export function readInboxFilter(search: string | URLSearchParams): FilterState {
 
 export function inboxFilterParam(search: string | URLSearchParams): string {
   return filterStateKey(readInboxFilter(search), FIELDS).replace(/^\?/, "");
+}
+
+export function viewTakesInboxFilter(view: string | undefined): boolean {
+  return view !== undefined && FILTERED_VIEWS.has(view);
+}
+
+export function inboxFilterParamForView(
+  view: string | undefined,
+  search: string | URLSearchParams,
+): string {
+  return viewTakesInboxFilter(view) ? inboxFilterParam(search) : "";
 }
 
 export function inboxFilterParamFor(flags: {
@@ -119,4 +132,13 @@ export function inboxFilterGmailClause(param: string): string {
   ];
   if (terms.length === 1) return terms[0] ?? "";
   return `{${terms.map((term) => (keys.length > 1 ? `(${term})` : term)).join(" ")}}`;
+}
+
+export function withInboxFilterClause(
+  search: string | undefined,
+  param: string,
+): string | undefined {
+  const clause = inboxFilterGmailClause(param);
+  if (!clause) return search;
+  return search ? `${search} ${clause}` : clause;
 }

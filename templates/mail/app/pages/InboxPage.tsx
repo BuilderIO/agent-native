@@ -6,10 +6,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
 import {
-  inboxFilterGmailClause,
-  inboxFilterParam,
   inboxFilterParamFor,
+  inboxFilterParamForView,
+  viewTakesInboxFilter,
   withInboxFilter,
+  withInboxFilterClause,
 } from "@shared/inbox-filters";
 import { inboxTabHref } from "@shared/inbox-threads";
 import { openThreadPath } from "@shared/mail-routes";
@@ -515,9 +516,10 @@ export function InboxPage() {
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
-  const inboxFilter = view === "inbox" ? inboxFilterParam(searchParams) : "";
+  const listFilter = inboxFilterParamForView(view, searchParams);
+  const inboxFilter = view === "inbox" ? listFilter : "";
   const inboxFilterControl = useMemo(
-    () => (view === "inbox" ? <InboxFilterMenu /> : undefined),
+    () => (viewTakesInboxFilter(view) ? <InboxFilterMenu /> : undefined),
     [view],
   );
   const googleStatus = useGoogleAuthStatus();
@@ -854,9 +856,7 @@ export function InboxPage() {
     read: emailsRead,
   } = useEmails(
     emailView,
-    inboxFilter && searchQuery
-      ? `${searchQuery} ${inboxFilterGmailClause(inboxFilter)}`
-      : searchQuery,
+    withInboxFilterClause(searchQuery, listFilter),
     effectiveLabel,
     { enabled: !isInboxView },
   );
@@ -1054,7 +1054,7 @@ export function InboxPage() {
       search: searchQ,
       label: activeLabel ?? undefined,
       filter: activeFilterId ?? undefined,
-      inboxFilter: inboxFilter || undefined,
+      inboxFilter: listFilter || undefined,
       activeInboxTab:
         view === "inbox"
           ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
@@ -1073,7 +1073,7 @@ export function InboxPage() {
     searchQ,
     activeLabel,
     activeFilterId,
-    inboxFilter,
+    listFilter,
     isInboxView,
     inboxThreads.data?.activeTabId,
     resolvedInboxTab,
@@ -1136,15 +1136,17 @@ export function InboxPage() {
         withInboxFilter(inboxTabHref(navCommand.tab), targetInboxFilter),
       );
     } else if (targetInboxFilter && !targetThread) {
-      void navigate(withInboxFilter("/inbox", targetInboxFilter));
+      void navigate(
+        withInboxFilter(
+          viewTakesInboxFilter(targetView) ? `/${targetView}` : "/inbox",
+          targetInboxFilter,
+        ),
+      );
     } else if (targetFilter) {
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
       void navigate(openThreadPath(targetView, targetThread));
-    } else if (
-      targetView !== view ||
-      (targetView === "inbox" && inboxFilter && !navCommand.sort)
-    ) {
+    } else if (targetView !== view || (listFilter && !navCommand.sort)) {
       void navigate(`/${targetView === "scheduled" ? "drafts" : targetView}`);
     }
 
@@ -1362,8 +1364,8 @@ export function InboxPage() {
           onSortModeChange={changeSortMode}
           filterControl={inboxFilterControl}
           emptyHintKey={
-            inboxFilter
-              ? (INBOX_FILTER_EMPTY_HINTS.get(inboxFilter) ??
+            listFilter
+              ? (INBOX_FILTER_EMPTY_HINTS.get(listFilter) ??
                 "mail.empty.default")
               : undefined
           }

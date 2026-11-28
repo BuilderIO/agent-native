@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
-import { STARRED_INBOX_PATH } from "@shared/mail-routes";
+import { STARRED_MAIL_PATH } from "@shared/mail-routes";
 import {
   IconHierarchy2,
   IconInbox,
@@ -63,7 +63,7 @@ const navCommands = [
   {
     labelKey: "commandPalette.goToStarred",
     icon: IconStar,
-    route: STARRED_INBOX_PATH,
+    route: STARRED_MAIL_PATH,
     shortcut: "G S",
   },
   {

@@ -1,3 +1,4 @@
+import { withInboxFilterClause } from "@shared/inbox-filters.js";
 import type { EmailMessage } from "@shared/types.js";
 import { describe, expect, it } from "vitest";
 
@@ -19,6 +20,22 @@ describe("buildGmailEmailSearchQuery", () => {
     expect(buildGmailEmailSearchQuery({ view: "all", q: "receipt" })).toBe(
       "receipt",
     );
+  });
+
+  it("asks Gmail the old Starred page's question for All Mail filtered by Starred", () => {
+    const starred = "r=starred:is_checked";
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        q: withInboxFilterClause(undefined, starred) ?? "",
+      }),
+    ).toBe(buildGmailEmailSearchQuery({ view: "starred" }));
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        q: withInboxFilterClause("receipt", starred) ?? "",
+      }),
+    ).toBe("receipt is:starred");
   });
 
   it("expands bare email-address searches across address fields", () => {
