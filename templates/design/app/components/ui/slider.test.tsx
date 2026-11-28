@@ -49,7 +49,7 @@ function ControlledSlider({
   return (
     <Slider
       aria-label={ariaLabel}
-      thumbAriaLabel={thumbAriaLabel}
+      {...(thumbAriaLabel !== undefined ? { thumbAriaLabel } : {})}
       min={0}
       max={100}
       step={1}
@@ -58,7 +58,7 @@ function ControlledSlider({
         setVal(next);
         onValueChange?.(next);
       }}
-      onValueCommit={onValueCommit}
+      {...(onValueCommit !== undefined ? { onValueCommit } : {})}
     />
   );
 }
