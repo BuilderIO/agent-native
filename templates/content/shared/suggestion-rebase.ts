@@ -4,6 +4,7 @@ import DiffMatchPatch, {
   DIFF_INSERT,
 } from "diff-match-patch";
 
+import { maskedOffset, maskListNumbers, unmaskedOffset } from "./list-numbers";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 import { suggestionSourceAlignment } from "./suggestion-formatting";
 
@@ -323,8 +324,52 @@ export function resolveMarkdownSuggestionRange(
     resolveOutsideChange(before.markdown, currentMarkdown, anchor) ??
     resolveParagraphRange(before.markdown, currentMarkdown, anchor) ??
     resolveAcrossSiblingRanges(before.markdown, currentMarkdown, anchor) ??
-    resolveThroughCanonicalForm(before.markdown, currentMarkdown, anchor)
+    resolveThroughCanonicalForm(before.markdown, currentMarkdown, anchor) ??
+    resolveAcrossListNumbers(currentMarkdown, before, after, anchor)
   );
+}
+
+function resolveAcrossListNumbers(
+  currentMarkdown: string,
+  before: MarkdownPayload,
+  after: MarkdownPayload,
+  anchor: MarkdownAnchor,
+) {
+  const saved = maskListNumbers(before.markdown);
+  const current = maskListNumbers(currentMarkdown);
+  if (saved.text === before.markdown && current.text === currentMarkdown)
+    return null;
+  const from = maskedOffset(saved, anchor.from);
+  const to = maskedOffset(saved, anchor.to);
+  if (from === null || to === null) return null;
+  const siblingRanges: Range[] = [];
+  for (const sibling of anchor.siblingRanges ?? []) {
+    const siblingFrom = maskedOffset(saved, sibling.from);
+    const siblingTo = maskedOffset(saved, sibling.to);
+    if (siblingFrom === null || siblingTo === null) return null;
+    siblingRanges.push({ from: siblingFrom, to: siblingTo });
+  }
+  const text = saved.text;
+  const range = resolveMarkdownSuggestionRange(current.text, {
+    before: { markdown: text, changedText: text.slice(from, to) },
+    after: {
+      markdown: `${text.slice(0, from)}${after.changedText}${text.slice(to)}`,
+      changedText: after.changedText,
+    },
+    anchor: {
+      from,
+      to,
+      prefix: text.slice(Math.max(0, from - anchor.prefix.length), from),
+      suffix: text.slice(to, to + anchor.suffix.length),
+      ...(anchor.siblingRanges && { siblingRanges }),
+    },
+  });
+  return range
+    ? {
+        from: unmaskedOffset(current, range.from),
+        to: unmaskedOffset(current, range.to),
+      }
+    : null;
 }
 
 // A page an agent wrote, with blank lines or a pipe table, is saved in the
