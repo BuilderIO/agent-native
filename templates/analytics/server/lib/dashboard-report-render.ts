@@ -17,6 +17,7 @@ import {
   metricComparison,
   type MetricComparison,
 } from "@agent-native/toolkit/dashboard/metric-comparison";
+import { readPanelColumns } from "@agent-native/toolkit/dashboard/panel-columns";
 import { resolvePanelEvents } from "@agent-native/toolkit/dashboard/panel-events";
 import {
   chartPointLimit,
@@ -838,7 +839,7 @@ function renderTableHtml(
     return { html: noteHtml("No rows returned."), text: "No rows returned." };
   }
   const rowKeys = new Set(Object.keys(rows[0]));
-  const configured = (panel.config?.columns ?? []).filter(
+  const configured = (readPanelColumns(panel.config?.columns) ?? []).filter(
     (column) => !column.hidden && rowKeys.has(column.key),
   );
   const columns: TableColumnConfig[] = configured.length

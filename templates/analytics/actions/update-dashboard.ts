@@ -11,6 +11,7 @@ import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashbo
 import {
   panelLabel,
   stableStringify,
+  unknownPanelConfigKeys,
 } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import {
   MAX_PANEL_HEIGHT,
@@ -453,10 +454,10 @@ function collectDashboardConfigIssues(
     options.baseline && options.baseline !== config
       ? normalizeDashboardConfig(options.baseline)
       : null;
-  const baselinePanels = new Map<string, string>();
+  const baselinePanels = new Map<string, Record<string, unknown>>();
   for (const panel of Array.isArray(baseline?.panels) ? baseline.panels : []) {
     if (panel && typeof panel.id === "string") {
-      baselinePanels.set(panel.id, stableStringify(panel));
+      baselinePanels.set(panel.id, panel);
     }
   }
   const issues: DashboardConfigIssue[] = [];
@@ -485,15 +486,20 @@ function collectDashboardConfigIssues(
       });
       continue;
     }
-    if (
-      typeof p.id === "string" &&
-      baselinePanels.get(p.id) === stableStringify(p)
-    ) {
-      continue;
-    }
+    const previous =
+      typeof p.id === "string" ? baselinePanels.get(p.id) : undefined;
+    if (previous && stableStringify(previous) === stableStringify(p)) continue;
     const label = panelLabel(p, i);
     const issue = (rule: string, message: string) =>
       issues.push({ rule: `panel_${rule}`, message: `${label} ${message}` });
+    for (const configIssue of unknownPanelConfigKeys(p, previous)) {
+      if (
+        configIssue.kind === "invalid-value" &&
+        configIssue.key === "columns"
+      ) {
+        issues.push({ rule: "panel_columns", message: configIssue.message });
+      }
+    }
     const isSection = p.chartType === "section";
     const isExtension = p.chartType === "extension";
     const required =

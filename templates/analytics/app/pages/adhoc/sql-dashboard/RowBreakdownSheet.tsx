@@ -18,6 +18,7 @@ import type {
   SqlPanel,
   TableColumnConfig,
 } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { readPanelColumns } from "@shared/panel-columns";
 import { SqlQueryRefusalError } from "@shared/sql-query-contract";
 import {
   useEffect,
@@ -75,7 +76,7 @@ function shownColumns(
   panel: SqlPanel,
   row: Record<string, unknown>,
 ): TableColumnConfig[] {
-  const configured = (panel.config?.columns ?? []).filter(
+  const configured = (readPanelColumns(panel.config?.columns) ?? []).filter(
     (column) =>
       !column.hidden && Object.prototype.hasOwnProperty.call(row, column.key),
   );
@@ -117,7 +118,7 @@ export function RowBreakdownSheet({
   const dimensions = useMemo(
     () =>
       breakdownRowDimensions(
-        panel.config?.columns,
+        readPanelColumns(panel.config?.columns),
         row,
         activeColumn,
         resultRows,

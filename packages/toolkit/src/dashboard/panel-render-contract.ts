@@ -7,6 +7,7 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel.js";
+import { isValidPanelColumns, readPanelColumns } from "./panel-columns.js";
 import {
   isValidPanelDrilldown,
   panelDrilldownSqlProblem,
@@ -334,6 +335,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
     expected:
       "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
   },
+  columns: {
+    valid: isValidPanelColumns,
+    expected:
+      'an array of { key: result column name, label?: string, format?: "number" | "currency" | "percent" | "date" | "link" | "text" | "delta" | "duration", linkKey?: string, hidden?: boolean, width?: number }, one entry per column (not an object keyed by column name)',
+  },
   breakdowns: {
     valid: isValidPanelBreakdowns,
     expected:
@@ -468,7 +474,8 @@ export function unknownPanelConfigKeys(
       });
     }
     for (const [key, value] of Object.entries(panel.config)) {
-      if (value == null) continue;
+      if (value === undefined || (value === null && key !== "columns"))
+        continue;
       if (!hasOwn(CONFIG_KEY_INFO, key)) {
         if (changedConfig(key, panel.config)) {
           issues.push(unknownConfigKeyIssue(panel, key));
@@ -655,7 +662,7 @@ function collectMissingKeys(
     for (const key of keyList(config?.yKeys)) check(key, raw);
     for (const key of keyList(config?.rightYKeys)) check(key, raw);
   }
-  for (const col of Array.isArray(config?.columns) ? config.columns : []) {
+  for (const col of readPanelColumns(config?.columns) ?? []) {
     check(col?.key, bound);
     check(col?.linkKey, bound);
   }

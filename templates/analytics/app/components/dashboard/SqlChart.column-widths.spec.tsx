@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { personalColumnWidthsKey } from "@/lib/personal-column-widths";
 
 const ROWS = vi.hoisted(() => [
   { name: "Ada", count: 3 },
@@ -103,12 +104,16 @@ describe("SqlChart table column widths", () => {
     });
   }
 
-  async function renderCard(editable: boolean, onSaveColumns: () => void) {
+  async function renderCard(
+    editable: boolean,
+    onSaveColumns: () => void,
+    panel: SqlPanel = TABLE,
+  ) {
     await act(async () => {
       root.render(
         <TooltipProvider>
           <SqlChartCard
-            panel={TABLE}
+            panel={panel}
             dashboardId="d"
             editable={editable}
             eagerLoad
@@ -211,6 +216,39 @@ describe("SqlChart table column widths", () => {
     ]);
   });
 
+  it("preserves a hidden column with a malformed width when editing another column", async () => {
+    const onSaveColumns = vi.fn();
+    const panel: SqlPanel = {
+      ...TABLE,
+      config: {
+        columns: [
+          { key: "name", width: 90 },
+          { key: "count" },
+          { key: "private", hidden: true, width: "wide" as never },
+        ],
+      },
+    };
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel}
+          resultOverride={{ rows: ROWS }}
+          onSaveColumns={onSaveColumns}
+        />,
+      );
+    });
+
+    const separator =
+      container.querySelector<HTMLElement>('[role="separator"]');
+    if (!separator) throw new Error("Expected a resize handle");
+    await drag(separator, 200);
+    expect(onSaveColumns).toHaveBeenCalledWith([
+      { key: "name", width: 200 },
+      { key: "count" },
+      { key: "private", hidden: true },
+    ]);
+  });
+
   it("keeps resizable headers sticky", async () => {
     await act(async () => {
       root.render(
@@ -238,6 +276,22 @@ describe("SqlChart table column widths", () => {
         />,
       );
     });
+    expect(nameWidth()).toBe("260px");
+  });
+
+  it("renders a legacy object-shaped column configuration with personal widths", async () => {
+    localStorage.setItem(
+      personalColumnWidthsKey("d", "p"),
+      JSON.stringify({ name: { width: 260, base: null } }),
+    );
+    const panel: SqlPanel = {
+      ...TABLE,
+      config: { columns: { name: {} } as never },
+    };
+
+    await renderCard(false, vi.fn(), panel);
+
+    expect(nameHeader().textContent).toContain("name");
     expect(nameWidth()).toBe("260px");
   });
 

@@ -1,4 +1,5 @@
 import { analyticsPanelCaptureSchema } from "@agent-native/core/shared";
+import { missingKeysFromColumns } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -252,6 +253,59 @@ describe("captureDashboardPanel", () => {
     expect(capture.columns).toEqual(["total"]);
     expect(capture.rows).toEqual([[1234]]);
     expect(capture.display?.value).toBe("1,234");
+  });
+
+  it("captures legacy columns consistently with the renderer and verification", async () => {
+    const panel = {
+      id: "accounts",
+      title: "Accounts",
+      source: "bigquery",
+      chartType: "table" as const,
+      width: 2,
+      sql: "SELECT name, private FROM accounts",
+      config: {
+        columns: [
+          null,
+          { key: "name", linkKey: {} },
+          { key: "private", hidden: "true" },
+        ] as never,
+      },
+    };
+    mocks.getDashboard.mockResolvedValue(dashboard([panel]));
+    mocks.resolvePanel.mockResolvedValue(
+      result([{ name: "Acme", private: "secret" }]),
+    );
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "accounts" },
+      CTX,
+    );
+
+    expect(capture.columns).toEqual(["name"]);
+    expect(capture.rows).toEqual([["Acme"]]);
+    expect(missingKeysFromColumns(["name", "private"], panel)).toEqual([]);
+  });
+
+  it("captures non-array legacy columns as unconfigured", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          id: "accounts",
+          title: "Accounts",
+          source: "bigquery",
+          chartType: "table",
+          width: 2,
+          sql: "SELECT name FROM accounts",
+          config: { columns: { name: {} } },
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(result([{ name: "Acme" }]));
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "accounts" },
+      CTX,
+    );
+    expect(capture.columns).toEqual(["name"]);
   });
 
   it("keeps at most fifty table rows and says so", async () => {
