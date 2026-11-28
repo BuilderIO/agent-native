@@ -12509,7 +12509,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         id: screen.id,
         geometry,
       })),
-      liveIds: surfaceSize.width > 0 && surfaceSize.height > 0 && liveEditorScreenIds ? liveEditorScreenIds : liveScreenIdsRef.current,
+      liveIds:
+        surfaceSize.width > 0 && surfaceSize.height > 0 && liveEditorScreenIds
+          ? liveEditorScreenIds
+          : liveScreenIdsRef.current,
       protectedIds: protectedLiveScreenIds,
       zoom: canvasZoom / 100,
       requiredIds: new Set(
