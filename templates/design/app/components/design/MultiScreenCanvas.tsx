@@ -2313,15 +2313,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
 
-  const updateFrameGeometryPreview = useCallback(
-    (updater: (current: FrameGeometryById) => FrameGeometryById) => {
-      const next = updater(frameGeometryRef.current);
-      frameGeometryRef.current = next;
-      setFrameGeometry(next);
-    },
-    [],
-  );
-
   const updateFrameGeometryRefOnly = useCallback(
     (updater: (current: FrameGeometryById) => FrameGeometryById) => {
       frameGeometryRef.current = updater(frameGeometryRef.current);

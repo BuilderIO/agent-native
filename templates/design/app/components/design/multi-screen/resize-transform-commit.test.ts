@@ -30,7 +30,9 @@ function frameGeometryWithOverrides(
 }
 
 function get(map: FrameGeometryById, key: string): FrameGeometry {
-  return map[key];
+  const value = map[key];
+  if (!value) throw new Error(`Missing geometry for ${key}`);
+  return value;
 }
 
 describe("resize ref-only → commit path", () => {
