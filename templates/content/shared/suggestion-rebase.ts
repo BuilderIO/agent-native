@@ -4,7 +4,12 @@ import DiffMatchPatch, {
   DIFF_INSERT,
 } from "diff-match-patch";
 
-import { maskedOffset, maskListNumbers, unmaskedOffset } from "./list-numbers";
+import {
+  coversNumber,
+  maskedOffset,
+  maskListNumbers,
+  unmaskedOffset,
+} from "./list-numbers";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 import { suggestionSourceAlignment } from "./suggestion-formatting";
 
@@ -336,7 +341,11 @@ function resolveAcrossListNumbers(
 ) {
   const saved = maskListNumbers(before);
   const current = maskListNumbers(currentMarkdown);
-  if (saved.text === before && current.text === currentMarkdown) return null;
+  if (
+    (saved.text === before && current.text === currentMarkdown) ||
+    coversNumber(saved, anchor.from, anchor.to)
+  )
+    return null;
   const from = maskedOffset(saved, anchor.from);
   const to = maskedOffset(saved, anchor.to);
   if (from === null || to === null || !linesOccurOnce(saved.text, from, to))
@@ -370,19 +379,22 @@ function resolveAcrossListNumbers(
       : (resolveOutsideChange(text, current.text, masked) ??
         resolveParagraphRange(text, current.text, masked) ??
         resolveAcrossSiblingRanges(text, current.text, masked));
-  return range && linesOccurOnce(current.text, range.from, range.to)
-    ? {
-        from: unmaskedOffset(current, range.from),
-        to: unmaskedOffset(current, range.to),
-      }
-    : null;
+  if (!range || !linesOccurOnce(current.text, range.from, range.to))
+    return null;
+  const placed = {
+    from: unmaskedOffset(current, range.from),
+    to: unmaskedOffset(current, range.to),
+  };
+  return coversNumber(current, placed.from, placed.to) ? null : placed;
 }
 
 function linesOccurOnce(text: string, from: number, to: number) {
   const start = from === 0 ? 0 : text.lastIndexOf("\n", from - 1) + 1;
   const end = text.indexOf("\n", to);
-  const lines = text.slice(start, end < 0 ? text.length : end);
-  return text.indexOf(lines) === start && text.indexOf(lines, start + 1) < 0;
+  const lines = `\n${text.slice(start, end < 0 ? text.length : end)}\n`;
+  const padded = `\n${text}\n`;
+  const first = padded.indexOf(lines);
+  return first >= 0 && padded.indexOf(lines, first + 1) < 0;
 }
 
 // A page an agent wrote, with blank lines or a pipe table, is saved in the

@@ -102,6 +102,37 @@ describe("placing a suggestion on a list that was renumbered", () => {
     ).toEqual([null]);
   });
 
+  it("places an edit on an item whose text starts another item's", () => {
+    expect(
+      markdownSuggestionOperations(
+        "1. A\n2. AB\n3. C",
+        "1. Z\n2. AB\n3. C",
+      ).map((edit) =>
+        applyMarkdownSuggestionOperation("1. New\n2. A\n3. AB\n4. C", edit),
+      ),
+    ).toEqual(["1. New\n2. Z\n3. AB\n4. C"]);
+  });
+
+  it("refuses an edit to a list number that has changed since", () => {
+    const placed = markdownSuggestionOperations("1. A\n2. B", "2. A\n3. B").map(
+      (edit) => applyMarkdownSuggestionOperation("5. A\n6. B", edit),
+    );
+    expect(placed.length).toBeGreaterThan(0);
+    expect(placed.filter((page) => page !== null)).toEqual([]);
+  });
+
+  it("leaves numbered lines in a space-indented code fence as they are", () => {
+    const saved = "1. A\n   ```\n\t1. Same\n   ```\n2. End";
+    const placed = markdownSuggestionOperations(
+      saved,
+      saved.replace("\t1. Same\n", ""),
+    ).map((edit) =>
+      applyMarkdownSuggestionOperation(saved.replace("\t1.", "\t9."), edit),
+    );
+    expect(placed.length).toBeGreaterThan(0);
+    expect(placed.filter((page) => page !== null)).toEqual([]);
+  });
+
   it("places an added item after another added item was accepted", () => {
     const current = list(
       "Tent",

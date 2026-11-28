@@ -39,25 +39,37 @@ export function orderedItem(line: string): OrderedItem | null {
 }
 
 export function orderedItems(markdown: string): Array<OrderedItem | null> {
-  let fence: { marker: string; indent: number } | null = null;
+  let fence: { marker: string; width: number } | null = null;
   return markdown.split("\n").map((line) => {
-    const text = line.replace(/^\t+/, "");
-    const indent = line.length - text.length;
+    const text = line.replace(/^[\t ]+/, "");
+    const width = indentWidth(line.slice(0, line.length - text.length));
     if (fence) {
       if (
         closesFence(text.trim().match(FENCE_CLOSE), fence.marker) &&
-        indent >= fence.indent
+        width >= fence.width
       )
         fence = null;
       return null;
     }
     const marker = matchFenceOpen(text)?.[1];
     if (marker) {
-      fence = { marker, indent };
+      fence = { marker, width };
       return null;
     }
     return orderedItem(line);
   });
+}
+
+function indentWidth(indent: string) {
+  return indent.length + 3 * (indent.split("\t").length - 1);
+}
+
+export function coversNumber(
+  masked: MaskedListNumbers,
+  from: number,
+  to: number,
+) {
+  return masked.numbers.some((number) => number.from < to && number.to > from);
 }
 
 export function maskListNumbers(markdown: string): MaskedListNumbers {
