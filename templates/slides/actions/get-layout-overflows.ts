@@ -88,6 +88,7 @@ export default defineAction({
     deckId: z.string().describe("Deck ID"),
   }),
   http: false,
+  mcpTool: "search",
   run: async ({ deckId }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access)

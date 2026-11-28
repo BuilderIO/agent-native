@@ -17,6 +17,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: false,
   run: async () => {
     const owner = getRequestUserEmail();
     if (!owner) {

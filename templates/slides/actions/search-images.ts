@@ -17,6 +17,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async (args) => {
     const q = args.q;
     if (!q) {

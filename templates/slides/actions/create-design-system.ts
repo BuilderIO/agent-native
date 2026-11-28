@@ -37,6 +37,7 @@ export default defineAction({
         "Free-form guidance the agent should follow whenever it generates slides using this design system (tone, voice, layout preferences, dos and don'ts).",
       ),
   }),
+  mcpTool: "search",
   run: async ({ title, description, data, assets, customInstructions }) => {
     await assertDesignSystemWorkflowsEnabled();
     let parsedData: unknown;

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import {
   assertAccess,
@@ -72,6 +72,8 @@ export default defineAction({
   schema: z.object({
     id: z.string().min(1).describe("Design system ID to delete"),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id }) => {
     const access = await assertAccess("design-system", id, "admin");
 

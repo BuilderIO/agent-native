@@ -174,6 +174,7 @@ export default defineAction({
         `Up to ${MAX_REFERENCE_IMAGE_INPUT_COUNT} style reference URLs; local generation fetches at most ${MAX_REFERENCE_IMAGE_COUNT}, and Gemini submits the first ${MAX_GEMINI_REFERENCE_IMAGE_COUNT} loaded references. Check the returned referenceImages counts for omissions and provider submissions.`,
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const prompt = args.prompt;
     if (!prompt?.trim()) {

@@ -19,6 +19,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async ({ deckId }) => {
     await assertAccess("deck", deckId, "admin");
     const links = await getDb()

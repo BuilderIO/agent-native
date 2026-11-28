@@ -25,6 +25,7 @@ export default defineAction({
         "If true, also returns pre-converted slide HTML for each section (default: true)",
       ),
   }),
+  mcpTool: "search",
   run: async ({ filePath, convertToSlides }, ctx) => {
     const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx, {
       expectedExtensions: [".docx"],

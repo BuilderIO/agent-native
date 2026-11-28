@@ -20,6 +20,7 @@ export default defineAction({
       .default(true)
       .describe("Whether this design system should be the default"),
   }),
+  mcpTool: false,
   run: async ({ id, isDefault }) => {
     await assertAccess("design-system", id, "editor");
 

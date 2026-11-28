@@ -14,6 +14,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpTool: "search",
   run: async ({ designSystemId }) => {
     await assertAccess("design-system", designSystemId, "viewer");
 
