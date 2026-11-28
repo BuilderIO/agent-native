@@ -127,6 +127,11 @@ pub struct FeatureConfig {
     pub show_meeting_widget_enabled: bool,
     #[serde(default)]
     pub show_in_screen_capture: bool,
+    /// Whether `clips://` control links (Stream Deck, launchers) may start
+    /// dictation. Off by default: a link that only ends or pauses capture
+    /// the user started always works.
+    #[serde(default)]
+    pub control_links_start_capture: bool,
     #[serde(default)]
     pub region_guides: RegionGuidesConfig,
     #[serde(default)]
@@ -237,6 +242,7 @@ impl Default for FeatureConfig {
             local_recording_mode: LocalRecordingMode::Off,
             show_meeting_widget_enabled: default_show_meeting_widget_enabled(),
             show_in_screen_capture: false,
+            control_links_start_capture: false,
             region_guides: RegionGuidesConfig::default(),
             screen_memory: ScreenMemoryConfig::default(),
             whisper_model_enabled: default_whisper_model_enabled(),
@@ -343,6 +349,10 @@ pub fn auto_hide_popover_enabled(app: &AppHandle) -> bool {
 
 pub fn show_in_screen_capture(app: &AppHandle) -> bool {
     load_config(app).show_in_screen_capture
+}
+
+pub fn control_links_start_capture(app: &AppHandle) -> bool {
+    load_config(app).control_links_start_capture
 }
 
 pub fn feature_config(app: &AppHandle) -> FeatureConfig {

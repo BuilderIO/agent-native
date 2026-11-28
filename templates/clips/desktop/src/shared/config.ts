@@ -131,6 +131,8 @@ export interface FeatureConfig {
   localRecordingMode: LocalRecordingMode;
   showMeetingWidgetEnabled: boolean;
   showInScreenCapture: boolean;
+  /** clips:// control links (Stream Deck, launchers) may start dictation. */
+  controlLinksStartCapture: boolean;
   regionGuides: RegionGuidesConfig;
   screenMemory: ScreenMemoryConfig;
   whisperModelEnabled: boolean;

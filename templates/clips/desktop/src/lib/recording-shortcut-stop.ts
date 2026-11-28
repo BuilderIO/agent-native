@@ -20,12 +20,21 @@ type DirectStopReason =
 
 type StopOutcome =
   | { type: "pill" }
-  | { type: "direct"; reason: DirectStopReason };
+  | { type: "direct"; reason: DirectStopReason }
+  /** The recording it was for has ended: nothing was sent. */
+  | { type: "stale" };
+
+/** Whether the recording a stop is for is still the one running. */
+type StillCurrent = () => Promise<boolean>;
+
+const STALE: StopOutcome = { type: "stale" };
 
 async function stopDirectly(
   reason: DirectStopReason,
   stopDeadline: number,
+  stillCurrent?: StillCurrent,
 ): Promise<StopOutcome> {
+  if (stillCurrent && !(await stillCurrent())) return STALE;
   const pillRequest = emit("clips:tray-stop-request", {
     fallback: true,
   }).then(
@@ -80,6 +89,7 @@ async function stopDirectly(
     });
   }
 
+  if (stillCurrent && !(await stillCurrent())) return STALE;
   await emit("clips:recorder-stop");
   return { type: "direct", reason };
 }
@@ -114,7 +124,14 @@ export function listenForRecordingShortcutStopAcks() {
   return registration;
 }
 
-export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
+/**
+ * `stillCurrent` (a stop link) is checked right before each stop event goes
+ * out, so a stop still in flight when its recording ends and another starts
+ * sends nothing.
+ */
+export async function requestRecordingShortcutStop(
+  stillCurrent?: StillCurrent,
+): Promise<StopOutcome> {
   const stopDeadline = Date.now() + STOP_FALLBACK_DEADLINE_MS;
   const acknowledgementDeadline = stopDeadline - DIRECT_STOP_WAIT_MS;
   if (!acknowledgementListenerReady) {
@@ -122,6 +139,7 @@ export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
       return stopDirectly(
         "acknowledgement-listener-not-registered",
         stopDeadline,
+        stillCurrent,
       );
     }
     let readinessTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -147,20 +165,26 @@ export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
       return stopDirectly(
         "acknowledgement-listener-registration-failed",
         stopDeadline,
+        stillCurrent,
       );
     } finally {
       if (readinessTimeout) clearTimeout(readinessTimeout);
     }
     if (!listenerReady || !acknowledgementListenerReady) {
-      return stopDirectly("acknowledgement-listener-not-ready", stopDeadline);
+      return stopDirectly(
+        "acknowledgement-listener-not-ready",
+        stopDeadline,
+        stillCurrent,
+      );
     }
   }
 
   const remainingMs = Math.max(0, acknowledgementDeadline - Date.now());
   if (remainingMs === 0) {
-    return stopDirectly("pill-did-not-acknowledge", stopDeadline);
+    return stopDirectly("pill-did-not-acknowledge", stopDeadline, stillCurrent);
   }
 
+  if (stillCurrent && !(await stillCurrent())) return STALE;
   const requestId = crypto.randomUUID();
   const pillHandledRequest = new Promise<boolean>((resolve) => {
     let settled = false;
@@ -182,7 +206,53 @@ export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
   });
 
   if (!(await pillHandledRequest)) {
-    return stopDirectly("pill-did-not-acknowledge", stopDeadline);
+    return stopDirectly("pill-did-not-acknowledge", stopDeadline, stillCurrent);
   }
   return { type: "pill" };
+}
+
+/**
+ * `clips://stop`. With a recorder running it goes through the recording
+ * bar like the recording shortcut, so a bar whose listener isn't up yet
+ * (it never acknowledges) still ends in a direct stop; without one it
+ * stops directly.
+ */
+export async function stopRecordingFromLink(
+  recorderRunning: boolean,
+  recording: number,
+): Promise<StopOutcome | undefined> {
+  // Native confirms the link's recording is still the one running before
+  // each stop event, so a link can't stop a recording started after it.
+  // An IPC failure rejects, so the caller logs it, rather than reading as a
+  // recording that ended.
+  const stillCurrent = () =>
+    invoke<boolean>("stop_link_recording_current", { recording });
+  if (recorderRunning) return requestRecordingShortcutStop(stillCurrent);
+  if (!(await stillCurrent())) return STALE;
+  await emit("clips:recorder-stop");
+  return undefined;
+}
+
+/**
+ * Listens for `clips://stop`. Native keeps the stop until it's taken
+ * (`take_pending_stop_link`), so one sent before this listener was up is
+ * taken as soon as it is; each stop is taken once, by the event or that
+ * startup check.
+ */
+export function listenForStopLinks(onStop: (recording: number) => void) {
+  const takePending = () =>
+    invoke<number | null>("take_pending_stop_link").then(
+      (recording) => {
+        if (recording !== null) onStop(recording);
+      },
+      (error) => {
+        console.error("[clips-tray] taking the stop link failed:", error);
+      },
+    );
+  return listen("clips:stop-link", () => {
+    void takePending();
+  }).then((unlisten) => {
+    void takePending();
+    return unlisten;
+  });
 }
