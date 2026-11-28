@@ -184,7 +184,7 @@ export function LinkHoverPreview({
           clearTimeout(leaveTimer.current);
           leaveTimer.current = undefined;
         }}
-        className="w-72 overflow-hidden rounded-lg p-0"
+        className="overflow-hidden p-0"
       >
         {editing ? (
           <div className="flex items-center gap-1 p-1.5">
@@ -208,7 +208,7 @@ export function LinkHoverPreview({
             />
             <button
               onClick={handleApplyEdit}
-              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 px-2 py-1 cursor-pointer"
+              className="text-xs font-medium text-info hover:text-info/80 px-2 py-1 cursor-pointer"
             >
               {t("editor.apply")}
             </button>
@@ -219,7 +219,7 @@ export function LinkHoverPreview({
               href={hoveredLink.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex-1 text-xs text-blue-600 dark:text-blue-400 hover:underline truncate"
+              className="flex-1 text-xs text-info hover:underline truncate"
             >
               {domain}
             </a>

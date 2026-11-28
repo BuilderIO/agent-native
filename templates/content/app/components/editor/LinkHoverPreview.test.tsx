@@ -22,11 +22,11 @@ describe("LinkHoverPreview", () => {
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    editorElement = document.createElement("div");
-    previewElement = document.createElement("div");
-    document.body.append(editorElement, previewElement);
-    editor = new Editor({
-      element: editorElement,
+    const editorHost = document.createElement("div");
+    const previewHost = document.createElement("div");
+    document.body.append(editorHost, previewHost);
+    const mountedEditor = new Editor({
+      element: editorHost,
       extensions: [
         StarterKit.configure({
           link: { HTMLAttributes: { class: "content-link" } },
@@ -35,14 +35,18 @@ describe("LinkHoverPreview", () => {
       content:
         '<p>Read <a href="https://example.com/research">a research page</a> today</p>',
     });
-    root = createRoot(previewElement);
+    const mountedRoot = createRoot(previewHost);
     act(() =>
-      root!.render(
+      mountedRoot.render(
         <TooltipProvider delayDuration={0}>
-          <LinkHoverPreview editor={editor!} />
+          <LinkHoverPreview editor={mountedEditor} />
         </TooltipProvider>,
       ),
     );
+    editor = mountedEditor;
+    root = mountedRoot;
+    editorElement = editorHost;
+    previewElement = previewHost;
   });
 
   afterEach(() => {
@@ -57,8 +61,11 @@ describe("LinkHoverPreview", () => {
     vi.useRealTimers();
   });
 
-  const link = () =>
-    editorElement!.querySelector<HTMLAnchorElement>("a.content-link")!;
+  function inEditor(selector: string) {
+    const element = editorElement?.querySelector(selector);
+    if (!element) throw new Error(`Nothing matches ${selector} in the editor`);
+    return element;
+  }
   const card = () =>
     document.querySelector("[data-radix-popper-content-wrapper]");
 
@@ -72,13 +79,13 @@ describe("LinkHoverPreview", () => {
   }
 
   it("places the card through the shared popover, anchored to the hovered link", () => {
-    hover(link());
+    hover(inEditor("a.content-link"));
 
     expect(card()?.textContent).toContain("example.com");
   });
 
   it("keeps a card closed with Escape shut until the pointer leaves its link", () => {
-    hover(link());
+    hover(inEditor("a.content-link"));
     expect(card()).not.toBeNull();
 
     act(() => {
@@ -88,11 +95,11 @@ describe("LinkHoverPreview", () => {
     });
     expect(card()).toBeNull();
 
-    hover(link());
+    hover(inEditor("a.content-link"));
     expect(card()).toBeNull();
 
-    hover(editorElement!.querySelector("p")!);
-    hover(link());
+    hover(inEditor("p"));
+    hover(inEditor("a.content-link"));
     expect(card()?.textContent).toContain("example.com");
   });
 });
