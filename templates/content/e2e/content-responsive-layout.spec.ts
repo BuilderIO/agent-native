@@ -175,7 +175,11 @@ async function measureOverflow(page: Page) {
       brokenWords,
       listBlocksOffColumn,
       multiBlockItems,
-      preScrolls: pre ? pre.scrollWidth > pre.clientWidth : null,
+      preScrolls: pre
+        ? [pre, ...pre.querySelectorAll<HTMLElement>("code")].some(
+            (element) => element.scrollWidth > element.clientWidth,
+          )
+        : null,
     };
   });
 }
