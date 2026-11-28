@@ -154,8 +154,14 @@ export async function saveRichDraft(
 export async function withdrawRichDraft(
   recordingId: string,
   saved: Record<string, unknown>,
+  lease?: RecordingLease,
 ): Promise<void> {
-  await compareAndSetAppState(richDraftKey(recordingId), saved, null);
+  await compareAndSetAppState(
+    richDraftKey(recordingId),
+    saved,
+    null,
+    lease ? { lease } : undefined,
+  );
 }
 
 export async function deleteRichDraft(recordingId: string): Promise<void> {
@@ -338,7 +344,7 @@ export async function discardTrackUploads(
     ownerEmail: string;
     storageMode: "own" | "hosted" | null;
   },
-  options: { stillHeld?: () => Promise<boolean> } = {},
+  options: { lease?: RecordingLease; stillHeld?: () => Promise<boolean> } = {},
 ): Promise<string[]> {
   // The owner's track uploads keep their sessions in the owner's app state,
   // and an editor can run a burn.
@@ -363,7 +369,9 @@ export async function discardTrackUploads(
     }
     const completedUrl = session.meta.completedUrl;
     if (typeof completedUrl === "string" && stored.has(completedUrl)) {
-      await asOwner(() => deleteTrackSessionIf(recording.id, track, session));
+      await asOwner(() =>
+        deleteTrackSessionIf(recording.id, track, session, options.lease),
+      );
       continue;
     }
     const discarded = await retireTrackUpload({
@@ -372,6 +380,7 @@ export async function discardTrackUploads(
       storageMode: recording.storageMode,
       track,
       session,
+      lease: options.lease,
       asSessionOwner: asOwner,
     });
     if (!discarded) {

@@ -8,6 +8,8 @@ import {
   deleteRichDraft,
   discardTrackUploads,
   readRichDraft,
+  readSavedRichDraft,
+  withdrawRichDraft,
 } from "./recording-tracks.js";
 import { UPLOAD_LEASE_MS } from "./upload-lease.js";
 
@@ -143,13 +145,14 @@ async function discardIdleTracks(
     ) {
       return null;
     }
+    const draft = await readSavedRichDraft(current.id);
     const left = await discardTrackUploads(
       {
         id: current.id,
         ownerEmail: current.ownerEmail,
         storageMode: current.storageMode,
       },
-      { stillHeld: () => renewLease(lease, DISCARD_LEASE_MS) },
+      { lease, stillHeld: () => renewLease(lease, DISCARD_LEASE_MS) },
     );
     if (left.length) {
       console.warn(
@@ -157,7 +160,7 @@ async function discardIdleTracks(
       );
       return "failed";
     }
-    await deleteRichDraft(current.id);
+    if (draft) await withdrawRichDraft(current.id, draft, lease);
     return "discarded";
   } finally {
     await releaseLease(lease);
