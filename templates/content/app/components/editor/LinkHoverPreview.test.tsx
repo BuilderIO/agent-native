@@ -19,8 +19,10 @@ describe("LinkHoverPreview", () => {
   let root: Root | null = null;
   let editorElement: HTMLDivElement | null = null;
   let previewElement: HTMLDivElement | null = null;
+  let editorEscapes = 0;
 
   beforeEach(() => {
+    editorEscapes = 0;
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const editorHost = document.createElement("div");
     const previewHost = document.createElement("div");
@@ -34,6 +36,13 @@ describe("LinkHoverPreview", () => {
       ],
       content:
         '<p>Read <a href="https://example.com/research">a research page</a> today and <a href="https://other.example/notes">some notes</a></p>',
+      editorProps: {
+        handleKeyDown: (_view, event) => {
+          if (event.key === "Escape" && !event.defaultPrevented)
+            editorEscapes += 1;
+          return false;
+        },
+      },
     });
     const mountedRoot = createRoot(previewHost);
     act(() =>
@@ -98,6 +107,7 @@ describe("LinkHoverPreview", () => {
     });
     expect(card()).toBeNull();
     expect(escape.defaultPrevented).toBe(false);
+    expect(editorEscapes).toBe(1);
 
     hover(inEditor("a.content-link"));
     expect(card()).toBeNull();
@@ -138,5 +148,72 @@ describe("LinkHoverPreview", () => {
     const html = editor?.getHTML() ?? "";
     expect(html).toContain('href="https://inserted.example/"');
     expect(html).not.toContain('href="https://example.com/research"');
+  });
+
+  it("stays shut after Escape in its URL field while the pointer is still on the link", () => {
+    hover(inEditor("a.content-link"));
+    const edit = card()
+      ?.querySelector(".tabler-icon-pencil")
+      ?.closest("button");
+    if (!edit) throw new Error("The card has no edit button");
+    act(() => edit.click());
+    const field = card()?.querySelector("input");
+    if (!field) throw new Error("The card has no URL field");
+
+    act(() => {
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(card()).toBeNull();
+
+    hover(inEditor("a.content-link"));
+    expect(card()).toBeNull();
+  });
+
+  it("closes when another link takes over the element it was opened on", () => {
+    hover(inEditor('a[href="https://example.com/research"]'));
+    act(() => {
+      editor?.commands.insertContentAt(
+        1,
+        '<a href="https://example.com/research">a new link</a> before ',
+      );
+    });
+
+    expect(card()).toBeNull();
+    expect(editor?.getHTML()).toContain(">a new link</a>");
+  });
+
+  it("closes when its link leaves the page without an update event", () => {
+    hover(inEditor("a.content-link"));
+    act(() => {
+      editor?.commands.setContent("<p>No links now</p>", {
+        emitUpdate: false,
+      });
+    });
+
+    expect(card()).toBeNull();
+  });
+
+  it("doesn't open for a link removed during the hover delay", () => {
+    act(() => {
+      inEditor("a.content-link").dispatchEvent(
+        new MouseEvent("mousemove", { bubbles: true }),
+      );
+    });
+    act(() => {
+      editor?.commands.setContent("<p>No links now</p>", {
+        emitUpdate: false,
+      });
+    });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(card()).toBeNull();
   });
 });

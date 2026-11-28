@@ -20,15 +20,26 @@ interface LinkHoverPreviewProps {
   editable?: boolean;
 }
 
+interface HoveredLink {
+  url: string;
+  text: string | null;
+  link: HTMLAnchorElement;
+}
+
+function stillShowsLink(editor: Editor, hovered: HoveredLink) {
+  return (
+    editor.view.dom.contains(hovered.link) &&
+    hovered.link.href === hovered.url &&
+    hovered.link.textContent === hovered.text
+  );
+}
+
 export function LinkHoverPreview({
   editor,
   editable = true,
 }: LinkHoverPreviewProps) {
   const t = useT();
-  const [hoveredLink, setHoveredLink] = useState<{
-    url: string;
-    link: HTMLAnchorElement;
-  } | null>(null);
+  const [hoveredLink, setHoveredLink] = useState<HoveredLink | null>(null);
   const [editing, setEditing] = useState(false);
   const [editUrl, setEditUrl] = useState("");
 
@@ -54,11 +65,11 @@ export function LinkHoverPreview({
           return;
         }
         dismissedLink.current = null;
-        const url = link.href;
+        const hovered = { url: link.href, text: link.textContent, link };
 
         clearTimeout(hoverTimer.current);
         hoverTimer.current = setTimeout(() => {
-          setHoveredLink({ url, link });
+          if (stillShowsLink(editor, hovered)) setHoveredLink(hovered);
         }, 300);
       } else {
         const isHoveringPreview = previewRef.current?.contains(target);
@@ -119,21 +130,20 @@ export function LinkHoverPreview({
       dismissedLink.current = pointerLink.current;
       flushSync(close);
     };
-    const closeIfDetached = () => {
-      if (!editor.view.dom.contains(hoveredLink.link)) close();
+    const closeIfStale = () => {
+      if (!stillShowsLink(editor, hoveredLink)) close();
     };
     window.addEventListener("keydown", handleKeyDown, true);
-    editor.on("update", closeIfDetached);
+    editor.on("transaction", closeIfStale);
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
-      editor.off("update", closeIfDetached);
+      editor.off("transaction", closeIfStale);
     };
   }, [editor, hoveredLink]);
 
   const linkPosition = () => {
-    const link = hoveredLink?.link;
-    if (!link || !editor.view.dom.contains(link)) return null;
-    return editor.view.posAtDOM(link, 0);
+    if (!hoveredLink || !stillShowsLink(editor, hoveredLink)) return null;
+    return editor.view.posAtDOM(hoveredLink.link, 0);
   };
 
   const handleRemoveLink = () => {
@@ -206,6 +216,9 @@ export function LinkHoverPreview({
         collisionPadding={8}
         hideWhenDetached
         onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={() => {
+          dismissedLink.current = pointerLink.current;
+        }}
         onCloseAutoFocus={(event) => event.preventDefault()}
         onFocusOutside={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => {
