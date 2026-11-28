@@ -8,6 +8,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+import { FilterMenu, FilterMenuWords } from "@agent-native/toolkit/app/filters";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
@@ -375,7 +376,6 @@ import {
   useFilterInTheWay,
   type FilterInTheWay,
 } from "./DatabaseFilterInTheWay";
-import { DatabaseFilterMenu, DatabaseFilterWords } from "./DatabaseFilterMenu";
 import { DatabaseNotSavedMenu } from "./DatabaseNotSavedMenu";
 import { DatabaseSortWords, SortMenu } from "./DatabaseSortMenu";
 import {
@@ -3697,12 +3697,13 @@ function DatabaseTable({
             />
           ) : null}
           {!canEditWidgetRows ? (
-            <DatabaseFilterMenu
+            <FilterMenu
               fields={filterFields}
               state={filterKit.state}
               onChange={filterKit.setState}
               optionClass={filterOptionClass}
               openLine={filterLineToOpen}
+              empty={dbText("filterNone")}
               summary={
                 activeFilters.length > 0 && !isDatabaseViewLoading
                   ? dbText(
@@ -3715,7 +3716,7 @@ function DatabaseTable({
               }
               hint={
                 activeFilters.length > 0 ? (
-                  <DatabaseFilterWords
+                  <FilterMenuWords
                     fields={filterFields}
                     state={filterKit.state}
                     heading={dbText("filterShowingWhere")}
@@ -3738,7 +3739,7 @@ function DatabaseTable({
               >
                 <IconFilter className="size-3.5" />
               </ContentTableToolbarButton>
-            </DatabaseFilterMenu>
+            </FilterMenu>
           ) : null}
           {renderMode === "inline" && !canEditWidgetRows ? (
             <Tooltip>

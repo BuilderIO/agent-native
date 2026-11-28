@@ -1325,11 +1325,9 @@ const messages = {
     transcript: "文字起こし",
     transcriptYes: "文字起こしあり",
     transcriptNo: "文字起こしなし",
-    items: "クリップ",
     matchCount_one: "{{count}} 件のクリップが一致",
     matchCount_other: "{{count}} 件のクリップが一致",
-    showCount_one: "{{count}} 件のクリップを表示",
-    showCount_other: "{{count}} 件のクリップを表示",
+    showingWhere: "次の条件に合うクリップを表示",
     emptyTitle: "これらのフィルターに一致するクリップはありません",
     emptyBody:
       "フィルターを変更またはクリアすると、ほかのクリップが表示されます。",

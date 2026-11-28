@@ -1,42 +1,30 @@
-import {
-  addFilterGroup,
-  addFilterRule,
-  createFilterGroup,
-  createFilterRule,
-  createFilterState,
-  duplicateFilterLine,
-  FILTER_GROUP_LEVELS,
-  FilterFieldPicker,
-  filterJoinIsWhole,
-  filterLineJoin,
-  filterLineParent,
-  FilterOperatorSelect,
-  filterOperatorTakesValue,
-  FilterRuleEditor,
-  findFilterField,
-  findFilterRule,
-  groupFilterLineWith,
-  hasIncompleteFilterRules,
-  incompleteFilterRuleIds,
-  isFilterRuleComplete,
-  joinFilterLine,
-  moveFilterLine,
-  pruneFilterState,
-  removeFilterItem,
-  takeFilterLineOut,
-  ungroupFilterLine,
-  updateFilterRule,
-  useFilterText,
-  type FilterField,
-  type FilterGroup,
-  type FilterItem,
-  type FilterLinePlace,
-  type FilterMode,
-  type FilterRule,
-  type FilterState,
-  type FilterText,
-} from "@agent-native/toolkit/app/filters";
 import { useIsMobile } from "@agent-native/toolkit/hooks";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@agent-native/toolkit/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import { cn } from "@agent-native/toolkit/utils";
 import {
   closestCenter,
   DndContext,
@@ -79,67 +67,104 @@ import {
   type ReactNode,
 } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  FilterFieldPicker,
+  FilterOperatorSelect,
+  FilterRuleEditor,
+} from "./FilterEditors.js";
+import { FilterCountButton } from "./FilterPanel.js";
+import { FilterPinnedOptions, pinnedValueLabel } from "./FilterRows.js";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  duplicateFilterLine,
+  FILTER_GROUP_LEVELS,
+  filterJoinIsWhole,
+  filterLineJoin,
+  filterLineParent,
+  groupFilterLineWith,
+  joinFilterLine,
+  moveFilterLine,
+  takeFilterLineOut,
+  ungroupFilterLine,
+  type FilterLinePlace,
+} from "./lines.js";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-
-import { dbText } from "./text";
+  activeFilterRuleCount,
+  addFilterGroup,
+  addFilterRule,
+  changedPinnedFilterFields,
+  createFilterGroup,
+  createFilterRule,
+  createFilterState,
+  filterOperatorTakesValue,
+  filterStateAfterClose,
+  findFilterField,
+  findFilterRule,
+  incompleteFilterRuleIds,
+  isDefaultFilterState,
+  isFilterRuleComplete,
+  removeFilterItem,
+  setPinnedFilter,
+  updateFilterRule,
+  type FilterCounts,
+  type FilterField,
+  type FilterGroup,
+  type FilterItem,
+  type FilterMode,
+  type FilterRule,
+  type FilterState,
+} from "./model.js";
+import { useFilterText, type FilterText } from "./text.js";
+import { useHeldWhilePressed } from "./use-held-while-pressed.js";
 
 const TOP = "filter-top";
 const END = "filter-end:";
 const GLOW_MS = 1600;
 
-export interface DatabaseFilterMenuProps {
+export interface FilterMenuProps {
   fields: readonly FilterField<never>[];
   state: FilterState;
   onChange: (next: FilterState) => void;
-  optionClass: (fieldId: string, optionId: string) => string | undefined;
+  counts?: FilterCounts | undefined;
+  /** Classes for an option's tag in a line, such as the option's color. */
+  optionClass?:
+    | ((fieldId: string, optionId: string) => string | undefined)
+    | undefined;
+  /** Shown beside the heading, such as how many items the filters leave. */
   summary?: string | undefined;
+  /** Shown in place of the lines while there are none. */
+  empty?: string | undefined;
+  /** What hovering the button shows while the menu is closed. */
   hint?: ReactNode;
-  children: ReactElement;
-  openLine?: { id: string; at: number } | null;
+  /** Opens the menu on this line's editor; a new `at` opens it again. */
+  openLine?: { id: string; at: number } | null | undefined;
+  onClear?: (() => void) | undefined;
+  /** A button to open the menu with, in place of the kit's Filter button. */
+  children?: ReactElement | undefined;
 }
 
-export function DatabaseFilterMenu({
+export function FilterMenu({
   fields,
   state,
   onChange,
+  counts,
   optionClass,
   summary,
+  empty,
   hint,
-  children,
   openLine,
-}: DatabaseFilterMenuProps) {
+  onClear,
+  children,
+}: FilterMenuProps) {
+  const text = useFilterText();
   const isMobile = useIsMobile();
+  const shownCounts = useHeldWhilePressed(counts);
   const [open, setOpen] = useState(false);
   const [hintOpen, setHintOpen] = useState(false);
   const [startOpenId, setStartOpenId] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const unfinishedAtOpen = useRef<ReadonlySet<string>>(new Set());
+  const lineOpenRef = useRef(false);
   const handledOpenLine = useRef<number | null>(null);
   useEffect(() => {
     if (!openLine || handledOpenLine.current === openLine.at) return;
@@ -161,19 +186,15 @@ export function DatabaseFilterMenu({
       );
       return;
     }
-    if (hasIncompleteFilterRules(stateRef.current, fields)) {
-      const pruned = pruneFilterState(
-        stateRef.current,
-        fields,
-        unfinishedAtOpen.current,
-      );
-      if (
-        incompleteFilterRuleIds(pruned, fields).size !==
-        incompleteFilterRuleIds(stateRef.current, fields).size
-      ) {
-        onChange(pruned);
-      }
-    }
+    const pruned = filterStateAfterClose(
+      stateRef.current,
+      fields,
+      unfinishedAtOpen.current,
+    );
+    if (pruned) onChange(pruned);
+  };
+  const keepOpenForLine = (event: KeyboardEvent) => {
+    if (lineOpenRef.current) event.preventDefault();
   };
   const body = (
     <FilterLinesPanel
@@ -184,17 +205,29 @@ export function DatabaseFilterMenu({
         stateRef.current = next;
         onChange(next);
       }}
+      counts={shownCounts}
       optionClass={optionClass}
       summary={summary}
+      empty={empty}
+      onClear={onClear}
       unfinishedAtOpen={unfinishedAtOpen}
       startOpenId={startOpenId}
+      lineOpenRef={lineOpenRef}
       inSheet={isMobile}
     />
   );
+  const button = children ?? (
+    <FilterCountButton
+      active={
+        activeFilterRuleCount(state, fields) +
+        changedPinnedFilterFields(state, fields).length
+      }
+    />
+  );
   const opener = isMobile ? (
-    <SheetTrigger asChild>{children}</SheetTrigger>
+    <SheetTrigger asChild>{button}</SheetTrigger>
   ) : (
-    <PopoverTrigger asChild>{children}</PopoverTrigger>
+    <PopoverTrigger asChild>{button}</PopoverTrigger>
   );
   const trigger = hint ? (
     <Tooltip open={hintOpen && !open} onOpenChange={setHintOpen}>
@@ -214,10 +247,11 @@ export function DatabaseFilterMenu({
         <SheetContent
           side="bottom"
           aria-describedby={undefined}
+          onEscapeKeyDown={keepOpenForLine}
           className="flex max-h-[90dvh] w-full max-w-full flex-col gap-0 overflow-hidden p-0"
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>{dbText("filter")}</SheetTitle>
+            <SheetTitle>{menuText(text, "title")}</SheetTitle>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
             {body}
@@ -233,6 +267,7 @@ export function DatabaseFilterMenu({
       <PopoverContent
         align="end"
         collisionPadding={8}
+        onEscapeKeyDown={keepOpenForLine}
         className="flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[min(34rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"
       >
         <div className="min-h-0 overflow-y-auto overflow-x-hidden">{body}</div>
@@ -246,10 +281,14 @@ interface PanelProps {
   state: FilterState;
   stateRef: { current: FilterState };
   onChange: (next: FilterState) => void;
-  optionClass: DatabaseFilterMenuProps["optionClass"];
-  summary?: string | undefined;
+  counts: FilterCounts | undefined;
+  optionClass: FilterMenuProps["optionClass"];
+  summary: string | undefined;
+  empty: string | undefined;
+  onClear: FilterMenuProps["onClear"];
   unfinishedAtOpen: { current: ReadonlySet<string> };
   startOpenId: string | null;
+  lineOpenRef: { current: boolean };
   inSheet: boolean;
 }
 
@@ -257,14 +296,14 @@ interface LineEdits {
   fields: readonly FilterField<never>[];
   state: FilterState;
   text: FilterText;
-  optionClass: DatabaseFilterMenuProps["optionClass"];
+  counts: FilterCounts | undefined;
+  optionClass: FilterMenuProps["optionClass"];
   openId: string | null;
   setOpenId: (id: string | null) => void;
   glowId: string | null;
   flashId: string | null;
   overId: string | null;
   activeListId: string | null;
-  update: (next: FilterState) => void;
   patchRule: (
     id: string,
     patch: Parameters<typeof updateFilterRule>[2],
@@ -284,14 +323,23 @@ function FilterLinesPanel({
   state,
   stateRef,
   onChange,
+  counts,
   optionClass,
   summary,
+  empty,
+  onClear,
   unfinishedAtOpen,
   startOpenId,
+  lineOpenRef,
   inSheet,
 }: PanelProps) {
   const text = useFilterText();
+  const m = (key: string, values?: Record<string, unknown>) =>
+    text.t(`agentChat.filters.menu.${key}`, values);
   const [openId, setOpenIdState] = useState<string | null>(startOpenId);
+  useEffect(() => {
+    lineOpenRef.current = openId !== null;
+  }, [openId, lineOpenRef]);
   const [glowId, setGlowId] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -360,7 +408,7 @@ function FilterLinesPanel({
   };
 
   const lineName = (item: FilterItem) => {
-    if (item.kind === "group") return dbText("filterTheGroup");
+    if (item.kind === "group") return m("theGroup");
     const field = findFilterField(fields, item.field);
     return field ? text.ruleLabel(field, item) : item.field;
   };
@@ -379,6 +427,7 @@ function FilterLinesPanel({
     fields,
     state,
     text,
+    counts,
     optionClass,
     openId,
     setOpenId,
@@ -386,7 +435,6 @@ function FilterLinesPanel({
     flashId,
     overId,
     activeListId,
-    update,
     lineName,
     patchRule: (id, patch) =>
       update(updateFilterRule(stateRef.current, id, patch, fields)),
@@ -398,18 +446,16 @@ function FilterLinesPanel({
       const before = filterLineParent(current, id)?.id;
       const after = filterLineParent(result.state, id)?.id;
       if (after && after !== before) glow(after);
-      const word = dbText(mode === "or" ? "filterOr" : "filterAnd");
+      const word = joinWord(text, mode);
       announce(
         result.whole
-          ? dbText("filterNowWordWhole", {
+          ? m("nowWordWhole", {
               word,
-              scope: dbText(
-                filterLineParent(current, id)
-                  ? "filterWholeGroup"
-                  : "filterEveryLine",
+              scope: m(
+                filterLineParent(current, id) ? "wholeGroup" : "everyLine",
               ),
             })
-          : dbText("filterNowWord", { word }),
+          : m("nowWord", { word }),
       );
       focusJoin(result.state, id);
     },
@@ -418,7 +464,7 @@ function FilterLinesPanel({
       if (!item) return;
       if (openId === id) setOpenIdState(null);
       update(withoutLine(stateRef.current, id));
-      announce(dbText("filterRemoved", { line: lineName(item) }));
+      announce(m("removed", { line: lineName(item) }));
       focusIn("[data-filter-add]");
     },
     duplicate: (id) => {
@@ -426,7 +472,7 @@ function FilterLinesPanel({
       if (!result.id) return;
       update(result.state);
       glow(result.id);
-      announce(dbText("filterDuplicated"));
+      announce(m("duplicated"));
       focusIn(
         `[data-filter-line="${CSS.escape(result.id)}"] [data-filter-text]`,
       );
@@ -436,12 +482,12 @@ function FilterLinesPanel({
       if (next === stateRef.current) return;
       update(next);
       flash(id);
-      announce(dbText("filterTakenOut"));
+      announce(m("takenOut"));
       focusJoin(next, id);
     },
     ungroup: (id) => {
       update(ungroupFilterLine(stateRef.current, id));
-      announce(dbText("filterUngrouped"));
+      announce(m("ungrouped"));
       focusIn("[data-filter-add]");
     },
     groupWith: (id, field) => {
@@ -462,7 +508,9 @@ function FilterLinesPanel({
 
   const lineThatTakesAnother = (field: FilterField<never>) => {
     const current = stateRef.current;
-    if (current.mode !== "and" || field.type !== "choice") return undefined;
+    if (current.mode !== "and" || field.type !== "choice" || field.manyPerRow) {
+      return undefined;
+    }
     return current.items.find(
       (item): item is FilterRule =>
         item.kind === "rule" &&
@@ -475,7 +523,7 @@ function FilterLinesPanel({
     if (existing) {
       setOpenId(existing.id);
       flash(existing.id);
-      announce(dbText("filterAlready", { field: field.label }));
+      announce(m("already", { field: field.label }));
       return;
     }
     const rule = createFilterRule(field);
@@ -499,7 +547,7 @@ function FilterLinesPanel({
         ),
       );
       flash(existing.id);
-      announce(dbText("filterAlready", { field: field.label }));
+      announce(m("already", { field: field.label }));
       return;
     }
     update(
@@ -542,28 +590,23 @@ function FilterLinesPanel({
     return item ? lineName(item) : "";
   };
   const announcements: Announcements = {
-    onDragStart: ({ active }) =>
-      dbText("filterDragStart", { line: nameOf(active.id) }),
+    onDragStart: ({ active }) => m("dragStart", { line: nameOf(active.id) }),
     onDragOver: ({ active, over }) =>
       over
-        ? dbText("filterDragOver", {
+        ? m("dragOver", {
             line: nameOf(active.id),
             place: placeName(over.id),
           })
         : undefined,
-    onDragEnd: ({ active }) =>
-      dbText("filterDragEnd", { line: nameOf(active.id) }),
-    onDragCancel: ({ active }) =>
-      dbText("filterDragCancel", { line: nameOf(active.id) }),
+    onDragEnd: ({ active }) => m("dragEnd", { line: nameOf(active.id) }),
+    onDragCancel: ({ active }) => m("dragCancel", { line: nameOf(active.id) }),
   };
   const placeName = (id: string | number) => {
     const key = String(id);
     if (key.startsWith(END)) {
-      return key === `${END}${TOP}`
-        ? dbText("filterDragEndOfList")
-        : dbText("filterDragEndOfGroup");
+      return key === `${END}${TOP}` ? m("dragEndOfList") : m("dragEndOfGroup");
     }
-    return dbText("filterDragBefore", { line: nameOf(key) });
+    return m("dragBefore", { line: nameOf(key) });
   };
   const onDragStart = ({ active }: DragStartEvent) => {
     setOpenIdState(null);
@@ -615,7 +658,7 @@ function FilterLinesPanel({
     }
     const next = moveFilterLine(current, id, place);
     if (next === current) {
-      announce(dbText("filterCantMoveThere"));
+      announce(m("cantMoveThere"));
       return;
     }
     update(next);
@@ -631,11 +674,13 @@ function FilterLinesPanel({
     rules: state.items,
   };
   const hasLines = state.items.length > 0;
+  const pinnedFields = fields.filter((field) => field.pinned);
+  const pinnedChanged = changedPinnedFilterFields(state, fields).length > 0;
 
   return (
     <section
       ref={rootRef}
-      aria-label={dbText("filter")}
+      aria-label={menuText(text, "title")}
       className="flex min-w-0 flex-col gap-1 p-2"
       onKeyDown={(event) => {
         if (event.key === "Escape" && openId) {
@@ -653,13 +698,14 @@ function FilterLinesPanel({
           inSheet && "pe-10",
         )}
       >
-        <h2 className="text-sm font-semibold">{dbText("filter")}</h2>
-        {summary ? (
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
-            {summary}
-          </span>
-        ) : null}
-        {hasLines ? (
+        <h2 className="text-sm font-semibold">{menuText(text, "title")}</h2>
+        <span
+          aria-live="polite"
+          className="min-w-0 truncate text-xs text-muted-foreground"
+        >
+          {summary}
+        </span>
+        {hasLines || !isDefaultFilterState(state, fields) ? (
           <Button
             type="button"
             variant="ghost"
@@ -668,14 +714,31 @@ function FilterLinesPanel({
             onClick={() => {
               setOpenIdState(null);
               update(createFilterState(fields));
-              announce(dbText("filterCleared"));
+              onClear?.();
+              announce(m("cleared"));
               focusIn("[data-filter-add]");
             }}
           >
-            {dbText("clearFilters")}
+            {m("clear")}
           </Button>
         ) : null}
       </header>
+      {pinnedFields.map((field) => (
+        <section key={field.id} className="flex min-w-0 flex-col gap-0.5 pb-1">
+          <h3 className="px-1.5 pt-1 text-xs font-medium text-muted-foreground">
+            {field.label}
+          </h3>
+          <FilterPinnedOptions
+            field={field}
+            state={state}
+            counts={counts}
+            text={text}
+            onChange={(value) =>
+              update(setPinnedFilter(stateRef.current, field.id, value))
+            }
+          />
+        </section>
+      ))}
       {hasLines ? (
         <DndContext
           sensors={sensors}
@@ -689,9 +752,9 @@ function FilterLinesPanel({
           <FilterLines group={top} level={0} edits={edits} />
           <EndDrop groupId={TOP} edits={edits} className="min-h-1" />
         </DndContext>
-      ) : (
+      ) : pinnedChanged ? null : (
         <p className="px-1.5 py-2 text-sm text-muted-foreground">
-          {dbText("filterNone")}
+          {empty ?? m("none")}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1">
@@ -712,7 +775,7 @@ function FilterLinesPanel({
             className="h-8 px-2 text-muted-foreground"
           >
             <IconPlus className="size-4" />
-            {dbText("filterAddFilter")}
+            {m("addFilter")}
           </Button>
         </FieldPickButton>
         {hasLines ? (
@@ -724,7 +787,7 @@ function FilterLinesPanel({
               className="h-8 px-2 text-muted-foreground"
             >
               <IconPlus className="size-4" />
-              {dbText("filterAddGroup")}
+              {m("addGroup")}
             </Button>
           </FieldPickButton>
         ) : null}
@@ -752,6 +815,16 @@ function findItem(state: FilterState, id: string): FilterItem | undefined {
     return undefined;
   };
   return walk(state.items);
+}
+
+function menuText(text: FilterText, key: string) {
+  return text.t(`agentChat.filters.menu.${key}`);
+}
+
+function joinWord(text: FilterText, mode: FilterMode) {
+  return text.t(
+    mode === "or" ? "agentChat.filters.or" : "agentChat.filters.and",
+  );
 }
 
 function FilterLines({
@@ -785,9 +858,9 @@ function FilterLines({
   );
 }
 
-function openerFor(group: FilterGroup) {
-  if (group.mode === "or") return dbText("filterEither");
-  return group.rules.length > 2 ? dbText("filterAllOf") : dbText("filterBoth");
+function openerFor(group: FilterGroup, text: FilterText) {
+  if (group.mode === "or") return menuText(text, "either");
+  return menuText(text, group.rules.length > 2 ? "allOf" : "both");
 }
 
 function FilterLine({
@@ -824,7 +897,9 @@ function FilterLine({
       ref={setActivatorNodeRef}
       {...attributes}
       {...listeners}
-      aria-label={dbText("filterDragHandle", { line: name })}
+      aria-label={edits.text.t("agentChat.filters.menu.dragHandle", {
+        line: name,
+      })}
       tabIndex={handleHidden ? -1 : 0}
       aria-hidden={handleHidden ? true : undefined}
       className={cn(
@@ -838,7 +913,9 @@ function FilterLine({
   const joiner =
     index === 0 ? (
       <span className="flex h-8 w-16 shrink-0 items-center px-2 text-sm text-muted-foreground">
-        {level === 0 ? dbText("filterWhere") : openerFor(group)}
+        {level === 0
+          ? menuText(edits.text, "where")
+          : openerFor(group, edits.text)}
       </span>
     ) : (
       <JoinMenu item={item} group={group} level={level} edits={edits} />
@@ -893,8 +970,7 @@ function JoinMenu({
   const word = group.mode;
   const other = flipMode(word);
   const whole = filterJoinIsWhole(edits.state, item.id, other);
-  const wordText = (mode: FilterMode) =>
-    dbText(mode === "or" ? "filterOr" : "filterAnd");
+  const wordText = (mode: FilterMode) => joinWord(edits.text, mode);
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
@@ -903,7 +979,7 @@ function JoinMenu({
           variant="outline"
           size="sm"
           data-filter-join={item.id}
-          aria-label={dbText("filterJoinLabel", {
+          aria-label={edits.text.t("agentChat.filters.menu.joinLabel", {
             word: wordText(word),
             line: edits.lineName(item),
           })}
@@ -926,7 +1002,10 @@ function JoinMenu({
                 <span>{wordText(mode)}</span>
                 {mode === other && whole ? (
                   <span className="text-xs text-muted-foreground">
-                    {dbText(level > 0 ? "filterWholeGroup" : "filterEveryLine")}
+                    {menuText(
+                      edits.text,
+                      level > 0 ? "wholeGroup" : "everyLine",
+                    )}
                   </span>
                 ) : null}
               </span>
@@ -964,7 +1043,9 @@ function FilterRuleLine({
       type="button"
       variant="ghost"
       size="icon-sm"
-      aria-label={dbText("filterRemoveLine", { line: name })}
+      aria-label={edits.text.t("agentChat.filters.menu.removeLine", {
+        line: name,
+      })}
       className="size-8 shrink-0 text-muted-foreground"
       onClick={() => edits.remove(rule.id)}
     >
@@ -1009,7 +1090,7 @@ function FilterRuleLine({
               variant="ghost"
               size="icon-sm"
               data-filter-text=""
-              aria-label={dbText("filterCloseLine")}
+              aria-label={menuText(edits.text, "closeLine")}
               aria-expanded
               className="ms-auto size-8 text-muted-foreground"
               onClick={close}
@@ -1038,6 +1119,7 @@ function FilterRuleLine({
           <FilterRuleEditor
             field={field}
             rule={findFilterRule(edits.state, rule.id) ?? rule}
+            counts={edits.counts}
             text={edits.text}
             showOperator={false}
             onChange={(patch) => edits.patchRule(rule.id, patch)}
@@ -1097,7 +1179,7 @@ function RuleSentence({
             key={id}
             className={cn(
               "inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-xs font-medium",
-              edits.optionClass(field.id, id) ?? "bg-muted text-foreground",
+              edits.optionClass?.(field.id, id) ?? "bg-muted text-foreground",
             )}
           >
             <span className="truncate">{text.optionLabel(field, id)}</span>
@@ -1126,8 +1208,9 @@ function FilterBox({
   return (
     <div
       role="group"
-      aria-label={dbText(
-        group.mode === "or" ? "filterBoxEither" : "filterBoxAll",
+      aria-label={menuText(
+        edits.text,
+        group.mode === "or" ? "boxEither" : "boxAll",
       )}
       className={cn(
         "flex min-w-0 items-start gap-1 rounded-md border p-0.5 transition-shadow",
@@ -1153,7 +1236,7 @@ function FilterBox({
                 className="ms-[5.5rem] h-8 px-2 text-muted-foreground"
               >
                 <IconPlus className="size-4" />
-                {dbText("filterAddToGroup")}
+                {menuText(edits.text, "addToGroup")}
               </Button>
             </FieldPickButton>
           </EndDrop>
@@ -1240,7 +1323,9 @@ function LineMoreMenu({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={dbText("filterMoreFor", { line: name })}
+          aria-label={edits.text.t("agentChat.filters.menu.moreFor", {
+            line: name,
+          })}
           className="size-8 shrink-0 text-muted-foreground"
         >
           <IconDots className="size-4" />
@@ -1254,7 +1339,9 @@ function LineMoreMenu({
         {step === "group" ? (
           <div className="flex min-w-0 flex-col">
             <p className="border-b px-3 py-2 text-xs text-muted-foreground">
-              {dbText("filterGroupWith", { line: name })}
+              {edits.text.t("agentChat.filters.menu.groupWith", {
+                line: name,
+              })}
             </p>
             <FilterFieldPicker
               fields={edits.fields}
@@ -1273,7 +1360,7 @@ function LineMoreMenu({
                 icon={<IconBoxMultiple />}
                 onClick={() => setStep("group")}
               >
-                {dbText("filterTurnIntoGroup")}
+                {menuText(edits.text, "turnIntoGroup")}
               </MenuItemButton>
             ) : null}
             {level > 0 ? (
@@ -1284,7 +1371,7 @@ function LineMoreMenu({
                   edits.takeOut(rule.id);
                 }}
               >
-                {dbText("filterTakeOut")}
+                {menuText(edits.text, "takeOut")}
               </MenuItemButton>
             ) : null}
             <MenuItemButton
@@ -1294,7 +1381,7 @@ function LineMoreMenu({
                 edits.duplicate(rule.id);
               }}
             >
-              {dbText("duplicate")}
+              {menuText(edits.text, "duplicate")}
             </MenuItemButton>
             <MenuItemButton
               icon={<IconX />}
@@ -1303,7 +1390,7 @@ function LineMoreMenu({
                 edits.remove(rule.id);
               }}
             >
-              {dbText("remove")}
+              {menuText(edits.text, "remove")}
             </MenuItemButton>
           </div>
         )}
@@ -1331,7 +1418,7 @@ function BoxMoreMenu({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={dbText("filterMoreForGroup")}
+          aria-label={menuText(edits.text, "moreForGroup")}
           className="size-8 shrink-0 text-muted-foreground"
         >
           <IconDots className="size-4" />
@@ -1343,19 +1430,19 @@ function BoxMoreMenu({
             icon={<IconLayoutList />}
             onClick={run(() => edits.ungroup(group.id))}
           >
-            {dbText("filterUngroup")}
+            {menuText(edits.text, "ungroup")}
           </MenuItemButton>
           <MenuItemButton
             icon={<IconCopy />}
             onClick={run(() => edits.duplicate(group.id))}
           >
-            {dbText("duplicate")}
+            {menuText(edits.text, "duplicate")}
           </MenuItemButton>
           <MenuItemButton
             icon={<IconX />}
             onClick={run(() => edits.remove(group.id))}
           >
-            {dbText("filterRemoveGroup")}
+            {menuText(edits.text, "removeGroup")}
           </MenuItemButton>
         </div>
       </PopoverContent>
@@ -1405,23 +1492,34 @@ function FieldPickButton({
   );
 }
 
-export function DatabaseFilterWords({
+export interface FilterMenuWordsProps {
+  fields: readonly FilterField<never>[];
+  state: FilterState;
+  heading?: string | undefined;
+}
+
+export function FilterMenuWords({
   fields,
   state,
   heading,
-}: {
-  fields: readonly FilterField<never>[];
-  state: FilterState;
-  heading: string;
-}) {
+}: FilterMenuWordsProps) {
   const text = useFilterText();
-  const lines: { id: string; word: string; depth: number; text: string }[] = [];
+  const lines: { id: string; word: string; depth: number; text: string }[] =
+    changedPinnedFilterFields(state, fields).map((field) => ({
+      id: `pinned:${field.id}`,
+      word: "",
+      depth: 0,
+      text: text.t("agentChat.filters.fieldValue", {
+        field: text.fieldLabel(field),
+        value: pinnedValueLabel(field, state, text),
+      }),
+    }));
   const walk = (group: FilterGroup, depth: number, lead: string) => {
     group.rules.forEach((item, index) => {
       const word =
         index > 0
-          ? dbText(group.mode === "or" ? "filterOr" : "filterAnd")
-          : `${lead}${depth > 0 ? openerFor(group) : ""}`.trim();
+          ? joinWord(text, group.mode)
+          : `${lead}${depth > 0 ? openerFor(group, text) : ""}`.trim();
       if (item.kind === "group") {
         walk(item, depth + 1, `${word} `);
         return;
@@ -1439,7 +1537,7 @@ export function DatabaseFilterWords({
   walk({ kind: "group", id: TOP, mode: state.mode, rules: state.items }, 0, "");
   return (
     <div className="flex flex-col gap-1 text-xs">
-      <span className="font-semibold">{heading}</span>
+      {heading ? <span className="font-semibold">{heading}</span> : null}
       <ul className="flex flex-col gap-0.5">
         {lines.map((line) => (
           <li key={line.id} style={{ paddingInlineStart: line.depth * 12 }}>

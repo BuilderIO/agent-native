@@ -148,6 +148,7 @@ export function libraryFilterFields(
       label: labels.sharing,
       type: "choice",
       alwaysSet: true,
+      manyPerRow: true,
       options: [
         { id: "private", label: labels.sharingPrivate },
         { id: "org", label: labels.sharingOrg },

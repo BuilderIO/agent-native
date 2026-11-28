@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { FilterMenu } from "@agent-native/toolkit/app/filters";
 import type { DocumentProperty } from "@shared/api";
 import { act, useMemo, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -14,7 +15,6 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   useSession: () => ({ session: null }),
 }));
 
-import { DatabaseFilterMenu } from "./DatabaseFilterMenu";
 import { databaseFilterOptionChoices } from "./DatabaseView";
 import { contentFilterFields, useContentFilterKitState } from "./filter-kit";
 import type { DatabaseFilter, DatabaseFilterMode } from "./types";
@@ -77,7 +77,7 @@ async function renderMenu(
       onChange: (filters, filterMode) => setQuery({ filters, filterMode }),
     });
     return (
-      <DatabaseFilterMenu
+      <FilterMenu
         fields={fields}
         state={kit.state}
         onChange={kit.setState}
@@ -85,7 +85,7 @@ async function renderMenu(
         hint="Filter"
       >
         <button type="button">Open filters</button>
-      </DatabaseFilterMenu>
+      </FilterMenu>
     );
   }
 
@@ -135,11 +135,8 @@ async function pickJoin(line: string, from: string, to: "and" | "or") {
   await click(item);
 }
 
-async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, 80)));
-}
-
 // oracle-change(templates/content/app/components/editor/database/DatabaseView.filter-kit.ui.test.tsx): it tested the filter chips under the toolbar, which the Filter menu's lines replace
+// oracle-change: the kit's FilterMenu.spec.tsx now owns a group's own word and reopening a choice's line; these keep what Content stores
 describe("the Filter menu's lines", () => {
   it("names a saved option filter's option and removes its line", async () => {
     const latest = await renderMenu([
@@ -178,33 +175,5 @@ describe("the Filter menu's lines", () => {
     expect(a?.filterGroupMode).toBe("and");
     expect(c?.filterGroupId).toBeFalsy();
     expect(byLabel("Group: every line must be true")).toBeDefined();
-  });
-
-  it("opens a group with its own word", async () => {
-    await renderMenu([
-      nameFilter("a"),
-      nameFilter("b", { filterGroupId: "either", filterGroupMode: "or" }),
-      nameFilter("c", { filterGroupId: "either", filterGroupMode: "or" }),
-    ]);
-    const box = byLabel("Group: either is enough");
-    expect(box.textContent).toMatch(/^and\s*either/);
-    expect(byLabel("Remove filter: Name: contains “b”", box)).toBeDefined();
-    expect(byLabel("Remove filter: Name: contains “c”", box)).toBeDefined();
-  });
-
-  it("opens the line already filtering a choice instead of adding another", async () => {
-    const latest = await renderMenu([
-      { key: "status", label: "Status", operator: "equals", value: "doing" },
-    ]);
-    await click(button("Add filter"));
-    const statusOption = [
-      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ].find((option) => option.textContent.trim() === "Status");
-    if (!statusOption) throw new Error("No Status option");
-    await click(statusOption);
-    await settle();
-    expect(latest.filters).toHaveLength(1);
-    expect(document.body.textContent).toContain("Status is already a filter");
-    expect(button("Close this filter")).toBeDefined();
   });
 });

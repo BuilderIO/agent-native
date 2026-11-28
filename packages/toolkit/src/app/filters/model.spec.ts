@@ -17,6 +17,7 @@ import {
   filterOperatorsAcceptedFor,
   filterOperatorsFor,
   filterOperatorValueCount,
+  filterStateAfterClose,
   filterToday,
   findFilterGroup,
   findFilterRule,
@@ -432,9 +433,13 @@ describe("state helpers", () => {
   it("knows the default state", () => {
     const state = createFilterState(fields);
     expect(isDefaultFilterState(state, fields)).toBe(true);
-    expect(isDefaultFilterState(setFilterMode(state, "or"), fields)).toBe(
-      false,
-    );
+    expect(isDefaultFilterState(setFilterMode(state, "or"), fields)).toBe(true);
+    expect(
+      isDefaultFilterState(
+        setFilterMode(withRules(createFilterRule(ownerField, ["alice"])), "or"),
+        fields,
+      ),
+    ).toBe(false);
     expect(
       isDefaultFilterState(
         setPinnedFilter(state, "source", ["content"]),
@@ -459,6 +464,22 @@ describe("state helpers", () => {
     const pruned = pruneFilterState(state, fields);
     expect(pruned.items).toEqual([finished]);
     expect(hasIncompleteFilterRules(pruned, fields)).toBe(false);
+  });
+
+  it("drops what a closing filter leaves unfinished, except what it opened with", () => {
+    const finished = createFilterRule(ownerField, ["alice"]);
+    const kept = createFilterRule(tagsField);
+    const dropped = createFilterRule(titleField);
+    const state = withRules(finished, kept, dropped);
+    expect(
+      filterStateAfterClose(state, fields, new Set([kept.id]))?.items,
+    ).toEqual([finished, kept]);
+    expect(
+      filterStateAfterClose(state, fields, new Set([kept.id, dropped.id])),
+    ).toBeUndefined();
+    expect(
+      filterStateAfterClose(withRules(finished), fields, new Set()),
+    ).toBeUndefined();
   });
 
   it("removes a rule and drops a group it leaves empty", () => {
