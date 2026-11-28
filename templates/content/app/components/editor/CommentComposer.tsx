@@ -46,6 +46,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 
 import {
   Popover,
@@ -183,6 +184,7 @@ const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
 const AGENT_REFERENCE_TYPE = "content-comment-agent";
 const T3_REFERENCE_TYPE = "content-comment-t3-agent";
 const MEMBER_REFERENCE_TYPE = "content-comment-member";
+const AI_SIGN_IN_REFERENCE_TYPE = "content-comment-ai-sign-in";
 const NO_IMAGES: readonly CommentImage[] = [];
 const NO_T3_AGENTS: readonly T3Agent[] = [];
 
@@ -640,6 +642,34 @@ export const CommentComposer = forwardRef<
     });
     if (!aiEnabled) return [...memberItems, ...t3Items];
     const agentsSection = t("comments.mentionAgents");
+    if (!models.isLoading && models.configuredModels.length === 0) {
+      const available =
+        (models.availableModels as typeof models.availableModels | undefined) ??
+        [];
+      const savedPick = {
+        model: models.unavailableSelection?.model ?? models.selectedModel,
+        engine: models.unavailableSelection?.engine ?? models.selectedEngine,
+      };
+      const selectedGroups = available.filter(
+        (group) => group.engine === savedPick.engine,
+      );
+      return [
+        ...memberItems,
+        ...commentAiSelections(
+          selectedGroups.length > 0 ? selectedGroups : available,
+          savedPick,
+        ).map((selection) => ({
+          id: `ai-sign-in:${commentAiSelectionKey(selection)}`,
+          label: modelDisplayName(selection.model),
+          description: t("comments.aiSignInToUse"),
+          section: agentsSection,
+          source: "content",
+          refType: AI_SIGN_IN_REFERENCE_TYPE,
+          media: providerMedia(selection),
+        })),
+        ...t3Items,
+      ];
+    }
     const fallback = models.unavailableSelection
       ? models.defaultSelection
       : null;
@@ -707,8 +737,10 @@ export const CommentComposer = forwardRef<
     members,
     t3Agents,
     t3Requests,
+    models.availableModels,
     models.configuredModels,
     models.defaultSelection,
+    models.isLoading,
     models.selectedEngine,
     models.selectedModel,
     models.selectionReady,
@@ -746,6 +778,26 @@ export const CommentComposer = forwardRef<
   }, [composerReady, value]);
 
   const handleReferencesChange = useCallback((references: Reference[]) => {
+    if (
+      references.some(
+        (reference) => reference.refType === AI_SIGN_IN_REFERENCE_TYPE,
+      )
+    ) {
+      setTimeout(() => {
+        flushSync(() =>
+          composerRef.current?.replaceReference(
+            AI_SIGN_IN_REFERENCE_TYPE,
+            null,
+          ),
+        );
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "llm" },
+          }),
+        );
+      });
+      return;
+    }
     const currentAiDraft = aiDraftRef.current;
     const aiReferences = references.filter(
       (reference) => reference.refType === AI_REFERENCE_TYPE,

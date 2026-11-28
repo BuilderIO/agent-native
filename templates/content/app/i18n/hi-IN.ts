@@ -2194,6 +2194,15 @@ const overrides = {
     aiCancelled: "AI अनुरोध रोक दिया गया",
     aiStop: "रोकें",
     aiStopping: "रोका जा रहा है…",
+    aiSuggestionReady: "एक बदलाव सुझाया",
+    aiBusyInThread:
+      "AI अभी भी इस थ्रेड में काम कर रहा है। उसके जवाब का इंतज़ार करें या उसे रोकें, फिर दोबारा भेजें।",
+    aiFailedNoReason: "AI बिना कारण बताए रुक गया।",
+    aiStoppedEarly: "AI पूरा करने से पहले रुक गया।",
+    aiStoppedRateLimited:
+      "AI प्रदाता अभी अनुरोध सीमित कर रहा है। एक मिनट रुकें, फिर दोबारा कोशिश करें।",
+    aiStoppedTimeLimit: "AI पूरा करने से पहले अपनी समय-सीमा तक पहुँच गया।",
+    aiSignInToUse: "इस्तेमाल करने के लिए साइन इन करें",
     aiReplyToAi: "AI को जवाब दें",
     aiReplyingToAi: "AI को जवाब दे रहे हैं",
     aiOpenConversation: "AI बातचीत खोलें",

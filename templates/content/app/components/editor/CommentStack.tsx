@@ -181,11 +181,13 @@ function StackFrontPreview({
   thread,
   quote,
   others,
+  aiStatus,
   t,
 }: {
   thread: CommentThread;
   quote: string | null;
   others: readonly CommentThread[];
+  aiStatus?: ReactNode;
   t: Translate;
 }) {
   const timestamp = useCommentTimestamp();
@@ -229,6 +231,14 @@ function StackFrontPreview({
           </p>
         ) : null}
       </div>
+      {aiStatus ? (
+        <div
+          className="pointer-events-none relative z-20 -mt-1 px-4 pb-3 [&_button]:pointer-events-auto"
+          data-comment-stack-ai
+        >
+          {aiStatus}
+        </div>
+      ) : null}
       <div inert className={footerClass} data-comment-stack-footer>
         <CommentStackMore threads={others} t={t} />
       </div>
@@ -249,6 +259,7 @@ export function CommentStackCard({
   frontPlaced,
   shownFronts,
   quotes,
+  aiStatus,
   isActive,
   onOpen,
   onHoverChange,
@@ -273,6 +284,7 @@ export function CommentStackCard({
   shownFronts: Map<string, string>;
   /** Quotes as the page shows them, under their thread ids, where they differ. */
   quotes: ReadonlyMap<string, string>;
+  aiStatus?: ReactNode;
   isActive: boolean;
   onOpen: () => void;
   onHoverChange: (hovered: boolean) => void;
@@ -409,6 +421,7 @@ export function CommentStackCard({
             thread={front}
             quote={quote}
             others={others}
+            aiStatus={aiStatus}
             t={t}
           />
         </div>

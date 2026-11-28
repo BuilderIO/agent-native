@@ -2316,6 +2316,16 @@ const overrides = {
     aiCancelled: "KI-Anfrage gestoppt",
     aiStop: "Stoppen",
     aiStopping: "Wird gestoppt…",
+    aiSuggestionReady: "Hat eine Änderung vorgeschlagen",
+    aiBusyInThread:
+      "Die KI arbeitet noch in diesem Thread. Warte auf ihre Antwort oder stoppe sie und sende dann erneut.",
+    aiFailedNoReason: "Die KI hat aufgehört, ohne einen Grund zu nennen.",
+    aiStoppedEarly: "Die KI hat aufgehört, bevor sie fertig war.",
+    aiStoppedRateLimited:
+      "Der KI-Anbieter begrenzt gerade Anfragen. Warte eine Minute und versuche es dann erneut.",
+    aiStoppedTimeLimit:
+      "Die KI hat ihr Zeitlimit erreicht, bevor sie fertig war.",
+    aiSignInToUse: "Zum Verwenden anmelden",
     aiReplyToAi: "Der KI antworten",
     aiReplyingToAi: "Antwort an die KI",
     aiOpenConversation: "KI-Unterhaltung öffnen",

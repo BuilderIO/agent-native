@@ -2256,6 +2256,15 @@ const overrides = {
     aiCancelled: "AI リクエストを停止しました",
     aiStop: "停止",
     aiStopping: "停止中…",
+    aiSuggestionReady: "編集を提案しました",
+    aiBusyInThread:
+      "AI はまだこのスレッドで作業中です。回答を待つか停止してから、もう一度送信してください。",
+    aiFailedNoReason: "AI は理由を示さずに停止しました。",
+    aiStoppedEarly: "AI は完了する前に停止しました。",
+    aiStoppedRateLimited:
+      "AI プロバイダーが現在リクエストを制限しています。1 分待ってから再試行してください。",
+    aiStoppedTimeLimit: "AI は完了する前に時間制限に達しました。",
+    aiSignInToUse: "サインインして使用",
     aiReplyToAi: "AI に返信",
     aiReplyingToAi: "AI に返信中",
     aiOpenConversation: "AI 会話を開く",

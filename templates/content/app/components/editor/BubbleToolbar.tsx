@@ -15,11 +15,12 @@ import {
   NodeSelection,
   Plugin,
   PluginKey,
+  Selection,
   TextSelection,
   type EditorState,
 } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -347,11 +348,38 @@ export function shouldShowBubbleToolbar({
   return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
 }
 
+export function selectedSuggestionWidgetId(view: EditorView) {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount)
+    return undefined;
+  for (const node of [selection.anchorNode, selection.focusNode]) {
+    if (!node || !view.dom.contains(node)) return undefined;
+  }
+  const range = selection.getRangeAt(0);
+  const { from, to } = view.state.selection;
+  const ids = new Set<string>();
+  for (const widget of view.dom.querySelectorAll<HTMLElement>(
+    ".suggestion-proposed-text[data-suggestion-widget][data-suggestion-id]",
+  )) {
+    if (!range.intersectsNode(widget)) continue;
+    const at = view.state.doc.resolve(view.posAtDOM(widget, 0));
+    const placed = [
+      at.pos,
+      Selection.near(at, 1).head,
+      Selection.near(at, -1).head,
+    ];
+    if (!placed.includes(from) && !placed.includes(to)) continue;
+    if (widget.dataset.suggestionId) ids.add(widget.dataset.suggestionId);
+  }
+  return ids.size === 1 ? [...ids][0] : undefined;
+}
+
 /** Starts a comment on the text in `range`; false when there's nothing to quote. */
 export function startCommentOnRange(
   editor: Editor,
   onComment: NonNullable<BubbleToolbarProps["onComment"]>,
   range: CommentRange,
+  widgetSuggestionId?: string,
 ) {
   const { from, to } = trimSelectionRange(
     editor.state.doc,
@@ -362,7 +390,8 @@ export function startCommentOnRange(
   // across a paragraph break is highlighted and found again in that form.
   const anchor = captureAnchor(editor.state.doc, from, to);
   if (!anchor.quotedText.trim()) return false;
-  const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
+  const suggestionId =
+    draftSuggestionIdInRange(editor.state, from, to) ?? widgetSuggestionId;
   const coords = editor.view.coordsAtPos(from);
   const scrollContainer = editor.view.dom.closest(
     ".flex-1.min-h-0.overflow-auto",
@@ -385,7 +414,12 @@ function useCommentFromSelection(
   return useCallback(
     () =>
       !!onComment &&
-      startCommentOnRange(editor, onComment, editor.state.selection),
+      startCommentOnRange(
+        editor,
+        onComment,
+        editor.state.selection,
+        selectedSuggestionWidgetId(editor.view),
+      ),
     [editor, onComment],
   );
 }
