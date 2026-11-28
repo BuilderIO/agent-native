@@ -1448,6 +1448,7 @@ export interface ActionEntry {
   eagerInputStreaming?: boolean;
   /** See `emptyListsEraseNothing` in `defineAction`. */
   emptyListsEraseNothing?: boolean;
+  nullPaddingSafeEmptyFields?: readonly string[];
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   userTurn?: import("../action.js").ActionUserTurn;

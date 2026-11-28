@@ -23499,8 +23499,8 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("refuses null placeholders beside an empty list on an action that may store it", async () => {
-    const run = vi.fn(async () => "ok");
+  it("refuses an empty list on an action that may store it beside a null", async () => {
+    const run = vi.fn(async (_input: unknown) => "ok");
     const action = defineAction({
       description: "Update a saved view",
       schema: z.object({
@@ -23521,8 +23521,8 @@ describe("runAgentLoop", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("still refuses null placeholders beside an empty string the schema accepts", async () => {
-    const run = vi.fn(async () => "ok");
+  it("refuses an empty string that may clear a value beside a null", async () => {
+    const run = vi.fn(async (_input: unknown) => "ok");
     const action = defineAction({
       description: "Update a design",
       schema: z.object({

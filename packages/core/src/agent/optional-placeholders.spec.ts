@@ -16,6 +16,7 @@ const schema: AgentNativeJsonSchema = {
     note: { anyOf: [{ type: "string" }, { type: "null" }] },
     tags: { type: "array", items: { type: "string" } },
     label: { type: "string" },
+    meta: { type: "object" },
     flag: { type: "boolean" },
     items: { type: "array", items: { type: "string" }, default: [] },
     status: { type: "string", enum: ["open", "done"] },
@@ -43,6 +44,180 @@ describe("normalizeOptionalToolPlaceholders", () => {
     expect(result.input).toBe(input);
   });
 
+  it.each([{}, { nullOnly: true }])(
+    "refuses valid empty lists beside rejected nulls by default: %j",
+    (options) => {
+      const calendar: AgentNativeJsonSchema = {
+        type: "object",
+        properties: {
+          summary: { type: "string" },
+          location: { type: "string" },
+          description: { type: ["string", "null"] },
+          attendees: { type: "array", items: { type: "string" } },
+          recurrence: { type: "array", items: { type: "string" } },
+          details: {
+            type: "object",
+            properties: {
+              note: { type: ["string", "null"] },
+              timezone: { type: "string" },
+            },
+          },
+        },
+        required: ["summary"],
+      };
+      const input = {
+        summary: "Meeting",
+        location: null,
+        description: null,
+        attendees: [],
+        recurrence: [],
+        details: { note: null, timezone: null },
+      };
+      const result = normalizeOptionalToolPlaceholders(
+        calendar,
+        input,
+        write,
+        options,
+      );
+      expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+      expect(result.input).toBe(input);
+      expect(result.changed).toBe(false);
+    },
+  );
+
+  describe.each([{}, { nullOnly: true }])(
+    "safe empty field opt-in: %j",
+    (options) => {
+      it.each([
+        { field: "tags", value: [] },
+        { field: "label", value: "" },
+        { field: "meta", value: {} },
+      ])(
+        "preserves an allowlisted top-level empty $field",
+        ({ field, value }) => {
+          const entry = {
+            readOnly: false,
+            nullPaddingSafeEmptyFields: [field],
+          };
+          const result = normalizeOptionalToolPlaceholders(
+            schema,
+            { id: "a", title: null, [field]: value },
+            entry,
+            options,
+          );
+          expect(result).toEqual({
+            input: { id: "a", [field]: value },
+            changed: true,
+          });
+        },
+      );
+
+      it("refuses a nullable clear alongside an allowlisted empty field and padding", () => {
+        const input = { id: "a", title: null, note: null, tags: [] };
+        const result = normalizeOptionalToolPlaceholders(
+          schema,
+          input,
+          { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] },
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+
+      it("refuses a nullable clear with a default-valued safe empty", () => {
+        const input = { id: "a", title: null, note: null, items: [] };
+        const result = normalizeOptionalToolPlaceholders(
+          schema,
+          input,
+          { readOnly: false, nullPaddingSafeEmptyFields: ["items"] },
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+
+      it("refuses a nested nullable clear alongside a safe empty", () => {
+        const nested: AgentNativeJsonSchema = {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            tags: { type: "array", items: { type: "string" } },
+            details: {
+              type: "object",
+              properties: { note: { type: ["string", "null"] } },
+            },
+          },
+        };
+        const input = { title: null, tags: [], details: { note: null } };
+        const result = normalizeOptionalToolPlaceholders(
+          nested,
+          input,
+          { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] },
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+
+      it("refuses a mix of allowlisted and other valid empty fields", () => {
+        const input = { id: "a", title: null, tags: [], label: "" };
+        const entry = { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] };
+        const result = normalizeOptionalToolPlaceholders(
+          schema,
+          input,
+          entry,
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+
+      it("does not exempt an identically named nested empty field", () => {
+        const nested: AgentNativeJsonSchema = {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            patch: {
+              type: "object",
+              properties: {
+                tags: { type: "array", items: { type: "string" } },
+              },
+            },
+          },
+        };
+        const input = { title: null, patch: { tags: [] } };
+        const entry = { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] };
+        const result = normalizeOptionalToolPlaceholders(
+          nested,
+          input,
+          entry,
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+
+      it("does not exempt a safe empty field beside a non-null invalid placeholder", () => {
+        const input = { id: "a", title: null, status: "", tags: [] };
+        const entry = { readOnly: false, nullPaddingSafeEmptyFields: ["tags"] };
+        const result = normalizeOptionalToolPlaceholders(
+          schema,
+          input,
+          entry,
+          options,
+        );
+        expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
+        expect(result.input).toBe(input);
+        expect(result.changed).toBe(false);
+      });
+    },
+  );
+
   it("keeps null on a nullable field", () => {
     expect(
       normalizeOptionalToolPlaceholders(schema, { id: "a", note: null }, write),
@@ -55,7 +230,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
     ).toMatchObject({ changed: false });
   });
 
-  it.each([{ id: "a", title: null, label: "" }])(
+  it.each([{ id: "a", status: "", label: "" }])(
     "refuses a padded write that could clear data: %j",
     (input) => {
       const result = normalizeOptionalToolPlaceholders(schema, input, write);
@@ -135,7 +310,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
   it("still refuses a real placeholder value beside null", () => {
     const result = normalizeOptionalToolPlaceholders(
       schema,
-      { id: "a", title: null, status: "TODO", label: "" },
+      { id: "a", title: null, status: "", label: "" },
       write,
     );
     expect(result.error).toBeInstanceOf(AmbiguousToolPlaceholdersError);
@@ -152,7 +327,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
   });
 
   it("treats an empty list as a clear unless the action says it erases nothing", () => {
-    const input = { id: "a", title: null, tags: [] };
+    const input = { id: "a", status: "", tags: [] };
     expect(
       normalizeOptionalToolPlaceholders(schema, input, write).error,
     ).toBeDefined();
@@ -178,7 +353,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
     expect(
       normalizeOptionalToolPlaceholders(
         schema,
-        { id: "a", title: null, label: "" },
+        { id: "a", status: "", label: "" },
         read,
       ).error,
     ).toBeUndefined();
@@ -189,7 +364,7 @@ describe("normalizeOptionalToolPlaceholders", () => {
     expect(
       normalizeOptionalToolPlaceholders(
         schema,
-        { id: "a", title: null, label: "" },
+        { id: "a", status: "", label: "" },
         entry as never,
       ).error,
     ).toBeInstanceOf(AmbiguousToolPlaceholdersError);

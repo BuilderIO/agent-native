@@ -7957,7 +7957,11 @@ describe("action boundary error classification", () => {
       "padded-call-test",
       provider,
     );
-    const run = vi.fn(async () => ({ ok: true }));
+    const run = vi.fn(
+      async (_args: { id: string; title?: string; label?: string }) => ({
+        ok: true,
+      }),
+    );
     mockCountActionFailure.mockClear();
     try {
       mountActionRoutes(
@@ -7979,14 +7983,13 @@ describe("action boundary error classification", () => {
           }) as any,
         },
       );
-      // `title: null` is padding, but `label: ""` could be a real clear.
       const event = {
         _method: "POST",
         req: { json: async () => ({ id: "a", title: null, label: "" }) },
       };
       const result = await mounted[0].handler(event);
 
-      expect((event as any)._status).toBe(400);
+      expect((event as typeof event & { _status?: number })._status).toBe(400);
       expect(result).toEqual({
         error: expect.stringContaining(
           "Retry the native tool with sparse JSON",

@@ -72,7 +72,6 @@ describe("root-union tool placeholders", () => {
         callId: "sparse-retry",
         input: {
           operation: "update",
-          view: null,
           viewId: "view-1",
           patch: {
             icon: null,
@@ -161,7 +160,7 @@ describe("root-union tool placeholders", () => {
       expect(run.mock.calls[0]?.[0]).not.toHaveProperty("name");
     });
 
-    it("still refuses an empty value that differs from its default", async () => {
+    it("refuses an empty value that differs from its default beside a null", async () => {
       const run = vi.fn(async (args: Record<string, unknown>) => args);
       const action = defineAction({
         description: "Update a thing",
@@ -179,6 +178,7 @@ describe("root-union tool placeholders", () => {
         input: { id: "1", name: null, tags: "" },
       });
       expect(result.status).toBe("failed");
+      expect(result.output).toContain("No action was run");
       expect(run).not.toHaveBeenCalled();
     });
 
@@ -222,10 +222,11 @@ describe("root-union tool placeholders", () => {
         input: { id: "1", name: null, meta: "{}" },
       });
       expect(result.status).toBe("failed");
+      expect(result.output).toContain("No action was run");
       expect(run).not.toHaveBeenCalled();
     });
 
-    it("still refuses a write whose empty value has no default", async () => {
+    it("refuses a write's empty value without a default beside a null", async () => {
       const writeSchema = z.object({
         id: z.string(),
         name: z.string().optional(),

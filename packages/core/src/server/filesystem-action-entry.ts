@@ -129,6 +129,12 @@ export function preserveActionFlags(
   if (typeof entry.emptyListsEraseNothing === "boolean") {
     out.emptyListsEraseNothing = entry.emptyListsEraseNothing;
   }
+  if (
+    Array.isArray(entry.nullPaddingSafeEmptyFields) &&
+    entry.nullPaddingSafeEmptyFields.every((field) => typeof field === "string")
+  ) {
+    out.nullPaddingSafeEmptyFields = entry.nullPaddingSafeEmptyFields;
+  }
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }

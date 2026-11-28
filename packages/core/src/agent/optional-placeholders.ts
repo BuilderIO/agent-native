@@ -123,6 +123,9 @@ function stripOptionalToolPlaceholders(
   emptyValues: {
     valid: boolean;
     invalid: boolean;
+    invalidNonNull: boolean;
+    unsafeValid: boolean;
+    safeEmptyFields: readonly string[];
     nullOnly: boolean;
     listsEraseNothing: boolean;
     stripNull?: boolean;
@@ -187,10 +190,17 @@ function stripOptionalToolPlaceholders(
     }
     if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
       if (schemaRejectsToolValue(propertySchema, entry)) {
-        if (emptyValues.nullOnly && entry !== null) continue;
+        if (emptyValues.nullOnly && entry !== null) {
+          emptyValues.invalidNonNull = true;
+          continue;
+        }
         emptyValues.invalid = true;
+        if (entry !== null) emptyValues.invalidNonNull = true;
         placeholders.push(key);
         continue;
+      }
+      if (entry === null && emptyValues.safeEmptyFields.length) {
+        emptyValues.unsafeValid = true;
       }
       // A valid `false` sets a value, and `[]` on an action that says an empty
       // list erases nothing is padding. `null` on an optional field is absent:
@@ -210,8 +220,12 @@ function stripOptionalToolPlaceholders(
           propertySchema.default !== undefined &&
           JSON.stringify(propertySchema.default) === JSON.stringify(entry)
         )
-      )
+      ) {
         emptyValues.valid = true;
+        if (depth !== 0 || !emptyValues.safeEmptyFields.includes(key)) {
+          emptyValues.unsafeValid = true;
+        }
+      }
     }
     const nested = stripOptionalToolPlaceholders(
       propertySchema,
@@ -256,6 +270,7 @@ export function normalizeOptionalToolPlaceholders(
   input: unknown,
   entry: Parameters<typeof actionCallReadOnly>[0] & {
     emptyListsEraseNothing?: boolean;
+    nullPaddingSafeEmptyFields?: readonly string[];
   },
   { nullOnly = false }: { nullOnly?: boolean } = {},
 ): ToolInputRepair {
@@ -266,6 +281,9 @@ export function normalizeOptionalToolPlaceholders(
   const emptyValues = {
     valid: false,
     invalid: false,
+    invalidNonNull: false,
+    unsafeValid: false,
+    safeEmptyFields: entry.nullPaddingSafeEmptyFields ?? [],
     nullOnly,
     listsEraseNothing: entry.emptyListsEraseNothing === true,
   };
@@ -281,8 +299,9 @@ export function normalizeOptionalToolPlaceholders(
   // Only a declared read is exempt: a dynamic plan-mode effect classifies the
   // raw input, which defaults can turn into a write.
   if (
-    emptyValues.valid &&
     emptyValues.invalid &&
+    (emptyValues.unsafeValid ||
+      (emptyValues.valid && emptyValues.invalidNonNull)) &&
     !(entry.readOnly === true && entry.planMode === undefined)
   ) {
     return {

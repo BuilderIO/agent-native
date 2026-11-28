@@ -1329,6 +1329,8 @@ interface DefineActionWithSchema<
    *  list: there, `[]` beside a padded `null` might be a real clear or
    *  padding, so the call is refused rather than guessed at. */
   emptyListsEraseNothing?: boolean;
+  /** Top-level fields whose empty values are unambiguous alongside optional null padding. */
+  nullPaddingSafeEmptyFields?: readonly string[];
   readOnly?: boolean;
   /** Lets a verified user turn from an outside MCP client use the app page's
    *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
@@ -1551,6 +1553,8 @@ interface DefineActionWithParams<
   searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
   emptyListsEraseNothing?: boolean;
+  /** Top-level fields whose empty values are unambiguous alongside optional null padding. */
+  nullPaddingSafeEmptyFields?: readonly string[];
   readOnly?: boolean;
   /** Lets a verified user turn from an outside MCP client use the app page's
    *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
@@ -1651,6 +1655,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly searchHints?: readonly string[];
   readonly eagerInputStreaming?: boolean;
   readonly emptyListsEraseNothing?: boolean;
+  readonly nullPaddingSafeEmptyFields?: readonly string[];
   readonly readOnly?: boolean;
   /** See `userTurn` on the action options. */
   readonly userTurn?: ActionUserTurn;
@@ -2405,6 +2410,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.emptyListsEraseNothing === "boolean"
       ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
+      : {}),
+    ...(options.nullPaddingSafeEmptyFields
+      ? { nullPaddingSafeEmptyFields: [...options.nullPaddingSafeEmptyFields] }
       : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(options.userTurn === "read" ||

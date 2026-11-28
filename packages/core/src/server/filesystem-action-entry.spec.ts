@@ -86,6 +86,23 @@ describe("filesystemActionEntry", () => {
     ).toBe(true);
   });
 
+  it("keeps safe empty-field metadata in filesystem and static registries", () => {
+    const action = defineAction({
+      description: "Create an event",
+      schema: z.object({ attendees: z.array(z.string()).optional() }),
+      nullPaddingSafeEmptyFields: ["attendees"],
+      run: async () => ({ ok: true }),
+    });
+
+    expect(filesystemActionEntry(action).nullPaddingSafeEmptyFields).toEqual([
+      "attendees",
+    ]);
+    expect(
+      loadActionsFromStaticRegistry({ create: { default: action } }).create
+        .nullPaddingSafeEmptyFields,
+    ).toEqual(["attendees"]);
+  });
+
   it("keeps the schema and gates a built registry keeps", () => {
     const action = defineAction({
       description: "Send a message",

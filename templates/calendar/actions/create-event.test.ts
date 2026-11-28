@@ -52,6 +52,35 @@ import { buildDeepLink } from "@agent-native/core/server";
 
 import createEventAction from "./create-event";
 
+describe("create-event placeholder repair", () => {
+  const input = {
+    title: "Planning",
+    start: "2026-10-21T16:00:00.000Z",
+    end: "2026-10-21T17:00:00.000Z",
+    location: null,
+    attendees: [],
+    recurrence: [],
+  };
+
+  it("preserves safe empty fields alongside optional null padding", async () => {
+    const intent = await actionCallIntent(createEventAction, input);
+    if (!intent.valid) throw intent.error;
+    expect(preparedCallArguments(intent)).toMatchObject({
+      attendees: [],
+      recurrence: [],
+    });
+    expect(preparedCallArguments(intent)).not.toHaveProperty("location");
+  });
+
+  it("refuses empty reminders alongside optional null padding", async () => {
+    const intent = await actionCallIntent(createEventAction, {
+      ...input,
+      reminders: [],
+    });
+    expect(intent.valid).toBe(false);
+  });
+});
+
 describe("create-event approval gate", () => {
   async function gate(args: Record<string, unknown>) {
     const needsApproval = createEventAction.needsApproval;
