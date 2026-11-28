@@ -2148,8 +2148,6 @@ export class DesktopIdentityBroker {
         ? await this.probeAvailability(sourceApp, sourceApp.session)
         : await this.probeAvailability(authority);
       if (!this.isCeremonyCurrent(generation) || availability !== "available") {
-        // A rejected candidate says nothing about the account Desktop already
-        // holds, so a signed-in broker keeps its own answer.
         if (this.status !== "signed-in") this.availability = "unavailable";
         return false;
       }
@@ -2592,8 +2590,6 @@ export class DesktopIdentityBroker {
   ): Promise<boolean> {
     if (this.options.isAvailable) {
       const authorityApp = this.options.resolveApp("dispatch");
-      // The Dispatch pane is the account signing out here, so its rollout
-      // decides whether the sign-out spreads to the workspace.
       const availability = authorityApp
         ? await this.probeAvailability(authorityApp, authorityApp.session)
         : "unavailable";
