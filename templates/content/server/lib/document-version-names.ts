@@ -1,6 +1,6 @@
 import { type ActionRunContext, fail } from "@agent-native/core/action";
 import { isUniqueViolation } from "@agent-native/core/db";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 
 import {
   type DocumentHistoryCheckpoint,
@@ -192,7 +192,52 @@ export async function nameCurrentDocumentVersion(args: {
     documentId: args.documentId,
     name: args.name,
   });
-  const latest = firstRow(
+  const namedBy = args.ctx?.userEmail ?? null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const latest = await latestDocumentCheckpoint(args);
+    if (
+      !latest ||
+      latest.name !== null ||
+      latest.title !== args.current.title ||
+      latest.content !== args.current.content
+    ) {
+      return insertNamedDocumentVersion(args, latest, namedBy);
+    }
+    const claimed = firstRow(
+      await namingWrite(args.name, () =>
+        getDb()
+          .update(schema.documentVersions)
+          .set({ name: args.name, namedBy, namedAt: args.now })
+          .where(
+            and(
+              eq(schema.documentVersions.ownerEmail, args.ownerEmail),
+              eq(schema.documentVersions.documentId, args.documentId),
+              eq(schema.documentVersions.id, latest.id),
+              isNull(schema.documentVersions.name),
+            ),
+          )
+          .returning(),
+      ),
+    );
+    if (claimed) {
+      return { checkpoint: documentHistoryCheckpoint(claimed), created: false };
+    }
+  }
+  versionNotSaved();
+}
+
+function versionNotSaved(): never {
+  fail("The named version could not be saved.", {
+    errorCode: "DOCUMENT_VERSION_NOT_SAVED",
+    statusCode: 409,
+  });
+}
+
+async function latestDocumentCheckpoint(args: {
+  ownerEmail: string;
+  documentId: string;
+}) {
+  return firstRow(
     await getDb()
       .select()
       .from(schema.documentVersions)
@@ -209,22 +254,13 @@ export async function nameCurrentDocumentVersion(args: {
       )
       .limit(1),
   );
-  const namedBy = args.ctx?.userEmail ?? null;
-  if (
-    latest &&
-    latest.name === null &&
-    latest.title === args.current.title &&
-    latest.content === args.current.content
-  ) {
-    return setDocumentCheckpointName({
-      ownerEmail: args.ownerEmail,
-      documentId: args.documentId,
-      versionId: latest.id,
-      name: args.name,
-      namedBy,
-      now: args.now,
-    });
-  }
+}
+
+async function insertNamedDocumentVersion(
+  args: Parameters<typeof nameCurrentDocumentVersion>[0],
+  latest: CheckpointRow | undefined,
+  namedBy: string | null,
+): Promise<NamedDocumentVersionResult> {
   const latestMs = latest ? new Date(latest.createdAt).getTime() : 0;
   const createdAt = new Date(
     Math.max(new Date(args.now).getTime(), latestMs + 1),
@@ -256,11 +292,6 @@ export async function nameCurrentDocumentVersion(args: {
       .returning(),
   );
   const row = firstRow(inserted);
-  if (!row) {
-    fail("The named version could not be saved.", {
-      errorCode: "DOCUMENT_VERSION_NOT_SAVED",
-      statusCode: 409,
-    });
-  }
+  if (!row) versionNotSaved();
   return { checkpoint: documentHistoryCheckpoint(row), created: true };
 }

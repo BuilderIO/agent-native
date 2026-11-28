@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
@@ -82,13 +82,13 @@ export default defineAction({
       documentId: args.documentId,
       ownerEmail,
     });
-    const fresh = await resolveAccess("document", args.documentId);
-    if (!fresh || fresh.resource.trashedAt) documentNotFound(args.documentId);
+    const fresh = await assertAccess("document", args.documentId, "editor");
+    if (fresh.resource.trashedAt) documentNotFound(args.documentId);
     const snapshot =
       editorFlush.status === "flushed" ? editorFlush.snapshot : undefined;
     const doc = snapshot ? { ...fresh.resource, ...snapshot } : fresh.resource;
     return nameCurrentDocumentVersion({
-      ownerEmail,
+      ownerEmail: fresh.resource.ownerEmail as string,
       documentId: args.documentId,
       current: {
         title: doc.title as string,

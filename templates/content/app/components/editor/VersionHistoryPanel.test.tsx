@@ -842,6 +842,23 @@ describe("VersionHistoryPanel named versions", () => {
     );
   });
 
+  it("shows a new name in the loaded history list", async () => {
+    await render();
+    await clickButton("Editing session", false);
+    await clickButton("DraftAfter");
+
+    mocks.nameVersion.mockResolvedValueOnce(
+      nameResult("version-1", "Week of Sep 7"),
+    );
+    await clickButton("Name this version");
+    await typeName("Week of Sep 7");
+    await clickButton("Save name");
+    await clickButton("Back to history");
+
+    await clickButton("Week of Sep 7After");
+    expect(document.body.textContent).toContain("Week of Sep 7");
+  });
+
   it("compares the selected version with the current page", async () => {
     const comparisonData: DocumentVersionComparison = {
       from: {

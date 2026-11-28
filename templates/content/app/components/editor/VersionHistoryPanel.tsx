@@ -115,8 +115,23 @@ function mergeRefreshedFirstPage<T extends { id: string }>(
 }
 
 function appendPage<T extends { id: string }>(loaded: T[], page: T[]): T[] {
+  const incoming = new Map(page.map((item) => [item.id, item]));
   const loadedIds = new Set(loaded.map((item) => item.id));
-  return [...loaded, ...page.filter((item) => !loadedIds.has(item.id))];
+  return [
+    ...loaded.map((item) => incoming.get(item.id) ?? item),
+    ...page.filter((item) => !loadedIds.has(item.id)),
+  ];
+}
+
+type VersionNames = ReadonlyMap<string, string | null>;
+
+function withVersionName<T extends { id: string; name: string | null }>(
+  item: T,
+  versionNames: VersionNames,
+): T {
+  return versionNames.has(item.id)
+    ? { ...item, name: versionNames.get(item.id) ?? null }
+    : item;
 }
 
 export function VersionHistoryPanel({
@@ -164,6 +179,9 @@ export function VersionHistoryPanel({
   const [detailView, setDetailView] = useState<DetailView>("preview");
   const [namingTarget, setNamingTarget] = useState<NamingTarget | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [versionNames, setVersionNames] = useState<VersionNames>(
+    () => new Map(),
+  );
   const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(
     null,
   );
@@ -198,6 +216,7 @@ export function VersionHistoryPanel({
     setDetailView("preview");
     setNamingTarget(null);
     setNameError(null);
+    setVersionNames(new Map());
     setPendingRestore(null);
     setRestoreApplyFailed(false);
     setRestoreError(null);
@@ -315,6 +334,7 @@ export function VersionHistoryPanel({
       setSelectedCheckpoint(null);
       setNamingTarget(null);
       setNameError(null);
+      setVersionNames(new Map());
       setPendingRestore(null);
     }
     onOpenChange(nextOpen);
@@ -354,6 +374,9 @@ export function VersionHistoryPanel({
     if (operationContextRef.current.generation !== generation) return;
     focusAfterNamingRef.current = target;
     setNamingTarget(null);
+    setVersionNames((current) =>
+      new Map(current).set(checkpoint.id, checkpoint.name),
+    );
     setSelectedCheckpoint((current) =>
       current && current.id === checkpoint.id
         ? { ...current, name: checkpoint.name }
@@ -772,6 +795,7 @@ export function VersionHistoryPanel({
                         })
                       }
                       onSelectCheckpoint={selectCheckpoint}
+                      versionNames={versionNames}
                       formatDate={formatters.formatDate}
                     />
                   ))}
@@ -865,6 +889,7 @@ function HistoryGroupRow({
   open,
   onOpenChange,
   onSelectCheckpoint,
+  versionNames,
   formatDate,
 }: {
   documentId: string;
@@ -872,6 +897,7 @@ function HistoryGroupRow({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectCheckpoint: (checkpoint: DocumentHistoryCheckpoint) => void;
+  versionNames: VersionNames;
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
 }) {
   const t = useT();
@@ -963,34 +989,38 @@ function HistoryGroupRow({
                 </Button>
               </div>
             ) : null}
-            {loadedCheckpoints.map((checkpoint) => (
-              <button
-                type="button"
-                key={checkpoint.id}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-start hover:bg-accent"
-                onClick={() => onSelectCheckpoint(checkpoint)}
-              >
-                {checkpoint.name ? (
-                  <IconBookmark className="size-3.5 shrink-0 text-muted-foreground" />
-                ) : null}
-                <span
-                  className={
-                    checkpoint.name
-                      ? "min-w-0 flex-1 truncate text-xs font-medium"
-                      : "min-w-0 flex-1 truncate text-xs"
-                  }
+            {loadedCheckpoints
+              .map((checkpoint) => withVersionName(checkpoint, versionNames))
+              .map((checkpoint) => (
+                <button
+                  type="button"
+                  key={checkpoint.id}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-start hover:bg-accent"
+                  onClick={() => onSelectCheckpoint(checkpoint)}
                 >
-                  {checkpoint.name || checkpoint.title || t("sidebar.untitled")}
-                </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {t(
-                    `editor.historyCheckpoint${capitalize(
-                      checkpoint.checkpointKind,
-                    )}`,
-                  )}
-                </span>
-              </button>
-            ))}
+                  {checkpoint.name ? (
+                    <IconBookmark className="size-3.5 shrink-0 text-muted-foreground" />
+                  ) : null}
+                  <span
+                    className={
+                      checkpoint.name
+                        ? "min-w-0 flex-1 truncate text-xs font-medium"
+                        : "min-w-0 flex-1 truncate text-xs"
+                    }
+                  >
+                    {checkpoint.name ||
+                      checkpoint.title ||
+                      t("sidebar.untitled")}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {t(
+                      `editor.historyCheckpoint${capitalize(
+                        checkpoint.checkpointKind,
+                      )}`,
+                    )}
+                  </span>
+                </button>
+              ))}
             {currentCheckpointPage.data?.hasMore ? (
               <Button
                 type="button"

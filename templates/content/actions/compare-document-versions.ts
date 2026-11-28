@@ -13,7 +13,11 @@ import type {
 } from "../shared/document-history.js";
 import { documentVersionComparisonOutput } from "./_document-version-schemas.js";
 
-const COMPARISON_LIMITS = { maxHunks: 40, maxHunkLines: 120 };
+const COMPARISON_OPTIONS = {
+  maxHunks: 40,
+  maxHunkLines: 120,
+  preserveIndentation: true,
+};
 
 interface ComparedVersion {
   side: DocumentVersionComparisonSide;
@@ -110,7 +114,7 @@ export default defineAction({
     const body = builderBodyLineDiff(
       from.content,
       to.content,
-      COMPARISON_LIMITS,
+      COMPARISON_OPTIONS,
     );
     return {
       from: from.side,

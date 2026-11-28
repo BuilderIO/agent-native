@@ -192,6 +192,27 @@ describe("naming the page as it is now", () => {
     ]);
   });
 
+  it("keeps both names when two people name the page at once", async () => {
+    await insertCheckpoint({ id: "latest", secondsAgo: 30 });
+
+    const results = await Promise.all(
+      ["Release", "Approved"].map((name) =>
+        asOwner(() =>
+          nameDocumentVersion.run({ documentId: DOCUMENT_ID, name }, FRONTEND),
+        ),
+      ),
+    );
+
+    expect(results.map((result) => result.checkpoint.name).sort()).toEqual([
+      "Approved",
+      "Release",
+    ]);
+    expect((await checkpointRows()).map((row) => row.name).sort()).toEqual([
+      "Approved",
+      "Release",
+    ]);
+  });
+
   it("needs a name and edit access", async () => {
     await expect(
       asOwner(() =>
@@ -439,6 +460,28 @@ describe("reading and comparing versions", () => {
       identical: true,
       title: null,
       body: null,
+    });
+  });
+
+  it("counts a change in leading indentation", async () => {
+    await insertCheckpoint({
+      id: "code",
+      title: "Final",
+      content: "print(1)",
+      secondsAgo: 10,
+    });
+    await setCurrentPage("Final", "    print(1)");
+
+    const result = await asOwner(() =>
+      compareDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        fromVersionId: "code",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      identical: false,
+      body: { addedLineCount: 1, removedLineCount: 1 },
     });
   });
 

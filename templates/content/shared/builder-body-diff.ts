@@ -32,8 +32,14 @@ const DIFF_TIMEOUT_SECONDS = 0.25;
 
 type FlatLine = { kind: BuilderBodyDiffLine["kind"]; text: string };
 
-function normalizeBody(value: string | null | undefined) {
-  return (value ?? "").replace(/\r\n/g, "\n").trim();
+function normalizeBody(
+  value: string | null | undefined,
+  preserveIndentation: boolean,
+) {
+  const body = (value ?? "").replace(/\r\n/g, "\n");
+  return preserveIndentation
+    ? body.replace(/^(?:[ \t]*\n)+/, "").trimEnd()
+    : body.trim();
 }
 
 function flatLines(before: string, after: string): FlatLine[] {
@@ -175,12 +181,17 @@ function markedRun(changed: FlatLine[]): BuilderBodyDiffLine[] {
 export function builderBodyLineDiff(
   current: string | null | undefined,
   proposed: string | null | undefined,
-  limits: { maxHunks?: number; maxHunkLines?: number } = {},
+  options: {
+    maxHunks?: number;
+    maxHunkLines?: number;
+    preserveIndentation?: boolean;
+  } = {},
 ): BuilderBodyDiff | null {
-  const maxHunks = limits.maxHunks ?? MAX_HUNKS;
-  const maxHunkLines = limits.maxHunkLines ?? MAX_HUNK_LINES;
-  const before = normalizeBody(current);
-  const after = normalizeBody(proposed);
+  const maxHunks = options.maxHunks ?? MAX_HUNKS;
+  const maxHunkLines = options.maxHunkLines ?? MAX_HUNK_LINES;
+  const preserveIndentation = options.preserveIndentation ?? false;
+  const before = normalizeBody(current, preserveIndentation);
+  const after = normalizeBody(proposed, preserveIndentation);
   if (before === after) return null;
 
   const lines = flatLines(before, after);
