@@ -583,21 +583,44 @@ function withPreservedTrailingParagraph(
   return newDoc.copy(newDoc.content.addToEnd(oldLast!.type.create()));
 }
 
-function narrowestReplacement(
+function narrowestReplacements(
   oldDoc: ProseMirrorNode,
   target: ProseMirrorNode,
-): Step | null {
-  const start = oldDoc.content.findDiffStart(target.content);
-  const end = oldDoc.content.findDiffEnd(target.content);
-  if (start === null || !end) return null;
-  const overlap = Math.max(0, start - Math.min(end.a, end.b));
-  const step = replaceStep(
-    oldDoc,
-    start,
-    end.a + overlap,
-    target.slice(start, end.b + overlap),
-  );
-  return step?.apply(oldDoc).doc?.eq(target) ? step : null;
+  diff: TopLevelDiff,
+): readonly Step[] | null {
+  const runs = diffTopLevelHunks(oldDoc, target) ?? [
+    {
+      baseFromIndex: diff.fromIndex,
+      baseToIndex: diff.oldToIndex,
+      changedFromIndex: diff.fromIndex,
+      changedToIndex: diff.newToIndex,
+    },
+  ];
+  const transform = new Transform(oldDoc);
+  for (const run of [...runs].reverse()) {
+    const from = positionOfChild(oldDoc, run.baseFromIndex);
+    const targetFrom = positionOfChild(target, run.changedFromIndex);
+    const oldRun = oldDoc.content.cut(
+      from,
+      positionOfChild(oldDoc, run.baseToIndex),
+    );
+    const targetRun = target.content.cut(
+      targetFrom,
+      positionOfChild(target, run.changedToIndex),
+    );
+    const start = oldRun.findDiffStart(targetRun);
+    const end = oldRun.findDiffEnd(targetRun);
+    if (start === null || !end) return null;
+    const overlap = Math.max(0, start - Math.min(end.a, end.b));
+    const step = replaceStep(
+      transform.doc,
+      from + start,
+      from + end.a + overlap,
+      target.slice(targetFrom + start, targetFrom + end.b + overlap),
+    );
+    if (!step || transform.maybeStep(step).failed) return null;
+  }
+  return transform.doc.eq(target) ? transform.steps : null;
 }
 
 /** The doc `applyDocSurgically` would leave, or why it would not change one. */
@@ -630,9 +653,9 @@ export function applyDocSurgically(
     if (!diff) return "noop";
 
     const tr = editor.state.tr;
-    const step = narrowestReplacement(oldDoc, target);
-    if (step) {
-      tr.step(step);
+    const steps = narrowestReplacements(oldDoc, target, diff);
+    if (steps) {
+      for (const step of steps) tr.step(step);
     } else {
       tr.replaceWith(diff.fromPos, diff.toPos, changedFragment(target, diff));
     }
