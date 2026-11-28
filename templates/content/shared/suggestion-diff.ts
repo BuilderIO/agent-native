@@ -1,9 +1,10 @@
 import {
-  canonicalizeNfm,
-  closesFence,
-  FENCE_CLOSE,
-  matchFenceOpen,
-} from "./nfm.js";
+  ORDERED_ITEM,
+  orderedItem,
+  orderedItems,
+  type OrderedItem,
+} from "./list-numbers.js";
+import { canonicalizeNfm } from "./nfm.js";
 import {
   suggestionFormattingChanges,
   suggestionMarkedSourceRanges,
@@ -1293,14 +1294,7 @@ export function markdownSuggestionOperationsForReplacements(input: {
   return isolateSiblingAnchorContexts(result);
 }
 
-const ORDERED_ITEM = /^(\t*)(\d+)([.)] )/;
 const MAX_LIST_LINE_CELLS = 250_000;
-
-interface OrderedItem {
-  indent: string;
-  digits: string;
-  marker: string;
-}
 
 interface ListLine {
   key: string;
@@ -1313,29 +1307,11 @@ function itemAt<T>(items: readonly T[], index: number): T | undefined {
   return items[index];
 }
 
-function orderedItem(line: string): OrderedItem | null {
-  const match = ORDERED_ITEM.exec(line);
-  if (!match) return null;
-  const indent = itemAt(match, 1);
-  const digits = itemAt(match, 2);
-  const marker = itemAt(match, 3);
-  return indent === undefined || digits === undefined || marker === undefined
-    ? null
-    : { indent, digits, marker };
-}
-
 function listLines(markdown: string): ListLine[] {
-  let fence: string | null = null;
-  return markdown.split("\n").map((line) => {
-    const text = line.replace(/^\t+/, "");
-    const indent = line.length - text.length;
-    let item: OrderedItem | null = null;
-    if (fence) {
-      if (closesFence(text.match(FENCE_CLOSE), fence)) fence = null;
-    } else {
-      fence = matchFenceOpen(text)?.[1] ?? null;
-      if (!fence) item = orderedItem(line);
-    }
+  const items = orderedItems(markdown);
+  return markdown.split("\n").map((line, index) => {
+    const indent = line.length - line.replace(/^\t+/, "").length;
+    const item = itemAt(items, index) ?? null;
     return {
       key: item
         ? `\0${item.indent}${item.marker}${line.slice(

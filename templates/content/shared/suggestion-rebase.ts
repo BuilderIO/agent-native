@@ -4,6 +4,12 @@ import DiffMatchPatch, {
   DIFF_INSERT,
 } from "diff-match-patch";
 
+import {
+  coversNumber,
+  maskedOffset,
+  maskListNumbers,
+  unmaskedOffset,
+} from "./list-numbers";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
 import { suggestionSourceAlignment } from "./suggestion-formatting";
 
@@ -323,8 +329,72 @@ export function resolveMarkdownSuggestionRange(
     resolveOutsideChange(before.markdown, currentMarkdown, anchor) ??
     resolveParagraphRange(before.markdown, currentMarkdown, anchor) ??
     resolveAcrossSiblingRanges(before.markdown, currentMarkdown, anchor) ??
-    resolveThroughCanonicalForm(before.markdown, currentMarkdown, anchor)
+    resolveThroughCanonicalForm(before.markdown, currentMarkdown, anchor) ??
+    resolveAcrossListNumbers(before.markdown, currentMarkdown, anchor)
   );
+}
+
+function resolveAcrossListNumbers(
+  before: string,
+  currentMarkdown: string,
+  anchor: MarkdownAnchor,
+) {
+  const saved = maskListNumbers(before);
+  const current = maskListNumbers(currentMarkdown);
+  if (
+    (saved.text === before && current.text === currentMarkdown) ||
+    coversNumber(saved, anchor.from, anchor.to)
+  )
+    return null;
+  const from = maskedOffset(saved, anchor.from);
+  const to = maskedOffset(saved, anchor.to);
+  if (from === null || to === null || !linesOccurOnce(saved.text, from, to))
+    return null;
+  const siblingRanges: Range[] = [];
+  for (const sibling of anchor.siblingRanges ?? []) {
+    const siblingFrom = maskedOffset(saved, sibling.from);
+    const siblingTo = maskedOffset(saved, sibling.to);
+    if (siblingFrom === null || siblingTo === null) return null;
+    siblingRanges.push({ from: siblingFrom, to: siblingTo });
+  }
+  const text = saved.text;
+  const masked: MarkdownAnchor = {
+    from,
+    to,
+    prefix: text.slice(Math.max(0, from - anchor.prefix.length), from),
+    suffix: text.slice(to, to + anchor.suffix.length),
+    ...(anchor.siblingRanges && { siblingRanges }),
+  };
+  const index = locateUnrepeatedContext(
+    text,
+    current.text,
+    `${masked.prefix}${text.slice(from, to)}${masked.suffix}`,
+  );
+  const range =
+    index >= 0
+      ? {
+          from: index + masked.prefix.length,
+          to: index + masked.prefix.length + to - from,
+        }
+      : (resolveOutsideChange(text, current.text, masked) ??
+        resolveParagraphRange(text, current.text, masked) ??
+        resolveAcrossSiblingRanges(text, current.text, masked));
+  if (!range || !linesOccurOnce(current.text, range.from, range.to))
+    return null;
+  const placed = {
+    from: unmaskedOffset(current, range.from),
+    to: unmaskedOffset(current, range.to),
+  };
+  return coversNumber(current, placed.from, placed.to) ? null : placed;
+}
+
+function linesOccurOnce(text: string, from: number, to: number) {
+  const start = from === 0 ? 0 : text.lastIndexOf("\n", from - 1) + 1;
+  const end = text.indexOf("\n", to);
+  const lines = `\n${text.slice(start, end < 0 ? text.length : end)}\n`;
+  const padded = `\n${text}\n`;
+  const first = padded.indexOf(lines);
+  return first >= 0 && padded.indexOf(lines, first + 1) < 0;
 }
 
 // A page an agent wrote, with blank lines or a pipe table, is saved in the

@@ -1791,6 +1791,92 @@ describe("Content single suggestion decisions", () => {
     });
   });
 
+  describe("a numbered list that gains items", () => {
+    const list = (...items: string[]) =>
+      canonicalizeNfm(
+        [
+          "Packing list:",
+          "",
+          ...items.map((item, index) => `${index + 1}. ${item}`),
+        ].join("\n"),
+      );
+    const base = list("Tent", "Stove", "Water filter", "Map", "Headlamp");
+    const added = list(
+      "Tent",
+      "Bug spray",
+      "Stove",
+      "Water filter",
+      "Sunscreen",
+      "Map",
+      "Headlamp",
+    );
+
+    it("stores the numbers in order when each added item is accepted", async () => {
+      const documentId = await seedPage(base);
+      await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+        await proposeSession(documentId, base, added);
+        const pending = await listSuggestions(documentId);
+        expect(pending).toHaveLength(2);
+        for (const suggestion of pending) {
+          const result = await decide(suggestion, `accept-${suggestion.id}`);
+          expect(result.suggestion.status).toBe("accepted");
+        }
+        const page = await getDocumentAction.run({ id: documentId }, ctx);
+        expect(page.content).toBe(added);
+      });
+    });
+
+    it("stores the numbers in order when the whole proposal is accepted", async () => {
+      const documentId = await seedPage(base);
+      await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+        await proposeSession(documentId, base, added);
+        const pending = await listSuggestions(documentId);
+        const decisions =
+          await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal");
+        const proposalIds = new Set(
+          pending.map((suggestion) => suggestion.proposalId),
+        );
+        expect(proposalIds.size).toBe(1);
+        const [proposalId] = [...proposalIds];
+        const accepted = await decisions.default.run(
+          {
+            proposalId: String(proposalId),
+            decision: "accepted",
+            idempotencyKey: `accept-all-${documentId}`,
+            members: pending.map((suggestion) => ({
+              id: suggestion.id,
+              observedRevision: suggestion.revision,
+              observedBase: suggestion.baseRevision,
+            })),
+          },
+          ctx,
+        );
+        expect(
+          accepted.suggestions.map((suggestion) => suggestion.status),
+        ).toEqual(["accepted", "accepted"]);
+        const page = await getDocumentAction.run({ id: documentId }, ctx);
+        expect(page.content).toBe(added);
+        expect(page.bodyRevision).toBe(1);
+      });
+    });
+
+    it("accepts an edit further down the list after items above it were accepted", async () => {
+      const documentId = await seedPage(base);
+      await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+        await proposeSession(documentId, base, added);
+        await proposeSession(documentId, base, base.replace("Map", "Maps"));
+        const pending = await listSuggestions(documentId);
+        expect(pending).toHaveLength(3);
+        for (const suggestion of pending) {
+          const result = await decide(suggestion, `accept-${suggestion.id}`);
+          expect(result.suggestion.status).toBe("accepted");
+        }
+        const page = await getDocumentAction.run({ id: documentId }, ctx);
+        expect(page.content).toBe(added.replace("Map", "Maps"));
+      });
+    });
+  });
+
   it("accepts a whole-text suggestion after another was accepted from the same text", async () => {
     const before = "Before the change.";
     const documentId = await seedPage(before);

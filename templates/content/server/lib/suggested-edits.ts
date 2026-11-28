@@ -46,6 +46,7 @@ import {
   reanchoredCommentQuote,
 } from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
+import { withListNumbersInOrder } from "../../shared/list-numbers.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
 import { PRIVATE_MEDIA_PATH_PREFIX } from "../../shared/private-media.js";
 import {
@@ -1222,7 +1223,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       tx,
       documentId: context.resourceId,
       target: proposal,
-      nextContent: proposal.content,
+      nextContent: withListNumbersInOrder(proposal.content),
       intermediateContents: proposal.intermediateContents,
       blockCountChanged: proposal.blockCountChanged,
       nextDocument: proposal.document,
@@ -1348,11 +1349,12 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       };
       return { resourceId: context.resourceId };
     }
+    const storedContent = withListNumbersInOrder(nextContent);
     return commitAcceptedContent({
       tx,
       documentId: context.resourceId,
       target,
-      nextContent,
+      nextContent: storedContent,
       nextDocument,
       ydoc: coordination.ydoc,
       ctx: context.ctx,
@@ -1365,7 +1367,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
           context.resourceId,
           context.suggestion,
           currentContent,
-          nextContent,
+          storedContent,
           now,
           null,
         );

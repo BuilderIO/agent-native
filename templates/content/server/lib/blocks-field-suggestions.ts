@@ -24,6 +24,7 @@ import {
   CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
   parseBlocksFieldSuggestionRevision,
 } from "../../shared/blocks-field-suggestions.js";
+import { withListNumbersInOrder } from "../../shared/list-numbers.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -346,21 +347,22 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     });
 
     const current = await readStoredBlocksField(db, documentId, fieldId);
-    const next =
+    const placed =
       applyMarkdownSuggestionOperation(current, operation) ??
       applyMarkdownSuggestionWithSiblings(
         current,
         operation,
         await acceptedRangesOnSameText(tx, context.suggestion, before, fieldId),
       );
-    if (next === null) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
+    if (placed === null) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
     if (current.includes("<InlineDatabase")) {
       fail(INLINE_DATABASE_MESSAGE, {
         statusCode: 409,
         errorCode: "suggestion_body_unavailable",
       });
     }
-    validateSuggestionStructure(current, next, UNSUPPORTED_ACCEPT_MESSAGE);
+    validateSuggestionStructure(current, placed, UNSUPPORTED_ACCEPT_MESSAGE);
+    const next = withListNumbersInOrder(placed);
     const now = new Date().toISOString();
     await writeStoredBlocksField(db, {
       ownerEmail: database.ownerEmail,
