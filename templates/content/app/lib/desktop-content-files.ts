@@ -49,6 +49,7 @@ export type DesktopContentFilesResult =
       sources?: Record<string, string>;
       revisions?: Record<string, DesktopContentFileRevision>;
       identities?: Record<string, string>;
+      skipped?: string[];
       controlResources?: Record<string, string>;
     }
   | {

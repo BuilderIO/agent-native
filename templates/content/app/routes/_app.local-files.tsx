@@ -62,6 +62,11 @@ import {
 } from "@/lib/local-folder-picker-safety";
 import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
 import {
+  isLocalMarkdownPath,
+  LOCAL_FOLDER_IGNORED_DIRECTORIES,
+  readLocalFolderMarkdown,
+} from "@/lib/local-folder-read";
+import {
   localFolderSyncTreeTargets,
   refreshFilesAfterLocalFolderDisconnect,
 } from "@/lib/local-folder-sync-refresh";
@@ -183,14 +188,6 @@ type BusyState =
   | `push:${string}`
   | `remove:${string}`;
 
-const IGNORED_DIRECTORIES = new Set([
-  ".git",
-  ".next",
-  ".turbo",
-  "build",
-  "dist",
-  "node_modules",
-]);
 const LOCAL_FILES_DB_NAME = "content-local-files";
 const LOCAL_FILES_DB_VERSION = 1;
 const LOCAL_FILES_STORE_NAME = "handles";
@@ -522,10 +519,6 @@ async function persistSourceDirectories(directories: SelectedDirectory[]) {
   }
 }
 
-function isMarkdownPath(path: string) {
-  return /\.(md|mdx)$/i.test(path);
-}
-
 async function ensureReadWritePermission(handle: LocalDirectoryHandle) {
   const descriptor = { mode: "readwrite" as const };
   if ((await handle.queryPermission?.(descriptor)) === "granted") return true;
@@ -580,42 +573,6 @@ async function chooseDirectory(
   };
 }
 
-async function sourceReadRoot(handle: LocalDirectoryHandle): Promise<{
-  handle: LocalDirectoryHandle;
-  prefix: string;
-}> {
-  if (handle.name === CONTENT_SOURCE_ROOT) {
-    return { handle, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  }
-  try {
-    const contentHandle = await handle.getDirectoryHandle(CONTENT_SOURCE_ROOT);
-    return { handle: contentHandle, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  } catch {
-    return { handle, prefix: "" };
-  }
-}
-
-async function collectMarkdownFiles(
-  handle: LocalDirectoryHandle,
-  prefix = "",
-): Promise<Record<string, string>> {
-  const files: Record<string, string> = {};
-  for await (const entry of handle.values()) {
-    const path = `${prefix}${entry.name}`;
-    if (entry.kind === "directory") {
-      if (IGNORED_DIRECTORIES.has(entry.name)) continue;
-      Object.assign(files, await collectMarkdownFiles(entry, `${path}/`));
-      continue;
-    }
-
-    if (!isMarkdownPath(path)) continue;
-    const file = await entry.getFile();
-    if (file.size > 2 * 1024 * 1024) continue;
-    files[path] = await file.text();
-  }
-  return files;
-}
-
 async function writeFile(
   root: LocalDirectoryHandle,
   filePath: string,
@@ -660,12 +617,12 @@ async function removeStaleMarkdownFiles(
   for await (const entry of handle.values()) {
     const path = `${prefix}${entry.name}`;
     if (entry.kind === "directory") {
-      if (IGNORED_DIRECTORIES.has(entry.name)) continue;
+      if (LOCAL_FOLDER_IGNORED_DIRECTORIES.has(entry.name)) continue;
       await removeStaleMarkdownFiles(entry, `${path}/`, expectedPaths);
       continue;
     }
 
-    if (isMarkdownPath(path) && !expectedPaths.has(path)) {
+    if (isLocalMarkdownPath(path) && !expectedPaths.has(path)) {
       await handle.removeEntry(entry.name);
     }
   }
@@ -679,6 +636,7 @@ async function readSourceFilesFromDirectory(
 ): Promise<{
   directory: SelectedDirectory;
   files: Record<string, string>;
+  skippedPaths: string[];
   controlResources?: LocalControlResourceFiles;
 }> {
   if (directory.kind === "desktop") {
@@ -691,6 +649,7 @@ async function readSourceFilesFromDirectory(
     return {
       directory: desktopDirectoryFromFolder(result.folder),
       files: result.sources ?? {},
+      skippedPaths: result.skipped ?? [],
       controlResources: includeControlResources
         ? result.controlResources
         : undefined,
@@ -701,10 +660,9 @@ async function readSourceFilesFromDirectory(
   if (!(await ensureReadWritePermission(handle))) {
     throw new Error("Folder permission was not granted.");
   }
-  const root = await sourceReadRoot(handle);
   return {
     directory,
-    files: await collectMarkdownFiles(root.handle, root.prefix),
+    ...(await readLocalFolderMarkdown(handle)),
     controlResources: includeControlResources
       ? await collectLocalControlResourceFiles(handle)
       : undefined,
@@ -1039,6 +997,7 @@ export default function LocalFilesRoute() {
     const {
       directory: refreshedDirectory,
       files,
+      skippedPaths,
       controlResources,
     } = await readSourceFilesFromDirectory(selected, {
       includeControlResources,
@@ -1106,6 +1065,7 @@ export default function LocalFilesRoute() {
       {
         sourceId: connection.sourceId,
         files,
+        skippedPaths,
         dryRun,
       } as never,
     );
@@ -1247,7 +1207,10 @@ export default function LocalFilesRoute() {
       } else {
         const current = await readSourceFilesFromDirectory(directory);
         const files = mergeContentSourceFiles(current.files, bundle.files);
-        const expectedPaths = new Set(Object.keys(files));
+        const expectedPaths = new Set([
+          ...Object.keys(files),
+          ...current.skippedPaths,
+        ]);
         await Promise.all(
           Object.entries(files).map(([path, content]) =>
             writeFile(directory.handle, path, content),
