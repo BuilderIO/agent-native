@@ -78,10 +78,10 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
       },
       {
         id: "generate",
-        label: "Generate new asset via Assets app",
+        label: "Generate new asset via Assets MCP",
         status: "available",
         reason:
-          "Delegate to the Assets app via call-agent or the Assets MCP tool.",
+          "Uses the Assets MCP tool generate-asset when Assets is connected, then insert-asset.",
       },
       {
         id: "figma",

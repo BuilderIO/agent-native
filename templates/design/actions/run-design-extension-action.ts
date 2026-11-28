@@ -15,13 +15,14 @@ interface CapabilityRoute {
   readOnly: boolean;
   gated?: boolean;
   gateReason?: string;
+  mcpTool?: boolean;
 }
 
 const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
   "design.asset-library:browse": {
     action: "get-design-snapshot",
     paramHint:
-      "Call get-design-snapshot to inspect the active design, then use the Assets MCP tool (generate-asset / open-asset-picker) or the Assets app via call-agent.",
+      "Call get-design-snapshot to inspect the active design, then use the Assets MCP tools (generate-asset / open-asset-picker) when they are in your tool list.",
     readOnly: true,
   },
   "design.asset-library:insert": {
@@ -31,10 +32,11 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
     readOnly: false,
   },
   "design.asset-library:generate": {
-    action: "call-agent",
+    action: "generate-asset",
     paramHint:
-      'Delegate to the Assets app via call-agent with agent "assets" and a generation prompt.  Pass the returned assetUrl to insert-asset.',
+      'Call the Assets MCP tool whose name ends in "__generate-asset" with a generation prompt and callerAppId "design", then pass the returned assetUrl to insert-asset.  If no generate-asset tool is in your tool list, Assets is not connected for this organization: say so (an org owner or admin can run connect-assets-mcp) and do not try to reach another app.',
     readOnly: false,
+    mcpTool: true,
   },
 
   "design.token-auditor:index": {
@@ -171,10 +173,13 @@ The extension iframe itself is not called by this action — only the backing ac
         readOnly: route.readOnly,
         gated: route.gated ?? false,
         gateReason: route.gateReason ?? null,
+        mcpTool: route.mcpTool ?? false,
       },
       nextStep: route.gated
         ? `NOTE: This capability is gated.  ${route.gateReason ?? ""}  The underlying action will return a clear gated result; do not imply the operation will succeed.`
-        : `Call the action "${route.action}" with the params described in paramHint.`,
+        : route.mcpTool
+          ? `Call the MCP tool in your tool list whose name ends in "__${route.action}" with the params described in paramHint.`
+          : `Call the action "${route.action}" with the params described in paramHint.`,
       slotId: "design.editor.inspector",
     };
   },

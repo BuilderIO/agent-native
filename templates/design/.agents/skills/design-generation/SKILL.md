@@ -1093,11 +1093,12 @@ tokened SVG/CSS, not photos.
   an asset is chosen) instead of `<img>` placeholder URLs or colored-div
   stand-ins — for raster generation, restyling, or editing existing
   screenshots/photos. Always pass `callerAppId: "design"`. If no Assets MCP
-  tool is available, use the first-party Assets app via `call-agent` with
-  agent `"assets"` when available. If the user attached an image, use its
-  hosted chat-attachment URL or call `upload-image` to create one before
-  delegating. If no image/upload provider is configured, say that specific
-  setup is needed and continue any non-image Design work separately.
+  tool is available, Assets is not connected for this organization: say so
+  (an org owner or admin can run `connect-assets-mcp`) and do not try to reach
+  another app. If the user attached an image, use its hosted chat-attachment
+  URL or call `upload-image` to create one before passing it to Assets. If no
+  image/upload provider is configured, say that specific setup is needed and
+  continue any non-image Design work separately.
 - **Write image prompts as art direction, not a one-line label.** Specify
   subject, composition, lens/framing, lighting, and palette, and tie the
   palette/mood back to the design's own `:root` tokens so the image reads as

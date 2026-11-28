@@ -21,6 +21,10 @@ const designAgentGuide = readFileSync(
   new URL("../../AGENTS.md", import.meta.url),
   "utf8",
 );
+const designGenerationSkill = readFileSync(
+  new URL("../../.agents/skills/design-generation/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 describe("design review agent instructions", () => {
   it.each([
@@ -157,6 +161,22 @@ describe("design template agent instructions", () => {
       expect(instructions).toContain("edit-design");
       expect(instructions).not.toMatch(/`list-templates`/);
       expect(instructions).not.toMatch(/`save-as-template`/);
+    },
+  );
+});
+
+describe("design image generation instructions", () => {
+  it.each([
+    ["agent chat system prompt", agentChatSource],
+    ["design-generation skill", designGenerationSkill],
+  ])(
+    "uses the Assets MCP tools instead of other apps in the %s",
+    (_surface, instructions) => {
+      expect(instructions).toContain("generate-asset");
+      expect(instructions).toContain("insert-asset");
+      expect(instructions).toContain("connect-assets-mcp");
+      expect(instructions).not.toContain("call-agent");
+      expect(instructions).not.toContain("describe-workspace-apps");
     },
   );
 });
